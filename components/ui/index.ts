@@ -5,6 +5,7 @@ export { Select, type SelectProps } from "./Select";
 export { Textarea, type TextareaProps } from "./Textarea";
 export { Card, type CardProps } from "./Card";
 export { Alert, type AlertProps } from "./Alert";
+export { Checkbox, type CheckboxProps } from "./Checkbox";
 export { LoadingSpinner } from "./LoadingSpinner";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export {

@@ -59,7 +59,8 @@ function readExcelFile(filePath: string): any[] {
 function parseBusinessInfo(data: any[]): any[] {
   return data.map((row: any) => {
     // 실제 Excel 파일의 컬럼명에 맞게 매핑
-    return {
+    // 사업장정보.xlsx의 모든 컬럼 반영
+    const baseData: any = {
       code: String(row["코드"] || "").trim(),
       business_name: String(row["사업장명"] || "").trim(),
       business_number: row["사업자번호"] || null,
@@ -69,6 +70,87 @@ function parseBusinessInfo(data: any[]): any[] {
       fax: row["팩스번호"] || null,
       representative_name: row["대표자명"] || null,
     };
+
+    // 추가 필드들 (마이그레이션 후에만 저장됨)
+    const optionalFields: any = {};
+    
+    // 우편번호
+    if (row["우편번호"]) optionalFields.postal_code = String(row["우편번호"]).trim();
+    
+    // 업태, 업종
+    if (row["업태"]) optionalFields.business_type = String(row["업태"]).trim();
+    if (row["업종코드"]) optionalFields.business_category_code = String(row["업종코드"]).trim();
+    if (row["업종"]) optionalFields.business_category = String(row["업종"]).trim();
+    
+    // 관할청 정보
+    // 엑셀 파일의 실제 컬럼명 확인: "관할청" 또는 다른 변형 가능
+    // null, undefined, 빈 문자열 모두 체크
+    const officeJurisdictionValue = row["관할청"];
+    if (officeJurisdictionValue !== undefined && officeJurisdictionValue !== null && officeJurisdictionValue !== "") {
+      const trimmedValue = String(officeJurisdictionValue).trim();
+      if (trimmedValue) {
+        optionalFields.office_jurisdiction = trimmedValue;
+      }
+    }
+    
+    const officeCodeValue = row["관할청코드"] || null;
+    if (officeCodeValue != null) {
+      const trimmedValue = String(officeCodeValue).trim();
+      if (trimmedValue) {
+        optionalFields.office_code = trimmedValue;
+      }
+    }
+    
+    // 주생산품
+    if (row["주생산품"]) optionalFields.main_product = String(row["주생산품"]).trim();
+    
+    // 근로자 수
+    if (row["남근로수"]) optionalFields.male_employees = parseInt(String(row["남근로수"]), 10) || null;
+    if (row["여근로수"]) optionalFields.female_employees = parseInt(String(row["여근로수"]), 10) || null;
+    
+    // 관리번호
+    if (row["관리번호"]) optionalFields.management_number = String(row["관리번호"]).trim();
+    
+    // 계산서 관련
+    if (row["계산서 메일"]) optionalFields.invoice_email = String(row["계산서 메일"]).trim();
+    if (row["계산서 담당"]) optionalFields.invoice_manager = String(row["계산서 담당"]).trim();
+    
+    // 담당자 정보
+    if (row["직위"]) optionalFields.manager_position = String(row["직위"]).trim();
+    if (row["연락처"]) optionalFields.manager_contact = String(row["연락처"]).trim();
+    
+    // 년도
+    if (row["년도"]) optionalFields.year = parseInt(String(row["년도"]), 10) || null;
+    
+    // 날짜 필드
+    if (row["등록일"]) {
+      const regDate = row["등록일"];
+      if (typeof regDate === "number") {
+        optionalFields.registration_date = excelDateToJSDate(regDate);
+      } else {
+        const dateStr = String(regDate).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          optionalFields.registration_date = dateStr;
+        }
+      }
+    }
+    
+    if (row["향후측정예상일"]) {
+      const futureDate = row["향후측정예상일"];
+      if (typeof futureDate === "number") {
+        optionalFields.future_measurement_date = excelDateToJSDate(futureDate);
+      } else {
+        const dateStr = String(futureDate).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          optionalFields.future_measurement_date = dateStr;
+        }
+      }
+    }
+    
+    // 비고
+    if (row["비고"]) optionalFields.notes = String(row["비고"]).trim();
+
+    return { ...baseData, ...optionalFields };
   }).filter((row) => row.code && row.business_name); // 필수 필드 체크
 }
 
@@ -240,7 +322,50 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
 
     // Excel 파일 읽기
     const excelData = readExcelFile(targetPath);
+    
+    // 디버깅: "관할청" 컬럼이 있는 행 찾기
+    let sampleRowWithOffice = null;
+    for (let i = 0; i < Math.min(excelData.length, 50); i++) {
+      const row = excelData[i];
+      if (row["관할청"] && String(row["관할청"]).trim()) {
+        sampleRowWithOffice = row;
+        console.log(`관할청 데이터가 있는 행 발견 (인덱스 ${i}):`, {
+          "코드": row["코드"],
+          "사업장명": row["사업장명"],
+          "관할청": row["관할청"],
+          "관할청코드": row["관할청코드"],
+        });
+        break;
+      }
+    }
+    
+    if (!sampleRowWithOffice) {
+      console.warn("경고: 엑셀 파일에서 '관할청' 데이터가 있는 행을 찾을 수 없습니다.");
+      // 첫 5개 행 샘플 출력
+      for (let i = 0; i < Math.min(excelData.length, 5); i++) {
+        const row = excelData[i];
+        console.log(`행 ${i} 샘플:`, {
+          "코드": row["코드"],
+          "사업장명": row["사업장명"],
+          "관할청": row["관할청"],
+          "관할청코드": row["관할청코드"],
+        });
+      }
+    }
+    
     const parsedData = parseBusinessInfo(excelData);
+    
+    // 파싱된 데이터 샘플 확인
+    const parsedSampleWithOffice = parsedData.find(p => p.office_jurisdiction);
+    if (parsedSampleWithOffice) {
+      console.log("파싱된 데이터 샘플 (office_jurisdiction 있음):", {
+        "코드": parsedSampleWithOffice.code,
+        "사업장명": parsedSampleWithOffice.business_name,
+        "office_jurisdiction": parsedSampleWithOffice.office_jurisdiction,
+      });
+    } else {
+      console.warn("경고: 파싱된 데이터에서 office_jurisdiction이 있는 행을 찾을 수 없습니다.");
+    }
 
     let recordsInserted = 0;
     let recordsUpdated = 0;
@@ -260,25 +385,75 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
       }
 
       if (existing) {
-        // 업데이트
+        // 업데이트 (모든 필드 포함)
         const { error: updateError } = await supabase
           .from("business_info")
-          .update(row)
+          .update({
+            ...row,
+            updated_at: new Date().toISOString(),
+          })
           .eq("code", row.code);
 
         if (updateError) {
-          console.error(`데이터 업데이트 실패 (code: ${row.code}):`, updateError);
+          // 마이그레이션이 실행되지 않은 경우, 기본 필드만 업데이트 시도
+          if (updateError.code === "PGRST204" || updateError.message?.includes("column") || updateError.message?.includes("does not exist")) {
+            console.warn(`코드 ${row.code}: 마이그레이션이 필요할 수 있습니다. 기본 필드만 업데이트 시도...`);
+            const { error: basicUpdateError } = await supabase
+              .from("business_info")
+              .update({
+                business_name: row.business_name,
+                business_number: row.business_number,
+                address1: row.address1,
+                address2: row.address2,
+                phone: row.phone,
+                fax: row.fax,
+                representative_name: row.representative_name,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("code", row.code);
+            
+            if (basicUpdateError) {
+              console.error(`코드 ${row.code} 기본 필드 업데이트 오류:`, basicUpdateError);
+            } else {
+              recordsUpdated++;
+            }
+          } else {
+            console.error(`데이터 업데이트 실패 (code: ${row.code}):`, updateError);
+          }
         } else {
           recordsUpdated++;
         }
       } else {
-        // 삽입
+        // 삽입 (모든 필드 포함)
         const { error: insertError } = await supabase
           .from("business_info")
           .insert(row);
 
         if (insertError) {
-          console.error(`데이터 삽입 실패 (code: ${row.code}):`, insertError);
+          // 마이그레이션이 실행되지 않은 경우, 기본 필드만 삽입 시도
+          if (insertError.code === "PGRST204" || insertError.message?.includes("column") || insertError.message?.includes("does not exist")) {
+            console.warn(`코드 ${row.code}: 마이그레이션이 필요할 수 있습니다. 기본 필드만 삽입 시도...`);
+            const { error: basicInsertError } = await supabase
+              .from("business_info")
+              .insert({
+                code: row.code,
+                business_name: row.business_name,
+                business_number: row.business_number,
+                address1: row.address1,
+                address2: row.address2,
+                phone: row.phone,
+                fax: row.fax,
+                representative_name: row.representative_name,
+              });
+            
+            if (basicInsertError) {
+              console.error(`코드 ${row.code} 기본 필드 삽입 오류:`, basicInsertError);
+            } else {
+              recordsInserted++;
+            }
+          } else {
+            console.error(`데이터 삽입 실패 (code: ${row.code}):`, insertError);
+          }
         } else {
           recordsInserted++;
         }

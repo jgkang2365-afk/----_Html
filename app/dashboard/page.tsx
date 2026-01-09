@@ -1,5 +1,6 @@
 import { requireAuth } from "@/lib/auth/require-auth";
 import { SyncStatus } from "@/components/features/SyncStatus";
+import { Dashboard } from "@/components/features/Dashboard";
 
 export default async function DashboardPage() {
   await requireAuth(); // 보호된 라우트
@@ -13,6 +14,9 @@ export default async function DashboardPage() {
 
       {/* Excel 파일 동기화 상태 */}
       <SyncStatus />
+
+      {/* 대시보드 지표 */}
+      <Dashboard />
     </div>
   );
 }

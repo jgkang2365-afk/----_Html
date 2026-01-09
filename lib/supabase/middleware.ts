@@ -38,7 +38,7 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // 보호된 라우트 정의 (로그인 페이지와 API는 제외)
-  const protectedPaths = ["/dashboard", "/journal", "/summary", "/sales"];
+  const protectedPaths = ["/dashboard", "/journal", "/survey", "/summary", "/sales"];
   const isProtectedPath = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
