@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { classifyDesignatedOffice } from "@/lib/utils/jurisdiction-matcher";
+import { classifyDesignatedOffice, shortNameToFullName, findOfficeByAddress, getDesignatedOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
+import { toShortName } from "@/lib/constants/designated-offices";
 
 /**
  * 측정일지 검색 API
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest) {
     await checkPermission("journal:read");
 
     const { searchParams } = new URL(request.url);
+    const code = searchParams.get("code")?.trim() || null;
     const measurementYear = searchParams.get("measurementYear")?.trim() || null;
     const measurementPeriod = searchParams.get("measurementPeriod")?.trim() || null;
     const businessName = searchParams.get("businessName")?.trim() || null;
@@ -33,6 +35,10 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false });
 
     // 검색 조건 적용
+    if (code) {
+      businessQuery = businessQuery.ilike("code", `%${code}%`);
+    }
+
     if (measurementYear) {
       businessQuery = businessQuery.eq("year", parseInt(measurementYear));
     }
@@ -71,6 +77,10 @@ export async function GET(request: NextRequest) {
       .order("measurement_period", { ascending: false })
       .order("created_at", { ascending: false });
 
+    if (code) {
+      journalQuery = journalQuery.ilike("code", `%${code}%`);
+    }
+
     if (measurementYear) {
       journalQuery = journalQuery.eq("measurement_year", parseInt(measurementYear));
     }
@@ -84,7 +94,14 @@ export async function GET(request: NextRequest) {
     }
 
     if (designatedOffice) {
-      journalQuery = journalQuery.eq("designated_office", designatedOffice);
+      // 약칭으로 정규화하여 검색 (기존 전체명과 호환)
+      const normalizedOffice = toShortName(designatedOffice);
+      // 기존 전체명과 약칭 모두 매칭 (.in() 사용하여 더 안전하게 처리)
+      const officesToMatch = [normalizedOffice];
+      if (normalizedOffice !== designatedOffice) {
+        officesToMatch.push(designatedOffice);
+      }
+      journalQuery = journalQuery.in("designated_office", officesToMatch);
     }
 
     if (address) {
@@ -142,6 +159,12 @@ export async function GET(request: NextRequest) {
           journal.representative_name = journal.representative_name || businessInfo.representative_name;
           journal.phone = journal.phone || businessInfo.phone;
           journal.fax = journal.fax || businessInfo.fax;
+          // 주소 보완 (measurement_journal에 없으면 business_info에서 가져오기)
+          if (!journal.address && (businessInfo.address1 || businessInfo.address2)) {
+            journal.address = [businessInfo.address1, businessInfo.address2].filter(Boolean).join(" ").trim() || "";
+          }
+          // 담당자 정보 보완 (measurement_journal에 없으면 business_info에서 가져오기)
+          journal.manager_name = journal.manager_name || businessInfo.manager_name || null;
         }
         // measurement_business에서 담당자 정보 가져오기 (journal에 없으면)
         const matchingBusiness = businessData?.find(
@@ -154,7 +177,36 @@ export async function GET(request: NextRequest) {
           journal.manager_email = journal.manager_email || matchingBusiness.manager_email || null;
           journal.invoice_email = journal.invoice_email || matchingBusiness.invoice_email || null;
           journal.industrial_accident_number = journal.industrial_accident_number || matchingBusiness.industrial_accident_number || null;
+          // 주소 보완 (measurement_journal에 없으면 measurement_business에서 가져오기)
+          if (!journal.address && matchingBusiness.address) {
+            journal.address = matchingBusiness.address;
+          }
         }
+        // designated_office 재검증 (주소 기반으로 다시 계산)
+        // measurement_journal에 저장된 designated_office가 잘못되었을 수 있으므로
+        // 주소 기반으로 다시 계산하여 검증
+        let finalDesignatedOffice = journal.designated_office ? toShortName(journal.designated_office) : null;
+        
+        // 1순위: 주소가 있으면 주소 기반으로 designated_office 재계산
+        if (journal.address) {
+          const addressBasedOffice = getDesignatedOfficeByAddress(journal.address);
+          if (addressBasedOffice) {
+            finalDesignatedOffice = addressBasedOffice;
+          }
+        }
+        
+        // 2순위: office_jurisdiction이 있으면 그것도 검증
+        if ((!finalDesignatedOffice || finalDesignatedOffice === "천안") && journal.office_jurisdiction) {
+          const officeJurisdictionFullName = shortNameToFullName(journal.office_jurisdiction) || journal.office_jurisdiction || "";
+          const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
+          if (officeBasedDesignatedOffice) {
+            finalDesignatedOffice = officeBasedDesignatedOffice;
+          }
+        }
+        
+        // 최종적으로 결정된 designated_office 설정
+        journal.designated_office = finalDesignatedOffice || "천안"; // 기본값
+        
         results.push(journal);
         processedKeys.add(key);
       }
@@ -167,6 +219,33 @@ export async function GET(request: NextRequest) {
         // business_info 정보 가져오기
         const businessInfo = businessInfoMap.get(business.code);
 
+        // 주소 가져오기 (measurement_business -> business_info 순서)
+        const address = business.address || (businessInfo 
+          ? [businessInfo.address1, businessInfo.address2].filter(Boolean).join(" ").trim() 
+          : "");
+
+        // designated_office 계산: 주소 기반 우선, 그 다음 office_jurisdiction 기반
+        let autoDesignatedOffice = "천안"; // 기본값
+        let officeJurisdictionFullName = business.office_jurisdiction || null;
+        
+        // 1순위: 주소 기반으로 designated_office 계산
+        if (address) {
+          const addressBasedOffice = getDesignatedOfficeByAddress(address);
+          if (addressBasedOffice) {
+            autoDesignatedOffice = addressBasedOffice;
+          }
+        }
+        
+        // 2순위: office_jurisdiction 기반으로 designated_office 계산
+        if (autoDesignatedOffice === "천안" && business.office_jurisdiction) {
+          const officeJurisdictionRaw = business.office_jurisdiction || "";
+          officeJurisdictionFullName = shortNameToFullName(officeJurisdictionRaw) || officeJurisdictionRaw || "";
+          const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
+          if (officeBasedDesignatedOffice) {
+            autoDesignatedOffice = officeBasedDesignatedOffice;
+          }
+        }
+
         // measurement_business를 measurement_journal 형식으로 변환
         const journalEntry = {
           id: null, // journal이 아니므로 null
@@ -174,14 +253,14 @@ export async function GET(request: NextRequest) {
           measurement_year: business.year,
           measurement_period: business.period,
           business_name: business.business_name,
-          designated_office: business.office_jurisdiction || "", // 지정한계_관할지청은 나중에 자동 계산
-          address: business.address || "",
+          designated_office: autoDesignatedOffice, // 약칭으로 자동 계산
+          address: address,
           completion_status: business.completion_status || "미완료",
           measurement_start_date: business.measurement_start_date,
           measurement_end_date: business.measurement_end_date,
           measurer: business.measurer || null,
           total_employees: business.total_employees,
-          office_jurisdiction: business.office_jurisdiction,
+          office_jurisdiction: officeJurisdictionFullName || business.office_jurisdiction || null,
           note: null,
           document_number: null,
           sequence_number: null,
@@ -193,9 +272,9 @@ export async function GET(request: NextRequest) {
           representative_name: business.representative_name || businessInfo?.representative_name || null,
           phone: businessInfo?.phone || null,
           fax: businessInfo?.fax || null,
-          // measurement_business에서 담당자 정보 가져오기
+          // 담당자 정보 (measurement_business -> business_info 순서)
           industrial_accident_number: business.industrial_accident_number || null,
-          manager_name: business.manager_name || null,
+          manager_name: business.manager_name || businessInfo?.manager_name || null,
           manager_position: business.manager_position || null,
           manager_mobile: business.manager_mobile || null,
           manager_email: business.manager_email || null,
@@ -204,7 +283,6 @@ export async function GET(request: NextRequest) {
           national_support_status: null,
           k2b_send_date: null,
           k2b_sender: null,
-          invoice_email: null,
           electronic_invoice_date: null,
           measurement_fee_total: null,
           measurement_fee_business: null,
@@ -228,15 +306,20 @@ export async function GET(request: NextRequest) {
     // designatedOffice 필터링 (지정한계_관할지청) - 결과에서 필터링
     let filteredResults = results;
     if (designatedOffice) {
+      // 약칭으로 정규화 (기존 전체명과 호환)
+      const normalizedOffice = toShortName(designatedOffice);
       filteredResults = results.filter((entry) => {
-        // measurement_journal에 있는 경우
+        // measurement_journal에 있는 경우 (약칭으로 변환된 상태)
         if (entry.designated_office) {
-          return entry.designated_office === designatedOffice;
+          const entryOffice = toShortName(entry.designated_office);
+          return entryOffice === normalizedOffice || entry.designated_office === designatedOffice;
         }
         // measurement_business에서 온 경우 - office_jurisdiction을 기반으로 designated_office 계산
         if (entry.office_jurisdiction) {
-          const calculatedDesignatedOffice = classifyDesignatedOffice(entry.office_jurisdiction);
-          return calculatedDesignatedOffice === designatedOffice;
+          // office_jurisdiction이 약칭일 수 있으므로 전체명으로 변환 후 classifyDesignatedOffice 호출
+          const officeJurisdictionFullName = shortNameToFullName(entry.office_jurisdiction) || entry.office_jurisdiction || "";
+          const calculatedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
+          return calculatedDesignatedOffice === normalizedOffice;
         }
         // office_jurisdiction도 없으면 필터링에서 제외
         return false;
