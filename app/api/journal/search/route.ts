@@ -68,6 +68,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // 디버깅: 측정사업장 검색 결과 로그
+    console.log(`[검색 API] 측정사업장 검색 결과: ${businessData?.length || 0}건`);
+    if (businessData && businessData.length > 0) {
+      console.log(`[검색 API] 측정사업장 샘플 (최대 5건):`, businessData.slice(0, 5).map((b: any) => ({
+        code: b.code,
+        year: b.year,
+        period: b.period,
+        business_name: b.business_name
+      })));
+    }
+
     // 2. measurement_journal에서 검색
     let journalQuery = supabase
       .from("measurement_journal")
