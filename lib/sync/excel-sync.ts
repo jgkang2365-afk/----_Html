@@ -293,22 +293,23 @@ function excelDateToJSDate(excelDate: number): string {
 
 /**
  * 컬럼명 변형을 시도하여 값을 찾는 헬퍼 함수
- * 공백, 대소문자 등의 차이를 처리합니다.
+ * 정확히 일치하는 컬럼을 우선으로 찾고, 없으면 유사한 이름을 시도합니다.
  */
 function findColumnValue(row: any, columnNames: string[]): any {
+  // 1단계: 정확히 일치하는 컬럼명 먼저 확인
   for (const name of columnNames) {
     if (row[name] !== undefined && row[name] !== null && row[name] !== "") {
       return row[name];
     }
   }
   
-  // 모든 컬럼에서 유사한 이름 찾기 (공백, 대소문자 무시)
+  // 2단계: 공백만 제거하고 정확히 일치하는 컬럼 확인
   const keys = Object.keys(row);
   for (const name of columnNames) {
-    const normalizedName = name.replace(/\s/g, "").toLowerCase();
+    const normalizedName = name.replace(/\s/g, "");
     for (const key of keys) {
-      const normalizedKey = key.replace(/\s/g, "").toLowerCase();
-      if (normalizedKey === normalizedName || normalizedKey.includes(normalizedName)) {
+      const normalizedKey = key.replace(/\s/g, "");
+      if (normalizedKey === normalizedName) {
         if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
           return row[key];
         }
@@ -325,19 +326,24 @@ function parseMeasurementBusiness(data: any[]): any[] {
     const firstRow = data[0];
     const keys = Object.keys(firstRow);
     
-    // "코드" 컬럼의 정확한 이름 찾기
-    const codeColumnName = keys.find(k => {
-      const normalized = k.replace(/\s/g, "").toLowerCase();
-      return normalized === "코드" || normalized.includes("코드");
-    });
+    // "코드" 컬럼의 정확한 이름 찾기 (정확히 일치하는 것만)
+    const exactCodeColumn = keys.find(k => k === "코드");
     
-    if (codeColumnName && codeColumnName !== "코드") {
-      console.log(`[파싱] "코드" 컬럼이 다른 이름으로 발견됨: "${codeColumnName}"`);
+    if (exactCodeColumn) {
+      console.log(`[파싱] "코드" 컬럼 확인: 정확히 일치하는 컬럼 발견`);
+    } else {
+      // 정확히 일치하지 않으면 공백 제거 후 확인
+      const spaceRemovedColumn = keys.find(k => k.replace(/\s/g, "") === "코드");
+      if (spaceRemovedColumn) {
+        console.log(`[파싱] "코드" 컬럼이 공백 포함 이름으로 발견됨: "${spaceRemovedColumn}"`);
+      } else {
+        console.warn(`[파싱] 경고: "코드" 컬럼을 찾을 수 없습니다!`);
+      }
     }
   }
   
   return data.map((row: any) => {
-    // 코드 값 찾기 - 여러 가능한 컬럼명 시도
+    // 코드 값 찾기 - 정확히 일치하는 컬럼 우선
     const codeValue = findColumnValue(row, ["코드", "코 드", "Code", "code", "CODE"]);
     
     // 실제 Excel 파일의 컬럼명에 맞게 매핑
