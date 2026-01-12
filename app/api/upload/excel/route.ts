@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { checkPermission } from "@/lib/auth/check-permission";
 
 export async function POST(request: NextRequest) {
@@ -64,7 +64,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const supabase = await createClient();
+    // 서비스 롤 키를 사용한 Admin 클라이언트 생성 (Storage 업로드 권한)
+    const supabase = createAdminClient();
 
     // 파일명 생성 (타입-원본파일명-타임스탬프)
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
@@ -86,6 +87,7 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       console.error("Storage 업로드 오류:", uploadError);
+      console.error("오류 상세:", JSON.stringify(uploadError, null, 2));
       return NextResponse.json(
         { success: false, error: `파일 업로드 실패: ${uploadError.message}` },
         { status: 500 }
@@ -110,7 +112,7 @@ export async function POST(request: NextRequest) {
       try {
         const { syncBusinessInfo, syncMeasurementBusiness } = await import("@/lib/sync/excel-sync");
         
-        // Storage에서 파일을 다운로드하여 동기화
+        // Storage에서 파일을 다운로드하여 동기화 (Admin 클라이언트 사용)
         const { data: downloadData, error: downloadError } = await supabase.storage
           .from("excel-files")
           .download(filePath);
@@ -133,6 +135,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(response, { status: 200 });
   } catch (error) {
     console.error("파일 업로드 API 오류:", error);
+    console.error("오류 스택:", error instanceof Error ? error.stack : "스택 정보 없음");
+    console.error("오류 상세:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
 
     if (error instanceof Error) {
       if (error.message.includes("Unauthorized")) {
@@ -171,7 +175,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const fileType = searchParams.get("type"); // "business-info" | "measurement-business"
 
-    const supabase = await createClient();
+    // 서비스 롤 키를 사용한 Admin 클라이언트 생성
+    const supabase = createAdminClient();
 
     // Storage에서 파일 목록 조회
     const folder = fileType || "";
