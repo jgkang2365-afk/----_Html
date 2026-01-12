@@ -380,7 +380,7 @@ export async function GET(request: NextRequest) {
     const finalH0432 = filteredResults.filter((r: any) => r.code && r.code.includes("H0432"));
     console.log(`[검색 API] 최종 H0432 데이터: ${finalH0432.length}건`);
 
-    // 디버깅 정보 (개발 환경에서만)
+    // 디버깅 정보 (문제 해결을 위해 프로덕션에서도 포함)
     const debugInfo: any = {
       search_conditions: {
         code,
@@ -400,7 +400,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ 
       results: filteredResults,
-      debug: process.env.NODE_ENV === "development" ? debugInfo : undefined,
+      debug: debugInfo, // 프로덕션에서도 디버깅 정보 포함
     });
   } catch (error) {
     console.error("측정일지 검색 API 오류:", error);
