@@ -36,6 +36,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
   "측정팀 직원": [
     "journal:read",
     "journal:write",
+    "journal:delete",
     "survey:read",
     "survey:write",
     "dashboard:read",

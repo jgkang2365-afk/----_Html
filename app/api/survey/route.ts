@@ -274,6 +274,45 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
+    // 전회 측정일로부터 3개월 이내인지 확인 (경고용)
+    let warningMessage: string | null = null;
+    if (code) {
+      // measurement_journal에서 해당 코드의 가장 최근 측정일 조회
+      const { data: latestJournal, error: journalError } = await supabase
+        .from("measurement_journal")
+        .select("measurement_start_date, measurement_end_date")
+        .eq("code", code)
+        .not("measurement_start_date", "is", null)
+        .order("measurement_start_date", { ascending: false })
+        .order("measurement_end_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!journalError && latestJournal) {
+        // measurement_end_date 또는 measurement_start_date 중 더 최신 날짜 사용
+        const endDate = latestJournal.measurement_end_date 
+          ? new Date(latestJournal.measurement_end_date).getTime() 
+          : 0;
+        const startDate = latestJournal.measurement_start_date 
+          ? new Date(latestJournal.measurement_start_date).getTime() 
+          : 0;
+        const lastMeasurementDate = endDate > startDate 
+          ? latestJournal.measurement_end_date 
+          : latestJournal.measurement_start_date;
+
+        if (lastMeasurementDate) {
+          const lastDate = new Date(lastMeasurementDate);
+          const newDate = new Date(measurement_date);
+          const monthsDiff = (newDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24 * 30); // 개월 차이
+
+          if (monthsDiff < 3) {
+            const daysDiff = Math.floor((newDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+            warningMessage = `전회 측정일(${lastDate.toISOString().split('T')[0]})로부터 ${daysDiff}일(${monthsDiff.toFixed(1)}개월)이 지났습니다. 법령에 따라 측정일로부터 3개월이 지난 이후에 측정이 가능합니다. 그래도 등록하시겠습니까?`;
+          }
+        }
+      }
+    }
+
     // 예비조사 등록
     const { data: survey, error } = await supabase
       .from("preliminary_survey")
@@ -301,7 +340,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ survey }, { status: 201 });
+    return NextResponse.json({ 
+      survey,
+      warning: warningMessage // 경고 메시지 포함 (있을 경우)
+    }, { status: 201 });
   } catch (error) {
     console.error("예비조사 등록 API 오류:", error);
 

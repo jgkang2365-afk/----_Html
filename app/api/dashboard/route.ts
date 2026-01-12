@@ -143,11 +143,11 @@ export async function GET() {
       .sort((a, b) => b.month.localeCompare(a.month))
       .slice(0, 12); // 최근 12개월
 
-    // 6. 미수관리 (년도별/주기별 검색)
+    // 6. 미수관리 (사업장별 집계)
     const { data: unpaidData, error: unpaidError } = await supabase
       .from("measurement_journal")
       .select(
-        "id, measurement_year, measurement_period, business_name, measurement_fee_total, deposit_total, completion_status"
+        "id, business_name, measurement_fee_total, measurement_fee_business, measurement_fee_national, deposit_total"
       )
       .not("measurement_fee_total", "is", null);
 
@@ -155,30 +155,56 @@ export async function GET() {
       console.error("미수관리 조회 오류:", unpaidError);
     }
 
-    const unpaidList =
-      unpaidData?.map((item) => {
-        const feeTotal = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
-        const depositTotal = parseFloat(item.deposit_total?.toString() || "0") || 0;
-        const unpaidAmount = feeTotal - depositTotal;
+    // 사업장별로 집계
+    const businessUnpaidMap: Record<string, {
+      business_name: string;
+      measurement_fee_total: number;
+      measurement_fee_business: number;
+      measurement_fee_national: number;
+      unpaid_count: number;
+      unpaid_total: number;
+    }> = {};
 
-        return {
-          id: item.id,
-          measurement_year: item.measurement_year,
-          measurement_period: item.measurement_period,
-          business_name: item.business_name,
-          measurement_fee_total: feeTotal,
-          deposit_total: depositTotal,
-          unpaid_amount: unpaidAmount > 0 ? unpaidAmount : 0,
-          completion_status: item.completion_status,
-        };
-      }) || [];
+    unpaidData?.forEach((item) => {
+      const feeTotal = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
+      const feeBusiness = parseFloat(item.measurement_fee_business?.toString() || "0") || 0;
+      const feeNational = parseFloat(item.measurement_fee_national?.toString() || "0") || 0;
+      const depositTotal = parseFloat(item.deposit_total?.toString() || "0") || 0;
+      const unpaidAmount = feeTotal - depositTotal;
+
+      // 미수금액이 있는 경우만 집계
+      if (unpaidAmount > 0) {
+        const businessName = item.business_name || "미지정";
+        
+        if (!businessUnpaidMap[businessName]) {
+          businessUnpaidMap[businessName] = {
+            business_name: businessName,
+            measurement_fee_total: 0,
+            measurement_fee_business: 0,
+            measurement_fee_national: 0,
+            unpaid_count: 0,
+            unpaid_total: 0,
+          };
+        }
+
+        businessUnpaidMap[businessName].measurement_fee_total += feeTotal;
+        businessUnpaidMap[businessName].measurement_fee_business += feeBusiness;
+        businessUnpaidMap[businessName].measurement_fee_national += feeNational;
+        businessUnpaidMap[businessName].unpaid_count += 1;
+        businessUnpaidMap[businessName].unpaid_total += unpaidAmount;
+      }
+    });
+
+    // 배열로 변환 및 정렬 (미수금액 합계 기준 내림차순)
+    const unpaidList = Object.values(businessUnpaidMap)
+      .sort((a, b) => b.unpaid_total - a.unpaid_total);
 
     // 미수 총 금액 및 건수
     const totalUnpaidAmount = unpaidList.reduce(
-      (sum, item) => sum + item.unpaid_amount,
+      (sum, item) => sum + item.unpaid_total,
       0
     );
-    const unpaidCount = unpaidList.filter((item) => item.unpaid_amount > 0).length;
+    const unpaidCount = unpaidList.length;
 
     return NextResponse.json({
       // 측정건수 및 미완료 건수

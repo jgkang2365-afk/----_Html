@@ -222,6 +222,30 @@ export default function SurveyPage() {
     setSelectedBusinessForForm(null);
   };
 
+  // 엑셀 다운로드
+  const handleExportExcel = async () => {
+    try {
+      const response = await fetch("/api/export/survey");
+      
+      if (!response.ok) {
+        throw new Error("엑셀 다운로드 실패");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `예비조사목록_${new Date().toISOString().split("T")[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      console.error("엑셀 다운로드 오류:", err);
+      alert("엑셀 다운로드 중 오류가 발생했습니다: " + (err.message || "알 수 없는 오류"));
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -419,9 +443,14 @@ export default function SurveyPage() {
       {/* 예비조사 목록 (예비조사 목록 탭) */}
       {activeTab === "list" && !loading && (
         <Card className="p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-text-900 mb-6">
-            예비조사 목록 ({surveys.length}건)
-          </h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold text-text-900">
+              예비조사 목록 ({surveys.length}건)
+            </h2>
+            <Button variant="secondary" onClick={handleExportExcel}>
+              엑셀 다운로드
+            </Button>
+          </div>
 
           {surveys.length === 0 ? (
             <div className="text-center py-12">
@@ -508,7 +537,19 @@ export default function SurveyPage() {
           <SurveyForm
             initialData={
               editingSurvey 
-                ? editingSurvey 
+                ? {
+                    code: editingSurvey.code,
+                    business_name: editingSurvey.business_name,
+                    measurement_date: editingSurvey.measurement_date,
+                    end_date: editingSurvey.end_date ?? undefined,
+                    measurement_weekdays: editingSurvey.measurement_weekdays ?? undefined,
+                    measurer: editingSurvey.measurer ?? undefined,
+                    survey_code: editingSurvey.survey_code ?? undefined,
+                    address: editingSurvey.address ?? undefined,
+                    preliminary_surveyor: editingSurvey.preliminary_surveyor ?? undefined,
+                    actual_measurer: editingSurvey.actual_measurer ?? undefined,
+                    report_writer: editingSurvey.report_writer ?? undefined,
+                  }
                 : selectedBusinessForForm
                 ? {
                     code: selectedBusinessForForm.code,

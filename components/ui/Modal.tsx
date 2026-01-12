@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "./Button";
 
@@ -21,9 +21,17 @@ export const Modal: React.FC<ModalProps> = ({
   size = "md",
   showCloseButton = true,
 }) => {
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const modalRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
+      // 모달이 열릴 때 위치 초기화
+      setPosition({ x: 0, y: 0 });
     } else {
       document.body.style.overflow = "unset";
     }
@@ -44,6 +52,59 @@ export const Modal: React.FC<ModalProps> = ({
     return () => document.removeEventListener("keydown", handleEscape);
   }, [isOpen, onClose]);
 
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+
+      const newX = e.clientX - dragStart.x;
+      const newY = e.clientY - dragStart.y;
+
+      // 화면 경계 체크
+      if (modalRef.current) {
+        const modalRect = modalRef.current.getBoundingClientRect();
+        const maxX = (window.innerWidth - modalRect.width) / 2;
+        const maxY = (window.innerHeight - modalRect.height) / 2;
+
+        setPosition({
+          x: Math.max(-maxX, Math.min(maxX, newX)),
+          y: Math.max(-maxY, Math.min(maxY, newY)),
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "none";
+    }
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+    };
+  }, [isDragging, dragStart]);
+
+  const handleHeaderMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // 닫기 버튼이나 다른 상호작용 요소를 클릭한 경우 드래그 방지
+    if ((e.target as HTMLElement).closest("button") || (e.target as HTMLElement).closest("a")) {
+      return;
+    }
+
+    if (modalRef.current) {
+      const modalRect = modalRef.current.getBoundingClientRect();
+      setDragStart({
+        x: e.clientX - modalRect.left - (modalRect.width / 2) + position.x,
+        y: e.clientY - modalRect.top - (modalRect.height / 2) + position.y,
+      });
+      setIsDragging(true);
+    }
+  };
+
   if (!isOpen) return null;
 
   const sizes = {
@@ -58,41 +119,61 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? "modal-title" : undefined}
     >
       {/* 오버레이 */}
       <div
-        className="fixed inset-0 bg-black/50"
+        className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity animate-fade-in"
         onClick={onClose}
         aria-hidden="true"
       />
 
       {/* 모달 박스 */}
       <div
+        ref={modalRef}
         className={cn(
-          "relative bg-white rounded-xl shadow-xl p-6 w-full mx-4",
+          "relative bg-white rounded-2xl shadow-2xl p-8 w-full mx-auto animate-scale-up ring-1 ring-slate-900/5",
           sizes[size],
-          "max-h-[95vh] overflow-y-auto"
+          "max-h-[85vh] overflow-y-auto custom-scrollbar",
+          isDragging && "cursor-move"
         )}
+        style={{
+          transform: `translate(${position.x}px, ${position.y}px)`,
+          transition: isDragging ? "none" : "transform 0.2s ease-out",
+        }}
       >
         {/* 헤더 */}
         {(title || showCloseButton) && (
-          <div className="flex items-center justify-between mb-4">
+          <div
+            ref={headerRef}
+            className={cn(
+              "flex items-center justify-between mb-4",
+              "cursor-move select-none",
+              !title && "h-6"
+            )}
+            onMouseDown={handleHeaderMouseDown}
+          >
             {title && (
-              <h2 id="modal-title" className="text-xl font-semibold text-text-900">
+              <h2 id="modal-title" className="text-2xl font-bold text-slate-900 flex-1 tracking-tight">
                 {title}
               </h2>
             )}
             {showCloseButton && (
               <button
                 onClick={onClose}
-                className="ml-auto text-text-500 hover:text-text-900 transition-colors"
+                className={cn(
+                  "ml-auto p-2 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors focus:ring-2 focus:ring-primary-500",
+                  "cursor-pointer"
+                )}
                 aria-label="닫기"
+                style={{ pointerEvents: "auto" }}
               >
-                <span className="text-2xl leading-none">×</span>
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             )}
           </div>

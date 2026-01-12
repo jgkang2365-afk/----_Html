@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { DESIGNATED_OFFICE_OPTIONS_WITHOUT_ALL } from "@/lib/constants/designated-offices";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -109,12 +110,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   ];
 
   // 지정한계_관할지청 옵션
-  const designatedOfficeOptions = [
-    { value: "대전지방고용노동청 천안지청", label: "대전지방고용노동청 천안지청" },
-    { value: "대전지방고용노동청", label: "대전지방고용노동청" },
-    { value: "중부지방고용노동청 평택지청", label: "중부지방고용노동청 평택지청" },
-    { value: "중부지방고용노동청 경기지청", label: "중부지방고용노동청 경기지청" },
-  ];
+  const designatedOfficeOptions = DESIGNATED_OFFICE_OPTIONS_WITHOUT_ALL;
 
   // 측정주기 옵션
   const periodOptions = [
@@ -356,7 +352,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       {error && <Alert variant="error">{error}</Alert>}
       {isCompleted && (
         <Alert variant="warning">
-          완료된 측정일지는 수정할 수 없습니다. 완료여부를 "미완료"로 변경한 후 수정하세요.
+          완료된 측정일지는 수정할 수 없습니다. 완료여부를 &quot;미완료&quot;로 변경한 후 수정하세요.
         </Alert>
       )}
 

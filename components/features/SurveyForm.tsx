@@ -77,6 +77,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const [reportWriter, setReportWriter] = useState<string>(""); // 단수 선택
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null); // 경고 메시지
   const [loadingBusiness, setLoadingBusiness] = useState(false);
   
   // 사업장 검색 관련 상태
@@ -321,6 +322,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setWarning(null);
 
     // 필수 필드 검증
     if (!formData.measurement_date) {
@@ -356,7 +358,19 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       const data = await response.json();
 
       if (response.ok) {
-        onSuccess?.();
+        // 경고 메시지가 있으면 표시하되 등록은 성공
+        if (data.warning) {
+          setWarning(data.warning);
+        }
+        // 경고가 있어도 성공 콜백 실행 (등록은 이미 완료됨)
+        if (data.warning) {
+          // 경고만 표시하고 성공 콜백은 지연 (사용자가 확인할 시간 제공)
+          setTimeout(() => {
+            onSuccess?.();
+          }, 2000); // 2초 후 자동으로 목록으로 이동
+        } else {
+          onSuccess?.();
+        }
       } else {
         setError(data.error || "저장 중 오류가 발생했습니다.");
       }
@@ -371,6 +385,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {error && <Alert variant="error">{error}</Alert>}
+      {warning && <Alert variant="warning">{warning}</Alert>}
 
       {/* 기본 정보 */}
       <Card className="p-6">

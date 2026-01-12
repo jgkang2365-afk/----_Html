@@ -15,12 +15,16 @@
   --color-error-500: #ef4444;
   --color-error-600: #dc2626;
   --color-surface-0: #ffffff;
-  --color-surface-50: #f9fafb;
-  --color-surface-100: #f3f4f6;
-  --color-text-900: #111827;
-  --color-text-700: #374151;
-  --color-text-500: #6b7280;
-  --color-text-300: #d1d5db;
+  --color-surface-50: #f8fafc;
+  --color-surface-100: #f1f5f9;
+  --color-text-900: #1e293b;
+  --color-text-700: #334155;
+  --color-text-500: #64748b;
+  --color-text-300: #cbd5e1;
+}
+
+html {
+  font-size: 16px; /* Explicitly set base size */
 }
 
 body {

@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { assignAllNumbers } from "@/lib/utils/number-assignment";
+import { toShortName } from "@/lib/constants/designated-offices";
+import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 
 /**
  * 측정일지 등록 API
@@ -28,11 +30,15 @@ export async function POST(request: NextRequest) {
     const measurementYear = body.measurement_year || body.measurementYear;
     const measurementPeriod = body.measurement_period || body.measurementPeriod;
     const note = body.note;
-    const designatedOffice = body.designated_office || body.designatedOffice;
+    const designatedOfficeRaw = body.designated_office || body.designatedOffice;
+    // 약칭으로 정규화하여 저장
+    const designatedOffice = toShortName(designatedOfficeRaw);
     const business_name = body.business_name;
     const address = body.address;
     const total_employees = body.total_employees;
-    const office_jurisdiction = body.office_jurisdiction;
+    // office_jurisdiction은 약칭으로 저장
+    const office_jurisdictionRaw = body.office_jurisdiction;
+    const office_jurisdiction = office_jurisdictionRaw ? fullNameToShortName(office_jurisdictionRaw) : null;
     const measurement_start_date = body.measurement_start_date;
     const measurement_end_date = body.measurement_end_date;
     const measurer = body.measurer;
@@ -119,6 +125,7 @@ export async function POST(request: NextRequest) {
     // 번호 자동 부여
     const assignedNumbers = await assignAllNumbers({
       designated_office: designatedOffice,
+      measurement_year: measurementYear,
       measurement_period: measurementPeriod,
       total_employees: total_employees || businessData.total_employees,
     });
@@ -170,6 +177,46 @@ export async function POST(request: NextRequest) {
         { error: "측정일지 생성 중 오류가 발생했습니다.", details: insertError.message },
         { status: 500 }
       );
+    }
+
+    // 측정 대상 사업장 계획 업데이트 (진행률 파악)
+    // 해당 code, year, period의 계획이 있으면 등록 여부 및 정보 업데이트
+    const { data: existingPlan, error: planCheckError } = await supabase
+      .from("measurement_target_business")
+      .select("id")
+      .eq("code", code)
+      .eq("year", measurementYear)
+      .eq("period", measurementPeriod)
+      .maybeSingle();
+
+    if (!planCheckError && existingPlan) {
+      // 계획이 있으면 등록 정보 업데이트
+      const { error: planUpdateError } = await supabase
+        .from("measurement_target_business")
+        .update({
+          journal_id: newJournal.id,
+          is_registered: true,
+          registered_at: new Date().toISOString(),
+          measurement_start_date: journalData.measurement_start_date,
+          measurement_end_date: journalData.measurement_end_date,
+          completion_status: journalData.completion_status,
+          measurer: journalData.measurer,
+          business_name: journalData.business_name,
+          business_number: journalData.business_number,
+          total_employees: journalData.total_employees,
+          address: journalData.address,
+          office_jurisdiction: journalData.office_jurisdiction,
+          national_support_status: body.national_support_status || null,
+          manager_name: journalData.manager_name,
+          manager_mobile: journalData.manager_mobile,
+          manager_phone: journalData.phone,
+        })
+        .eq("id", existingPlan.id);
+
+      if (planUpdateError) {
+        console.error("측정 대상 사업장 계획 업데이트 오류:", planUpdateError);
+        // 계획 업데이트 실패해도 측정일지 등록은 성공으로 처리
+      }
     }
 
     return NextResponse.json({

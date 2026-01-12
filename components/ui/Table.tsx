@@ -30,14 +30,16 @@ export interface TableCellProps extends React.TdHTMLAttributes<HTMLTableCellElem
 export const Table = React.forwardRef<HTMLTableElement, TableProps>(
   ({ children, className, ...props }, ref) => {
     return (
-      <div className="overflow-x-auto">
-        <table
-          ref={ref}
-          className={cn("w-full border-collapse", className)}
-          {...props}
-        >
-          {children}
-        </table>
+      <div className="w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm bg-white">
+        <div className="overflow-x-auto">
+          <table
+            ref={ref}
+            className={cn("w-full caption-bottom text-base", className)}
+            {...props}
+          >
+            {children}
+          </table>
+        </div>
       </div>
     );
   }
@@ -50,7 +52,7 @@ export const TableHeader = React.forwardRef<HTMLTableSectionElement, TableHeader
     return (
       <thead
         ref={ref}
-        className={cn("bg-surface-50", className)}
+        className={cn("bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-10", className)}
         {...props}
       >
         {children}
@@ -83,9 +85,9 @@ export const TableRow = React.forwardRef<HTMLTableRowElement, TableRowProps>(
       <tr
         ref={ref}
         className={cn(
-          "border-b border-surface-100",
-          hover && "hover:bg-surface-50",
-          selected && "bg-blue-50",
+          "border-b border-slate-100 transition-colors hover:bg-slate-50/50 data-[state=selected]:bg-slate-100",
+          hover && "hover:bg-slate-50",
+          selected && "bg-blue-50/50",
           className
         )}
         {...props}
@@ -101,10 +103,11 @@ TableRow.displayName = "TableRow";
 export const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(
   ({ children, className, ...props }, ref) => {
     return (
+
       <th
         ref={ref}
         className={cn(
-          "px-4 py-3 text-left text-sm font-semibold text-text-700 border-b-2 border-surface-100",
+          "h-12 px-4 text-left align-middle font-bold text-slate-800 [&:has([role=checkbox])]:pr-0 whitespace-nowrap", // Bold and darker for readability
           className
         )}
         {...props}
@@ -123,7 +126,7 @@ export const TableCell = React.forwardRef<HTMLTableCellElement, TableCellProps>(
       <td
         ref={ref}
         className={cn(
-          "px-4 py-3 text-sm text-text-900 border-b border-surface-100",
+          "p-4 align-middle [&:has([role=checkbox])]:pr-0 text-slate-600 whitespace-nowrap",
           className
         )}
         {...props}

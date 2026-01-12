@@ -126,38 +126,39 @@ export function SyncStatus() {
 
   return (
     <Card>
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-text-900">Excel 파일 동기화 상태</h2>
+      <div className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-text-900">Excel 파일 동기화 상태</h2>
           <Button
             variant="primary"
             onClick={handleSync}
             disabled={syncing}
+            className="text-sm"
           >
             {syncing ? "동기화 중..." : "수동 동기화"}
           </Button>
         </div>
 
         {error && (
-          <Alert variant="error" className="mb-4">
+          <Alert variant="error" className="mb-3 text-sm">
             {error}
           </Alert>
         )}
 
         {success && (
-          <Alert variant="success" className="mb-4">
+          <Alert variant="success" className="mb-3 text-sm">
             {success}
           </Alert>
         )}
 
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* 사업장정보 동기화 상태 */}
-          <div className="border border-surface-200 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-text-900">사업장정보.xlsx</h3>
+          <div className="border border-surface-200 rounded p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium text-text-900">사업장정보.xlsx</span>
               {businessInfoLog && (
                 <span
-                  className={`px-2 py-1 rounded text-xs font-medium ${
+                  className={`px-2 py-0.5 rounded text-xs ${
                     businessInfoLog.status === "성공"
                       ? "bg-success-100 text-success-700"
                       : businessInfoLog.status === "실패"
@@ -170,33 +171,21 @@ export function SyncStatus() {
               )}
             </div>
             {businessInfoLog ? (
-              <div className="text-sm text-text-700 space-y-1">
-                <div>
-                  마지막 동기화: {formatDate(businessInfoLog.sync_end_time || businessInfoLog.sync_start_time)}
-                </div>
-                <div className="flex gap-4">
-                  <span>처리: {businessInfoLog.records_processed}건</span>
-                  <span>신규: {businessInfoLog.records_inserted}건</span>
-                  <span>업데이트: {businessInfoLog.records_updated}건</span>
-                </div>
-                {businessInfoLog.error_message && (
-                  <div className="text-error-600 text-xs mt-2">
-                    오류: {businessInfoLog.error_message}
-                  </div>
-                )}
+              <div className="text-xs text-text-600">
+                {formatDate(businessInfoLog.sync_end_time || businessInfoLog.sync_start_time)} · {businessInfoLog.records_processed}건
               </div>
             ) : (
-              <div className="text-sm text-text-500">동기화 기록이 없습니다.</div>
+              <div className="text-xs text-text-400">동기화 기록 없음</div>
             )}
           </div>
 
           {/* 측정사업장 동기화 상태 */}
-          <div className="border border-surface-200 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-text-900">측정사업장.xlsx</h3>
+          <div className="border border-surface-200 rounded p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium text-text-900">측정사업장.xlsx</span>
               {measurementBusinessLog && (
                 <span
-                  className={`px-2 py-1 rounded text-xs font-medium ${
+                  className={`px-2 py-0.5 rounded text-xs ${
                     measurementBusinessLog.status === "성공"
                       ? "bg-success-100 text-success-700"
                       : measurementBusinessLog.status === "실패"
@@ -209,60 +198,14 @@ export function SyncStatus() {
               )}
             </div>
             {measurementBusinessLog ? (
-              <div className="text-sm text-text-700 space-y-1">
-                <div>
-                  마지막 동기화: {formatDate(measurementBusinessLog.sync_end_time || measurementBusinessLog.sync_start_time)}
-                </div>
-                <div className="flex gap-4">
-                  <span>처리: {measurementBusinessLog.records_processed}건</span>
-                  <span>신규: {measurementBusinessLog.records_inserted}건</span>
-                  <span>업데이트: {measurementBusinessLog.records_updated}건</span>
-                </div>
-                {measurementBusinessLog.error_message && (
-                  <div className="text-error-600 text-xs mt-2">
-                    오류: {measurementBusinessLog.error_message}
-                  </div>
-                )}
+              <div className="text-xs text-text-600">
+                {formatDate(measurementBusinessLog.sync_end_time || measurementBusinessLog.sync_start_time)} · {measurementBusinessLog.records_processed}건
               </div>
             ) : (
-              <div className="text-sm text-text-500">동기화 기록이 없습니다.</div>
+              <div className="text-xs text-text-400">동기화 기록 없음</div>
             )}
           </div>
         </div>
-
-        {/* 최근 동기화 로그 (최대 5개) */}
-        {logs.length > 0 && (
-          <div className="mt-6">
-            <h3 className="font-semibold text-text-900 mb-3">최근 동기화 로그</h3>
-            <div className="space-y-2">
-              {logs.slice(0, 5).map((log) => (
-                <div
-                  key={log.id}
-                  className="flex items-center justify-between p-3 bg-surface-50 rounded text-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="font-medium text-text-900">{log.file_name}</span>
-                    <span className="text-text-500">({log.sync_type})</span>
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs ${
-                        log.status === "성공"
-                          ? "bg-success-100 text-success-700"
-                          : log.status === "실패"
-                          ? "bg-error-100 text-error-700"
-                          : "bg-warning-100 text-warning-700"
-                      }`}
-                    >
-                      {log.status}
-                    </span>
-                  </div>
-                  <span className="text-text-500">
-                    {formatDate(log.sync_end_time || log.sync_start_time)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </Card>
   );

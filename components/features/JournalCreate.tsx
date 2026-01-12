@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useRouter } from "next/navigation";
+import { DESIGNATED_OFFICE_OPTIONS_WITHOUT_ALL } from "@/lib/constants/designated-offices";
 
 interface MeasurementBusiness {
   code: string;
@@ -150,12 +151,7 @@ export const JournalCreate: React.FC = () => {
   ];
 
   // 지정한계_관할지청 옵션
-  const designatedOfficeOptions = [
-    { value: "대전지방고용노동청 천안지청", label: "대전지방고용노동청 천안지청" },
-    { value: "대전지방고용노동청", label: "대전지방고용노동청" },
-    { value: "중부지방고용노동청 평택지청", label: "중부지방고용노동청 평택지청" },
-    { value: "중부지방고용노동청 경기지청", label: "중부지방고용노동청 경기지청" },
-  ];
+  const designatedOfficeOptions = DESIGNATED_OFFICE_OPTIONS_WITHOUT_ALL;
 
   return (
     <Card className="p-6">

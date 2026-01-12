@@ -6,6 +6,7 @@
  */
 
 import * as XLSX from "xlsx";
+import { DESIGNATED_OFFICES } from "../lib/constants/designated-offices";
 import { join } from "path";
 
 // 측정일지 양식 생성

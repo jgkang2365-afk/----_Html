@@ -32,6 +32,7 @@ export interface SyncLog {
 
 /**
  * Excel 파일을 읽어서 JSON 배열로 변환
+ * 측정사업장.xlsx 파일은 첫 번째 행이 비어있고 두 번째 행이 헤더입니다.
  */
 function readExcelFile(filePath: string): any[] {
   try {
@@ -45,8 +46,42 @@ function readExcelFile(filePath: string): any[] {
     });
     const sheetName = workbook.SheetNames[0]; // 첫 번째 시트 사용
     const worksheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(worksheet, { defval: null });
-    return data;
+    
+    // 측정사업장.xlsx 파일은 첫 번째 행이 비어있고 두 번째 행이 헤더입니다.
+    // range 옵션을 사용하여 두 번째 행부터 읽기 (헤더는 행 2, 데이터는 행 3부터)
+    const range = worksheet["!ref"];
+    if (!range) {
+      return [];
+    }
+    
+    const decodedRange = XLSX.utils.decode_range(range);
+    
+    // 첫 번째 행이 비어있는지 확인 (측정사업장.xlsx만 해당)
+    const firstRowCell = XLSX.utils.encode_cell({ r: 0, c: 0 });
+    const firstRowHasData = worksheet[firstRowCell] && String(worksheet[firstRowCell].v || "").trim();
+    
+    if (!firstRowHasData && filePath.includes("측정사업장")) {
+      // 첫 번째 행이 비어있으면 두 번째 행을 헤더로 사용
+      // range를 조정하여 행 1부터 시작하도록 설정 (0-based index)
+      const newRange = {
+        s: { r: 1, c: decodedRange.s.c }, // 행 2부터 시작 (0-based index이므로 r: 1)
+        e: { r: decodedRange.e.r, c: decodedRange.e.c }
+      };
+      const newRangeStr = XLSX.utils.encode_range(newRange);
+      const data = XLSX.utils.sheet_to_json(worksheet, { 
+        defval: null,
+        raw: false,
+        range: newRangeStr
+      });
+      return data;
+    } else {
+      // 기본 동작: 첫 번째 행을 헤더로 인식
+      const data = XLSX.utils.sheet_to_json(worksheet, { 
+        defval: null,
+        raw: false
+      });
+      return data;
+    }
   } catch (error) {
     throw new Error(`Excel 파일 읽기 실패: ${filePath} - ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -147,6 +182,36 @@ function parseBusinessInfo(data: any[]): any[] {
       }
     }
     
+    // 향후측정주기 (개월 단위, 예: 6, 12)
+    // "1년", "6개월" 형식 지원
+    if (row["향후측정주기"]) {
+      const periodValue = row["향후측정주기"];
+      if (typeof periodValue === "number") {
+        optionalFields.future_measurement_period = Math.round(periodValue);
+      } else {
+        const periodStr = String(periodValue).trim();
+        
+        // "1년", "6개월" 형식 파싱
+        if (periodStr.includes("년")) {
+          const years = parseFloat(periodStr.replace("년", "").trim());
+          if (!isNaN(years) && years > 0) {
+            optionalFields.future_measurement_period = Math.round(years * 12);
+          }
+        } else if (periodStr.includes("개월")) {
+          const months = parseFloat(periodStr.replace("개월", "").trim());
+          if (!isNaN(months) && months > 0) {
+            optionalFields.future_measurement_period = Math.round(months);
+          }
+        } else {
+          // 숫자만 있는 경우
+          const parsedPeriod = parseInt(periodStr, 10);
+          if (!isNaN(parsedPeriod) && parsedPeriod > 0) {
+            optionalFields.future_measurement_period = parsedPeriod;
+          }
+        }
+      }
+    }
+    
     // 비고
     if (row["비고"]) optionalFields.notes = String(row["비고"]).trim();
 
@@ -195,14 +260,20 @@ function parseMeasurementBusiness(data: any[]): any[] {
         // Excel 날짜 숫자 형식
         startDate = excelDateToJSDate(startDateStr);
       } else {
-        // 문자열 형식 (YYYY-MM-DD 또는 다른 형식)
+        // 문자열 형식 (YYYY-MM-DD 또는 YYYYMMDD)
         const dateStr = String(startDateStr).trim();
-        // 이미 YYYY-MM-DD 형식이면 그대로 사용, 아니면 파싱 시도
         if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          // YYYY-MM-DD 형식
           startDate = dateStr;
-        } else {
-          // 다른 형식은 나중에 처리하거나 null로 설정
-          startDate = dateStr || null;
+        } else if (/^\d{8}$/.test(dateStr)) {
+          // YYYYMMDD 형식 (예: 20260114)
+          const year = dateStr.substring(0, 4);
+          const month = dateStr.substring(4, 6);
+          const day = dateStr.substring(6, 8);
+          startDate = `${year}-${month}-${day}`;
+        } else if (dateStr) {
+          // 다른 형식이면 null로 설정 (잘못된 형식)
+          startDate = null;
         }
       }
     }
@@ -213,9 +284,17 @@ function parseMeasurementBusiness(data: any[]): any[] {
       } else {
         const dateStr = String(endDateStr).trim();
         if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          // YYYY-MM-DD 형식
           endDate = dateStr;
-        } else {
-          endDate = dateStr || null;
+        } else if (/^\d{8}$/.test(dateStr)) {
+          // YYYYMMDD 형식 (예: 20260114)
+          const year = dateStr.substring(0, 4);
+          const month = dateStr.substring(4, 6);
+          const day = dateStr.substring(6, 8);
+          endDate = `${year}-${month}-${day}`;
+        } else if (dateStr) {
+          // 다른 형식이면 null로 설정 (잘못된 형식)
+          endDate = null;
         }
       }
     }
@@ -257,6 +336,47 @@ function parseMeasurementBusiness(data: any[]): any[] {
     if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
     if (industrialAccidentNumber) optionalFields.industrial_accident_number = industrialAccidentNumber;
     if (representativeName) optionalFields.representative_name = representativeName;
+    
+    // 향후측정주기 (개월 단위, 예: 6, 12)
+    // 여러 가능한 컬럼명 시도 (공백, 띄어쓰기 변형 포함)
+    // 헤더가 비어있는 경우 __EMPTY_XX 형식으로 처리됨
+    // 실제 Excel 파일에서 AV 열 근처의 헤더가 비어있는 컬럼이 __EMPTY_45로 매핑됨
+    const futurePeriodValue = row["향후측정주기"] || row["향후 측정주기"] || row["향후측정 주기"] || 
+                               row["향후측정기간"] || row["향후 측정기간"] || row["측정주기"] ||
+                               row["재측정주기"] || row["재측정 주기"] || row["다음측정주기"] ||
+                               row["향후측정기"] || row["향후 측정기"] ||
+                               row["__EMPTY_45"]; // 실제 Excel 파일에서 이 키에 "향후측정주기" 데이터가 있음
+    
+    if (futurePeriodValue) {
+      const periodValue = futurePeriodValue;
+      const periodStr = String(periodValue).trim();
+      
+      // 헤더 텍스트인 "향후측정주기"는 건너뛰기
+      if (periodStr === "향후측정주기" || periodStr === "향후 측정주기") {
+        // 헤더 텍스트이므로 건너뛰기 - optionalFields에 추가하지 않음
+      } else if (typeof periodValue === "number") {
+        optionalFields.future_measurement_period = Math.round(periodValue);
+      } else {
+        // "1년", "6개월" 형식 파싱
+        if (periodStr.includes("년")) {
+          const years = parseFloat(periodStr.replace("년", "").trim());
+          if (!isNaN(years) && years > 0) {
+            optionalFields.future_measurement_period = Math.round(years * 12);
+          }
+        } else if (periodStr.includes("개월")) {
+          const months = parseFloat(periodStr.replace("개월", "").trim());
+          if (!isNaN(months) && months > 0) {
+            optionalFields.future_measurement_period = Math.round(months);
+          }
+        } else {
+          // 숫자만 있는 경우
+          const parsedPeriod = parseInt(periodStr, 10);
+          if (!isNaN(parsedPeriod) && parsedPeriod > 0) {
+            optionalFields.future_measurement_period = parsedPeriod;
+          }
+        }
+      }
+    }
 
     return { ...baseData, ...optionalFields };
   }).filter((row) => row.code && row.year && row.period && row.business_name); // 필수 필드 체크
@@ -287,8 +407,11 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
       throw new Error(`Excel 파일을 찾을 수 없습니다: ${fileNameXlsx} 또는 ${fileNameXls}`);
     }
   } else {
+    if (!filePath) {
+      throw new Error("파일 경로가 지정되지 않았습니다.");
+    }
     fileName = filePath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
-    if (!existsSync(targetPath)) {
+    if (targetPath && !existsSync(targetPath)) {
       throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
     }
   }
@@ -370,94 +493,150 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
     let recordsInserted = 0;
     let recordsUpdated = 0;
 
-    // UPSERT 작업
-    for (const row of parsedData) {
-      const { data: existing, error: selectError } = await supabase
-        .from("business_info")
-        .select("code")
-        .eq("code", row.code)
-        .single();
-
-      if (selectError && selectError.code !== "PGRST116") {
-        // PGRST116은 "no rows returned" 에러이므로 무시
-        console.error(`기존 데이터 조회 실패 (code: ${row.code}):`, selectError);
-        continue;
-      }
-
-      if (existing) {
-        // 업데이트 (모든 필드 포함)
-        const { error: updateError } = await supabase
+    // 성능 최적화: 모든 code를 한 번에 조회하여 기존 데이터 맵 생성
+    const codes = parsedData.map(row => row.code).filter(Boolean);
+    const existingCodesSet = new Set<string>();
+    
+    if (codes.length > 0) {
+      // 배치로 기존 code 조회 (1000개씩 나눠서 조회)
+      const batchSize = 1000;
+      for (let i = 0; i < codes.length; i += batchSize) {
+        const codeBatch = codes.slice(i, i + batchSize);
+        const { data: existingCodes, error: selectError } = await supabase
           .from("business_info")
-          .update({
-            ...row,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("code", row.code);
+          .select("code")
+          .in("code", codeBatch);
 
-        if (updateError) {
-          // 마이그레이션이 실행되지 않은 경우, 기본 필드만 업데이트 시도
-          if (updateError.code === "PGRST204" || updateError.message?.includes("column") || updateError.message?.includes("does not exist")) {
-            console.warn(`코드 ${row.code}: 마이그레이션이 필요할 수 있습니다. 기본 필드만 업데이트 시도...`);
-            const { error: basicUpdateError } = await supabase
-              .from("business_info")
-              .update({
-                business_name: row.business_name,
-                business_number: row.business_number,
-                address1: row.address1,
-                address2: row.address2,
-                phone: row.phone,
-                fax: row.fax,
-                representative_name: row.representative_name,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("code", row.code);
-            
-            if (basicUpdateError) {
-              console.error(`코드 ${row.code} 기본 필드 업데이트 오류:`, basicUpdateError);
-            } else {
-              recordsUpdated++;
+        if (selectError) {
+          console.error("기존 코드 배치 조회 오류:", selectError);
+        } else if (existingCodes) {
+          existingCodes.forEach(item => {
+            if (item.code) {
+              existingCodesSet.add(item.code);
             }
-          } else {
-            console.error(`데이터 업데이트 실패 (code: ${row.code}):`, updateError);
-          }
-        } else {
-          recordsUpdated++;
+          });
         }
+      }
+    }
+
+    // 데이터를 삽입/업데이트로 분류
+    const toInsert: any[] = [];
+    const toUpdate: any[] = [];
+    const now = new Date().toISOString();
+
+    parsedData.forEach(row => {
+      if (!row.code) return;
+      
+      const rowWithTimestamp = {
+        ...row,
+        updated_at: now,
+      };
+
+      if (existingCodesSet.has(row.code)) {
+        toUpdate.push(rowWithTimestamp);
       } else {
-        // 삽입 (모든 필드 포함)
+        toInsert.push(row);
+      }
+    });
+
+    // 배치 삽입 (1000개씩)
+    if (toInsert.length > 0) {
+      const insertBatchSize = 1000;
+      for (let i = 0; i < toInsert.length; i += insertBatchSize) {
+        const batch = toInsert.slice(i, i + insertBatchSize);
         const { error: insertError } = await supabase
           .from("business_info")
-          .insert(row);
+          .insert(batch);
 
         if (insertError) {
           // 마이그레이션이 실행되지 않은 경우, 기본 필드만 삽입 시도
           if (insertError.code === "PGRST204" || insertError.message?.includes("column") || insertError.message?.includes("does not exist")) {
-            console.warn(`코드 ${row.code}: 마이그레이션이 필요할 수 있습니다. 기본 필드만 삽입 시도...`);
+            console.warn("마이그레이션이 필요할 수 있습니다. 기본 필드만 삽입 시도...");
+            const basicBatch = batch.map(row => ({
+              code: row.code,
+              business_name: row.business_name,
+              business_number: row.business_number,
+              address1: row.address1,
+              address2: row.address2,
+              phone: row.phone,
+              fax: row.fax,
+              representative_name: row.representative_name,
+            }));
+            
             const { error: basicInsertError } = await supabase
               .from("business_info")
-              .insert({
-                code: row.code,
-                business_name: row.business_name,
-                business_number: row.business_number,
-                address1: row.address1,
-                address2: row.address2,
-                phone: row.phone,
-                fax: row.fax,
-                representative_name: row.representative_name,
-              });
+              .insert(basicBatch);
             
             if (basicInsertError) {
-              console.error(`코드 ${row.code} 기본 필드 삽입 오류:`, basicInsertError);
+              console.error(`배치 삽입 오류 (${i}~${i + batch.length}):`, basicInsertError);
             } else {
-              recordsInserted++;
+              recordsInserted += batch.length;
             }
           } else {
-            console.error(`데이터 삽입 실패 (code: ${row.code}):`, insertError);
+            console.error(`배치 삽입 오류 (${i}~${i + batch.length}):`, insertError);
           }
         } else {
-          recordsInserted++;
+          recordsInserted += batch.length;
         }
       }
+    }
+
+    // 배치 업데이트 (Supabase는 upsert를 사용할 수 있지만, 여기서는 배치 업데이트)
+    // 개별 업데이트가 필요하므로 병렬 처리로 최적화
+    if (toUpdate.length > 0) {
+      const updateBatchSize = 100; // 업데이트는 더 작은 배치로
+      const updatePromises: Promise<void>[] = [];
+
+      for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
+        const batch = toUpdate.slice(i, i + updateBatchSize);
+        
+        // 각 레코드를 병렬로 업데이트
+        batch.forEach(row => {
+          const promise = supabase
+            .from("business_info")
+            .update(row)
+            .eq("code", row.code)
+            .then(({ error: updateError }) => {
+              if (updateError) {
+                // 마이그레이션이 실행되지 않은 경우, 기본 필드만 업데이트 시도
+                if (updateError.code === "PGRST204" || updateError.message?.includes("column") || updateError.message?.includes("does not exist")) {
+                  return supabase
+                    .from("business_info")
+                    .update({
+                      business_name: row.business_name,
+                      business_number: row.business_number,
+                      address1: row.address1,
+                      address2: row.address2,
+                      phone: row.phone,
+                      fax: row.fax,
+                      representative_name: row.representative_name,
+                      updated_at: now,
+                    })
+                    .eq("code", row.code)
+                    .then(({ error: basicUpdateError }) => {
+                      if (basicUpdateError) {
+                        console.error(`코드 ${row.code} 기본 필드 업데이트 오류:`, basicUpdateError);
+                      } else {
+                        recordsUpdated++;
+                      }
+                      return Promise.resolve<void>(undefined);
+                    });
+                } else {
+                  console.error(`코드 ${row.code} 업데이트 오류:`, updateError);
+                  return Promise.resolve<void>(undefined);
+                }
+              } else {
+                recordsUpdated++;
+                return Promise.resolve<void>(undefined);
+              }
+            });
+
+          updatePromises.push(Promise.resolve(promise).then(() => undefined));
+        });
+      }
+
+      // 모든 업데이트 완료 대기
+      await Promise.all(updatePromises);
     }
 
     const syncEndTime = new Date();
@@ -536,8 +715,11 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       throw new Error(`Excel 파일을 찾을 수 없습니다: ${fileNameXlsx} 또는 ${fileNameXls}`);
     }
   } else {
+    if (!filePath) {
+      throw new Error("파일 경로가 지정되지 않았습니다.");
+    }
     fileName = filePath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
-    if (!existsSync(targetPath)) {
+    if (targetPath && !existsSync(targetPath)) {
       throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
     }
   }
@@ -571,107 +753,140 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
 
     // Excel 파일 읽기
     const excelData = readExcelFile(targetPath);
-    const parsedData = parseMeasurementBusiness(excelData);
-
-    let recordsInserted = 0;
-    let recordsUpdated = 0;
-
-    // UPSERT 작업
-    // measurement_business는 (code, year, period) 조합이 유니크해야 함
-    for (const row of parsedData) {
-      const { data: existing, error: selectError } = await supabase
-        .from("measurement_business")
-        .select("code")
-        .eq("code", row.code)
-        .eq("year", row.year)
-        .eq("period", row.period)
-        .maybeSingle();
-
-      if (selectError && selectError.code !== "PGRST116") {
-        console.error(`기존 데이터 조회 실패 (code: ${row.code}, year: ${row.year}, period: ${row.period}):`, selectError);
-        continue;
-      }
-
-      // 마이그레이션이 실행되지 않은 경우를 대비하여 기본 필드만 먼저 저장
-      const baseFields = [
-        "code", "year", "period", "business_name", "business_number", 
-        "total_employees", "address", "office_jurisdiction", 
-        "measurement_start_date", "measurement_end_date", 
-        "completion_status", "measurer"
-      ];
+    
+    console.log(`[측정사업장 동기화] Excel 파일에서 읽은 데이터 행 수: ${excelData.length}`);
+    
+    // 디버깅: 첫 번째 행에서 "향후측정주기" 컬럼 확인
+    if (excelData.length > 0) {
+      const firstRow = excelData[0];
+      const keys = Object.keys(firstRow);
+      console.log(`[측정사업장 동기화] 첫 번째 행의 컬럼 수: ${keys.length}`);
+      console.log("[측정사업장 동기화] 첫 번째 행의 컬럼명 샘플 (최대 30개):", keys.slice(0, 30));
       
-      const baseRow: any = {};
-      baseFields.forEach(field => {
-        if (row[field] !== undefined) {
-          baseRow[field] = row[field];
-        }
-      });
-
-      // 추가 필드들 (마이그레이션 후에만 저장)
-      const optionalFields = [
-        "manager_name", "manager_position", "manager_mobile", 
-        "manager_email", "invoice_email", "industrial_accident_number", 
-        "representative_name"
-      ];
-      
-      const fullRow = { ...baseRow };
-      optionalFields.forEach(field => {
-        if (row[field] !== undefined && row[field] !== null) {
-          fullRow[field] = row[field];
-        }
-      });
-
-      if (existing) {
-        // 업데이트 시도 (전체 필드 포함)
-        let { error: updateError } = await supabase
-          .from("measurement_business")
-          .update(fullRow)
-          .eq("code", row.code)
-          .eq("year", row.year)
-          .eq("period", row.period);
-
-        // 마이그레이션이 안 된 경우 기본 필드만 업데이트
-        if (updateError && updateError.message?.includes("column") && updateError.message?.includes("schema cache")) {
-          console.warn(`마이그레이션이 실행되지 않아 기본 필드만 업데이트합니다 (code: ${row.code}):`, updateError.message);
-          const { error: baseUpdateError } = await supabase
-            .from("measurement_business")
-            .update(baseRow)
-            .eq("code", row.code)
-            .eq("year", row.year)
-            .eq("period", row.period);
-          
-          if (baseUpdateError) {
-            console.error(`기본 필드 업데이트 실패 (code: ${row.code}):`, baseUpdateError);
-          } else {
-            recordsUpdated++;
-          }
-        } else if (updateError) {
-          console.error(`데이터 업데이트 실패 (code: ${row.code}, year: ${row.year}, period: ${row.period}):`, updateError);
-        } else {
-          recordsUpdated++;
-        }
+      // "향후측정주기" 관련 컬럼 찾기
+      const periodColumns = keys.filter(k => k && (k.includes("향후") || (k.includes("주기") && k.includes("측정"))));
+      if (periodColumns.length > 0) {
+        console.log("[측정사업장 동기화] 향후측정주기 관련 컬럼:", periodColumns);
+        console.log("[측정사업장 동기화] 첫 번째 행의 향후측정주기 값:", firstRow[periodColumns[0]]);
       } else {
-        // 삽입 시도 (전체 필드 포함)
-        let { error: insertError } = await supabase
-          .from("measurement_business")
-          .insert(fullRow);
+        console.warn("[측정사업장 동기화] 경고: 향후측정주기 관련 컬럼을 찾을 수 없습니다.");
+        console.warn("[측정사업장 동기화] 모든 컬럼명:", keys);
+      }
+      
+      // "코드", "년도", "구분" 등 주요 컬럼 확인
+      const hasCode = keys.some(k => k === "코드" || k.includes("코드"));
+      const hasYear = keys.some(k => k === "년도" || k.includes("년도"));
+      const hasPeriod = keys.some(k => k === "구분" || k.includes("구분"));
+      console.log(`[측정사업장 동기화] 주요 컬럼 존재 여부 - 코드: ${hasCode}, 년도: ${hasYear}, 구분: ${hasPeriod}`);
+    } else {
+      console.error("[측정사업장 동기화] Excel 파일에서 데이터를 읽을 수 없습니다!");
+    }
+    
+    const parsedData = parseMeasurementBusiness(excelData);
+    
+    // 디버깅: 파싱된 데이터 중 future_measurement_period가 있는 항목 확인
+    const withPeriod = parsedData.filter((row: any) => row.future_measurement_period);
+    console.log(`[측정사업장 동기화] future_measurement_period가 있는 항목 수: ${withPeriod.length} / 전체: ${parsedData.length}`);
+    if (withPeriod.length > 0) {
+      console.log("[측정사업장 동기화] future_measurement_period 샘플:", withPeriod.slice(0, 3).map((r: any) => ({
+        code: r.code,
+        year: r.year,
+        period: r.period,
+        future_measurement_period: r.future_measurement_period
+      })));
+    }
 
-        // 마이그레이션이 안 된 경우 기본 필드만 삽입
-        if (insertError && insertError.message?.includes("column") && insertError.message?.includes("schema cache")) {
-          console.warn(`마이그레이션이 실행되지 않아 기본 필드만 삽입합니다 (code: ${row.code}):`, insertError.message);
-          const { error: baseInsertError } = await supabase
-            .from("measurement_business")
-            .insert(baseRow);
-          
-          if (baseInsertError) {
-            console.error(`기본 필드 삽입 실패 (code: ${row.code}):`, baseInsertError);
-          } else {
-            recordsInserted++;
+    let recordsProcessed = 0;
+
+    // 데이터 준비
+    const baseFields = [
+      "code", "year", "period", "business_name", "business_number", 
+      "total_employees", "address", "office_jurisdiction", 
+      "measurement_start_date", "measurement_end_date", 
+      "completion_status", "measurer"
+    ];
+    
+    const optionalFields = [
+      "manager_name", "manager_position", "manager_mobile", 
+      "manager_email", "invoice_email", "industrial_accident_number", 
+      "representative_name", "future_measurement_period"
+    ];
+
+    // UPSERT를 위해 모든 데이터 준비
+    // NULL 값은 제외하고, 값이 있는 필드만 포함
+    const allRows = parsedData
+      .filter(row => row.code && row.year && row.period)
+      .map(row => {
+        const fullRow: any = {};
+        
+        // 필수 필드는 항상 포함 (code, year, period, business_name)
+        fullRow.code = row.code;
+        fullRow.year = row.year;
+        fullRow.period = row.period;
+        fullRow.business_name = row.business_name;
+        
+        // 나머지 baseFields는 값이 있는 경우만 포함
+        const otherBaseFields = baseFields.filter(f => !["code", "year", "period", "business_name"].includes(f));
+        otherBaseFields.forEach(field => {
+          if (row[field] !== undefined && row[field] !== null && row[field] !== "") {
+            fullRow[field] = row[field];
           }
-        } else if (insertError) {
-          console.error(`데이터 삽입 실패 (code: ${row.code}, year: ${row.year}, period: ${row.period}):`, insertError);
+        });
+        
+        // optionalFields는 값이 있는 경우만 포함
+        optionalFields.forEach(field => {
+          if (row[field] !== undefined && row[field] !== null && row[field] !== "") {
+            fullRow[field] = row[field];
+          }
+        });
+        
+        return fullRow;
+      });
+
+    // UPSERT 배치 처리 (1000개씩)
+    if (allRows.length > 0) {
+      const upsertBatchSize = 1000;
+      for (let i = 0; i < allRows.length; i += upsertBatchSize) {
+        const batch = allRows.slice(i, i + upsertBatchSize);
+        
+        // UPSERT: ON CONFLICT (code, year, period) DO UPDATE
+        const { error: upsertError } = await supabase
+          .from("measurement_business")
+          .upsert(batch, { 
+            onConflict: "code,year,period",
+            ignoreDuplicates: false
+          });
+
+        if (upsertError) {
+          // 마이그레이션이 실행되지 않은 경우, 기본 필드만 UPSERT 시도
+          if (upsertError.message?.includes("column") && upsertError.message?.includes("schema cache")) {
+            const basicBatch = batch.map(fullRow => {
+              const baseRow: any = {};
+              baseFields.forEach(field => {
+                if (fullRow[field] !== undefined) {
+                  baseRow[field] = fullRow[field];
+                }
+              });
+              return baseRow;
+            });
+            
+            const { error: basicUpsertError } = await supabase
+              .from("measurement_business")
+              .upsert(basicBatch, {
+                onConflict: "code,year,period",
+                ignoreDuplicates: false
+              });
+            
+            if (basicUpsertError) {
+              console.error(`배치 UPSERT 오류 (${i}~${i + batch.length}):`, basicUpsertError);
+            } else {
+              recordsProcessed += batch.length;
+            }
+          } else {
+            console.error(`배치 UPSERT 오류 (${i}~${i + batch.length}):`, upsertError);
+          }
         } else {
-          recordsInserted++;
+          recordsProcessed += batch.length;
         }
       }
     }
@@ -686,8 +901,8 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
           sync_end_time: syncEndTime.toISOString(),
           status: "성공",
           records_processed: parsedData.length,
-          records_updated: recordsUpdated,
-          records_inserted: recordsInserted,
+          records_updated: recordsProcessed, // UPSERT는 INSERT와 UPDATE를 모두 포함
+          records_inserted: recordsProcessed,
         })
         .eq("id", logId);
     }
@@ -696,8 +911,8 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       success: true,
       file_name: fileName,
       records_processed: parsedData.length,
-      records_inserted: recordsInserted,
-      records_updated: recordsUpdated,
+      records_inserted: recordsProcessed, // UPSERT는 INSERT와 UPDATE를 모두 포함
+      records_updated: recordsProcessed,
     };
   } catch (error) {
     const syncEndTime = new Date();

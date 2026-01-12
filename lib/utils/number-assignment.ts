@@ -4,40 +4,39 @@
  */
 
 import { createClient } from "@/lib/supabase/server";
-
-/**
- * 지정한계_관할지청별 공문연번 접두사 결정
- */
-function getDocumentNumberPrefix(designatedOffice: string): string {
-  if (designatedOffice.includes("천안지청")) {
-    return "천";
-  } else if (designatedOffice === "대전지방고용노동청") {
-    return "대";
-  } else if (designatedOffice.includes("평택지청")) {
-    return "평";
-  } else if (designatedOffice.includes("경기지청")) {
-    return "경";
-  }
-  return "천"; // 기본값
-}
+import { getDocumentNumberPrefix, toShortName } from "@/lib/constants/designated-offices";
 
 /**
  * 공문연번 자동 부여
- * 지정한계_관할지청별로 마지막 번호를 조회하고 다음 번호를 부여합니다.
+ * 지정한계_관할지청 + 측정년도 + 측정주기별로 마지막 번호를 조회하고 다음 번호를 부여합니다.
  * @param designatedOffice 지정한계_관할지청
+ * @param measurementYear 측정년도
+ * @param measurementPeriod 측정주기 (상반기/하반기)
  * @returns 공문연번 (예: "천-001")
  */
 export async function assignDocumentNumber(
-  designatedOffice: string
+  designatedOffice: string,
+  measurementYear: number,
+  measurementPeriod: string
 ): Promise<string> {
   const supabase = await createClient();
-  const prefix = getDocumentNumberPrefix(designatedOffice);
+  
+  // 약칭으로 정규화 (기존 전체명과 호환)
+  const normalizedOffice = toShortName(designatedOffice);
+  const prefix = getDocumentNumberPrefix(normalizedOffice);
 
-  // 해당 지정한계_관할지청의 마지막 공문연번 조회
+  // 해당 지정한계_관할지청 + 측정년도 + 측정주기의 마지막 공문연번 조회
+  const officesToMatch = [normalizedOffice];
+  if (normalizedOffice !== designatedOffice) {
+    officesToMatch.push(designatedOffice);
+  }
+  
   const { data: lastJournal, error } = await supabase
     .from("measurement_journal")
     .select("document_number")
-    .eq("designated_office", designatedOffice)
+    .in("designated_office", officesToMatch)
+    .eq("measurement_year", measurementYear)
+    .eq("measurement_period", measurementPeriod)
     .not("document_number", "is", null)
     .like("document_number", `${prefix}-%`)
     .order("document_number", { ascending: false })
@@ -66,22 +65,33 @@ export async function assignDocumentNumber(
 
 /**
  * 연번 자동 부여
- * 지정한계_관할지청 + 측정주기별로 마지막 번호를 조회하고 다음 번호를 부여합니다.
+ * 지정한계_관할지청 + 측정년도 + 측정주기별로 마지막 번호를 조회하고 다음 번호를 부여합니다.
  * @param designatedOffice 지정한계_관할지청
+ * @param measurementYear 측정년도
  * @param measurementPeriod 측정주기 (상반기/하반기)
  * @returns 연번 (예: "001")
  */
 export async function assignSequenceNumber(
   designatedOffice: string,
+  measurementYear: number,
   measurementPeriod: string
 ): Promise<string> {
   const supabase = await createClient();
 
-  // 해당 지정한계_관할지청 + 측정주기의 마지막 연번 조회
+  // 약칭으로 정규화 (기존 전체명과 호환)
+  const normalizedOffice = toShortName(designatedOffice);
+
+  // 해당 지정한계_관할지청 + 측정년도 + 측정주기의 마지막 연번 조회
+  const officesToMatch = [normalizedOffice];
+  if (normalizedOffice !== designatedOffice) {
+    officesToMatch.push(designatedOffice);
+  }
+  
   const { data: lastJournal, error } = await supabase
     .from("measurement_journal")
     .select("sequence_number")
-    .eq("designated_office", designatedOffice)
+    .in("designated_office", officesToMatch)
+    .eq("measurement_year", measurementYear)
     .eq("measurement_period", measurementPeriod)
     .not("sequence_number", "is", null)
     .order("sequence_number", { ascending: false })
@@ -123,13 +133,22 @@ export async function assignFivePlusSequenceNumber(
 ): Promise<string> {
   const supabase = await createClient();
 
+  // 약칭으로 정규화 (기존 전체명과 호환)
+  const normalizedOffice = toShortName(designatedOffice);
+
   // 총인원이 5인 미만인 경우
   if (!totalEmployees || totalEmployees < 5) {
-    // 직전 5인 이상 연번 조회 (중복 허용)
+    // 직전 5인 이상 연번 조회 (중복 허용, 기존 전체명과 약칭 모두 매칭)
+    // .in() 사용하여 더 안전하게 처리
+    const officesToMatch = [normalizedOffice];
+    if (normalizedOffice !== designatedOffice) {
+      officesToMatch.push(designatedOffice);
+    }
+    
     const { data: lastJournal, error } = await supabase
       .from("measurement_journal")
       .select("five_plus_sequence")
-      .eq("designated_office", designatedOffice)
+      .in("designated_office", officesToMatch)
       .eq("measurement_period", measurementPeriod)
       .not("five_plus_sequence", "is", null)
       .order("created_at", { ascending: false })
@@ -151,11 +170,17 @@ export async function assignFivePlusSequenceNumber(
     return "000";
   }
 
-  // 총인원이 5인 이상인 경우: 마지막 번호 조회 후 증가
+  // 총인원이 5인 이상인 경우: 마지막 번호 조회 후 증가 (기존 전체명과 약칭 모두 매칭)
+  // .in() 사용하여 더 안전하게 처리
+  const officesToMatch = [normalizedOffice];
+  if (normalizedOffice !== designatedOffice) {
+    officesToMatch.push(designatedOffice);
+  }
+  
   const { data: lastJournal, error } = await supabase
     .from("measurement_journal")
     .select("five_plus_sequence")
-    .eq("designated_office", designatedOffice)
+    .in("designated_office", officesToMatch)
     .eq("measurement_period", measurementPeriod)
     .not("five_plus_sequence", "is", null)
     .order("five_plus_sequence", { ascending: false })
@@ -187,6 +212,7 @@ export async function assignFivePlusSequenceNumber(
  */
 export async function assignAllNumbers(journalData: {
   designated_office: string;
+  measurement_year: number;
   measurement_period: string;
   total_employees?: number | null;
   document_number?: string | null;
@@ -197,17 +223,25 @@ export async function assignAllNumbers(journalData: {
   sequence_number: string;
   five_plus_sequence: string;
 }> {
+  // 약칭으로 정규화 (기존 전체명과 호환)
+  const normalizedOffice = toShortName(journalData.designated_office);
+
   // 공문연번이 없으면 자동 부여
   let documentNumber = journalData.document_number;
   if (!documentNumber) {
-    documentNumber = await assignDocumentNumber(journalData.designated_office);
+    documentNumber = await assignDocumentNumber(
+      normalizedOffice,
+      journalData.measurement_year,
+      journalData.measurement_period
+    );
   }
 
   // 연번이 없으면 자동 부여
   let sequenceNumber = journalData.sequence_number;
   if (!sequenceNumber) {
     sequenceNumber = await assignSequenceNumber(
-      journalData.designated_office,
+      normalizedOffice,
+      journalData.measurement_year,
       journalData.measurement_period
     );
   }
@@ -216,7 +250,7 @@ export async function assignAllNumbers(journalData: {
   let fivePlusSequence = journalData.five_plus_sequence;
   if (!fivePlusSequence) {
     fivePlusSequence = await assignFivePlusSequenceNumber(
-      journalData.designated_office,
+      normalizedOffice,
       journalData.measurement_period,
       journalData.total_employees || null
     );
