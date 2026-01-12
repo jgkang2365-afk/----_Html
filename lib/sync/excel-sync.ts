@@ -291,8 +291,55 @@ function excelDateToJSDate(excelDate: number): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * 컬럼명 변형을 시도하여 값을 찾는 헬퍼 함수
+ * 공백, 대소문자 등의 차이를 처리합니다.
+ */
+function findColumnValue(row: any, columnNames: string[]): any {
+  for (const name of columnNames) {
+    if (row[name] !== undefined && row[name] !== null && row[name] !== "") {
+      return row[name];
+    }
+  }
+  
+  // 모든 컬럼에서 유사한 이름 찾기 (공백, 대소문자 무시)
+  const keys = Object.keys(row);
+  for (const name of columnNames) {
+    const normalizedName = name.replace(/\s/g, "").toLowerCase();
+    for (const key of keys) {
+      const normalizedKey = key.replace(/\s/g, "").toLowerCase();
+      if (normalizedKey === normalizedName || normalizedKey.includes(normalizedName)) {
+        if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
+          return row[key];
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
 function parseMeasurementBusiness(data: any[]): any[] {
+  // 첫 번째 데이터 행에서 컬럼명 분석 (디버깅용)
+  if (data.length > 0) {
+    const firstRow = data[0];
+    const keys = Object.keys(firstRow);
+    
+    // "코드" 컬럼의 정확한 이름 찾기
+    const codeColumnName = keys.find(k => {
+      const normalized = k.replace(/\s/g, "").toLowerCase();
+      return normalized === "코드" || normalized.includes("코드");
+    });
+    
+    if (codeColumnName && codeColumnName !== "코드") {
+      console.log(`[파싱] "코드" 컬럼이 다른 이름으로 발견됨: "${codeColumnName}"`);
+    }
+  }
+  
   return data.map((row: any) => {
+    // 코드 값 찾기 - 여러 가능한 컬럼명 시도
+    const codeValue = findColumnValue(row, ["코드", "코 드", "Code", "code", "CODE"]);
+    
     // 실제 Excel 파일의 컬럼명에 맞게 매핑
     const period = row["구분"] || "";
     const normalizedPeriod = period.toString().includes("상반기") || period.toString().includes("상") ? "상반기" : 
@@ -355,7 +402,7 @@ function parseMeasurementBusiness(data: any[]): any[] {
 
     // 기본 필드만 먼저 구성 (마이그레이션이 실행되지 않은 경우를 대비)
     const baseData: any = {
-      code: String(row["코드"] || "").trim(),
+      code: String(codeValue || "").trim(),
       year: parseInt(row["년도"] || "0", 10),
       period: normalizedPeriod,
       business_name: String(row["사업장명"] || "").trim(),
@@ -848,46 +895,56 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     
     console.log(`[측정사업장 동기화] Excel 파일에서 읽은 데이터 행 수: ${excelData.length}`);
     
-    // 디버깅: 첫 번째 행에서 "향후측정주기" 컬럼 확인
+    // 디버깅: 첫 번째 행에서 컬럼 확인
     if (excelData.length > 0) {
       const firstRow = excelData[0];
       const keys = Object.keys(firstRow);
       console.log(`[측정사업장 동기화] 첫 번째 행의 컬럼 수: ${keys.length}`);
       console.log("[측정사업장 동기화] 첫 번째 행의 컬럼명 샘플 (최대 30개):", keys.slice(0, 30));
       
+      // "코드" 컬럼 정확한 이름 찾기
+      const codeColumnExact = keys.find(k => k === "코드");
+      const codeColumnContains = keys.filter(k => k && k.includes("코드"));
+      console.log(`[측정사업장 동기화] "코드" 컬럼 (정확히 일치): ${codeColumnExact || "없음"}`);
+      console.log(`[측정사업장 동기화] "코드"를 포함하는 컬럼:`, codeColumnContains);
+      
+      // 코드 컬럼 값 샘플 확인
+      if (codeColumnExact) {
+        console.log(`[측정사업장 동기화] "코드" 컬럼 첫 5개 값:`, 
+          excelData.slice(0, 5).map((r: any) => r["코드"]));
+      }
+      
+      // 모든 데이터 행에서 H0432 찾기 (어떤 컬럼에 있는지 확인)
+      let h0432Found = false;
+      for (let i = 0; i < Math.min(excelData.length, 2000); i++) {
+        const row = excelData[i];
+        for (const key of keys) {
+          const value = row[key];
+          if (value && String(value).toUpperCase().includes("H0432")) {
+            console.log(`[측정사업장 동기화] H0432 발견! 행 ${i}, 컬럼: "${key}", 값: "${value}"`);
+            console.log(`[측정사업장 동기화] 해당 행의 다른 주요 값:`, {
+              "년도": row["년도"],
+              "구분": row["구분"],
+              "사업장명": row["사업장명"],
+              "코드": row["코드"]
+            });
+            h0432Found = true;
+            break;
+          }
+        }
+        if (h0432Found) break;
+      }
+      
+      if (!h0432Found) {
+        console.warn("[측정사업장 동기화] 경고: 전체 데이터에서 H0432를 찾을 수 없습니다!");
+        // 마지막 20개 컬럼 확인 (뒤쪽에 코드가 있을 수 있음)
+        console.log("[측정사업장 동기화] 마지막 20개 컬럼명:", keys.slice(-20));
+      }
+      
       // "향후측정주기" 관련 컬럼 찾기
       const periodColumns = keys.filter(k => k && (k.includes("향후") || (k.includes("주기") && k.includes("측정"))));
       if (periodColumns.length > 0) {
         console.log("[측정사업장 동기화] 향후측정주기 관련 컬럼:", periodColumns);
-        console.log("[측정사업장 동기화] 첫 번째 행의 향후측정주기 값:", firstRow[periodColumns[0]]);
-      } else {
-        console.warn("[측정사업장 동기화] 경고: 향후측정주기 관련 컬럼을 찾을 수 없습니다.");
-        console.warn("[측정사업장 동기화] 모든 컬럼명:", keys);
-      }
-      
-      // "코드", "년도", "구분" 등 주요 컬럼 확인
-      const hasCode = keys.some(k => k === "코드" || k.includes("코드"));
-      const hasYear = keys.some(k => k === "년도" || k.includes("년도"));
-      const hasPeriod = keys.some(k => k === "구분" || k.includes("구분"));
-      console.log(`[측정사업장 동기화] 주요 컬럼 존재 여부 - 코드: ${hasCode}, 년도: ${hasYear}, 구분: ${hasPeriod}`);
-      
-      // 코드 컬럼 찾기 (모든 컬럼에서)
-      const codeColumns = keys.filter(k => k && (k === "코드" || k.includes("코드")));
-      console.log(`[측정사업장 동기화] 코드 관련 컬럼:`, codeColumns);
-      
-      // 모든 컬럼명 출력 (H0432 찾기를 위해)
-      console.log(`[측정사업장 동기화] 전체 컬럼명 (${keys.length}개):`, keys);
-      
-      // H0432를 포함하는 모든 컬럼의 값 확인
-      const h0432InAnyColumn: any = {};
-      keys.forEach(key => {
-        const value = firstRow[key];
-        if (value && String(value).includes("H0432")) {
-          h0432InAnyColumn[key] = value;
-        }
-      });
-      if (Object.keys(h0432InAnyColumn).length > 0) {
-        console.log(`[측정사업장 동기화] H0432를 포함하는 컬럼 값:`, h0432InAnyColumn);
       }
     } else {
       console.error("[측정사업장 동기화] Excel 파일에서 데이터를 읽을 수 없습니다!");
@@ -896,7 +953,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     const parsedData = parseMeasurementBusiness(excelData);
     
     // 디버깅: H0432 데이터가 파싱되었는지 확인
-    const h0432Parsed = parsedData.filter((row: any) => row.code && (row.code.includes("H0432") || row.code.includes("H432")));
+    const h0432Parsed = parsedData.filter((row: any) => row.code && (row.code.toUpperCase().includes("H0432") || row.code.toUpperCase().includes("H432")));
     console.log(`[측정사업장 동기화] 파싱된 데이터 중 H0432 포함: ${h0432Parsed.length}건`);
     if (h0432Parsed.length > 0) {
       console.log("[측정사업장 동기화] H0432 파싱된 데이터:", h0432Parsed.map((r: any) => ({
@@ -907,15 +964,6 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       })));
     } else {
       console.warn("[측정사업장 동기화] 경고: 파싱된 데이터에 H0432가 없습니다!");
-      // Excel 원본 데이터에서 H0432 찾기
-      const h0432InExcel = excelData.filter((row: any) => {
-        const code = String(row["코드"] || "").trim();
-        return code.includes("H0432") || code.includes("H432");
-      });
-      console.log(`[측정사업장 동기화] Excel 원본 데이터에서 H0432 찾기: ${h0432InExcel.length}건`);
-      if (h0432InExcel.length > 0) {
-        console.log("[측정사업장 동기화] Excel 원본 H0432 데이터 샘플:", h0432InExcel[0]);
-      }
     }
     
     // 디버깅: 파싱된 데이터 중 future_measurement_period가 있는 항목 확인
