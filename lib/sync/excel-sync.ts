@@ -870,6 +870,25 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       const hasYear = keys.some(k => k === "년도" || k.includes("년도"));
       const hasPeriod = keys.some(k => k === "구분" || k.includes("구분"));
       console.log(`[측정사업장 동기화] 주요 컬럼 존재 여부 - 코드: ${hasCode}, 년도: ${hasYear}, 구분: ${hasPeriod}`);
+      
+      // 코드 컬럼 찾기 (모든 컬럼에서)
+      const codeColumns = keys.filter(k => k && (k === "코드" || k.includes("코드")));
+      console.log(`[측정사업장 동기화] 코드 관련 컬럼:`, codeColumns);
+      
+      // 모든 컬럼명 출력 (H0432 찾기를 위해)
+      console.log(`[측정사업장 동기화] 전체 컬럼명 (${keys.length}개):`, keys);
+      
+      // H0432를 포함하는 모든 컬럼의 값 확인
+      const h0432InAnyColumn: any = {};
+      keys.forEach(key => {
+        const value = firstRow[key];
+        if (value && String(value).includes("H0432")) {
+          h0432InAnyColumn[key] = value;
+        }
+      });
+      if (Object.keys(h0432InAnyColumn).length > 0) {
+        console.log(`[측정사업장 동기화] H0432를 포함하는 컬럼 값:`, h0432InAnyColumn);
+      }
     } else {
       console.error("[측정사업장 동기화] Excel 파일에서 데이터를 읽을 수 없습니다!");
     }
