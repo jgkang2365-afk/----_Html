@@ -88,12 +88,13 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const formatCurrency = (amount: number): string => {
+  const formatCurrency = (amount: number | null | undefined): string => {
+    const numAmount = amount ?? 0;
     return new Intl.NumberFormat("ko-KR", {
       style: "currency",
       currency: "KRW",
     })
-      .format(amount)
+      .format(numAmount)
       .replace("₩", "")
       .trim();
   };

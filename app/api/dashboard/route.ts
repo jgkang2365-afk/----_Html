@@ -115,6 +115,7 @@ export async function GET() {
 
     monthlyRevenue?.forEach((item) => {
       const year = item.measurement_year;
+      if (!year) return; // year가 없으면 건너뛰기
       const fee = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
 
       // 년도별 집계
