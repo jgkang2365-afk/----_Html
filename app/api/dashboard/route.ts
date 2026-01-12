@@ -240,12 +240,19 @@ export async function GET() {
     });
   } catch (error: any) {
     console.error("대시보드 데이터 조회 오류:", error);
+    console.error("오류 스택:", error?.stack);
+    console.error("오류 상세:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+    
+    const errorMessage = error?.message || "알 수 없는 오류";
+    const errorDetails = error?.details || errorMessage;
+    
     return NextResponse.json(
       {
         error: "대시보드 데이터를 불러오는 중 오류가 발생했습니다.",
-        details: error.message,
+        details: errorDetails,
+        message: errorMessage,
       },
-      { status: error.status || 500 }
+      { status: error?.status || 500 }
     );
   }
 }
