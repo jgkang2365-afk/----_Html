@@ -666,7 +666,7 @@ export const JournalSearch: React.FC = () => {
               </div>
               <div className="flex-1 min-w-[150px]">
                 <Select
-                  label="지정한계_관할지청"
+                  label="지정지청"
                   value={searchParams.designatedOffice}
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, designatedOffice: e.target.value })
@@ -743,7 +743,7 @@ export const JournalSearch: React.FC = () => {
                         <TableHead className="bg-surface-50 w-20 text-center">측정년도</TableHead>
                         <TableHead className="bg-surface-50 w-20 text-center">측정주기</TableHead>
                         <TableHead className="bg-surface-50 w-[360px]">사업장명</TableHead>
-                        <TableHead className="bg-surface-50 w-24 text-center">지정한계<br />관할지청</TableHead>
+                        <TableHead className="bg-surface-50 w-24 text-center">지정지청</TableHead>
                         <TableHead className="bg-surface-50 w-auto">주소</TableHead>
                         <TableHead className="bg-surface-50 w-24 text-center">측정<br />시작일</TableHead>
                         <TableHead className="bg-surface-50 w-24 text-center">측정<br />종료일</TableHead>
@@ -834,7 +834,7 @@ export const JournalSearch: React.FC = () => {
                 options={periodOptions}
               />
               <Select
-                label="지정한계_관할지청"
+                label="지정지청"
                 value={filters.designatedOffice}
                 onChange={(e) => handleFilterChange("designatedOffice", e.target.value)}
                 options={designatedOfficeOptions}
@@ -907,7 +907,7 @@ export const JournalSearch: React.FC = () => {
                       <TableHead className="bg-surface-50">측정년도</TableHead>
                       <TableHead className="bg-surface-50">측정주기</TableHead>
                       <TableHead className="bg-surface-50">사업장명</TableHead>
-                      <TableHead className="bg-surface-50">지정한계_관할지청</TableHead>
+                      <TableHead className="bg-surface-50">지정지청</TableHead>
                       <TableHead className="bg-surface-50">주소</TableHead>
                       <TableHead className="bg-surface-50">측정 시작일</TableHead>
                       <TableHead className="bg-surface-50">측정 종료일</TableHead>

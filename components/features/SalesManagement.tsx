@@ -670,7 +670,7 @@ export const SalesManagement: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-text-700 mb-1">지정한계_관할지청</label>
+            <label className="block text-sm font-medium text-text-700 mb-1">지정지청</label>
             <Select
               value={filters.designatedOffice}
               onChange={(e) => {
@@ -1891,7 +1891,7 @@ export const SalesManagement: React.FC = () => {
                                   className="flex items-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleMeasurementSort("designated_office")}
                                 >
-                                  지정한계_관할지청
+                                  지정지청
                                   <MeasurementSortIcon column="designated_office" />
                                 </div>
                                 <Select
@@ -2338,7 +2338,7 @@ export const SalesManagement: React.FC = () => {
                                   className="flex items-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleSort("designatedOffice")}
                                 >
-                                  지정한계_관할지청
+                                  지정지청
                                   <SortIcon column="designatedOffice" />
                                 </div>
                                 <Select

@@ -164,7 +164,7 @@ export const Dashboard: React.FC = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead className="bg-surface-50 text-xs">사업장명</TableHead>
-                  <TableHead className="bg-surface-50 text-xs">지정한계_관할지청</TableHead>
+                  <TableHead className="bg-surface-50 text-xs">지정지청</TableHead>
                   <TableHead className="bg-surface-50 text-xs">완료일</TableHead>
                   <TableHead className="bg-surface-50 text-xs">경과일수</TableHead>
                 </TableRow>
@@ -190,7 +190,7 @@ export const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card className="p-4">
           <h2 className="text-sm font-semibold text-text-900 mb-3">
-            지정한계_관할지청별 사업장 수
+            지정지청별 사업장 수
           </h2>
           {data.officeStats.length === 0 ? (
             <p className="text-text-400 text-sm text-center py-4">데이터가 없습니다.</p>

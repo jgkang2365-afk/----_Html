@@ -231,7 +231,7 @@ export const SummaryTable: React.FC = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-text-700 mb-1">
-              지정한계_관할지청
+              지정지청
             </label>
             <Select
               value={searchParams.designatedOffice}

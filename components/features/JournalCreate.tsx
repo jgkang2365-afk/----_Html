@@ -194,7 +194,7 @@ export const JournalCreate: React.FC = () => {
             placeholder="최초실시, 고시물질, 소음 85 이상 등"
           />
           <Select
-            label="지정한계_관할지청 *"
+            label="지정지청 *"
             value={formData.designatedOffice}
             onChange={(e) =>
               setFormData({ ...formData, designatedOffice: e.target.value })

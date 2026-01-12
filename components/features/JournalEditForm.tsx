@@ -378,7 +378,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             placeholder="주소 입력 시 자동 입력됩니다"
           />
           <Select
-            label="지정한계_관할지청 *"
+            label="지정지청 *"
             value={formData.designated_office}
             onChange={(e) =>
               setFormData({ ...formData, designated_office: e.target.value })
