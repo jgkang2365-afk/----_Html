@@ -15,7 +15,7 @@ import { syncBusinessInfo, syncMeasurementBusiness, syncAllFiles } from "@/lib/s
  */
 export async function POST(request: Request) {
   try {
-    // 권한 체크 (관리자 또는 측정팀 직원 모두 동기화 가능)
+    // 권한 체크 (관리자 또는 사용자 모두 동기화 가능)
     await checkPermission(["system:settings", "dashboard:read"]);
 
     const { searchParams } = new URL(request.url);

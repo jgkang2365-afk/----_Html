@@ -1,17 +1,16 @@
 import { redirect } from "next/navigation";
-import { getUser } from "./get-user";
+import { getSession } from "./session";
 
 /**
  * 인증이 필요한 페이지에서 사용
  * 인증되지 않은 사용자는 로그인 페이지로 리다이렉트
  */
 export async function requireAuth() {
-  const user = await getUser();
+  const session = await getSession();
 
-  if (!user) {
+  if (!session) {
     redirect("/login");
   }
 
-  return user;
+  return session;
 }
-

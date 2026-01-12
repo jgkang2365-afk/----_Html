@@ -7,11 +7,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "create-templates": "tsx scripts/create-upload-templates.ts"
+    "create-templates": "tsx scripts/create-upload-templates.ts",
+    "init-users": "tsx scripts/init-users.ts",
+    "reset-admin-password": "tsx scripts/reset-admin-password.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.89.0",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
     "next": "14.2.0",

@@ -1,29 +1,26 @@
-import { getUser } from "./get-user";
-import { hasPermission, hasAnyPermission, type Permission, type UserRole } from "@/lib/permissions";
+import { getSession } from "./session";
+import { Permission, hasPermission, hasAnyPermission } from "@/lib/permissions";
 
 /**
- * 서버 사이드에서 권한 체크
- * API Route나 Server Component에서 사용
- * 권한이 없으면 에러를 throw합니다 (리다이렉트하지 않음)
+ * API 엔드포인트에서 권한 체크
+ * 권한이 없으면 예외를 던집니다
  */
 export async function checkPermission(
   requiredPermissions: Permission | Permission[]
 ): Promise<void> {
-  const user = await getUser();
+  const session = await getSession();
 
-  if (!user) {
-    throw new Error("Unauthorized: No user session found.");
+  if (!session) {
+    throw new Error("로그인이 필요합니다.");
   }
 
-  const userRole: UserRole = user.role;
-  const permissionsArray = Array.isArray(requiredPermissions)
+  const permissions = Array.isArray(requiredPermissions)
     ? requiredPermissions
     : [requiredPermissions];
 
-  const authorized = hasAnyPermission(userRole, permissionsArray);
+  const hasAccess = hasAnyPermission(session.role, permissions);
 
-  if (!authorized) {
-    throw new Error("Forbidden: You do not have the necessary permissions.");
+  if (!hasAccess) {
+    throw new Error("권한이 없습니다.");
   }
 }
-

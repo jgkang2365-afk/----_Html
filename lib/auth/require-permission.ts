@@ -1,32 +1,40 @@
 import { redirect } from "next/navigation";
-import { getUser } from "./get-user";
-import { hasPermission, type Permission, type UserRole } from "@/lib/permissions";
+import { getSession } from "./session";
+import { Permission, hasPermission } from "@/lib/permissions";
 
 /**
  * 특정 권한이 필요한 페이지에서 사용
- * 인증되지 않았거나 권한이 없으면 리다이렉트
  */
 export async function requirePermission(
   permission: Permission,
   redirectTo: string = "/dashboard"
 ) {
-  const user = await getUser();
+  const session = await getSession();
 
-  if (!user) {
+  if (!session) {
     redirect("/login");
   }
 
-  if (!hasPermission(user.role, permission)) {
+  if (!hasPermission(session.role, permission)) {
     redirect(redirectTo);
   }
 
-  return user;
+  return session;
 }
 
 /**
  * 관리자 권한이 필요한 페이지에서 사용
  */
 export async function requireAdmin() {
-  return requirePermission("system:settings", "/dashboard");
-}
+  const session = await getSession();
 
+  if (!session) {
+    redirect("/login");
+  }
+
+  if (session.role !== "관리자") {
+    redirect("/dashboard");
+  }
+
+  return session;
+}

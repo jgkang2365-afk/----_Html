@@ -7,7 +7,7 @@ interface User {
   id: string;
   email: string;
   name: string;
-  role: "관리자" | "측정팀 직원";
+  role: "관리자" | "사용자";
 }
 
 export function useUser() {
