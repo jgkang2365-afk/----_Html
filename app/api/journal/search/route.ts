@@ -380,7 +380,28 @@ export async function GET(request: NextRequest) {
     const finalH0432 = filteredResults.filter((r: any) => r.code && r.code.includes("H0432"));
     console.log(`[검색 API] 최종 H0432 데이터: ${finalH0432.length}건`);
 
-    return NextResponse.json({ results: filteredResults });
+    // 디버깅 정보 (개발 환경에서만)
+    const debugInfo: any = {
+      search_conditions: {
+        code,
+        measurementYear,
+        measurementPeriod,
+        businessName,
+        designatedOffice,
+        address,
+      },
+      business_data_count: businessData?.length || 0,
+      journal_data_count: journalData?.length || 0,
+      results_before_filter: results.length,
+      results_after_filter: filteredResults.length,
+      h0432_in_business: businessData?.filter((b: any) => b.code && b.code.includes("H0432")).length || 0,
+      h0432_in_results: finalH0432.length,
+    };
+
+    return NextResponse.json({ 
+      results: filteredResults,
+      debug: process.env.NODE_ENV === "development" ? debugInfo : undefined,
+    });
   } catch (error) {
     console.error("측정일지 검색 API 오류:", error);
 
