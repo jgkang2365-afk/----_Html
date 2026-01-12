@@ -62,10 +62,46 @@ export async function GET(request: Request) {
     const buffer = Buffer.from(arrayBuffer);
 
     try {
-      const workbook = XLSX.read(buffer, {
-        type: "buffer",
-        cellDates: true,
-      });
+      // xlsx 라이브러리로 읽기 시도 (여러 옵션 시도)
+      let workbook;
+      let parseError = null;
+      
+      // 방법 1: 기본 옵션
+      try {
+        workbook = XLSX.read(buffer, {
+          type: "buffer",
+          cellDates: true,
+          cellNF: false,
+          cellText: false,
+        });
+      } catch (err1) {
+        parseError = err1;
+        
+        // 방법 2: cellText를 true로 시도
+        try {
+          workbook = XLSX.read(buffer, {
+            type: "buffer",
+            cellDates: false,
+            cellNF: false,
+            cellText: true,
+          });
+          parseError = null;
+        } catch (err2) {
+          parseError = err2;
+        }
+      }
+      
+      if (!workbook || parseError) {
+        return NextResponse.json(
+          {
+            error: "Excel 파일 파싱 실패",
+            message: parseError instanceof Error ? parseError.message : String(parseError),
+            file_name: latestFile.name,
+            suggestion: "파일이 오래된 Excel 형식(.xls)일 수 있습니다. Excel에서 파일을 열어 '.xlsx' 형식으로 저장한 후 다시 업로드해주세요.",
+          },
+          { status: 500 }
+        );
+      }
 
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
@@ -81,6 +117,7 @@ export async function GET(request: Request) {
       const decodedRange = XLSX.utils.decode_range(range);
       
       // 첫 번째 행이 비어있는지 확인 (측정사업장 파일의 경우)
+      // 파일명에 "측정사업장"이 포함되어 있으면 확인
       const firstRowCell = XLSX.utils.encode_cell({ r: 0, c: 0 });
       const firstRowHasData = worksheet[firstRowCell] && String(worksheet[firstRowCell].v || "").trim();
       
