@@ -33,11 +33,19 @@ export interface SyncLog {
 /**
  * Excel 파일을 읽어서 JSON 배열로 변환
  * 측정사업장.xlsx 파일은 첫 번째 행이 비어있고 두 번째 행이 헤더입니다.
+ * 
+ * @param filePathOrBuffer - 파일 경로 (string) 또는 파일 버퍼 (Buffer)
  */
-function readExcelFile(filePath: string): any[] {
+function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): any[] {
   try {
-    // 파일을 buffer로 읽어서 처리 (파일 잠금 문제 방지)
-    const fileBuffer = readFileSync(filePath);
+    // 파일 경로 또는 Buffer에서 파일 버퍼 가져오기
+    const fileBuffer = typeof filePathOrBuffer === "string" 
+      ? readFileSync(filePathOrBuffer)
+      : filePathOrBuffer;
+    
+    const filePathForCheck = typeof filePathOrBuffer === "string" 
+      ? filePathOrBuffer 
+      : (fileName || "");
     const workbook = XLSX.read(fileBuffer, { 
       type: "buffer",
       cellDates: true,
@@ -60,7 +68,7 @@ function readExcelFile(filePath: string): any[] {
     const firstRowCell = XLSX.utils.encode_cell({ r: 0, c: 0 });
     const firstRowHasData = worksheet[firstRowCell] && String(worksheet[firstRowCell].v || "").trim();
     
-    if (!firstRowHasData && filePath.includes("측정사업장")) {
+    if (!firstRowHasData && filePathForCheck.includes("측정사업장")) {
       // 첫 번째 행이 비어있으면 두 번째 행을 헤더로 사용
       // range를 조정하여 행 1부터 시작하도록 설정 (0-based index)
       const newRange = {
@@ -83,7 +91,53 @@ function readExcelFile(filePath: string): any[] {
       return data;
     }
   } catch (error) {
-    throw new Error(`Excel 파일 읽기 실패: ${filePath} - ${error instanceof Error ? error.message : String(error)}`);
+    const filePathStr = typeof filePathOrBuffer === "string" ? filePathOrBuffer : (fileName || "Buffer");
+    throw new Error(`Excel 파일 읽기 실패: ${filePathStr} - ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Storage에서 최신 파일을 가져오는 헬퍼 함수
+ * @param fileType - "business-info" 또는 "measurement-business"
+ * @returns 파일 버퍼와 파일명, 또는 null (파일이 없을 경우)
+ */
+async function getLatestFileFromStorage(fileType: "business-info" | "measurement-business"): Promise<{ buffer: Buffer; fileName: string } | null> {
+  try {
+    const supabase = await createClient();
+    
+    // Storage에서 파일 목록 조회 (최신순 정렬)
+    const { data: files, error: listError } = await supabase.storage
+      .from("excel-files")
+      .list(fileType, {
+        limit: 1,
+        offset: 0,
+        sortBy: { column: "created_at", order: "desc" },
+      });
+
+    if (listError || !files || files.length === 0) {
+      return null;
+    }
+
+    const latestFile = files[0];
+    const filePath = `${fileType}/${latestFile.name}`;
+
+    // 파일 다운로드
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from("excel-files")
+      .download(filePath);
+
+    if (downloadError || !fileData) {
+      return null;
+    }
+
+    // Blob을 Buffer로 변환
+    const arrayBuffer = await fileData.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    return { buffer, fileName: latestFile.name };
+  } catch (error) {
+    console.error(`Storage에서 파일 가져오기 실패 (${fileType}):`, error);
+    return null;
   }
 }
 
@@ -392,35 +446,46 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
   
-  // 파일 경로가 지정되지 않은 경우, .xlsx를 우선 확인
-  let targetPath = filePath;
-  let fileName = fileNameXlsx;
-  
-  if (!targetPath) {
-    if (existsSync(defaultPathXlsx)) {
-      targetPath = defaultPathXlsx;
-      fileName = fileNameXlsx;
-    } else if (existsSync(defaultPathXls)) {
-      targetPath = defaultPathXls;
-      fileName = fileNameXls;
-    } else {
-      throw new Error(`Excel 파일을 찾을 수 없습니다: ${fileNameXlsx} 또는 ${fileNameXls}`);
-    }
-  } else {
-    if (!filePath) {
-      throw new Error("파일 경로가 지정되지 않았습니다.");
-    }
-    fileName = filePath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
-    if (targetPath && !existsSync(targetPath)) {
-      throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
-    }
-  }
-
   const syncStartTime = new Date();
   let logId: number | null = null;
 
   try {
     const supabase = await createClient();
+    
+    // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
+    let excelData: any[];
+    let fileName = fileNameXlsx;
+    let targetPath: string | Buffer | undefined = filePath;
+    let fileBuffer: Buffer | undefined;
+    let storageFileName: string | undefined;
+
+    if (!targetPath) {
+      // Storage에서 최신 파일 가져오기 시도
+      const storageFile = await getLatestFileFromStorage("business-info");
+      if (storageFile) {
+        fileBuffer = storageFile.buffer;
+        storageFileName = storageFile.fileName;
+        fileName = storageFile.fileName;
+        targetPath = fileBuffer;
+      } else {
+        // Storage에 파일이 없으면 로컬 파일 사용
+        if (existsSync(defaultPathXlsx)) {
+          targetPath = defaultPathXlsx;
+          fileName = fileNameXlsx;
+        } else if (existsSync(defaultPathXls)) {
+          targetPath = defaultPathXls;
+          fileName = fileNameXls;
+        } else {
+          throw new Error(`Excel 파일을 찾을 수 없습니다: ${fileNameXlsx} 또는 ${fileNameXls}`);
+        }
+      }
+    } else {
+      // filePath가 지정된 경우 (로컬 파일 경로)
+      fileName = filePath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
+      if (!existsSync(targetPath)) {
+        throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
+      }
+    }
 
     // 동기화 로그 시작
     const { data: logData, error: logError } = await supabase
@@ -444,7 +509,11 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
     }
 
     // Excel 파일 읽기
-    const excelData = readExcelFile(targetPath);
+    if (fileBuffer) {
+      excelData = readExcelFile(fileBuffer, storageFileName);
+    } else {
+      excelData = readExcelFile(targetPath as string);
+    }
     
     // 디버깅: "관할청" 컬럼이 있는 행 찾기
     let sampleRowWithOffice = null;
@@ -700,35 +769,46 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
   
-  // 파일 경로가 지정되지 않은 경우, .xlsx를 우선 확인
-  let targetPath = filePath;
-  let fileName = fileNameXlsx;
-  
-  if (!targetPath) {
-    if (existsSync(defaultPathXlsx)) {
-      targetPath = defaultPathXlsx;
-      fileName = fileNameXlsx;
-    } else if (existsSync(defaultPathXls)) {
-      targetPath = defaultPathXls;
-      fileName = fileNameXls;
-    } else {
-      throw new Error(`Excel 파일을 찾을 수 없습니다: ${fileNameXlsx} 또는 ${fileNameXls}`);
-    }
-  } else {
-    if (!filePath) {
-      throw new Error("파일 경로가 지정되지 않았습니다.");
-    }
-    fileName = filePath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
-    if (targetPath && !existsSync(targetPath)) {
-      throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
-    }
-  }
-
   const syncStartTime = new Date();
   let logId: number | null = null;
 
   try {
     const supabase = await createClient();
+    
+    // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
+    let excelData: any[];
+    let fileName = fileNameXlsx;
+    let targetPath: string | Buffer | undefined = filePath;
+    let fileBuffer: Buffer | undefined;
+    let storageFileName: string | undefined;
+
+    if (!targetPath) {
+      // Storage에서 최신 파일 가져오기 시도
+      const storageFile = await getLatestFileFromStorage("measurement-business");
+      if (storageFile) {
+        fileBuffer = storageFile.buffer;
+        storageFileName = storageFile.fileName;
+        fileName = storageFile.fileName;
+        targetPath = fileBuffer;
+      } else {
+        // Storage에 파일이 없으면 로컬 파일 사용
+        if (existsSync(defaultPathXlsx)) {
+          targetPath = defaultPathXlsx;
+          fileName = fileNameXlsx;
+        } else if (existsSync(defaultPathXls)) {
+          targetPath = defaultPathXls;
+          fileName = fileNameXls;
+        } else {
+          throw new Error(`Excel 파일을 찾을 수 없습니다: ${fileNameXlsx} 또는 ${fileNameXls}`);
+        }
+      }
+    } else {
+      // filePath가 지정된 경우 (로컬 파일 경로)
+      fileName = filePath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
+      if (!existsSync(targetPath)) {
+        throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
+      }
+    }
 
     // 동기화 로그 시작
     const { data: logData, error: logError } = await supabase
@@ -752,7 +832,11 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     }
 
     // Excel 파일 읽기
-    const excelData = readExcelFile(targetPath);
+    if (fileBuffer) {
+      excelData = readExcelFile(fileBuffer, storageFileName);
+    } else {
+      excelData = readExcelFile(targetPath as string);
+    }
     
     console.log(`[측정사업장 동기화] Excel 파일에서 읽은 데이터 행 수: ${excelData.length}`);
     
