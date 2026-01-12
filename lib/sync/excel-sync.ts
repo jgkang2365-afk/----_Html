@@ -918,33 +918,50 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       if (codeColumnExact) {
         console.log(`[측정사업장 동기화] "코드" 컬럼 첫 5개 값:`, 
           excelData.slice(0, 5).map((r: any) => r["코드"]));
+        console.log(`[측정사업장 동기화] "코드" 컬럼 마지막 5개 값:`, 
+          excelData.slice(-5).map((r: any) => r["코드"]));
       }
       
-      // 모든 데이터 행에서 H0432 찾기 (어떤 컬럼에 있는지 확인)
+      // "코드" 컬럼에서 H0432 찾기 (전체 데이터 검색)
       let h0432Found = false;
-      for (let i = 0; i < Math.min(excelData.length, 2000); i++) {
-        const row = excelData[i];
-        for (const key of keys) {
-          const value = row[key];
-          if (value && String(value).toUpperCase().includes("H0432")) {
-            console.log(`[측정사업장 동기화] H0432 발견! 행 ${i}, 컬럼: "${key}", 값: "${value}"`);
-            console.log(`[측정사업장 동기화] 해당 행의 다른 주요 값:`, {
-              "년도": row["년도"],
-              "구분": row["구분"],
-              "사업장명": row["사업장명"],
-              "코드": row["코드"]
-            });
-            h0432Found = true;
-            break;
+      let h0432RowIndex = -1;
+      if (codeColumnExact) {
+        for (let i = 0; i < excelData.length; i++) {
+          const row = excelData[i];
+          const codeValue = row["코드"];
+          if (codeValue) {
+            const codeStr = String(codeValue).trim();
+            // 정확히 일치하거나 포함되는지 확인
+            if (codeStr === "H0432" || codeStr.toUpperCase().includes("H0432")) {
+              console.log(`[측정사업장 동기화] H0432 발견! 행 인덱스 ${i}, 코드 값: "${codeStr}"`);
+              console.log(`[측정사업장 동기화] 해당 행의 주요 값:`, {
+                "코드": row["코드"],
+                "년도": row["년도"],
+                "구분": row["구분"],
+                "사업장명": row["사업장명"]
+              });
+              h0432Found = true;
+              h0432RowIndex = i;
+              break;
+            }
           }
         }
-        if (h0432Found) break;
-      }
-      
-      if (!h0432Found) {
-        console.warn("[측정사업장 동기화] 경고: 전체 데이터에서 H0432를 찾을 수 없습니다!");
-        // 마지막 20개 컬럼 확인 (뒤쪽에 코드가 있을 수 있음)
-        console.log("[측정사업장 동기화] 마지막 20개 컬럼명:", keys.slice(-20));
+        
+        // H0432를 찾지 못했으면, "코드" 컬럼의 모든 고유 값 중 일부 확인
+        if (!h0432Found) {
+          console.warn("[측정사업장 동기화] 경고: '코드' 컬럼에서 H0432를 찾을 수 없습니다!");
+          // 코드 컬럼의 고유 값 샘플 (H로 시작하는 코드들)
+          const hCodes = new Set<string>();
+          for (let i = 0; i < excelData.length; i++) {
+            const code = String(excelData[i]["코드"] || "").trim();
+            if (code.startsWith("H") && hCodes.size < 100) {
+              hCodes.add(code);
+            }
+          }
+          console.log(`[측정사업장 동기화] '코드' 컬럼의 H로 시작하는 코드 샘플 (최대 100개):`, Array.from(hCodes).sort().slice(0, 50));
+        }
+      } else {
+        console.warn("[측정사업장 동기화] 경고: '코드' 컬럼을 찾을 수 없어 H0432 검색을 수행할 수 없습니다!");
       }
       
       // "향후측정주기" 관련 컬럼 찾기
