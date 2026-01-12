@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useId } from "react";
 import { cn } from "@/lib/utils";
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
@@ -8,7 +8,8 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, className, id, onKeyDown, ...props }, ref) => {
-    const inputId = id || `input-${Math.random().toString(36).substr(2, 9)}`;
+    const generatedId = useId();
+    const inputId = id || generatedId;
 
     const handleKeyDownInternal = (e: React.KeyboardEvent<HTMLInputElement>) => {
       // Enter키 처리 (disabled가 아닌 경우에만)

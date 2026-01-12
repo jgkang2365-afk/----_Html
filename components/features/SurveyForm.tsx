@@ -8,12 +8,13 @@ import { Card } from "@/components/ui/Card";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { Modal } from "@/components/ui/Modal";
 import {
-  parseDateInput,
-  formatDateMMDD,
   formatDateYYYYMMDD,
   calculateMeasurementWeekdays,
 } from "@/lib/utils/date-utils";
+import { normalizeForDateInput, isValidDateString } from "@/lib/utils/date-validator";
+import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { MEASURER_LIST, getSurveyCode } from "@/lib/utils/survey-code";
 
 interface BusinessInfo {
@@ -65,8 +66,6 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     report_writer: "",
   });
 
-  const [measurementDateInput, setMeasurementDateInput] = useState(""); // 사용자 입력 (20260101 또는 0101)
-  const [endDateInput, setEndDateInput] = useState(""); // 사용자 입력
   const [endDateManuallyModified, setEndDateManuallyModified] = useState(false); // 종료일이 수동으로 수정되었는지 추적
   const [businessList, setBusinessList] = useState<BusinessInfo[]>([]);
   const [selectedBusiness, setSelectedBusiness] = useState<string>("");
@@ -79,6 +78,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null); // 경고 메시지
   const [loadingBusiness, setLoadingBusiness] = useState(false);
+  const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
+  const [unpaidWarningMessage, setUnpaidWarningMessage] = useState<string>("");
   
   // 사업장 검색 관련 상태
   const [showBusinessSearch, setShowBusinessSearch] = useState(false);
@@ -94,31 +95,31 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   // 초기 데이터 설정
   useEffect(() => {
     if (initialData) {
-      const data = { ...formData, ...initialData };
-      setFormData(data);
+      // 날짜 값을 엄격하게 정규화
+      const normalizedMeasurementDate = normalizeForDateInput(initialData.measurement_date);
+      const normalizedEndDate = normalizeForDateInput(initialData.end_date);
       
-      // 측정일 입력 필드 설정
-      if (initialData.measurement_date) {
-        const date = new Date(initialData.measurement_date);
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        setMeasurementDateInput(`${month}${day}`);
-      }
+      // 정규화된 날짜를 포함한 초기 데이터 설정
+      setFormData({
+        measurement_date: normalizedMeasurementDate,
+        end_date: normalizedEndDate || normalizedMeasurementDate, // 종료일이 없으면 측정일과 동일하게
+        measurement_weekdays: initialData.measurement_weekdays || "",
+        code: initialData.code || "",
+        business_name: initialData.business_name || "",
+        business_number: initialData.business_number || "",
+        measurer: initialData.measurer || "",
+        survey_code: initialData.survey_code || "",
+        address: initialData.address || "",
+        preliminary_surveyor: initialData.preliminary_surveyor || "",
+        actual_measurer: initialData.actual_measurer || "",
+        report_writer: initialData.report_writer || "",
+      });
       
-      // 종료일 입력 필드 설정
-      if (initialData.end_date) {
-        const date = new Date(initialData.end_date);
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        setEndDateInput(`${month}${day}`);
+      // 종료일이 없고 측정일만 있으면 종료일을 측정일과 동일하게 설정
+      if (normalizedMeasurementDate && !normalizedEndDate) {
+        setEndDateManuallyModified(false);
+      } else if (normalizedEndDate) {
         setEndDateManuallyModified(true); // 초기 데이터가 있으면 수동 수정된 것으로 간주
-      } else if (initialData.measurement_date) {
-        // 종료일이 없고 측정일만 있으면 종료일을 측정일과 동일하게 설정
-        const date = new Date(initialData.measurement_date);
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        setEndDateInput(`${month}${day}`);
-        setEndDateManuallyModified(false); // 자동 설정된 것이므로 수동 수정 아님
       }
       
       // 측정자 설정
@@ -142,6 +143,13 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       // 사업장 정보는 초기 데이터에서 자동으로 채워지므로 별도 처리 불필요
     }
   }, [initialData]);
+
+  // 측정일이 변경될 때 종료일 자동 설정 (초기값이 비어있을 때)
+  useEffect(() => {
+    if (formData.measurement_date && isValidDateString(formData.measurement_date) && !endDateManuallyModified && !formData.end_date) {
+      setFormData((prev) => ({ ...prev, end_date: prev.measurement_date }));
+    }
+  }, [formData.measurement_date, endDateManuallyModified, formData.end_date]);
 
   // 사업장 검색
   const handleBusinessSearch = async () => {
@@ -169,6 +177,28 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     }
   };
 
+  // 미수금 확인 함수
+  const checkUnpaidCount = async (businessName: string) => {
+    if (!businessName || !businessName.trim()) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/sales/check-unpaid?businessName=${encodeURIComponent(businessName)}`);
+      const data = await response.json();
+
+      if (response.ok && data.hasWarning) {
+        setUnpaidWarningMessage(
+          `"${businessName}" 업체는 측정비(사업장) 기준으로 미수금이 ${data.unpaidCount}회 있습니다. 등록 시 주의해주세요.`
+        );
+        setIsUnpaidWarningModalOpen(true);
+      }
+    } catch (err) {
+      console.error("미수금 확인 오류:", err);
+      // 오류 발생 시에도 계속 진행 (경고만 표시하지 않음)
+    }
+  };
+
   // 검색 결과에서 사업장 선택
   const handleSelectBusinessFromSearch = (business: BusinessInfo) => {
     setFormData((prev) => ({
@@ -182,51 +212,59 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     setShowBusinessSearch(false);
     setSearchResults([]);
     setSearchParams({ code: "", businessName: "", designatedOffice: "", address: "" });
+    
+    // 미수금 확인
+    checkUnpaidCount(business.business_name);
   };
 
   // 측정일 입력 처리
   const handleMeasurementDateChange = (value: string) => {
-    setMeasurementDateInput(value);
-    
-    // 날짜 파싱 및 설정
-    const date = parseDateInput(value);
-    if (date) {
-      const dateStr = formatDateYYYYMMDD(date);
+    // HTML5 date input: 날짜 선택 도구 사용 시 완전한 값, 수동 입력 시 부분 값도 올 수 있음
+    // 완전한 YYYY-MM-DD 형식일 때만 저장, 부분 입력은 무시 (브라우저가 처리하도록)
+    if (value && isValidDateString(value)) {
       setFormData((prev) => {
-        const updated = { ...prev, measurement_date: dateStr };
+        const updated = { ...prev, measurement_date: value };
         
         // 종료일이 수동으로 수정되지 않았고 비어있거나 측정일과 동일한 경우에만 종료일을 측정일과 동일하게 설정
         if (!endDateManuallyModified && (!prev.end_date || prev.end_date === prev.measurement_date)) {
-          setEndDateInput(value);
-          updated.end_date = dateStr;
+          updated.end_date = value;
+        }
+        
+        // 측정요일 계산
+        const currentEndDate = updated.end_date || value;
+        if (value && currentEndDate) {
+          updateMeasurementWeekdays(value, currentEndDate);
         }
         
         return updated;
       });
-      
-      // 측정요일 계산
-      const currentEndDate = formData.end_date || dateStr;
-      updateMeasurementWeekdays(dateStr, currentEndDate);
-    } else {
+    } else if (!value) {
+      // 빈 값일 때는 빈 문자열로 저장
       setFormData((prev) => ({ ...prev, measurement_date: "" }));
     }
+    // 부분 입력(value가 있지만 유효하지 않음)은 무시 - 브라우저가 처리하도록
   };
 
   // 종료일 입력 처리
   const handleEndDateChange = (value: string) => {
-    setEndDateInput(value);
-    setEndDateManuallyModified(true); // 사용자가 수동으로 수정했음을 표시
-    
-    const date = parseDateInput(value);
-    if (date) {
-      const dateStr = formatDateYYYYMMDD(date);
-      setFormData((prev) => ({ ...prev, end_date: dateStr }));
-      
-      // 측정요일 계산
-      updateMeasurementWeekdays(formData.measurement_date, dateStr);
-    } else {
+    // HTML5 date input: 날짜 선택 도구 사용 시 완전한 값, 수동 입력 시 부분 값도 올 수 있음
+    // 완전한 YYYY-MM-DD 형식일 때만 저장, 부분 입력은 무시 (브라우저가 처리하도록)
+    if (value && isValidDateString(value)) {
+      setEndDateManuallyModified(true); // 사용자가 수동으로 수정했음을 표시
+      setFormData((prev) => {
+        const updated = { ...prev, end_date: value };
+        // 측정요일 계산
+        if (prev.measurement_date && value) {
+          updateMeasurementWeekdays(prev.measurement_date, value);
+        }
+        return updated;
+      });
+    } else if (!value) {
+      // 빈 값일 때는 빈 문자열로 저장
+      setEndDateManuallyModified(true);
       setFormData((prev) => ({ ...prev, end_date: "" }));
     }
+    // 부분 입력(value가 있지만 유효하지 않음)은 무시 - 브라우저가 처리하도록
   };
 
   // 측정요일 업데이트
@@ -250,6 +288,9 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         business_name: business.business_name,
         address: business.address || "",
       }));
+      
+      // 미수금 확인
+      checkUnpaidCount(business.business_name);
     }
   };
 
@@ -391,33 +432,19 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       <Card className="p-6">
         <h3 className="text-lg font-semibold text-text-900 mb-4">기본 정보</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <Input
-              label="측정일"
-              value={measurementDateInput}
-              onChange={(e) => handleMeasurementDateChange(e.target.value)}
-              placeholder="20260101 또는 0101"
-              required
-            />
-            {formData.measurement_date && (
-              <p className="text-sm text-text-500 mt-1">
-                표시: {formatDateYYYYMMDD(new Date(formData.measurement_date))}
-              </p>
-            )}
-          </div>
-          <div>
-            <Input
-              label="종료일"
-              value={endDateInput}
-              onChange={(e) => handleEndDateChange(e.target.value)}
-              placeholder="20260101 또는 0101"
-            />
-            {formData.end_date && (
-              <p className="text-sm text-text-500 mt-1">
-                표시: {formatDateYYYYMMDD(new Date(formData.end_date))}
-              </p>
-            )}
-          </div>
+          <Input
+            label="측정일"
+            type="date"
+            value={formData.measurement_date || ""}
+            onChange={(e) => handleMeasurementDateChange(e.target.value)}
+            required
+          />
+          <Input
+            label="종료일"
+            type="date"
+            value={formData.end_date || formData.measurement_date || ""}
+            onChange={(e) => handleEndDateChange(e.target.value)}
+          />
           <div className="md:col-span-2">
             <Input
               label="측정요일"
@@ -441,7 +468,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           />
           <Input
             label="사업자번호"
-            value={formData.business_number || ""}
+            value={formatBusinessNumber(formData.business_number)}
             readOnly
             className="bg-surface-50"
           />
@@ -590,6 +617,23 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           {loading ? "저장 중..." : initialData && (initialData as any).id ? "수정" : "등록"}
         </Button>
       </div>
+
+      {/* 미수금 경고 모달 */}
+      <Modal
+        isOpen={isUnpaidWarningModalOpen}
+        onClose={() => setIsUnpaidWarningModalOpen(false)}
+        title="미수금 경고"
+        size="md"
+      >
+        <div className="py-4">
+          <Alert variant="warning">{unpaidWarningMessage}</Alert>
+          <div className="mt-4 flex justify-end">
+            <Button variant="primary" onClick={() => setIsUnpaidWarningModalOpen(false)}>
+              확인
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </form>
   );
 };

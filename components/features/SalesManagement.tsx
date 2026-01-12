@@ -19,6 +19,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
+import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { DESIGNATED_OFFICE_OPTIONS, DESIGNATED_OFFICES_FOR_SALES } from "@/lib/constants/designated-offices";
 
 interface MeasurementRevenue {
@@ -109,6 +110,8 @@ export const SalesManagement: React.FC = () => {
     unpaid_amount: number;
     measurement_year: number;
     measurement_period: string;
+    unpaid_count: number;
+    designated_office: string | null;
   }>>([]);
   const [unpaidBusinessModalTitle, setUnpaidBusinessModalTitle] = useState<string>("");
 
@@ -1058,6 +1061,8 @@ export const SalesManagement: React.FC = () => {
                       unpaid_amount: number;
                       measurement_year: number;
                       measurement_period: string;
+                      unpaid_count: number;
+                      designated_office: string | null;
                     }> = [];
 
                     // 해당 관할지역의 측정비 데이터 필터링
@@ -1076,6 +1081,19 @@ export const SalesManagement: React.FC = () => {
                     const filteredData = unpaidSummaryYear && unpaidSummaryYear !== ""
                       ? officeMeasurementData.filter((item) => item.measurement_year === parseInt(unpaidSummaryYear))
                       : officeMeasurementData;
+
+                    // 측정비(사업장) 기준 미수 횟수 계산을 위한 맵 생성
+                    const businessUnpaidCountMap = new Map<string, number>();
+                    filteredData.forEach((item) => {
+                      const businessFee = item.measurement_fee_business || 0;
+                      const businessDeposit = item.deposit_amount_business || 0;
+                      const businessUnpaid = businessFee - businessDeposit;
+                      
+                      if (businessUnpaid > 0) {
+                        const count = businessUnpaidCountMap.get(item.business_name) || 0;
+                        businessUnpaidCountMap.set(item.business_name, count + 1);
+                      }
+                    });
 
                     // 카테고리별 사업장 필터링
                     filteredData.forEach((item) => {
@@ -1106,17 +1124,40 @@ export const SalesManagement: React.FC = () => {
                       }
 
                       if (shouldInclude) {
+                        const unpaidCount = businessUnpaidCountMap.get(item.business_name) || 0;
                         businessList.push({
                           business_name: item.business_name,
                           unpaid_amount: unpaidAmount,
                           measurement_year: item.measurement_year,
                           measurement_period: item.measurement_period,
+                          unpaid_count: unpaidCount,
+                          designated_office: item.designated_office || null,
                         });
                       }
                     });
 
-                    // 미수금액 순으로 정렬 (내림차순)
-                    businessList.sort((a, b) => b.unpaid_amount - a.unpaid_amount);
+                    // 정렬: 미수 횟수(내림차순) → 지청(천안, 대전, 평택, 경기, 기타) → 사업장명(오름차순)
+                    const officeOrder = ["천안", "대전", "평택", "경기", "기타"];
+                    const getOfficeOrder = (office: string | null): number => {
+                      if (!office) return officeOrder.indexOf("기타");
+                      const index = officeOrder.indexOf(office);
+                      return index === -1 ? officeOrder.length : index;
+                    };
+
+                    businessList.sort((a, b) => {
+                      // 1. 미수 횟수 내림차순
+                      if (b.unpaid_count !== a.unpaid_count) {
+                        return b.unpaid_count - a.unpaid_count;
+                      }
+                      // 2. 지청 순서
+                      const officeOrderA = getOfficeOrder(a.designated_office);
+                      const officeOrderB = getOfficeOrder(b.designated_office);
+                      if (officeOrderA !== officeOrderB) {
+                        return officeOrderA - officeOrderB;
+                      }
+                      // 3. 사업장명 오름차순
+                      return a.business_name.localeCompare(b.business_name, "ko");
+                    });
 
                     setUnpaidBusinessList(businessList);
                     setUnpaidBusinessModalTitle(`${officeLabel} - ${categoryLabel} 미수금 사업장 목록`);
@@ -1212,7 +1253,7 @@ export const SalesManagement: React.FC = () => {
         isOpen={isUnpaidBusinessModalOpen}
         onClose={() => setIsUnpaidBusinessModalOpen(false)}
         title={unpaidBusinessModalTitle}
-        size="lg"
+        size="2xl"
       >
         <div className="overflow-y-auto">
           {unpaidBusinessList.length === 0 ? (
@@ -1225,6 +1266,7 @@ export const SalesManagement: React.FC = () => {
                 <TableRow className="bg-sky-100">
                   <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">연번</TableHead>
                   <TableHead className="font-semibold py-1 px-2 text-black text-sm">사업장명</TableHead>
+                  <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">미수 횟수</TableHead>
                   <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">측정년도</TableHead>
                   <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">측정주기</TableHead>
                   <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">미수금액</TableHead>
@@ -1235,6 +1277,9 @@ export const SalesManagement: React.FC = () => {
                   <TableRow key={index} className="border-b border-gray-200">
                     <TableCell className="text-center text-black py-1 px-2 text-sm">{index + 1}</TableCell>
                     <TableCell className="text-black py-1 px-2 text-sm">{business.business_name}</TableCell>
+                    <TableCell className={`text-center py-1 px-2 text-sm font-semibold ${business.unpaid_count >= 2 ? 'text-red-600' : 'text-black'}`}>
+                      {business.unpaid_count}회
+                    </TableCell>
                     <TableCell className="text-center text-black py-1 px-2 text-sm">{business.measurement_year}</TableCell>
                     <TableCell className="text-center text-black py-1 px-2 text-sm">{business.measurement_period}</TableCell>
                     <TableCell className="text-right text-black py-1 px-2 text-sm font-semibold">
@@ -2541,7 +2586,7 @@ export const SalesManagement: React.FC = () => {
             <Input
               id="invoice-date-input"
               type="date"
-              value={otherFormData.invoice_date || ""}
+              value={normalizeDateForInput(otherFormData.invoice_date)}
               onChange={(e) =>
                 setOtherFormData({ ...otherFormData, invoice_date: e.target.value })
               }
@@ -2564,7 +2609,7 @@ export const SalesManagement: React.FC = () => {
               <Input
                 id="deposit-date-input"
                 type="date"
-                value={otherFormData.deposit_date || ""}
+                value={normalizeDateForInput(otherFormData.deposit_date)}
                 onChange={(e) =>
                   setOtherFormData({ ...otherFormData, deposit_date: e.target.value })
                 }

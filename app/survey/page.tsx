@@ -44,6 +44,7 @@ interface BusinessInfo {
   address1?: string;
   address2?: string;
   office_jurisdiction: string;
+  unpaid_count?: number;
 }
 
 export default function SurveyPage() {
@@ -55,6 +56,8 @@ export default function SurveyPage() {
   const [editingSurvey, setEditingSurvey] = useState<Survey | null>(null);
   const [selectedBusinessForForm, setSelectedBusinessForForm] = useState<BusinessInfo | null>(null); // 선택된 사업장 정보
   const [activeTab, setActiveTab] = useState<"search" | "list">("search"); // 탭 상태 추가
+  const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
+  const [pendingBusinessForForm, setPendingBusinessForForm] = useState<BusinessInfo | null>(null); // 경고 모달에서 대기 중인 사업장 정보
   
   // 검색 관련 상태
   const [searchParams, setSearchParams] = useState({
@@ -178,12 +181,6 @@ export default function SurveyPage() {
     setBusinesses([]);
   };
 
-  const handleNewSurvey = () => {
-    setEditingSurvey(null);
-    setSelectedBusinessForForm(null); // 신규 등록 시 사업장 정보 초기화
-    setIsFormOpen(true);
-  };
-
   const handleEditSurvey = (survey: Survey) => {
     setEditingSurvey(survey);
     setIsFormOpen(true);
@@ -250,9 +247,6 @@ export default function SurveyPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-text-900">예비조사</h1>
-        <Button variant="primary" onClick={handleNewSurvey}>
-          신규 등록
-        </Button>
       </div>
 
       {/* 탭 */}
@@ -299,6 +293,12 @@ export default function SurveyPage() {
             onChange={(e) =>
               setSearchParams({ ...searchParams, code: e.target.value })
             }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSearch();
+              }
+            }}
             placeholder="코드 입력"
           />
           <Input
@@ -307,6 +307,12 @@ export default function SurveyPage() {
             onChange={(e) =>
               setSearchParams({ ...searchParams, businessNumber: e.target.value })
             }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSearch();
+              }
+            }}
             placeholder="사업자번호 입력"
           />
           <Input
@@ -315,6 +321,12 @@ export default function SurveyPage() {
             onChange={(e) =>
               setSearchParams({ ...searchParams, businessName: e.target.value })
             }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSearch();
+              }
+            }}
             placeholder="사업장명 입력"
           />
           <div>
@@ -328,6 +340,12 @@ export default function SurveyPage() {
                 onChange={(e) =>
                   setSearchParams({ ...searchParams, officeJurisdiction: e.target.value })
                 }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSearch();
+                  }
+                }}
                 placeholder="소재지 관할청 입력 또는 선택"
               />
               <datalist id="office-jurisdiction-list">
@@ -345,10 +363,16 @@ export default function SurveyPage() {
             onChange={(e) =>
               setSearchParams({ ...searchParams, address: e.target.value })
             }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSearch();
+              }
+            }}
             placeholder="주소 입력"
           />
         </div>
-        <div className="flex gap-3 mt-6">
+        <div className="flex gap-3 mt-6 justify-end">
           <Button
             type="button"
             onClick={(e) => {
@@ -400,6 +424,7 @@ export default function SurveyPage() {
                     <TableHead className="bg-surface-50">사업장명</TableHead>
                     <TableHead className="bg-surface-50">소재지 관할청</TableHead>
                     <TableHead className="bg-surface-50">주소</TableHead>
+                    <TableHead className="bg-surface-50 text-center">미수횟수</TableHead>
                     <TableHead className="bg-surface-50 text-center">작업</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -415,6 +440,9 @@ export default function SurveyPage() {
                          [business.address1, business.address2].filter(Boolean).join(" ") || 
                          "-"}
                       </TableCell>
+                      <TableCell className={`text-center font-semibold ${(business.unpaid_count || 0) >= 1 ? 'text-red-600' : 'text-black'}`}>
+                        {(business.unpaid_count || 0)}회
+                      </TableCell>
                       <TableCell>
                         <div className="flex gap-2 justify-center">
                           <Button
@@ -422,8 +450,14 @@ export default function SurveyPage() {
                             size="sm"
                             onClick={() => {
                               setEditingSurvey(null);
-                              setSelectedBusinessForForm(business); // 선택된 사업장 정보 저장
-                              setIsFormOpen(true);
+                              // 미수금이 1회 이상인 경우 경고 모달 표시
+                              if ((business.unpaid_count || 0) >= 1) {
+                                setPendingBusinessForForm(business);
+                                setIsUnpaidWarningModalOpen(true);
+                              } else {
+                                setSelectedBusinessForForm(business);
+                                setIsFormOpen(true);
+                              }
                             }}
                             className="shadow-sm"
                           >
@@ -439,6 +473,51 @@ export default function SurveyPage() {
           )}
         </Card>
       )}
+
+      {/* 미수금 경고 모달 */}
+      <Modal
+        isOpen={isUnpaidWarningModalOpen}
+        onClose={() => {
+          setIsUnpaidWarningModalOpen(false);
+          setPendingBusinessForForm(null);
+        }}
+        title="미수금 경고"
+        size="md"
+      >
+        <div className="py-4">
+          {pendingBusinessForForm && (
+            <>
+              <Alert variant="warning">
+                &ldquo;{pendingBusinessForForm.business_name}&rdquo; 업체는 측정비(사업장) 기준으로 미수금이 {pendingBusinessForForm.unpaid_count || 0}회 있습니다. 예비조사를 등록하시겠습니까?
+              </Alert>
+              <div className="mt-6 flex justify-end gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setIsUnpaidWarningModalOpen(false);
+                    setPendingBusinessForForm(null);
+                  }}
+                >
+                  취소
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    if (pendingBusinessForForm) {
+                      setSelectedBusinessForForm(pendingBusinessForForm);
+                      setIsFormOpen(true);
+                    }
+                    setIsUnpaidWarningModalOpen(false);
+                    setPendingBusinessForForm(null);
+                  }}
+                >
+                  계속 진행
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
 
       {/* 예비조사 목록 (예비조사 목록 탭) */}
       {activeTab === "list" && !loading && (

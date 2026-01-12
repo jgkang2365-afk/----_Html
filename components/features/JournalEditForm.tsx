@@ -8,6 +8,8 @@ import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { normalizeDateForInput } from "@/lib/utils/date-normalize";
+import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 
 interface JournalEntry {
   id: number | null;
@@ -57,8 +59,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     five_plus_sequence: entry.five_plus_sequence || "",
     
     // 측정 정보
-    measurement_start_date: entry.measurement_start_date || "",
-    measurement_end_date: entry.measurement_end_date || "",
+    measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
+    measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
     measurer: entry.measurer || "",
     completion_status: entry.completion_status || "미완료",
     
@@ -80,10 +82,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     manager_email: entry.manager_email || "",
     
     // K2B 정보
-    k2b_send_date: entry.k2b_send_date || "",
+    k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
     k2b_sender: entry.k2b_sender || "",
     invoice_email: entry.invoice_email || "",
-    electronic_invoice_date: entry.electronic_invoice_date || "",
+    electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
     
     // 측정비 정보
     measurement_fee_total: entry.measurement_fee_total || "",
@@ -92,9 +94,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     
     // 입금 정보
     deposit_total: entry.deposit_total || "",
-    deposit_date_business: entry.deposit_date_business || "",
+    deposit_date_business: normalizeDateForInput(entry.deposit_date_business),
     deposit_amount_business: entry.deposit_amount_business || "",
-    deposit_date_national: entry.deposit_date_national || "",
+    deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
     deposit_amount_national: entry.deposit_amount_national || "",
     
     // 특이사항
@@ -131,24 +133,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     { value: "완료", label: "완료" },
   ];
 
-  // 사업자번호 포맷팅 함수 (XXX-XX-XXXXX)
-  const formatBusinessNumber = (value: string): string => {
-    if (!value) return "";
-    // 숫자만 추출
-    const numbers = value.replace(/[^\d]/g, "");
-    
-    // 최대 10자리까지만
-    const limited = numbers.slice(0, 10);
-    
-    // 하이픈 추가
-    if (limited.length <= 3) {
-      return limited;
-    } else if (limited.length <= 5) {
-      return `${limited.slice(0, 3)}-${limited.slice(3)}`;
-    } else {
-      return `${limited.slice(0, 3)}-${limited.slice(3, 5)}-${limited.slice(5)}`;
-    }
-  };
 
   // 금액 포맷팅 함수 (천단위 콤마)
   const formatCurrency = (value: string | number | null | undefined): string => {
@@ -223,13 +207,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     if (entry.address && !entry.office_jurisdiction) {
       handleAddressChange(entry.address);
     }
-    // 사업자번호 초기값 포맷팅
-    if (entry.business_number && !entry.business_number.includes("-")) {
-      const formatted = formatBusinessNumber(entry.business_number);
-      if (formatted !== entry.business_number) {
-        setFormData((prev) => ({ ...prev, business_number: formatted }));
-      }
-    }
+    // 사업자번호는 표시 시 포맷팅하므로 초기값은 그대로 사용
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 주소 변경 시 자동으로 소재지 관할청과 지정한계_관할지청 업데이트
@@ -453,15 +431,23 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           <Input
             label="측정 시작일"
             type="date"
-            value={formData.measurement_start_date}
-            onChange={(e) =>
-              setFormData({ ...formData, measurement_start_date: e.target.value })
-            }
+            value={normalizeDateForInput(formData.measurement_start_date)}
+            onChange={(e) => {
+              const startDate = e.target.value;
+              setFormData((prev) => {
+                const updated = { ...prev, measurement_start_date: startDate };
+                // 종료일이 비어있거나 측정 시작일과 동일한 경우 종료일을 측정 시작일과 동일하게 설정
+                if (!prev.measurement_end_date || prev.measurement_end_date === prev.measurement_start_date) {
+                  updated.measurement_end_date = startDate;
+                }
+                return updated;
+              });
+            }}
           />
           <Input
             label="측정 종료일"
             type="date"
-            value={formData.measurement_end_date}
+            value={normalizeDateForInput(formData.measurement_end_date)}
             onChange={(e) =>
               setFormData({ ...formData, measurement_end_date: e.target.value })
             }
@@ -499,10 +485,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           />
           <Input
             label="사업자번호"
-            value={formData.business_number || ""}
+            value={formatBusinessNumber(formData.business_number)}
             onChange={(e) => {
-              const formatted = formatBusinessNumber(e.target.value);
-              setFormData({ ...formData, business_number: formatted });
+              // 숫자만 추출하여 저장 (하이픈 제거)
+              const numbers = parseBusinessNumber(e.target.value);
+              setFormData({ ...formData, business_number: numbers });
             }}
             placeholder="305-86-41481"
             maxLength={12}
@@ -603,7 +590,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           <Input
             label="K2B 전송일"
             type="date"
-            value={formData.k2b_send_date}
+            value={normalizeDateForInput(formData.k2b_send_date)}
             onChange={(e) =>
               setFormData({ ...formData, k2b_send_date: e.target.value })
             }
@@ -697,7 +684,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           <Input
             label="전자계산서 발행일"
             type="date"
-            value={formData.electronic_invoice_date}
+            value={normalizeDateForInput(formData.electronic_invoice_date)}
             onChange={(e) =>
               setFormData({ ...formData, electronic_invoice_date: e.target.value })
             }
@@ -737,7 +724,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Input
               label="입금일자(사업장)"
               type="date"
-              value={formData.deposit_date_business}
+              value={normalizeDateForInput(formData.deposit_date_business)}
               onChange={(e) =>
                 setFormData({ ...formData, deposit_date_business: e.target.value })
               }
@@ -777,7 +764,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Input
               label="입금일자(국고)"
               type="date"
-              value={formData.deposit_date_national}
+              value={normalizeDateForInput(formData.deposit_date_national)}
               onChange={(e) =>
                 setFormData({ ...formData, deposit_date_national: e.target.value })
               }

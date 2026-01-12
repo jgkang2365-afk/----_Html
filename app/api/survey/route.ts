@@ -203,13 +203,43 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 3. 사업장정보 데이터를 반환 형식으로 변환
+    // 3. 각 사업장명별 미수금 횟수 계산 (측정비(사업장) - 입금액(사업장) > 0 인 건수)
+    const businessNames = businessInfoList?.map((b: any) => b.business_name).filter((name: string) => name && name.trim()) || [];
+    const unpaidCountMap = new Map<string, number>();
+
+    if (businessNames.length > 0) {
+      const { data: revenueData, error: revenueError } = await supabase
+        .from("measurement_journal")
+        .select("business_name, measurement_fee_business, deposit_amount_business")
+        .not("business_name", "ilike", "%번외%")
+        .in("business_name", businessNames);
+
+      if (revenueError) {
+        console.error("[ERROR] 미수횟수 조회 오류:", revenueError);
+      }
+
+      if (revenueData) {
+        revenueData.forEach((item) => {
+          const businessFee = Number(item.measurement_fee_business) || 0;
+          const businessDeposit = Number(item.deposit_amount_business) || 0;
+          const businessUnpaid = businessFee - businessDeposit;
+
+          if (businessUnpaid > 0) {
+            const count = unpaidCountMap.get(item.business_name) || 0;
+            unpaidCountMap.set(item.business_name, count + 1);
+          }
+        });
+      }
+    }
+
+    // 4. 사업장정보 데이터를 반환 형식으로 변환
     const businesses = businessInfoList?.map((business: any) => ({
       code: business.code,
       business_name: business.business_name,
       business_number: business.business_number || "",
       address: [business.address1, business.address2].filter(Boolean).join(" ").trim() || "",
       office_jurisdiction: business.office_jurisdiction || "",
+      unpaid_count: unpaidCountMap.get(business.business_name) || 0,
     })) || [];
 
     return NextResponse.json({ 

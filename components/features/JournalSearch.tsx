@@ -619,6 +619,12 @@ export const JournalSearch: React.FC = () => {
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, code: e.target.value })
                   }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
                   placeholder="코드 입력"
                 />
               </div>
@@ -649,6 +655,12 @@ export const JournalSearch: React.FC = () => {
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, businessName: e.target.value })
                   }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
                   placeholder="사업장명 입력"
                 />
               </div>
@@ -669,11 +681,17 @@ export const JournalSearch: React.FC = () => {
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, address: e.target.value })
                   }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
                   placeholder="주소 입력"
                 />
               </div>
             </div>
-            <div className="flex gap-3 mt-6">
+            <div className="flex gap-3 mt-6 justify-end">
               <Button
                 type="button"
                 onClick={(e) => {

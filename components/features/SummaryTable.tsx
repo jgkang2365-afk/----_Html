@@ -18,6 +18,8 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
 import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
+import { normalizeDateForInput } from "@/lib/utils/date-normalize";
+import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 
 interface SummaryEntry {
   id: number;
@@ -140,8 +142,8 @@ export const SummaryTable: React.FC = () => {
   const handleEdit = (entry: SummaryEntry) => {
     setSelectedEntry(entry);
     setEditFormData({
-      measurement_start_date: entry.measurement_start_date || "",
-      measurement_end_date: entry.measurement_end_date || "",
+      measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
+      measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
       measurer: entry.measurer || "",
       business_name: entry.business_name || "",
       total_employees: entry.total_employees || null,
@@ -153,7 +155,7 @@ export const SummaryTable: React.FC = () => {
       manager_position: entry.manager_position || "",
       manager_mobile: entry.manager_mobile || "",
       manager_email: entry.manager_email || "",
-      k2b_send_date: entry.k2b_send_date || "",
+      k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
       k2b_sender: entry.k2b_sender || "",
       measurement_fee_business: entry.measurement_fee_business || null,
     });
@@ -403,13 +405,18 @@ export const SummaryTable: React.FC = () => {
                   </label>
                   <Input
                     type="date"
-                    value={editFormData.measurement_start_date || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        measurement_start_date: e.target.value,
-                      })
-                    }
+                    value={normalizeDateForInput(editFormData.measurement_start_date)}
+                    onChange={(e) => {
+                      const startDate = e.target.value;
+                      setEditFormData((prev) => {
+                        const updated = { ...prev, measurement_start_date: startDate };
+                        // 종료일이 비어있거나 측정 시작일과 동일한 경우 종료일을 측정 시작일과 동일하게 설정
+                        if (!prev.measurement_end_date || prev.measurement_end_date === prev.measurement_start_date) {
+                          updated.measurement_end_date = startDate;
+                        }
+                        return updated;
+                      });
+                    }}
                   />
                 </div>
                 <div>
@@ -418,7 +425,7 @@ export const SummaryTable: React.FC = () => {
                   </label>
                   <Input
                     type="date"
-                    value={editFormData.measurement_end_date || ""}
+                    value={normalizeDateForInput(editFormData.measurement_end_date)}
                     onChange={(e) =>
                       setEditFormData({
                         ...editFormData,
@@ -469,10 +476,12 @@ export const SummaryTable: React.FC = () => {
                     사업자번호
                   </label>
                   <Input
-                    value={editFormData.business_number || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, business_number: e.target.value })
-                    }
+                    value={formatBusinessNumber(editFormData.business_number)}
+                    onChange={(e) => {
+                      // 숫자만 추출하여 저장 (하이픈 제거)
+                      const numbers = parseBusinessNumber(e.target.value);
+                      setEditFormData({ ...editFormData, business_number: numbers });
+                    }}
                   />
                 </div>
                 <div className="col-span-2">
@@ -559,7 +568,7 @@ export const SummaryTable: React.FC = () => {
                   </label>
                   <Input
                     type="date"
-                    value={editFormData.k2b_send_date || ""}
+                    value={normalizeDateForInput(editFormData.k2b_send_date)}
                     onChange={(e) =>
                       setEditFormData({ ...editFormData, k2b_send_date: e.target.value })
                     }

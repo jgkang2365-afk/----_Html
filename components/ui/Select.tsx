@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useId } from "react";
 import { cn } from "@/lib/utils";
 
 export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
@@ -9,7 +9,8 @@ export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElemen
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   ({ label, error, options, className, id, ...props }, ref) => {
-    const selectId = id || `select-${Math.random().toString(36).substr(2, 9)}`;
+    const generatedId = useId();
+    const selectId = id || generatedId;
 
     return (
       <div className="w-full">
