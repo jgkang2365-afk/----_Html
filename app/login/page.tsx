@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, FormEvent, useEffect } from "react";
+import { useState, FormEvent, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [name, setName] = useState("");
@@ -214,5 +214,23 @@ export default function LoginPage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-surface-50 px-4">
+        <Card className="w-full max-w-md">
+          <div className="p-6">
+            <h1 className="text-2xl font-bold text-text-900 mb-2">로그인</h1>
+            <p className="text-text-700 mb-6">측정일지 관리 시스템에 로그인하세요</p>
+            <div className="text-center py-8">로딩 중...</div>
+          </div>
+        </Card>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }
