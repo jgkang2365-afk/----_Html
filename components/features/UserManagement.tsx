@@ -182,13 +182,13 @@ export const UserManagement: React.FC = () => {
       </div>
 
       {error && (
-        <Alert variant="error" onClose={() => setError(null)}>
+        <Alert variant="error">
           {error}
         </Alert>
       )}
 
       {success && (
-        <Alert variant="success" onClose={() => setSuccess(null)}>
+        <Alert variant="success">
           {success}
         </Alert>
       )}
@@ -261,7 +261,7 @@ export const UserManagement: React.FC = () => {
       >
         <div className="space-y-4">
           {error && (
-            <Alert variant="error" onClose={() => setError(null)}>
+            <Alert variant="error">
               {error}
             </Alert>
           )}
