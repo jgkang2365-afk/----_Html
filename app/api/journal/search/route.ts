@@ -70,8 +70,17 @@ export async function GET(request: NextRequest) {
 
     // 디버깅: 측정사업장 검색 결과 로그
     console.log(`[검색 API] 측정사업장 검색 결과: ${businessData?.length || 0}건`);
+    console.log(`[검색 API] 검색 조건 - code: ${code}, year: ${measurementYear}, period: ${measurementPeriod}`);
     if (businessData && businessData.length > 0) {
       console.log(`[검색 API] 측정사업장 샘플 (최대 5건):`, businessData.slice(0, 5).map((b: any) => ({
+        code: b.code,
+        year: b.year,
+        period: b.period,
+        business_name: b.business_name
+      })));
+      // H0432 코드가 있는지 확인
+      const h0432Data = businessData.filter((b: any) => b.code && b.code.includes("H0432"));
+      console.log(`[검색 API] H0432 포함 데이터: ${h0432Data.length}건`, h0432Data.map((b: any) => ({
         code: b.code,
         year: b.year,
         period: b.period,
@@ -314,11 +323,24 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    // 디버깅: 필터링 전 결과 로그
+    console.log(`[검색 API] 필터링 전 결과 수: ${results.length}건`);
+    const h0432BeforeFilter = results.filter((r: any) => r.code && r.code.includes("H0432"));
+    console.log(`[검색 API] 필터링 전 H0432 데이터: ${h0432BeforeFilter.length}건`, h0432BeforeFilter.map((r: any) => ({
+      code: r.code,
+      year: r.measurement_year,
+      period: r.measurement_period,
+      business_name: r.business_name,
+      designated_office: r.designated_office,
+      office_jurisdiction: r.office_jurisdiction
+    })));
+
     // designatedOffice 필터링 (지정한계_관할지청) - 결과에서 필터링
     let filteredResults = results;
-    if (designatedOffice) {
+    if (designatedOffice && designatedOffice !== "전체") {
       // 약칭으로 정규화 (기존 전체명과 호환)
       const normalizedOffice = toShortName(designatedOffice);
+      console.log(`[검색 API] designatedOffice 필터링 적용: ${designatedOffice} -> ${normalizedOffice}`);
       filteredResults = results.filter((entry) => {
         // measurement_journal에 있는 경우 (약칭으로 변환된 상태)
         if (entry.designated_office) {
@@ -335,6 +357,9 @@ export async function GET(request: NextRequest) {
         // office_jurisdiction도 없으면 필터링에서 제외
         return false;
       });
+      console.log(`[검색 API] designatedOffice 필터링 후 결과 수: ${filteredResults.length}건`);
+      const h0432AfterFilter = filteredResults.filter((r: any) => r.code && r.code.includes("H0432"));
+      console.log(`[검색 API] 필터링 후 H0432 데이터: ${h0432AfterFilter.length}건`);
     }
 
     // 최신 자료 우선 정렬 (년도 → 주기 → 생성일)
@@ -349,6 +374,11 @@ export async function GET(request: NextRequest) {
       const dateB = new Date(b.created_at || 0).getTime();
       return dateB - dateA;
     });
+
+    // 최종 결과 로그
+    console.log(`[검색 API] 최종 반환 결과 수: ${filteredResults.length}건`);
+    const finalH0432 = filteredResults.filter((r: any) => r.code && r.code.includes("H0432"));
+    console.log(`[검색 API] 최종 H0432 데이터: ${finalH0432.length}건`);
 
     return NextResponse.json({ results: filteredResults });
   } catch (error) {
