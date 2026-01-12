@@ -448,13 +448,13 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
   
   const syncStartTime = new Date();
   let logId: number | null = null;
+  let fileName = fileNameXlsx; // catch 블록에서 사용할 수 있도록 함수 상단에서 선언
 
   try {
     const supabase = await createClient();
     
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let excelData: any[];
-    let fileName = fileNameXlsx;
     let targetPath: string | Buffer | undefined = filePath;
     let fileBuffer: Buffer | undefined;
     let storageFileName: string | undefined;
@@ -481,9 +481,13 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
       }
     } else {
       // filePath가 지정된 경우 (로컬 파일 경로)
-      fileName = filePath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
-      if (!existsSync(targetPath)) {
-        throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
+      if (typeof targetPath === "string") {
+        fileName = targetPath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
+        if (!existsSync(targetPath)) {
+          throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
+        }
+      } else {
+        throw new Error("파일 경로가 올바르지 않습니다.");
       }
     }
 
@@ -771,13 +775,13 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
   
   const syncStartTime = new Date();
   let logId: number | null = null;
+  let fileName = fileNameXlsx; // catch 블록에서 사용할 수 있도록 함수 상단에서 선언
 
   try {
     const supabase = await createClient();
     
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let excelData: any[];
-    let fileName = fileNameXlsx;
     let targetPath: string | Buffer | undefined = filePath;
     let fileBuffer: Buffer | undefined;
     let storageFileName: string | undefined;
@@ -804,9 +808,13 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       }
     } else {
       // filePath가 지정된 경우 (로컬 파일 경로)
-      fileName = filePath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
-      if (!existsSync(targetPath)) {
-        throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
+      if (typeof targetPath === "string") {
+        fileName = targetPath.includes(".xlsx") ? fileNameXlsx : fileNameXls;
+        if (!existsSync(targetPath)) {
+          throw new Error(`Excel 파일을 찾을 수 없습니다: ${targetPath}`);
+        }
+      } else {
+        throw new Error("파일 경로가 올바르지 않습니다.");
       }
     }
 
