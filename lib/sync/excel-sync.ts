@@ -876,6 +876,29 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     
     const parsedData = parseMeasurementBusiness(excelData);
     
+    // 디버깅: H0432 데이터가 파싱되었는지 확인
+    const h0432Parsed = parsedData.filter((row: any) => row.code && (row.code.includes("H0432") || row.code.includes("H432")));
+    console.log(`[측정사업장 동기화] 파싱된 데이터 중 H0432 포함: ${h0432Parsed.length}건`);
+    if (h0432Parsed.length > 0) {
+      console.log("[측정사업장 동기화] H0432 파싱된 데이터:", h0432Parsed.map((r: any) => ({
+        code: r.code,
+        year: r.year,
+        period: r.period,
+        business_name: r.business_name
+      })));
+    } else {
+      console.warn("[측정사업장 동기화] 경고: 파싱된 데이터에 H0432가 없습니다!");
+      // Excel 원본 데이터에서 H0432 찾기
+      const h0432InExcel = excelData.filter((row: any) => {
+        const code = String(row["코드"] || "").trim();
+        return code.includes("H0432") || code.includes("H432");
+      });
+      console.log(`[측정사업장 동기화] Excel 원본 데이터에서 H0432 찾기: ${h0432InExcel.length}건`);
+      if (h0432InExcel.length > 0) {
+        console.log("[측정사업장 동기화] Excel 원본 H0432 데이터 샘플:", h0432InExcel[0]);
+      }
+    }
+    
     // 디버깅: 파싱된 데이터 중 future_measurement_period가 있는 항목 확인
     const withPeriod = parsedData.filter((row: any) => row.future_measurement_period);
     console.log(`[측정사업장 동기화] future_measurement_period가 있는 항목 수: ${withPeriod.length} / 전체: ${parsedData.length}`);
