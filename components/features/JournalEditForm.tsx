@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 
@@ -51,7 +52,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     code: entry.code,
     measurement_year: entry.measurement_year,
     measurement_period: entry.measurement_period,
-    note: entry.note || "",
+    note: entry.note ? (typeof entry.note === 'string' ? entry.note.split(',').filter(Boolean) : entry.note) : [],
     designated_office: entry.designated_office || "",
     office_jurisdiction: entry.office_jurisdiction || "",
     document_number: entry.document_number || "",
@@ -103,12 +104,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     special_notes: entry.special_notes || "",
   });
 
-  // 비고 옵션
+  // 비고 옵션 (복수 선택 가능)
   const noteOptions = [
-    { value: "", label: "선택" },
     { value: "최초실시", label: "최초실시" },
-    { value: "고시물질", label: "고시물질" },
+    { value: "공정 수시변경", label: "공정 수시변경" },
     { value: "소음 85 이상", label: "소음 85 이상" },
+    { value: "전회 미실시", label: "전회 미실시" },
+    { value: "타기관 신규", label: "타기관 신규" },
   ];
 
   // 지정한계_관할지청 옵션
@@ -272,7 +274,17 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       const submitData: any = {};
       Object.keys(formData).forEach((key) => {
         const value = formData[key as keyof typeof formData];
-        submitData[key] = value === "" ? null : value;
+        
+        // note 필드는 배열을 콤마로 구분된 문자열로 변환
+        if (key === 'note') {
+          if (Array.isArray(value) && value.length > 0) {
+            submitData[key] = value.join(',');
+          } else {
+            submitData[key] = null;
+          }
+        } else {
+          submitData[key] = value === "" ? null : value;
+        }
       });
 
       // 숫자 필드 변환 (콤마 제거 후 파싱)
@@ -364,61 +376,100 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             options={periodOptions}
             required
           />
-          <Select
-            label="비고"
-            value={formData.note}
-            onChange={(e) => setFormData({ ...formData, note: e.target.value })}
-            options={noteOptions}
-          />
-          <Input
-            label="소재지 관할청"
-            value={formData.office_jurisdiction}
-            disabled
-            className="bg-surface-50"
-            placeholder="주소 입력 시 자동 입력됩니다"
-          />
-          <Select
-            label="지정지청 *"
-            value={formData.designated_office}
-            onChange={(e) =>
-              setFormData({ ...formData, designated_office: e.target.value })
-            }
-            options={designatedOfficeOptions}
-            required
-            disabled={autoFilling}
-            className={autoFilling ? "bg-surface-50" : ""}
-          />
-          <Input
-            label="공문연번"
-            value={formData.document_number}
-            disabled
-            className="bg-surface-50"
-            placeholder="자동 부여됩니다"
-          />
-          <Input
-            label="연번"
-            value={formData.sequence_number}
-            disabled
-            className="bg-surface-50"
-            placeholder="자동 부여됩니다"
-          />
-          <Input
-            label="5인 이상 연번"
-            value={formData.five_plus_sequence}
-            disabled
-            className="bg-surface-50"
-            placeholder="자동 부여됩니다"
-          />
-          <Select
-            label="완료여부"
-            value={formData.completion_status}
-            onChange={(e) =>
-              setFormData({ ...formData, completion_status: e.target.value })
-            }
-            options={completionStatusOptions}
-            disabled={isCompleted}
-            className={isCompleted ? "bg-surface-50" : ""}
-          />
+          <div className="md:col-span-2 lg:col-span-3 flex flex-col lg:flex-row gap-4 items-start">
+            <div className="flex-1 min-w-0">
+              <label className="block text-sm font-medium text-text-700 mb-2">비고 (복수 선택 가능)</label>
+              <div className="flex flex-nowrap gap-x-4 gap-y-2 p-3 bg-white border border-surface-200 rounded-lg overflow-x-auto">
+                {noteOptions.map((option) => {
+                  const isChecked = Array.isArray(formData.note) 
+                    ? formData.note.includes(option.value)
+                    : formData.note === option.value;
+                  
+                  return (
+                    <Checkbox
+                      key={option.value}
+                      id={`note-${option.value}`}
+                      label={option.label}
+                      checked={isChecked}
+                      onChange={(e) => {
+                        const currentNotes = Array.isArray(formData.note) 
+                          ? [...formData.note] 
+                          : (formData.note ? [formData.note] : []);
+                        
+                        if (e.target.checked) {
+                          // 체크된 경우 추가
+                          if (!currentNotes.includes(option.value)) {
+                            currentNotes.push(option.value);
+                          }
+                        } else {
+                          // 체크 해제된 경우 제거
+                          const index = currentNotes.indexOf(option.value);
+                          if (index > -1) {
+                            currentNotes.splice(index, 1);
+                          }
+                        }
+                        
+                        setFormData({ ...formData, note: currentNotes });
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex-1 grid grid-cols-3 gap-4">
+              <Input
+                label="소재지 관할청"
+                value={formData.office_jurisdiction}
+                disabled
+                className="bg-surface-50"
+                placeholder="주소 입력 시 자동 입력됩니다"
+              />
+              <Select
+                label="지정지청 *"
+                value={formData.designated_office}
+                onChange={(e) =>
+                  setFormData({ ...formData, designated_office: e.target.value })
+                }
+                options={designatedOfficeOptions}
+                required
+                disabled={autoFilling}
+                className={autoFilling ? "bg-surface-50" : ""}
+              />
+              <Select
+                label="완료여부"
+                value={formData.completion_status}
+                onChange={(e) =>
+                  setFormData({ ...formData, completion_status: e.target.value })
+                }
+                options={completionStatusOptions}
+                disabled={isCompleted}
+                className={isCompleted ? "bg-surface-50" : ""}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 md:col-span-2 lg:col-span-3 max-w-md">
+            <Input
+              label="공문연번"
+              value={formData.document_number}
+              disabled
+              className="bg-surface-50 font-mono"
+              placeholder="자동 부여됩니다"
+            />
+            <Input
+              label="연번"
+              value={formData.sequence_number}
+              disabled
+              className="bg-surface-50 font-mono"
+              placeholder="자동 부여됩니다"
+            />
+            <Input
+              label="5인 이상 연번"
+              value={formData.five_plus_sequence}
+              disabled
+              className="bg-surface-50 font-mono"
+              placeholder="자동 부여됩니다"
+            />
+          </div>
         </div>
       </div>
 
@@ -443,6 +494,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 return updated;
               });
             }}
+            className="max-w-[200px]"
           />
           <Input
             label="측정 종료일"
@@ -451,6 +503,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             onChange={(e) =>
               setFormData({ ...formData, measurement_end_date: e.target.value })
             }
+            className="max-w-[200px]"
           />
           <Input
             label="측정자"
@@ -594,6 +647,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             onChange={(e) =>
               setFormData({ ...formData, k2b_send_date: e.target.value })
             }
+            className="max-w-[200px]"
           />
           <Input
             label="K2B 전송자"
@@ -688,6 +742,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             onChange={(e) =>
               setFormData({ ...formData, electronic_invoice_date: e.target.value })
             }
+            className="max-w-[200px]"
           />
         </div>
       </div>
@@ -738,6 +793,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
               }}
+              className="max-w-[200px]"
             />
             <Input
               label="입금액(사업장)"
@@ -778,6 +834,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
               }}
+              className="max-w-[200px]"
             />
             <Input
               label="입금액(국고)"

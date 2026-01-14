@@ -37,6 +37,14 @@ export async function POST(request: Request) {
     }
 
     const hasError = results.some((r) => !r.success);
+    
+    // 디버깅: 결과 상세 로깅
+    console.log("[동기화 API] 동기화 결과:", {
+      results,
+      hasError,
+      successCount: results.filter(r => r.success).length,
+      errorCount: results.filter(r => !r.success).length
+    });
 
     return NextResponse.json(
       {

@@ -536,64 +536,66 @@ export default function SurveyPage() {
               <p className="text-text-500 text-lg">검색 결과가 없습니다.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-surface-200">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="bg-surface-50">측정일</TableHead>
-                    <TableHead className="bg-surface-50">종료일</TableHead>
-                    <TableHead className="bg-surface-50">측정요일</TableHead>
-                    <TableHead className="bg-surface-50">사업장명</TableHead>
-                    <TableHead className="bg-surface-50">측정자</TableHead>
-                    <TableHead className="bg-surface-50">공시료 코드</TableHead>
-                    <TableHead className="bg-surface-50">예비조사자</TableHead>
-                    <TableHead className="bg-surface-50">실측정자</TableHead>
-                    <TableHead className="bg-surface-50">보고서 담당</TableHead>
-                    <TableHead className="bg-surface-50 text-center">작업</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {surveys.map((survey) => (
-                    <TableRow key={survey.id} className="hover:bg-surface-50">
-                      <TableCell>
-                        {survey.measurement_date
-                          ? formatDateYYYYMMDD(new Date(survey.measurement_date))
-                          : "-"}
-                      </TableCell>
-                      <TableCell>
-                        {survey.end_date ? formatDateYYYYMMDD(new Date(survey.end_date)) : "-"}
-                      </TableCell>
-                      <TableCell>{survey.measurement_weekdays || "-"}</TableCell>
-                      <TableCell className="font-medium">{survey.business_name}</TableCell>
-                      <TableCell className="text-text-600">{survey.measurer || "-"}</TableCell>
-                      <TableCell>{survey.survey_code || "-"}</TableCell>
-                      <TableCell className="text-text-600">{survey.preliminary_surveyor || "-"}</TableCell>
-                      <TableCell className="text-text-600">{survey.actual_measurer || "-"}</TableCell>
-                      <TableCell className="text-text-600">{survey.report_writer || "-"}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2 justify-center">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleEditSurvey(survey)}
-                            className="shadow-sm"
-                          >
-                            수정
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleDeleteSurvey(survey.id)}
-                            className="shadow-sm"
-                          >
-                            삭제
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="rounded-lg border border-surface-200 overflow-hidden">
+              <div className="max-h-[calc(100vh-300px)] overflow-y-auto overflow-x-auto">
+                <table className="w-full caption-bottom text-base">
+                  <thead className="bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-10">
+                    <tr className="border-b border-slate-100">
+                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정일</th>
+                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">종료일</th>
+                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정요일</th>
+                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">사업장명</th>
+                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정자</th>
+                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">공시료 코드</th>
+                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">예비조사자</th>
+                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">실측정자</th>
+                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">보고서 담당</th>
+                      <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">작업</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {surveys.map((survey) => (
+                      <tr key={survey.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/50">
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          {survey.measurement_date
+                            ? formatDateYYYYMMDD(new Date(survey.measurement_date))
+                            : "-"}
+                        </td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          {survey.end_date ? formatDateYYYYMMDD(new Date(survey.end_date)) : "-"}
+                        </td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurement_weekdays || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{survey.business_name}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurer || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.survey_code || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.preliminary_surveyor || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.actual_measurer || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.report_writer || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          <div className="flex gap-2 justify-center">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleEditSurvey(survey)}
+                              className="shadow-sm"
+                            >
+                              수정
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleDeleteSurvey(survey.id)}
+                              className="shadow-sm"
+                            >
+                              삭제
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </Card>
@@ -617,6 +619,7 @@ export default function SurveyPage() {
             initialData={
               editingSurvey 
                 ? {
+                    id: editingSurvey.id,
                     code: editingSurvey.code,
                     business_name: editingSurvey.business_name,
                     measurement_date: editingSurvey.measurement_date,

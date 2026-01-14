@@ -54,36 +54,50 @@ export async function PUT(
       );
     }
 
-    // 번호 필드는 수정 불가 (기존 값 유지)
+    // 공문연번, 연번은 수정 불가 (기존 값 유지)
     const documentNumber = existingJournal.document_number;
     const sequenceNumber = existingJournal.sequence_number;
-    const fivePlusSequence = existingJournal.five_plus_sequence;
-
-    // 번호가 없으면 자동 부여 (신규 등록 시나리오)
-    let finalDocumentNumber = documentNumber;
-    let finalSequenceNumber = sequenceNumber;
-    let finalFivePlusSequence = fivePlusSequence;
-
-    if (!finalDocumentNumber || !finalSequenceNumber || !finalFivePlusSequence) {
-      const assignedNumbers = await assignAllNumbers({
-        designated_office: body.designated_office || existingJournal.designated_office,
-        measurement_year: body.measurement_year || existingJournal.measurement_year,
-        measurement_period: body.measurement_period || existingJournal.measurement_period,
-        total_employees: body.total_employees || existingJournal.total_employees,
-        document_number: finalDocumentNumber,
-        sequence_number: finalSequenceNumber,
-        five_plus_sequence: finalFivePlusSequence,
-      });
-
-      finalDocumentNumber = assignedNumbers.document_number;
-      finalSequenceNumber = assignedNumbers.sequence_number;
-      finalFivePlusSequence = assignedNumbers.five_plus_sequence;
-    }
-
+    
     // designated_office 정규화 (약칭으로 저장)
     const normalizedDesignatedOffice = body.designated_office 
       ? toShortName(body.designated_office) || body.designated_office
       : existingJournal.designated_office;
+    
+    const finalDesignatedOffice = normalizedDesignatedOffice || existingJournal.designated_office;
+    const finalMeasurementYear = body.measurement_year || existingJournal.measurement_year;
+    const finalMeasurementPeriod = body.measurement_period || existingJournal.measurement_period;
+    const finalTotalEmployees = body.total_employees !== undefined ? body.total_employees : existingJournal.total_employees;
+
+    // 5인 이상 연번은 수정 시 자동 재계산 (총인원, 지정지청, 측정년도, 측정주기 변경 시 올바른 값으로 재계산)
+    const { assignFivePlusSequenceNumber } = await import("@/lib/utils/number-assignment");
+    const recalculatedFivePlusSequence = await assignFivePlusSequenceNumber(
+      finalDesignatedOffice,
+      finalMeasurementYear,
+      finalMeasurementPeriod,
+      finalTotalEmployees
+    );
+
+    let finalDocumentNumber = documentNumber;
+    let finalSequenceNumber = sequenceNumber;
+    let finalFivePlusSequence = recalculatedFivePlusSequence;
+
+    // 공문연번, 연번이 없으면 자동 부여 (신규 등록 시나리오)
+    if (!finalDocumentNumber || !finalSequenceNumber) {
+      const { assignAllNumbers } = await import("@/lib/utils/number-assignment");
+      const assignedNumbers = await assignAllNumbers({
+        designated_office: finalDesignatedOffice,
+        measurement_year: finalMeasurementYear,
+        measurement_period: finalMeasurementPeriod,
+        total_employees: finalTotalEmployees,
+        document_number: finalDocumentNumber,
+        sequence_number: finalSequenceNumber,
+        five_plus_sequence: null, // 5인 이상 연번은 이미 계산했으므로 null
+      });
+
+      finalDocumentNumber = assignedNumbers.document_number;
+      finalSequenceNumber = assignedNumbers.sequence_number;
+      // 5인 이상 연번은 위에서 계산한 값 사용
+    }
 
     // office_jurisdiction 정규화 (약칭으로 저장)
     const normalizedOfficeJurisdiction = body.office_jurisdiction

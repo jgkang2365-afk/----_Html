@@ -305,13 +305,13 @@ export const SummaryTable: React.FC = () => {
                       <TableCell>{entry.measurement_year}</TableCell>
                       <TableCell>{entry.measurement_period}</TableCell>
                       <TableCell className="font-medium">{entry.business_name}</TableCell>
-                      <TableCell className="bg-surface-50 font-mono text-xs">
+                      <TableCell className="bg-surface-50 font-mono">
                         {entry.document_number || "-"}
                       </TableCell>
-                      <TableCell className="bg-surface-50 font-mono text-xs">
+                      <TableCell className="bg-surface-50 font-mono">
                         {entry.sequence_number || "-"}
                       </TableCell>
-                      <TableCell className="bg-surface-50 font-mono text-xs">
+                      <TableCell className="bg-surface-50 font-mono">
                         {entry.five_plus_sequence || "-"}
                       </TableCell>
                       <TableCell>
@@ -373,22 +373,22 @@ export const SummaryTable: React.FC = () => {
             {/* 수정 불가 필드 (읽기 전용) */}
             <div className="bg-surface-50 p-4 rounded-lg space-y-2">
               <h3 className="font-semibold text-text-900 mb-2">수정 불가 필드</h3>
-              <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-text-600 mb-1">공문연번</label>
-                  <div className="font-mono bg-white p-2 rounded border">
+                  <label className="block text-text-600 mb-1 text-sm">공문연번</label>
+                  <div className="font-mono bg-white p-2 rounded border text-base">
                     {selectedEntry.document_number || "-"}
                   </div>
                 </div>
                 <div>
-                  <label className="block text-text-600 mb-1">연번</label>
-                  <div className="font-mono bg-white p-2 rounded border">
+                  <label className="block text-text-600 mb-1 text-sm">연번</label>
+                  <div className="font-mono bg-white p-2 rounded border text-base">
                     {selectedEntry.sequence_number || "-"}
                   </div>
                 </div>
                 <div>
-                  <label className="block text-text-600 mb-1">5인 이상 연번</label>
-                  <div className="font-mono bg-white p-2 rounded border">
+                  <label className="block text-text-600 mb-1 text-sm">5인 이상 연번</label>
+                  <div className="font-mono bg-white p-2 rounded border text-base">
                     {selectedEntry.five_plus_sequence || "-"}
                   </div>
                 </div>

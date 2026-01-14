@@ -35,8 +35,9 @@ export interface SyncLog {
  * 측정사업장.xlsx 파일은 첫 번째 행이 비어있고 두 번째 행이 헤더입니다.
  * 
  * @param filePathOrBuffer - 파일 경로 (string) 또는 파일 버퍼 (Buffer)
+ * @returns 데이터 배열 (측정사업장 파일이 아닌 경우) 또는 { data, worksheet, headerRowIndex } 객체 (측정사업장 파일인 경우)
  */
-function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): any[] {
+function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): any[] | { data: any[]; worksheet: XLSX.WorkSheet; headerRowIndex: number } {
   try {
     // 파일 경로 또는 Buffer에서 파일 버퍼 가져오기
     const fileBuffer = typeof filePathOrBuffer === "string" 
@@ -46,6 +47,8 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
     const filePathForCheck = typeof filePathOrBuffer === "string" 
       ? filePathOrBuffer 
       : (fileName || "");
+    const isMeasurementBusinessFile = filePathForCheck.includes("측정사업장") || fileName?.includes("measurement-business");
+    
     const workbook = XLSX.read(fileBuffer, { 
       type: "buffer",
       cellDates: true,
@@ -68,7 +71,7 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
     const firstRowCell = XLSX.utils.encode_cell({ r: 0, c: 0 });
     const firstRowHasData = worksheet[firstRowCell] && String(worksheet[firstRowCell].v || "").trim();
     
-    if (!firstRowHasData && filePathForCheck.includes("측정사업장")) {
+    if (!firstRowHasData && isMeasurementBusinessFile) {
       // 첫 번째 행이 비어있으면 두 번째 행을 헤더로 사용
       // range를 조정하여 행 1부터 시작하도록 설정 (0-based index)
       const newRange = {
@@ -81,7 +84,8 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
         raw: false,
         range: newRangeStr
       });
-      return data;
+      // 측정사업장 파일인 경우 워크시트 정보도 함께 반환 (BK 열 직접 읽기용)
+      return { data, worksheet, headerRowIndex: 1 }; // headerRowIndex: 1 = 두 번째 행 (0-based)
     } else {
       // 기본 동작: 첫 번째 행을 헤더로 인식
       const data = XLSX.utils.sheet_to_json(worksheet, { 
@@ -320,7 +324,8 @@ function findColumnValue(row: any, columnNames: string[]): any {
   return null;
 }
 
-function parseMeasurementBusiness(data: any[]): any[] {
+
+function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, headerRowIndex?: number): any[] {
   // 첫 번째 데이터 행에서 컬럼명 분석 (디버깅용)
   if (data.length > 0) {
     const firstRow = data[0];
@@ -340,9 +345,37 @@ function parseMeasurementBusiness(data: any[]): any[] {
         console.warn(`[파싱] 경고: "코드" 컬럼을 찾을 수 없습니다!`);
       }
     }
+    
+    // BK 열 관련 컬럼 찾기 (담당자 휴대폰)
+    // Excel 파일에서 BK 열 헤더는 "전화번호"
+    const bkRelatedKeys = keys.filter(k => 
+      k === "전화번호" ||
+      k === "BK" || 
+      k.includes("BK") || 
+      (k.includes("담당자") && (k.includes("전화") || k.includes("휴대폰") || k.includes("폰")))
+    );
+    
+    if (bkRelatedKeys.length > 0) {
+      console.log(`[파싱] BK 열 관련 컬럼 발견:`, bkRelatedKeys);
+      // 각 키에 대한 샘플 값 확인
+      bkRelatedKeys.forEach(key => {
+        const value = firstRow[key];
+        if (value) {
+          console.log(`[파싱]   - ${key}: ${value} (타입: ${typeof value})`);
+        }
+      });
+      
+      // "전화번호" 키가 있는지 확인
+      if (keys.includes("전화번호")) {
+        console.log(`[파싱] "전화번호" 컬럼 발견! 샘플 값: ${firstRow["전화번호"]}`);
+      }
+    } else {
+      console.warn(`[파싱] 경고: BK 열(담당자 휴대폰) 관련 컬럼을 찾을 수 없습니다!`);
+      console.warn(`[파싱] 사용 가능한 컬럼명 샘플:`, keys.slice(50, 70)); // BI, BJ, BK, BL 근처 컬럼명
+    }
   }
   
-  return data.map((row: any) => {
+  return data.map((row: any, dataIndex: number) => {
     // 코드 값 찾기 - 정확히 일치하는 컬럼 우선
     const codeValue = findColumnValue(row, ["코드", "코 드", "Code", "code", "CODE"]);
     
@@ -423,13 +456,83 @@ function parseMeasurementBusiness(data: any[]): any[] {
     };
 
     // 담당자 정보 및 기타 정보는 마이그레이션 후에만 추가
-    // 마이그레이션이 실행되지 않은 경우를 대비하여 조건부로 추가
+    // 마이그레이션에 실행되지 않은 경우를 대비하여 조건부로 추가
     const optionalFields: any = {};
     
     // 담당자 정보 (여러 가능한 컬럼명 시도)
     const managerName = row["담당자"] || row["담당자명"] || row["담당자 성명"] || null;
     const managerPosition = row["직위"] || row["담당자 직위"] || null;
-    const managerMobile = row["BK"] || row["BK열"] || row["담당자전화"] || row["담당자 휴대폰"] || row["휴대폰"] || null;
+    
+    // BK 열: Excel의 BK 열은 63번째 열 (A=1, B=2, ..., BK=63, 1-based)
+    // xlsx 라이브러리의 sheet_to_json은 첫 번째 열을 0부터 시작하므로 BK는 인덱스 62 (0-based)
+    // 중요: "전화번호" 헤더가 두 개 있음 (J열과 BK열). xlsx 라이브러리는 중복 헤더명이 있을 때 첫 번째 것만 사용하므로
+    //       row["전화번호"]는 J열만 가리킴. 따라서 BK 열(담당자 휴대폰)은 반드시 워크시트에서 직접 읽어야 함
+    let managerMobile: string | null = null;
+    
+    // 워크시트에서 BK 열(인덱스 63, 0-based 인덱스 62)을 직접 읽기
+    if (worksheet && headerRowIndex !== undefined) {
+      // BK 열 인덱스: 62 (0-based, Excel의 BK 열)
+      const bkColumnIndex = 62;
+      // sheet_to_json의 range 옵션 사용 시, data 배열의 인덱스와 실제 Excel 행 번호 매핑
+      // headerRowIndex가 1이면 행 1이 헤더, data[0]는 행 2부터 시작
+      const excelRowIndex = headerRowIndex + 1 + dataIndex;
+      const bkCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: bkColumnIndex });
+      const bkCell = worksheet[bkCellAddress];
+      
+      // 디버깅: 첫 번째 행만 로그 출력
+      if (dataIndex === 0) {
+        console.log(`[BK열 읽기] headerRowIndex: ${headerRowIndex}, dataIndex: ${dataIndex}, excelRowIndex: ${excelRowIndex}, cellAddress: ${bkCellAddress}`);
+        console.log(`[BK열 읽기] 셀 존재: ${!!bkCell}, 값: ${bkCell?.v}`);
+      }
+      
+      if (bkCell && bkCell.v !== undefined && bkCell.v !== null) {
+        const value = String(bkCell.v).trim();
+        if (value) {
+          managerMobile = value;
+          if (dataIndex === 0) {
+            console.log(`[BK열 읽기] 성공! managerMobile: ${managerMobile}`);
+          }
+        }
+      }
+    }
+    
+    // 워크시트를 사용할 수 없는 경우, 여러 fallback 시도
+    if (!managerMobile) {
+      // 방법 1: __EMPTY_62로 시도
+      const bkColumnKey = "__EMPTY_62";
+      if (row[bkColumnKey] !== undefined && row[bkColumnKey] !== null) {
+        const value = String(row[bkColumnKey]).trim();
+        if (value) {
+          managerMobile = value;
+        }
+      }
+      
+      // 방법 2: 모든 컬럼에서 휴대폰 번호 패턴 찾기 (010-, 011-, 016-, 017-, 018-, 019-로 시작)
+      if (!managerMobile) {
+        const mobilePattern = /^(010|011|016|017|018|019)-\d{3,4}-\d{4}/;
+        for (const [key, value] of Object.entries(row)) {
+          if (value && typeof value === "string") {
+            const strValue = String(value).trim();
+            if (mobilePattern.test(strValue)) {
+              // J열의 전화번호가 아닌 경우만 (일반 전화번호는 지역번호로 시작)
+              if (!strValue.match(/^(02|031|032|033|041|042|043|044|051|052|053|054|055|061|062|063|064)-\d{3,4}-\d{4}/)) {
+                managerMobile = strValue;
+                // 디버깅: 첫 번째 행만 로그
+                if (dataIndex === 0) {
+                  console.log(`[휴대폰 번호 패턴] 컬럼 "${key}"에서 휴대폰 번호 발견: ${managerMobile}`);
+                }
+                break;
+              }
+            }
+          }
+        }
+        if (!managerMobile && dataIndex === 0) {
+          console.log(`[휴대폰 번호 패턴] 휴대폰 번호 패턴을 찾지 못했습니다.`);
+        }
+      }
+    }
+    
+    
     const managerEmail = row["Email"] || row["이메일"] || row["담당자 e-mail"] || row["담당자 email"] || row["담당자이메일"] || null;
     const invoiceEmail = row["세금 Email"] || row["세금이메일"] || row["세금 Email"] || row["계산서 메일"] || row["계산서메일"] || null;
     const industrialAccidentNumber = row["산재관리번호"] || row["산재관리 번호"] || null;
@@ -566,10 +669,15 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
     }
 
     // Excel 파일 읽기
-    if (fileBuffer) {
-      excelData = readExcelFile(fileBuffer, storageFileName);
+    const readResult = fileBuffer 
+      ? readExcelFile(fileBuffer, storageFileName)
+      : readExcelFile(targetPath as string);
+    
+    // readExcelFile의 반환값이 객체인 경우 (측정사업장 파일)
+    if (readResult && typeof readResult === "object" && "data" in readResult) {
+      excelData = readResult.data;
     } else {
-      excelData = readExcelFile(targetPath as string);
+      excelData = readResult as any[];
     }
     
     // 디버깅: "관할청" 컬럼이 있는 행 찾기
@@ -834,7 +942,6 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     const supabase = await createClient();
     
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
-    let excelData: any[];
     let targetPath: string | Buffer | undefined = filePath;
     let fileBuffer: Buffer | undefined;
     let storageFileName: string | undefined;
@@ -893,10 +1000,21 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     }
 
     // Excel 파일 읽기
-    if (fileBuffer) {
-      excelData = readExcelFile(fileBuffer, storageFileName);
+    let excelData: any[];
+    let worksheet: XLSX.WorkSheet | undefined;
+    let headerRowIndex: number | undefined;
+    
+    const readResult = fileBuffer 
+      ? readExcelFile(fileBuffer, storageFileName)
+      : readExcelFile(targetPath as string);
+    
+    // readExcelFile의 반환값이 객체인 경우 (측정사업장 파일)
+    if (readResult && typeof readResult === "object" && "data" in readResult) {
+      excelData = readResult.data;
+      worksheet = readResult.worksheet;
+      headerRowIndex = readResult.headerRowIndex;
     } else {
-      excelData = readExcelFile(targetPath as string);
+      excelData = readResult as any[];
     }
     
     console.log(`[측정사업장 동기화] Excel 파일에서 읽은 데이터 행 수: ${excelData.length}`);
@@ -969,11 +1087,33 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       if (periodColumns.length > 0) {
         console.log("[측정사업장 동기화] 향후측정주기 관련 컬럼:", periodColumns);
       }
+      
+      // BK 열 관련 디버깅: 모든 빈 헤더 확인
+      const emptyHeaders = keys.filter(k => k.startsWith("__EMPTY_"));
+      if (emptyHeaders.length > 0) {
+        console.log(`[측정사업장 동기화] 빈 헤더(__EMPTY_XX) 개수: ${emptyHeaders.length}`);
+        // BK 열 근처(61, 62, 63) 확인
+        const bkRelatedEmptyHeaders = emptyHeaders.filter(key => {
+          const match = key.match(/__EMPTY_(\d+)/);
+          if (match) {
+            const index = parseInt(match[1], 10);
+            return index >= 60 && index <= 65; // BK 열 근처 (대략 62번째)
+          }
+          return false;
+        });
+        if (bkRelatedEmptyHeaders.length > 0) {
+          console.log("[측정사업장 동기화] BK 열 근처(60-65) 빈 헤더:", bkRelatedEmptyHeaders);
+          bkRelatedEmptyHeaders.forEach(key => {
+            const value = firstRow[key];
+            console.log(`[측정사업장 동기화]   ${key}: ${value} (타입: ${typeof value})`);
+          });
+        }
+      }
     } else {
       console.error("[측정사업장 동기화] Excel 파일에서 데이터를 읽을 수 없습니다!");
     }
     
-    const parsedData = parseMeasurementBusiness(excelData);
+    const parsedData = parseMeasurementBusiness(excelData, worksheet, headerRowIndex);
     
     // 디버깅: H0432 데이터가 파싱되었는지 확인
     const h0432Parsed = parsedData.filter((row: any) => row.code && (row.code.toUpperCase().includes("H0432") || row.code.toUpperCase().includes("H432")));
@@ -1063,6 +1203,31 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
           });
 
         if (upsertError) {
+          console.error(`배치 UPSERT 오류 (${i}~${i + batch.length}):`, {
+            error: upsertError,
+            code: upsertError.code,
+            message: upsertError.message,
+            details: upsertError.details,
+            hint: upsertError.hint,
+            batch_size: batch.length,
+            batch_sample: batch.slice(0, 3).map(row => ({
+              code: row.code,
+              year: row.year,
+              period: row.period,
+              business_name: row.business_name
+            }))
+          });
+          
+          // H0432가 포함된 배치인지 확인
+          const hasH0432 = batch.some(row => row.code === 'H0432');
+          if (hasH0432) {
+            const h0432Row = batch.find(row => row.code === 'H0432');
+            console.error(`[중요] H0432 데이터 UPSERT 실패:`, {
+              row: h0432Row,
+              error: upsertError
+            });
+          }
+          
           // 마이그레이션이 실행되지 않은 경우, 기본 필드만 UPSERT 시도
           if (upsertError.message?.includes("column") && upsertError.message?.includes("schema cache")) {
             const basicBatch = batch.map(fullRow => {
@@ -1083,15 +1248,30 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
               });
             
             if (basicUpsertError) {
-              console.error(`배치 UPSERT 오류 (${i}~${i + batch.length}):`, basicUpsertError);
+              console.error(`배치 UPSERT 오류 (기본 필드, ${i}~${i + batch.length}):`, basicUpsertError);
+              // 에러가 계속 발생하면 throw하여 catch 블록에서 처리
+              throw new Error(`배치 UPSERT 실패: ${basicUpsertError.message}`);
             } else {
               recordsProcessed += batch.length;
             }
           } else {
-            console.error(`배치 UPSERT 오류 (${i}~${i + batch.length}):`, upsertError);
+            // 다른 종류의 에러는 throw하여 catch 블록에서 처리
+            throw new Error(`배치 UPSERT 실패: ${upsertError.message || upsertError.code}`);
           }
         } else {
           recordsProcessed += batch.length;
+          
+          // H0432가 포함된 배치인지 확인 (성공 로그)
+          const hasH0432 = batch.some(row => row.code === 'H0432');
+          if (hasH0432) {
+            const h0432Row = batch.find(row => row.code === 'H0432');
+            console.log(`[성공] H0432 데이터 UPSERT 완료:`, {
+              code: h0432Row?.code,
+              year: h0432Row?.year,
+              period: h0432Row?.period,
+              business_name: h0432Row?.business_name
+            });
+          }
         }
       }
     }
@@ -1122,18 +1302,30 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
   } catch (error) {
     const syncEndTime = new Date();
     const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // 상세 에러 로깅
+    console.error("[측정사업장 동기화] 동기화 중 오류 발생:", {
+      error,
+      message: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      fileName
+    });
 
     // 동기화 로그 업데이트 (실패)
     if (logId) {
-      const supabase = await createClient();
-      await supabase
-        .from("sync_log")
-        .update({
-          sync_end_time: syncEndTime.toISOString(),
-          status: "실패",
-          error_message: errorMessage,
-        })
-        .eq("id", logId);
+      try {
+        const supabase = await createClient();
+        await supabase
+          .from("sync_log")
+          .update({
+            sync_end_time: syncEndTime.toISOString(),
+            status: "실패",
+            error_message: errorMessage,
+          })
+          .eq("id", logId);
+      } catch (logError) {
+        console.error("[측정사업장 동기화] 동기화 로그 업데이트 실패:", logError);
+      }
     }
 
     return {

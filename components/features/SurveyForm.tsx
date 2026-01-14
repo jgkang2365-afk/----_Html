@@ -17,6 +17,16 @@ import { normalizeForDateInput, isValidDateString } from "@/lib/utils/date-valid
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { MEASURER_LIST, getSurveyCode } from "@/lib/utils/survey-code";
 
+// 예비조사자 조합 목록
+const PRELIMINARY_SURVEYOR_OPTIONS = [
+  "이태환",
+  "한기문",
+  "이주형",
+  "이태환, 강종구",
+  "한기문, 배윤민",
+  "이주형, 고유빈",
+];
+
 interface BusinessInfo {
   code: string;
   business_name: string;
@@ -41,7 +51,7 @@ interface SurveyFormData {
 }
 
 interface SurveyFormProps {
-  initialData?: Partial<SurveyFormData>;
+  initialData?: Partial<SurveyFormData> & { id?: number };
   onSuccess?: () => void;
   onCancel?: () => void;
 }
@@ -71,7 +81,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const [selectedBusiness, setSelectedBusiness] = useState<string>("");
   const [isNewBusiness, setIsNewBusiness] = useState(false);
   const [selectedMeasurers, setSelectedMeasurers] = useState<string[]>([]);
-  const [preliminarySurveyors, setPreliminarySurveyors] = useState<string[]>([]);
+  const [preliminarySurveyors, setPreliminarySurveyors] = useState<string[]>([]); // 선택된 예비조사자 조합 배열
   const [actualMeasurers, setActualMeasurers] = useState<string[]>([]);
   const [reportWriter, setReportWriter] = useState<string>(""); // 단수 선택
   const [loading, setLoading] = useState(false);
@@ -127,9 +137,48 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         setSelectedMeasurers(initialData.measurer.split(",").map((m) => m.trim()));
       }
       
-      // 예비조사자, 실측정자, 보고서 담당 설정
+      // 예비조사자 설정 (조합 목록과 매칭)
       if (initialData.preliminary_surveyor) {
-        setPreliminarySurveyors(initialData.preliminary_surveyor.split(",").map((m) => m.trim()));
+        const savedValue = initialData.preliminary_surveyor.trim();
+        // 저장된 값 정규화 함수 (공백 제거 후 비교)
+        const normalizeValue = (value: string) => 
+          value.replace(/\s*,\s*/g, ",").trim();
+        
+        const normalizedSavedValue = normalizeValue(savedValue);
+        
+        // 저장된 값이 여러 조합으로 저장되어 있을 수 있음 (콤마로 구분된 여러 조합)
+        // 예: "이태환, 한기문" -> ["이태환", "한기문"]로 분리
+        // 하지만 실제로는 "이태환, 한기문"이 하나의 조합일 수도 있음
+        
+        // 먼저 전체 값이 조합 목록 중 하나와 일치하는지 확인
+        let matchedOptions: string[] = [];
+        PRELIMINARY_SURVEYOR_OPTIONS.forEach((option) => {
+          const normalizedOption = normalizeValue(option);
+          if (normalizedOption === normalizedSavedValue) {
+            matchedOptions.push(option);
+          }
+        });
+        
+        // 일치하는 조합이 없으면, 저장된 값을 콤마로 분리하여 각각이 조합 목록에 있는지 확인
+        if (matchedOptions.length === 0 && savedValue.includes(",")) {
+          const parts = savedValue.split(",").map(s => s.trim()).filter(Boolean);
+          PRELIMINARY_SURVEYOR_OPTIONS.forEach((option) => {
+            const normalizedOption = normalizeValue(option);
+            // 조합의 각 부분이 저장된 값의 부분과 일치하는지 확인
+            const optionParts = option.split(",").map(s => s.trim());
+            if (optionParts.every(part => parts.includes(part)) && 
+                parts.every(part => optionParts.includes(part))) {
+              matchedOptions.push(option);
+            }
+          });
+        }
+        
+        if (matchedOptions.length > 0) {
+          setPreliminarySurveyors(matchedOptions);
+        } else {
+          // 일치하는 조합이 없으면 빈 배열로 설정 (사용자가 수동으로 선택하도록)
+          setPreliminarySurveyors([]);
+        }
       }
       if (initialData.actual_measurer) {
         setActualMeasurers(initialData.actual_measurer.split(",").map((m) => m.trim()));
@@ -325,11 +374,11 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     }));
   };
 
-  // 예비조사자 선택 처리
-  const handlePreliminarySurveyorToggle = (measurer: string) => {
-    const updated = preliminarySurveyors.includes(measurer)
-      ? preliminarySurveyors.filter((m) => m !== measurer)
-      : [...preliminarySurveyors, measurer];
+  // 예비조사자 선택 처리 (조합 단위로 선택)
+  const handlePreliminarySurveyorToggle = (option: string) => {
+    const updated = preliminarySurveyors.includes(option)
+      ? preliminarySurveyors.filter((o) => o !== option)
+      : [...preliminarySurveyors, option];
     setPreliminarySurveyors(updated);
     setFormData((prev) => ({
       ...prev,
@@ -382,11 +431,12 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     setLoading(true);
 
     try {
-      const url = initialData && (initialData as any).id 
-        ? `/api/survey/${(initialData as any).id}`
+      const isEditMode = initialData?.id !== undefined;
+      const url = isEditMode 
+        ? `/api/survey/${initialData.id}`
         : "/api/survey";
       
-      const method = initialData && (initialData as any).id ? "PUT" : "POST";
+      const method = isEditMode ? "PUT" : "POST";
       
       const response = await fetch(url, {
         method,
@@ -524,21 +574,21 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             <label className="block text-sm font-semibold text-blue-900 mb-3">
               예비조사자 (복수 선택 가능)
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {MEASURER_LIST.map((measurer) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {PRELIMINARY_SURVEYOR_OPTIONS.map((option) => (
                 <div
-                  key={measurer}
+                  key={option}
                   className={`p-2 rounded-md border transition-colors cursor-pointer ${
-                    preliminarySurveyors.includes(measurer)
+                    preliminarySurveyors.includes(option)
                       ? "bg-blue-100 border-blue-400 shadow-sm"
                       : "bg-white border-blue-200 hover:bg-blue-50"
                   }`}
-                  onClick={() => handlePreliminarySurveyorToggle(measurer)}
+                  onClick={() => handlePreliminarySurveyorToggle(option)}
                 >
                   <Checkbox
-                    label={measurer}
-                    checked={preliminarySurveyors.includes(measurer)}
-                    onChange={() => handlePreliminarySurveyorToggle(measurer)}
+                    label={option}
+                    checked={preliminarySurveyors.includes(option)}
+                    onChange={() => handlePreliminarySurveyorToggle(option)}
                   />
                 </div>
               ))}
@@ -614,7 +664,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           </Button>
         )}
         <Button type="submit" variant="primary" disabled={loading}>
-          {loading ? "저장 중..." : initialData && (initialData as any).id ? "수정" : "등록"}
+          {loading ? "저장 중..." : initialData?.id ? "수정" : "등록"}
         </Button>
       </div>
 

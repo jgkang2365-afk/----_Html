@@ -363,21 +363,38 @@ export async function GET(request: NextRequest) {
     }
 
     // 최신 자료 우선 정렬 (년도 → 주기 → 생성일)
+    // 주기 비교: "하반기" > "상반기"
+    const periodOrder: { [key: string]: number } = { "하반기": 2, "상반기": 1 };
     filteredResults.sort((a, b) => {
       if (a.measurement_year !== b.measurement_year) {
-        return b.measurement_year - a.measurement_year;
+        return b.measurement_year - a.measurement_year; // 년도 내림차순
       }
       if (a.measurement_period !== b.measurement_period) {
-        return b.measurement_period.localeCompare(a.measurement_period);
+        // 주기 내림차순 (하반기 > 상반기)
+        const periodA = periodOrder[a.measurement_period] || 0;
+        const periodB = periodOrder[b.measurement_period] || 0;
+        return periodB - periodA;
       }
       const dateA = new Date(a.created_at || 0).getTime();
       const dateB = new Date(b.created_at || 0).getTime();
-      return dateB - dateA;
+      return dateB - dateA; // 생성일 내림차순
     });
 
+    // 같은 code에 대해 가장 최신 항목만 유지 (정렬 후 첫 번째 항목이 가장 최신)
+    const codeMap = new Map<string, any>();
+    filteredResults.forEach((entry: any) => {
+      if (!codeMap.has(entry.code)) {
+        // 해당 code의 첫 번째 항목(가장 최신)만 유지
+        codeMap.set(entry.code, entry);
+      }
+    });
+
+    // Map에서 배열로 변환하고 원래 정렬 순서 유지
+    const finalResults = Array.from(codeMap.values());
+
     // 최종 결과 로그
-    console.log(`[검색 API] 최종 반환 결과 수: ${filteredResults.length}건`);
-    const finalH0432 = filteredResults.filter((r: any) => r.code && r.code.includes("H0432"));
+    console.log(`[검색 API] 최종 반환 결과 수: ${finalResults.length}건 (중복 제거 전: ${filteredResults.length}건)`);
+    const finalH0432 = finalResults.filter((r: any) => r.code && r.code.includes("H0432"));
     console.log(`[검색 API] 최종 H0432 데이터: ${finalH0432.length}건`);
 
     // 디버깅 정보 (문제 해결을 위해 프로덕션에서도 포함)
@@ -394,12 +411,13 @@ export async function GET(request: NextRequest) {
       journal_data_count: journalData?.length || 0,
       results_before_filter: results.length,
       results_after_filter: filteredResults.length,
+      results_after_dedup: finalResults.length,
       h0432_in_business: businessData?.filter((b: any) => b.code && b.code.includes("H0432")).length || 0,
       h0432_in_results: finalH0432.length,
     };
 
     return NextResponse.json({ 
-      results: filteredResults,
+      results: finalResults,
       debug: debugInfo, // 프로덕션에서도 디버깅 정보 포함
     });
   } catch (error) {

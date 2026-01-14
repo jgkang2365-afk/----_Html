@@ -87,47 +87,60 @@ export async function assignSequenceNumber(
     officesToMatch.push(designatedOffice);
   }
   
-  const { data: lastJournal, error } = await supabase
+  // 연번을 숫자로 정렬하기 위해 모든 레코드를 가져와서 클라이언트에서 정렬
+  const { data: journals, error } = await supabase
     .from("measurement_journal")
     .select("sequence_number")
     .in("designated_office", officesToMatch)
     .eq("measurement_year", measurementYear)
     .eq("measurement_period", measurementPeriod)
-    .not("sequence_number", "is", null)
-    .order("sequence_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
+    .not("sequence_number", "is", null);
+  
   if (error && error.code !== "PGRST116") {
     console.error("연번 조회 오류:", error);
     throw new Error("연번 조회 중 오류가 발생했습니다.");
+  }
+  
+  let lastJournal = null;
+  if (!error && journals && journals.length > 0) {
+    // 숫자로 변환하여 정렬
+    const sorted = journals
+      .map(j => ({ ...j, num: parseInt(j.sequence_number, 10) }))
+      .filter(j => !isNaN(j.num))
+      .sort((a, b) => b.num - a.num);
+    if (sorted.length > 0) {
+      lastJournal = sorted[0];
+    }
   }
 
   let nextNumber = 1;
 
   if (lastJournal && lastJournal.sequence_number) {
-    // 연번은 숫자 문자열 (예: "001", "002")
+    // 연번은 숫자 문자열 (예: "1", "2", "11", "44", "101")
     const num = parseInt(lastJournal.sequence_number, 10);
     if (!isNaN(num)) {
       nextNumber = num + 1;
     }
   }
 
-  // 3자리 숫자로 포맷팅 (001, 002, 003...)
-  return String(nextNumber).padStart(3, "0");
+  // 숫자 그대로 반환 (1, 2, 3, 11, 44, 101...)
+  return String(nextNumber);
 }
 
 /**
  * 5인 이상 연번 자동 부여
+ * 년도별 지정지청별로 상∙하반기를 구분하여 부여합니다.
  * 총인원이 5인 이상이면 마지막 번호를 조회하고 증가,
  * 5인 미만이면 직전 번호를 재사용합니다.
  * @param designatedOffice 지정한계_관할지청
+ * @param measurementYear 측정년도
  * @param measurementPeriod 측정주기 (상반기/하반기)
  * @param totalEmployees 총인원
  * @returns 5인 이상 연번 (예: "001")
  */
 export async function assignFivePlusSequenceNumber(
   designatedOffice: string,
+  measurementYear: number,
   measurementPeriod: string,
   totalEmployees: number | null
 ): Promise<string> {
@@ -139,7 +152,7 @@ export async function assignFivePlusSequenceNumber(
   // 총인원이 5인 미만인 경우
   if (!totalEmployees || totalEmployees < 5) {
     // 직전 5인 이상 연번 조회 (중복 허용, 기존 전체명과 약칭 모두 매칭)
-    // .in() 사용하여 더 안전하게 처리
+    // 년도별, 지정지청별, 측정주기별로 구분하여 조회
     const officesToMatch = [normalizedOffice];
     if (normalizedOffice !== designatedOffice) {
       officesToMatch.push(designatedOffice);
@@ -149,6 +162,7 @@ export async function assignFivePlusSequenceNumber(
       .from("measurement_journal")
       .select("five_plus_sequence")
       .in("designated_office", officesToMatch)
+      .eq("measurement_year", measurementYear)
       .eq("measurement_period", measurementPeriod)
       .not("five_plus_sequence", "is", null)
       .order("created_at", { ascending: false })
@@ -158,7 +172,7 @@ export async function assignFivePlusSequenceNumber(
     if (error && error.code !== "PGRST116") {
       console.error("5인 이상 연번 조회 오류:", error);
       // 오류가 발생해도 기본값 반환
-      return "000";
+      return "0";
     }
 
     if (lastJournal && lastJournal.five_plus_sequence) {
@@ -166,30 +180,41 @@ export async function assignFivePlusSequenceNumber(
       return lastJournal.five_plus_sequence;
     }
 
-    // 직전 번호가 없으면 "000" 반환
-    return "000";
+    // 직전 번호가 없으면 "0" 반환
+    return "0";
   }
 
   // 총인원이 5인 이상인 경우: 마지막 번호 조회 후 증가 (기존 전체명과 약칭 모두 매칭)
-  // .in() 사용하여 더 안전하게 처리
+  // 년도별, 지정지청별, 측정주기별로 구분하여 조회
   const officesToMatch = [normalizedOffice];
   if (normalizedOffice !== designatedOffice) {
     officesToMatch.push(designatedOffice);
   }
   
-  const { data: lastJournal, error } = await supabase
+  // 5인 이상 연번을 숫자로 정렬하기 위해 모든 레코드를 가져와서 클라이언트에서 정렬
+  const { data: journals, error } = await supabase
     .from("measurement_journal")
     .select("five_plus_sequence")
     .in("designated_office", officesToMatch)
+    .eq("measurement_year", measurementYear)
     .eq("measurement_period", measurementPeriod)
-    .not("five_plus_sequence", "is", null)
-    .order("five_plus_sequence", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
+    .not("five_plus_sequence", "is", null);
+  
   if (error && error.code !== "PGRST116") {
     console.error("5인 이상 연번 조회 오류:", error);
     throw new Error("5인 이상 연번 조회 중 오류가 발생했습니다.");
+  }
+  
+  let lastJournal = null;
+  if (!error && journals && journals.length > 0) {
+    // 숫자로 변환하여 정렬
+    const sorted = journals
+      .map(j => ({ ...j, num: parseInt(j.five_plus_sequence, 10) }))
+      .filter(j => !isNaN(j.num))
+      .sort((a, b) => b.num - a.num);
+    if (sorted.length > 0) {
+      lastJournal = sorted[0];
+    }
   }
 
   let nextNumber = 1;
@@ -201,8 +226,8 @@ export async function assignFivePlusSequenceNumber(
     }
   }
 
-  // 3자리 숫자로 포맷팅 (001, 002, 003...)
-  return String(nextNumber).padStart(3, "0");
+  // 숫자 그대로 반환 (1, 2, 3, 11, 44, 101...)
+  return String(nextNumber);
 }
 
 /**
@@ -251,6 +276,7 @@ export async function assignAllNumbers(journalData: {
   if (!fivePlusSequence) {
     fivePlusSequence = await assignFivePlusSequenceNumber(
       normalizedOffice,
+      journalData.measurement_year,
       journalData.measurement_period,
       journalData.total_employees || null
     );

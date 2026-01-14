@@ -33,6 +33,11 @@ interface JournalEntry {
   measurement_start_date: string | null;
   measurement_end_date: string | null;
   measurer: string | null;
+  document_number?: string | null;
+  sequence_number?: string | null;
+  five_plus_sequence?: string | null;
+  manager_name?: string | null;
+  manager_mobile?: string | null;
   created_at: string;
   updated_at: string;
   _isFromBusiness?: boolean; // measurement_business에서 온 데이터인지 표시
@@ -142,12 +147,22 @@ export const JournalSearch: React.FC = () => {
       }
 
       const response = await fetch(`/api/journal/search?${params.toString()}`);
-      const data = await response.json();
+
+      // 응답 파싱 안전 처리 (HTML 에러 페이지 등 JSON 이 아닐 때 대비)
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch {
+        // JSON 파싱에 실패한 경우 (예: "Internal Server Error" 텍스트)
+        if (!response.ok) {
+          throw new Error("서버에서 올바른 데이터를 받지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        }
+      }
 
       if (response.ok) {
-        setResults(data.results || []);
+        setResults((data && data.results) || []);
       } else {
-        setError(data.error || "검색 중 오류가 발생했습니다.");
+        setError((data && data.error) || "검색 중 오류가 발생했습니다.");
         setResults([]);
       }
     } catch (err: any) {
@@ -742,11 +757,15 @@ export const JournalSearch: React.FC = () => {
                         <TableHead className="bg-surface-50 w-16 text-center">코드</TableHead>
                         <TableHead className="bg-surface-50 w-20 text-center">측정년도</TableHead>
                         <TableHead className="bg-surface-50 w-20 text-center">측정주기</TableHead>
-                        <TableHead className="bg-surface-50 w-[360px]">사업장명</TableHead>
                         <TableHead className="bg-surface-50 w-24 text-center">지정지청</TableHead>
+                        <TableHead className="bg-surface-50 w-[360px]">사업장명</TableHead>
                         <TableHead className="bg-surface-50 w-auto">주소</TableHead>
+                        <TableHead className="bg-surface-50 w-24 text-center">공문연번</TableHead>
+                        <TableHead className="bg-surface-50 w-20 text-center">연번</TableHead>
+                        <TableHead className="bg-surface-50 w-24 text-center">5인 이상 연번</TableHead>
                         <TableHead className="bg-surface-50 w-24 text-center">측정<br />시작일</TableHead>
-                        <TableHead className="bg-surface-50 w-24 text-center">측정<br />종료일</TableHead>
+                        <TableHead className="bg-surface-50 w-20 text-center">담당자</TableHead>
+                        <TableHead className="bg-surface-50 w-24 text-center">담당자 휴대폰</TableHead>
                         <TableHead className="bg-surface-50 w-20 text-center">측정자</TableHead>
                         <TableHead className="bg-surface-50 w-20 text-center">완료여부</TableHead>
                         <TableHead className="bg-surface-50 w-16 text-center">작업</TableHead>
@@ -758,13 +777,17 @@ export const JournalSearch: React.FC = () => {
                           <TableCell className="font-medium text-center">{entry.code}</TableCell>
                           <TableCell className="font-medium text-center">{entry.measurement_year}</TableCell>
                           <TableCell className="text-center">{entry.measurement_period}</TableCell>
-                          <TableCell className="font-medium truncate max-w-[360px]" title={entry.business_name}>{entry.business_name}</TableCell>
                           <TableCell className="text-center">{entry.designated_office}</TableCell>
+                          <TableCell className="font-medium truncate max-w-[360px]" title={entry.business_name}>{entry.business_name}</TableCell>
                           <TableCell className="text-text-600 truncate max-w-2xl" title={entry.address}>
                             {entry.address || "-"}
                           </TableCell>
+                          <TableCell className="text-center">{entry.document_number || "-"}</TableCell>
+                          <TableCell className="text-center">{entry.sequence_number || "-"}</TableCell>
+                          <TableCell className="text-center">{entry.five_plus_sequence || "-"}</TableCell>
                           <TableCell className="text-center text-xs">{formatDate(entry.measurement_start_date)}</TableCell>
-                          <TableCell className="text-center text-xs">{formatDate(entry.measurement_end_date)}</TableCell>
+                          <TableCell className="text-center">{entry.manager_name || "-"}</TableCell>
+                          <TableCell className="text-center">{entry.manager_mobile || "-"}</TableCell>
                           <TableCell className="text-text-600 text-center">{entry.measurer || "-"}</TableCell>
                           <TableCell className="text-center">
                             <span
@@ -898,19 +921,25 @@ export const JournalSearch: React.FC = () => {
                           checked={
                             filteredJournals.length > 0 &&
                             filteredJournals.filter((entry) => entry.id !== null).length > 0 &&
-                            selectedJournalIds.length === filteredJournals.filter((entry) => entry.id !== null).length
+                            selectedJournalIds.length ===
+                              filteredJournals.filter((entry) => entry.id !== null).length
                           }
                           onChange={(e) => handleSelectAllJournals(e.target.checked)}
                           disabled={filteredJournals.filter((entry) => entry.id !== null).length === 0}
                         />
                       </TableHead>
+                      <TableHead className="bg-surface-50">코드</TableHead>
                       <TableHead className="bg-surface-50">측정년도</TableHead>
                       <TableHead className="bg-surface-50">측정주기</TableHead>
-                      <TableHead className="bg-surface-50">사업장명</TableHead>
                       <TableHead className="bg-surface-50">지정지청</TableHead>
+                      <TableHead className="bg-surface-50">사업장명</TableHead>
                       <TableHead className="bg-surface-50">주소</TableHead>
+                      <TableHead className="bg-surface-50">공문연번</TableHead>
+                      <TableHead className="bg-surface-50">연번</TableHead>
+                      <TableHead className="bg-surface-50">5인 이상 연번</TableHead>
                       <TableHead className="bg-surface-50">측정 시작일</TableHead>
-                      <TableHead className="bg-surface-50">측정 종료일</TableHead>
+                      <TableHead className="bg-surface-50">담당자</TableHead>
+                      <TableHead className="bg-surface-50">담당자 휴대폰</TableHead>
                       <TableHead className="bg-surface-50">측정자</TableHead>
                       <TableHead className="bg-surface-50">완료여부</TableHead>
                       <TableHead className="bg-surface-50">작업</TableHead>
@@ -918,35 +947,67 @@ export const JournalSearch: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     {filteredJournals.map((entry) => {
-                      const isSelected = entry.id !== null && selectedJournalIds.includes(entry.id);
+                      const isSelected =
+                        entry.id !== null && selectedJournalIds.includes(entry.id);
                       return (
-                        <TableRow key={entry.id || `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`} className="hover:bg-surface-50">
+                        <TableRow
+                          key={
+                            entry.id ||
+                            `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`
+                          }
+                          className="hover:bg-surface-50"
+                        >
                           <TableCell>
                             {entry.id !== null ? (
                               <Checkbox
                                 checked={isSelected}
-                                onChange={(e) => handleToggleJournalSelection(entry.id as number, e.target.checked)}
+                                onChange={(e) =>
+                                  handleToggleJournalSelection(
+                                    entry.id as number,
+                                    e.target.checked,
+                                  )
+                                }
                               />
                             ) : (
                               <span className="text-text-400">-</span>
                             )}
                           </TableCell>
-                          <TableCell className="font-medium">{entry.measurement_year}</TableCell>
+                          <TableCell className="font-mono text-sm">
+                            {entry.code}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {entry.measurement_year}
+                          </TableCell>
                           <TableCell>{entry.measurement_period}</TableCell>
-                          <TableCell className="font-medium">{entry.business_name}</TableCell>
                           <TableCell>{entry.designated_office}</TableCell>
+                          <TableCell className="font-medium">
+                            {entry.business_name}
+                          </TableCell>
                           <TableCell className="text-text-600 max-w-xs truncate">
                             {entry.address || "-"}
                           </TableCell>
+                          <TableCell className="bg-surface-50 text-center">
+                            {entry.document_number || "-"}
+                          </TableCell>
+                          <TableCell className="bg-surface-50 text-center">
+                            {entry.sequence_number || "-"}
+                          </TableCell>
+                          <TableCell className="bg-surface-50 text-center">
+                            {entry.five_plus_sequence || "-"}
+                          </TableCell>
                           <TableCell>{formatDate(entry.measurement_start_date)}</TableCell>
-                          <TableCell>{formatDate(entry.measurement_end_date)}</TableCell>
-                          <TableCell className="text-text-600">{entry.measurer || "-"}</TableCell>
+                          <TableCell>{entry.manager_name || "-"}</TableCell>
+                          <TableCell>{entry.manager_mobile || "-"}</TableCell>
+                          <TableCell className="text-text-600">
+                            {entry.measurer || "-"}
+                          </TableCell>
                           <TableCell>
                             <span
-                              className={`px-2 py-1 rounded text-xs font-medium ${entry.completion_status === "완료"
-                                ? "bg-green-100 text-green-800"
-                                : "bg-yellow-100 text-yellow-800"
-                                }`}
+                              className={`px-2 py-1 rounded text-xs font-medium ${
+                                entry.completion_status === "완료"
+                                  ? "bg-green-100 text-green-800"
+                                  : "bg-yellow-100 text-yellow-800"
+                              }`}
                             >
                               {entry.completion_status}
                             </span>
@@ -978,7 +1039,7 @@ export const JournalSearch: React.FC = () => {
           isOpen={isModalOpen}
           onClose={handleModalClose}
           title={selectedEntry.id ? "측정일지 수정" : "측정일지 등록"}
-          size="full"
+          size="full-75"
         >
           <JournalEditForm
             entry={selectedEntry}
