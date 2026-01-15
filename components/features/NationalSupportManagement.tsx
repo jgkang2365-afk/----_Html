@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/Table";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
+import { Modal } from "@/components/ui/Modal";
 
 interface NationalSupportEntry {
   id: number;
@@ -24,6 +25,7 @@ interface NationalSupportEntry {
   application_status: string | null;
   result: string | null;
   national_support_status: string | null;
+  business_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -39,6 +41,19 @@ export const NationalSupportManagement: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState<string>(currentYear.toString());
   const [selectedPeriod, setSelectedPeriod] = useState<string>("상반기");
   const [searchCode, setSearchCode] = useState("");
+
+  // 모달 상태
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState<NationalSupportEntry | null>(null);
+  const [formData, setFormData] = useState({
+    code: "",
+    year: currentYear.toString(),
+    period: "상반기",
+    application_status: "",
+    result: "",
+    national_support_status: "",
+  });
+  const [saving, setSaving] = useState(false);
 
   // 년도 옵션 (현재 년도 기준 -5년 ~ +1년)
   const yearOptions = Array.from({ length: 7 }, (_, i) => {
@@ -63,6 +78,20 @@ export const NationalSupportManagement: React.FC = () => {
       if (searchCode) params.append("code", searchCode);
 
       const response = await fetch(`/api/businesses/national-support?${params.toString()}`);
+      
+      if (!response.ok) {
+        let errorMessage = "건강디딤돌 신청결과 목록을 불러오는 중 오류가 발생했습니다.";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // JSON 파싱 실패 시 기본 메시지 사용
+          errorMessage = `서버 오류 (${response.status})`;
+        }
+        setError(errorMessage);
+        return;
+      }
+
       const data = await response.json();
 
       if (response.ok) {
@@ -88,9 +117,11 @@ export const NationalSupportManagement: React.FC = () => {
     if (!searchCode.trim()) {
       setFilteredEntries(entries);
     } else {
+      const searchLower = searchCode.toLowerCase();
       setFilteredEntries(
         entries.filter((entry) =>
-          entry.code.toLowerCase().includes(searchCode.toLowerCase())
+          entry.code.toLowerCase().includes(searchLower) ||
+          (entry.business_name && entry.business_name.toLowerCase().includes(searchLower))
         )
       );
     }
@@ -143,10 +174,10 @@ export const NationalSupportManagement: React.FC = () => {
             options={periodOptions}
           />
           <Input
-            label="코드 검색"
+            label="코드/사업장명 검색"
             value={searchCode}
             onChange={(e) => setSearchCode(e.target.value)}
-            placeholder="코드 입력"
+            placeholder="코드 또는 사업장명 입력"
           />
           <div className="flex gap-2">
             <Button variant="primary" onClick={loadEntries} disabled={loading}>
@@ -154,6 +185,23 @@ export const NationalSupportManagement: React.FC = () => {
             </Button>
             <Button variant="secondary" onClick={handleExportExcel}>
               엑셀 다운로드
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setSelectedEntry(null);
+                setFormData({
+                  code: "",
+                  year: selectedYear,
+                  period: selectedPeriod,
+                  application_status: "",
+                  result: "",
+                  national_support_status: "",
+                });
+                setIsModalOpen(true);
+              }}
+            >
+              등록
             </Button>
           </div>
         </div>
@@ -181,6 +229,7 @@ export const NationalSupportManagement: React.FC = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead className="bg-surface-50">코드</TableHead>
+                  <TableHead className="bg-surface-50">사업장명</TableHead>
                   <TableHead className="bg-surface-50">측정년도</TableHead>
                   <TableHead className="bg-surface-50">측정주기</TableHead>
                   <TableHead className="bg-surface-50">신청 여부</TableHead>
@@ -188,12 +237,14 @@ export const NationalSupportManagement: React.FC = () => {
                   <TableHead className="bg-surface-50">국고지원 상태</TableHead>
                   <TableHead className="bg-surface-50">등록일시</TableHead>
                   <TableHead className="bg-surface-50">수정일시</TableHead>
+                  <TableHead className="bg-surface-50">관리</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredEntries.map((entry) => (
                   <TableRow key={entry.id} className="hover:bg-surface-50">
                     <TableCell className="font-medium">{entry.code}</TableCell>
+                    <TableCell className="font-medium">{entry.business_name || "-"}</TableCell>
                     <TableCell>{entry.year}</TableCell>
                     <TableCell>{entry.period}</TableCell>
                     <TableCell>{entry.application_status || "-"}</TableCell>
@@ -221,6 +272,26 @@ export const NationalSupportManagement: React.FC = () => {
                         ? new Date(entry.updated_at).toLocaleString("ko-KR")
                         : "-"}
                     </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedEntry(entry);
+                          setFormData({
+                            code: entry.code,
+                            year: entry.year.toString(),
+                            period: entry.period,
+                            application_status: entry.application_status || "",
+                            result: entry.result || "",
+                            national_support_status: entry.national_support_status || "",
+                          });
+                          setIsModalOpen(true);
+                        }}
+                      >
+                        수정
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -228,6 +299,144 @@ export const NationalSupportManagement: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* 등록/수정 모달 */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setSelectedEntry(null);
+          setFormData({
+            code: "",
+            year: selectedYear,
+            period: selectedPeriod,
+            application_status: "",
+            result: "",
+            national_support_status: "",
+          });
+        }}
+        title={selectedEntry ? "건강디딤돌 신청결과 수정" : "건강디딤돌 신청결과 등록"}
+      >
+        <div className="space-y-4">
+          <Input
+            label="코드 *"
+            value={formData.code}
+            onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+            placeholder="코드 입력"
+            required
+            disabled={!!selectedEntry}
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="측정년도 *"
+              type="number"
+              value={formData.year}
+              onChange={(e) => setFormData({ ...formData, year: e.target.value })}
+              required
+            />
+            <Select
+              label="측정주기 *"
+              value={formData.period}
+              onChange={(e) => setFormData({ ...formData, period: e.target.value })}
+              options={periodOptions}
+              required
+            />
+          </div>
+          <Input
+            label="신청 여부"
+            value={formData.application_status}
+            onChange={(e) => setFormData({ ...formData, application_status: e.target.value })}
+            placeholder="예: ○"
+          />
+          <Input
+            label="신청결과"
+            value={formData.result}
+            onChange={(e) => setFormData({ ...formData, result: e.target.value })}
+            placeholder="예: 대상, 비대상"
+          />
+          <Select
+            label="국고지원 상태"
+            value={formData.national_support_status}
+            onChange={(e) => setFormData({ ...formData, national_support_status: e.target.value })}
+            options={[
+              { value: "", label: "자동 계산" },
+              { value: "지원", label: "지원" },
+              { value: "비대상", label: "비대상" },
+            ]}
+          />
+          <div className="flex gap-2 justify-end pt-4">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setIsModalOpen(false);
+                setSelectedEntry(null);
+                setFormData({
+                  code: "",
+                  year: selectedYear,
+                  period: selectedPeriod,
+                  application_status: "",
+                  result: "",
+                  national_support_status: "",
+                });
+              }}
+            >
+              취소
+            </Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                if (!formData.code || !formData.year || !formData.period) {
+                  alert("코드, 측정년도, 측정주기는 필수입니다.");
+                  return;
+                }
+
+                setSaving(true);
+                try {
+                  const url = selectedEntry
+                    ? `/api/businesses/national-support/${selectedEntry.id}`
+                    : "/api/businesses/national-support";
+                  const method = selectedEntry ? "PATCH" : "POST";
+
+                  const response = await fetch(url, {
+                    method,
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(formData),
+                  });
+
+                  const data = await response.json();
+
+                  if (response.ok) {
+                    alert(selectedEntry ? "수정되었습니다." : "등록되었습니다.");
+                    setIsModalOpen(false);
+                    setSelectedEntry(null);
+                    setFormData({
+                      code: "",
+                      year: selectedYear,
+                      period: selectedPeriod,
+                      application_status: "",
+                      result: "",
+                      national_support_status: "",
+                    });
+                    loadEntries();
+                  } else {
+                    alert(data.error || "오류가 발생했습니다.");
+                  }
+                } catch (err: any) {
+                  console.error("저장 오류:", err);
+                  alert("저장 중 오류가 발생했습니다: " + (err.message || "알 수 없는 오류"));
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={saving}
+            >
+              {saving ? "저장 중..." : selectedEntry ? "수정" : "등록"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

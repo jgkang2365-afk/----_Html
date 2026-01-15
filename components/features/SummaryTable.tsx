@@ -21,6 +21,22 @@ import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 
+// 금액 포맷팅 함수 (천단위 콤마)
+const formatCurrency = (value: string | number | null | undefined): string => {
+  if (!value && value !== 0) return "";
+  const numValue = typeof value === "string" ? parseFloat(value.replace(/,/g, "")) : value;
+  if (isNaN(numValue)) return "";
+  return numValue.toLocaleString("ko-KR");
+};
+
+// 금액 파싱 함수 (콤마 제거)
+const parseCurrency = (value: string | number | null | undefined): string => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number") return value.toString();
+  if (typeof value !== "string") return String(value);
+  return value.replace(/,/g, "");
+};
+
 interface SummaryEntry {
   id: number;
   journal_id: number;
@@ -52,6 +68,7 @@ interface SummaryEntry {
   manager_position: string | null;
   manager_mobile: string | null;
   manager_email: string | null;
+  invoice_email: string | null;
   address: string | null;
   phone: string | null;
   fax: string | null;
@@ -148,6 +165,7 @@ export const SummaryTable: React.FC = () => {
       business_name: entry.business_name || "",
       total_employees: entry.total_employees || null,
       business_number: entry.business_number || "",
+      industrial_accident_number: entry.industrial_accident_number || "",
       address: entry.address || "",
       phone: entry.phone || "",
       fax: entry.fax || "",
@@ -155,9 +173,11 @@ export const SummaryTable: React.FC = () => {
       manager_position: entry.manager_position || "",
       manager_mobile: entry.manager_mobile || "",
       manager_email: entry.manager_email || "",
+      invoice_email: entry.invoice_email || "",
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
       k2b_sender: entry.k2b_sender || "",
       measurement_fee_business: entry.measurement_fee_business || null,
+      national_support_status: entry.national_support_status || "",
     });
     setIsModalOpen(true);
   };
@@ -170,17 +190,43 @@ export const SummaryTable: React.FC = () => {
       setSaving(true);
       setError(null);
 
+      // 저장할 데이터 준비 (빈 문자열을 null로 변환)
+      const saveData = { ...editFormData };
+      
+      // national_support_status 빈 문자열을 null로 변환
+      if (saveData.national_support_status === "") {
+        saveData.national_support_status = null;
+      }
+
+      // measurement_fee_business가 문자열인 경우 숫자로 변환
+      if (typeof saveData.measurement_fee_business === "string") {
+        const parsed = parseCurrency(saveData.measurement_fee_business);
+        saveData.measurement_fee_business = parsed ? parseFloat(parsed) : null;
+      }
+
       const response = await fetch(`/api/summary/${selectedEntry.journal_id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(editFormData),
+        body: JSON.stringify(saveData),
       });
+
+      if (!response.ok) {
+        let errorMessage = "저장 중 오류가 발생했습니다.";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.details || errorMessage;
+        } catch {
+          errorMessage = `서버 오류 (${response.status})`;
+        }
+        setError(errorMessage);
+        return;
+      }
 
       const result = await response.json();
 
-      if (response.ok) {
+      if (result.success) {
         setIsModalOpen(false);
         setSelectedEntry(null);
         // 검색 결과 새로고침
@@ -367,12 +413,13 @@ export const SummaryTable: React.FC = () => {
           setEditFormData({});
         }}
         title="측정정보 수정"
+        size="xl"
       >
         {selectedEntry && (
           <div className="space-y-4">
             {/* 수정 불가 필드 (읽기 전용) */}
             <div className="bg-surface-50 p-4 rounded-lg space-y-2">
-              <h3 className="font-semibold text-text-900 mb-2">수정 불가 필드</h3>
+              <h3 className="font-semibold text-text-900 mb-3">수정 불가 필드</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-text-600 mb-1 text-sm">공문연번</label>
@@ -392,215 +439,299 @@ export const SummaryTable: React.FC = () => {
                     {selectedEntry.five_plus_sequence || "-"}
                   </div>
                 </div>
+                <div className="col-span-3">
+                  <label className="block text-text-600 mb-1 text-sm">예비조사자명(공시료 코드)</label>
+                  <div className="bg-white p-2 rounded border text-base">
+                    {selectedEntry.preliminary_surveyor || "-"}
+                    {selectedEntry.survey_code && (
+                      <span className="text-text-500"> ({selectedEntry.survey_code})</span>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* 수정 가능 필드 */}
-            <div className="space-y-4">
-              <h3 className="font-semibold text-text-900">수정 가능 필드</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    측정시작일
-                  </label>
-                  <Input
-                    type="date"
-                    value={normalizeDateForInput(editFormData.measurement_start_date)}
-                    onChange={(e) => {
-                      const startDate = e.target.value;
-                      setEditFormData((prev) => {
-                        const updated = { ...prev, measurement_start_date: startDate };
-                        // 종료일이 비어있거나 측정 시작일과 동일한 경우 종료일을 측정 시작일과 동일하게 설정
-                        if (!prev.measurement_end_date || prev.measurement_end_date === prev.measurement_start_date) {
-                          updated.measurement_end_date = startDate;
-                        }
-                        return updated;
-                      });
-                    }}
-                  />
+            <div className="space-y-6">
+              <h3 className="font-semibold text-text-900 mb-3">수정 가능 필드</h3>
+              
+              {/* 측정 정보 */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">측정 정보</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      측정시작일
+                    </label>
+                    <Input
+                      type="date"
+                      value={normalizeDateForInput(editFormData.measurement_start_date)}
+                      onChange={(e) => {
+                        const startDate = e.target.value;
+                        setEditFormData((prev) => {
+                          const updated = { ...prev, measurement_start_date: startDate };
+                          // 종료일이 비어있거나 측정 시작일과 동일한 경우 종료일을 측정 시작일과 동일하게 설정
+                          if (!prev.measurement_end_date || prev.measurement_end_date === prev.measurement_start_date) {
+                            updated.measurement_end_date = startDate;
+                          }
+                          return updated;
+                        });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      측정종료일
+                    </label>
+                    <Input
+                      type="date"
+                      value={normalizeDateForInput(editFormData.measurement_end_date)}
+                      onChange={(e) =>
+                        setEditFormData({
+                          ...editFormData,
+                          measurement_end_date: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      측정자
+                    </label>
+                    <Input
+                      value={editFormData.measurer || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, measurer: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    측정종료일
-                  </label>
-                  <Input
-                    type="date"
-                    value={normalizeDateForInput(editFormData.measurement_end_date)}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        measurement_end_date: e.target.value,
-                      })
-                    }
-                  />
+              </div>
+
+              {/* 사업장 정보 */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">사업장 정보</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="col-span-3">
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      사업장명
+                    </label>
+                    <Input
+                      value={editFormData.business_name || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, business_name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      총인원
+                    </label>
+                    <Input
+                      type="number"
+                      value={editFormData.total_employees || ""}
+                      onChange={(e) =>
+                        setEditFormData({
+                          ...editFormData,
+                          total_employees: e.target.value ? parseInt(e.target.value) : null,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      사업자번호
+                    </label>
+                    <Input
+                      value={formatBusinessNumber(editFormData.business_number)}
+                      onChange={(e) => {
+                        // 숫자만 추출하여 저장 (하이픈 제거)
+                        const numbers = parseBusinessNumber(e.target.value);
+                        setEditFormData({ ...editFormData, business_number: numbers });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      산재관리번호
+                    </label>
+                    <Input
+                      value={editFormData.industrial_accident_number || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, industrial_accident_number: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      주소
+                    </label>
+                    <Input
+                      value={editFormData.address || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, address: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      전화번호
+                    </label>
+                    <Input
+                      value={editFormData.phone || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, phone: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      팩스
+                    </label>
+                    <Input
+                      value={editFormData.fax || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, fax: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    측정자
-                  </label>
-                  <Input
-                    value={editFormData.measurer || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, measurer: e.target.value })
-                    }
-                  />
+              </div>
+
+              {/* 담당자 정보 */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">담당자 정보</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      담당자명
+                    </label>
+                    <Input
+                      value={editFormData.manager_name || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, manager_name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      담당자 직책
+                    </label>
+                    <Input
+                      value={editFormData.manager_position || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, manager_position: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      담당자 휴대폰
+                    </label>
+                    <Input
+                      value={editFormData.manager_mobile || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, manager_mobile: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      담당자 이메일
+                    </label>
+                    <Input
+                      type="email"
+                      value={editFormData.manager_email || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, manager_email: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      계산서 메일(주가)
+                    </label>
+                    <Input
+                      type="email"
+                      value={editFormData.invoice_email || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, invoice_email: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    사업장명
-                  </label>
-                  <Input
-                    value={editFormData.business_name || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, business_name: e.target.value })
-                    }
-                  />
+              </div>
+
+              {/* K2B 정보 */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">K2B 정보</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      K2B 발송일
+                    </label>
+                    <Input
+                      type="date"
+                      value={normalizeDateForInput(editFormData.k2b_send_date)}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, k2b_send_date: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      K2B 발송자
+                    </label>
+                    <Input
+                      value={editFormData.k2b_sender || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, k2b_sender: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    총인원
-                  </label>
-                  <Input
-                    type="number"
-                    value={editFormData.total_employees || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        total_employees: e.target.value ? parseInt(e.target.value) : null,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    사업자번호
-                  </label>
-                  <Input
-                    value={formatBusinessNumber(editFormData.business_number)}
-                    onChange={(e) => {
-                      // 숫자만 추출하여 저장 (하이픈 제거)
-                      const numbers = parseBusinessNumber(e.target.value);
-                      setEditFormData({ ...editFormData, business_number: numbers });
-                    }}
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    주소
-                  </label>
-                  <Input
-                    value={editFormData.address || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, address: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    전화번호
-                  </label>
-                  <Input
-                    value={editFormData.phone || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, phone: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    팩스
-                  </label>
-                  <Input
-                    value={editFormData.fax || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, fax: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    담당자명
-                  </label>
-                  <Input
-                    value={editFormData.manager_name || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, manager_name: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    담당자 직책
-                  </label>
-                  <Input
-                    value={editFormData.manager_position || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, manager_position: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    담당자 휴대폰
-                  </label>
-                  <Input
-                    value={editFormData.manager_mobile || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, manager_mobile: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    담당자 이메일
-                  </label>
-                  <Input
-                    type="email"
-                    value={editFormData.manager_email || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, manager_email: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    K2B 발송일
-                  </label>
-                  <Input
-                    type="date"
-                    value={normalizeDateForInput(editFormData.k2b_send_date)}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, k2b_send_date: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    K2B 발송자
-                  </label>
-                  <Input
-                    value={editFormData.k2b_sender || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, k2b_sender: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-700 mb-1">
-                    측정비(사업장)
-                  </label>
-                  <Input
-                    type="number"
-                    value={editFormData.measurement_fee_business || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        measurement_fee_business: e.target.value
-                          ? parseFloat(e.target.value)
-                          : null,
-                      })
-                    }
-                  />
+              </div>
+
+              {/* 측정비 정보 */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">측정비 정보</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      측정비(사업장)
+                    </label>
+                    <Input
+                      type="text"
+                      value={formatCurrency(editFormData.measurement_fee_business)}
+                      onChange={(e) => {
+                        const parsed = parseCurrency(e.target.value);
+                        setEditFormData({
+                          ...editFormData,
+                          measurement_fee_business: parsed ? parseFloat(parsed) : null,
+                        });
+                      }}
+                      placeholder="숫자만 입력"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      국고지원 여부
+                    </label>
+                    <Select
+                      value={editFormData.national_support_status || ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        // "대상"을 "지원"으로 변환
+                        const convertedValue = value === "대상" ? "지원" : value;
+                        setEditFormData({ ...editFormData, national_support_status: convertedValue || "" });
+                      }}
+                      options={[
+                        { value: "", label: "선택" },
+                        { value: "지원", label: "지원" },
+                        { value: "비대상", label: "비대상" },
+                      ]}
+                    />
+                  </div>
                 </div>
               </div>
             </div>

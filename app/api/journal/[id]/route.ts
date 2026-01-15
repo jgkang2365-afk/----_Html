@@ -54,9 +54,43 @@ export async function PUT(
       );
     }
 
-    // 공문연번, 연번은 수정 불가 (기존 값 유지)
-    const documentNumber = existingJournal.document_number;
-    const sequenceNumber = existingJournal.sequence_number;
+    // 번호 필드 변경 검증 (관리자만 직접 변경 가능)
+    const isAdmin = user.role === "관리자";
+    const requestedDocumentNumber = body.document_number;
+    const requestedSequenceNumber = body.sequence_number;
+    const requestedFivePlusSequence = body.five_plus_sequence;
+
+    // 일반 사용자가 번호 필드를 변경하려고 시도하는 경우
+    if (!isAdmin) {
+      const hasNumberChange =
+        (requestedDocumentNumber !== undefined && requestedDocumentNumber !== existingJournal.document_number) ||
+        (requestedSequenceNumber !== undefined && requestedSequenceNumber !== existingJournal.sequence_number) ||
+        (requestedFivePlusSequence !== undefined && requestedFivePlusSequence !== existingJournal.five_plus_sequence);
+
+      if (hasNumberChange) {
+        return NextResponse.json(
+          { 
+            error: "번호 필드는 관리자 승인이 필요합니다. 번호 변경 요청을 사용해주세요.",
+            requiresApproval: true 
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    // 공문연번, 연번은 관리자가 아닌 경우 기존 값 유지
+    let documentNumber = existingJournal.document_number;
+    let sequenceNumber = existingJournal.sequence_number;
+    
+    // 관리자인 경우 요청된 값 사용 (없으면 기존 값)
+    if (isAdmin) {
+      if (requestedDocumentNumber !== undefined) {
+        documentNumber = requestedDocumentNumber;
+      }
+      if (requestedSequenceNumber !== undefined) {
+        sequenceNumber = requestedSequenceNumber;
+      }
+    }
     
     // designated_office 정규화 (약칭으로 저장)
     const normalizedDesignatedOffice = body.designated_office 
@@ -68,18 +102,25 @@ export async function PUT(
     const finalMeasurementPeriod = body.measurement_period || existingJournal.measurement_period;
     const finalTotalEmployees = body.total_employees !== undefined ? body.total_employees : existingJournal.total_employees;
 
-    // 5인 이상 연번은 수정 시 자동 재계산 (총인원, 지정지청, 측정년도, 측정주기 변경 시 올바른 값으로 재계산)
-    const { assignFivePlusSequenceNumber } = await import("@/lib/utils/number-assignment");
-    const recalculatedFivePlusSequence = await assignFivePlusSequenceNumber(
-      finalDesignatedOffice,
-      finalMeasurementYear,
-      finalMeasurementPeriod,
-      finalTotalEmployees
-    );
+    // 5인 이상 연번 처리
+    let finalFivePlusSequence: string;
+    
+    if (isAdmin && requestedFivePlusSequence !== undefined) {
+      // 관리자가 직접 지정한 경우
+      finalFivePlusSequence = requestedFivePlusSequence;
+    } else {
+      // 자동 재계산 (총인원, 지정지청, 측정년도, 측정주기 변경 시 올바른 값으로 재계산)
+      const { assignFivePlusSequenceNumber } = await import("@/lib/utils/number-assignment");
+      finalFivePlusSequence = await assignFivePlusSequenceNumber(
+        finalDesignatedOffice,
+        finalMeasurementYear,
+        finalMeasurementPeriod,
+        finalTotalEmployees
+      );
+    }
 
     let finalDocumentNumber = documentNumber;
     let finalSequenceNumber = sequenceNumber;
-    let finalFivePlusSequence = recalculatedFivePlusSequence;
 
     // 공문연번, 연번이 없으면 자동 부여 (신규 등록 시나리오)
     if (!finalDocumentNumber || !finalSequenceNumber) {

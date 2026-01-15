@@ -34,7 +34,7 @@ export async function PATCH(
 
     const body = await request.json();
 
-    // 수정 불가 필드 제거
+    // 수정 불가 필드 및 measurement_journal에 없는 필드 제거
     const {
       document_number,
       sequence_number,
@@ -44,8 +44,43 @@ export async function PATCH(
       id,
       created_at,
       updated_at,
+      // measurement_journal에 없는 필드들 (summary에서만 사용)
+      preliminary_surveyor,
+      actual_measurer,
+      report_writer,
+      survey_code,
+      survey_measurement_date,
+      survey_end_date,
+      survey_measurement_weekdays,
+      business_name, // code로 관리되므로 제외
       ...updateData
     } = body;
+
+    // national_support_status 빈 문자열을 null로 변환
+    if (updateData.national_support_status === "" || updateData.national_support_status === undefined) {
+      updateData.national_support_status = null;
+    }
+
+    // 유효한 값만 허용 ('지원', '비대상', null)
+    if (updateData.national_support_status && 
+        updateData.national_support_status !== "지원" && 
+        updateData.national_support_status !== "비대상") {
+      // "대상"을 "지원"으로 변환
+      if (updateData.national_support_status === "대상") {
+        updateData.national_support_status = "지원";
+      } else {
+        // 유효하지 않은 값은 null로 설정
+        updateData.national_support_status = null;
+      }
+    }
+
+    // 날짜 필드 정규화 (빈 문자열을 null로 변환)
+    if (updateData.measurement_start_date === "") updateData.measurement_start_date = null;
+    if (updateData.measurement_end_date === "") updateData.measurement_end_date = null;
+    if (updateData.k2b_send_date === "") updateData.k2b_send_date = null;
+    if (updateData.electronic_invoice_date === "") updateData.electronic_invoice_date = null;
+    if (updateData.deposit_date_business === "") updateData.deposit_date_business = null;
+    if (updateData.deposit_date_national === "") updateData.deposit_date_national = null;
 
     const supabase = await createClient();
 
@@ -79,12 +114,78 @@ export async function PATCH(
       );
     }
 
+    // 금액 필드들 정규화 (문자열을 숫자로 변환)
+    const amountFields = [
+      'measurement_fee_total',
+      'measurement_fee_business',
+      'measurement_fee_national',
+      'deposit_total',
+      'deposit_amount_business',
+      'deposit_amount_national'
+    ];
+    
+    amountFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        if (typeof updateData[field] === "string") {
+          const parsed = parseFloat(updateData[field].replace(/,/g, ""));
+          updateData[field] = isNaN(parsed) ? null : parsed;
+        }
+      }
+    });
+
+    // measurement_journal 테이블에 있는 필드만 선택
+    const allowedFields = [
+      'code',
+      'measurement_year',
+      'measurement_period',
+      'note',
+      'designated_office',
+      'measurement_start_date',
+      'measurement_end_date',
+      'completion_status',
+      'measurer',
+      'office_jurisdiction',
+      'total_employees',
+      'business_number',
+      'industrial_accident_number',
+      'representative_name',
+      'national_support_status',
+      'address',
+      'phone',
+      'fax',
+      'manager_name',
+      'manager_position',
+      'manager_mobile',
+      'manager_email',
+      'k2b_send_date',
+      'k2b_sender',
+      'invoice_email',
+      'electronic_invoice_date',
+      'measurement_fee_total',
+      'measurement_fee_business',
+      'measurement_fee_national',
+      'deposit_total',
+      'deposit_date_business',
+      'deposit_amount_business',
+      'deposit_date_national',
+      'deposit_amount_national',
+      'special_notes',
+    ];
+
+    // 허용된 필드만 포함
+    const filteredUpdateData: any = {};
+    allowedFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        filteredUpdateData[field] = updateData[field];
+      }
+    });
+
     // 측정일지 업데이트
     const { data: updatedJournal, error: updateError } = await supabase
       .from("measurement_journal")
       .update({
-        ...updateData,
-        updated_by: user.email || user.id,
+        ...filteredUpdateData,
+        updated_by: user.name || user.id,
         updated_at: new Date().toISOString(),
       })
       .eq("id", journalId)
@@ -105,8 +206,16 @@ export async function PATCH(
     });
   } catch (error: any) {
     console.error("측정정보 요약 수정 오류:", error);
+    console.error("에러 상세:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     return NextResponse.json(
-      { error: error.message || "측정정보를 수정하는 중 오류가 발생했습니다." },
+      { 
+        error: error.message || "측정정보를 수정하는 중 오류가 발생했습니다.",
+        details: error.message
+      },
       { status: 500 }
     );
   }

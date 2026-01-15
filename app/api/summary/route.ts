@@ -132,6 +132,7 @@ export async function GET(request: NextRequest) {
         manager_position: journal.manager_position,
         manager_mobile: journal.manager_mobile,
         manager_email: journal.manager_email,
+        invoice_email: journal.invoice_email,
         address: journal.address,
         phone: journal.phone,
         fax: journal.fax,

@@ -136,9 +136,9 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         ref={modalRef}
         className={cn(
-          "relative bg-white rounded-2xl shadow-2xl p-8 w-full mx-auto animate-scale-up ring-1 ring-slate-900/5",
+          "relative bg-white rounded-2xl shadow-2xl w-full mx-auto animate-scale-up ring-1 ring-slate-900/5 flex flex-col",
           sizes[size],
-          "max-h-[85vh] overflow-y-auto custom-scrollbar",
+          "max-h-[85vh]",
           isDragging && "cursor-move"
         )}
         style={{
@@ -146,13 +146,14 @@ export const Modal: React.FC<ModalProps> = ({
           transition: isDragging ? "none" : "transform 0.2s ease-out",
         }}
       >
-        {/* 헤더 */}
+        {/* 헤더 - sticky로 고정 */}
         {(title || showCloseButton) && (
           <div
             ref={headerRef}
             className={cn(
-              "flex items-center justify-between mb-4",
+              "flex items-center justify-between px-8 pt-8 pb-4",
               "cursor-move select-none",
+              "sticky top-0 z-10 bg-white border-b border-slate-200",
               !title && "h-6"
             )}
             onMouseDown={handleHeaderMouseDown}
@@ -180,8 +181,10 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
         )}
 
-        {/* 내용 */}
-        <div className="text-text-900">{children}</div>
+        {/* 내용 - 스크롤 가능 */}
+        <div className="px-8 pb-8 overflow-y-auto custom-scrollbar flex-1">
+          <div className="text-text-900">{children}</div>
+        </div>
       </div>
     </div>
   );

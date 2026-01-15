@@ -177,6 +177,27 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
+        // 예비조사 측정일 자동 채우기 (measurement_business.measurement_start_date가 비어있거나 불일치할 때)
+        let autoFilledMeasurementDate = null;
+        if (businessData && (!businessData.measurement_start_date || 
+            (businessData.measurement_start_date && 
+             parseDate(row["측정 시작일"] || row["measurement_start_date"]) && 
+             parseDate(row["측정 시작일"] || row["measurement_start_date"]) !== businessData.measurement_start_date))) {
+          // 같은 code의 가장 최근 예비조사 조회
+          const { data: latestSurvey } = await supabase
+            .from("preliminary_survey")
+            .select("measurement_date")
+            .eq("code", code)
+            .order("measurement_date", { ascending: false })
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (latestSurvey?.measurement_date) {
+            autoFilledMeasurementDate = latestSurvey.measurement_date;
+          }
+        }
+
         if (!businessData) {
           errors.push(
             `행 ${i + 2}: 측정사업장 정보를 찾을 수 없습니다.\n` +
@@ -339,7 +360,7 @@ export async function POST(request: NextRequest) {
           business_name: businessName,
           total_employees: totalEmployees,
           office_jurisdiction: officeJurisdiction || null,
-          measurement_start_date: parseDate(row["측정 시작일"] || row["measurement_start_date"]) || businessData.measurement_start_date || null,
+          measurement_start_date: parseDate(row["측정 시작일"] || row["measurement_start_date"]) || autoFilledMeasurementDate || businessData.measurement_start_date || null,
           measurement_end_date: parseDate(row["측정 종료일"] || row["measurement_end_date"]) || businessData.measurement_end_date || null,
           completion_status: String(row["완료여부"] || row["completion_status"] || "미완료").trim(),
           measurer: String(row["측정자"] || row["measurer"] || businessData.measurer || "").trim() || null,

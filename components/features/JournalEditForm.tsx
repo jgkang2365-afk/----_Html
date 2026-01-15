@@ -11,6 +11,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
+import { useUser } from "@/hooks/use-user";
 
 interface JournalEntry {
   id: number | null;
@@ -39,11 +40,16 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const { user } = useUser();
+  const isAdmin = user?.role === "관리자";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [originalYear, setOriginalYear] = useState(entry.measurement_year);
   const [originalPeriod, setOriginalPeriod] = useState(entry.measurement_period);
   const [autoFilling, setAutoFilling] = useState(false);
+  const [completionSuggestion, setCompletionSuggestion] = useState<string | null>(null);
+  const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
+  const [requestingNumberChange, setRequestingNumberChange] = useState(false);
   // 완료여부 체크는 기존 측정일지(id가 있는 경우)를 수정할 때만 적용
   // 검색 결과에서 선택한 경우(id가 null)는 등록 모드이므로 완료여부와 관계없이 등록 가능
   const isCompleted = entry.id ? entry.completion_status === "완료" : false;
@@ -212,6 +218,169 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // 사업자번호는 표시 시 포맷팅하므로 초기값은 그대로 사용
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 등록 모드일 때 직전 측정일지 데이터 자동 채우기
+  useEffect(() => {
+    // 등록 모드(id가 null)이고, 필수 필드가 모두 있을 때만 실행
+    if (!entry.id && entry.code && entry.measurement_year && entry.measurement_period) {
+      const fetchPreviousData = async () => {
+        try {
+          const response = await fetch(
+            `/api/journal/previous-data?code=${encodeURIComponent(entry.code)}&year=${entry.measurement_year}&period=${encodeURIComponent(entry.measurement_period)}`
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            
+            // 기존 값이 비어있을 때만 데이터로 채우기
+            setFormData((prev) => {
+              const updated = { ...prev };
+              
+              // 직전 측정일지 데이터
+              if (data.previousData) {
+                updated.manager_name = prev.manager_name || data.previousData.manager_name || "";
+                updated.manager_position = prev.manager_position || data.previousData.manager_position || "";
+                updated.manager_mobile = prev.manager_mobile || data.previousData.manager_mobile || "";
+                updated.manager_email = prev.manager_email || data.previousData.manager_email || "";
+                updated.measurement_fee_business = prev.measurement_fee_business || (data.previousData.measurement_fee_business ? String(data.previousData.measurement_fee_business) : "") || "";
+                updated.measurement_fee_national = prev.measurement_fee_national || (data.previousData.measurement_fee_national ? String(data.previousData.measurement_fee_national) : "") || "";
+                updated.invoice_email = prev.invoice_email || data.previousData.invoice_email || "";
+                updated.measurer = prev.measurer || data.previousData.measurer || "";
+                updated.k2b_sender = prev.k2b_sender || data.previousData.k2b_sender || "";
+              }
+              
+              // 요약 정보 (직전 데이터가 없거나 비어있을 때)
+              if (data.summaryInfo) {
+                updated.manager_name = updated.manager_name || data.summaryInfo.manager_name || "";
+                updated.manager_mobile = updated.manager_mobile || data.summaryInfo.manager_mobile || "";
+                updated.manager_email = updated.manager_email || data.summaryInfo.manager_email || "";
+                updated.measurement_fee_business = updated.measurement_fee_business || (data.summaryInfo.measurement_fee_business ? String(data.summaryInfo.measurement_fee_business) : "") || "";
+                updated.k2b_sender = updated.k2b_sender || data.summaryInfo.k2b_sender || "";
+              }
+              
+              // 국고지원 상태 (우선순위: national_support_application > measurement_business > 직전 측정일지)
+              if (data.nationalSupportStatus) {
+                updated.national_support_status = prev.national_support_status || data.nationalSupportStatus || "";
+              }
+              
+              // 예비조사 정보 (비어있을 때만)
+              if (data.surveyInfo) {
+                // 측정자 (예비조사의 measurer가 있으면 기본값으로)
+                if (!updated.measurer && data.surveyInfo.measurer) {
+                  updated.measurer = data.surveyInfo.measurer;
+                }
+                
+                // note 필드에 예비조사 정보 추가
+                const noteParts: string[] = [];
+                if (data.surveyInfo.preliminary_surveyor) {
+                  noteParts.push(`예비조사자: ${data.surveyInfo.preliminary_surveyor}`);
+                }
+                if (data.surveyInfo.survey_code) {
+                  noteParts.push(`공시료 코드: ${data.surveyInfo.survey_code}`);
+                }
+                if (data.surveyInfo.actual_measurer) {
+                  noteParts.push(`실측정자: ${data.surveyInfo.actual_measurer}`);
+                }
+                if (data.surveyInfo.report_writer) {
+                  noteParts.push(`보고서 담당: ${data.surveyInfo.report_writer}`);
+                }
+                
+                // note 필드에 추가 (기존 note 배열에 추가)
+                if (noteParts.length > 0) {
+                  const currentNotes = Array.isArray(prev.note) ? [...prev.note] : (prev.note ? [prev.note] : []);
+                  noteParts.forEach(part => {
+                    if (!currentNotes.some(n => n.includes(part.split(':')[0]))) {
+                      currentNotes.push(part);
+                    }
+                  });
+                  updated.note = currentNotes;
+                }
+              }
+              
+              return updated;
+            });
+          }
+        } catch (err) {
+          console.error("직전 측정일지 데이터 조회 오류:", err);
+          // 오류가 발생해도 계속 진행
+        }
+      };
+      
+      // 미수금 정보 조회
+      const fetchUnpaidInfo = async () => {
+        if (!entry.business_name) return;
+        
+        try {
+          const response = await fetch(
+            `/api/sales/check-unpaid?businessName=${encodeURIComponent(entry.business_name)}`
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.unpaidCount > 0) {
+              // 특이사항에 미수금 정보 추가
+              setFormData((prev) => {
+                const unpaidNote = `전회 미수 ${data.unpaidCount}회`;
+                const currentNotes = prev.special_notes || "";
+                // 이미 미수금 정보가 있으면 추가하지 않음
+                if (!currentNotes.includes("전회 미수")) {
+                  return {
+                    ...prev,
+                    special_notes: currentNotes ? `${currentNotes}\n${unpaidNote}` : unpaidNote,
+                  };
+                }
+                return prev;
+              });
+            }
+          }
+        } catch (err) {
+          console.error("미수금 정보 조회 오류:", err);
+          // 오류가 발생해도 계속 진행
+        }
+      };
+      
+      fetchPreviousData();
+      fetchUnpaidInfo();
+    }
+  }, [entry.id, entry.code, entry.measurement_year, entry.measurement_period, entry.business_name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 대기 중인 번호 변경 요청 조회 (수정 모드에서만, 일반 사용자만)
+  useEffect(() => {
+    if (entry.id && !isAdmin) {
+      const fetchPendingRequest = async () => {
+        try {
+          const response = await fetch(`/api/journal/${entry.id}/number-change-request`);
+          if (response.ok) {
+            const data = await response.json();
+            setPendingNumberRequest(data.request);
+          }
+        } catch (err) {
+          console.error("번호 변경 요청 조회 오류:", err);
+        }
+      };
+      fetchPendingRequest();
+    }
+  }, [entry.id, isAdmin]);
+
+  // 등록 모드일 때 로그인 사용자 정보로 기본값 설정
+  useEffect(() => {
+    // 등록 모드이고, 사용자 정보가 있고, 해당 필드가 비어있을 때만 설정
+    if (!entry.id && user?.name) {
+      setFormData((prev) => {
+        const updated = { ...prev };
+        // 측정자 기본값 (비어있을 때만)
+        if (!prev.measurer) {
+          updated.measurer = user.name;
+        }
+        // K2B 전송자 기본값 (비어있을 때만, K2B 전송자 옵션에 있는 경우만)
+        const k2bSenderOptions = ["한기문", "강종구", "이주형", "배윤민", "고유빈"];
+        if (!prev.k2b_sender && k2bSenderOptions.includes(user.name)) {
+          updated.k2b_sender = user.name;
+        }
+        return updated;
+      });
+    }
+  }, [entry.id, user?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 주소 변경 시 자동으로 소재지 관할청과 지정한계_관할지청 업데이트
   const handleAddressChange = async (newAddress: string) => {
     setFormData({ ...formData, address: newAddress });
@@ -245,6 +414,35 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       setAutoFilling(false);
     }
   };
+
+  // 금액·입금 상태 기반 자동 완료여부 제안
+  useEffect(() => {
+    // 완료 상태가 아닐 때만 제안
+    if (formData.completion_status !== "완료") {
+      const feeTotal = parseFloat(parseCurrency(formData.measurement_fee_total)) || 0;
+      const depositTotal = parseFloat(parseCurrency(formData.deposit_total)) || 0;
+      const endDate = formData.measurement_end_date;
+      
+      // 조건: 측정비 합계 = 입금액 합계이고, 측정 종료일이 과거인 경우
+      if (feeTotal > 0 && depositTotal > 0 && feeTotal === depositTotal && endDate) {
+        const endDateObj = new Date(endDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        endDateObj.setHours(0, 0, 0, 0);
+        
+        // 측정 종료일이 오늘 이전이면 완료 제안
+        if (endDateObj <= today) {
+          setCompletionSuggestion("측정비와 입금액이 일치하고 측정이 종료되었습니다. 완료여부를 '완료'로 변경하시겠습니까?");
+        } else {
+          setCompletionSuggestion(null);
+        }
+      } else {
+        setCompletionSuggestion(null);
+      }
+    } else {
+      setCompletionSuggestion(null);
+    }
+  }, [formData.measurement_fee_total, formData.deposit_total, formData.measurement_end_date, formData.completion_status]);
 
   // 측정년도/측정주기 변경 검증 (수정 모드에서만)
   const handleSubmit = async (e: React.FormEvent) => {
@@ -343,6 +541,24 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       {isCompleted && (
         <Alert variant="warning">
           완료된 측정일지는 수정할 수 없습니다. 완료여부를 &quot;미완료&quot;로 변경한 후 수정하세요.
+        </Alert>
+      )}
+      {completionSuggestion && (
+        <Alert variant="warning">
+          {completionSuggestion}
+          <div className="mt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setFormData({ ...formData, completion_status: "완료" });
+                setCompletionSuggestion(null);
+              }}
+            >
+              완료로 변경
+            </Button>
+          </div>
         </Alert>
       )}
 
@@ -448,28 +664,122 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2 md:col-span-2 lg:col-span-3 max-w-md">
-            <Input
-              label="공문연번"
-              value={formData.document_number}
-              disabled
-              className="bg-surface-50 font-mono"
-              placeholder="자동 부여됩니다"
-            />
-            <Input
-              label="연번"
-              value={formData.sequence_number}
-              disabled
-              className="bg-surface-50 font-mono"
-              placeholder="자동 부여됩니다"
-            />
-            <Input
-              label="5인 이상 연번"
-              value={formData.five_plus_sequence}
-              disabled
-              className="bg-surface-50 font-mono"
-              placeholder="자동 부여됩니다"
-            />
+            <div>
+              <Input
+                label="공문연번"
+                value={formData.document_number}
+                disabled={!isAdmin || isCompleted}
+                onChange={(e) => isAdmin && setFormData({ ...formData, document_number: e.target.value })}
+                className={isAdmin && !isCompleted ? "" : "bg-surface-50 font-mono"}
+                placeholder="자동 부여됩니다"
+              />
+              {!isAdmin && (
+                <p className="text-xs text-text-500 mt-1">관리자 승인 필요</p>
+              )}
+            </div>
+            <div>
+              <Input
+                label="연번"
+                value={formData.sequence_number}
+                disabled={!isAdmin || isCompleted}
+                onChange={(e) => isAdmin && setFormData({ ...formData, sequence_number: e.target.value })}
+                className={isAdmin && !isCompleted ? "" : "bg-surface-50 font-mono"}
+                placeholder="자동 부여됩니다"
+              />
+              {!isAdmin && (
+                <p className="text-xs text-text-500 mt-1">관리자 승인 필요</p>
+              )}
+            </div>
+            <div>
+              <Input
+                label="5인 이상 연번"
+                value={formData.five_plus_sequence}
+                disabled={!isAdmin || isCompleted}
+                onChange={(e) => isAdmin && setFormData({ ...formData, five_plus_sequence: e.target.value })}
+                className={isAdmin && !isCompleted ? "" : "bg-surface-50 font-mono"}
+                placeholder="자동 부여됩니다"
+              />
+              {!isAdmin && (
+                <p className="text-xs text-text-500 mt-1">관리자 승인 필요</p>
+              )}
+            </div>
           </div>
+          {!isAdmin && entry.id && (
+            <div className="mt-2">
+              {pendingNumberRequest ? (
+                <Alert variant="info" title="번호 변경 요청 대기 중">
+                  번호 변경 요청이 관리자 승인을 기다리고 있습니다.
+                  <div className="mt-2 text-sm">
+                    <div>공문연번: {pendingNumberRequest.old_document_number || '-'} → {pendingNumberRequest.new_document_number || '-'}</div>
+                    <div>연번: {pendingNumberRequest.old_sequence_number || '-'} → {pendingNumberRequest.new_sequence_number || '-'}</div>
+                    <div>5인 이상 연번: {pendingNumberRequest.old_five_plus_sequence || '-'} → {pendingNumberRequest.new_five_plus_sequence || '-'}</div>
+                    <div className="text-text-500 mt-1">요청일시: {new Date(pendingNumberRequest.requested_at).toLocaleString('ko-KR')}</div>
+                  </div>
+                </Alert>
+              ) : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    const newDocumentNumber = prompt("새 공문연번을 입력하세요 (변경하지 않으려면 현재 값 입력):", formData.document_number || "");
+                    if (newDocumentNumber === null) return;
+                    
+                    const newSequenceNumber = prompt("새 연번을 입력하세요 (변경하지 않으려면 현재 값 입력):", formData.sequence_number || "");
+                    if (newSequenceNumber === null) return;
+                    
+                    const newFivePlusSequence = prompt("새 5인 이상 연번을 입력하세요 (변경하지 않으려면 현재 값 입력):", formData.five_plus_sequence || "");
+                    if (newFivePlusSequence === null) return;
+
+                    // 변경 사항 확인
+                    const hasChanges = 
+                      newDocumentNumber !== formData.document_number ||
+                      newSequenceNumber !== formData.sequence_number ||
+                      newFivePlusSequence !== formData.five_plus_sequence;
+
+                    if (!hasChanges) {
+                      alert("변경할 번호가 없습니다.");
+                      return;
+                    }
+
+                    setRequestingNumberChange(true);
+                    try {
+                      const response = await fetch(`/api/journal/${entry.id}/number-change-request`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          document_number: newDocumentNumber,
+                          sequence_number: newSequenceNumber,
+                          five_plus_sequence: newFivePlusSequence,
+                        }),
+                      });
+
+                      const data = await response.json();
+                      if (response.ok) {
+                        alert("번호 변경 요청이 생성되었습니다. 관리자 승인을 기다려주세요.");
+                        // 요청 조회
+                        const requestResponse = await fetch(`/api/journal/${entry.id}/number-change-request`);
+                        if (requestResponse.ok) {
+                          const requestData = await requestResponse.json();
+                          setPendingNumberRequest(requestData.request);
+                        }
+                      } else {
+                        alert(data.error || "번호 변경 요청 생성에 실패했습니다.");
+                      }
+                    } catch (err) {
+                      console.error("번호 변경 요청 오류:", err);
+                      alert("번호 변경 요청 중 오류가 발생했습니다.");
+                    } finally {
+                      setRequestingNumberChange(false);
+                    }
+                  }}
+                  disabled={requestingNumberChange || isCompleted}
+                >
+                  {requestingNumberChange ? "요청 중..." : "번호 변경 요청"}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
