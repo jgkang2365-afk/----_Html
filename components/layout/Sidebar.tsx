@@ -48,11 +48,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
         />
       )}
 
-      {/* 사이드바 */}
+      {/* 사이드바 (모바일 전용) */}
       <aside
         className={cn(
-          "fixed top-0 left-0 h-full w-64 bg-white border-r border-surface-100 z-50 transition-transform",
-          "lg:translate-x-0 lg:static lg:z-auto",
+          "fixed top-0 left-0 h-full w-64 bg-white border-r border-surface-100 z-50 transition-transform lg:hidden",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
