@@ -101,7 +101,8 @@ export async function assignDocumentNumber(
   let formattedNumber = String(nextNumber).padStart(3, "0");
   let documentNumber = `${prefix}-${formattedNumber}`;
   
-  // 중복 확인: 공문연번은 전체 데이터베이스에서 UNIQUE이므로 전체에서 중복 확인
+  // 중복 확인: 공문연번은 지정지청 + 측정년도 + 측정주기 조합 내에서만 고유하면 됨
+  // 같은 지정지청 + 측정년도 + 측정주기 조합에서만 중복 확인
   let attempts = 0;
   const maxAttempts = 1000; // 무한 루프 방지
   
@@ -109,7 +110,10 @@ export async function assignDocumentNumber(
     const { data: existing, error: checkError } = await supabase
       .from("measurement_journal")
       .select("id")
-      .eq("document_number", documentNumber) // 전체 데이터베이스에서 중복 확인 (UNIQUE 제약조건)
+      .in("designated_office", officesToMatch)
+      .eq("measurement_year", measurementYear)
+      .eq("measurement_period", measurementPeriod)
+      .eq("document_number", documentNumber) // 같은 지정지청 + 측정년도 + 측정주기 조합에서만 중복 확인
       .maybeSingle();
     
     if (checkError && checkError.code !== "PGRST116") {
@@ -124,7 +128,7 @@ export async function assignDocumentNumber(
     }
     
     // 번호가 사용 중이면 다음 번호로 증가
-    console.log(`[공문연번 부여] ${documentNumber} 중복 발견 (다른 년도/주기에서 사용 중일 수 있음), 다음 번호 시도...`);
+    console.log(`[공문연번 부여] ${documentNumber} 중복 발견 (같은 지정지청(${normalizedOffice}) + 측정년도(${measurementYear}) + 측정주기(${measurementPeriod}) 조합에서 사용 중), 다음 번호 시도...`);
     nextNumber++;
     formattedNumber = String(nextNumber).padStart(3, "0");
     documentNumber = `${prefix}-${formattedNumber}`;

@@ -12,6 +12,8 @@ import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
  */
 export async function POST(request: NextRequest) {
   try {
+    console.log(`[POST /api/journal] 요청 시작`);
+    
     // 권한 체크
     await checkPermission("journal:write");
 
@@ -24,6 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    console.log(`[POST /api/journal] 요청 데이터: code=${body.code}, year=${body.measurement_year || body.measurementYear}, period=${body.measurement_period || body.measurementPeriod}`);
     
     // 필드명 변환 (snake_case와 camelCase 모두 지원)
     const code = body.code;
@@ -109,13 +112,29 @@ export async function POST(request: NextRequest) {
     }
 
     // 이미 측정일지가 존재하는지 확인 (번호 정보도 함께 조회)
-    const { data: existingJournal, error: existingError } = await supabase
+    // 중복이 있을 경우 가장 최신 것만 사용
+    console.log(`[POST /api/journal] 기존 측정일지 조회 시작: code=${code}, year=${measurementYear}, period=${measurementPeriod}`);
+    
+    const { data: allExistingJournals, error: existingError } = await supabase
       .from("measurement_journal")
-      .select("id, document_number, sequence_number, five_plus_sequence")
+      .select("id, document_number, sequence_number, five_plus_sequence, updated_at, created_at")
       .eq("code", code)
       .eq("measurement_year", measurementYear)
       .eq("measurement_period", measurementPeriod)
-      .maybeSingle();
+      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false });
+    
+    console.log(`[POST /api/journal] 기존 측정일지 조회 결과: ${allExistingJournals?.length || 0}건`);
+    
+    const existingJournal = allExistingJournals && allExistingJournals.length > 0 ? allExistingJournals[0] : null;
+    
+    // 중복이 발견된 경우 경고 로그
+    if (allExistingJournals && allExistingJournals.length > 1) {
+      console.warn(`[POST /api/journal] 중복 측정일지 발견: code=${code}, year=${measurementYear}, period=${measurementPeriod}, 개수=${allExistingJournals.length}`, {
+        ids: allExistingJournals.map((j: any) => j.id),
+        document_numbers: allExistingJournals.map((j: any) => j.document_number)
+      });
+    }
 
     if (existingError && existingError.code !== "PGRST116") {
       console.error("기존 측정일지 조회 오류:", existingError);
@@ -126,11 +145,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (existingJournal) {
-      // 기존 측정일지가 있지만 번호가 없는 경우, 번호를 부여하고 업데이트
+      console.log(`[POST /api/journal] 기존 측정일지 발견: id=${existingJournal.id}, document_number=${existingJournal.document_number || '(없음)'}`);
+      
+      // 기존 측정일지가 있지만 번호가 없는 경우, 번호를 부여하고 모든 필드를 업데이트
       const hasNumbers = existingJournal.document_number || existingJournal.sequence_number || existingJournal.five_plus_sequence;
       
       if (!hasNumbers) {
-        // 번호가 없으면 자동으로 부여하고 업데이트
+        console.log(`[POST /api/journal] 기존 측정일지에 번호 부여 시작: id=${existingJournal.id}`);
+        // 번호가 없으면 자동으로 부여하고 모든 필드를 함께 업데이트
         const assignedNumbers = await assignAllNumbers({
           designated_office: designatedOffice,
           measurement_year: measurementYear,
@@ -138,30 +160,140 @@ export async function POST(request: NextRequest) {
           total_employees: total_employees || businessData.total_employees,
         });
 
+        // body의 모든 필드를 포함한 업데이트 데이터 준비
+        // PUT API와 동일한 방식으로 처리
+        // 번호 필드 제외
+        const { document_number, sequence_number, five_plus_sequence, ...bodyWithoutNumbers } = body;
+        
+        const updateData: any = {
+          // 번호 필드
+          document_number: assignedNumbers.document_number,
+          sequence_number: assignedNumbers.sequence_number,
+          five_plus_sequence: assignedNumbers.five_plus_sequence,
+          // body에서 전달된 모든 필드 (번호 필드 제외)
+          ...bodyWithoutNumbers,
+          // 필수 필드 (body에 없으면 기존 값 유지)
+          code: body.code || existingJournal.code,
+          measurement_year: measurementYear,
+          measurement_period: measurementPeriod,
+          designated_office: designatedOffice,
+          business_name: business_name || existingJournal.business_name,
+          updated_by: user.name,
+          updated_at: new Date().toISOString(),
+        };
+
+        // 빈 문자열을 null로 변환
+        Object.keys(updateData).forEach((key) => {
+          if (updateData[key] === "") {
+            updateData[key] = null;
+          }
+        });
+
+        // note 필드 처리
+        if (body.note) {
+          if (Array.isArray(body.note)) {
+            updateData.note = body.note.join(',').substring(0, 50) || null;
+          } else if (typeof body.note === 'string') {
+            updateData.note = body.note.substring(0, 50) || null;
+          }
+        }
+
+        // office_jurisdiction 정규화
+        if (body.office_jurisdiction) {
+          updateData.office_jurisdiction = fullNameToShortName(body.office_jurisdiction) || body.office_jurisdiction;
+        }
+
+        // 숫자 필드 변환
+        if (updateData.total_employees) {
+          updateData.total_employees = parseInt(String(updateData.total_employees)) || null;
+        }
+        if (updateData.measurement_fee_total) {
+          updateData.measurement_fee_total = parseFloat(String(updateData.measurement_fee_total).replace(/,/g, '')) || null;
+        }
+        if (updateData.measurement_fee_business) {
+          updateData.measurement_fee_business = parseFloat(String(updateData.measurement_fee_business).replace(/,/g, '')) || null;
+        }
+        if (updateData.measurement_fee_national) {
+          updateData.measurement_fee_national = parseFloat(String(updateData.measurement_fee_national).replace(/,/g, '')) || null;
+        }
+        if (updateData.deposit_total) {
+          updateData.deposit_total = parseFloat(String(updateData.deposit_total).replace(/,/g, '')) || null;
+        }
+        if (updateData.deposit_amount_business) {
+          updateData.deposit_amount_business = parseFloat(String(updateData.deposit_amount_business).replace(/,/g, '')) || null;
+        }
+        if (updateData.deposit_amount_national) {
+          updateData.deposit_amount_national = parseFloat(String(updateData.deposit_amount_national).replace(/,/g, '')) || null;
+        }
+
         const { error: updateError } = await supabase
           .from("measurement_journal")
-          .update({
-            document_number: assignedNumbers.document_number,
-            sequence_number: assignedNumbers.sequence_number,
-            five_plus_sequence: assignedNumbers.five_plus_sequence,
-            updated_by: user.name,
-            updated_at: new Date().toISOString(),
-          })
+          .update(updateData)
           .eq("id", existingJournal.id);
 
         if (updateError) {
-          console.error("측정일지 번호 업데이트 오류:", updateError);
+          console.error("측정일지 업데이트 오류:", updateError);
           return NextResponse.json(
-            { error: "측정일지 번호 부여 중 오류가 발생했습니다.", details: updateError.message },
+            { error: "측정일지 업데이트 중 오류가 발생했습니다.", details: updateError.message },
             { status: 500 }
           );
         }
 
-        // 번호 부여 후 기존 측정일지 ID 반환
+        // 중복 항목 삭제: 같은 code-year-period 조합의 다른 항목들 삭제
+        // (방금 업데이트한 항목 제외)
+        console.log(`[POST /api/journal] 중복 항목 확인 시작: code=${code}, year=${measurementYear}, period=${measurementPeriod}, excludeId=${existingJournal.id}`);
+        
+        const { data: duplicateJournals, error: findDuplicateError } = await supabase
+          .from("measurement_journal")
+          .select("id, document_number, sequence_number, created_at, updated_at")
+          .eq("code", code)
+          .eq("measurement_year", measurementYear)
+          .eq("measurement_period", measurementPeriod)
+          .neq("id", existingJournal.id);
+
+        if (findDuplicateError) {
+          console.error(`[POST /api/journal] 중복 측정일지 조회 오류:`, findDuplicateError);
+        } else {
+          console.log(`[POST /api/journal] 중복 측정일지 조회 결과: ${duplicateJournals?.length || 0}건`);
+          
+          if (duplicateJournals && duplicateJournals.length > 0) {
+            const duplicateIds = duplicateJournals.map((j: any) => j.id);
+            console.log(`[POST /api/journal] 중복 측정일지 발견: ${duplicateIds.length}건 삭제 시작`, {
+              ids: duplicateIds,
+              details: duplicateJournals.map((j: any) => ({
+                id: j.id,
+                document_number: j.document_number,
+                sequence_number: j.sequence_number,
+                created_at: j.created_at,
+                updated_at: j.updated_at
+              }))
+            });
+            
+            const { error: deleteError, data: deleteData } = await supabase
+              .from("measurement_journal")
+              .delete()
+              .in("id", duplicateIds)
+              .select("id");
+
+            if (deleteError) {
+              console.error(`[POST /api/journal] 중복 측정일지 삭제 오류:`, deleteError);
+              // 삭제 실패해도 업데이트는 성공했으므로 계속 진행
+            } else {
+              console.log(`[POST /api/journal] 중복 측정일지 정리 완료: ${duplicateIds.length}건 삭제됨`, {
+                requested: duplicateIds,
+                deleted: deleteData?.map((d: any) => d.id) || []
+              });
+            }
+          } else {
+            console.log(`[POST /api/journal] 중복 항목 없음`);
+          }
+        }
+
+        // 업데이트 후 기존 측정일지 ID 반환
         return NextResponse.json({
           success: true,
           id: existingJournal.id,
-          message: "기존 측정일지에 번호가 부여되었습니다.",
+          message: "기존 측정일지가 업데이트되었습니다.",
           assignedNumbers: assignedNumbers,
         });
       } else {
@@ -225,6 +357,23 @@ export async function POST(request: NextRequest) {
       manager_mobile: businessData.manager_mobile || null,
       manager_email: businessData.manager_email || null,
       invoice_email: businessData.invoice_email || null,
+      // 측정비 정보 (body에서 가져오기)
+      measurement_fee_total: body.measurement_fee_total ? parseFloat(String(body.measurement_fee_total).replace(/,/g, '')) || null : null,
+      measurement_fee_business: body.measurement_fee_business ? parseFloat(String(body.measurement_fee_business).replace(/,/g, '')) || null : null,
+      measurement_fee_national: body.measurement_fee_national ? parseFloat(String(body.measurement_fee_national).replace(/,/g, '')) || null : null,
+      // 입금 정보 (body에서 가져오기)
+      deposit_total: body.deposit_total ? parseFloat(String(body.deposit_total).replace(/,/g, '')) || null : null,
+      deposit_date_business: body.deposit_date_business || null,
+      deposit_amount_business: body.deposit_amount_business ? parseFloat(String(body.deposit_amount_business).replace(/,/g, '')) || null : null,
+      deposit_date_national: body.deposit_date_national || null,
+      deposit_amount_national: body.deposit_amount_national ? parseFloat(String(body.deposit_amount_national).replace(/,/g, '')) || null : null,
+      // K2B 정보 (body에서 가져오기)
+      k2b_send_date: body.k2b_send_date || null,
+      k2b_sender: body.k2b_sender || null,
+      // 전자계산서 정보 (body에서 가져오기)
+      electronic_invoice_date: body.electronic_invoice_date || null,
+      // 특이사항 (body에서 가져오기)
+      special_notes: body.special_notes || null,
       completion_status: "미완료",
       created_by: user.name,
       updated_by: user.name,

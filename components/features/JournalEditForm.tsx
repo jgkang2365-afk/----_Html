@@ -32,7 +32,7 @@ interface JournalEntry {
 interface JournalEditFormProps {
   entry: JournalEntry;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (savedJournalId?: number | null) => void;
 }
 
 export const JournalEditForm: React.FC<JournalEditFormProps> = ({
@@ -51,6 +51,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
   const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
+  // 전회 측정비 정보 (참고용)
+  const [previousMeasurementFee, setPreviousMeasurementFee] = useState<{
+    business: number | null;
+    national: number | null;
+  }>({ business: null, national: null });
   // 완료여부 체크는 기존 측정일지(id가 있는 경우)를 수정할 때만 적용
   // 검색 결과에서 선택한 경우(id가 null)는 등록 모드이므로 완료여부와 관계없이 등록 가능
   const isCompleted = entry.id ? entry.completion_status === "완료" : false;
@@ -238,6 +243,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // 사업자번호는 표시 시 포맷팅하므로 초기값은 그대로 사용
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // entry가 변경될 때 전회 측정비 정보 초기화
+  useEffect(() => {
+    // 수정 모드(entry.id가 있음)일 때는 전회치를 표시하지 않음
+    if (entry.id) {
+      setPreviousMeasurementFee({ business: null, national: null });
+    }
+  }, [entry.id]);
+
   // 등록 모드일 때 직전 측정일지 데이터 자동 채우기
   useEffect(() => {
     // 등록 모드(id가 null)이고, 필수 필드가 모두 있을 때만 실행
@@ -261,11 +274,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 updated.manager_position = prev.manager_position || data.previousData.manager_position || "";
                 updated.manager_mobile = prev.manager_mobile || data.previousData.manager_mobile || "";
                 updated.manager_email = prev.manager_email || data.previousData.manager_email || "";
-                updated.measurement_fee_business = prev.measurement_fee_business || (data.previousData.measurement_fee_business ? String(data.previousData.measurement_fee_business) : "") || "";
-                updated.measurement_fee_national = prev.measurement_fee_national || (data.previousData.measurement_fee_national ? String(data.previousData.measurement_fee_national) : "") || "";
+                // 측정비는 자동으로 채우지 않고 참고용으로만 저장
+                // updated.measurement_fee_business = prev.measurement_fee_business || (data.previousData.measurement_fee_business ? String(data.previousData.measurement_fee_business) : "") || "";
+                // updated.measurement_fee_national = prev.measurement_fee_national || (data.previousData.measurement_fee_national ? String(data.previousData.measurement_fee_national) : "") || "";
                 updated.invoice_email = prev.invoice_email || data.previousData.invoice_email || "";
                 updated.measurer = prev.measurer || data.previousData.measurer || "";
                 updated.k2b_sender = prev.k2b_sender || data.previousData.k2b_sender || "";
+                
+                // 전회 측정비 정보 저장 (참고용)
+                setPreviousMeasurementFee({
+                  business: data.previousData.measurement_fee_business || null,
+                  national: data.previousData.measurement_fee_national || null,
+                });
               }
               
               // 요약 정보 (직전 데이터가 없거나 비어있을 때)
@@ -273,8 +293,17 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 updated.manager_name = updated.manager_name || data.summaryInfo.manager_name || "";
                 updated.manager_mobile = updated.manager_mobile || data.summaryInfo.manager_mobile || "";
                 updated.manager_email = updated.manager_email || data.summaryInfo.manager_email || "";
-                updated.measurement_fee_business = updated.measurement_fee_business || (data.summaryInfo.measurement_fee_business ? String(data.summaryInfo.measurement_fee_business) : "") || "";
+                // 측정비는 자동으로 채우지 않고 참고용으로만 저장
+                // updated.measurement_fee_business = updated.measurement_fee_business || (data.summaryInfo.measurement_fee_business ? String(data.summaryInfo.measurement_fee_business) : "") || "";
                 updated.k2b_sender = updated.k2b_sender || data.summaryInfo.k2b_sender || "";
+                
+                // 전회 측정비 정보 저장 (참고용) - summaryInfo에서도 가져오기
+                if (!previousMeasurementFee.business && data.summaryInfo.measurement_fee_business) {
+                  setPreviousMeasurementFee((prev) => ({
+                    ...prev,
+                    business: data.summaryInfo.measurement_fee_business || null,
+                  }));
+                }
               }
               
               // 국고지원 상태 (우선순위: national_support_application > measurement_business > 직전 측정일지)
@@ -607,6 +636,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 측정년도/측정주기 변경 검증 (수정 모드에서만)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // 중복 제출 방지
+    if (loading) {
+      console.warn("[JournalEditForm] 이미 제출 중입니다. 중복 제출을 방지합니다.");
+      return;
+    }
+    
     setLoading(true);
     setError(null);
 
@@ -1171,46 +1207,60 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             className="bg-surface-50"
             placeholder="자동 계산됩니다"
           />
-          <Input
-            label="측정비(사업장)"
-            type="text"
-            value={formatCurrency(formData.measurement_fee_business)}
-            onChange={(e) => {
-              const parsed = parseCurrency(e.target.value);
-              setFormData({ ...formData, measurement_fee_business: parsed });
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                const inputs = e.currentTarget.form?.querySelectorAll("input");
-                const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                if (inputs && currentIndex < inputs.length - 1) {
-                  inputs[currentIndex + 1].focus();
+          <div>
+            <Input
+              label="측정비(사업장)"
+              type="text"
+              value={formatCurrency(formData.measurement_fee_business)}
+              onChange={(e) => {
+                const parsed = parseCurrency(e.target.value);
+                setFormData({ ...formData, measurement_fee_business: parsed });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const inputs = e.currentTarget.form?.querySelectorAll("input");
+                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
+                  if (inputs && currentIndex < inputs.length - 1) {
+                    inputs[currentIndex + 1].focus();
+                  }
                 }
-              }
-            }}
-            placeholder="숫자만 입력"
-          />
-          <Input
-            label="측정비(국고)"
-            type="text"
-            value={formatCurrency(formData.measurement_fee_national)}
-            onChange={(e) => {
-              const parsed = parseCurrency(e.target.value);
-              setFormData({ ...formData, measurement_fee_national: parsed });
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                const inputs = e.currentTarget.form?.querySelectorAll("input");
-                const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                if (inputs && currentIndex < inputs.length - 1) {
-                  inputs[currentIndex + 1].focus();
+              }}
+              placeholder={previousMeasurementFee.business ? `전회: ${formatCurrency(String(previousMeasurementFee.business))}원 (참고용)` : "숫자만 입력"}
+            />
+            {previousMeasurementFee.business && (
+              <p className="mt-1 text-xs text-text-500">
+                전회: {formatCurrency(String(previousMeasurementFee.business))}원 (참고용)
+              </p>
+            )}
+          </div>
+          <div>
+            <Input
+              label="측정비(국고)"
+              type="text"
+              value={formatCurrency(formData.measurement_fee_national)}
+              onChange={(e) => {
+                const parsed = parseCurrency(e.target.value);
+                setFormData({ ...formData, measurement_fee_national: parsed });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const inputs = e.currentTarget.form?.querySelectorAll("input");
+                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
+                  if (inputs && currentIndex < inputs.length - 1) {
+                    inputs[currentIndex + 1].focus();
+                  }
                 }
-              }
-            }}
-            placeholder="숫자만 입력"
-          />
+              }}
+              placeholder={previousMeasurementFee.national ? `전회: ${formatCurrency(String(previousMeasurementFee.national))}원 (참고용)` : "숫자만 입력"}
+            />
+            {previousMeasurementFee.national && (
+              <p className="mt-1 text-xs text-text-500">
+                전회: {formatCurrency(String(previousMeasurementFee.national))}원 (참고용)
+              </p>
+            )}
+          </div>
           <Input
             label="계산서 메일"
             type="email"

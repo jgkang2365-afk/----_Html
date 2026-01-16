@@ -29,6 +29,9 @@ export async function GET(request: NextRequest) {
       await checkPermission("journal:read");
     } catch (permissionError: any) {
       console.error("[API /api/journal/search] 권한 체크 오류:", permissionError);
+      console.error("[API /api/journal/search] 권한 체크 오류 스택:", permissionError?.stack);
+      console.error("[API /api/journal/search] 권한 체크 오류 메시지:", permissionError?.message);
+      
       if (permissionError?.message === "Unauthorized") {
         return NextResponse.json(
           { error: "로그인이 필요합니다." },
@@ -131,12 +134,13 @@ export async function GET(request: NextRequest) {
     }
 
     // 2. measurement_journal에서 검색
+    // 중복 제거: 같은 code-year-period 조합 중 가장 최신 것만 조회
+    // PostgreSQL의 DISTINCT ON을 사용할 수 없으므로, 모든 데이터를 가져온 후 애플리케이션 레벨에서 중복 제거
     let journalQuery = supabase
       .from("measurement_journal")
       .select("*")
       .not("business_name", "ilike", "%번외%")
-      .order("measurement_year", { ascending: false })
-      .order("measurement_period", { ascending: false })
+      .order("updated_at", { ascending: false })
       .order("created_at", { ascending: false });
 
     if (code) {
@@ -200,10 +204,15 @@ export async function GET(request: NextRequest) {
     }
 
     // 4. measurement_journal이 있으면 우선 사용, 없으면 measurement_business 데이터를 변환
+    // 중복 제거: 같은 code-year-period 조합 중 가장 최신 것만 사용
     const journalMap = new Map<string, any>();
     (journalData || []).forEach((journal: any) => {
       const key = `${journal.code}-${journal.measurement_year}-${journal.measurement_period}`;
-      journalMap.set(key, journal);
+      const existing = journalMap.get(key);
+      // 기존 항목이 없거나, 현재 항목이 더 최신이면 교체
+      if (!existing || new Date(journal.updated_at || journal.created_at) > new Date(existing.updated_at || existing.created_at)) {
+        journalMap.set(key, journal);
+      }
     });
 
     // measurement_business 데이터를 measurement_journal 형식으로 변환
@@ -211,7 +220,8 @@ export async function GET(request: NextRequest) {
     const processedKeys = new Set<string>();
 
     // 먼저 measurement_journal 데이터 추가 (business_info 정보 병합)
-    (journalData || []).forEach((journal: any) => {
+    // journalMap에는 이미 중복이 제거된 최신 데이터만 있음
+    Array.from(journalMap.values()).forEach((journal: any) => {
       const key = `${journal.code}-${journal.measurement_year}-${journal.measurement_period}`;
       if (!processedKeys.has(key)) {
         // business_info 정보로 보완
@@ -422,22 +432,62 @@ export async function GET(request: NextRequest) {
       return dateB - dateA; // 생성일 내림차순
     });
 
-    // 같은 code에 대해 가장 최신 항목만 유지 (정렬 후 첫 번째 항목이 가장 최신)
-    const codeMap = new Map<string, any>();
+    // 같은 code-year-period 조합에 대해 가장 최신 항목만 유지 (정렬 후 첫 번째 항목이 가장 최신)
+    const keyMap = new Map<string, any>();
     filteredResults.forEach((entry: any) => {
-      if (!codeMap.has(entry.code)) {
-        // 해당 code의 첫 번째 항목(가장 최신)만 유지
-        codeMap.set(entry.code, entry);
+      // code + measurement_year + measurement_period 조합을 키로 사용
+      const key = `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`;
+      const existing = keyMap.get(key);
+      // 기존 항목이 없거나, 현재 항목이 더 최신이면 교체
+      if (!existing || new Date(entry.updated_at || entry.created_at) > new Date(existing.updated_at || existing.created_at)) {
+        keyMap.set(key, entry);
       }
     });
 
     // Map에서 배열로 변환하고 원래 정렬 순서 유지
-    const finalResults = Array.from(codeMap.values());
+    let finalResults = Array.from(keyMap.values());
+
+    // 최종 중복 제거: 혹시 모를 중복을 한 번 더 제거 (id 기준으로도 확인)
+    const finalDedupMap = new Map<string, any>();
+    finalResults.forEach((entry: any) => {
+      const key = `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`;
+      const existing = finalDedupMap.get(key);
+      if (!existing) {
+        finalDedupMap.set(key, entry);
+      } else {
+        // id가 있는 항목을 우선 (measurement_journal에서 온 데이터)
+        if (entry.id && !existing.id) {
+          finalDedupMap.set(key, entry);
+        } else if (!entry.id && existing.id) {
+          // 기존 항목이 measurement_journal에서 온 것이면 유지
+          // 아무것도 하지 않음
+        } else {
+          // 둘 다 id가 있거나 둘 다 없으면 더 최신 것 선택
+          const entryDate = new Date(entry.updated_at || entry.created_at || 0);
+          const existingDate = new Date(existing.updated_at || existing.created_at || 0);
+          if (entryDate > existingDate) {
+            finalDedupMap.set(key, entry);
+          }
+        }
+      }
+    });
+    finalResults = Array.from(finalDedupMap.values());
 
     // 최종 결과 로그
     console.log(`[검색 API] 최종 반환 결과 수: ${finalResults.length}건 (중복 제거 전: ${filteredResults.length}건)`);
     const finalH0432 = finalResults.filter((r: any) => r.code && r.code.includes("H0432"));
     console.log(`[검색 API] 최종 H0432 데이터: ${finalH0432.length}건`);
+    
+    // 중복이 있는지 확인
+    const duplicateCheck = new Map<string, number>();
+    finalResults.forEach((entry: any) => {
+      const key = `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`;
+      duplicateCheck.set(key, (duplicateCheck.get(key) || 0) + 1);
+    });
+    const duplicates = Array.from(duplicateCheck.entries()).filter(([_, count]) => count > 1);
+    if (duplicates.length > 0) {
+      console.error(`[검색 API] 경고: 중복 항목이 여전히 존재합니다:`, duplicates);
+    }
 
     // 디버깅 정보 (문제 해결을 위해 프로덕션에서도 포함)
     const debugInfo: any = {

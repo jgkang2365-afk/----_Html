@@ -194,14 +194,25 @@ export const JournalSearch: React.FC = () => {
   };
 
   const handleSelectJournal = async (entry: JournalEntry) => {
-    // 측정일지 ID가 있으면 최신 데이터를 불러옴
+    // 측정일지 ID가 있으면 최신 데이터를 불러옴 (캐시 무시)
     if (entry.id) {
       try {
-        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(entry.code || '')}&measurementYear=${entry.measurement_year}&measurementPeriod=${entry.measurement_period}`);
+        // 캐시를 무시하고 최신 데이터를 가져오기 위해 timestamp 추가
+        const timestamp = new Date().getTime();
+        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(entry.code || '')}&measurementYear=${entry.measurement_year}&measurementPeriod=${entry.measurement_period}&_t=${timestamp}`, {
+          cache: 'no-store',
+        });
         if (response.ok) {
           const data = await response.json();
           const latestJournal = data.results?.find((j: JournalEntry) => j.id === entry.id);
           if (latestJournal) {
+            // 검색 결과 목록도 업데이트
+            setResults((prevResults) => {
+              const updatedResults = prevResults.map((r) => 
+                r.id === latestJournal.id ? latestJournal : r
+              );
+              return updatedResults;
+            });
             setSelectedEntry(latestJournal);
             setIsModalOpen(true);
             return;
@@ -219,26 +230,39 @@ export const JournalSearch: React.FC = () => {
 
   const handleModalClose = () => {
     setIsModalOpen(false);
+    // 모달이 닫힐 때 selectedEntry는 유지하지 않음 (다시 열 때 최신 데이터를 가져오기 위해)
     setSelectedEntry(null);
   };
 
   const handleSaveSuccess = async (savedJournalId?: number | null) => {
-    // 저장 성공 시 검색 결과 새로고침
-    if (activeTab === "search") {
-      handleSearch();
-    } else {
-      loadJournalList();
-    }
-    
-    // 저장된 측정일지의 최신 데이터를 불러와서 selectedEntry 업데이트
-    if (savedJournalId && selectedEntry?.id === savedJournalId) {
+    // 저장된 측정일지의 최신 데이터를 불러와서 selectedEntry와 검색 결과 업데이트
+    if (savedJournalId && selectedEntry) {
       try {
-        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(selectedEntry.code || '')}&measurementYear=${selectedEntry.measurement_year}&measurementPeriod=${selectedEntry.measurement_period}`);
+        // 캐시를 무시하고 최신 데이터를 가져오기 위해 timestamp 추가
+        const timestamp = new Date().getTime();
+        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(selectedEntry.code || '')}&measurementYear=${selectedEntry.measurement_year}&measurementPeriod=${encodeURIComponent(selectedEntry.measurement_period)}&_t=${timestamp}`, {
+          cache: 'no-store',
+        });
         if (response.ok) {
           const data = await response.json();
           const updatedJournal = data.results?.find((j: JournalEntry) => j.id === savedJournalId);
           if (updatedJournal) {
+            // selectedEntry 업데이트
             setSelectedEntry(updatedJournal);
+            
+            // 검색 결과 목록도 업데이트 (해당 항목이 있으면 업데이트, 없으면 추가)
+            setResults((prevResults) => {
+              const existingIndex = prevResults.findIndex((r) => r.id === updatedJournal.id);
+              if (existingIndex >= 0) {
+                // 기존 항목 업데이트
+                const updatedResults = [...prevResults];
+                updatedResults[existingIndex] = updatedJournal;
+                return updatedResults;
+              } else {
+                // 새 항목 추가 (등록 모드에서 생성된 경우)
+                return [...prevResults, updatedJournal];
+              }
+            });
           }
         }
       } catch (err) {
@@ -1082,6 +1106,7 @@ export const JournalSearch: React.FC = () => {
           size="full-75"
         >
           <JournalEditForm
+            key={selectedEntry.id || `new-${selectedEntry.code}-${selectedEntry.measurement_year}-${selectedEntry.measurement_period}`}
             entry={selectedEntry}
             onClose={handleModalClose}
             onSuccess={handleSaveSuccess}
