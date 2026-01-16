@@ -84,10 +84,69 @@ export async function PUT(
     
     // 관리자인 경우 요청된 값 사용 (없으면 기존 값)
     if (isAdmin) {
-      if (requestedDocumentNumber !== undefined) {
-        documentNumber = requestedDocumentNumber;
+      if (requestedDocumentNumber !== undefined && requestedDocumentNumber !== null && requestedDocumentNumber !== "") {
+        // 공문연번이 변경되는 경우에만 중복 확인
+        if (requestedDocumentNumber !== existingJournal.document_number) {
+          console.log(`[측정일지 수정] 관리자가 공문연번 변경 시도: ${existingJournal.document_number} → ${requestedDocumentNumber}`);
+          
+          // 공문연번 변경 시 중복 확인 (같은 지정지청+측정년도+측정주기 조합에서만 중복 확인)
+          // body에서 지정지청, 측정년도, 측정주기를 가져오거나 기존 값 사용
+          const designatedOfficeForCheck = body.designated_office 
+            ? (toShortName(body.designated_office) || body.designated_office)
+            : existingJournal.designated_office;
+          const measurementYearForCheck = body.measurement_year || existingJournal.measurement_year;
+          const measurementPeriodForCheck = body.measurement_period || existingJournal.measurement_period;
+          
+          const officesToMatchForCheck = [designatedOfficeForCheck];
+          const normalizedOfficeForCheck = toShortName(designatedOfficeForCheck);
+          if (normalizedOfficeForCheck !== designatedOfficeForCheck) {
+            officesToMatchForCheck.push(normalizedOfficeForCheck);
+          }
+          
+          console.log(`[측정일지 수정] 공문연번 중복 확인 조건:`, {
+            designated_office: officesToMatchForCheck,
+            measurement_year: measurementYearForCheck,
+            measurement_period: measurementPeriodForCheck,
+            document_number: requestedDocumentNumber
+          });
+          
+          const { data: existingDocNumber, error: checkError } = await supabase
+            .from("measurement_journal")
+            .select("id")
+            .in("designated_office", officesToMatchForCheck)
+            .eq("measurement_year", measurementYearForCheck)
+            .eq("measurement_period", measurementPeriodForCheck)
+            .eq("document_number", requestedDocumentNumber)
+            .neq("id", journalId) // 현재 측정일지 제외
+            .maybeSingle();
+          
+          if (checkError) {
+            console.error("[측정일지 수정] 공문연번 중복 확인 오류:", checkError);
+            return NextResponse.json(
+              { 
+                error: "공문연번 확인 중 오류가 발생했습니다.",
+                details: checkError.message
+              },
+              { status: 500 }
+            );
+          }
+          
+          if (existingDocNumber) {
+            console.log(`[측정일지 수정] 공문연번 중복 발견: ${requestedDocumentNumber}는 같은 조건(${designatedOfficeForCheck}, ${measurementYearForCheck}, ${measurementPeriodForCheck})에서 이미 사용 중`);
+            return NextResponse.json(
+              { 
+                error: "공문연번 중복 오류",
+                details: `공문연번 "${requestedDocumentNumber}"는 같은 지정지청(${designatedOfficeForCheck}) + 측정년도(${measurementYearForCheck}) + 측정주기(${measurementPeriodForCheck}) 조합에서 이미 사용 중입니다. 다른 번호를 선택해주세요.`
+              },
+              { status: 400 }
+            );
+          }
+          
+          documentNumber = requestedDocumentNumber;
+          console.log(`[측정일지 수정] 공문연번 변경 승인: ${documentNumber}`);
+        }
       }
-      if (requestedSequenceNumber !== undefined) {
+      if (requestedSequenceNumber !== undefined && requestedSequenceNumber !== null && requestedSequenceNumber !== "") {
         sequenceNumber = requestedSequenceNumber;
       }
     }
@@ -147,13 +206,43 @@ export async function PUT(
 
     // 업데이트 데이터 준비 (번호 필드는 제외하고, 자동으로 설정)
     const { document_number, sequence_number, five_plus_sequence, designated_office, office_jurisdiction, ...bodyWithoutNumbers } = body;
+    
+    // 필드 길이 제한 적용 (데이터베이스 제약조건 준수)
+    const truncateField = (value: any, maxLength: number, fieldName?: string): any => {
+      if (value === null || value === undefined) return value;
+      if (typeof value === 'string' && value.length > maxLength) {
+        console.warn(`[필드 길이 제한] ${fieldName || '필드'} 값이 ${maxLength}자를 초과하여 잘립니다: ${value.substring(0, 30)}... (원본 길이: ${value.length}자)`);
+        return value.substring(0, maxLength);
+      }
+      return value;
+    };
+    
+    // 필드별 길이 제한 적용
     const updateData: any = {
       ...bodyWithoutNumbers,
+      // VARCHAR(50) 제한 필드들 (기존 값이 있으면 유지, 없으면 새 값 사용)
+      code: truncateField(bodyWithoutNumbers.code ?? existingJournal.code, 50, 'code'),
+      note: truncateField(bodyWithoutNumbers.note ?? existingJournal.note, 50, 'note'),
+      industrial_accident_number: truncateField(
+        bodyWithoutNumbers.industrial_accident_number ?? existingJournal.industrial_accident_number, 
+        50, 
+        'industrial_accident_number'
+      ),
+      // VARCHAR(20) 제한 필드들
+      business_number: truncateField(bodyWithoutNumbers.business_number ?? existingJournal.business_number, 20, 'business_number'),
+      phone: truncateField(bodyWithoutNumbers.phone ?? existingJournal.phone, 20, 'phone'),
+      fax: truncateField(bodyWithoutNumbers.fax ?? existingJournal.fax, 20, 'fax'),
+      manager_mobile: truncateField(bodyWithoutNumbers.manager_mobile ?? existingJournal.manager_mobile, 20, 'manager_mobile'),
+      // VARCHAR(10) 제한 필드들
+      sequence_number: truncateField(finalSequenceNumber, 10, 'sequence_number'),
+      five_plus_sequence: truncateField(finalFivePlusSequence, 10, 'five_plus_sequence'),
+      // VARCHAR(20) 제한 필드 (공문연번)
+      document_number: truncateField(finalDocumentNumber, 20, 'document_number'),
+      // VARCHAR(200) 제한 필드 (업종)
+      business_category: truncateField(bodyWithoutNumbers.business_category ?? existingJournal.business_category, 200, 'business_category'),
+      // 기타 필드
       designated_office: normalizedDesignatedOffice, // 약칭으로 저장
       office_jurisdiction: normalizedOfficeJurisdiction, // 약칭으로 저장
-      document_number: finalDocumentNumber,
-      sequence_number: finalSequenceNumber,
-      five_plus_sequence: finalFivePlusSequence,
       updated_at: new Date().toISOString(),
       updated_by: user.name,
     };
@@ -170,7 +259,53 @@ export async function PUT(
       .single();
 
     if (updateError) {
-      console.error("측정일지 수정 오류:", updateError);
+      console.error("[측정일지 수정] 업데이트 오류:", updateError);
+      console.error("[측정일지 수정] 오류 코드:", updateError.code);
+      console.error("[측정일지 수정] 오류 메시지:", updateError.message);
+      console.error("[측정일지 수정] 최종 공문연번:", finalDocumentNumber);
+      
+      // 공문연번 중복 오류 처리
+      if (updateError.code === '23505' && updateError.message.includes('document_number')) {
+        console.error(`[측정일지 수정] 공문연번 중복: ${finalDocumentNumber}는 이미 사용 중`);
+        return NextResponse.json(
+          { 
+            error: "공문연번 중복 오류",
+            details: `공문연번 "${finalDocumentNumber}"는 이미 다른 측정일지에서 사용 중입니다. 다른 번호를 선택해주세요.`
+          },
+          { status: 400 }
+        );
+      }
+      
+      // 필드 길이 초과 오류인 경우 상세 정보 출력
+      if (updateError.code === '22001' && updateError.message.includes('too long')) {
+        console.error("필드 길이 초과 오류 - 업데이트 데이터:", JSON.stringify(updateData, null, 2));
+        
+        // 각 필드의 길이 확인
+        const fieldLengths: Record<string, number> = {};
+        Object.keys(updateData).forEach(key => {
+          if (typeof updateData[key] === 'string') {
+            fieldLengths[key] = updateData[key].length;
+          }
+        });
+        console.error("각 필드의 문자열 길이:", fieldLengths);
+        
+        // 50자를 초과하는 필드 찾기
+        const tooLongFields = Object.entries(fieldLengths)
+          .filter(([_, length]) => length > 50)
+          .map(([field, length]) => `${field} (${length}자)`);
+        
+        if (tooLongFields.length > 0) {
+          return NextResponse.json(
+            { 
+              error: "필드 길이 초과 오류",
+              details: `다음 필드가 50자를 초과합니다: ${tooLongFields.join(', ')}`,
+              tooLongFields
+            },
+            { status: 400 }
+          );
+        }
+      }
+      
       return NextResponse.json(
         { error: "측정일지 수정 중 오류가 발생했습니다.", details: updateError.message },
         { status: 500 }

@@ -43,16 +43,30 @@ export function clearSessionCookie(response: NextResponse): void {
  * 서버 사이드에서 세션 데이터 조회
  */
 export async function getSession(): Promise<SessionData | null> {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
-
-  if (!sessionCookie?.value) {
-    return null;
-  }
-
   try {
-    return JSON.parse(sessionCookie.value) as SessionData;
-  } catch {
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
+
+    if (!sessionCookie?.value) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(sessionCookie.value) as SessionData;
+    } catch (parseError) {
+      console.error("[getSession] 세션 쿠키 파싱 오류:", parseError);
+      if (parseError instanceof Error) {
+        console.error("[getSession] 파싱 오류 메시지:", parseError.message);
+        console.error("[getSession] 쿠키 값:", sessionCookie.value.substring(0, 100));
+      }
+      return null;
+    }
+  } catch (error) {
+    console.error("[getSession] 함수 오류:", error);
+    if (error instanceof Error) {
+      console.error("[getSession] 오류 메시지:", error.message);
+      console.error("[getSession] 오류 스택:", error.stack);
+    }
     return null;
   }
 }

@@ -356,10 +356,24 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   };
 
   // 측정자 선택 처리
+  // 측정자별 예비조사자 매핑
+  const getPreliminarySurveyorByMeasurer = (measurer: string): string | null => {
+    const mapping: Record<string, string> = {
+      "이태환": "이태환",
+      "한기문": "한기문",
+      "이주형": "이주형",
+      "강종구": "이태환, 강종구",
+      "배윤민": "한기문, 배윤민",
+      "고유빈": "이주형, 고유빈",
+    };
+    return mapping[measurer] || null;
+  };
+
   const handleMeasurerToggle = (measurer: string) => {
-    const updated = selectedMeasurers.includes(measurer)
-      ? selectedMeasurers.filter((m) => m !== measurer)
-      : [...selectedMeasurers, measurer];
+    const isAdding = !selectedMeasurers.includes(measurer);
+    const updated = isAdding
+      ? [...selectedMeasurers, measurer]
+      : selectedMeasurers.filter((m) => m !== measurer);
     
     setSelectedMeasurers(updated);
     
@@ -372,6 +386,22 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       measurer: measurerStr,
       survey_code: surveyCode || "",
     }));
+
+    // 측정자 선택/해제에 따라 예비조사자 자동 설정
+    const correspondingPreliminarySurveyor = getPreliminarySurveyorByMeasurer(measurer);
+    if (correspondingPreliminarySurveyor) {
+      if (isAdding) {
+        // 측정자가 선택되면 해당 예비조사자 조합도 자동으로 체크
+        if (!preliminarySurveyors.includes(correspondingPreliminarySurveyor)) {
+          setPreliminarySurveyors([...preliminarySurveyors, correspondingPreliminarySurveyor]);
+        }
+      } else {
+        // 측정자가 해제되면 해당 예비조사자 조합도 자동으로 해제
+        setPreliminarySurveyors(
+          preliminarySurveyors.filter((p) => p !== correspondingPreliminarySurveyor)
+        );
+      }
+    }
   };
 
   // 예비조사자 선택 처리 (조합 단위로 선택)

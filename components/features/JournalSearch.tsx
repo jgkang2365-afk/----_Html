@@ -66,9 +66,15 @@ export const JournalSearch: React.FC = () => {
   const [filteredJournals, setFilteredJournals] = useState<JournalEntry[]>([]); // 필터링된 결과
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  
+  // 필터 초기값: 현재 년도와 상반기로 설정
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const currentPeriod = currentMonth <= 6 ? "상반기" : "하반기";
+  
   const [filters, setFilters] = useState({
-    measurementYear: "",
-    measurementPeriod: "",
+    measurementYear: currentYear.toString(),
+    measurementPeriod: currentPeriod,
     designatedOffice: "",
     completionStatus: "",
   });
@@ -103,7 +109,6 @@ export const JournalSearch: React.FC = () => {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 측정년도 옵션 생성 (현재 년도 기준 -5년 ~ +1년, 내림차순)
-  const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 7 }, (_, i) => {
     const year = currentYear - 5 + i;
     return { value: year.toString(), label: year.toString() };
@@ -188,8 +193,26 @@ export const JournalSearch: React.FC = () => {
     setHasSearched(false);
   };
 
-  const handleSelectJournal = (entry: JournalEntry) => {
-    // 선택된 항목을 모달에 표시
+  const handleSelectJournal = async (entry: JournalEntry) => {
+    // 측정일지 ID가 있으면 최신 데이터를 불러옴
+    if (entry.id) {
+      try {
+        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(entry.code || '')}&measurementYear=${entry.measurement_year}&measurementPeriod=${entry.measurement_period}`);
+        if (response.ok) {
+          const data = await response.json();
+          const latestJournal = data.results?.find((j: JournalEntry) => j.id === entry.id);
+          if (latestJournal) {
+            setSelectedEntry(latestJournal);
+            setIsModalOpen(true);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error("측정일지 최신 데이터 조회 오류:", err);
+        // 오류가 발생하면 기존 entry 사용
+      }
+    }
+    // 최신 데이터를 불러오지 못했거나 ID가 없으면 기존 entry 사용
     setSelectedEntry(entry);
     setIsModalOpen(true);
   };
@@ -199,12 +222,29 @@ export const JournalSearch: React.FC = () => {
     setSelectedEntry(null);
   };
 
-  const handleSaveSuccess = () => {
+  const handleSaveSuccess = async (savedJournalId?: number | null) => {
     // 저장 성공 시 검색 결과 새로고침
     if (activeTab === "search") {
       handleSearch();
     } else {
       loadJournalList();
+    }
+    
+    // 저장된 측정일지의 최신 데이터를 불러와서 selectedEntry 업데이트
+    if (savedJournalId && selectedEntry?.id === savedJournalId) {
+      try {
+        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(selectedEntry.code || '')}&measurementYear=${selectedEntry.measurement_year}&measurementPeriod=${selectedEntry.measurement_period}`);
+        if (response.ok) {
+          const data = await response.json();
+          const updatedJournal = data.results?.find((j: JournalEntry) => j.id === savedJournalId);
+          if (updatedJournal) {
+            setSelectedEntry(updatedJournal);
+          }
+        }
+      } catch (err) {
+        console.error("저장된 측정일지 데이터 조회 오류:", err);
+        // 오류가 발생해도 계속 진행
+      }
     }
   };
 

@@ -50,6 +50,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [completionSuggestion, setCompletionSuggestion] = useState<string | null>(null);
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
+  const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
   // 완료여부 체크는 기존 측정일지(id가 있는 경우)를 수정할 때만 적용
   // 검색 결과에서 선택한 경우(id가 null)는 등록 모드이므로 완료여부와 관계없이 등록 가능
   const isCompleted = entry.id ? entry.completion_status === "완료" : false;
@@ -58,7 +59,19 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     code: entry.code,
     measurement_year: entry.measurement_year,
     measurement_period: entry.measurement_period,
-    note: entry.note ? (typeof entry.note === 'string' ? entry.note.split(',').filter(Boolean) : entry.note) : [],
+    // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
+    note: (() => {
+      const validNoteValues = ["최초실시", "공정 수시변경", "소음 85 이상", "전회 미실시", "타기관 신규"];
+      if (!entry.note) return [];
+      if (typeof entry.note === 'string') {
+        const splitNotes = entry.note.split(',').map(n => n.trim()).filter(Boolean);
+        return splitNotes.filter(note => validNoteValues.includes(note));
+      }
+      if (Array.isArray(entry.note)) {
+        return entry.note.filter(note => validNoteValues.includes(note));
+      }
+      return [];
+    })(),
     designated_office: entry.designated_office || "",
     office_jurisdiction: entry.office_jurisdiction || "",
     document_number: entry.document_number || "",
@@ -81,6 +94,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     address: entry.address || "",
     phone: entry.phone || "",
     fax: entry.fax || "",
+    business_category: (() => {
+      // 지정지청이 "대전"이고 업종분류가 비어있으면 기본값 "공업사"
+      if (entry.designated_office === "대전" && !entry.business_category) {
+        return "공업사";
+      }
+      return entry.business_category || "";
+    })(),
     
     // 담당자 정보
     manager_name: entry.manager_name || "",
@@ -361,6 +381,51 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   }, [entry.id, isAdmin]);
 
+  // 업종분류 목록 조회
+  useEffect(() => {
+    const fetchBusinessCategories = async () => {
+      try {
+        const response = await fetch("/api/business-categories");
+        if (response.ok) {
+          const data = await response.json();
+          const categories = (data.categories || []).map((cat: { id: number; name: string }) => ({
+            value: cat.name,
+            label: cat.name,
+          }));
+          setBusinessCategories(categories);
+        }
+      } catch (err) {
+        console.error("업종분류 목록 조회 오류:", err);
+        // 기본 목록 설정 (API 실패 시)
+        setBusinessCategories([
+          { value: "건설", label: "건설" },
+          { value: "교육", label: "교육" },
+          { value: "공업사", label: "공업사" },
+          { value: "도정", label: "도정" },
+          { value: "병원", label: "병원" },
+          { value: "서비스", label: "서비스" },
+          { value: "수리", label: "수리" },
+          { value: "실험실", label: "실험실" },
+          { value: "인쇄", label: "인쇄" },
+          { value: "정비", label: "정비" },
+          { value: "제조", label: "제조" },
+          { value: "환경", label: "환경" },
+        ]);
+      }
+    };
+    fetchBusinessCategories();
+  }, []);
+
+  // 지정지청이 "대전"으로 변경되면 업종분류 기본값을 "공업사"로 설정
+  useEffect(() => {
+    if (formData.designated_office === "대전" && !formData.business_category) {
+      setFormData((prev) => ({
+        ...prev,
+        business_category: "공업사",
+      }));
+    }
+  }, [formData.designated_office]);
+
   // 등록 모드일 때 로그인 사용자 정보로 기본값 설정
   useEffect(() => {
     // 등록 모드이고, 사용자 정보가 있고, 해당 필드가 비어있을 때만 설정
@@ -380,6 +445,101 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       });
     }
   }, [entry.id, user?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // entry가 변경될 때 formData 업데이트 (entry.id가 변경되면 전체 재초기화)
+  useEffect(() => {
+    // entry.id가 변경되면 전체 formData 재초기화
+    console.log('[JournalEditForm] entry 변경 감지:', {
+      id: entry.id,
+      note: entry.note,
+      noteType: typeof entry.note,
+    });
+    
+    // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
+    const validNoteValues = noteOptions.map(opt => opt.value);
+    let noteArray: string[] = [];
+    
+    if (entry.note) {
+      if (typeof entry.note === 'string') {
+        // 콤마로 분리하고, 비고 체크박스 옵션에 해당하는 값만 필터링
+        const splitNotes = entry.note.split(',').map(n => n.trim()).filter(Boolean);
+        noteArray = splitNotes.filter(note => validNoteValues.includes(note));
+      } else if (Array.isArray(entry.note)) {
+        // 배열인 경우에도 비고 체크박스 옵션에 해당하는 값만 필터링
+        noteArray = entry.note.filter(note => validNoteValues.includes(note));
+      }
+    }
+    
+    console.log('[JournalEditForm] note 배열 변환 결과 (필터링 후):', noteArray);
+    
+    setFormData({
+      // 기본 정보
+      code: entry.code,
+      measurement_year: entry.measurement_year,
+      measurement_period: entry.measurement_period,
+      note: noteArray,
+      designated_office: entry.designated_office || "",
+      office_jurisdiction: entry.office_jurisdiction || "",
+      document_number: entry.document_number || "",
+      sequence_number: entry.sequence_number || "",
+      five_plus_sequence: entry.five_plus_sequence || "",
+      
+      // 측정 정보
+      measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
+      measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
+      measurer: entry.measurer || "",
+      completion_status: entry.completion_status || "미완료",
+      
+      // 사업장 정보
+      business_name: entry.business_name || "",
+      total_employees: entry.total_employees || "",
+      business_number: entry.business_number || "",
+      industrial_accident_number: entry.industrial_accident_number || "",
+      representative_name: entry.representative_name || "",
+      national_support_status: entry.national_support_status || "",
+      address: entry.address || "",
+      phone: entry.phone || "",
+      fax: entry.fax || "",
+      business_category: (() => {
+        // 지정지청이 "대전"이고 업종분류가 비어있으면 기본값 "공업사"
+        if (entry.designated_office === "대전" && !entry.business_category) {
+          return "공업사";
+        }
+        return entry.business_category || "";
+      })(),
+      
+      // 담당자 정보
+      manager_name: entry.manager_name || "",
+      manager_position: entry.manager_position || "",
+      manager_mobile: entry.manager_mobile || "",
+      manager_email: entry.manager_email || "",
+      
+      // K2B 정보
+      k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
+      k2b_sender: entry.k2b_sender || "",
+      invoice_email: entry.invoice_email || "",
+      electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
+      
+      // 측정비 정보
+      measurement_fee_total: entry.measurement_fee_total || "",
+      measurement_fee_business: entry.measurement_fee_business || "",
+      measurement_fee_national: entry.measurement_fee_national || "",
+      
+      // 입금 정보
+      deposit_total: entry.deposit_total || "",
+      deposit_date_business: normalizeDateForInput(entry.deposit_date_business),
+      deposit_amount_business: entry.deposit_amount_business || "",
+      deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
+      deposit_amount_national: entry.deposit_amount_national || "",
+      
+      // 특이사항
+      special_notes: entry.special_notes || "",
+    });
+    
+    // originalYear, originalPeriod도 업데이트
+    setOriginalYear(entry.measurement_year);
+    setOriginalPeriod(entry.measurement_period);
+  }, [entry.id, entry.note, entry.code, entry.measurement_year, entry.measurement_period]); // entry의 주요 필드가 변경될 때 전체 재초기화
 
   // 주소 변경 시 자동으로 소재지 관할청과 지정한계_관할지청 업데이트
   const handleAddressChange = async (newAddress: string) => {
@@ -477,8 +637,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         if (key === 'note') {
           if (Array.isArray(value) && value.length > 0) {
             submitData[key] = value.join(',');
+            console.log('[JournalEditForm] 저장할 note 값:', submitData[key]);
           } else {
             submitData[key] = null;
+            console.log('[JournalEditForm] 저장할 note 값: null (빈 배열)');
           }
         } else {
           submitData[key] = value === "" ? null : value;
@@ -522,7 +684,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       const data = await response.json();
 
       if (response.ok) {
-        onSuccess();
+        // 저장된 측정일지 ID를 onSuccess에 전달
+        onSuccess(data.id || entry.id);
         onClose();
       } else {
         setError(data.error || "저장 중 오류가 발생했습니다.");
@@ -893,16 +1056,27 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             className="bg-surface-50"
             placeholder="주소 입력 시 자동 입력됩니다"
           />
-          <Input
-            label="전화번호"
-            value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+          <Select
+            label="업종 분류"
+            value={formData.business_category}
+            onChange={(e) => setFormData({ ...formData, business_category: e.target.value })}
+            options={[
+              { value: "", label: "선택" },
+              ...businessCategories,
+            ]}
           />
-          <Input
-            label="FAX"
-            value={formData.fax}
-            onChange={(e) => setFormData({ ...formData, fax: e.target.value })}
-          />
+          <div className="md:col-span-2 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              label="전화번호"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            />
+            <Input
+              label="FAX"
+              value={formData.fax}
+              onChange={(e) => setFormData({ ...formData, fax: e.target.value })}
+            />
+          </div>
         </div>
       </div>
 

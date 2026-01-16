@@ -177,6 +177,42 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
+        // 날짜 파싱 헬퍼 함수
+        const parseDate = (dateValue: any): string | null => {
+          if (!dateValue) return null;
+          if (dateValue instanceof Date) {
+            return dateValue.toISOString().split("T")[0];
+          }
+          const dateStr = String(dateValue).trim();
+          if (!dateStr || dateStr === "null" || dateStr === "undefined") return null;
+          // YYYY-MM-DD 형식 검증
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            return dateStr;
+          }
+          // Excel 날짜 숫자 변환 시도 (1900-01-01 기준)
+          if (!isNaN(Number(dateStr)) && Number(dateStr) > 0) {
+            try {
+              // Excel 날짜는 1900-01-01부터의 일수 (실제로는 1900-01-01이 1이지만, 1899-12-30을 0으로 취급)
+              const excelEpoch = new Date(1899, 11, 30); // 1899-12-30
+              const days = Math.floor(Number(dateStr));
+              const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
+              if (!isNaN(date.getTime())) {
+                return date.toISOString().split("T")[0];
+              }
+            } catch (e) {
+              // 날짜 변환 실패 시 null 반환
+            }
+          }
+          return null;
+        };
+
+        // 숫자 파싱 헬퍼 함수
+        const parseNumber = (value: any): number | null => {
+          if (value === null || value === undefined || value === "") return null;
+          const num = typeof value === "string" ? parseFloat(value.replace(/,/g, "")) : Number(value);
+          return isNaN(num) ? null : num;
+        };
+
         // 예비조사 측정일 자동 채우기 (measurement_business.measurement_start_date가 비어있거나 불일치할 때)
         let autoFilledMeasurementDate = null;
         if (businessData && (!businessData.measurement_start_date || 
@@ -224,6 +260,14 @@ export async function POST(request: NextRequest) {
         const officeJurisdiction = officeJurisdictionRaw 
           ? (fullNameToShortName(officeJurisdictionRaw) || officeJurisdictionRaw)
           : (businessData.office_jurisdiction || null);
+
+        // 업종분류 처리: 엑셀에서 입력된 값이 있으면 사용, 없으면 지정지청이 "대전"이면 기본값 "공업사"
+        let businessCategory = String(row["업종 분류"] || row["업종분류"] || row["business_category"] || "").trim() || null;
+        
+        // 엑셀에 업종분류가 없고 지정지청이 "대전"이면 기본값 "공업사"
+        if (!businessCategory && designatedOffice === "대전") {
+          businessCategory = "공업사";
+        }
         
         // 지정한계_관할지청이 없으면 소재지 관할청을 기반으로 자동 계산
         if (!designatedOffice && officeJurisdiction) {
@@ -250,42 +294,6 @@ export async function POST(request: NextRequest) {
           errorCount++;
           continue;
         }
-
-        // 날짜 파싱 헬퍼 함수
-        const parseDate = (dateValue: any): string | null => {
-          if (!dateValue) return null;
-          if (dateValue instanceof Date) {
-            return dateValue.toISOString().split("T")[0];
-          }
-          const dateStr = String(dateValue).trim();
-          if (!dateStr || dateStr === "null" || dateStr === "undefined") return null;
-          // YYYY-MM-DD 형식 검증
-          if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-            return dateStr;
-          }
-          // Excel 날짜 숫자 변환 시도 (1900-01-01 기준)
-          if (!isNaN(Number(dateStr)) && Number(dateStr) > 0) {
-            try {
-              // Excel 날짜는 1900-01-01부터의 일수 (실제로는 1900-01-01이 1이지만, 1899-12-30을 0으로 취급)
-              const excelEpoch = new Date(1899, 11, 30); // 1899-12-30
-              const days = Math.floor(Number(dateStr));
-              const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
-              if (!isNaN(date.getTime())) {
-                return date.toISOString().split("T")[0];
-              }
-            } catch (e) {
-              // 날짜 변환 실패 시 null 반환
-            }
-          }
-          return null;
-        };
-
-        // 숫자 파싱 헬퍼 함수
-        const parseNumber = (value: any): number | null => {
-          if (value === null || value === undefined || value === "") return null;
-          const num = typeof value === "string" ? parseFloat(value.replace(/,/g, "")) : Number(value);
-          return isNaN(num) ? null : num;
-        };
 
         // 번호 자동 부여 (없는 경우)
         let documentNumber = String(row["공문연번"] || row["document_number"] || "").trim();
@@ -333,6 +341,16 @@ export async function POST(request: NextRequest) {
         // 5인 이상 연번은 중복 가능하므로 별도 체크 불필요
 
         if (!documentNumber || !sequenceNumber || !fivePlusSequence) {
+          console.log(`[Excel 업로드] 행 ${i + 2}: 번호 자동 부여 시작`, {
+            code,
+            designated_office: designatedOffice,
+            measurement_year: measurementYear,
+            measurement_period: measurementPeriod,
+            기존_공문연번: documentNumber || "(없음)",
+            기존_연번: sequenceNumber || "(없음)",
+            기존_5인이상연번: fivePlusSequence || "(없음)",
+          });
+          
           const assignedNumbers = await assignAllNumbers({
             designated_office: designatedOffice,
             measurement_year: measurementYear,
@@ -342,6 +360,13 @@ export async function POST(request: NextRequest) {
             sequence_number: sequenceNumber || null,
             five_plus_sequence: fivePlusSequence || null,
           });
+          
+          console.log(`[Excel 업로드] 행 ${i + 2}: 번호 자동 부여 완료`, {
+            부여된_공문연번: assignedNumbers.document_number,
+            부여된_연번: assignedNumbers.sequence_number,
+            부여된_5인이상연번: assignedNumbers.five_plus_sequence,
+          });
+          
           documentNumber = documentNumber || assignedNumbers.document_number;
           sequenceNumber = sequenceNumber || assignedNumbers.sequence_number;
           fivePlusSequence = fivePlusSequence || assignedNumbers.five_plus_sequence;
@@ -360,6 +385,7 @@ export async function POST(request: NextRequest) {
           business_name: businessName,
           total_employees: totalEmployees,
           office_jurisdiction: officeJurisdiction || null,
+          business_category: businessCategory || null,
           measurement_start_date: parseDate(row["측정 시작일"] || row["measurement_start_date"]) || autoFilledMeasurementDate || businessData.measurement_start_date || null,
           measurement_end_date: parseDate(row["측정 종료일"] || row["measurement_end_date"]) || businessData.measurement_end_date || null,
           completion_status: String(row["완료여부"] || row["completion_status"] || "미완료").trim(),

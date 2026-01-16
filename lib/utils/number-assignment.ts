@@ -26,41 +26,114 @@ export async function assignDocumentNumber(
   const prefix = getDocumentNumberPrefix(normalizedOffice);
 
   // 해당 지정한계_관할지청 + 측정년도 + 측정주기의 마지막 공문연번 조회
+  // 문자열 정렬이 아닌 숫자 정렬을 위해 모든 레코드를 가져와서 클라이언트에서 정렬
   const officesToMatch = [normalizedOffice];
   if (normalizedOffice !== designatedOffice) {
     officesToMatch.push(designatedOffice);
   }
   
-  const { data: lastJournal, error } = await supabase
+  // 디버깅: 조회 조건 로그
+  console.log(`[공문연번 부여] 조회 조건:`, {
+    designatedOffice: normalizedOffice,
+    measurementYear,
+    measurementPeriod,
+    prefix,
+    officesToMatch
+  });
+  
+  const { data: journals, error } = await supabase
     .from("measurement_journal")
-    .select("document_number")
+    .select("document_number, designated_office, measurement_year, measurement_period")
     .in("designated_office", officesToMatch)
     .eq("measurement_year", measurementYear)
     .eq("measurement_period", measurementPeriod)
     .not("document_number", "is", null)
-    .like("document_number", `${prefix}-%`)
-    .order("document_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .like("document_number", `${prefix}-%`);
 
   if (error && error.code !== "PGRST116") {
     console.error("공문연번 조회 오류:", error);
     throw new Error("공문연번 조회 중 오류가 발생했습니다.");
   }
 
-  let nextNumber = 1;
-
-  if (lastJournal && lastJournal.document_number) {
-    // 마지막 번호에서 숫자 부분 추출 (예: "천-001" -> 1)
-    const match = lastJournal.document_number.match(/-(\d+)$/);
-    if (match) {
-      nextNumber = parseInt(match[1], 10) + 1;
+  // 디버깅: 조회된 데이터 로그
+  console.log(`[공문연번 부여] 조회된 레코드 수: ${journals?.length || 0}건`);
+  if (journals && journals.length > 0) {
+    console.log(`[공문연번 부여] 조회된 공문연번 상세 (최대 10개):`, journals.slice(0, 10).map(j => ({
+      document_number: j.document_number,
+      designated_office: j.designated_office,
+      measurement_year: j.measurement_year,
+      measurement_period: j.measurement_period
+    })));
+    if (journals.length > 10) {
+      console.log(`[공문연번 부여] ... 외 ${journals.length - 10}건 더 있음`);
     }
   }
 
+  let nextNumber = 1;
+
+  if (!error && journals && journals.length > 0) {
+    // 숫자 부분을 추출하여 숫자로 정렬
+    const sorted = journals
+      .map(j => {
+        const match = j.document_number.match(/-(\d+)$/);
+        return {
+          ...j,
+          num: match ? parseInt(match[1], 10) : 0
+        };
+      })
+      .filter(j => !isNaN(j.num) && j.num > 0)
+      .sort((a, b) => b.num - a.num); // 내림차순 정렬
+    
+    if (sorted.length > 0) {
+      // 가장 큰 숫자에서 1을 더함
+      nextNumber = sorted[0].num + 1;
+      console.log(`[공문연번 부여] ===== 최대 공문연번 분석 =====`);
+      console.log(`[공문연번 부여] 최대 공문연번: ${sorted[0].document_number} (숫자: ${sorted[0].num})`);
+      console.log(`[공문연번 부여] 다음 번호: ${nextNumber}`);
+      console.log(`[공문연번 부여] 정렬된 상위 5개:`, sorted.slice(0, 5).map(s => `${s.document_number} (${s.num})`));
+      console.log(`[공문연번 부여] ============================`);
+    }
+  } else {
+    console.log(`[공문연번 부여] 해당 조건의 기존 데이터 없음, 첫 번째 번호 부여: ${nextNumber}`);
+  }
+
   // 3자리 숫자로 포맷팅 (001, 002, 003...)
-  const formattedNumber = String(nextNumber).padStart(3, "0");
-  return `${prefix}-${formattedNumber}`;
+  let formattedNumber = String(nextNumber).padStart(3, "0");
+  let documentNumber = `${prefix}-${formattedNumber}`;
+  
+  // 중복 확인: 공문연번은 전체 데이터베이스에서 UNIQUE이므로 전체에서 중복 확인
+  let attempts = 0;
+  const maxAttempts = 1000; // 무한 루프 방지
+  
+  while (attempts < maxAttempts) {
+    const { data: existing, error: checkError } = await supabase
+      .from("measurement_journal")
+      .select("id")
+      .eq("document_number", documentNumber) // 전체 데이터베이스에서 중복 확인 (UNIQUE 제약조건)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== "PGRST116") {
+      console.error("공문연번 중복 확인 오류:", checkError);
+      break; // 오류 발생 시 현재 번호 반환
+    }
+    
+    // 번호가 사용 중이 아니면 반환
+    if (!existing) {
+      console.log(`[공문연번 부여] 최종 부여된 공문연번: ${documentNumber}`);
+      return documentNumber;
+    }
+    
+    // 번호가 사용 중이면 다음 번호로 증가
+    console.log(`[공문연번 부여] ${documentNumber} 중복 발견 (다른 년도/주기에서 사용 중일 수 있음), 다음 번호 시도...`);
+    nextNumber++;
+    formattedNumber = String(nextNumber).padStart(3, "0");
+    documentNumber = `${prefix}-${formattedNumber}`;
+    attempts++;
+  }
+  
+  // 최대 시도 횟수 초과 시 현재 번호 반환 (드물게 발생)
+  console.warn(`[공문연번 부여] 최대 시도 횟수(${maxAttempts}) 초과, 현재 번호 반환: ${documentNumber}`);
+  return documentNumber;
 }
 
 /**

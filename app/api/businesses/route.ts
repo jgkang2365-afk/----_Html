@@ -7,6 +7,7 @@
  * - period: 측정주기 (필수)
  * - designatedOffice: 지정지청 필터 (선택)
  * - address: 주소 검색 (선택)
+ * - businessName: 사업장명 검색 (선택)
  * - isRegistered: 실시여부 필터 - "등록됨", "미등록" (선택)
  * 
  * 반환:
@@ -30,6 +31,7 @@ export async function GET(request: NextRequest) {
     const period = searchParams.get("period");
     const designatedOffice = searchParams.get("designatedOffice")?.trim() || null;
     const address = searchParams.get("address")?.trim() || null;
+    const businessName = searchParams.get("businessName")?.trim() || null;
     const isRegistered = searchParams.get("isRegistered")?.trim() || null;
 
     if (!year || !period) {
@@ -55,6 +57,11 @@ export async function GET(request: NextRequest) {
     // 주소 필터 적용
     if (address) {
       query = query.ilike("address", `%${address}%`);
+    }
+
+    // 사업장명 필터 적용
+    if (businessName) {
+      query = query.ilike("business_name", `%${businessName}%`);
     }
 
     // 지정지청 필터 적용

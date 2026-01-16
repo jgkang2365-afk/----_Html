@@ -91,12 +91,26 @@ export async function POST(
       .eq("status", "대기")
       .maybeSingle();
 
-    if (existingRequestError && existingRequestError.code !== "PGRST116") {
-      console.error("기존 요청 조회 오류:", existingRequestError);
-      return NextResponse.json(
-        { error: "기존 요청 확인 중 오류가 발생했습니다." },
-        { status: 500 }
-      );
+    if (existingRequestError) {
+      // PGRST205: 테이블이 존재하지 않음 (마이그레이션 미실행)
+      if (existingRequestError.code === "PGRST205") {
+        console.warn("번호 변경 요청 테이블이 존재하지 않습니다. 마이그레이션을 실행해주세요.");
+        return NextResponse.json(
+          { error: "번호 변경 요청 기능을 사용하려면 데이터베이스 마이그레이션이 필요합니다. 관리자에게 문의하세요." },
+          { status: 503 }
+        );
+      }
+      
+      // PGRST116: 데이터 없음 (정상)
+      if (existingRequestError.code === "PGRST116") {
+        // 계속 진행
+      } else {
+        console.error("기존 요청 조회 오류:", existingRequestError);
+        return NextResponse.json(
+          { error: "기존 요청 확인 중 오류가 발생했습니다.", details: existingRequestError.message },
+          { status: 500 }
+        );
+      }
     }
 
     if (existingRequest) {
@@ -124,6 +138,15 @@ export async function POST(
       .single();
 
     if (insertError) {
+      // PGRST205: 테이블이 존재하지 않음 (마이그레이션 미실행)
+      if (insertError.code === "PGRST205") {
+        console.warn("번호 변경 요청 테이블이 존재하지 않습니다. 마이그레이션을 실행해주세요.");
+        return NextResponse.json(
+          { error: "번호 변경 요청 기능을 사용하려면 데이터베이스 마이그레이션이 필요합니다. 관리자에게 문의하세요." },
+          { status: 503 }
+        );
+      }
+      
       console.error("번호 변경 요청 생성 오류:", insertError);
       return NextResponse.json(
         { error: "번호 변경 요청 생성 중 오류가 발생했습니다.", details: insertError.message },
@@ -195,10 +218,26 @@ export async function GET(
       .limit(1)
       .maybeSingle();
 
-    if (fetchError && fetchError.code !== "PGRST116") {
+    if (fetchError) {
+      // PGRST205: 테이블이 존재하지 않음 (마이그레이션 미실행)
+      if (fetchError.code === "PGRST205") {
+        console.warn("번호 변경 요청 테이블이 존재하지 않습니다. 마이그레이션을 실행해주세요.");
+        // 테이블이 없으면 null 반환 (기능 비활성화)
+        return NextResponse.json({
+          request: null,
+        });
+      }
+      
+      // PGRST116: 데이터 없음 (정상)
+      if (fetchError.code === "PGRST116") {
+        return NextResponse.json({
+          request: null,
+        });
+      }
+      
       console.error("번호 변경 요청 조회 오류:", fetchError);
       return NextResponse.json(
-        { error: "번호 변경 요청 조회 중 오류가 발생했습니다." },
+        { error: "번호 변경 요청 조회 중 오류가 발생했습니다.", details: fetchError.message },
         { status: 500 }
       );
     }

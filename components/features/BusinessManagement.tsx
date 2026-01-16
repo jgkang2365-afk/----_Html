@@ -61,6 +61,7 @@ export const BusinessManagement: React.FC = () => {
     period: "",
     designatedOffice: "",
     address: "",
+    businessName: "",
     isRegistered: "", // 전체, 등록됨, 미등록
   });
 
@@ -109,6 +110,9 @@ export const BusinessManagement: React.FC = () => {
       }
       if (filters.address) {
         params.append("address", filters.address);
+      }
+      if (filters.businessName) {
+        params.append("businessName", filters.businessName);
       }
       if (filters.isRegistered) {
         params.append("isRegistered", filters.isRegistered);
@@ -192,6 +196,12 @@ export const BusinessManagement: React.FC = () => {
     if (currentFilters.address) {
       filtered = filtered.filter((entry) =>
         entry.address?.toLowerCase().includes(currentFilters.address.toLowerCase())
+      );
+    }
+
+    if (currentFilters.businessName) {
+      filtered = filtered.filter((entry) =>
+        entry.business_name?.toLowerCase().includes(currentFilters.businessName.toLowerCase())
       );
     }
 
@@ -295,6 +305,14 @@ export const BusinessManagement: React.FC = () => {
               placeholder="주소 입력"
             />
           </div>
+          <div className="flex-1 min-w-[150px]">
+            <Input
+              label="사업장명 검색"
+              value={filters.businessName}
+              onChange={(e) => setFilters({ ...filters, businessName: e.target.value })}
+              placeholder="사업장명 입력"
+            />
+          </div>
           <div className="flex-1 min-w-[120px]">
             <Select
               label="실시여부"
@@ -371,10 +389,10 @@ export const BusinessManagement: React.FC = () => {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="bg-surface-50">실시여부</TableHead>
                   <TableHead className="bg-surface-50">코드</TableHead>
                   <TableHead className="bg-surface-50">지정지청</TableHead>
                   <TableHead className="bg-surface-50">건강디딤돌</TableHead>
-                  <TableHead className="bg-surface-50">실시여부</TableHead>
                   <TableHead className="bg-surface-50 w-[180px]">사업장명</TableHead>
                   <TableHead className="bg-surface-50 min-w-[200px]">
                     <div className="flex flex-col gap-2">
@@ -437,6 +455,17 @@ export const BusinessManagement: React.FC = () => {
                   const entryKey = `${entry.code}-${entry.year}-${entry.period}`;
                   return (
                     <TableRow key={entryKey} className="hover:bg-surface-50">
+                      <TableCell>
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            entry.isRegistered
+                              ? "bg-green-100 text-green-800"
+                              : "bg-red-100 text-red-800"
+                          }`}
+                        >
+                          {entry.isRegistered ? "등록됨" : "미등록"}
+                        </span>
+                      </TableCell>
                       <TableCell className="font-medium">{entry.code}</TableCell>
                       <TableCell>{entry.designated_office || "-"}</TableCell>
                       <TableCell>
@@ -508,11 +537,6 @@ export const BusinessManagement: React.FC = () => {
                         ) : (
                           <span className="text-text-400 text-sm">-</span>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        <span className={entry.isRegistered ? "text-primary-600 font-medium" : "text-text-400"}>
-                          {entry.isRegistered ? "등록됨" : "미등록"}
-                        </span>
                       </TableCell>
                       <TableCell className="font-medium w-[180px]">{entry.business_name}</TableCell>
                       <TableCell className="text-text-600 min-w-[200px]">

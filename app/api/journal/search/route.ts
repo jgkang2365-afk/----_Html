@@ -12,8 +12,38 @@ import { toShortName } from "@/lib/constants/designated-offices";
  */
 export async function GET(request: NextRequest) {
   try {
+    // 환경 변수 확인
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      console.error("[API /api/journal/search] Supabase 환경 변수가 설정되지 않았습니다.");
+      return NextResponse.json(
+        { 
+          error: "서버 설정 오류",
+          details: "Supabase 환경 변수가 설정되지 않았습니다. .env.local 파일을 확인하세요."
+        },
+        { status: 500 }
+      );
+    }
+
     // 권한 체크: journal:read 권한 필요
-    await checkPermission("journal:read");
+    try {
+      await checkPermission("journal:read");
+    } catch (permissionError: any) {
+      console.error("[API /api/journal/search] 권한 체크 오류:", permissionError);
+      if (permissionError?.message === "Unauthorized") {
+        return NextResponse.json(
+          { error: "로그인이 필요합니다." },
+          { status: 401 }
+        );
+      }
+      if (permissionError?.message === "Forbidden") {
+        return NextResponse.json(
+          { error: "권한이 없습니다." },
+          { status: 403 }
+        );
+      }
+      // 기타 오류는 아래 catch 블록에서 처리
+      throw permissionError;
+    }
 
     const { searchParams } = new URL(request.url);
     const code = searchParams.get("code")?.trim() || null;
@@ -23,7 +53,19 @@ export async function GET(request: NextRequest) {
     const designatedOffice = searchParams.get("designatedOffice")?.trim() || null;
     const address = searchParams.get("address")?.trim() || null;
 
-    const supabase = await createClient();
+    let supabase;
+    try {
+      supabase = await createClient();
+    } catch (supabaseError: any) {
+      console.error("[API /api/journal/search] Supabase 클라이언트 생성 오류:", supabaseError);
+      return NextResponse.json(
+        { 
+          error: "데이터베이스 연결 오류",
+          details: supabaseError?.message || "Supabase 클라이언트를 생성할 수 없습니다."
+        },
+        { status: 500 }
+      );
+    }
 
     // 1. measurement_business에서 검색 (직전 최신 자료)
     let businessQuery = supabase
@@ -421,9 +463,12 @@ export async function GET(request: NextRequest) {
       debug: debugInfo, // 프로덕션에서도 디버깅 정보 포함
     });
   } catch (error) {
-    console.error("측정일지 검색 API 오류:", error);
-
+    console.error("[API /api/journal/search] 측정일지 검색 API 오류:", error);
+    
     if (error instanceof Error) {
+      console.error("[API /api/journal/search] 에러 메시지:", error.message);
+      console.error("[API /api/journal/search] 에러 스택:", error.stack);
+      
       if (error.message.includes("Unauthorized")) {
         return NextResponse.json(
           { error: "로그인이 필요합니다." },
@@ -442,6 +487,8 @@ export async function GET(request: NextRequest) {
       {
         error: "검색 중 오류가 발생했습니다.",
         details: error instanceof Error ? error.message : String(error),
+        // 개발 환경에서만 스택 트레이스 포함
+        ...(process.env.NODE_ENV === "development" && error instanceof Error && error.stack ? { stack: error.stack } : {})
       },
       { status: 500 }
     );
