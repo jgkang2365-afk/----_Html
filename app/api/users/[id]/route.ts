@@ -1,11 +1,84 @@
 /**
  * 사용자 개별 관리 API
+ * PATCH: 사용자 수정
  * DELETE: 사용자 삭제
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/auth/session";
+
+/**
+ * 사용자 수정
+ * PATCH /api/users/[id]
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await getSession();
+
+    if (!session) {
+      return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+    }
+
+    if (session.role !== "관리자") {
+      return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
+    }
+
+    const userId = parseInt(params.id);
+
+    if (isNaN(userId)) {
+      return NextResponse.json({ error: "올바르지 않은 사용자 ID입니다." }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const { survey_code } = body;
+
+    const supabase = await createClient();
+
+    // 사용자 존재 확인
+    const { data: user, error: userError } = await supabase
+      .from("users")
+      .select("id, name")
+      .eq("id", userId)
+      .single();
+
+    if (userError || !user) {
+      return NextResponse.json({ error: "사용자를 찾을 수 없습니다." }, { status: 404 });
+    }
+
+    // 사용자 수정
+    const { data: updatedUser, error: updateError } = await supabase
+      .from("users")
+      .update({
+        survey_code: survey_code || null,
+      })
+      .eq("id", userId)
+      .select("id, name, role, survey_code, updated_at")
+      .single();
+
+    if (updateError) {
+      return NextResponse.json(
+        { error: "사용자 수정에 실패했습니다." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      user: updatedUser,
+      message: "사용자 정보가 수정되었습니다.",
+    });
+  } catch (error) {
+    console.error("Update user error:", error);
+    return NextResponse.json(
+      { error: "사용자 수정 중 오류가 발생했습니다." },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * 사용자 삭제

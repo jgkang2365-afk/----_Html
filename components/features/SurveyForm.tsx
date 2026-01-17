@@ -101,6 +101,55 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   });
   const [searchResults, setSearchResults] = useState<BusinessInfo[]>([]);
   const [searching, setSearching] = useState(false);
+  
+  // 사용자 목록 (측정자와 연동)
+  const [users, setUsers] = useState<Array<{ id: number; name: string; survey_code: string | null }>>([]);
+  
+  // 순번 자동 계산 (신규 등록 시)
+  const [nextSequenceNumber, setNextSequenceNumber] = useState<number | null>(null);
+
+  // 사용자 목록 가져오기
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const response = await fetch("/api/users");
+        if (response.ok) {
+          const data = await response.json();
+          // survey_code가 있는 사용자만 필터링
+          const usersWithSurveyCode = (data.users || []).filter(
+            (user: { survey_code?: string | null }) => user.survey_code
+          );
+          setUsers(usersWithSurveyCode);
+        }
+      } catch (err) {
+        console.error("사용자 목록 가져오기 실패:", err);
+      }
+    };
+    fetchUsers();
+  }, []);
+
+  // 순번 자동 계산 (신규 등록 시만)
+  useEffect(() => {
+    if (!initialData?.id) {
+      // 신규 등록 시 현재 등록된 예비조사 중 가장 큰 순번 + 1
+      const fetchNextSequence = async () => {
+        try {
+          const response = await fetch("/api/survey?maxSequence=true");
+          if (response.ok) {
+            const data = await response.json();
+            setNextSequenceNumber((data.maxSequence || 0) + 1);
+          } else {
+            // API가 없으면 기본값 1로 설정
+            setNextSequenceNumber(1);
+          }
+        } catch (err) {
+          console.error("순번 조회 실패:", err);
+          setNextSequenceNumber(1);
+        }
+      };
+      fetchNextSequence();
+    }
+  }, [initialData?.id]);
 
   // 초기 데이터 설정
   useEffect(() => {
@@ -377,14 +426,28 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     
     setSelectedMeasurers(updated);
     
-    // 공시료 코드 자동 부여 (첫 번째 측정자 기준)
-    const measurerStr = updated.join(", ");
-    const surveyCode = getSurveyCode(measurerStr);
+    // 공시료 코드 자동 부여
+    // 첫 번째 측정자의 공시료 코드를 사용
+    let surveyCode = "";
+    if (updated.length > 0) {
+      const firstMeasurer = updated[0];
+      // 사용자 목록에서 해당 측정자의 survey_code 확인
+      const user = users.find((u) => u.name === firstMeasurer);
+      
+      if (user && user.survey_code) {
+        // 사용자에 등록된 공시료 코드가 있으면 사용
+        surveyCode = user.survey_code;
+      } else {
+        // 없으면 기존 로직 사용
+        surveyCode = getSurveyCode(firstMeasurer) || "";
+      }
+    }
     
+    const measurerStr = updated.join(", ");
     setFormData((prev) => ({
       ...prev,
       measurer: measurerStr,
-      survey_code: surveyCode || "",
+      survey_code: surveyCode,
     }));
 
     // 측정자 선택/해제에 따라 예비조사자 자동 설정
@@ -426,6 +489,25 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       ...prev,
       actual_measurer: updated.join(", "),
     }));
+    
+    // 실측정자가 선택되면 보고서 담당도 동일 이름으로 자동 체크
+    if (updated.includes(measurer)) {
+      // 실측정자가 추가된 경우, 보고서 담당도 동일 이름으로 설정
+      setReportWriter(measurer);
+      setFormData((prev) => ({
+        ...prev,
+        report_writer: measurer,
+      }));
+    } else {
+      // 실측정자가 해제된 경우, 보고서 담당이 해당 이름이면 해제
+      if (reportWriter === measurer) {
+        setReportWriter("");
+        setFormData((prev) => ({
+          ...prev,
+          report_writer: "",
+        }));
+      }
+    }
   };
 
   // 보고서 담당 선택 처리 (단수 선택)
@@ -511,7 +593,17 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       {/* 기본 정보 */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold text-text-900 mb-4">기본 정보</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Input
+            label="순번"
+            value={
+              initialData?.id 
+                ? ((initialData as any).sequence_number?.toString() || "-") 
+                : (nextSequenceNumber?.toString() || "계산 중...")
+            }
+            readOnly
+            className="bg-surface-50"
+          />
           <Input
             label="측정일"
             type="date"
@@ -520,19 +612,17 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             required
           />
           <Input
-            label="종료일"
+            label="측정종료일"
             type="date"
             value={formData.end_date || formData.measurement_date || ""}
             onChange={(e) => handleEndDateChange(e.target.value)}
           />
-          <div className="md:col-span-2">
-            <Input
-              label="측정요일"
-              value={formData.measurement_weekdays}
-              readOnly
-              className="bg-surface-50"
-            />
-          </div>
+          <Input
+            label="측정요일"
+            value={formData.measurement_weekdays}
+            readOnly
+            className="bg-surface-50"
+          />
         </div>
       </Card>
 

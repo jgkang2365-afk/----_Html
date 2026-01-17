@@ -264,6 +264,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           if (response.ok) {
             const data = await response.json();
             
+            // 디버깅: 산재관리번호 확인
+            console.log('[JournalEditForm] 직전 측정일지 데이터:', {
+              hasPreviousData: !!data.previousData,
+              industrial_accident_number: data.previousData?.industrial_accident_number,
+            });
+            
             // 기존 값이 비어있을 때만 데이터로 채우기
             setFormData((prev) => {
               const updated = { ...prev };
@@ -280,12 +286,36 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 updated.invoice_email = prev.invoice_email || data.previousData.invoice_email || "";
                 updated.measurer = prev.measurer || data.previousData.measurer || "";
                 updated.k2b_sender = prev.k2b_sender || data.previousData.k2b_sender || "";
+                // 산재관리번호 (비어있을 때만 자동 채우기)
+                const currentIndustrialAccidentNumber = prev.industrial_accident_number || "";
+                const previousIndustrialAccidentNumber = data.previousData.industrial_accident_number || null;
+                console.log('[JournalEditForm] 산재관리번호 비교:', {
+                  current: currentIndustrialAccidentNumber,
+                  previous: previousIndustrialAccidentNumber,
+                  willUpdate: !currentIndustrialAccidentNumber && previousIndustrialAccidentNumber
+                });
+                if (!currentIndustrialAccidentNumber && previousIndustrialAccidentNumber) {
+                  updated.industrial_accident_number = previousIndustrialAccidentNumber;
+                  console.log('[JournalEditForm] 산재관리번호 자동 채움:', previousIndustrialAccidentNumber);
+                }
                 
                 // 전회 측정비 정보 저장 (참고용)
+                const previousBusinessFee = data.previousData.measurement_fee_business || null;
+                const previousNationalFee = data.previousData.measurement_fee_national || null;
                 setPreviousMeasurementFee({
-                  business: data.previousData.measurement_fee_business || null,
-                  national: data.previousData.measurement_fee_national || null,
+                  business: previousBusinessFee,
+                  national: previousNationalFee,
                 });
+                
+                // 전회치 값이 있으면 기본값으로 설정 (등록 모드에서만)
+                if (!entry.id) {
+                  if (previousBusinessFee && !prev.measurement_fee_business) {
+                    updated.measurement_fee_business = String(previousBusinessFee);
+                  }
+                  if (previousNationalFee && !prev.measurement_fee_national) {
+                    updated.measurement_fee_national = String(previousNationalFee);
+                  }
+                }
               }
               
               // 요약 정보 (직전 데이터가 없거나 비어있을 때)
@@ -299,10 +329,15 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 
                 // 전회 측정비 정보 저장 (참고용) - summaryInfo에서도 가져오기
                 if (!previousMeasurementFee.business && data.summaryInfo.measurement_fee_business) {
+                  const summaryBusinessFee = data.summaryInfo.measurement_fee_business || null;
                   setPreviousMeasurementFee((prev) => ({
                     ...prev,
-                    business: data.summaryInfo.measurement_fee_business || null,
+                    business: summaryBusinessFee,
                   }));
+                  // 전회치 값이 있으면 기본값으로 설정 (등록 모드에서만)
+                  if (!entry.id && summaryBusinessFee && !updated.measurement_fee_business) {
+                    updated.measurement_fee_business = String(summaryBusinessFee);
+                  }
                 }
               }
               
@@ -311,11 +346,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 updated.national_support_status = prev.national_support_status || data.nationalSupportStatus || "";
               }
               
-              // 예비조사 정보 (비어있을 때만)
+              // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)
               if (data.surveyInfo) {
-                // 측정자 (예비조사의 measurer가 있으면 기본값으로)
-                if (!updated.measurer && data.surveyInfo.measurer) {
+                // 측정자 (예비조사의 measurer가 있으면 무조건 사용, 기존 값 덮어쓰기)
+                if (data.surveyInfo.measurer) {
                   updated.measurer = data.surveyInfo.measurer;
+                }
+                
+                // 측정 시작일 (예비조사의 measurement_date가 있으면 기본값으로 설정)
+                if (data.surveyInfo.measurement_date && !prev.measurement_start_date) {
+                  updated.measurement_start_date = normalizeDateForInput(data.surveyInfo.measurement_date);
+                  // 측정 종료일도 비어있으면 측정 시작일과 동일하게 설정
+                  if (!prev.measurement_end_date) {
+                    updated.measurement_end_date = normalizeDateForInput(data.surveyInfo.measurement_date);
+                  }
                 }
                 
                 // note 필드에 예비조사 정보 추가
@@ -456,15 +500,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   }, [formData.designated_office]);
 
   // 등록 모드일 때 로그인 사용자 정보로 기본값 설정
+  // 주의: 측정자는 예비조사 정보에서 가져오므로 여기서는 설정하지 않음
   useEffect(() => {
     // 등록 모드이고, 사용자 정보가 있고, 해당 필드가 비어있을 때만 설정
     if (!entry.id && user?.name) {
       setFormData((prev) => {
         const updated = { ...prev };
-        // 측정자 기본값 (비어있을 때만)
-        if (!prev.measurer) {
-          updated.measurer = user.name;
-        }
+        // 측정자는 예비조사 정보에서 가져오므로 로그인 사용자 정보로 설정하지 않음
         // K2B 전송자 기본값 (비어있을 때만, K2B 전송자 옵션에 있는 경우만)
         const k2bSenderOptions = ["한기문", "강종구", "이주형", "배윤민", "고유빈"];
         if (!prev.k2b_sender && k2bSenderOptions.includes(user.name)) {
@@ -646,6 +688,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     setLoading(true);
     setError(null);
 
+    // 총인원 검증 (5인 이상 연번과 연관이 있으므로 필수)
+    const totalEmployees = formData.total_employees ? parseInt(String(formData.total_employees)) : null;
+    if (!totalEmployees || isNaN(totalEmployees)) {
+      setError("총인원을 입력해주세요. 5인 이상 연번은 총인원과 연관이 있습니다.");
+      setLoading(false);
+      return;
+    }
+
     // 측정년도/측정주기 변경 검증은 수정 모드(entry.id가 있는 경우)에서만 적용
     // 등록 모드(entry.id가 null)에서는 검증하지 않음
     if (entry.id) {
@@ -736,30 +786,35 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {error && <Alert variant="error">{error}</Alert>}
-      {isCompleted && (
-        <Alert variant="warning">
-          완료된 측정일지는 수정할 수 없습니다. 완료여부를 &quot;미완료&quot;로 변경한 후 수정하세요.
-        </Alert>
-      )}
-      {completionSuggestion && (
-        <Alert variant="warning">
-          {completionSuggestion}
-          <div className="mt-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setFormData({ ...formData, completion_status: "완료" });
-                setCompletionSuggestion(null);
-              }}
-            >
-              완료로 변경
-            </Button>
-          </div>
-        </Alert>
-      )}
+      {/* 오류 및 알림 메시지 영역 - 상단 고정 (높이 고정) */}
+      <div className="sticky top-0 z-20 bg-white -mx-8 px-8 pt-0 pb-3 border-b border-surface-200 h-28">
+        <div className="h-full overflow-y-auto space-y-3">
+          {error && <Alert variant="error">{error}</Alert>}
+          {isCompleted && (
+            <Alert variant="warning">
+              완료된 측정일지는 수정할 수 없습니다. 완료여부를 &quot;미완료&quot;로 변경한 후 수정하세요.
+            </Alert>
+          )}
+          {completionSuggestion && (
+            <Alert variant="warning">
+              {completionSuggestion}
+              <div className="mt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setFormData({ ...formData, completion_status: "완료" });
+                    setCompletionSuggestion(null);
+                  }}
+                >
+                  완료로 변경
+                </Button>
+              </div>
+            </Alert>
+          )}
+        </div>
+      </div>
 
       {/* 기본 정보 */}
       <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
@@ -1216,20 +1271,21 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const parsed = parseCurrency(e.target.value);
                 setFormData({ ...formData, measurement_fee_business: parsed });
               }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const inputs = e.currentTarget.form?.querySelectorAll("input");
-                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                  if (inputs && currentIndex < inputs.length - 1) {
-                    inputs[currentIndex + 1].focus();
-                  }
-                }
-              }}
-              placeholder={previousMeasurementFee.business ? `전회: ${formatCurrency(String(previousMeasurementFee.business))}원 (참고용)` : "숫자만 입력"}
+              list="business-fee-options"
+              placeholder={previousMeasurementFee.business ? `전회: ${formatCurrency(String(previousMeasurementFee.business))}원` : "숫자 입력 또는 선택"}
             />
+            <datalist id="business-fee-options">
+              <option value="200000">200,000원</option>
+              {previousMeasurementFee.business && (() => {
+                const previousValue = String(previousMeasurementFee.business);
+                if (previousValue !== "200000") {
+                  return <option key={previousValue} value={previousValue}>{formatCurrency(previousValue)}원 (전회치)</option>;
+                }
+                return null;
+              })()}
+            </datalist>
             {previousMeasurementFee.business && (
-              <p className="mt-1 text-xs text-text-500">
+              <p className="mt-1 text-sm text-text-600 font-medium">
                 전회: {formatCurrency(String(previousMeasurementFee.business))}원 (참고용)
               </p>
             )}
@@ -1243,20 +1299,15 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const parsed = parseCurrency(e.target.value);
                 setFormData({ ...formData, measurement_fee_national: parsed });
               }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const inputs = e.currentTarget.form?.querySelectorAll("input");
-                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                  if (inputs && currentIndex < inputs.length - 1) {
-                    inputs[currentIndex + 1].focus();
-                  }
-                }
-              }}
-              placeholder={previousMeasurementFee.national ? `전회: ${formatCurrency(String(previousMeasurementFee.national))}원 (참고용)` : "숫자만 입력"}
+              list="national-fee-options"
+              placeholder={previousMeasurementFee.national ? `전회: ${formatCurrency(String(previousMeasurementFee.national))}원` : "숫자 입력 또는 선택"}
             />
+            <datalist id="national-fee-options">
+              <option value="400000">400,000원</option>
+              <option value="1000000">1,000,000원</option>
+            </datalist>
             {previousMeasurementFee.national && (
-              <p className="mt-1 text-xs text-text-500">
+              <p className="mt-1 text-sm text-text-600 font-medium">
                 전회: {formatCurrency(String(previousMeasurementFee.national))}원 (참고용)
               </p>
             )}
@@ -1409,15 +1460,15 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         />
       </div>
 
-      {/* 버튼 */}
-      <div className="flex gap-2 justify-end pt-4 border-t">
-        <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
-          취소
-        </Button>
-        <Button type="submit" disabled={loading || isCompleted}>
-          {loading ? <LoadingSpinner /> : entry.id ? "수정" : "등록"}
-        </Button>
-      </div>
+        {/* 버튼 */}
+        <div className="flex gap-2 justify-end pt-4 border-t">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
+            취소
+          </Button>
+          <Button type="submit" disabled={loading || isCompleted}>
+            {loading ? <LoadingSpinner /> : entry.id ? "수정" : "등록"}
+          </Button>
+        </div>
     </form>
   );
 };

@@ -29,7 +29,7 @@ export async function GET() {
 
     const { data: users, error } = await supabase
       .from("users")
-      .select("id, name, role, created_at, updated_at")
+      .select("id, name, role, survey_code, created_at, updated_at")
       .order("name", { ascending: true });
 
     if (error) {
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, role, password } = body;
+    const { name, role, password, survey_code } = body;
 
     if (!name || !role) {
       return NextResponse.json(
@@ -116,8 +116,9 @@ export async function POST(request: NextRequest) {
         name,
         role,
         password_hash: passwordHash,
+        survey_code: survey_code || null,
       })
-      .select("id, name, role, created_at")
+      .select("id, name, role, survey_code, created_at")
       .single();
 
     if (insertError) {

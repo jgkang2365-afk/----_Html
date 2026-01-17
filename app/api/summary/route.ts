@@ -139,6 +139,7 @@ export async function GET(request: NextRequest) {
         k2b_send_date: journal.k2b_send_date,
         k2b_sender: journal.k2b_sender,
         measurement_fee_business: journal.measurement_fee_business,
+        special_notes: journal.special_notes,
         completion_status: journal.completion_status,
         created_at: journal.created_at,
         updated_at: journal.updated_at,

@@ -18,8 +18,29 @@ export async function GET(request: NextRequest) {
     const businessName = searchParams.get("businessName")?.trim() || null;
     const officeJurisdiction = searchParams.get("officeJurisdiction")?.trim() || null;
     const address = searchParams.get("address")?.trim() || null;
+    const maxSequence = searchParams.get("maxSequence") === "true";
 
     const supabase = await createClient();
+
+    // 순번 최대값 조회 요청인 경우
+    if (maxSequence) {
+      const { data: maxSequenceData, error: maxSequenceError } = await supabase
+        .from("preliminary_survey")
+        .select("sequence_number")
+        .not("sequence_number", "is", null)
+        .order("sequence_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (maxSequenceError) {
+        return NextResponse.json(
+          { error: "순번 조회 중 오류가 발생했습니다.", details: maxSequenceError.message },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ maxSequence: maxSequenceData?.sequence_number || 0 });
+    }
 
     // 1. 사업장정보 테이블에서 검색 조건에 맞는 전체 데이터 조회
     let businessInfoQuery = supabase
@@ -146,7 +167,7 @@ export async function GET(request: NextRequest) {
         let surveyQuery = supabase
           .from("preliminary_survey")
           .select("*")
-          .order("measurement_date", { ascending: false })
+          .order("sequence_number", { ascending: true, nullsLast: true })
           .order("created_at", { ascending: false });
 
         if (filteredCodes.length > 0) {
@@ -184,14 +205,29 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 2. 예비조사 테이블에서 해당 코드들로 검색 (있는 경우만)
+    // 2. 예비조사 테이블에서 해당 코드들로 검색
     let surveys: any[] = [];
-    if (codes.length > 0) {
+    
+    // 검색 조건이 없으면 전체 예비조사 목록 반환
+    if (codes.length === 0 && !code && !businessNumber && !businessName && !address && !officeJurisdiction) {
+      const { data: allSurveys, error: allSurveysError } = await supabase
+        .from("preliminary_survey")
+        .select("*")
+        .order("sequence_number", { ascending: true, nullsLast: true })
+        .order("created_at", { ascending: false });
+
+      if (allSurveysError) {
+        console.error("예비조사 전체 목록 조회 오류:", allSurveysError);
+      } else {
+        surveys = allSurveys || [];
+      }
+    } else if (codes.length > 0) {
+      // 검색 조건이 있으면 해당 코드들로 검색
       const surveyQuery = supabase
         .from("preliminary_survey")
         .select("*")
         .in("code", codes)
-        .order("measurement_date", { ascending: false })
+        .order("sequence_number", { ascending: true, nullsLast: true })
         .order("created_at", { ascending: false });
 
       const { data: surveyData, error: surveyError } = await surveyQuery;
@@ -343,6 +379,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 순번 자동 계산 (현재 등록된 예비조사 중 가장 큰 순번 + 1)
+    const { data: maxSequenceData, error: maxSequenceError } = await supabase
+      .from("preliminary_survey")
+      .select("sequence_number")
+      .not("sequence_number", "is", null)
+      .order("sequence_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let sequenceNumber = 1;
+    if (!maxSequenceError && maxSequenceData?.sequence_number) {
+      sequenceNumber = maxSequenceData.sequence_number + 1;
+    }
+
     // 예비조사 등록
     const { data: survey, error } = await supabase
       .from("preliminary_survey")
@@ -358,6 +408,7 @@ export async function POST(request: NextRequest) {
         preliminary_surveyor: preliminary_surveyor || null,
         actual_measurer: actual_measurer || null,
         report_writer: report_writer || null,
+        sequence_number: sequenceNumber,
       })
       .select()
       .single();

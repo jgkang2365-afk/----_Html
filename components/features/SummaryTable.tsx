@@ -17,6 +17,7 @@ import {
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
+import { Textarea } from "@/components/ui/Textarea";
 import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
@@ -75,6 +76,7 @@ interface SummaryEntry {
   k2b_send_date: string | null;
   k2b_sender: string | null;
   measurement_fee_business: number | null;
+  special_notes: string | null;
   completion_status: string;
   created_at: string;
   updated_at: string;
@@ -178,6 +180,7 @@ export const SummaryTable: React.FC = () => {
       k2b_sender: entry.k2b_sender || "",
       measurement_fee_business: entry.measurement_fee_business || null,
       national_support_status: entry.national_support_status || "",
+      special_notes: entry.special_notes || "",
     });
     setIsModalOpen(true);
   };
@@ -297,6 +300,7 @@ export const SummaryTable: React.FC = () => {
                 setSearchParams({ ...searchParams, businessName: e.target.value })
               }
               placeholder="사업장명 입력"
+              autoComplete="off"
             />
           </div>
           <div className="flex items-end">
@@ -439,13 +443,25 @@ export const SummaryTable: React.FC = () => {
                     {selectedEntry.five_plus_sequence || "-"}
                   </div>
                 </div>
-                <div className="col-span-3">
+                <div>
                   <label className="block text-text-600 mb-1 text-sm">예비조사자명(공시료 코드)</label>
                   <div className="bg-white p-2 rounded border text-base">
                     {selectedEntry.preliminary_surveyor || "-"}
                     {selectedEntry.survey_code && (
                       <span className="text-text-500"> ({selectedEntry.survey_code})</span>
                     )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-text-600 mb-1 text-sm">측정자</label>
+                  <div className="bg-white p-2 rounded border text-base">
+                    {selectedEntry.measurer || "-"}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-text-600 mb-1 text-sm">보고서 담당</label>
+                  <div className="bg-white p-2 rounded border text-base">
+                    {selectedEntry.report_writer || "-"}
                   </div>
                 </div>
               </div>
@@ -491,17 +507,6 @@ export const SummaryTable: React.FC = () => {
                           ...editFormData,
                           measurement_end_date: e.target.value,
                         })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
-                      측정자
-                    </label>
-                    <Input
-                      value={editFormData.measurer || ""}
-                      onChange={(e) =>
-                        setEditFormData({ ...editFormData, measurer: e.target.value })
                       }
                     />
                   </div>
@@ -732,6 +737,21 @@ export const SummaryTable: React.FC = () => {
                       ]}
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* 특이사항 */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">특이사항</h4>
+                <div>
+                  <Textarea
+                    value={editFormData.special_notes || ""}
+                    onChange={(e) =>
+                      setEditFormData({ ...editFormData, special_notes: e.target.value })
+                    }
+                    placeholder="특이사항을 입력하세요"
+                    rows={4}
+                  />
                 </div>
               </div>
             </div>

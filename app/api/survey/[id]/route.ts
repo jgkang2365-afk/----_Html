@@ -115,6 +115,22 @@ export async function DELETE(
 
     const supabase = await createClient();
 
+    // 삭제할 예비조사의 순번 조회
+    const { data: surveyToDelete, error: selectError } = await supabase
+      .from("preliminary_survey")
+      .select("sequence_number")
+      .eq("id", parseInt(id))
+      .single();
+
+    if (selectError || !surveyToDelete) {
+      return NextResponse.json(
+        { error: "삭제할 예비조사를 찾을 수 없습니다.", details: selectError?.message },
+        { status: 404 }
+      );
+    }
+
+    const deletedSequenceNumber = surveyToDelete.sequence_number;
+
     // 예비조사 삭제
     const { error } = await supabase
       .from("preliminary_survey")
@@ -127,6 +143,34 @@ export async function DELETE(
         { error: "예비조사 삭제 중 오류가 발생했습니다.", details: error.message },
         { status: 500 }
       );
+    }
+
+    // 삭제된 순번보다 큰 순번들을 모두 -1 (재정렬)
+    if (deletedSequenceNumber !== null) {
+      // 삭제된 순번보다 큰 모든 항목 조회
+      const { data: surveysToUpdate, error: fetchError } = await supabase
+        .from("preliminary_survey")
+        .select("id, sequence_number")
+        .gt("sequence_number", deletedSequenceNumber)
+        .order("sequence_number", { ascending: true });
+
+      if (!fetchError && surveysToUpdate) {
+        // 각 항목의 순번을 -1 업데이트
+        for (const survey of surveysToUpdate) {
+          const { error: updateError } = await supabase
+            .from("preliminary_survey")
+            .update({ sequence_number: survey.sequence_number - 1 })
+            .eq("id", survey.id);
+
+          if (updateError) {
+            console.error(`순번 재정렬 오류 (id: ${survey.id}):`, updateError);
+          }
+        }
+      } else if (fetchError) {
+        console.error("순번 재정렬 대상 조회 오류:", fetchError);
+        // 삭제는 성공했으므로 경고만 로그에 남기고 성공 응답 반환
+        console.warn("순번 재정렬 대상 조회 실패:", fetchError.message);
+      }
     }
 
     return NextResponse.json({ success: true });

@@ -31,9 +31,9 @@ export async function GET(request: NextRequest) {
     const currentPeriodOrder = periodOrder[period] || 0;
 
     // 같은 code의 직전 측정일지 찾기
-    // 1순위: 같은 연도에서 직전 주기 (예: 상반기 입력 시 -> 작년 하반기)
-    // 2순위: 작년 같은 주기
-    // 3순위: 작년 반대 주기
+    // 우선순위: 같은 연도 직전 주기 > 작년 반대 주기 > 작년 같은 주기 > 그 이전 연도들
+    // 직전의 자료를 찾아야 변경되거나 수정된 업데이트된 최신 자료를 가져올 수 있기 때문
+    // 예: 2026년 하반기 입력 → 2026년 상반기 조회 → 2025년 하반기 조회 → 2025년 상반기 조회
     let previousJournal = null;
 
     // 1순위: 같은 연도에서 직전 주기
@@ -45,13 +45,43 @@ export async function GET(request: NextRequest) {
         .eq("code", code)
         .eq("measurement_year", measurementYear)
         .eq("measurement_period", "상반기")
+        .order("updated_at", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       previousJournal = data;
     }
 
-    // 2순위: 작년 같은 주기
+    // 2순위: 작년 반대 주기 (산재관리번호는 직전 측정일지에만 있으므로 우선 확인)
+    if (!previousJournal) {
+      const oppositePeriod = period === "상반기" ? "하반기" : "상반기";
+      const { data, error } = await supabase
+        .from("measurement_journal")
+        .select("*")
+        .eq("code", code)
+        .eq("measurement_year", measurementYear - 1)
+        .eq("measurement_period", oppositePeriod)
+        .order("updated_at", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (error) {
+        console.error('[previous-data API] 작년 반대 주기 조회 오류:', error);
+      }
+      
+      if (data) {
+        console.log('[previous-data API] 작년 반대 주기 조회 결과:', {
+          id: data.id,
+          year: data.measurement_year,
+          period: data.measurement_period,
+          industrial_accident_number: data.industrial_accident_number,
+        });
+        previousJournal = data;
+      }
+    }
+
+    // 3순위: 작년 같은 주기
     if (!previousJournal) {
       const { data } = await supabase
         .from("measurement_journal")
@@ -59,21 +89,7 @@ export async function GET(request: NextRequest) {
         .eq("code", code)
         .eq("measurement_year", measurementYear - 1)
         .eq("measurement_period", period)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      previousJournal = data;
-    }
-
-    // 3순위: 작년 반대 주기
-    if (!previousJournal) {
-      const oppositePeriod = period === "상반기" ? "하반기" : "상반기";
-      const { data } = await supabase
-        .from("measurement_journal")
-        .select("*")
-        .eq("code", code)
-        .eq("measurement_year", measurementYear - 1)
-        .eq("measurement_period", oppositePeriod)
+        .order("updated_at", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -89,6 +105,7 @@ export async function GET(request: NextRequest) {
           .eq("code", code)
           .eq("measurement_year", y)
           .order("measurement_period", { ascending: false })
+          .order("updated_at", { ascending: false })
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -119,10 +136,10 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .maybeSingle();
 
-    // measurement_business에서 국고지원 정보 조회
+    // measurement_business에서 국고지원 정보 및 산재관리번호 조회
     const { data: businessData } = await supabase
       .from("measurement_business")
-      .select("national_support_status")
+      .select("national_support_status, industrial_accident_number")
       .eq("code", code)
       .eq("year", measurementYear)
       .eq("period", period)
@@ -131,7 +148,7 @@ export async function GET(request: NextRequest) {
     // 예비조사 정보 조회 (같은 code의 가장 최근 예비조사)
     const { data: latestSurvey } = await supabase
       .from("preliminary_survey")
-      .select("preliminary_surveyor, measurer, survey_code, actual_measurer, report_writer")
+      .select("preliminary_surveyor, measurer, survey_code, actual_measurer, report_writer, measurement_date")
       .eq("code", code)
       .order("measurement_date", { ascending: false })
       .order("created_at", { ascending: false })
@@ -159,7 +176,37 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // 디버깅: 직전 측정일지 데이터 확인
+    if (previousJournal) {
+      console.log('[previous-data API] 직전 측정일지 조회 결과:', {
+        id: previousJournal.id,
+        code: previousJournal.code,
+        measurement_year: previousJournal.measurement_year,
+        measurement_period: previousJournal.measurement_period,
+        industrial_accident_number: previousJournal.industrial_accident_number,
+        industrial_accident_number_type: typeof previousJournal.industrial_accident_number,
+        industrial_accident_number_raw: JSON.stringify(previousJournal.industrial_accident_number),
+        has_industrial_accident_number: previousJournal.hasOwnProperty('industrial_accident_number'),
+        all_keys: Object.keys(previousJournal).filter(k => k.includes('industrial') || k.includes('accident')),
+      });
+      
+      // 같은 code의 모든 측정일지 확인 (디버깅용)
+      const { data: allJournals } = await supabase
+        .from("measurement_journal")
+        .select("id, measurement_year, measurement_period, industrial_accident_number")
+        .eq("code", code)
+        .order("measurement_year", { ascending: false })
+        .order("measurement_period", { ascending: false });
+      console.log('[previous-data API] 같은 code의 모든 측정일지:', allJournals?.map(j => ({
+        id: j.id,
+        year: j.measurement_year,
+        period: j.measurement_period,
+        industrial_accident_number: j.industrial_accident_number,
+      })));
+    }
+    
     // 직전 측정일지에서 자동 채울 수 있는 필드만 반환
+    // 산재관리번호는 measurement_journal에 없으면 measurement_business에서 가져오기
     const previousData = previousJournal ? {
       // 담당자 정보
       manager_name: previousJournal.manager_name || null,
@@ -179,7 +226,15 @@ export async function GET(request: NextRequest) {
       
       // K2B 전송자
       k2b_sender: previousJournal.k2b_sender || null,
+      
+      // 산재관리번호 (measurement_journal에 없으면 measurement_business에서 가져오기)
+      industrial_accident_number: previousJournal.industrial_accident_number || businessData?.industrial_accident_number || null,
     } : null;
+    
+    // 디버깅: previousData 확인
+    if (previousData) {
+      console.log('[previous-data API] previousData 산재관리번호:', previousData.industrial_accident_number);
+    }
 
     // measurement_summary에서 추가 정보 가져오기
     const summaryInfo = summaryData ? {
@@ -197,6 +252,7 @@ export async function GET(request: NextRequest) {
       survey_code: latestSurvey.survey_code || null,
       actual_measurer: latestSurvey.actual_measurer || null,
       report_writer: latestSurvey.report_writer || null,
+      measurement_date: latestSurvey.measurement_date || null,
     } : null;
 
     return NextResponse.json({

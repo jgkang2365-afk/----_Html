@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Image from "next/image";
 import { SurveyForm } from "@/components/features/SurveyForm";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -32,6 +33,7 @@ interface Survey {
   preliminary_surveyor: string | null;
   actual_measurer: string | null;
   report_writer: string | null;
+  sequence_number: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -58,6 +60,12 @@ export default function SurveyPage() {
   const [activeTab, setActiveTab] = useState<"search" | "list">("search"); // 탭 상태 추가
   const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
   const [pendingBusinessForForm, setPendingBusinessForForm] = useState<BusinessInfo | null>(null); // 경고 모달에서 대기 중인 사업장 정보
+  // 순번 정렬 관련 상태
+  const [sequenceSortOrder, setSequenceSortOrder] = useState<"asc" | "desc">("asc"); // 기본값: 오름차순 (등록 순서)
+  // 년도 필터 관련 상태
+  const [selectedYear, setSelectedYear] = useState<string>(""); // 선택된 년도 (빈 문자열이면 전체)
+  // 사업장명 검색 상태 (예비조사 목록용)
+  const [businessNameFilter, setBusinessNameFilter] = useState<string>(""); // 사업장명 검색 필터
   
   // 검색 관련 상태
   const [searchParams, setSearchParams] = useState({
@@ -524,80 +532,211 @@ export default function SurveyPage() {
         <Card className="p-6 shadow-sm">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-text-900">
-              예비조사 목록 ({surveys.length}건)
+              예비조사 목록 ({(() => {
+                // 년도 및 사업장명 필터링된 결과 개수 계산
+                let filtered = surveys;
+                if (selectedYear) {
+                  filtered = filtered.filter((survey) => {
+                    if (!survey.measurement_date) return false;
+                    const surveyYear = new Date(survey.measurement_date).getFullYear();
+                    return surveyYear.toString() === selectedYear;
+                  });
+                }
+                if (businessNameFilter) {
+                  filtered = filtered.filter((survey) => {
+                    return survey.business_name.toLowerCase().includes(businessNameFilter.toLowerCase());
+                  });
+                }
+                return filtered.length;
+              })()}건)
             </h2>
-            <Button variant="secondary" onClick={handleExportExcel}>
-              엑셀 다운로드
-            </Button>
+            <div className="flex items-center gap-3">
+              {/* 사업장명 검색 입력 필드 */}
+              <div className="relative w-[768px]">
+                <Input
+                  value={businessNameFilter}
+                  onChange={(e) => setBusinessNameFilter(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      // 필터링은 이미 실시간으로 작동하므로 추가 작업 불필요
+                    }
+                  }}
+                  placeholder="사업장명 검색"
+                  className="w-full pr-10"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    // 필터링은 이미 실시간으로 작동하므로 포커스만 유지
+                    // 필요시 추가 로직 구현 가능
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:opacity-70 transition-opacity cursor-pointer"
+                  aria-label="검색"
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <circle
+                      cx="11"
+                      cy="11"
+                      r="7"
+                      stroke="#22c55e"
+                      strokeWidth="2"
+                      fill="none"
+                    />
+                    <path
+                      d="m20 20-4-4"
+                      stroke="#22c55e"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+              {/* 년도 선택 드롭다운 */}
+              <Select
+                value={selectedYear}
+                onChange={(e) => {
+                  const year = e.target.value;
+                  setSelectedYear(year);
+                }}
+                options={[
+                  { value: "", label: "전체" },
+                  ...Array.from({ length: 10 }, (_, i) => {
+                    const year = new Date().getFullYear() - 5 + i;
+                    return { value: year.toString(), label: year.toString() };
+                  }),
+                ]}
+                className="w-32 bg-orange-100 text-black font-bold [&>select]:bg-orange-100 [&>select]:text-black [&>select]:font-bold"
+              />
+              <Button variant="secondary" onClick={handleExportExcel} className="whitespace-nowrap">
+                엑셀 다운로드
+              </Button>
+            </div>
           </div>
 
-          {surveys.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-text-500 text-lg">검색 결과가 없습니다.</p>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-surface-200 overflow-hidden">
-              <div className="max-h-[calc(100vh-300px)] overflow-y-auto overflow-x-auto">
-                <table className="w-full caption-bottom text-base">
-                  <thead className="bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-10">
-                    <tr className="border-b border-slate-100">
-                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정일</th>
-                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">종료일</th>
-                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정요일</th>
-                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">사업장명</th>
-                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정자</th>
-                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">공시료 코드</th>
-                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">예비조사자</th>
-                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">실측정자</th>
-                      <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">보고서 담당</th>
-                      <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">작업</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {surveys.map((survey) => (
-                      <tr key={survey.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/50">
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                          {survey.measurement_date
-                            ? formatDateYYYYMMDD(new Date(survey.measurement_date))
-                            : "-"}
-                        </td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                          {survey.end_date ? formatDateYYYYMMDD(new Date(survey.end_date)) : "-"}
-                        </td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurement_weekdays || "-"}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{survey.business_name}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurer || "-"}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.survey_code || "-"}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.preliminary_surveyor || "-"}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.actual_measurer || "-"}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.report_writer || "-"}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                          <div className="flex gap-2 justify-center">
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleEditSurvey(survey)}
-                              className="shadow-sm"
-                            >
-                              수정
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleDeleteSurvey(survey.id)}
-                              className="shadow-sm"
-                            >
-                              삭제
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {(() => {
+            // 년도 및 사업장명 필터링
+            let filteredSurveys = surveys;
+            if (selectedYear) {
+              filteredSurveys = filteredSurveys.filter((survey) => {
+                if (!survey.measurement_date) return false;
+                const surveyYear = new Date(survey.measurement_date).getFullYear();
+                return surveyYear.toString() === selectedYear;
+              });
+            }
+            if (businessNameFilter) {
+              filteredSurveys = filteredSurveys.filter((survey) => {
+                return survey.business_name.toLowerCase().includes(businessNameFilter.toLowerCase());
+              });
+            }
+            
+            // 순번 기준 정렬
+            const sortedSurveys = [...filteredSurveys].sort((a, b) => {
+              const seqA = a.sequence_number || 999999; // 순번이 없으면 뒤로
+              const seqB = b.sequence_number || 999999;
+              return sequenceSortOrder === "asc" ? seqA - seqB : seqB - seqA;
+            });
+            
+            return sortedSurveys.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-text-500 text-lg">검색 결과가 없습니다.</p>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="rounded-lg border border-surface-200 overflow-hidden">
+                <div className="max-h-[calc(100vh-300px)] overflow-y-auto overflow-x-auto">
+                  <table className="w-full caption-bottom text-base">
+                    <thead className="bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-10">
+                      <tr className="border-b border-slate-100">
+                        <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-2">
+                            <span>순번</span>
+                            <button
+                              onClick={() => setSequenceSortOrder(sequenceSortOrder === "asc" ? "desc" : "asc")}
+                              className="p-1.5 hover:bg-surface-100 rounded transition-colors flex items-center justify-center"
+                              title={sequenceSortOrder === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}
+                            >
+                              {sequenceSortOrder === "asc" ? (
+                                // 빨간색 위 삼각형 (오름차순)
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path d="M12 8L8 12H16L12 8Z" fill="#EF4444" />
+                                </svg>
+                              ) : (
+                                // 파란색 아래 삼각형 (내림차순)
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path d="M12 16L16 12H8L12 16Z" fill="#3B82F6" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정일</th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">종료일</th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정요일</th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">사업장명</th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정자</th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">공시료 코드</th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">예비조사자</th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">실측정자</th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">보고서 담당</th>
+                        <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">작업</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedSurveys.map((survey) => (
+                        <tr key={survey.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/50">
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap text-center">
+                            {survey.sequence_number || "-"}
+                          </td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                            {survey.measurement_date
+                              ? formatDateYYYYMMDD(new Date(survey.measurement_date))
+                              : "-"}
+                          </td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                            {survey.end_date ? formatDateYYYYMMDD(new Date(survey.end_date)) : "-"}
+                          </td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurement_weekdays || "-"}</td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{survey.business_name}</td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurer || "-"}</td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.survey_code || "-"}</td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.preliminary_surveyor || "-"}</td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.actual_measurer || "-"}</td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.report_writer || "-"}</td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                            <div className="flex gap-2 justify-center">
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleEditSurvey(survey)}
+                                className="shadow-sm"
+                              >
+                                수정
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleDeleteSurvey(survey.id)}
+                                className="shadow-sm"
+                              >
+                                삭제
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
         </Card>
       )}
 
@@ -631,7 +770,8 @@ export default function SurveyPage() {
                     preliminary_surveyor: editingSurvey.preliminary_surveyor ?? undefined,
                     actual_measurer: editingSurvey.actual_measurer ?? undefined,
                     report_writer: editingSurvey.report_writer ?? undefined,
-                  }
+                    sequence_number: editingSurvey.sequence_number ?? undefined,
+                  } as any
                 : selectedBusinessForForm
                 ? {
                     code: selectedBusinessForForm.code,

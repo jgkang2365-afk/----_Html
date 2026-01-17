@@ -21,6 +21,7 @@ interface User {
   id: number;
   name: string;
   role: "관리자" | "사용자";
+  survey_code?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -37,6 +38,7 @@ export const UserManagement: React.FC = () => {
     name: "",
     role: "사용자" as "관리자" | "사용자",
     password: "",
+    survey_code: "",
   });
 
   // 비밀번호 리셋 모달
@@ -44,6 +46,14 @@ export const UserManagement: React.FC = () => {
   const [resetForm, setResetForm] = useState({
     userName: "",
     newPassword: "",
+  });
+
+  // 사용자 수정 모달
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    id: 0,
+    name: "",
+    survey_code: "",
   });
 
   // 삭제 확인 모달
@@ -100,7 +110,7 @@ export const UserManagement: React.FC = () => {
 
       setSuccess("사용자가 생성되었습니다.");
       setShowCreateModal(false);
-      setCreateForm({ name: "", role: "사용자", password: "" });
+      setCreateForm({ name: "", role: "사용자", password: "", survey_code: "" });
       fetchUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -135,6 +145,37 @@ export const UserManagement: React.FC = () => {
       setSuccess(data.message || "비밀번호가 리셋되었습니다.");
       setShowResetModal(false);
       setResetForm({ userName: "", newPassword: "" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
+    }
+  };
+
+  const handleEditUser = async () => {
+    if (!editForm.name.trim()) {
+      setError("이름을 입력해주세요.");
+      return;
+    }
+
+    setError(null);
+    try {
+      const response = await fetch(`/api/users/${editForm.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          survey_code: editForm.survey_code || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "사용자 수정에 실패했습니다.");
+      }
+
+      setSuccess("사용자 정보가 수정되었습니다.");
+      setShowEditModal(false);
+      setEditForm({ id: 0, name: "", survey_code: "" });
+      fetchUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
     }
@@ -199,6 +240,7 @@ export const UserManagement: React.FC = () => {
             <TableRow>
               <TableHead>이름</TableHead>
               <TableHead>역할</TableHead>
+              <TableHead>공시료 코드</TableHead>
               <TableHead>생성일</TableHead>
               <TableHead className="text-right">작업</TableHead>
             </TableRow>
@@ -206,7 +248,7 @@ export const UserManagement: React.FC = () => {
           <TableBody>
             {users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-text-500 py-8">
+                <TableCell colSpan={5} className="text-center text-text-500 py-8">
                   등록된 사용자가 없습니다.
                 </TableCell>
               </TableRow>
@@ -215,11 +257,22 @@ export const UserManagement: React.FC = () => {
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">{user.name}</TableCell>
                   <TableCell>{user.role}</TableCell>
+                  <TableCell>{user.survey_code || "-"}</TableCell>
                   <TableCell>
                     {new Date(user.created_at).toLocaleDateString("ko-KR")}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setEditForm({ id: user.id, name: user.name, survey_code: user.survey_code || "" });
+                          setShowEditModal(true);
+                        }}
+                      >
+                        수정
+                      </Button>
                       <Button
                         variant="secondary"
                         size="sm"
@@ -254,7 +307,7 @@ export const UserManagement: React.FC = () => {
         isOpen={showCreateModal}
         onClose={() => {
           setShowCreateModal(false);
-          setCreateForm({ name: "", role: "사용자", password: "" });
+          setCreateForm({ name: "", role: "사용자", password: "", survey_code: "" });
           setError(null);
         }}
         title="사용자 추가"
@@ -294,12 +347,19 @@ export const UserManagement: React.FC = () => {
           <p className="text-xs text-text-500 -mt-2">
             비밀번호를 입력하지 않으면 사용자가 최초 로그인 시 비밀번호를 설정합니다.
           </p>
+          <Input
+            label="공시료 코드 (선택사항)"
+            value={createForm.survey_code}
+            onChange={(e) => setCreateForm({ ...createForm, survey_code: e.target.value })}
+            placeholder="예: A01, B02 등"
+            maxLength={10}
+          />
           <div className="flex justify-end gap-2 pt-4">
             <Button
               variant="secondary"
               onClick={() => {
                 setShowCreateModal(false);
-                setCreateForm({ name: "", role: "사용자", password: "" });
+                setCreateForm({ name: "", role: "사용자", password: "", survey_code: "" });
                 setError(null);
               }}
             >
@@ -353,6 +413,53 @@ export const UserManagement: React.FC = () => {
             </Button>
             <Button variant="primary" onClick={handleResetPassword}>
               리셋
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 사용자 수정 모달 */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditForm({ id: 0, name: "", survey_code: "" });
+          setError(null);
+        }}
+        title="사용자 수정"
+      >
+        <div className="space-y-4">
+          {error && (
+            <Alert variant="error">
+              {error}
+            </Alert>
+          )}
+          <Input
+            label="이름"
+            value={editForm.name}
+            readOnly
+            className="bg-surface-50"
+          />
+          <Input
+            label="공시료 코드 (선택사항)"
+            value={editForm.survey_code}
+            onChange={(e) => setEditForm({ ...editForm, survey_code: e.target.value })}
+            placeholder="예: A01, B02 등"
+            maxLength={10}
+          />
+          <div className="flex justify-end gap-2 pt-4">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowEditModal(false);
+                setEditForm({ id: 0, name: "", survey_code: "" });
+                setError(null);
+              }}
+            >
+              취소
+            </Button>
+            <Button variant="primary" onClick={handleEditUser}>
+              수정
             </Button>
           </div>
         </div>
