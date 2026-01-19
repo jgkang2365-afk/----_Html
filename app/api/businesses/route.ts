@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
 
     // 저장된 측정 대상 사업장 계획 조회
     // measurement_target_business 테이블에서 해당 년도/반기의 계획 데이터 조회
+    // measurement_date 컬럼이 없을 수 있으므로 *만 사용하고 안전하게 접근
     let query = supabase
       .from("measurement_target_business")
       .select("*")
@@ -196,6 +197,125 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 예비조사 측정일 조회 (가장 최근 측정일)
+    let preliminarySurveyDateMap = new Map<string, string | null>();
+    if (codes.length > 0) {
+      try {
+        const { data: preliminarySurveyData, error: preliminarySurveyError } = await supabase
+          .from("preliminary_survey")
+          .select("code, measurement_date")
+          .in("code", codes)
+          .not("measurement_date", "is", null)
+          .order("measurement_date", { ascending: false });
+
+        if (preliminarySurveyError) {
+          console.error("예비조사 측정일 조회 오류:", preliminarySurveyError);
+          // 오류가 발생해도 계속 진행 (빈 맵 사용)
+        } else if (preliminarySurveyData) {
+          // 각 코드별로 가장 최근 측정일만 저장
+          preliminarySurveyData.forEach((item: any) => {
+            if (item.code && !preliminarySurveyDateMap.has(item.code)) {
+              preliminarySurveyDateMap.set(item.code, item.measurement_date);
+            }
+          });
+        }
+      } catch (error) {
+        console.error("예비조사 측정일 조회 중 예외 발생:", error);
+        // 오류가 발생해도 계속 진행
+      }
+    }
+
+    // 전회 측정일 조회
+    // 조회 년도/주기 기준으로 이전 측정일지를 조회
+    // 예: 2026년 상반기 -> 2025년 하반기 우선, 없으면 2025년 상반기
+    // 예: 2026년 하반기 -> 2026년 상반기 우선, 없으면 2025년 하반기
+    let previousMeasurementDateMap = new Map<string, string | null>();
+    if (codes && codes.length > 0) {
+      try {
+        // 우선순위에 따라 조회할 년도/주기 결정
+        let priorityYear: number;
+        let priorityPeriod: string;
+        let fallbackYear: number | null = null;
+        let fallbackPeriod: string | null = null;
+
+        if (period === "상반기") {
+          // 상반기: 이전 년도 하반기 -> 이전 년도 상반기
+          priorityYear = targetYear - 1;
+          priorityPeriod = "하반기";
+          fallbackYear = targetYear - 1;
+          fallbackPeriod = "상반기";
+        } else {
+          // 하반기: 같은 년도 상반기 -> 이전 년도 하반기
+          priorityYear = targetYear;
+          priorityPeriod = "상반기";
+          fallbackYear = targetYear - 1;
+          fallbackPeriod = "하반기";
+        }
+
+        // 우선순위 측정일지 조회
+        try {
+          const { data: priorityJournals, error: priorityError } = await supabase
+            .from("measurement_journal")
+            .select("code, measurement_start_date, measurement_end_date")
+            .in("code", codes)
+            .eq("measurement_year", priorityYear)
+            .eq("measurement_period", priorityPeriod)
+            .or("measurement_start_date.not.is.null,measurement_end_date.not.is.null");
+
+          if (priorityError) {
+            console.error(`전회 측정일 조회 오류 (${priorityYear}년 ${priorityPeriod}):`, priorityError);
+          } else if (priorityJournals) {
+            priorityJournals.forEach((journal: any) => {
+              if (journal.code && !previousMeasurementDateMap.has(journal.code)) {
+                // measurement_end_date 우선, 없으면 measurement_start_date 사용
+                const measurementDate = journal.measurement_end_date || journal.measurement_start_date;
+                if (measurementDate) {
+                  previousMeasurementDateMap.set(journal.code, measurementDate);
+                }
+              }
+            });
+          }
+        } catch (priorityErr) {
+          console.error("우선순위 전회 측정일 조회 중 예외 발생:", priorityErr);
+        }
+
+        // 우선순위에서 찾지 못한 코드들에 대해 fallback 조회
+        if (fallbackYear !== null && fallbackPeriod !== null) {
+          const missingCodes = codes.filter(code => !previousMeasurementDateMap.has(code));
+          if (missingCodes.length > 0) {
+            try {
+              const { data: fallbackJournals, error: fallbackError } = await supabase
+                .from("measurement_journal")
+                .select("code, measurement_start_date, measurement_end_date")
+                .in("code", missingCodes)
+                .eq("measurement_year", fallbackYear)
+                .eq("measurement_period", fallbackPeriod)
+                .or("measurement_start_date.not.is.null,measurement_end_date.not.is.null");
+
+              if (fallbackError) {
+                console.error(`전회 측정일 조회 오류 (${fallbackYear}년 ${fallbackPeriod}):`, fallbackError);
+              } else if (fallbackJournals) {
+                fallbackJournals.forEach((journal: any) => {
+                  if (journal.code && !previousMeasurementDateMap.has(journal.code)) {
+                    // measurement_end_date 우선, 없으면 measurement_start_date 사용
+                    const measurementDate = journal.measurement_end_date || journal.measurement_start_date;
+                    if (measurementDate) {
+                      previousMeasurementDateMap.set(journal.code, measurementDate);
+                    }
+                  }
+                });
+              }
+            } catch (fallbackErr) {
+              console.error("Fallback 전회 측정일 조회 중 예외 발생:", fallbackErr);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("전회 측정일 조회 중 예외 발생:", error);
+        // 오류가 발생해도 계속 진행 (빈 맵 사용)
+      }
+    }
+
     // 지정지청 계산 함수
     const calculateDesignatedOffice = (
       address: string | null,
@@ -302,6 +422,14 @@ export async function GET(request: NextRequest) {
       // 향후측정예상일
       const futureMeasurementDate = plan.future_measurement_date || businessInfoDateMap.get(plan.code) || null;
 
+      // 측정일 (예비조사의 측정일, 우선순위: plan.measurement_date > preliminarySurveyDateMap)
+      // plan.measurement_date가 없으면 예비조사의 측정일 사용
+      // measurement_date 컬럼이 없을 수 있으므로 안전하게 접근
+      const measurementDate = (plan.measurement_date !== undefined ? plan.measurement_date : null) || preliminarySurveyDateMap.get(plan.code) || null;
+
+      // 전회 측정일
+      const previousMeasurementDate = previousMeasurementDateMap.get(plan.code) || null;
+
       // 담당자 정보
       const managerName = normalizeString(journal?.manager_name) || normalizeString(businessInfoManagerNameMap.get(plan.code)) || normalizeString(plan.manager_name) || null;
       const managerMobile = normalizeString(journal?.manager_mobile) || normalizeString(plan.manager_mobile) || null;
@@ -326,6 +454,8 @@ export async function GET(request: NextRequest) {
         completion_status: journal?.completion_status || plan.completion_status || null,
         measurer: journal?.measurer || plan.measurer || null,
         future_measurement_date: futureMeasurementDate,
+        measurement_date: measurementDate,
+        previous_measurement_date: previousMeasurementDate,
         isRegistered,
         journal_id: journalId,
         national_support_status: nationalSupportStatus,
@@ -353,6 +483,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("측정 대상 사업장 조회 API 오류:", error);
     console.error("오류 상세:", error instanceof Error ? error.stack : String(error));
+    console.error("오류 타입:", typeof error);
+    console.error("오류 객체:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
 
     if (error instanceof Error) {
       if (error.message.includes("Unauthorized")) {
@@ -395,6 +527,8 @@ interface BusinessEntryResponse {
   completion_status: string | null;
   measurer: string | null;
   future_measurement_date: string | null;
+  measurement_date: string | null; // 예비조사의 측정일
+  previous_measurement_date: string | null; // 전회 측정일
   isRegistered: boolean;
   journal_id: number | null;
   national_support_status: string | null; // '지원' 또는 null

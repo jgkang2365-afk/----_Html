@@ -421,6 +421,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 예비조사 등록 후 measurement_target_business 테이블의 measurement_date 업데이트
+    if (code) {
+      // 해당 코드의 모든 년도/반기 조합에 대해 측정일 업데이트
+      // 가장 최근 예비조사의 측정일을 사용
+      const { data: latestSurvey, error: latestSurveyError } = await supabase
+        .from("preliminary_survey")
+        .select("measurement_date")
+        .eq("code", code)
+        .not("measurement_date", "is", null)
+        .order("measurement_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!latestSurveyError && latestSurvey?.measurement_date) {
+        // measurement_target_business 테이블에서 해당 코드의 모든 레코드 업데이트
+        const { error: updateError } = await supabase
+          .from("measurement_target_business")
+          .update({ measurement_date: latestSurvey.measurement_date })
+          .eq("code", code);
+
+        if (updateError) {
+          console.error("measurement_target_business 측정일 업데이트 오류:", updateError);
+          // 오류가 발생해도 예비조사 등록은 성공한 것으로 처리 (경고만 표시)
+        }
+      }
+    }
+
     return NextResponse.json({ 
       survey,
       warning: warningMessage // 경고 메시지 포함 (있을 경우)

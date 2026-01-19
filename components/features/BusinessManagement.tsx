@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { DESIGNATED_OFFICE_OPTIONS } from "@/lib/constants/designated-offices";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -35,6 +35,8 @@ interface BusinessEntry {
   completion_status: string | null;
   measurer: string | null;
   future_measurement_date: string | null; // 향후측정예상일
+  measurement_date: string | null; // 측정일 (예비조사의 측정일)
+  previous_measurement_date: string | null; // 전회 측정일
   isRegistered: boolean; // 측정일지 등록 여부
   journal_id: number | null; // 등록된 측정일지 ID
   national_support_status: string | null; // '지원', '비대상' 또는 null
@@ -50,10 +52,8 @@ export const BusinessManagement: React.FC = () => {
   const [businesses, setBusinesses] = useState<BusinessEntry[]>([]);
   const [filteredBusinesses, setFilteredBusinesses] = useState<BusinessEntry[]>([]);
   const [editingNotes, setEditingNotes] = useState<Map<string, string>>(new Map());
-  const [editingNationalSupport, setEditingNationalSupport] = useState<Map<string, string>>(new Map());
-  const [savingNationalSupport, setSavingNationalSupport] = useState<Set<string>>(new Set());
   const [addressSortOrder, setAddressSortOrder] = useState<"asc" | "desc" | null>(null);
-  const [addressFilter, setAddressFilter] = useState("");
+  const [isRegisteredSortOrder, setIsRegisteredSortOrder] = useState<"asc" | "desc" | null>(null);
 
   // 필터 상태
   const [filters, setFilters] = useState({
@@ -182,7 +182,7 @@ export const BusinessManagement: React.FC = () => {
   };
 
   // 필터 적용
-  const applyFilters = (data: BusinessEntry[], currentFilters: typeof filters) => {
+  const applyFilters = useCallback((data: BusinessEntry[], currentFilters: typeof filters, sortOrder?: "asc" | "desc" | null) => {
     let filtered = [...data];
 
     if (currentFilters.designatedOffice) {
@@ -211,8 +211,22 @@ export const BusinessManagement: React.FC = () => {
       filtered = filtered.filter((entry) => !entry.isRegistered);
     }
 
+    // 실시여부 정렬 적용
+    if (sortOrder !== undefined && sortOrder !== null) {
+      filtered = filtered.sort((a, b) => {
+        // 등록됨(true)이 미등록(false)보다 앞에 오도록 정렬
+        if (sortOrder === "asc") {
+          // 오름차순: 등록됨(true) -> 미등록(false)
+          return a.isRegistered === b.isRegistered ? 0 : a.isRegistered ? -1 : 1;
+        } else {
+          // 내림차순: 미등록(false) -> 등록됨(true)
+          return a.isRegistered === b.isRegistered ? 0 : a.isRegistered ? 1 : -1;
+        }
+      });
+    }
+
     setFilteredBusinesses(filtered);
-  };
+  }, []);
 
   // 엑셀 다운로드
   const handleExportExcel = async () => {
@@ -252,8 +266,10 @@ export const BusinessManagement: React.FC = () => {
 
   // 필터 변경 시 필터링만 적용 (데이터 재로드 없음)
   useEffect(() => {
-    applyFilters(businesses, filters);
-  }, [filters]);
+    if (businesses.length > 0) {
+      applyFilters(businesses, filters, isRegisteredSortOrder);
+    }
+  }, [businesses, filters, isRegisteredSortOrder, applyFilters]);
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-";
@@ -299,18 +315,18 @@ export const BusinessManagement: React.FC = () => {
           </div>
           <div className="flex-1 min-w-[150px]">
             <Input
-              label="주소 검색"
-              value={filters.address}
-              onChange={(e) => setFilters({ ...filters, address: e.target.value })}
-              placeholder="주소 입력"
-            />
-          </div>
-          <div className="flex-1 min-w-[150px]">
-            <Input
               label="사업장명 검색"
               value={filters.businessName}
               onChange={(e) => setFilters({ ...filters, businessName: e.target.value })}
               placeholder="사업장명 입력"
+            />
+          </div>
+          <div className="flex-1 min-w-[150px]">
+            <Input
+              label="주소 검색"
+              value={filters.address}
+              onChange={(e) => setFilters({ ...filters, address: e.target.value })}
+              placeholder="주소 입력"
             />
           </div>
           <div className="flex-1 min-w-[120px]">
@@ -385,17 +401,50 @@ export const BusinessManagement: React.FC = () => {
             <p className="text-text-500 text-lg">측정 대상 사업장이 없습니다.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-surface-200">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="bg-surface-50">실시여부</TableHead>
-                  <TableHead className="bg-surface-50">코드</TableHead>
-                  <TableHead className="bg-surface-50">지정지청</TableHead>
-                  <TableHead className="bg-surface-50">건강디딤돌</TableHead>
-                  <TableHead className="bg-surface-50 w-[180px]">사업장명</TableHead>
-                  <TableHead className="bg-surface-50 min-w-[200px]">
-                    <div className="flex flex-col gap-2">
+          <div className="rounded-lg border border-surface-200 overflow-hidden">
+            <div className="relative max-h-[calc(100vh-400px)] overflow-auto">
+              <table className="w-full caption-bottom text-base border-collapse">
+                <thead className="bg-surface-50 sticky top-0 z-20 shadow-sm">
+                  <tr className="border-b border-slate-100">
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">
+                      <div className="flex items-center justify-between">
+                        <span>실시여부</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isRegisteredSortOrder === "asc") {
+                              setIsRegisteredSortOrder("desc");
+                              applyFilters(businesses, filters, "desc");
+                            } else if (isRegisteredSortOrder === "desc") {
+                              setIsRegisteredSortOrder(null);
+                              applyFilters(businesses, filters, null);
+                            } else {
+                              setIsRegisteredSortOrder("asc");
+                              applyFilters(businesses, filters, "asc");
+                            }
+                          }}
+                          className="text-xs text-text-500 hover:text-text-700 px-1.5 py-0.5 rounded hover:bg-surface-100 transition-colors"
+                          title={isRegisteredSortOrder === "asc" ? "내림차순으로 변경" : isRegisteredSortOrder === "desc" ? "정렬 해제" : "오름차순으로 변경"}
+                        >
+                          {isRegisteredSortOrder === "asc" ? (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M12 8L8 12H16L12 8Z" fill="#EF4444" />
+                            </svg>
+                          ) : isRegisteredSortOrder === "desc" ? (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M12 16L16 12H8L12 16Z" fill="#3B82F6" />
+                            </svg>
+                          ) : (
+                            "⇅"
+                          )}
+                        </button>
+                      </div>
+                    </th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">코드</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">지정지청</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">건강디딤돌</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap w-[180px]">사업장명</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap min-w-[200px]">
                       <div className="flex items-center justify-between">
                         <span>주소</span>
                         <button
@@ -403,6 +452,7 @@ export const BusinessManagement: React.FC = () => {
                           onClick={() => {
                             if (addressSortOrder === "asc") {
                               setAddressSortOrder("desc");
+                              // 정렬 적용
                               const sorted = [...filteredBusinesses].sort((a, b) => {
                                 const addrA = a.address || "";
                                 const addrB = b.address || "";
@@ -411,9 +461,10 @@ export const BusinessManagement: React.FC = () => {
                               setFilteredBusinesses(sorted);
                             } else if (addressSortOrder === "desc") {
                               setAddressSortOrder(null);
-                              applyFilters(businesses, filters);
+                              // 정렬 해제 - useEffect가 자동으로 applyFilters를 호출하도록 함
                             } else {
                               setAddressSortOrder("asc");
+                              // 정렬 적용
                               const sorted = [...filteredBusinesses].sort((a, b) => {
                                 const addrA = a.address || "";
                                 const addrB = b.address || "";
@@ -428,34 +479,22 @@ export const BusinessManagement: React.FC = () => {
                           {addressSortOrder === "asc" ? "↑" : addressSortOrder === "desc" ? "↓" : "⇅"}
                         </button>
                       </div>
-                      <Input
-                        value={addressFilter}
-                        onChange={(e) => {
-                          setAddressFilter(e.target.value);
-                          // 주소 필터 적용
-                          const filtered = businesses.filter((b) =>
-                            !e.target.value || b.address?.toLowerCase().includes(e.target.value.toLowerCase())
-                          );
-                          applyFilters(filtered, filters);
-                        }}
-                        placeholder="주소 검색"
-                        className="text-xs h-7"
-                      />
-                    </div>
-                  </TableHead>
-                  <TableHead className="bg-surface-50">담당자명</TableHead>
-                  <TableHead className="bg-surface-50">담당자 전화번호</TableHead>
-                  <TableHead className="bg-surface-50">담당자 휴대폰</TableHead>
-                  <TableHead className="bg-surface-50">측정예정일</TableHead>
-                  <TableHead className="bg-surface-50">비고</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+                    </th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자명</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자 전화번호</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자 휴대폰</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">전회 측정일</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">측정예정일</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">측정일</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">비고</th>
+                  </tr>
+                </thead>
+                <tbody>
                 {filteredBusinesses.map((entry, index) => {
                   const entryKey = `${entry.code}-${entry.year}-${entry.period}`;
                   return (
-                    <TableRow key={entryKey} className="hover:bg-surface-50">
-                      <TableCell>
+                    <tr key={entryKey} className="border-b border-slate-100 transition-colors hover:bg-surface-50">
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                             entry.isRegistered
@@ -465,88 +504,27 @@ export const BusinessManagement: React.FC = () => {
                         >
                           {entry.isRegistered ? "등록됨" : "미등록"}
                         </span>
-                      </TableCell>
-                      <TableCell className="font-medium">{entry.code}</TableCell>
-                      <TableCell>{entry.designated_office || "-"}</TableCell>
-                      <TableCell>
-                        {entry.journal_id ? (
-                          <Select
-                            value={editingNationalSupport.get(entryKey) ?? entry.national_support_status ?? ""}
-                            onChange={async (e) => {
-                              const newValue = e.target.value;
-                              const newMap = new Map(editingNationalSupport);
-                              newMap.set(entryKey, newValue);
-                              setEditingNationalSupport(newMap);
-                              
-                              // 자동 저장
-                              setSavingNationalSupport(prev => new Set(prev).add(entryKey));
-                              try {
-                                const response = await fetch(`/api/journal/${entry.journal_id}`, {
-                                  method: "PUT",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                  },
-                                  body: JSON.stringify({
-                                    national_support_status: newValue || null,
-                                  }),
-                                });
-
-                                if (response.ok) {
-                                  // 로컬 상태 업데이트
-                                  const updatedBusinesses = businesses.map(b => {
-                                    if (b.code === entry.code && b.year === entry.year && b.period === entry.period) {
-                                      return { ...b, national_support_status: newValue || null };
-                                    }
-                                    return b;
-                                  });
-                                  setBusinesses(updatedBusinesses);
-                                  // 필터링된 목록도 업데이트
-                                  applyFilters(updatedBusinesses, filters);
-                                } else {
-                                  const errorData = await response.json();
-                                  console.error("건강디딤돌 상태 저장 실패:", errorData);
-                                  alert("건강디딤돌 상태 저장에 실패했습니다: " + (errorData.error || "알 수 없는 오류"));
-                                  // 이전 값으로 복원
-                                  newMap.set(entryKey, entry.national_support_status || "");
-                                  setEditingNationalSupport(newMap);
-                                }
-                              } catch (error: any) {
-                                console.error("건강디딤돌 상태 저장 오류:", error);
-                                alert("건강디딤돌 상태 저장 중 오류가 발생했습니다: " + error.message);
-                                // 이전 값으로 복원
-                                newMap.set(entryKey, entry.national_support_status || "");
-                                setEditingNationalSupport(newMap);
-                              } finally {
-                                setSavingNationalSupport(prev => {
-                                  const newSet = new Set(prev);
-                                  newSet.delete(entryKey);
-                                  return newSet;
-                                });
-                              }
-                            }}
-                            options={[
-                              { value: "", label: "-" },
-                              { value: "지원", label: "지원" },
-                              { value: "비대상", label: "비대상" },
-                            ]}
-                            disabled={savingNationalSupport.has(entryKey)}
-                            className="min-w-[90px]"
-                          />
-                        ) : entry.national_support_status ? (
+                      </td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{entry.code}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.designated_office || "-"}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                        {entry.national_support_status ? (
                           <span className="text-text-700 text-sm">{entry.national_support_status}</span>
                         ) : (
                           <span className="text-text-400 text-sm">-</span>
                         )}
-                      </TableCell>
-                      <TableCell className="font-medium w-[180px]">{entry.business_name}</TableCell>
-                      <TableCell className="text-text-600 min-w-[200px]">
+                      </td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium w-[180px]">{entry.business_name}</td>
+                      <td className="p-4 align-middle text-slate-600 min-w-[200px]">
                         {entry.address || "-"}
-                      </TableCell>
-                      <TableCell>{entry.manager_name || "-"}</TableCell>
-                      <TableCell>{entry.manager_phone || "-"}</TableCell>
-                      <TableCell>{entry.manager_mobile || "-"}</TableCell>
-                      <TableCell>{formatDate(entry.future_measurement_date)}</TableCell>
-                      <TableCell>
+                      </td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_name || "-"}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_mobile || "-"}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.future_measurement_date)}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
                         <Input
                           value={editingNotes.get(entryKey) ?? entry.notes ?? ""}
                           onChange={(e) => {
@@ -558,12 +536,13 @@ export const BusinessManagement: React.FC = () => {
                           placeholder="비고 입력"
                           className="min-w-[120px]"
                         />
-                      </TableCell>
-                    </TableRow>
+                      </td>
+                    </tr>
                   );
                 })}
-              </TableBody>
-            </Table>
+              </tbody>
+            </table>
+            </div>
           </div>
         )}
       </Card>

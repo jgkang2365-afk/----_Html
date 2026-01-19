@@ -246,12 +246,17 @@ export async function GET(request: NextRequest) {
     } : null;
 
     // 예비조사 정보
+    // report_writer는 콤마 구분 문자열일 수 있으므로 첫 번째 값만 사용
     const surveyInfo = latestSurvey ? {
       preliminary_surveyor: latestSurvey.preliminary_surveyor || null,
       measurer: latestSurvey.measurer || null,
       survey_code: latestSurvey.survey_code || null,
       actual_measurer: latestSurvey.actual_measurer || null,
-      report_writer: latestSurvey.report_writer || null,
+      report_writer: latestSurvey.report_writer 
+        ? (latestSurvey.report_writer.includes(',') 
+            ? latestSurvey.report_writer.split(',').map((w: string) => w.trim()).filter(Boolean)[0] 
+            : latestSurvey.report_writer.trim())
+        : null,
       measurement_date: latestSurvey.measurement_date || null,
     } : null;
 

@@ -74,6 +74,32 @@ export async function PUT(
       );
     }
 
+    // 예비조사 수정 후 measurement_target_business 테이블의 measurement_date 업데이트
+    if (code) {
+      // 해당 코드의 가장 최근 예비조사의 측정일을 사용
+      const { data: latestSurvey, error: latestSurveyError } = await supabase
+        .from("preliminary_survey")
+        .select("measurement_date")
+        .eq("code", code)
+        .not("measurement_date", "is", null)
+        .order("measurement_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!latestSurveyError && latestSurvey?.measurement_date) {
+        // measurement_target_business 테이블에서 해당 코드의 모든 레코드 업데이트
+        const { error: updateError } = await supabase
+          .from("measurement_target_business")
+          .update({ measurement_date: latestSurvey.measurement_date })
+          .eq("code", code);
+
+        if (updateError) {
+          console.error("measurement_target_business 측정일 업데이트 오류:", updateError);
+          // 오류가 발생해도 예비조사 수정은 성공한 것으로 처리
+        }
+      }
+    }
+
     return NextResponse.json({ survey });
   } catch (error) {
     console.error("예비조사 수정 API 오류:", error);
@@ -115,10 +141,10 @@ export async function DELETE(
 
     const supabase = await createClient();
 
-    // 삭제할 예비조사의 순번 조회
+    // 삭제할 예비조사의 순번 및 코드 조회
     const { data: surveyToDelete, error: selectError } = await supabase
       .from("preliminary_survey")
-      .select("sequence_number")
+      .select("sequence_number, code")
       .eq("id", parseInt(id))
       .single();
 
@@ -130,6 +156,7 @@ export async function DELETE(
     }
 
     const deletedSequenceNumber = surveyToDelete.sequence_number;
+    const deletedCode = surveyToDelete.code;
 
     // 예비조사 삭제
     const { error } = await supabase
@@ -170,6 +197,33 @@ export async function DELETE(
         console.error("순번 재정렬 대상 조회 오류:", fetchError);
         // 삭제는 성공했으므로 경고만 로그에 남기고 성공 응답 반환
         console.warn("순번 재정렬 대상 조회 실패:", fetchError.message);
+      }
+    }
+
+    // 예비조사 삭제 후 measurement_target_business 테이블의 measurement_date 업데이트
+    if (deletedCode) {
+      // 해당 코드의 가장 최근 예비조사의 측정일을 사용 (삭제 후 남은 것 중)
+      const { data: latestSurvey, error: latestSurveyError } = await supabase
+        .from("preliminary_survey")
+        .select("measurement_date")
+        .eq("code", deletedCode)
+        .not("measurement_date", "is", null)
+        .order("measurement_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!latestSurveyError) {
+        // measurement_target_business 테이블에서 해당 코드의 모든 레코드 업데이트
+        // latestSurvey가 null이면 (더 이상 예비조사가 없으면) measurement_date를 null로 설정
+        const { error: updateError } = await supabase
+          .from("measurement_target_business")
+          .update({ measurement_date: latestSurvey?.measurement_date || null })
+          .eq("code", deletedCode);
+
+        if (updateError) {
+          console.error("measurement_target_business 측정일 업데이트 오류:", updateError);
+          // 오류가 발생해도 예비조사 삭제는 성공한 것으로 처리
+        }
       }
     }
 

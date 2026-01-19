@@ -21,9 +21,11 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { DESIGNATED_OFFICE_OPTIONS, DESIGNATED_OFFICES_FOR_SALES } from "@/lib/constants/designated-offices";
+import { JournalEditForm } from "./JournalEditForm";
 
 interface MeasurementRevenue {
   id: number;
+  code: string;
   measurement_year: number;
   measurement_period: string;
   business_name: string;
@@ -138,6 +140,10 @@ export const SalesManagement: React.FC = () => {
   const [selectedOtherIds, setSelectedOtherIds] = useState<number[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletedOtherIds, setDeletedOtherIds] = useState<Set<number>>(new Set()); // 삭제된 항목 추적
+
+  // 측정일지 수정 모달 상태
+  const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+  const [selectedJournalEntry, setSelectedJournalEntry] = useState<any>(null);
 
   // 미수관리 필터 및 정렬 상태
   const [unpaidFilters, setUnpaidFilters] = useState({
@@ -1376,6 +1382,339 @@ export const SalesManagement: React.FC = () => {
         <Tab
           items={[
             {
+              id: "measurement",
+              label: "측정비",
+              content: (() => {
+                // 필터링 적용
+                let filteredMeasurement = measurementRevenue.filter((item) => {
+                  if (measurementFilters.businessName && !item.business_name.toLowerCase().includes(measurementFilters.businessName.toLowerCase())) return false;
+                  if (measurementFilters.year && item.measurement_year.toString() !== measurementFilters.year) return false;
+                  if (measurementFilters.period && item.measurement_period !== measurementFilters.period) return false;
+                  if (measurementFilters.designatedOffice && item.designated_office !== measurementFilters.designatedOffice) return false;
+                  if (measurementFilters.hasInvoiceDate === "yes" && !item.electronic_invoice_date) return false;
+                  if (measurementFilters.hasInvoiceDate === "no" && item.electronic_invoice_date) return false;
+                  return true;
+                });
+
+                // 정렬 적용
+                filteredMeasurement.sort((a, b) => {
+                  let aValue: any = a[measurementSort.column as keyof MeasurementRevenue];
+                  let bValue: any = b[measurementSort.column as keyof MeasurementRevenue];
+
+                  // 문자열 비교
+                  if (typeof aValue === "string" && typeof bValue === "string") {
+                    aValue = aValue.toLowerCase();
+                    bValue = bValue.toLowerCase();
+                  }
+
+                  // null 처리
+                  if (aValue === null || aValue === undefined) aValue = "";
+                  if (bValue === null || bValue === undefined) bValue = "";
+
+                  if (otherSort.direction === "asc") {
+                    return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+                  } else {
+                    return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+                  }
+                });
+
+                // 정렬 아이콘 컴포넌트
+                const MeasurementSortIcon = ({ column }: { column: string }) => {
+                  if (measurementSort.column !== column) {
+                    return <span className="text-text-400 text-xs ml-1">↕</span>;
+                  }
+                  return (
+                    <span className="text-primary-600 text-xs ml-1">
+                      {measurementSort.direction === "asc" ? "↑" : "↓"}
+                    </span>
+                  );
+                };
+
+                // 정렬 핸들러
+                const handleMeasurementSort = (column: string) => {
+                  if (measurementSort.column === column) {
+                    setMeasurementSort({
+                      column,
+                      direction: measurementSort.direction === "asc" ? "desc" : "asc",
+                    });
+                  } else {
+                    setMeasurementSort({ column, direction: "desc" });
+                  }
+                };
+
+                return (
+                  <div className="mt-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="text-sm text-text-600">
+                        총 {filteredMeasurement.length}건 (전체 {measurementRevenue.length}건)
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setMeasurementFilters({
+                            businessName: "",
+                            year: "",
+                            period: "",
+                            designatedOffice: "",
+                            hasInvoiceDate: "",
+                          });
+                          setMeasurementSort({ column: "measurement_fee_total", direction: "desc" });
+                        }}
+                      >
+                        필터 초기화
+                      </Button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("measurement_year")}
+                                >
+                                  측정년도
+                                  <MeasurementSortIcon column="measurement_year" />
+                                </div>
+                                <Select
+                                  value={measurementFilters.year}
+                                  onChange={(e) =>
+                                    setMeasurementFilters({ ...measurementFilters, year: e.target.value })
+                                  }
+                                  options={[
+                                    { value: "", label: "전체" },
+                                    ...yearOptions,
+                                  ]}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("measurement_period")}
+                                >
+                                  측정주기
+                                  <MeasurementSortIcon column="measurement_period" />
+                                </div>
+                                <Select
+                                  value={measurementFilters.period}
+                                  onChange={(e) =>
+                                    setMeasurementFilters({ ...measurementFilters, period: e.target.value })
+                                  }
+                                  options={periodOptions}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("business_name")}
+                                >
+                                  사업장명
+                                  <MeasurementSortIcon column="business_name" />
+                                </div>
+                                <Input
+                                  value={measurementFilters.businessName}
+                                  onChange={(e) =>
+                                    setMeasurementFilters({ ...measurementFilters, businessName: e.target.value })
+                                  }
+                                  placeholder="검색..."
+                                  className="text-xs h-7"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("designated_office")}
+                                >
+                                  지정지청
+                                  <MeasurementSortIcon column="designated_office" />
+                                </div>
+                                <Select
+                                  value={measurementFilters.designatedOffice}
+                                  onChange={(e) =>
+                                    setMeasurementFilters({ ...measurementFilters, designatedOffice: e.target.value })
+                                  }
+                                  options={[
+                                    { value: "", label: "전체" },
+                                    ...DESIGNATED_OFFICE_OPTIONS.slice(1), // "전체" 제외
+                                  ]}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead className="text-right">
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("measurement_fee_business")}
+                                >
+                                  측정비(사업장)
+                                  <MeasurementSortIcon column="measurement_fee_business" />
+                                </div>
+                                <div className="text-xs text-text-500">-</div>
+                              </div>
+                            </TableHead>
+                            <TableHead className="text-right">
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("measurement_fee_national")}
+                                >
+                                  측정비(국고)
+                                  <MeasurementSortIcon column="measurement_fee_national" />
+                                </div>
+                                <div className="text-xs text-text-500">-</div>
+                              </div>
+                            </TableHead>
+                            <TableHead className="text-right">
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("measurement_fee_total")}
+                                >
+                                  측정비(합계)
+                                  <MeasurementSortIcon column="measurement_fee_total" />
+                                </div>
+                                <div className="text-xs text-text-500">-</div>
+                              </div>
+                            </TableHead>
+                            <TableHead className="text-right">
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("deposit_total")}
+                                >
+                                  입금액
+                                  <MeasurementSortIcon column="deposit_total" />
+                                </div>
+                                <div className="text-xs text-text-500">-</div>
+                              </div>
+                            </TableHead>
+                            <TableHead className="text-right">
+                              <div className="space-y-1">
+                                <div className="text-sm font-medium">미수금액</div>
+                                <div className="text-xs text-text-500">-</div>
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("electronic_invoice_date")}
+                                >
+                                  계산서 발행일
+                                  <MeasurementSortIcon column="electronic_invoice_date" />
+                                </div>
+                                <Select
+                                  value={measurementFilters.hasInvoiceDate}
+                                  onChange={(e) =>
+                                    setMeasurementFilters({ ...measurementFilters, hasInvoiceDate: e.target.value })
+                                  }
+                                  options={[
+                                    { value: "", label: "전체" },
+                                    { value: "yes", label: "발행일 있음" },
+                                    { value: "no", label: "발행일 없음" },
+                                  ]}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>작업</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredMeasurement.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={11} className="text-center text-text-500 py-8">
+                                {measurementRevenue.length === 0
+                                  ? "데이터가 없습니다."
+                                  : "필터 조건에 맞는 항목이 없습니다."}
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            filteredMeasurement.map((item) => {
+                              const total = parseFloat(item.measurement_fee_total?.toString() || "0");
+                              const deposit = parseFloat(item.deposit_total?.toString() || "0");
+                              const unpaid = total - deposit;
+                              return (
+                                <TableRow key={item.id}>
+                                  <TableCell>{item.measurement_year}</TableCell>
+                                  <TableCell>{item.measurement_period}</TableCell>
+                                  <TableCell className="font-medium">{item.business_name}</TableCell>
+                                  <TableCell>{item.designated_office}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(item.measurement_fee_business)}원
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(item.measurement_fee_national)}원
+                                  </TableCell>
+                                  <TableCell className="text-right font-semibold">
+                                    {formatCurrency(item.measurement_fee_total)}원
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(item.deposit_total)}원
+                                  </TableCell>
+                                  <TableCell className="text-right text-warning-600 font-semibold">
+                                    {formatCurrency(unpaid)}원
+                                  </TableCell>
+                                  <TableCell>
+                                    {item.electronic_invoice_date
+                                      ? formatDateYYYYMMDD(item.electronic_invoice_date)
+                                      : "-"}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={async () => {
+                                        try {
+                                          // 측정일지 데이터 가져오기
+                                          const response = await fetch(
+                                            `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.measurement_year}&measurementPeriod=${encodeURIComponent(item.measurement_period)}&_t=${new Date().getTime()}`,
+                                            { cache: 'no-store' }
+                                          );
+                                          if (response.ok) {
+                                            const data = await response.json();
+                                            const journal = data.results?.find((j: any) => j.id === item.id);
+                                            if (journal) {
+                                              setSelectedJournalEntry(journal);
+                                              setIsJournalModalOpen(true);
+                                            } else {
+                                              setError("측정일지를 찾을 수 없습니다.");
+                                            }
+                                          } else {
+                                            setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
+                                          }
+                                        } catch (err) {
+                                          console.error("측정일지 조회 오류:", err);
+                                          setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
+                                        }
+                                      }}
+                                    >
+                                      수정
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                );
+              })(),
+            },
+            {
               id: "other",
               label: "기타",
               content: (() => {
@@ -1738,312 +2077,14 @@ export const SalesManagement: React.FC = () => {
               })(),
             },
             {
-              id: "measurement",
-              label: "측정비",
-              content: (() => {
-                // 필터링 적용
-                let filteredMeasurement = measurementRevenue.filter((item) => {
-                  if (measurementFilters.businessName && !item.business_name.toLowerCase().includes(measurementFilters.businessName.toLowerCase())) return false;
-                  if (measurementFilters.year && item.measurement_year.toString() !== measurementFilters.year) return false;
-                  if (measurementFilters.period && item.measurement_period !== measurementFilters.period) return false;
-                  if (measurementFilters.designatedOffice && item.designated_office !== measurementFilters.designatedOffice) return false;
-                  if (measurementFilters.hasInvoiceDate === "yes" && !item.electronic_invoice_date) return false;
-                  if (measurementFilters.hasInvoiceDate === "no" && item.electronic_invoice_date) return false;
-                  return true;
-                });
-
-                // 정렬 적용
-                filteredMeasurement.sort((a, b) => {
-                  let aValue: any = a[measurementSort.column as keyof MeasurementRevenue];
-                  let bValue: any = b[measurementSort.column as keyof MeasurementRevenue];
-
-                  // 문자열 비교
-                  if (typeof aValue === "string" && typeof bValue === "string") {
-                    aValue = aValue.toLowerCase();
-                    bValue = bValue.toLowerCase();
-                  }
-
-                  // null 처리
-                  if (aValue === null || aValue === undefined) aValue = "";
-                  if (bValue === null || bValue === undefined) bValue = "";
-
-                  if (measurementSort.direction === "asc") {
-                    return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
-                  } else {
-                    return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
-                  }
-                });
-
-                // 정렬 아이콘 컴포넌트
-                const MeasurementSortIcon = ({ column }: { column: string }) => {
-                  if (measurementSort.column !== column) {
-                    return <span className="text-text-400 text-xs ml-1">↕</span>;
-                  }
-                  return (
-                    <span className="text-primary-600 text-xs ml-1">
-                      {measurementSort.direction === "asc" ? "↑" : "↓"}
-                    </span>
-                  );
-                };
-
-                // 정렬 핸들러
-                const handleMeasurementSort = (column: string) => {
-                  if (measurementSort.column === column) {
-                    setMeasurementSort({
-                      column,
-                      direction: measurementSort.direction === "asc" ? "desc" : "asc",
-                    });
-                  } else {
-                    setMeasurementSort({ column, direction: "desc" });
-                  }
-                };
-
-                return (
-                  <div className="mt-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="text-sm text-text-600">
-                        총 {filteredMeasurement.length}건 (전체 {measurementRevenue.length}건)
-                      </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setMeasurementFilters({
-                            businessName: "",
-                            year: "",
-                            period: "",
-                            designatedOffice: "",
-                            hasInvoiceDate: "",
-                          });
-                          setMeasurementSort({ column: "measurement_fee_total", direction: "desc" });
-                        }}
-                      >
-                        필터 초기화
-                      </Button>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleMeasurementSort("measurement_year")}
-                                >
-                                  측정년도
-                                  <MeasurementSortIcon column="measurement_year" />
-                                </div>
-                                <Select
-                                  value={measurementFilters.year}
-                                  onChange={(e) =>
-                                    setMeasurementFilters({ ...measurementFilters, year: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    ...yearOptions,
-                                  ]}
-                                  className="text-xs"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleMeasurementSort("measurement_period")}
-                                >
-                                  측정주기
-                                  <MeasurementSortIcon column="measurement_period" />
-                                </div>
-                                <Select
-                                  value={measurementFilters.period}
-                                  onChange={(e) =>
-                                    setMeasurementFilters({ ...measurementFilters, period: e.target.value })
-                                  }
-                                  options={periodOptions}
-                                  className="text-xs"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleMeasurementSort("business_name")}
-                                >
-                                  사업장명
-                                  <MeasurementSortIcon column="business_name" />
-                                </div>
-                                <Input
-                                  value={measurementFilters.businessName}
-                                  onChange={(e) =>
-                                    setMeasurementFilters({ ...measurementFilters, businessName: e.target.value })
-                                  }
-                                  placeholder="검색..."
-                                  className="text-xs h-7"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleMeasurementSort("designated_office")}
-                                >
-                                  지정지청
-                                  <MeasurementSortIcon column="designated_office" />
-                                </div>
-                                <Select
-                                  value={measurementFilters.designatedOffice}
-                                  onChange={(e) =>
-                                    setMeasurementFilters({ ...measurementFilters, designatedOffice: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    ...DESIGNATED_OFFICE_OPTIONS.slice(1), // "전체" 제외
-                                  ]}
-                                  className="text-xs"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleMeasurementSort("measurement_fee_business")}
-                                >
-                                  측정비(사업장)
-                                  <MeasurementSortIcon column="measurement_fee_business" />
-                                </div>
-                                <div className="text-xs text-text-500">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleMeasurementSort("measurement_fee_national")}
-                                >
-                                  측정비(국고)
-                                  <MeasurementSortIcon column="measurement_fee_national" />
-                                </div>
-                                <div className="text-xs text-text-500">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleMeasurementSort("measurement_fee_total")}
-                                >
-                                  측정비(합계)
-                                  <MeasurementSortIcon column="measurement_fee_total" />
-                                </div>
-                                <div className="text-xs text-text-500">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleMeasurementSort("deposit_total")}
-                                >
-                                  입금액
-                                  <MeasurementSortIcon column="deposit_total" />
-                                </div>
-                                <div className="text-xs text-text-500">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right">
-                              <div className="space-y-1">
-                                <div className="text-sm font-medium">미수금액</div>
-                                <div className="text-xs text-text-500">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleMeasurementSort("electronic_invoice_date")}
-                                >
-                                  계산서 발행일
-                                  <MeasurementSortIcon column="electronic_invoice_date" />
-                                </div>
-                                <Select
-                                  value={measurementFilters.hasInvoiceDate}
-                                  onChange={(e) =>
-                                    setMeasurementFilters({ ...measurementFilters, hasInvoiceDate: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    { value: "yes", label: "발행일 있음" },
-                                    { value: "no", label: "발행일 없음" },
-                                  ]}
-                                  className="text-xs"
-                                />
-                              </div>
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredMeasurement.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={10} className="text-center text-text-500 py-8">
-                                {measurementRevenue.length === 0
-                                  ? "데이터가 없습니다."
-                                  : "필터 조건에 맞는 항목이 없습니다."}
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            filteredMeasurement.map((item) => {
-                              const total = parseFloat(item.measurement_fee_total?.toString() || "0");
-                              const deposit = parseFloat(item.deposit_total?.toString() || "0");
-                              const unpaid = total - deposit;
-                              return (
-                                <TableRow key={item.id}>
-                                  <TableCell>{item.measurement_year}</TableCell>
-                                  <TableCell>{item.measurement_period}</TableCell>
-                                  <TableCell className="font-medium">{item.business_name}</TableCell>
-                                  <TableCell>{item.designated_office}</TableCell>
-                                  <TableCell className="text-right">
-                                    {formatCurrency(item.measurement_fee_business)}원
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    {formatCurrency(item.measurement_fee_national)}원
-                                  </TableCell>
-                                  <TableCell className="text-right font-semibold">
-                                    {formatCurrency(item.measurement_fee_total)}원
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    {formatCurrency(item.deposit_total)}원
-                                  </TableCell>
-                                  <TableCell className="text-right text-warning-600 font-semibold">
-                                    {formatCurrency(unpaid)}원
-                                  </TableCell>
-                                  <TableCell>
-                                    {item.electronic_invoice_date
-                                      ? formatDateYYYYMMDD(item.electronic_invoice_date)
-                                      : "-"}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                );
-              })(),
-            },
-            {
               id: "unpaid",
               label: "미수관리",
               content: (() => {
                 // 미수금이 있는 항목들을 통합하여 계산
                 const unpaidItems: Array<{
                   id: string;
+                  measurementId?: number; // 측정일지 ID (측정비인 경우)
+                  code?: string; // 측정일지 code (측정비인 경우)
                   type: "measurement" | "other";
                   name: string;
                   year: number;
@@ -2063,6 +2104,8 @@ export const SalesManagement: React.FC = () => {
                   if (unpaid > 0) {
                     unpaidItems.push({
                       id: `measurement-${item.id}`,
+                      measurementId: item.id,
+                      code: item.code,
                       type: "measurement",
                       name: item.business_name,
                       year: item.measurement_year,
@@ -2354,12 +2397,13 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
+                            <TableHead>작업</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {filteredItems.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={9} className="text-center text-text-500 py-8">
+                              <TableCell colSpan={10} className="text-center text-text-500 py-8">
                                 {unpaidItems.length === 0
                                   ? "미수금이 있는 항목이 없습니다."
                                   : "필터 조건에 맞는 항목이 없습니다."}
@@ -2403,11 +2447,47 @@ export const SalesManagement: React.FC = () => {
                                       {item.depositDate ? formatDateYYYYMMDD(item.depositDate) : "미입금"}
                                     </TableCell>
                                     <TableCell>{item.designatedOffice || "-"}</TableCell>
+                                    <TableCell>
+                                      {item.type === "measurement" && item.measurementId && item.code ? (
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          onClick={async () => {
+                                            try {
+                                              // 측정일지 데이터 가져오기
+                                              const response = await fetch(
+                                                `/api/journal/search?code=${encodeURIComponent(item.code)}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period)}&_t=${new Date().getTime()}`,
+                                                { cache: 'no-store' }
+                                              );
+                                              if (response.ok) {
+                                                const data = await response.json();
+                                                const journal = data.results?.find((j: any) => j.id === item.measurementId);
+                                                if (journal) {
+                                                  setSelectedJournalEntry(journal);
+                                                  setIsJournalModalOpen(true);
+                                                } else {
+                                                  setError("측정일지를 찾을 수 없습니다.");
+                                                }
+                                              } else {
+                                                setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
+                                              }
+                                            } catch (err) {
+                                              console.error("측정일지 조회 오류:", err);
+                                              setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
+                                            }
+                                          }}
+                                        >
+                                          수정
+                                        </Button>
+                                      ) : (
+                                        <span className="text-text-400 text-sm">-</span>
+                                      )}
+                                    </TableCell>
                                   </TableRow>
                                 );
                               })}
                               <TableRow className="bg-surface-50">
-                                <TableCell colSpan={6} className="text-right font-semibold">
+                                <TableCell colSpan={7} className="text-right font-semibold">
                                   미수금 합계
                                 </TableCell>
                                 <TableCell className="text-right font-bold text-warning-600 text-lg">
@@ -2681,6 +2761,33 @@ export const SalesManagement: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* 측정일지 수정 모달 */}
+      {selectedJournalEntry && (
+        <Modal
+          isOpen={isJournalModalOpen}
+          onClose={() => {
+            setIsJournalModalOpen(false);
+            setSelectedJournalEntry(null);
+          }}
+          title="측정일지 수정"
+          size="xl"
+        >
+          <JournalEditForm
+            entry={selectedJournalEntry}
+            onClose={() => {
+              setIsJournalModalOpen(false);
+              setSelectedJournalEntry(null);
+            }}
+            onSuccess={async (savedJournalId) => {
+              setIsJournalModalOpen(false);
+              setSelectedJournalEntry(null);
+              // 데이터 다시 불러오기
+              await loadSalesData();
+            }}
+          />
+        </Modal>
+      )}
 
       {/* Excel 업로드 모달 */}
       <Modal

@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "clear-cache": "node scripts/clear-cache.js",
+    "dev:clean": "npm run clear-cache && npm run dev",
     "create-templates": "tsx scripts/create-upload-templates.ts",
     "init-users": "tsx scripts/init-users.ts",
     "reset-admin-password": "tsx scripts/reset-admin-password.ts"

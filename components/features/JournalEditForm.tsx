@@ -67,13 +67,41 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
     note: (() => {
       const validNoteValues = ["최초실시", "공정 수시변경", "소음 85 이상", "전회 미실시", "타기관 신규"];
-      if (!entry.note) return [];
+      if (!entry.note) {
+        console.log('[JournalEditForm] 초기화: entry.note가 없음');
+        return [];
+      }
       if (typeof entry.note === 'string') {
-        const splitNotes = entry.note.split(',').map(n => n.trim()).filter(Boolean);
-        return splitNotes.filter(note => validNoteValues.includes(note));
+        // 개선된 파싱: 콤마로 분리하고, 체크박스 값만 추출
+        // 콜론(:)이 포함된 항목(예비조사 정보)은 제외
+        const noteString = entry.note.trim();
+        const splitNotes = noteString.split(',').map(n => n.trim()).filter(Boolean);
+        
+        // 체크박스 값만 필터링 (콜론이 없는 항목 중 validNoteValues에 일치하는 것만)
+        const foundNotes = splitNotes.filter(note => {
+          // 콜론이 포함된 항목은 예비조사 정보이므로 제외
+          if (note.includes(':')) {
+            return false;
+          }
+          // validNoteValues에 정확히 일치하는 것만 포함
+          return validNoteValues.includes(note);
+        });
+        
+        console.log('[JournalEditForm] 초기화: note 파싱 (개선)', {
+          원본: entry.note,
+          split후: splitNotes,
+          추출된값: foundNotes,
+          제외된항목: splitNotes.filter(n => n.includes(':') || !validNoteValues.includes(n)),
+        });
+        return foundNotes;
       }
       if (Array.isArray(entry.note)) {
-        return entry.note.filter(note => validNoteValues.includes(note));
+        const filtered = entry.note.filter(note => validNoteValues.includes(note));
+        console.log('[JournalEditForm] 초기화: note 배열 필터링', {
+          원본: entry.note,
+          필터링후: filtered,
+        });
+        return filtered;
       }
       return [];
     })(),
@@ -185,55 +213,66 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
   // 측정비 합계 자동 계산
   useEffect(() => {
-    const business = parseFloat(parseCurrency(formData.measurement_fee_business)) || 0;
-    const national = parseFloat(parseCurrency(formData.measurement_fee_national)) || 0;
-    const total = business + national;
-    if (total > 0 || formData.measurement_fee_business || formData.measurement_fee_national) {
+    // 국고지원 여부가 "비대상"인 경우 사업장만으로 계산
+    if (formData.national_support_status === "비대상") {
+      const business = parseFloat(parseCurrency(formData.measurement_fee_business)) || 0;
       setFormData((prev) => ({
         ...prev,
-        measurement_fee_total: total > 0 ? total.toString() : "",
+        measurement_fee_total: business > 0 ? business.toString() : "",
       }));
+    } else {
+      const business = parseFloat(parseCurrency(formData.measurement_fee_business)) || 0;
+      const national = parseFloat(parseCurrency(formData.measurement_fee_national)) || 0;
+      const total = business + national;
+      if (total > 0 || formData.measurement_fee_business || formData.measurement_fee_national) {
+        setFormData((prev) => ({
+          ...prev,
+          measurement_fee_total: total > 0 ? total.toString() : "",
+        }));
+      }
     }
-  }, [formData.measurement_fee_business, formData.measurement_fee_national]);
+  }, [formData.measurement_fee_business, formData.measurement_fee_national, formData.national_support_status]);
 
   // 입금액 합계 자동 계산
   useEffect(() => {
-    const business = parseFloat(parseCurrency(formData.deposit_amount_business)) || 0;
-    const national = parseFloat(parseCurrency(formData.deposit_amount_national)) || 0;
-    const total = business + national;
-    if (total > 0 || formData.deposit_amount_business || formData.deposit_amount_national) {
+    // 국고지원 여부가 "비대상"인 경우 사업장만으로 계산
+    if (formData.national_support_status === "비대상") {
+      const business = parseFloat(parseCurrency(formData.deposit_amount_business)) || 0;
       setFormData((prev) => ({
         ...prev,
-        deposit_total: total > 0 ? total.toString() : "",
+        deposit_total: business > 0 ? business.toString() : "",
       }));
+    } else {
+      const business = parseFloat(parseCurrency(formData.deposit_amount_business)) || 0;
+      const national = parseFloat(parseCurrency(formData.deposit_amount_national)) || 0;
+      const total = business + national;
+      if (total > 0 || formData.deposit_amount_business || formData.deposit_amount_national) {
+        setFormData((prev) => ({
+          ...prev,
+          deposit_total: total > 0 ? total.toString() : "",
+        }));
+      }
     }
-  }, [formData.deposit_amount_business, formData.deposit_amount_national]);
+  }, [formData.deposit_amount_business, formData.deposit_amount_national, formData.national_support_status]);
 
-  // 측정비 합계 자동 계산
+  // 국고지원 여부가 "비대상"일 때 국고 관련 필드 초기화
   useEffect(() => {
-    const business = parseFloat(parseCurrency(formData.measurement_fee_business)) || 0;
-    const national = parseFloat(parseCurrency(formData.measurement_fee_national)) || 0;
-    const total = business + national;
-    if (total > 0 || formData.measurement_fee_business || formData.measurement_fee_national) {
-      setFormData((prev) => ({
-        ...prev,
-        measurement_fee_total: total > 0 ? total.toString() : "",
-      }));
+    if (formData.national_support_status === "비대상") {
+      setFormData((prev) => {
+        // 이미 초기화되어 있으면 변경하지 않음
+        if (!prev.measurement_fee_national && !prev.deposit_date_national && !prev.deposit_amount_national) {
+          return prev;
+        }
+        console.log('[JournalEditForm] 국고지원 여부가 "비대상"으로 변경되어 국고 관련 필드를 초기화');
+        return {
+          ...prev,
+          measurement_fee_national: "",
+          deposit_date_national: "",
+          deposit_amount_national: "",
+        };
+      });
     }
-  }, [formData.measurement_fee_business, formData.measurement_fee_national]);
-
-  // 입금액 합계 자동 계산
-  useEffect(() => {
-    const business = parseFloat(parseCurrency(formData.deposit_amount_business)) || 0;
-    const national = parseFloat(parseCurrency(formData.deposit_amount_national)) || 0;
-    const total = business + national;
-    if (total > 0 || formData.deposit_amount_business || formData.deposit_amount_national) {
-      setFormData((prev) => ({
-        ...prev,
-        deposit_total: total > 0 ? total.toString() : "",
-      }));
-    }
-  }, [formData.deposit_amount_business, formData.deposit_amount_national]);
+  }, [formData.national_support_status]);
 
   // 초기 로드 시 주소가 있으면 자동 입력 및 사업자번호 포맷팅
   useEffect(() => {
@@ -285,7 +324,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 // updated.measurement_fee_national = prev.measurement_fee_national || (data.previousData.measurement_fee_national ? String(data.previousData.measurement_fee_national) : "") || "";
                 updated.invoice_email = prev.invoice_email || data.previousData.invoice_email || "";
                 updated.measurer = prev.measurer || data.previousData.measurer || "";
-                updated.k2b_sender = prev.k2b_sender || data.previousData.k2b_sender || "";
+                // K2B 전송자는 예비조사 정보를 우선으로 하므로 여기서는 설정하지 않음
+                // updated.k2b_sender = prev.k2b_sender || data.previousData.k2b_sender || "";
                 // 산재관리번호 (비어있을 때만 자동 채우기)
                 const currentIndustrialAccidentNumber = prev.industrial_accident_number || "";
                 const previousIndustrialAccidentNumber = data.previousData.industrial_accident_number || null;
@@ -325,7 +365,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 updated.manager_email = updated.manager_email || data.summaryInfo.manager_email || "";
                 // 측정비는 자동으로 채우지 않고 참고용으로만 저장
                 // updated.measurement_fee_business = updated.measurement_fee_business || (data.summaryInfo.measurement_fee_business ? String(data.summaryInfo.measurement_fee_business) : "") || "";
-                updated.k2b_sender = updated.k2b_sender || data.summaryInfo.k2b_sender || "";
+                // K2B 전송자는 예비조사 정보를 우선으로 하므로 여기서는 설정하지 않음
+                // updated.k2b_sender = updated.k2b_sender || data.summaryInfo.k2b_sender || "";
                 
                 // 전회 측정비 정보 저장 (참고용) - summaryInfo에서도 가져오기
                 if (!previousMeasurementFee.business && data.summaryInfo.measurement_fee_business) {
@@ -342,15 +383,40 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               }
               
               // 국고지원 상태 (우선순위: national_support_application > measurement_business > 직전 측정일지)
+              // 등록 모드: 기존 값이 없을 때만 가져오기
+              // 수정 모드: 기존 값이 없을 때만 가져오기 (건강디딤돌 신청결과 우선)
               if (data.nationalSupportStatus) {
                 updated.national_support_status = prev.national_support_status || data.nationalSupportStatus || "";
               }
               
               // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)
               if (data.surveyInfo) {
+                console.log('[JournalEditForm] 예비조사 정보 확인:', {
+                  report_writer: data.surveyInfo.report_writer,
+                  measurer: data.surveyInfo.measurer,
+                  기존_k2b_sender: prev.k2b_sender,
+                });
+                
                 // 측정자 (예비조사의 measurer가 있으면 무조건 사용, 기존 값 덮어쓰기)
                 if (data.surveyInfo.measurer) {
                   updated.measurer = data.surveyInfo.measurer;
+                }
+                
+                // K2B 전송자 (예비조사의 report_writer가 있으면 기본값으로 설정, 최우선)
+                // report_writer는 콤마 구분 문자열일 수 있으므로 첫 번째 값만 사용
+                if (data.surveyInfo.report_writer) {
+                  // 콤마로 구분된 경우 첫 번째 값만 사용
+                  const reportWriterValue = data.surveyInfo.report_writer.split(',').map((w: string) => w.trim()).filter(Boolean)[0] || data.surveyInfo.report_writer.trim();
+                  
+                  // 등록 모드: 항상 예비조사 정보 사용
+                  // 수정 모드: 예비조사 정보를 우선 사용 (기존 값 덮어쓰기)
+                  updated.k2b_sender = reportWriterValue;
+                  console.log('[JournalEditForm] 예비조사 정보에서 K2B 전송자 기본값 설정:', {
+                    모드: entry.id ? '수정' : '등록',
+                    기존값: prev.k2b_sender,
+                    원본값: data.surveyInfo.report_writer,
+                    설정값: reportWriterValue,
+                  });
                 }
                 
                 // 측정 시작일 (예비조사의 measurement_date가 있으면 기본값으로 설정)
@@ -386,6 +452,17 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                     }
                   });
                   updated.note = currentNotes;
+                }
+              }
+              
+              // K2B 전송자 fallback: 예비조사 정보가 없을 때만 직전 측정일지나 요약 정보 사용
+              if (!updated.k2b_sender) {
+                if (data.previousData?.k2b_sender) {
+                  updated.k2b_sender = prev.k2b_sender || data.previousData.k2b_sender || "";
+                  console.log('[JournalEditForm] 직전 측정일지에서 K2B 전송자 설정:', data.previousData.k2b_sender);
+                } else if (data.summaryInfo?.k2b_sender) {
+                  updated.k2b_sender = data.summaryInfo.k2b_sender || "";
+                  console.log('[JournalEditForm] 요약 정보에서 K2B 전송자 설정:', data.summaryInfo.k2b_sender);
                 }
               }
               
@@ -517,6 +594,47 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   }, [entry.id, user?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 수정 모드일 때 건강디딤돌 신청결과 값 가져오기 (국고지원 여부만)
+  useEffect(() => {
+    // 수정 모드(id가 있음)이고, 필수 필드가 모두 있을 때만 실행
+    if (entry.id && entry.code && entry.measurement_year && entry.measurement_period) {
+      const fetchNationalSupportStatus = async () => {
+        try {
+          const response = await fetch(
+            `/api/journal/previous-data?code=${encodeURIComponent(entry.code)}&year=${entry.measurement_year}&period=${encodeURIComponent(entry.measurement_period)}`
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            
+            // 국고지원 상태가 있고, 현재 값이 비어있을 때만 업데이트
+            if (data.nationalSupportStatus) {
+              setFormData((prev) => {
+                // 기존 값이 없거나 빈 문자열일 때만 건강디딤돌 신청결과 값으로 채우기
+                if (!prev.national_support_status || prev.national_support_status === "") {
+                  console.log('[JournalEditForm] 수정 모드: 건강디딤돌 신청결과 값으로 국고지원 여부 설정', {
+                    기존값: prev.national_support_status,
+                    신청결과값: data.nationalSupportStatus,
+                  });
+                  return {
+                    ...prev,
+                    national_support_status: data.nationalSupportStatus,
+                  };
+                }
+                return prev;
+              });
+            }
+          }
+        } catch (err) {
+          console.error("건강디딤돌 신청결과 조회 오류:", err);
+          // 오류가 발생해도 계속 진행
+        }
+      };
+      
+      fetchNationalSupportStatus();
+    }
+  }, [entry.id, entry.code, entry.measurement_year, entry.measurement_period]);
+
   // entry가 변경될 때 formData 업데이트 (entry.id가 변경되면 전체 재초기화)
   useEffect(() => {
     // entry.id가 변경되면 전체 formData 재초기화
@@ -524,6 +642,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       id: entry.id,
       note: entry.note,
       noteType: typeof entry.note,
+      noteLength: entry.note ? (typeof entry.note === 'string' ? entry.note.length : entry.note.length) : 0,
     });
     
     // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
@@ -532,11 +651,34 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     
     if (entry.note) {
       if (typeof entry.note === 'string') {
-        // 콤마로 분리하고, 비고 체크박스 옵션에 해당하는 값만 필터링
-        const splitNotes = entry.note.split(',').map(n => n.trim()).filter(Boolean);
-        noteArray = splitNotes.filter(note => validNoteValues.includes(note));
+        // 개선된 파싱: 콤마로 분리하고, 체크박스 값만 추출
+        // 콜론(:)이 포함된 항목(예비조사 정보)은 제외
+        const noteString = entry.note.trim();
+        const splitNotes = noteString.split(',').map(n => n.trim()).filter(Boolean);
+        
+        // 체크박스 값만 필터링 (콜론이 없는 항목 중 validNoteValues에 일치하는 것만)
+        noteArray = splitNotes.filter(note => {
+          // 콜론이 포함된 항목은 예비조사 정보이므로 제외
+          if (note.includes(':')) {
+            return false;
+          }
+          // validNoteValues에 정확히 일치하는 것만 포함
+          return validNoteValues.includes(note);
+        });
+        
+        console.log('[JournalEditForm] note 파싱 상세 (개선):', {
+          원본값: entry.note,
+          split후: splitNotes,
+          추출된값: noteArray,
+          validNoteValues: validNoteValues,
+          제외된항목: splitNotes.filter(n => n.includes(':') || !validNoteValues.includes(n)),
+        });
       } else if (Array.isArray(entry.note)) {
         // 배열인 경우에도 비고 체크박스 옵션에 해당하는 값만 필터링
+        console.log('[JournalEditForm] note 배열 파싱:', {
+          원본배열: entry.note,
+          validNoteValues: validNoteValues,
+        });
         noteArray = entry.note.filter(note => validNoteValues.includes(note));
       }
     }
@@ -696,22 +838,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       return;
     }
 
-    // 측정년도/측정주기 변경 검증은 수정 모드(entry.id가 있는 경우)에서만 적용
-    // 등록 모드(entry.id가 null)에서는 검증하지 않음
-    if (entry.id) {
-      if (
-        formData.measurement_year === originalYear &&
-        formData.measurement_period === originalPeriod
-      ) {
-        const confirmed = window.confirm(
-          "측정년도와 측정주기가 변경되지 않았습니다. 계속하시겠습니까?"
-        );
-        if (!confirmed) {
-          setLoading(false);
-          return;
-        }
-      }
-    }
+    // 측정년도/측정주기 변경 검증 제거 (사용자 요청)
 
     try {
       // 데이터 정리 (빈 문자열을 null로 변환)
@@ -732,6 +859,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           submitData[key] = value === "" ? null : value;
         }
       });
+
+      // 국고지원 여부가 "비대상"인 경우 국고 관련 필드를 null로 설정
+      if (submitData.national_support_status === "비대상") {
+        submitData.measurement_fee_national = null;
+        submitData.deposit_date_national = null;
+        submitData.deposit_amount_national = null;
+        console.log('[JournalEditForm] 국고지원 여부가 "비대상"이므로 국고 관련 필드를 null로 설정');
+      }
 
       // 숫자 필드 변환 (콤마 제거 후 파싱)
       if (submitData.total_employees) {
@@ -756,6 +891,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         submitData.deposit_amount_national = parseFloat(parseCurrency(String(submitData.deposit_amount_national)));
       }
 
+      // 국고지원 여부가 "비대상"인 경우 측정비 합계와 입금액 합계를 사업장만으로 재계산
+      if (submitData.national_support_status === "비대상") {
+        const businessFee = submitData.measurement_fee_business || 0;
+        const businessDeposit = submitData.deposit_amount_business || 0;
+        submitData.measurement_fee_total = businessFee > 0 ? businessFee : null;
+        submitData.deposit_total = businessDeposit > 0 ? businessDeposit : null;
+        console.log('[JournalEditForm] 국고지원 여부가 "비대상"이므로 합계를 사업장만으로 재계산:', {
+          measurement_fee_total: submitData.measurement_fee_total,
+          deposit_total: submitData.deposit_total,
+        });
+      }
+
       const url = entry.id ? `/api/journal/${entry.id}` : "/api/journal";
       const method = entry.id ? "PUT" : "POST";
 
@@ -770,6 +917,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       const data = await response.json();
 
       if (response.ok) {
+        // 저장 성공 메시지 표시
+        alert("저장되었습니다.");
         // 저장된 측정일지 ID를 onSuccess에 전달
         onSuccess(data.id || entry.id);
         onClose();
@@ -854,6 +1003,22 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   const isChecked = Array.isArray(formData.note) 
                     ? formData.note.includes(option.value)
                     : formData.note === option.value;
+                  
+                  // 디버깅: 체크박스 렌더링 시 로그 출력 (첫 렌더링만)
+                  if (typeof window !== 'undefined' && entry.id) {
+                    const debugKey = `note-debug-${entry.id}-${option.value}`;
+                    if (!sessionStorage.getItem(debugKey)) {
+                      console.log(`[JournalEditForm] 체크박스 렌더링 [${option.label}]:`, {
+                        entryId: entry.id,
+                        optionValue: option.value,
+                        formDataNote: formData.note,
+                        formDataNoteType: typeof formData.note,
+                        isChecked: isChecked,
+                        noteArrayIncludes: Array.isArray(formData.note) ? formData.note.includes(option.value) : false,
+                      });
+                      sessionStorage.setItem(debugKey, 'true');
+                    }
+                  }
                   
                   return (
                     <Checkbox
@@ -1299,8 +1464,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const parsed = parseCurrency(e.target.value);
                 setFormData({ ...formData, measurement_fee_national: parsed });
               }}
+              disabled={formData.national_support_status === "비대상"}
               list="national-fee-options"
               placeholder={previousMeasurementFee.national ? `전회: ${formatCurrency(String(previousMeasurementFee.national))}원` : "숫자 입력 또는 선택"}
+              className={formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}
             />
             <datalist id="national-fee-options">
               <option value="400000">400,000원</option>
@@ -1409,6 +1576,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               onChange={(e) =>
                 setFormData({ ...formData, deposit_date_national: e.target.value })
               }
+              disabled={formData.national_support_status === "비대상"}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -1419,7 +1587,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
               }}
-              className="max-w-[200px]"
+              className={`max-w-[200px] ${formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}`}
             />
             <Input
               label="입금액(국고)"
@@ -1429,6 +1597,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const parsed = parseCurrency(e.target.value);
                 setFormData({ ...formData, deposit_amount_national: parsed });
               }}
+              disabled={formData.national_support_status === "비대상"}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -1440,6 +1609,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 }
               }}
               placeholder="숫자만 입력"
+              className={formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}
             />
           </div>
         </div>
