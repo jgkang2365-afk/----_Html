@@ -43,38 +43,102 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // 건강디딤돌 신청결과 조회 (국고지원 상태)
+    const codes = (businesses || []).map((b: any) => b.code).filter(Boolean);
+    let nationalSupportMap = new Map<string, string | null>();
+    
+    if (codes.length > 0) {
+      let nationalSupportQuery = supabase
+        .from("national_support_application")
+        .select("code, year, period, national_support_status")
+        .in("code", codes);
+      
+      if (year) {
+        nationalSupportQuery = nationalSupportQuery.eq("year", parseInt(year));
+      }
+      
+      if (period) {
+        nationalSupportQuery = nationalSupportQuery.eq("period", period);
+      }
+
+      const { data: nationalSupportData, error: nationalSupportError } = await nationalSupportQuery;
+
+      if (!nationalSupportError && nationalSupportData) {
+        nationalSupportData.forEach((item: any) => {
+          const key = `${item.code}-${item.year}-${item.period}`;
+          nationalSupportMap.set(key, item.national_support_status || null);
+        });
+      }
+    }
+
+    // 측정일지에서 국고지원 상태 조회
+    let journalNationalSupportMap = new Map<string, string | null>();
+    if (codes.length > 0) {
+      let journalQuery = supabase
+        .from("measurement_journal")
+        .select("code, measurement_year, measurement_period, national_support_status")
+        .in("code", codes);
+      
+      if (year) {
+        journalQuery = journalQuery.eq("measurement_year", parseInt(year));
+      }
+      
+      if (period) {
+        journalQuery = journalQuery.eq("measurement_period", period);
+      }
+
+      const { data: journalData, error: journalError } = await journalQuery;
+      
+      if (!journalError && journalData) {
+        journalData.forEach((item: any) => {
+          const key = `${item.code}-${item.measurement_year}-${item.measurement_period}`;
+          journalNationalSupportMap.set(key, item.national_support_status || null);
+        });
+      }
+    }
+
     // 엑셀 데이터 준비
-    const excelData = (businesses || []).map((business) => ({
-      코드: business.code || "",
-      측정년도: business.year || "",
-      측정주기: business.period || "",
-      사업장명: business.business_name || "",
-      사업자번호: business.business_number || "",
-      총인원: business.total_employees || "",
-      주소: business.address || "",
-      관할청명: business.office_jurisdiction || "",
-      지정한계_관할지청: business.designated_office || "",
-      측정자: business.measurer || "",
-      측정시작일: business.measurement_start_date || "",
-      측정종료일: business.measurement_end_date || "",
-      완료여부: business.completion_status || "",
-      국고지원상태: business.national_support_status || "",
-      담당자명: business.manager_name || "",
-      담당자휴대폰: business.manager_mobile || "",
-      담당자전화: business.manager_phone || "",
-      향후측정예상일: business.future_measurement_date || "",
-      비고: business.notes || "",
-      등록여부: business.is_registered ? "등록됨" : "미등록",
-      등록일시: business.registered_at
-        ? new Date(business.registered_at).toLocaleString("ko-KR")
-        : "",
-      생성일시: business.created_at
-        ? new Date(business.created_at).toLocaleString("ko-KR")
-        : "",
-      수정일시: business.updated_at
-        ? new Date(business.updated_at).toLocaleString("ko-KR")
-        : "",
-    }));
+    const excelData = (businesses || []).map((business) => {
+      // 국고지원 상태 결정 (우선순위: measurement_journal > national_support_application > measurement_target_business)
+      const nationalSupportKey = `${business.code}-${business.year}-${business.period}`;
+      const nationalSupportStatus = 
+        journalNationalSupportMap.get(nationalSupportKey) ||
+        nationalSupportMap.get(nationalSupportKey) ||
+        business.national_support_status ||
+        null;
+
+      return {
+        코드: business.code || "",
+        측정년도: business.year || "",
+        측정주기: business.period || "",
+        사업장명: business.business_name || "",
+        사업자번호: business.business_number || "",
+        총인원: business.total_employees || "",
+        주소: business.address || "",
+        관할청명: business.office_jurisdiction || "",
+        지정한계_관할지청: business.designated_office || "",
+        측정자: business.measurer || "",
+        측정시작일: business.measurement_start_date || "",
+        측정종료일: business.measurement_end_date || "",
+        완료여부: business.completion_status || "",
+        국고지원상태: nationalSupportStatus || "",
+        담당자명: business.manager_name || "",
+        담당자휴대폰: business.manager_mobile || "",
+        담당자전화: business.manager_phone || "",
+        향후측정예상일: business.future_measurement_date || "",
+        비고: business.notes || "",
+        등록여부: business.is_registered ? "등록됨" : "미등록",
+        등록일시: business.registered_at
+          ? new Date(business.registered_at).toLocaleString("ko-KR")
+          : "",
+        생성일시: business.created_at
+          ? new Date(business.created_at).toLocaleString("ko-KR")
+          : "",
+        수정일시: business.updated_at
+          ? new Date(business.updated_at).toLocaleString("ko-KR")
+          : "",
+      };
+    });
 
     // 엑셀 워크북 생성
     const worksheet = XLSX.utils.json_to_sheet(excelData);
