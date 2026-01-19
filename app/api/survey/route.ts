@@ -167,7 +167,7 @@ export async function GET(request: NextRequest) {
         let surveyQuery = supabase
           .from("preliminary_survey")
           .select("*")
-          .order("sequence_number", { ascending: true, nullsLast: true })
+          .order("sequence_number", { ascending: true, nullsFirst: false })
           .order("created_at", { ascending: false });
 
         if (filteredCodes.length > 0) {
@@ -213,7 +213,7 @@ export async function GET(request: NextRequest) {
       const { data: allSurveys, error: allSurveysError } = await supabase
         .from("preliminary_survey")
         .select("*")
-        .order("sequence_number", { ascending: true, nullsLast: true })
+        .order("sequence_number", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false });
 
       if (allSurveysError) {
@@ -227,7 +227,7 @@ export async function GET(request: NextRequest) {
         .from("preliminary_survey")
         .select("*")
         .in("code", codes)
-        .order("sequence_number", { ascending: true, nullsLast: true })
+        .order("sequence_number", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false });
 
       const { data: surveyData, error: surveyError } = await surveyQuery;

@@ -1126,7 +1126,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           {!isAdmin && entry.id && (
             <div className="mt-2">
               {pendingNumberRequest ? (
-                <Alert variant="info" title="번호 변경 요청 대기 중">
+                <Alert variant="warning" title="번호 변경 요청 대기 중">
                   번호 변경 요청이 관리자 승인을 기다리고 있습니다.
                   <div className="mt-2 text-sm">
                     <div>공문연번: {pendingNumberRequest.old_document_number || '-'} → {pendingNumberRequest.new_document_number || '-'}</div>

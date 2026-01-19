@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
     
     const { data: allExistingJournals, error: existingError } = await supabase
       .from("measurement_journal")
-      .select("id, document_number, sequence_number, five_plus_sequence, updated_at, created_at")
+      .select("id, code, business_name, document_number, sequence_number, five_plus_sequence, updated_at, created_at")
       .eq("code", code)
       .eq("measurement_year", measurementYear)
       .eq("measurement_period", measurementPeriod)
@@ -454,7 +454,7 @@ export async function POST(request: NextRequest) {
       .eq("period", measurementPeriod)
       .maybeSingle();
 
-    if (!planCheckError && existingPlan) {
+    if (!planCheckError && existingPlan && newJournal) {
       // 계획이 있으면 등록 정보 업데이트
       const { error: planUpdateError } = await supabase
         .from("measurement_target_business")
@@ -482,6 +482,14 @@ export async function POST(request: NextRequest) {
         console.error("측정 대상 사업장 계획 업데이트 오류:", planUpdateError);
         // 계획 업데이트 실패해도 측정일지 등록은 성공으로 처리
       }
+    }
+
+    if (!newJournal) {
+      console.error("측정일지 생성 실패: newJournal이 null입니다.");
+      return NextResponse.json(
+        { error: "측정일지 생성에 실패했습니다." },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
