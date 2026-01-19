@@ -142,9 +142,9 @@ function LoginForm() {
       }
 
       // 로그인 성공 시 리다이렉트
+      // 완전한 페이지 새로고침을 통해 사용자 정보가 즉시 반영되도록 함
       const redirect = searchParams.get("redirect") || "/dashboard";
-      router.push(redirect);
-      router.refresh();
+      window.location.href = redirect;
     } catch (err) {
       setError("예상치 못한 오류가 발생했습니다.");
       setLoading(false);

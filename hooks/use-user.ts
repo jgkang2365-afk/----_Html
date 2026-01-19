@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 interface User {
   id: string;
@@ -12,21 +12,9 @@ interface User {
 
 export function useUser() {
   const router = useRouter();
+  const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchUser();
-    // 사용자 정보가 로드되지 않았을 경우 재시도
-    const retryTimer = setTimeout(() => {
-      if (!user && !loading) {
-        console.log("[useUser] 사용자 정보가 없어 재시도합니다.");
-        fetchUser();
-      }
-    }, 1000);
-    
-    return () => clearTimeout(retryTimer);
-  }, []);
 
   const fetchUser = async () => {
     try {
@@ -55,6 +43,32 @@ export function useUser() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchUser();
+    // 사용자 정보가 로드되지 않았을 경우 재시도
+    const retryTimer = setTimeout(() => {
+      if (!user && !loading) {
+        console.log("[useUser] 사용자 정보가 없어 재시도합니다.");
+        fetchUser();
+      }
+    }, 1000);
+    
+    return () => clearTimeout(retryTimer);
+  }, []);
+
+  // pathname 변경 시 사용자 정보 다시 가져오기 (로그인 후 페이지 이동 시)
+  // 이전 pathname을 추적하여 로그인 페이지에서 다른 페이지로 이동할 때만 refetch
+  useEffect(() => {
+    if (pathname && pathname !== "/login") {
+      // 로그인 페이지가 아닐 때만 refetch (너무 자주 호출되지 않도록)
+      // 단, 이미 사용자 정보가 있으면 refetch하지 않음 (불필요한 요청 방지)
+      if (!user) {
+        console.log("[useUser] pathname 변경 감지, 사용자 정보 refetch:", pathname);
+        fetchUser();
+      }
+    }
+  }, [pathname]);
 
   const logout = async () => {
     try {
