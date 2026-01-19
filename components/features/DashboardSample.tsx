@@ -13,7 +13,7 @@ import {
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 
-interface DashboardData {
+interface SampleDashboardData {
   totalCount: number;
   incompleteCount: number;
   completeCount: number;
@@ -71,21 +71,21 @@ interface DashboardData {
   }>;
 }
 
-export const Dashboard: React.FC = () => {
-  const [data, setData] = useState<DashboardData | null>(null);
+export const DashboardSample: React.FC = () => {
+  const [data, setData] = useState<SampleDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadDashboardData();
+    loadSampleData();
   }, []);
 
-  const loadDashboardData = async () => {
+  const loadSampleData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await fetch("/api/dashboard", {
+      const response = await fetch("/api/dashboard/sample", {
         cache: "no-store",
       });
 
@@ -108,7 +108,7 @@ export const Dashboard: React.FC = () => {
             console.error("응답 읽기 실패:", textError);
           }
         }
-        console.error("대시보드 API 오류:", {
+        console.error("샘플 대시보드 API 오류:", {
           status: response.status,
           statusText: response.statusText,
           errorMessage,
@@ -123,8 +123,8 @@ export const Dashboard: React.FC = () => {
       setData(result);
       setLoading(false);
     } catch (err: any) {
-      console.error("대시보드 데이터 로드 오류:", err);
-      setError(err.message || "대시보드 데이터를 불러오는 중 오류가 발생했습니다.");
+      console.error("샘플 대시보드 데이터 로드 오류:", err);
+      setError(err.message || "샘플 대시보드 데이터를 불러오는 중 오류가 발생했습니다.");
       setLoading(false);
     }
   };

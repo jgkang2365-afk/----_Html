@@ -224,79 +224,77 @@ export const NationalSupportManagement: React.FC = () => {
             <p className="text-text-500 text-lg">조회 결과가 없습니다.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-surface-200">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="bg-surface-50">코드</TableHead>
-                  <TableHead className="bg-surface-50">사업장명</TableHead>
-                  <TableHead className="bg-surface-50">측정년도</TableHead>
-                  <TableHead className="bg-surface-50">측정주기</TableHead>
-                  <TableHead className="bg-surface-50">신청 여부</TableHead>
-                  <TableHead className="bg-surface-50">신청결과</TableHead>
-                  <TableHead className="bg-surface-50">국고지원 상태</TableHead>
-                  <TableHead className="bg-surface-50">등록일시</TableHead>
-                  <TableHead className="bg-surface-50">수정일시</TableHead>
-                  <TableHead className="bg-surface-50">관리</TableHead>
+          <Table maxHeight="max-h-[calc(100vh-300px)]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="bg-surface-50">코드</TableHead>
+                <TableHead className="bg-surface-50">사업장명</TableHead>
+                <TableHead className="bg-surface-50">측정년도</TableHead>
+                <TableHead className="bg-surface-50">측정주기</TableHead>
+                <TableHead className="bg-surface-50">신청 여부</TableHead>
+                <TableHead className="bg-surface-50">신청결과</TableHead>
+                <TableHead className="bg-surface-50">국고지원 상태</TableHead>
+                <TableHead className="bg-surface-50">등록일시</TableHead>
+                <TableHead className="bg-surface-50">수정일시</TableHead>
+                <TableHead className="bg-surface-50">관리</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredEntries.map((entry) => (
+                <TableRow key={entry.id} className="hover:bg-surface-50">
+                  <TableCell className="font-medium">{entry.code}</TableCell>
+                  <TableCell className="font-medium">{entry.business_name || "-"}</TableCell>
+                  <TableCell>{entry.year}</TableCell>
+                  <TableCell>{entry.period}</TableCell>
+                  <TableCell>{entry.application_status || "-"}</TableCell>
+                  <TableCell>{entry.result || "-"}</TableCell>
+                  <TableCell>
+                    <span
+                      className={`px-2 py-1 rounded text-sm font-medium ${
+                        entry.national_support_status === "지원"
+                          ? "bg-green-100 text-green-800"
+                          : entry.national_support_status === "비대상"
+                          ? "bg-gray-100 text-gray-800"
+                          : "bg-surface-100 text-surface-600"
+                      }`}
+                    >
+                      {entry.national_support_status || "-"}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {entry.created_at
+                      ? new Date(entry.created_at).toLocaleString("ko-KR")
+                      : "-"}
+                  </TableCell>
+                  <TableCell>
+                    {entry.updated_at
+                      ? new Date(entry.updated_at).toLocaleString("ko-KR")
+                      : "-"}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedEntry(entry);
+                        setFormData({
+                          code: entry.code,
+                          year: entry.year.toString(),
+                          period: entry.period,
+                          application_status: entry.application_status || "",
+                          result: entry.result || "",
+                          national_support_status: entry.national_support_status || "",
+                        });
+                        setIsModalOpen(true);
+                      }}
+                    >
+                      수정
+                    </Button>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredEntries.map((entry) => (
-                  <TableRow key={entry.id} className="hover:bg-surface-50">
-                    <TableCell className="font-medium">{entry.code}</TableCell>
-                    <TableCell className="font-medium">{entry.business_name || "-"}</TableCell>
-                    <TableCell>{entry.year}</TableCell>
-                    <TableCell>{entry.period}</TableCell>
-                    <TableCell>{entry.application_status || "-"}</TableCell>
-                    <TableCell>{entry.result || "-"}</TableCell>
-                    <TableCell>
-                      <span
-                        className={`px-2 py-1 rounded text-sm font-medium ${
-                          entry.national_support_status === "지원"
-                            ? "bg-green-100 text-green-800"
-                            : entry.national_support_status === "비대상"
-                            ? "bg-gray-100 text-gray-800"
-                            : "bg-surface-100 text-surface-600"
-                        }`}
-                      >
-                        {entry.national_support_status || "-"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {entry.created_at
-                        ? new Date(entry.created_at).toLocaleString("ko-KR")
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {entry.updated_at
-                        ? new Date(entry.updated_at).toLocaleString("ko-KR")
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedEntry(entry);
-                          setFormData({
-                            code: entry.code,
-                            year: entry.year.toString(),
-                            period: entry.period,
-                            application_status: entry.application_status || "",
-                            result: entry.result || "",
-                            national_support_status: entry.national_support_status || "",
-                          });
-                          setIsModalOpen(true);
-                        }}
-                      >
-                        수정
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </Card>
 

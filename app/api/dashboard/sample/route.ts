@@ -4,11 +4,11 @@ import { checkPermission } from "@/lib/auth/check-permission";
 
 export async function GET() {
   try {
-    console.log("[API /api/dashboard] 대시보드 데이터 조회 시작");
+    console.log("[API /api/dashboard/sample] 샘플 대시보드 데이터 조회 시작");
     
     // 환경 변수 확인
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      console.error("[API /api/dashboard] Supabase 환경 변수가 설정되지 않았습니다.");
+      console.error("[API /api/dashboard/sample] Supabase 환경 변수가 설정되지 않았습니다.");
       return NextResponse.json(
         {
           error: "서버 설정 오류",
@@ -21,12 +21,12 @@ export async function GET() {
     // 권한 확인
     try {
       await checkPermission("dashboard:read");
-      console.log("[API /api/dashboard] 권한 확인 완료");
+      console.log("[API /api/dashboard/sample] 권한 확인 완료");
     } catch (permissionError: any) {
-      console.error("[API /api/dashboard] 권한 확인 실패:", permissionError);
-      console.error("[API /api/dashboard] 권한 오류 타입:", typeof permissionError);
-      console.error("[API /api/dashboard] 권한 오류 메시지:", permissionError?.message);
-      console.error("[API /api/dashboard] 권한 오류 스택:", permissionError?.stack);
+      console.error("[API /api/dashboard/sample] 권한 확인 실패:", permissionError);
+      console.error("[API /api/dashboard/sample] 권한 오류 타입:", typeof permissionError);
+      console.error("[API /api/dashboard/sample] 권한 오류 메시지:", permissionError?.message);
+      console.error("[API /api/dashboard/sample] 권한 오류 스택:", permissionError?.stack);
       
       if (permissionError?.message === "Unauthorized") {
         return NextResponse.json(
@@ -50,13 +50,13 @@ export async function GET() {
       );
     }
 
-    console.log("[API /api/dashboard] Supabase 클라이언트 생성 시작");
+    console.log("[API /api/dashboard/sample] Supabase 클라이언트 생성 시작");
     let supabase;
     try {
       supabase = await createClient();
-      console.log("[API /api/dashboard] Supabase 클라이언트 생성 완료");
+      console.log("[API /api/dashboard/sample] Supabase 클라이언트 생성 완료");
     } catch (supabaseError: any) {
-      console.error("[API /api/dashboard] Supabase 클라이언트 생성 실패:", supabaseError);
+      console.error("[API /api/dashboard/sample] Supabase 클라이언트 생성 실패:", supabaseError);
       return NextResponse.json(
         {
           error: "데이터베이스 연결 오류",
@@ -67,15 +67,15 @@ export async function GET() {
     }
 
     // 1. 측정건수 및 미완료 건수
-    console.log("[API /api/dashboard] 측정일지 조회 시작");
+    console.log("[API /api/dashboard/sample] 측정일지 조회 시작");
     const { data: allJournals, error: journalError } = await supabase
       .from("measurement_journal")
       .select("id, completion_status");
 
     if (journalError) {
-      console.error("[API /api/dashboard] 측정일지 조회 오류:", journalError);
-      console.error("[API /api/dashboard] 측정일지 조회 오류 코드:", journalError.code);
-      console.error("[API /api/dashboard] 측정일지 조회 오류 메시지:", journalError.message);
+      console.error("[API /api/dashboard/sample] 측정일지 조회 오류:", journalError);
+      console.error("[API /api/dashboard/sample] 측정일지 조회 오류 코드:", journalError.code);
+      console.error("[API /api/dashboard/sample] 측정일지 조회 오류 메시지:", journalError.message);
       return NextResponse.json(
         {
           error: "측정일지 데이터 조회 실패",
@@ -84,7 +84,7 @@ export async function GET() {
         { status: 500 }
       );
     }
-    console.log("[API /api/dashboard] 측정일지 조회 완료:", allJournals?.length || 0, "건");
+    console.log("[API /api/dashboard/sample] 측정일지 조회 완료:", allJournals?.length || 0, "건");
 
     const totalCount = allJournals?.length || 0;
     const incompleteCount =
@@ -426,15 +426,15 @@ export async function GET() {
       periodRevenue: periodRevenueList,
     });
   } catch (error: any) {
-    console.error("[API /api/dashboard] ===== 예외 발생 =====");
-    console.error("[API /api/dashboard] 오류 타입:", typeof error);
-    console.error("[API /api/dashboard] 오류 이름:", error?.name);
-    console.error("[API /api/dashboard] 오류 메시지:", error?.message);
-    console.error("[API /api/dashboard] 오류 스택:", error?.stack);
+    console.error("[API /api/dashboard/sample] ===== 예외 발생 =====");
+    console.error("[API /api/dashboard/sample] 오류 타입:", typeof error);
+    console.error("[API /api/dashboard/sample] 오류 이름:", error?.name);
+    console.error("[API /api/dashboard/sample] 오류 메시지:", error?.message);
+    console.error("[API /api/dashboard/sample] 오류 스택:", error?.stack);
     
     // Supabase 에러인 경우
     if (error?.code || error?.hint || error?.details) {
-      console.error("[API /api/dashboard] Supabase 에러 상세:", {
+      console.error("[API /api/dashboard/sample] Supabase 에러 상세:", {
         code: error.code,
         message: error.message,
         hint: error.hint,
@@ -469,7 +469,7 @@ export async function GET() {
     // 일반적인 에러 응답
     return NextResponse.json(
       {
-        error: "대시보드 데이터를 불러오는 중 오류가 발생했습니다.",
+        error: "샘플 대시보드 데이터를 불러오는 중 오류가 발생했습니다.",
         details: errorDetails,
         message: errorMessage,
         // 개발 환경에서만 추가 정보 포함

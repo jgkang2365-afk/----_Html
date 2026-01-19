@@ -329,81 +329,79 @@ export const SummaryTable: React.FC = () => {
           ) : results.length === 0 ? (
             <p className="text-text-500 text-center py-8">검색 결과가 없습니다.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>측정년도</TableHead>
-                    <TableHead>측정주기</TableHead>
-                    <TableHead>사업장명</TableHead>
-                    <TableHead>공문연번</TableHead>
-                    <TableHead>연번</TableHead>
-                    <TableHead>5인 이상 연번</TableHead>
-                    <TableHead>측정시작일</TableHead>
-                    <TableHead>측정종료일</TableHead>
-                    <TableHead>측정자</TableHead>
-                    <TableHead>예비조사자</TableHead>
-                    <TableHead>실측정자</TableHead>
-                    <TableHead>보고서 담당</TableHead>
-                    <TableHead>완료여부</TableHead>
-                    <TableHead>작업</TableHead>
+            <Table maxHeight="max-h-[calc(100vh-300px)]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>측정년도</TableHead>
+                  <TableHead>측정주기</TableHead>
+                  <TableHead>사업장명</TableHead>
+                  <TableHead>공문연번</TableHead>
+                  <TableHead>연번</TableHead>
+                  <TableHead>5인 이상 연번</TableHead>
+                  <TableHead>측정시작일</TableHead>
+                  <TableHead>측정종료일</TableHead>
+                  <TableHead>측정자</TableHead>
+                  <TableHead>예비조사자</TableHead>
+                  <TableHead>실측정자</TableHead>
+                  <TableHead>보고서 담당</TableHead>
+                  <TableHead>완료여부</TableHead>
+                  <TableHead>작업</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {results.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell>{entry.measurement_year}</TableCell>
+                    <TableCell>{entry.measurement_period}</TableCell>
+                    <TableCell className="font-medium">{entry.business_name}</TableCell>
+                    <TableCell className="bg-surface-50 font-mono">
+                      {entry.document_number || "-"}
+                    </TableCell>
+                    <TableCell className="bg-surface-50 font-mono">
+                      {entry.sequence_number || "-"}
+                    </TableCell>
+                    <TableCell className="bg-surface-50 font-mono">
+                      {entry.five_plus_sequence || "-"}
+                    </TableCell>
+                    <TableCell>
+                      {entry.measurement_start_date
+                        ? formatDateYYYYMMDD(entry.measurement_start_date)
+                        : "-"}
+                    </TableCell>
+                    <TableCell>
+                      {entry.measurement_end_date
+                        ? formatDateYYYYMMDD(entry.measurement_end_date)
+                        : "-"}
+                    </TableCell>
+                    <TableCell>{entry.measurer || "-"}</TableCell>
+                    <TableCell>{entry.preliminary_surveyor || "-"}</TableCell>
+                    <TableCell>{entry.actual_measurer || "-"}</TableCell>
+                    <TableCell>{entry.report_writer || "-"}</TableCell>
+                    <TableCell>
+                      <span
+                        className={`px-2 py-1 rounded text-xs ${
+                          entry.completion_status === "완료"
+                            ? "bg-success-100 text-success-700"
+                            : "bg-warning-100 text-warning-700"
+                        }`}
+                      >
+                        {entry.completion_status}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleEdit(entry)}
+                        disabled={entry.completion_status === "완료"}
+                      >
+                        수정
+                      </Button>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {results.map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell>{entry.measurement_year}</TableCell>
-                      <TableCell>{entry.measurement_period}</TableCell>
-                      <TableCell className="font-medium">{entry.business_name}</TableCell>
-                      <TableCell className="bg-surface-50 font-mono">
-                        {entry.document_number || "-"}
-                      </TableCell>
-                      <TableCell className="bg-surface-50 font-mono">
-                        {entry.sequence_number || "-"}
-                      </TableCell>
-                      <TableCell className="bg-surface-50 font-mono">
-                        {entry.five_plus_sequence || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {entry.measurement_start_date
-                          ? formatDateYYYYMMDD(entry.measurement_start_date)
-                          : "-"}
-                      </TableCell>
-                      <TableCell>
-                        {entry.measurement_end_date
-                          ? formatDateYYYYMMDD(entry.measurement_end_date)
-                          : "-"}
-                      </TableCell>
-                      <TableCell>{entry.measurer || "-"}</TableCell>
-                      <TableCell>{entry.preliminary_surveyor || "-"}</TableCell>
-                      <TableCell>{entry.actual_measurer || "-"}</TableCell>
-                      <TableCell>{entry.report_writer || "-"}</TableCell>
-                      <TableCell>
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            entry.completion_status === "완료"
-                              ? "bg-success-100 text-success-700"
-                              : "bg-warning-100 text-warning-700"
-                          }`}
-                        >
-                          {entry.completion_status}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleEdit(entry)}
-                          disabled={entry.completion_status === "완료"}
-                        >
-                          수정
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </Card>
       )}

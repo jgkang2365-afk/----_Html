@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 
 export interface TableProps extends React.TableHTMLAttributes<HTMLTableElement> {
   children: React.ReactNode;
+  maxHeight?: string;
 }
 
 export interface TableHeaderProps extends React.HTMLAttributes<HTMLTableSectionElement> {
@@ -28,10 +29,10 @@ export interface TableCellProps extends React.TdHTMLAttributes<HTMLTableCellElem
 }
 
 export const Table = React.forwardRef<HTMLTableElement, TableProps>(
-  ({ children, className, ...props }, ref) => {
+  ({ children, className, maxHeight, ...props }, ref) => {
     return (
       <div className="w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm bg-white">
-        <div className="overflow-x-auto">
+        <div className={cn("overflow-x-auto", maxHeight && `overflow-y-auto ${maxHeight}`)}>
           <table
             ref={ref}
             className={cn("w-full caption-bottom text-base", className)}
@@ -52,7 +53,7 @@ export const TableHeader = React.forwardRef<HTMLTableSectionElement, TableHeader
     return (
       <thead
         ref={ref}
-        className={cn("bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-10", className)}
+        className={cn("bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-20", className)}
         {...props}
       >
         {children}

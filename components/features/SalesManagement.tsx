@@ -1465,8 +1465,8 @@ export const SalesManagement: React.FC = () => {
                         필터 초기화
                       </Button>
                     </div>
-                    <div className="overflow-x-auto">
-                      <Table>
+                    <div className="rounded-lg border border-surface-200">
+                      <Table maxHeight="max-h-[calc(100vh-300px)]">
                         <TableHeader>
                           <TableRow>
                             <TableHead>
@@ -2456,7 +2456,7 @@ export const SalesManagement: React.FC = () => {
                                             try {
                                               // 측정일지 데이터 가져오기
                                               const response = await fetch(
-                                                `/api/journal/search?code=${encodeURIComponent(item.code)}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period)}&_t=${new Date().getTime()}`,
+                                                `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
                                                 { cache: 'no-store' }
                                               );
                                               if (response.ok) {

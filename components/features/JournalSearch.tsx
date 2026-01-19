@@ -1014,8 +1014,8 @@ export const JournalSearch: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-surface-200">
-                <Table>
+              <div className="rounded-lg border border-surface-200">
+                <Table maxHeight="max-h-[calc(100vh-300px)]">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="bg-surface-50 w-12">

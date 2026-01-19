@@ -17,7 +17,11 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const fileType = formData.get("type") as string; // "business-info" | "measurement-business"
-    const autoSync = formData.get("autoSync") === "true"; // 업로드 후 자동 동기화
+    const autoSyncValue = formData.get("autoSync");
+    const autoSync = autoSyncValue === "true"; // 업로드 후 자동 동기화
+    
+    // 디버깅: autoSync 값 확인
+    console.log("[업로드 API] autoSync 값:", autoSyncValue, "->", autoSync);
 
     if (!file) {
       return NextResponse.json(
@@ -109,27 +113,42 @@ export async function POST(request: NextRequest) {
 
     // 자동 동기화가 요청된 경우
     if (autoSync) {
+      console.log("[업로드 API] 자동 동기화 시작 - 파일 타입:", targetFileType);
       try {
+        // Storage에 파일이 완전히 반영될 때까지 짧은 대기 시간
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         const { syncBusinessInfo, syncMeasurementBusiness } = await import("@/lib/sync/excel-sync");
         
-        // Storage에서 파일을 다운로드하여 동기화 (Admin 클라이언트 사용)
-        const { data: downloadData, error: downloadError } = await supabase.storage
-          .from("excel-files")
-          .download(filePath);
-
-        if (downloadError) {
-          console.error("파일 다운로드 오류:", downloadError);
-          response.syncWarning = "파일은 업로드되었지만 동기화에 실패했습니다. 나중에 수동으로 동기화해주세요.";
+        // 파일 타입에 따라 해당 동기화 함수 호출
+        // 동기화 함수는 Storage에서 최신 파일을 자동으로 가져옵니다
+        let syncResult;
+        if (targetFileType === "business-info") {
+          console.log("[업로드 API] syncBusinessInfo 호출");
+          syncResult = await syncBusinessInfo();
+        } else if (targetFileType === "measurement-business") {
+          console.log("[업로드 API] syncMeasurementBusiness 호출");
+          syncResult = await syncMeasurementBusiness();
         } else {
-          // 임시 파일로 저장 (동기화 함수는 파일 경로를 요구)
-          // 또는 동기화 함수를 수정하여 Buffer도 받을 수 있도록 해야 함
-          // 일단 업로드만 성공 처리
-          response.syncWarning = "파일 업로드는 완료되었습니다. 수동 동기화를 실행해주세요.";
+          throw new Error(`알 수 없는 파일 타입: ${targetFileType}`);
+        }
+
+        console.log("[업로드 API] 동기화 결과:", syncResult);
+
+        if (syncResult.success) {
+          response.syncSuccess = true;
+          response.syncMessage = `동기화 완료: ${syncResult.records_processed}건 처리 (신규: ${syncResult.records_inserted}건, 수정: ${syncResult.records_updated}건)`;
+        } else {
+          response.syncSuccess = false;
+          response.syncWarning = `파일은 업로드되었지만 동기화에 실패했습니다: ${syncResult.error_message || "알 수 없는 오류"}`;
         }
       } catch (syncError) {
-        console.error("자동 동기화 오류:", syncError);
-        response.syncWarning = "파일은 업로드되었지만 동기화에 실패했습니다. 나중에 수동으로 동기화해주세요.";
+        console.error("[업로드 API] 자동 동기화 오류:", syncError);
+        response.syncSuccess = false;
+        response.syncWarning = `파일은 업로드되었지만 동기화에 실패했습니다: ${syncError instanceof Error ? syncError.message : "알 수 없는 오류"}`;
       }
+    } else {
+      console.log("[업로드 API] 자동 동기화 비활성화됨");
     }
 
     return NextResponse.json(response, { status: 200 });
