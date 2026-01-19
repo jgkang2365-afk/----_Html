@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -35,8 +35,16 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
   const pathname = usePathname();
-  const { user } = useUser();
+  const { user, loading } = useUser();
   const isAdmin = user?.role === "관리자";
+  
+  // 디버깅: 사용자 정보 확인
+  React.useEffect(() => {
+    if (!loading) {
+      console.log("[Sidebar] 사용자 정보:", user);
+      console.log("[Sidebar] 관리자 여부:", isAdmin);
+    }
+  }, [user, loading, isAdmin]);
 
   return (
     <>
@@ -88,7 +96,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
           </nav>
           
           {/* 관리자 전용 메뉴 (하단 고정) */}
-          {isAdmin && (
+          {!loading && isAdmin && (
             <nav className="mt-auto border-t border-surface-200 pt-4 pb-6">
               <ul className="space-y-1 px-3">
                 {adminNavItems.map((item) => {

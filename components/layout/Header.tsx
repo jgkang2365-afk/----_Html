@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
+import React from "react";
 
 interface HeaderProps {
   onMenuToggle?: () => void;
@@ -35,8 +36,16 @@ const adminNavItems: NavItem[] = [
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, logout } = useUser();
+  const { user, loading, logout } = useUser();
   const isAdmin = user?.role === "관리자";
+  
+  // 디버깅: 사용자 정보 확인
+  React.useEffect(() => {
+    if (!loading) {
+      console.log("[Header] 사용자 정보:", user);
+      console.log("[Header] 관리자 여부:", isAdmin);
+    }
+  }, [user, loading, isAdmin]);
 
   const handleLoginClick = () => {
     router.push("/login");
@@ -119,7 +128,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
             </ul>
             
             {/* 관리자 메뉴 (맨 오른쪽) */}
-            {isAdmin && (
+            {!loading && isAdmin && (
               <ul className="flex gap-1">
                 {adminNavItems.map((item) => {
                   const isActive =
