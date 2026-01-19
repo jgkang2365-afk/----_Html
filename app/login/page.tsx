@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent, useEffect, Suspense } from "react";
+import { useState, FormEvent, useEffect, Suspense, useRef, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -17,6 +17,10 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [isInitialSetup, setIsInitialSetup] = useState(false);
   const [checkingSetup, setCheckingSetup] = useState(false);
+  
+  // 입력 필드 포커스 유지를 위한 ref
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
 
   // 이름 입력 시 최초 설정 필요 여부 확인
   useEffect(() => {
@@ -26,6 +30,12 @@ function LoginForm() {
         setConfirmPassword(""); // 이름이 변경되면 확인 비밀번호 초기화
         return;
       }
+
+      // 현재 포커스된 요소와 커서 위치 저장
+      const activeElement = document.activeElement as HTMLInputElement | null;
+      const savedSelectionStart = activeElement?.selectionStart ?? null;
+      const savedSelectionEnd = activeElement?.selectionEnd ?? null;
+      const savedInputId = activeElement?.id;
 
       setCheckingSetup(true);
       try {
@@ -40,6 +50,21 @@ function LoginForm() {
         setConfirmPassword("");
       } finally {
         setCheckingSetup(false);
+        
+        // 포커스와 커서 위치 복원
+        requestAnimationFrame(() => {
+          if (savedInputId === "name" && nameInputRef.current) {
+            nameInputRef.current.focus();
+            if (savedSelectionStart !== null && savedSelectionEnd !== null) {
+              nameInputRef.current.setSelectionRange(savedSelectionStart, savedSelectionEnd);
+            }
+          } else if (savedInputId === "password" && passwordInputRef.current) {
+            passwordInputRef.current.focus();
+            if (savedSelectionStart !== null && savedSelectionEnd !== null) {
+              passwordInputRef.current.setSelectionRange(savedSelectionStart, savedSelectionEnd);
+            }
+          }
+        });
       }
     };
 
@@ -47,6 +72,19 @@ function LoginForm() {
     const timeoutId = setTimeout(checkInitialSetup, 500);
     return () => clearTimeout(timeoutId);
   }, [name]);
+
+  // 입력 핸들러 메모이제이션
+  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setName(e.target.value);
+  }, []);
+
+  const handlePasswordChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setPassword(e.target.value);
+  }, []);
+
+  const handleConfirmPasswordChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setConfirmPassword(e.target.value);
+  }, []);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -144,14 +182,17 @@ function LoginForm() {
                 이름
               </label>
               <Input
+                ref={nameInputRef}
                 id="name"
+                key="name-input"
                 type="text"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={handleNameChange}
                 placeholder="이름을 입력하세요"
                 required
-                disabled={loading || checkingSetup}
+                disabled={loading}
                 autoFocus
+                autoComplete="username"
               />
               {checkingSetup && (
                 <p className="mt-1 text-xs text-text-500">확인 중...</p>
@@ -163,13 +204,16 @@ function LoginForm() {
                 {isInitialSetup ? "비밀번호 설정" : "비밀번호"}
               </label>
               <Input
+                ref={passwordInputRef}
                 id="password"
+                key="password-input"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={handlePasswordChange}
                 placeholder={isInitialSetup ? "설정할 비밀번호 (최소 4자)" : "••••••••"}
                 required
-                disabled={loading || checkingSetup}
+                disabled={loading}
+                autoComplete={isInitialSetup ? "new-password" : "current-password"}
               />
             </div>
 
@@ -180,12 +224,14 @@ function LoginForm() {
                 </label>
                 <Input
                   id="confirmPassword"
+                  key="confirm-password-input"
                   type="password"
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onChange={handleConfirmPasswordChange}
                   placeholder="비밀번호를 다시 입력하세요"
                   required
-                  disabled={loading || checkingSetup}
+                  disabled={loading}
+                  autoComplete="new-password"
                 />
                 {confirmPassword && password !== confirmPassword && (
                   <p className="mt-1 text-xs text-red-600">비밀번호가 일치하지 않습니다.</p>
