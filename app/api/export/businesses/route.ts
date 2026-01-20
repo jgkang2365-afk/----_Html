@@ -71,12 +71,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 측정일지에서 국고지원 상태 조회
+    // 측정일지에서 국고지원 상태 및 business_category 조회
     let journalNationalSupportMap = new Map<string, string | null>();
+    let businessCategoryMap = new Map<string, string | null>();
     if (codes.length > 0) {
       let journalQuery = supabase
         .from("measurement_journal")
-        .select("code, measurement_year, measurement_period, national_support_status")
+        .select("code, measurement_year, measurement_period, national_support_status, business_category")
         .in("code", codes);
       
       if (year) {
@@ -93,7 +94,90 @@ export async function GET(request: NextRequest) {
         journalData.forEach((item: any) => {
           const key = `${item.code}-${item.measurement_year}-${item.measurement_period}`;
           journalNationalSupportMap.set(key, item.national_support_status || null);
+          businessCategoryMap.set(key, item.business_category || null);
         });
+      }
+    }
+
+    // 전회 측정일 조회
+    let previousMeasurementDateMap = new Map<string, string | null>();
+    if (codes.length > 0 && year && period) {
+      try {
+        const targetYear = parseInt(year);
+        // 우선순위에 따라 조회할 년도/주기 결정
+        let priorityYear: number;
+        let priorityPeriod: string;
+        let fallbackYear: number | null = null;
+        let fallbackPeriod: string | null = null;
+
+        if (period === "상반기") {
+          // 상반기: 이전 년도 하반기 -> 이전 년도 상반기
+          priorityYear = targetYear - 1;
+          priorityPeriod = "하반기";
+          fallbackYear = targetYear - 1;
+          fallbackPeriod = "상반기";
+        } else {
+          // 하반기: 같은 년도 상반기 -> 이전 년도 하반기
+          priorityYear = targetYear;
+          priorityPeriod = "상반기";
+          fallbackYear = targetYear - 1;
+          fallbackPeriod = "하반기";
+        }
+
+        // 우선순위 측정일지 조회
+        try {
+          const { data: priorityJournals, error: priorityError } = await supabase
+            .from("measurement_journal")
+            .select("code, measurement_start_date, measurement_end_date")
+            .in("code", codes)
+            .eq("measurement_year", priorityYear)
+            .eq("measurement_period", priorityPeriod)
+            .or("measurement_start_date.not.is.null,measurement_end_date.not.is.null");
+
+          if (!priorityError && priorityJournals) {
+            priorityJournals.forEach((journal: any) => {
+              if (journal.code && !previousMeasurementDateMap.has(journal.code)) {
+                const measurementDate = journal.measurement_end_date || journal.measurement_start_date;
+                if (measurementDate) {
+                  previousMeasurementDateMap.set(journal.code, measurementDate);
+                }
+              }
+            });
+          }
+        } catch (priorityErr) {
+          console.error("우선순위 전회 측정일 조회 중 예외 발생:", priorityErr);
+        }
+
+        // Fallback 조회
+        if (fallbackYear !== null && fallbackPeriod !== null) {
+          const missingCodes = codes.filter(code => !previousMeasurementDateMap.has(code));
+          if (missingCodes.length > 0) {
+            try {
+              const { data: fallbackJournals, error: fallbackError } = await supabase
+                .from("measurement_journal")
+                .select("code, measurement_start_date, measurement_end_date")
+                .in("code", missingCodes)
+                .eq("measurement_year", fallbackYear)
+                .eq("measurement_period", fallbackPeriod)
+                .or("measurement_start_date.not.is.null,measurement_end_date.not.is.null");
+
+              if (!fallbackError && fallbackJournals) {
+                fallbackJournals.forEach((journal: any) => {
+                  if (journal.code && !previousMeasurementDateMap.has(journal.code)) {
+                    const measurementDate = journal.measurement_end_date || journal.measurement_start_date;
+                    if (measurementDate) {
+                      previousMeasurementDateMap.set(journal.code, measurementDate);
+                    }
+                  }
+                });
+              }
+            } catch (fallbackErr) {
+              console.error("Fallback 전회 측정일 조회 중 예외 발생:", fallbackErr);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("전회 측정일 조회 중 예외 발생:", error);
       }
     }
 
@@ -107,36 +191,59 @@ export async function GET(request: NextRequest) {
         business.national_support_status ||
         null;
 
+      // business_category 조회
+      const businessCategory = businessCategoryMap.get(nationalSupportKey) || null;
+
+      // 전회측정일 조회 및 포맷팅
+      let previousMeasurementDateFormatted = "";
+      const previousMeasurementDate = previousMeasurementDateMap.get(business.code);
+      if (previousMeasurementDate) {
+        try {
+          const date = new Date(previousMeasurementDate);
+          previousMeasurementDateFormatted = date.toISOString().split("T")[0];
+        } catch {
+          previousMeasurementDateFormatted = previousMeasurementDate;
+        }
+      }
+
+      // 금회측정 예정월 (future_measurement_date의 월만 추출)
+      let futureMeasurementMonth = "";
+      if (business.future_measurement_date) {
+        try {
+          const date = new Date(business.future_measurement_date);
+          futureMeasurementMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+        } catch {
+          futureMeasurementMonth = business.future_measurement_date || "";
+        }
+      }
+
+      // 금회 측정 확정일 포맷팅
+      let measurementDateFormatted = "";
+      if (business.measurement_date) {
+        try {
+          const date = new Date(business.measurement_date);
+          measurementDateFormatted = date.toISOString().split("T")[0];
+        } catch {
+          measurementDateFormatted = business.measurement_date;
+        }
+      }
+
       return {
         코드: business.code || "",
-        측정년도: business.year || "",
-        측정주기: business.period || "",
+        건강디딤돌: nationalSupportStatus || "",
+        주관담당자: business.measurer || "",
         사업장명: business.business_name || "",
-        사업자번호: business.business_number || "",
-        총인원: business.total_employees || "",
+        분류업종: businessCategory || "",
         주소: business.address || "",
-        관할청명: business.office_jurisdiction || "",
-        지정한계_관할지청: business.designated_office || "",
-        측정자: business.measurer || "",
-        측정시작일: business.measurement_start_date || "",
-        측정종료일: business.measurement_end_date || "",
-        완료여부: business.completion_status || "",
-        국고지원상태: nationalSupportStatus || "",
+        소재지관할청: business.office_jurisdiction || "",
         담당자명: business.manager_name || "",
         담당자휴대폰: business.manager_mobile || "",
-        담당자전화: business.manager_phone || "",
-        향후측정예상일: business.future_measurement_date || "",
+        회사전화번호: business.manager_phone || "",
+        전회측정일: previousMeasurementDateFormatted,
+        전회향후측정주기: business.future_measurement_period ? `${business.future_measurement_period}개월` : "",
+        금회측정예정월: futureMeasurementMonth || "",
+        금회측정확정일: measurementDateFormatted,
         비고: business.notes || "",
-        등록여부: business.is_registered ? "등록됨" : "미등록",
-        등록일시: business.registered_at
-          ? new Date(business.registered_at).toLocaleString("ko-KR")
-          : "",
-        생성일시: business.created_at
-          ? new Date(business.created_at).toLocaleString("ko-KR")
-          : "",
-        수정일시: business.updated_at
-          ? new Date(business.updated_at).toLocaleString("ko-KR")
-          : "",
       };
     });
 

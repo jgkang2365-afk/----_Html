@@ -82,6 +82,13 @@ interface YearlySummary {
 }
 
 export const SalesManagement: React.FC = () => {
+  // 서울 시간대(Asia/Seoul) 기준으로 현재 년도 가져오기
+  const getCurrentYear = () => {
+    const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+    return seoulTime.getFullYear();
+  };
+  const getCurrentYearString = () => getCurrentYear().toString();
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [measurementRevenue, setMeasurementRevenue] = useState<MeasurementRevenue[]>([]);
@@ -93,17 +100,30 @@ export const SalesManagement: React.FC = () => {
 
   // 필터 상태
   const [filters, setFilters] = useState({
-    year: "",
+    year: getCurrentYearString(),
     businessName: "",
     measurementPeriod: "",
     designatedOffice: "",
   });
 
-  // 년도별 집계 년도 선택 상태 (기본값: 빈 문자열 - 전체 데이터 표시)
-  const [yearlySummaryYear, setYearlySummaryYear] = useState<string>("");
+  // 년도별 집계 년도 선택 상태 (기본값: 현재 년도)
+  const [yearlySummaryYear, setYearlySummaryYear] = useState<string>(getCurrentYearString());
   
   // 미수금 집계 년도 선택 상태
-  const [unpaidSummaryYear, setUnpaidSummaryYear] = useState<string>("");
+  const [unpaidSummaryYear, setUnpaidSummaryYear] = useState<string>(getCurrentYearString());
+  
+  // 매출 집계 년도 선택 상태
+  const [salesSummaryYear, setSalesSummaryYear] = useState<string>(getCurrentYearString());
+  
+  // 매출 집계 상세 내역 모달 상태
+  const [isSalesDetailModalOpen, setIsSalesDetailModalOpen] = useState(false);
+  const [salesDetailType, setSalesDetailType] = useState<"measurementTotal" | "measurementDeposit" | null>(null);
+  const [salesDetailList, setSalesDetailList] = useState<MeasurementRevenue[]>([]);
+  const [salesDetailTitle, setSalesDetailTitle] = useState<string>("");
+  
+  // 측정비 입금액 상세 모달 상태
+  const [isMeasurementDepositDetailModalOpen, setIsMeasurementDepositDetailModalOpen] = useState(false);
+  const [measurementDepositDetailItem, setMeasurementDepositDetailItem] = useState<MeasurementRevenue | null>(null);
   
   // 미수금 사업장 목록 모달 상태
   const [isUnpaidBusinessModalOpen, setIsUnpaidBusinessModalOpen] = useState(false);
@@ -114,6 +134,8 @@ export const SalesManagement: React.FC = () => {
     measurement_period: string;
     unpaid_count: number;
     designated_office: string | null;
+    measurement_fee_total: number | null;
+    deposit_amount_business: number | null;
   }>>([]);
   const [unpaidBusinessModalTitle, setUnpaidBusinessModalTitle] = useState<string>("");
 
@@ -149,7 +171,7 @@ export const SalesManagement: React.FC = () => {
   const [unpaidFilters, setUnpaidFilters] = useState({
     type: "", // 구분: "measurement" | "other" | ""
     name: "", // 사업장명/품명
-    year: "", // 매출년도
+    year: getCurrentYearString(), // 매출년도
     period: "", // 측정주기
     designatedOffice: "", // 지정한계_관할지청
     hasDepositDate: "", // 입금일 여부: "yes" | "no" | ""
@@ -162,7 +184,7 @@ export const SalesManagement: React.FC = () => {
   // 기타 매출 필터 및 정렬 상태
   const [otherFilters, setOtherFilters] = useState({
     itemName: "", // 품명
-    year: "", // 매출년도
+    year: getCurrentYearString(), // 매출년도
     period: "", // 매출주기
     hasInvoiceDate: "", // 계산서 발행일 여부: "yes" | "no" | ""
     hasDepositDate: "", // 입금일 여부: "yes" | "no" | ""
@@ -176,7 +198,7 @@ export const SalesManagement: React.FC = () => {
   // 측정비 필터 및 정렬 상태
   const [measurementFilters, setMeasurementFilters] = useState({
     businessName: "", // 사업장명
-    year: "", // 측정년도
+    year: getCurrentYearString(), // 측정년도
     period: "", // 측정주기
     designatedOffice: "", // 지정한계_관할지청
     hasInvoiceDate: "", // 계산서 발행일 여부: "yes" | "no" | ""
@@ -187,7 +209,7 @@ export const SalesManagement: React.FC = () => {
   }>({ column: "measurement_fee_total", direction: "desc" });
 
   // 측정년도 옵션
-  const currentYear = new Date().getFullYear();
+  const currentYear = getCurrentYear();
   const yearOptions = Array.from({ length: 7 }, (_, i) => {
     const year = currentYear - 5 + i;
     return { value: year.toString(), label: year.toString() };
@@ -919,11 +941,11 @@ export const SalesManagement: React.FC = () => {
         </Card>
       )}
 
-      {/* 년도별 미수금 집계 현황 */}
+      {/* 년도별 측정비 입금 및 미수금 집계 현황 */}
       {summary && (
         <Card className="p-4">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-text-900">년도별 미수금 집계 현황</h2>
+            <h2 className="text-lg font-semibold text-text-900">년도별 측정비 입금 및 미수금 집계 현황</h2>
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-text-700 whitespace-nowrap">년도 선택 :</label>
               <Select
@@ -939,16 +961,19 @@ export const SalesManagement: React.FC = () => {
               <TableHeader>
                 <TableRow className="bg-sky-100">
                   <TableHead rowSpan={2} className="text-center font-semibold py-3 px-3 text-black align-middle">구분</TableHead>
-                  <TableHead colSpan={2} className="text-center font-semibold py-3 px-4 text-black">합계</TableHead>
-                  <TableHead colSpan={2} className="text-center font-semibold py-3 px-4 text-black">측정비(사업장)</TableHead>
-                  <TableHead colSpan={2} className="text-center font-semibold py-3 px-4 text-black">측정비(국고)</TableHead>
+                  <TableHead colSpan={3} className="text-center font-semibold py-3 px-4 text-black">합계</TableHead>
+                  <TableHead colSpan={3} className="text-center font-semibold py-3 px-4 text-black">측정비(사업장)</TableHead>
+                  <TableHead colSpan={3} className="text-center font-semibold py-3 px-4 text-black">측정비(국고)</TableHead>
                 </TableRow>
                 <TableRow className="bg-sky-100">
                   <TableHead className="text-center font-semibold py-2 px-4 text-black">사업장 수</TableHead>
+                  <TableHead className="text-center font-semibold py-2 px-4 text-black">입금액</TableHead>
                   <TableHead className="text-center font-semibold py-2 px-4 text-black">미수금액</TableHead>
                   <TableHead className="text-center font-semibold py-2 px-4 text-black">사업장 수</TableHead>
+                  <TableHead className="text-center font-semibold py-2 px-4 text-black">입금액</TableHead>
                   <TableHead className="text-center font-semibold py-2 px-4 text-black">미수금액</TableHead>
                   <TableHead className="text-center font-semibold py-2 px-4 text-black">사업장 수</TableHead>
+                  <TableHead className="text-center font-semibold py-2 px-4 text-black">입금액</TableHead>
                   <TableHead className="text-center font-semibold py-2 px-4 text-black">미수금액</TableHead>
                 </TableRow>
               </TableHeader>
@@ -982,37 +1007,44 @@ export const SalesManagement: React.FC = () => {
 
                     // 합계 계산
                     let totalBusinessCount = 0;
+                    let totalDepositAmount = 0;
                     let totalUnpaidAmount = 0;
                     let businessSiteCount = 0;
+                    let businessSiteDeposit = 0;
                     let businessSiteUnpaid = 0;
                     let nationalCount = 0;
+                    let nationalDeposit = 0;
                     let nationalUnpaid = 0;
 
                     filteredData.forEach((item) => {
                       const businessFee = item.measurement_fee_business || 0;
                       const businessDeposit = item.deposit_amount_business || 0;
                       const nationalFee = item.measurement_fee_national || 0;
-                      const nationalDeposit = item.deposit_amount_national || 0;
+                      const nationalDepositAmount = item.deposit_amount_national || 0;
 
                       const businessUnpaid = businessFee - businessDeposit;
-                      const nationalUnpaidAmount = nationalFee - nationalDeposit;
+                      const nationalUnpaidAmount = nationalFee - nationalDepositAmount;
                       const itemTotalUnpaid = businessUnpaid + nationalUnpaidAmount;
+                      const itemTotalDeposit = businessDeposit + nationalDepositAmount;
 
                       // 합계
-                      if (itemTotalUnpaid > 0) {
+                      if (itemTotalUnpaid > 0 || itemTotalDeposit > 0) {
                         totalBusinessCount++;
+                        totalDepositAmount += itemTotalDeposit;
                         totalUnpaidAmount += itemTotalUnpaid;
                       }
 
                       // 측정비(사업장)
-                      if (businessUnpaid > 0) {
+                      if (businessUnpaid > 0 || businessDeposit > 0) {
                         businessSiteCount++;
+                        businessSiteDeposit += businessDeposit;
                         businessSiteUnpaid += businessUnpaid;
                       }
 
                       // 측정비(국고)
-                      if (nationalUnpaidAmount > 0) {
+                      if (nationalUnpaidAmount > 0 || nationalDepositAmount > 0) {
                         nationalCount++;
+                        nationalDeposit += nationalDepositAmount;
                         nationalUnpaid += nationalUnpaidAmount;
                       }
                     });
@@ -1022,14 +1054,17 @@ export const SalesManagement: React.FC = () => {
                       label: officeLabels[office as keyof typeof officeLabels] || office,
                       total: {
                         count: totalBusinessCount,
+                        deposit: totalDepositAmount,
                         unpaid: totalUnpaidAmount,
                       },
                       business: {
                         count: businessSiteCount,
+                        deposit: businessSiteDeposit,
                         unpaid: businessSiteUnpaid,
                       },
                       national: {
                         count: nationalCount,
+                        deposit: nationalDeposit,
                         unpaid: nationalUnpaid,
                       },
                     };
@@ -1039,18 +1074,24 @@ export const SalesManagement: React.FC = () => {
                   const totalRow = unpaidData.reduce(
                     (acc, data) => ({
                       totalCount: acc.totalCount + data.total.count,
+                      totalDeposit: acc.totalDeposit + data.total.deposit,
                       totalUnpaid: acc.totalUnpaid + data.total.unpaid,
                       businessCount: acc.businessCount + data.business.count,
+                      businessDeposit: acc.businessDeposit + data.business.deposit,
                       businessUnpaid: acc.businessUnpaid + data.business.unpaid,
                       nationalCount: acc.nationalCount + data.national.count,
+                      nationalDeposit: acc.nationalDeposit + data.national.deposit,
                       nationalUnpaid: acc.nationalUnpaid + data.national.unpaid,
                     }),
                     {
                       totalCount: 0,
+                      totalDeposit: 0,
                       totalUnpaid: 0,
                       businessCount: 0,
+                      businessDeposit: 0,
                       businessUnpaid: 0,
                       nationalCount: 0,
+                      nationalDeposit: 0,
                       nationalUnpaid: 0,
                     }
                   );
@@ -1069,6 +1110,8 @@ export const SalesManagement: React.FC = () => {
                       measurement_period: string;
                       unpaid_count: number;
                       designated_office: string | null;
+                      measurement_fee_total: number | null;
+                      deposit_amount_business: number | null;
                     }> = [];
 
                     // 해당 관할지역의 측정비 데이터 필터링
@@ -1106,10 +1149,10 @@ export const SalesManagement: React.FC = () => {
                       const businessFee = item.measurement_fee_business || 0;
                       const businessDeposit = item.deposit_amount_business || 0;
                       const nationalFee = item.measurement_fee_national || 0;
-                      const nationalDeposit = item.deposit_amount_national || 0;
+                      const itemNationalDeposit = item.deposit_amount_national || 0;
 
                       const businessUnpaid = businessFee - businessDeposit;
-                      const nationalUnpaidAmount = nationalFee - nationalDeposit;
+                      const nationalUnpaidAmount = nationalFee - itemNationalDeposit;
                       const itemTotalUnpaid = businessUnpaid + nationalUnpaidAmount;
 
                       let unpaidAmount = 0;
@@ -1138,6 +1181,8 @@ export const SalesManagement: React.FC = () => {
                           measurement_period: item.measurement_period,
                           unpaid_count: unpaidCount,
                           designated_office: item.designated_office || null,
+                          measurement_fee_total: item.measurement_fee_total,
+                          deposit_amount_business: item.deposit_amount_business,
                         });
                       }
                     });
@@ -1183,6 +1228,9 @@ export const SalesManagement: React.FC = () => {
                           {totalRow.totalCount}
                         </TableCell>
                         <TableCell className="text-right font-bold text-black py-3 px-4">
+                          {formatCurrency(totalRow.totalDeposit)}
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-black py-3 px-4">
                           {formatCurrency(totalRow.totalUnpaid)}
                         </TableCell>
                         <TableCell 
@@ -1193,6 +1241,9 @@ export const SalesManagement: React.FC = () => {
                           {totalRow.businessCount}
                         </TableCell>
                         <TableCell className="text-right font-bold text-black py-3 px-4">
+                          {formatCurrency(totalRow.businessDeposit)}
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-black py-3 px-4">
                           {formatCurrency(totalRow.businessUnpaid)}
                         </TableCell>
                         <TableCell 
@@ -1201,6 +1252,9 @@ export const SalesManagement: React.FC = () => {
                           title="클릭하여 사업장 목록 보기"
                         >
                           {totalRow.nationalCount}
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-black py-3 px-4">
+                          {formatCurrency(totalRow.nationalDeposit)}
                         </TableCell>
                         <TableCell className="text-right font-bold text-black py-3 px-4">
                           {formatCurrency(totalRow.nationalUnpaid)}
@@ -1221,6 +1275,9 @@ export const SalesManagement: React.FC = () => {
                             {data.total.count}
                           </TableCell>
                           <TableCell className="text-right text-black py-2 px-4">
+                            {formatCurrency(data.total.deposit)}
+                          </TableCell>
+                          <TableCell className="text-right text-black py-2 px-4">
                             {formatCurrency(data.total.unpaid)}
                           </TableCell>
                           <TableCell 
@@ -1231,6 +1288,9 @@ export const SalesManagement: React.FC = () => {
                             {data.business.count}
                           </TableCell>
                           <TableCell className="text-right text-black py-2 px-4">
+                            {formatCurrency(data.business.deposit)}
+                          </TableCell>
+                          <TableCell className="text-right text-black py-2 px-4">
                             {formatCurrency(data.business.unpaid)}
                           </TableCell>
                           <TableCell 
@@ -1239,6 +1299,9 @@ export const SalesManagement: React.FC = () => {
                             title="클릭하여 사업장 목록 보기"
                           >
                             {data.national.count}
+                          </TableCell>
+                          <TableCell className="text-right text-black py-2 px-4">
+                            {formatCurrency(data.national.deposit)}
                           </TableCell>
                           <TableCell className="text-right text-black py-2 px-4">
                             {formatCurrency(data.national.unpaid)}
@@ -1275,6 +1338,8 @@ export const SalesManagement: React.FC = () => {
                   <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">미수 횟수</TableHead>
                   <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">측정년도</TableHead>
                   <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">측정주기</TableHead>
+                  <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">측정비(합계)</TableHead>
+                  <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">입금액[측정비 (사업장)]</TableHead>
                   <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">미수금액</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1288,6 +1353,12 @@ export const SalesManagement: React.FC = () => {
                     </TableCell>
                     <TableCell className="text-center text-black py-1 px-2 text-sm">{business.measurement_year}</TableCell>
                     <TableCell className="text-center text-black py-1 px-2 text-sm">{business.measurement_period}</TableCell>
+                    <TableCell className="text-right text-black py-1 px-2 text-sm">
+                      {formatCurrency(business.measurement_fee_total || 0)}원
+                    </TableCell>
+                    <TableCell className="text-right text-black py-1 px-2 text-sm">
+                      {formatCurrency(business.deposit_amount_business || 0)}원
+                    </TableCell>
                     <TableCell className="text-right text-black py-1 px-2 text-sm font-semibold">
                       {formatCurrency(business.unpaid_amount)}원
                     </TableCell>
@@ -1302,7 +1373,18 @@ export const SalesManagement: React.FC = () => {
       {/* 매출 집계 */}
       {summary && (
         <Card className="p-4">
-          <h2 className="text-lg font-semibold text-text-900 mb-4">매출 집계</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-text-900">매출 집계</h2>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-text-700 whitespace-nowrap">년도 선택:</label>
+              <Select
+                value={salesSummaryYear}
+                onChange={(e) => setSalesSummaryYear(e.target.value)}
+                options={[{ value: "", label: "전체" }, ...yearOptions]}
+                className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
+              />
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -1316,65 +1398,208 @@ export const SalesManagement: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {/* 측정비 집계 */}
-                <TableRow>
-                  <TableCell className="font-medium">측정비</TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(
-                      Object.values(summary.byOffice).reduce((sum, office) => sum + office.measurementRevenue, 0)
-                    )}원
-                  </TableCell>
-                  <TableCell className="text-right">0원</TableCell>
-                  <TableCell className="text-right font-semibold">
-                    {formatCurrency(
-                      Object.values(summary.byOffice).reduce((sum, office) => sum + office.measurementTotal, 0)
-                    )}원
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(
-                      Object.values(summary.byOffice).reduce((sum, office) => sum + office.measurementDeposit, 0)
-                    )}원
-                  </TableCell>
-                  <TableCell className="text-right text-warning-600 font-semibold">
-                    {formatCurrency(
-                      Object.values(summary.byOffice).reduce((sum, office) => sum + office.measurementUnpaid, 0)
-                    )}원
-                  </TableCell>
-                </TableRow>
-                {/* 기타 집계 */}
-                <TableRow>
-                  <TableCell className="font-medium">기타</TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(
-                      Object.values(summary.byOffice).reduce((sum, office) => sum + office.otherRevenue, 0)
-                    )}원
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(
-                      Object.values(summary.byOffice).reduce((sum, office) => sum + office.otherVat, 0)
-                    )}원
-                  </TableCell>
-                  <TableCell className="text-right font-semibold">
-                    {formatCurrency(
-                      Object.values(summary.byOffice).reduce((sum, office) => sum + office.otherTotal, 0)
-                    )}원
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(
-                      Object.values(summary.byOffice).reduce((sum, office) => sum + office.otherDeposit, 0)
-                    )}원
-                  </TableCell>
-                  <TableCell className="text-right text-warning-600 font-semibold">
-                    {formatCurrency(
-                      Object.values(summary.byOffice).reduce((sum, office) => sum + office.otherUnpaid, 0)
-                    )}원
-                  </TableCell>
-                </TableRow>
+                {(() => {
+                  // 선택된 년도에 따라 데이터 필터링
+                  const filteredMeasurementRevenue = salesSummaryYear && salesSummaryYear !== ""
+                    ? measurementRevenue.filter((item) => item.measurement_year === parseInt(salesSummaryYear))
+                    : measurementRevenue;
+                  
+                  const filteredOtherRevenue = salesSummaryYear && salesSummaryYear !== ""
+                    ? otherRevenue.filter((item) => item.revenue_year === parseInt(salesSummaryYear))
+                    : otherRevenue;
+
+                  // 측정비 집계 계산
+                  let measurementRevenueSum = 0;
+                  let measurementTotalSum = 0;
+                  let measurementDepositSum = 0;
+                  let measurementUnpaidSum = 0;
+
+                  filteredMeasurementRevenue.forEach((item) => {
+                    const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
+                    const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
+                    const unpaid = revenue - deposit;
+                    
+                    measurementRevenueSum += revenue;
+                    measurementTotalSum += revenue;
+                    measurementDepositSum += deposit;
+                    measurementUnpaidSum += unpaid;
+                  });
+
+                  // 기타 매출 집계 계산
+                  let otherRevenueSum = 0;
+                  let otherVatSum = 0;
+                  let otherTotalSum = 0;
+                  let otherDepositSum = 0;
+                  let otherUnpaidSum = 0;
+
+                  filteredOtherRevenue.forEach((item) => {
+                    const supply = parseFloat(item.supply_amount?.toString() || "0") || 0;
+                    const vat = parseFloat(item.vat_amount?.toString() || "0") || 0;
+                    const total = parseFloat(item.total_amount?.toString() || "0") || 0;
+                    const deposit = parseFloat(item.deposit_amount?.toString() || "0") || 0;
+                    const unpaid = total - deposit;
+                    
+                    otherRevenueSum += supply;
+                    otherVatSum += vat;
+                    otherTotalSum += total;
+                    otherDepositSum += deposit;
+                    otherUnpaidSum += unpaid;
+                  });
+
+                  // 측정비 합계 클릭 핸들러
+                  const handleMeasurementTotalClick = () => {
+                    setSalesDetailType("measurementTotal");
+                    setSalesDetailList(filteredMeasurementRevenue);
+                    setSalesDetailTitle(`측정비 합계 내역${salesSummaryYear ? ` (${salesSummaryYear}년)` : ""}`);
+                    setIsSalesDetailModalOpen(true);
+                  };
+
+                  // 측정비 입금액 클릭 핸들러
+                  const handleMeasurementDepositClick = () => {
+                    setSalesDetailType("measurementDeposit");
+                    // 입금액이 있는 항목만 필터링
+                    const itemsWithDeposit = filteredMeasurementRevenue.filter(
+                      (item) => (item.deposit_total || 0) > 0
+                    );
+                    setSalesDetailList(itemsWithDeposit);
+                    setSalesDetailTitle(`측정비 입금액 내역${salesSummaryYear ? ` (${salesSummaryYear}년)` : ""}`);
+                    setIsSalesDetailModalOpen(true);
+                  };
+
+                  return (
+                    <>
+                      {/* 측정비 집계 */}
+                      <TableRow>
+                        <TableCell className="font-medium">측정비</TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(measurementRevenueSum)}원
+                        </TableCell>
+                        <TableCell className="text-right">0원</TableCell>
+                        <TableCell 
+                          className="text-right font-semibold cursor-pointer hover:bg-gray-100 hover:text-primary-600 transition-colors"
+                          onClick={handleMeasurementTotalClick}
+                          title="클릭하여 상세 내역 보기"
+                        >
+                          {formatCurrency(measurementTotalSum)}원
+                        </TableCell>
+                        <TableCell 
+                          className="text-right cursor-pointer hover:bg-gray-100 hover:text-primary-600 transition-colors"
+                          onClick={handleMeasurementDepositClick}
+                          title="클릭하여 상세 내역 보기"
+                        >
+                          {formatCurrency(measurementDepositSum)}원
+                        </TableCell>
+                        <TableCell className="text-right text-warning-600 font-semibold">
+                          {formatCurrency(measurementUnpaidSum)}원
+                        </TableCell>
+                      </TableRow>
+                      {/* 기타 집계 */}
+                      <TableRow>
+                        <TableCell className="font-medium">기타</TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(otherRevenueSum)}원
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(otherVatSum)}원
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {formatCurrency(otherTotalSum)}원
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(otherDepositSum)}원
+                        </TableCell>
+                        <TableCell className="text-right text-warning-600 font-semibold">
+                          {formatCurrency(otherUnpaidSum)}원
+                        </TableCell>
+                      </TableRow>
+                    </>
+                  );
+                })()}
               </TableBody>
             </Table>
           </div>
         </Card>
       )}
+
+      {/* 매출 집계 상세 내역 모달 */}
+      <Modal
+        isOpen={isSalesDetailModalOpen}
+        onClose={() => setIsSalesDetailModalOpen(false)}
+        title={salesDetailTitle}
+        size="2xl"
+      >
+        <div className="overflow-y-auto">
+          {salesDetailList.length === 0 ? (
+            <div className="py-8 text-center text-text-600 text-sm">
+              내역이 없습니다.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-sky-100">
+                  <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">연번</TableHead>
+                  <TableHead className="font-semibold py-1 px-2 text-black text-sm">사업장명</TableHead>
+                  <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">측정년도</TableHead>
+                  <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">측정주기</TableHead>
+                  <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">관할지청</TableHead>
+                  <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">측정비(합계)</TableHead>
+                  <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">입금액</TableHead>
+                  <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">미수금액</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {salesDetailList.map((item, index) => {
+                  const total = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
+                  const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
+                  const unpaid = total - deposit;
+                  
+                  return (
+                    <TableRow key={item.id || index} className="border-b border-gray-200">
+                      <TableCell className="text-center text-black py-1 px-2 text-sm">{index + 1}</TableCell>
+                      <TableCell className="text-black py-1 px-2 text-sm">{item.business_name}</TableCell>
+                      <TableCell className="text-center text-black py-1 px-2 text-sm">{item.measurement_year}</TableCell>
+                      <TableCell className="text-center text-black py-1 px-2 text-sm">{item.measurement_period}</TableCell>
+                      <TableCell className="text-center text-black py-1 px-2 text-sm">{item.designated_office || "-"}</TableCell>
+                      <TableCell className="text-right text-black py-1 px-2 text-sm">
+                        {formatCurrency(total)}원
+                      </TableCell>
+                      <TableCell className="text-right text-black py-1 px-2 text-sm">
+                        {formatCurrency(deposit)}원
+                      </TableCell>
+                      <TableCell className={`text-right py-1 px-2 text-sm font-semibold ${unpaid > 0 ? 'text-warning-600' : 'text-black'}`}>
+                        {formatCurrency(unpaid)}원
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {/* 합계 행 */}
+                <TableRow className="border-t-2 border-gray-300 bg-gray-50">
+                  <TableCell colSpan={5} className="text-center font-bold text-black py-2 px-2">합계</TableCell>
+                  <TableCell className="text-right font-bold text-black py-2 px-2">
+                    {formatCurrency(
+                      salesDetailList.reduce((sum, item) => sum + (parseFloat(item.measurement_fee_total?.toString() || "0") || 0), 0)
+                    )}원
+                  </TableCell>
+                  <TableCell className="text-right font-bold text-black py-2 px-2">
+                    {formatCurrency(
+                      salesDetailList.reduce((sum, item) => sum + (parseFloat(item.deposit_total?.toString() || "0") || 0), 0)
+                    )}원
+                  </TableCell>
+                  <TableCell className="text-right font-bold text-black py-2 px-2">
+                    {formatCurrency(
+                      salesDetailList.reduce((sum, item) => {
+                        const total = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
+                        const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
+                        return sum + (total - deposit);
+                      }, 0)
+                    )}원
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </Modal>
 
       {/* 매출 관리 탭 */}
       <Card className="p-4">
@@ -1660,7 +1885,16 @@ export const SalesManagement: React.FC = () => {
                                   <TableCell className="text-right font-semibold">
                                     {formatCurrency(item.measurement_fee_total)}원
                                   </TableCell>
-                                  <TableCell className="text-right">
+                                  <TableCell 
+                                    className="text-right cursor-pointer hover:bg-gray-100 hover:text-primary-600 transition-colors"
+                                    onClick={() => {
+                                      if (item.deposit_total && parseFloat(item.deposit_total.toString()) > 0) {
+                                        setMeasurementDepositDetailItem(item);
+                                        setIsMeasurementDepositDetailModalOpen(true);
+                                      }
+                                    }}
+                                    title={item.deposit_total && parseFloat(item.deposit_total.toString()) > 0 ? "입금액 상세 보기" : ""}
+                                  >
                                     {formatCurrency(item.deposit_total)}원
                                   </TableCell>
                                   <TableCell className="text-right text-warning-600 font-semibold">
@@ -2853,6 +3087,87 @@ export const SalesManagement: React.FC = () => {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* 측정비 입금액 상세 모달 */}
+      <Modal
+        isOpen={isMeasurementDepositDetailModalOpen}
+        onClose={() => setIsMeasurementDepositDetailModalOpen(false)}
+        title="입금액 상세"
+        size="lg"
+      >
+        {measurementDepositDetailItem && (
+          <div className="space-y-4">
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">사업장명</label>
+                  <p className="text-base font-semibold">{measurementDepositDetailItem.business_name}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">측정년도</label>
+                  <p className="text-base">{measurementDepositDetailItem.measurement_year}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">측정주기</label>
+                  <p className="text-base">{measurementDepositDetailItem.measurement_period}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">입금액 합계</label>
+                  <p className="text-base font-semibold text-primary-600">
+                    {formatCurrency(measurementDepositDetailItem.deposit_total || 0)}원
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="text-lg font-semibold mb-3">측정비(사업장)</h3>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">입금일자</label>
+                  <p className="text-base">
+                    {measurementDepositDetailItem.deposit_date_business
+                      ? formatDateYYYYMMDD(measurementDepositDetailItem.deposit_date_business)
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">입금액</label>
+                  <p className="text-base font-semibold">
+                    {formatCurrency(measurementDepositDetailItem.deposit_amount_business || 0)}원
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h3 className="text-lg font-semibold mb-3">측정비(국고)</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">입금일자</label>
+                  <p className="text-base">
+                    {measurementDepositDetailItem.deposit_date_national
+                      ? formatDateYYYYMMDD(measurementDepositDetailItem.deposit_date_national)
+                      : "-"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">입금액</label>
+                  <p className="text-base font-semibold">
+                    {formatCurrency(measurementDepositDetailItem.deposit_amount_national || 0)}원
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4 border-t">
+              <Button onClick={() => setIsMeasurementDepositDetailModalOpen(false)}>
+                닫기
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

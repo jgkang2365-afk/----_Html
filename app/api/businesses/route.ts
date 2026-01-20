@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
     if (codes.length > 0) {
       const { data, error: registeredJournalsError } = await supabase
         .from("measurement_journal")
-        .select("id, code, measurement_year, measurement_period, national_support_status, manager_name, manager_mobile, phone, designated_office, address, office_jurisdiction, measurement_start_date, measurement_end_date, completion_status, measurer, business_name, business_number, total_employees")
+        .select("id, code, measurement_year, measurement_period, national_support_status, manager_name, manager_mobile, phone, designated_office, address, office_jurisdiction, measurement_start_date, measurement_end_date, completion_status, measurer, business_name, business_number, total_employees, business_category")
         .in("code", codes)
         .eq("measurement_year", targetYear)
         .eq("measurement_period", period);
@@ -463,6 +463,8 @@ export async function GET(request: NextRequest) {
         manager_mobile: managerMobile,
         manager_phone: managerPhone,
         notes: plan.notes || null,
+        business_category: journal?.business_category || null,
+        future_measurement_period: plan.future_measurement_period || null, // 전회 향후측정주기
       };
     });
 
@@ -536,4 +538,6 @@ interface BusinessEntryResponse {
   manager_mobile: string | null;
   manager_phone: string | null;
   notes: string | null;
+  business_category: string | null; // 분류업종
+  future_measurement_period: number | null; // 전회 향후측정주기 (개월)
 }

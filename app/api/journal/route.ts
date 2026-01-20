@@ -8,8 +8,19 @@ import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 
 /**
  * 측정일지 등록 API
- * POST /api/journal
+ * POST /api/journal - 측정일지 등록
+ * GET /api/journal - 지원하지 않음 (검색은 /api/journal/search 사용)
  */
+export async function GET(request: NextRequest) {
+  return NextResponse.json(
+    { 
+      error: "GET 메서드는 지원하지 않습니다.",
+      message: "측정일지 검색은 /api/journal/search 엔드포인트를 사용하세요."
+    },
+    { status: 405 }
+  );
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log(`[POST /api/journal] 요청 시작`);

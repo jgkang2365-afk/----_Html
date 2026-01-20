@@ -44,6 +44,8 @@ interface BusinessEntry {
   manager_mobile: string | null;
   manager_phone: string | null;
   notes: string | null;
+  business_category: string | null; // 분류업종
+  future_measurement_period: number | null; // 전회 향후측정주기 (개월)
 }
 
 export const BusinessManagement: React.FC = () => {
@@ -441,9 +443,10 @@ export const BusinessManagement: React.FC = () => {
                       </div>
                     </th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">코드</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">지정지청</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">건강디딤돌</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">주관담당자</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap w-[180px]">사업장명</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">분류업종</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap min-w-[200px]">
                       <div className="flex items-center justify-between">
                         <span>주소</span>
@@ -480,12 +483,14 @@ export const BusinessManagement: React.FC = () => {
                         </button>
                       </div>
                     </th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">소재지 관할청</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자명</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자 전화번호</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자 휴대폰</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">전회 측정일</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">측정예정일</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">측정일</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">회사 전화번호</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">전회측정일</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">전회 향후측정주기</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">금회측정 예정월</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">금회 측정 확정일</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">비고</th>
                   </tr>
                 </thead>
@@ -506,7 +511,6 @@ export const BusinessManagement: React.FC = () => {
                         </span>
                       </td>
                       <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{entry.code}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.designated_office || "-"}</td>
                       <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
                         {entry.national_support_status ? (
                           <span className="text-text-700 text-sm">{entry.national_support_status}</span>
@@ -514,14 +518,20 @@ export const BusinessManagement: React.FC = () => {
                           <span className="text-text-400 text-sm">-</span>
                         )}
                       </td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.measurer || "-"}</td>
                       <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium w-[180px]">{entry.business_name}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.business_category || "-"}</td>
                       <td className="p-4 align-middle text-slate-600 min-w-[200px]">
                         {entry.address || "-"}
                       </td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.office_jurisdiction || "-"}</td>
                       <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_name || "-"}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>
                       <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_mobile || "-"}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>
                       <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
+                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                        {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
+                      </td>
                       <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.future_measurement_date)}</td>
                       <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
                       <td className="p-4 align-middle text-slate-600 whitespace-nowrap">

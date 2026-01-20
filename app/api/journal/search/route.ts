@@ -44,8 +44,14 @@ export async function GET(request: NextRequest) {
           { status: 403 }
         );
       }
-      // 기타 오류는 아래 catch 블록에서 처리
-      throw permissionError;
+      // 기타 오류는 500으로 반환
+      return NextResponse.json(
+        { 
+          error: "권한 확인 중 오류가 발생했습니다.",
+          details: permissionError?.message || String(permissionError)
+        },
+        { status: 500 }
+      );
     }
 
     const { searchParams } = new URL(request.url);

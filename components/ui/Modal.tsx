@@ -11,6 +11,7 @@ export interface ModalProps {
   children: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "full" | "full-75";
   showCloseButton?: boolean;
+  headerActions?: React.ReactNode;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -20,6 +21,7 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   size = "md",
   showCloseButton = true,
+  headerActions,
 }) => {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -147,7 +149,7 @@ export const Modal: React.FC<ModalProps> = ({
         }}
       >
         {/* 헤더 - sticky로 고정 */}
-        {(title || showCloseButton) && (
+        {(title || showCloseButton || headerActions) && (
           <div
             ref={headerRef}
             className={cn(
@@ -163,21 +165,28 @@ export const Modal: React.FC<ModalProps> = ({
                 {title}
               </h2>
             )}
-            {showCloseButton && (
-              <button
-                onClick={onClose}
-                className={cn(
-                  "ml-auto p-2 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors focus:ring-2 focus:ring-primary-500",
-                  "cursor-pointer"
-                )}
-                aria-label="닫기"
-                style={{ pointerEvents: "auto" }}
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {headerActions && (
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  {headerActions}
+                </div>
+              )}
+              {showCloseButton && (
+                <button
+                  onClick={onClose}
+                  className={cn(
+                    "p-2 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors focus:ring-2 focus:ring-primary-500",
+                    "cursor-pointer"
+                  )}
+                  aria-label="닫기"
+                  style={{ pointerEvents: "auto" }}
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
         )}
 

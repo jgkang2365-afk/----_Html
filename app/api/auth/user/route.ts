@@ -22,8 +22,20 @@ export async function GET() {
     }
 
     console.log("[API /api/auth/user] getUser 호출 시작");
-    const user = await getUser();
-    console.log("[API /api/auth/user] getUser 호출 완료, user:", user ? "존재" : "null");
+    let user;
+    try {
+      user = await getUser();
+      console.log("[API /api/auth/user] getUser 호출 완료, user:", user ? "존재" : "null");
+    } catch (getUserError: any) {
+      console.error("[API /api/auth/user] getUser 호출 중 오류:", getUserError);
+      // getUser에서 발생한 오류는 세션이 없거나 데이터베이스 오류일 수 있음
+      // 세션이 없는 경우는 정상적인 상황이므로 null 반환
+      if (getUserError?.message?.includes("세션") || getUserError?.message?.includes("Unauthorized")) {
+        return NextResponse.json({ user: null }, { status: 200 });
+      }
+      // 그 외의 오류는 다시 throw하여 아래 catch 블록에서 처리
+      throw getUserError;
+    }
 
     if (!user) {
       return NextResponse.json({ user: null }, { status: 200 });
