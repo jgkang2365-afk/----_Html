@@ -22,7 +22,11 @@ interface UploadResult {
   syncMessage?: string;
 }
 
-export function ExcelUpload() {
+interface ExcelUploadProps {
+  onSuccess?: () => void;
+}
+
+export function ExcelUpload({ onSuccess }: ExcelUploadProps) {
   const [fileType, setFileType] = useState<"business-info" | "measurement-business" | "">("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -100,7 +104,7 @@ export function ExcelUpload() {
       formData.append("file", file);
       formData.append("type", fileType);
       formData.append("autoSync", autoSync.toString());
-      
+
       // 디버깅: 전송할 데이터 확인
       console.log("업로드 요청 데이터:", {
         fileType,
@@ -114,7 +118,7 @@ export function ExcelUpload() {
       });
 
       const data = await response.json();
-      
+
       // 디버깅: API 응답 확인
       console.log("업로드 API 응답:", data);
 
@@ -127,16 +131,21 @@ export function ExcelUpload() {
           syncSuccess: data.syncSuccess,
           syncMessage: data.syncMessage,
         };
-        
+
         // 디버깅: 결과 데이터 확인
         console.log("설정할 결과 데이터:", resultData);
-        
+
         setResult(resultData);
         // 성공 시 파일 선택 초기화
         setFile(null);
         // 파일 입력 필드 초기화
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
+        }
+
+        // 성공 콜백 호출
+        if (onSuccess) {
+          onSuccess();
         }
       } else {
         setResult({
@@ -188,8 +197,8 @@ export function ExcelUpload() {
                 />
                 <div className={`
                   px-4 py-3 rounded-lg border-2 transition-all duration-200
-                  ${fileType === "business-info" 
-                    ? "border-primary-500 bg-primary-50 shadow-sm" 
+                  ${fileType === "business-info"
+                    ? "border-primary-500 bg-primary-50 shadow-sm"
                     : "border-surface-200 bg-white hover:border-primary-300 hover:bg-primary-50/50"
                   }
                   ${uploading ? "opacity-50 cursor-not-allowed" : ""}
@@ -197,8 +206,8 @@ export function ExcelUpload() {
                   <div className="flex items-center justify-center">
                     <div className={`
                       w-4 h-4 rounded-full border-2 mr-2 flex items-center justify-center
-                      ${fileType === "business-info" 
-                        ? "border-primary-500 bg-primary-500" 
+                      ${fileType === "business-info"
+                        ? "border-primary-500 bg-primary-500"
                         : "border-surface-300"
                       }
                     `}>
@@ -206,9 +215,8 @@ export function ExcelUpload() {
                         <div className="w-2 h-2 rounded-full bg-white"></div>
                       )}
                     </div>
-                    <span className={`text-sm font-medium ${
-                      fileType === "business-info" ? "text-primary-700" : "text-text-700"
-                    }`}>
+                    <span className={`text-sm font-medium ${fileType === "business-info" ? "text-primary-700" : "text-text-700"
+                      }`}>
                       사업장정보
                     </span>
                   </div>
@@ -226,8 +234,8 @@ export function ExcelUpload() {
                 />
                 <div className={`
                   px-4 py-3 rounded-lg border-2 transition-all duration-200
-                  ${fileType === "measurement-business" 
-                    ? "border-primary-500 bg-primary-50 shadow-sm" 
+                  ${fileType === "measurement-business"
+                    ? "border-primary-500 bg-primary-50 shadow-sm"
                     : "border-surface-200 bg-white hover:border-primary-300 hover:bg-primary-50/50"
                   }
                   ${uploading ? "opacity-50 cursor-not-allowed" : ""}
@@ -235,8 +243,8 @@ export function ExcelUpload() {
                   <div className="flex items-center justify-center">
                     <div className={`
                       w-4 h-4 rounded-full border-2 mr-2 flex items-center justify-center
-                      ${fileType === "measurement-business" 
-                        ? "border-primary-500 bg-primary-500" 
+                      ${fileType === "measurement-business"
+                        ? "border-primary-500 bg-primary-500"
                         : "border-surface-300"
                       }
                     `}>
@@ -244,9 +252,8 @@ export function ExcelUpload() {
                         <div className="w-2 h-2 rounded-full bg-white"></div>
                       )}
                     </div>
-                    <span className={`text-sm font-medium ${
-                      fileType === "measurement-business" ? "text-primary-700" : "text-text-700"
-                    }`}>
+                    <span className={`text-sm font-medium ${fileType === "measurement-business" ? "text-primary-700" : "text-text-700"
+                      }`}>
                       측정사업장
                     </span>
                   </div>
@@ -276,10 +283,10 @@ export function ExcelUpload() {
               className={`
                 relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
                 transition-all duration-200
-                ${isDragging 
-                  ? "border-primary-500 bg-primary-50 scale-[1.02]" 
-                  : file 
-                    ? "border-primary-300 bg-primary-50/30" 
+                ${isDragging
+                  ? "border-primary-500 bg-primary-50 scale-[1.02]"
+                  : file
+                    ? "border-primary-300 bg-primary-50/30"
                     : "border-surface-300 bg-surface-50 hover:border-primary-400 hover:bg-primary-50/50"
                 }
                 ${uploading ? "opacity-50 cursor-not-allowed" : ""}
@@ -356,9 +363,8 @@ export function ExcelUpload() {
                   `}></div>
                 </div>
               </div>
-              <span className={`ml-3 text-sm font-medium ${
-                autoSync ? "text-text-900" : "text-text-600"
-              }`}>
+              <span className={`ml-3 text-sm font-medium ${autoSync ? "text-text-900" : "text-text-600"
+                }`}>
                 업로드 후 자동 동기화
               </span>
             </label>
