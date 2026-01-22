@@ -38,7 +38,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const pathname = usePathname();
   const { user, loading, logout } = useUser();
   const isAdmin = user?.role === "관리자";
-  
+
   // 디버깅: 사용자 정보 확인
   React.useEffect(() => {
     if (!loading) {
@@ -106,7 +106,14 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
             <ul className="flex flex-wrap gap-1">
               {navItems.map((item) => {
                 const isActive =
-                  pathname === item.href || pathname?.startsWith(item.href + "/");
+                  pathname === item.href ||
+                  (pathname?.startsWith(item.href + "/") &&
+                    !navItems.some(
+                      (other) =>
+                        other.href !== item.href &&
+                        other.href.startsWith(item.href) &&
+                        (pathname === other.href || pathname.startsWith(other.href + "/"))
+                    ));
 
                 return (
                   <li key={item.href}>
@@ -126,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                 );
               })}
             </ul>
-            
+
             {/* 관리자 메뉴 (맨 오른쪽) */}
             {!loading && isAdmin && (
               <ul className="flex gap-1">

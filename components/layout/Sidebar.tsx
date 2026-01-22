@@ -37,7 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
   const pathname = usePathname();
   const { user, loading } = useUser();
   const isAdmin = user?.role === "관리자";
-  
+
   // 디버깅: 사용자 정보 확인
   React.useEffect(() => {
     if (!loading) {
@@ -69,7 +69,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
           <nav className="flex-1 overflow-y-auto py-6">
             <ul className="space-y-1 px-3">
               {navItems.map((item) => {
-                const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                const isActive =
+                  pathname === item.href ||
+                  (pathname?.startsWith(item.href + "/") &&
+                    !navItems.some(
+                      (other) =>
+                        other.href !== item.href &&
+                        other.href.startsWith(item.href) &&
+                        (pathname === other.href || pathname.startsWith(other.href + "/"))
+                    ));
                 return (
                   <li key={item.href}>
                     <Link
@@ -94,7 +102,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
               })}
             </ul>
           </nav>
-          
+
           {/* 관리자 전용 메뉴 (하단 고정) */}
           {!loading && isAdmin && (
             <nav className="mt-auto border-t border-surface-200 pt-4 pb-6">
