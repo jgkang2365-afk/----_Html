@@ -67,12 +67,12 @@ export const JournalSearch: React.FC = () => {
   const [filteredJournals, setFilteredJournals] = useState<JournalEntry[]>([]); // 필터링된 결과
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
-  
+
   // 필터 초기값: 현재 년도와 상반기로 설정
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   const currentPeriod = currentMonth <= 6 ? "상반기" : "하반기";
-  
+
   const [filters, setFilters] = useState({
     measurementYear: currentYear.toString(),
     measurementPeriod: currentPeriod,
@@ -170,29 +170,29 @@ export const JournalSearch: React.FC = () => {
 
       if (response.ok) {
         const results = (data && data.results) || [];
-        
+
         // 클라이언트 측에서도 중복 제거 (code-year-period 조합 기준)
         const deduplicatedResults = results.reduce((acc: JournalEntry[], current: JournalEntry) => {
           const key = `${current.code}-${current.measurement_year}-${current.measurement_period}`;
           const existing = acc.find((r) => `${r.code}-${r.measurement_year}-${r.measurement_period}` === key);
-          
+
           if (!existing) {
             acc.push(current);
           } else {
             // 같은 조합이 있으면 더 최신 것(updated_at 또는 id가 더 큰 것) 선택
             const currentDate = new Date(current.updated_at || current.created_at || 0).getTime();
             const existingDate = new Date(existing.updated_at || existing.created_at || 0).getTime();
-            
+
             if (currentDate > existingDate || (current.id && existing.id && current.id > existing.id)) {
               // 더 최신 항목으로 교체
               const index = acc.indexOf(existing);
               acc[index] = current;
             }
           }
-          
+
           return acc;
         }, []);
-        
+
         setResults(deduplicatedResults);
       } else {
         setError((data && data.error) || "검색 중 오류가 발생했습니다.");
@@ -236,7 +236,7 @@ export const JournalSearch: React.FC = () => {
           if (latestJournal) {
             // 검색 결과 목록도 업데이트
             setResults((prevResults) => {
-              const updatedResults = prevResults.map((r) => 
+              const updatedResults = prevResults.map((r) =>
                 r.id === latestJournal.id ? latestJournal : r
               );
               return updatedResults;
@@ -277,17 +277,17 @@ export const JournalSearch: React.FC = () => {
           if (updatedJournal) {
             // selectedEntry 업데이트
             setSelectedEntry(updatedJournal);
-            
+
             // 검색 결과 목록 업데이트: 같은 code-year-period 조합의 중복 제거
             setResults((prevResults) => {
               const key = `${updatedJournal.code}-${updatedJournal.measurement_year}-${updatedJournal.measurement_period}`;
-              
+
               // 같은 code-year-period 조합의 항목들을 모두 제거하고, 업데이트된 항목만 추가
               const filteredResults = prevResults.filter((r) => {
                 const rKey = `${r.code}-${r.measurement_year}-${r.measurement_period}`;
                 return rKey !== key;
               });
-              
+
               // 업데이트된 항목 추가
               return [...filteredResults, updatedJournal];
             });
@@ -298,7 +298,7 @@ export const JournalSearch: React.FC = () => {
         // 오류가 발생해도 계속 진행
       }
     }
-    
+
     // 저장 후 전체 검색을 다시 실행하여 최신 결과 반영 (중복 제거 보장)
     // 모달이 닫힌 후 검색을 실행하여 최신 상태 반영
     setTimeout(() => {
@@ -746,6 +746,12 @@ export const JournalSearch: React.FC = () => {
                 >
                   Excel 업로드
                 </Button>
+                <Button
+                  onClick={() => router.push("/journal/new")}
+                  className="shadow-sm"
+                >
+                  등록
+                </Button>
               </div>
             </div>
             <div className="flex flex-wrap items-end gap-4">
@@ -989,6 +995,9 @@ export const JournalSearch: React.FC = () => {
                 <Button variant="secondary" onClick={handleExportExcel}>
                   엑셀 다운로드
                 </Button>
+                <Button onClick={() => router.push("/journal/new")}>
+                  등록
+                </Button>
                 {selectedJournalIds.length > 0 && (
                   <Button
                     variant="secondary"
@@ -1024,7 +1033,7 @@ export const JournalSearch: React.FC = () => {
                             filteredJournals.length > 0 &&
                             filteredJournals.filter((entry) => entry.id !== null).length > 0 &&
                             selectedJournalIds.length ===
-                              filteredJournals.filter((entry) => entry.id !== null).length
+                            filteredJournals.filter((entry) => entry.id !== null).length
                           }
                           onChange={(e) => handleSelectAllJournals(e.target.checked)}
                           disabled={filteredJournals.filter((entry) => entry.id !== null).length === 0}
@@ -1139,11 +1148,10 @@ export const JournalSearch: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <span
-                              className={`px-2 py-1 rounded text-xs font-medium ${
-                                entry.completion_status === "완료"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-yellow-100 text-yellow-800"
-                              }`}
+                              className={`px-2 py-1 rounded text-xs font-medium ${entry.completion_status === "완료"
+                                ? "bg-green-100 text-green-800"
+                                : "bg-yellow-100 text-yellow-800"
+                                }`}
                             >
                               {entry.completion_status}
                             </span>
