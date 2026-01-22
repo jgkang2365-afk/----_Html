@@ -19,6 +19,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { JournalEditForm } from "./JournalEditForm";
+import { JournalRegisterModal } from "./JournalRegisterModal";
 import { useRouter } from "next/navigation";
 
 interface JournalEntry {
@@ -97,6 +98,7 @@ export const JournalSearch: React.FC = () => {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [uploadResult, setUploadResult] = useState<{
     success: boolean;
     message: string;
@@ -304,6 +306,40 @@ export const JournalSearch: React.FC = () => {
     setTimeout(() => {
       handleSearch();
     }, 100);
+    setTimeout(() => {
+      handleSearch();
+    }, 100);
+  };
+
+  const handleRegisterSelect = (data: {
+    code: string;
+    business_name: string;
+    measurement_year: string;
+    measurement_period: string;
+    designated_office: string;
+    address: string;
+  }) => {
+    setIsRegisterModalOpen(false);
+
+    const newEntry: JournalEntry = {
+      id: null,
+      code: data.code,
+      measurement_year: parseInt(data.measurement_year),
+      measurement_period: data.measurement_period,
+      business_name: data.business_name,
+      designated_office: data.designated_office,
+      address: data.address,
+      completion_status: "미완료",
+      measurement_start_date: null,
+      measurement_end_date: null,
+      measurer: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      _isFromBusiness: false,
+    };
+
+    setSelectedEntry(newEntry);
+    setIsModalOpen(true);
   };
 
   // 엑셀 다운로드
@@ -747,7 +783,7 @@ export const JournalSearch: React.FC = () => {
                   Excel 업로드
                 </Button>
                 <Button
-                  onClick={() => router.push("/journal/new")}
+                  onClick={() => setIsRegisterModalOpen(true)}
                   className="shadow-sm"
                 >
                   등록
@@ -995,7 +1031,7 @@ export const JournalSearch: React.FC = () => {
                 <Button variant="secondary" onClick={handleExportExcel}>
                   엑셀 다운로드
                 </Button>
-                <Button onClick={() => router.push("/journal/new")}>
+                <Button onClick={() => setIsRegisterModalOpen(true)}>
                   등록
                 </Button>
                 {selectedJournalIds.length > 0 && (
@@ -1193,6 +1229,13 @@ export const JournalSearch: React.FC = () => {
           />
         </Modal>
       )}
+
+      {/* 측정일지 등록(사업장 선택) 모달 */}
+      <JournalRegisterModal
+        isOpen={isRegisterModalOpen}
+        onClose={() => setIsRegisterModalOpen(false)}
+        onSelect={handleRegisterSelect}
+      />
 
       {/* Excel 업로드 모달 */}
       <Modal
