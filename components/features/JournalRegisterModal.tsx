@@ -23,6 +23,15 @@ interface JournalRegisterModalProps {
         measurement_period: string;
         designated_office: string;
         address: string;
+        business_number?: string;
+        representative_name?: string;
+        total_employees?: number | null;
+        phone?: string;
+        fax?: string;
+        manager_name?: string;
+        manager_mobile?: string;
+        manager_email?: string;
+        industrial_accident_number?: string;
     }) => void;
 }
 
@@ -99,7 +108,16 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
                     measurement_year: year,
                     measurement_period: period,
                     designated_office: designatedOffice,
-                    address: business.address || "",
+                    address: business.address || business.address1 || "",
+                    business_number: business.business_number || "",
+                    representative_name: business.representative_name || "",
+                    total_employees: business.total_employees,
+                    phone: business.phone || "",
+                    fax: business.fax || "",
+                    manager_name: business.manager_name || "",
+                    manager_mobile: business.manager_mobile || "",
+                    manager_email: business.manager_email || "",
+                    industrial_accident_number: business.industrial_accident_number || "",
                 });
                 onClose();
             }

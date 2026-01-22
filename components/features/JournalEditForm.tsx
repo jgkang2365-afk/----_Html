@@ -66,7 +66,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     measurement_period: entry.measurement_period,
     // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
     note: (() => {
-      const validNoteValues = ["최초실시", "공정 수시변경", "소음 85 이상", "전회 미실시", "타기관 신규"];
+      const validNoteValues = ["최초실시", "고시물질", "공정 수시변경", "소음 85 이상", "전회 미실시", "타기관 신규"];
       if (!entry.note) {
         console.log('[JournalEditForm] 초기화: entry.note가 없음');
         return [];
@@ -76,7 +76,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         // 콜론(:)이 포함된 항목(예비조사 정보)은 제외
         const noteString = entry.note.trim();
         const splitNotes = noteString.split(',').map(n => n.trim()).filter(Boolean);
-        
+
         // 체크박스 값만 필터링 (콜론이 없는 항목 중 validNoteValues에 일치하는 것만)
         const foundNotes = splitNotes.filter(note => {
           // 콜론이 포함된 항목은 예비조사 정보이므로 제외
@@ -86,7 +86,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           // validNoteValues에 정확히 일치하는 것만 포함
           return validNoteValues.includes(note);
         });
-        
+
         console.log('[JournalEditForm] 초기화: note 파싱 (개선)', {
           원본: entry.note,
           split후: splitNotes,
@@ -110,13 +110,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     document_number: entry.document_number || "",
     sequence_number: entry.sequence_number || "",
     five_plus_sequence: entry.five_plus_sequence || "",
-    
+
     // 측정 정보
     measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
     measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
     measurer: entry.measurer || "",
     completion_status: entry.completion_status || "미완료",
-    
+
     // 사업장 정보
     business_name: entry.business_name || "",
     total_employees: entry.total_employees || "",
@@ -134,31 +134,31 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       }
       return entry.business_category || "";
     })(),
-    
+
     // 담당자 정보
     manager_name: entry.manager_name || "",
     manager_position: entry.manager_position || "",
     manager_mobile: entry.manager_mobile || "",
     manager_email: entry.manager_email || "",
-    
+
     // K2B 정보
     k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
     k2b_sender: entry.k2b_sender || "",
     invoice_email: entry.invoice_email || "",
     electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
-    
+
     // 측정비 정보
     measurement_fee_total: entry.measurement_fee_total || "",
     measurement_fee_business: entry.measurement_fee_business || "",
     measurement_fee_national: entry.measurement_fee_national || "",
-    
+
     // 입금 정보
     deposit_total: entry.deposit_total || "",
     deposit_date_business: normalizeDateForInput(entry.deposit_date_business),
     deposit_amount_business: entry.deposit_amount_business || "",
     deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
     deposit_amount_national: entry.deposit_amount_national || "",
-    
+
     // 특이사항
     special_notes: entry.special_notes || "",
   });
@@ -166,6 +166,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 비고 옵션 (복수 선택 가능)
   const noteOptions = [
     { value: "최초실시", label: "최초실시" },
+    { value: "고시물질", label: "고시물질" },
     { value: "공정 수시변경", label: "공정 수시변경" },
     { value: "소음 85 이상", label: "소음 85 이상" },
     { value: "전회 미실시", label: "전회 미실시" },
@@ -299,20 +300,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           const response = await fetch(
             `/api/journal/previous-data?code=${encodeURIComponent(entry.code)}&year=${entry.measurement_year}&period=${encodeURIComponent(entry.measurement_period)}`
           );
-          
+
           if (response.ok) {
             const data = await response.json();
-            
+
             // 디버깅: 산재관리번호 확인
             console.log('[JournalEditForm] 직전 측정일지 데이터:', {
               hasPreviousData: !!data.previousData,
               industrial_accident_number: data.previousData?.industrial_accident_number,
             });
-            
+
             // 기존 값이 비어있을 때만 데이터로 채우기
             setFormData((prev) => {
               const updated = { ...prev };
-              
+
               // 직전 측정일지 데이터
               if (data.previousData) {
                 updated.manager_name = prev.manager_name || data.previousData.manager_name || "";
@@ -338,7 +339,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   updated.industrial_accident_number = previousIndustrialAccidentNumber;
                   console.log('[JournalEditForm] 산재관리번호 자동 채움:', previousIndustrialAccidentNumber);
                 }
-                
+
                 // 전회 측정비 정보 저장 (참고용)
                 const previousBusinessFee = data.previousData.measurement_fee_business || null;
                 const previousNationalFee = data.previousData.measurement_fee_national || null;
@@ -346,7 +347,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   business: previousBusinessFee,
                   national: previousNationalFee,
                 });
-                
+
                 // 전회치 값이 있으면 기본값으로 설정 (등록 모드에서만)
                 if (!entry.id) {
                   if (previousBusinessFee && !prev.measurement_fee_business) {
@@ -357,7 +358,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
               }
-              
+
               // 요약 정보 (직전 데이터가 없거나 비어있을 때)
               if (data.summaryInfo) {
                 updated.manager_name = updated.manager_name || data.summaryInfo.manager_name || "";
@@ -367,7 +368,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 // updated.measurement_fee_business = updated.measurement_fee_business || (data.summaryInfo.measurement_fee_business ? String(data.summaryInfo.measurement_fee_business) : "") || "";
                 // K2B 전송자는 예비조사 정보를 우선으로 하므로 여기서는 설정하지 않음
                 // updated.k2b_sender = updated.k2b_sender || data.summaryInfo.k2b_sender || "";
-                
+
                 // 전회 측정비 정보 저장 (참고용) - summaryInfo에서도 가져오기
                 if (!previousMeasurementFee.business && data.summaryInfo.measurement_fee_business) {
                   const summaryBusinessFee = data.summaryInfo.measurement_fee_business || null;
@@ -381,14 +382,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
               }
-              
+
               // 국고지원 상태 (우선순위: national_support_application > measurement_business > 직전 측정일지)
               // 등록 모드: 기존 값이 없을 때만 가져오기
               // 수정 모드: 기존 값이 없을 때만 가져오기 (건강디딤돌 신청결과 우선)
               if (data.nationalSupportStatus) {
                 updated.national_support_status = prev.national_support_status || data.nationalSupportStatus || "";
               }
-              
+
               // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)
               if (data.surveyInfo) {
                 console.log('[JournalEditForm] 예비조사 정보 확인:', {
@@ -396,18 +397,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   measurer: data.surveyInfo.measurer,
                   기존_k2b_sender: prev.k2b_sender,
                 });
-                
+
                 // 측정자 (예비조사의 measurer가 있으면 무조건 사용, 기존 값 덮어쓰기)
                 if (data.surveyInfo.measurer) {
                   updated.measurer = data.surveyInfo.measurer;
                 }
-                
+
                 // K2B 전송자 (예비조사의 report_writer가 있으면 기본값으로 설정, 최우선)
                 // report_writer는 콤마 구분 문자열일 수 있으므로 첫 번째 값만 사용
                 if (data.surveyInfo.report_writer) {
                   // 콤마로 구분된 경우 첫 번째 값만 사용
                   const reportWriterValue = data.surveyInfo.report_writer.split(',').map((w: string) => w.trim()).filter(Boolean)[0] || data.surveyInfo.report_writer.trim();
-                  
+
                   // 등록 모드: 항상 예비조사 정보 사용
                   // 수정 모드: 예비조사 정보를 우선 사용 (기존 값 덮어쓰기)
                   updated.k2b_sender = reportWriterValue;
@@ -418,7 +419,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                     설정값: reportWriterValue,
                   });
                 }
-                
+
                 // 측정 시작일 (예비조사의 measurement_date가 있으면 기본값으로 설정)
                 if (data.surveyInfo.measurement_date && !prev.measurement_start_date) {
                   updated.measurement_start_date = normalizeDateForInput(data.surveyInfo.measurement_date);
@@ -427,7 +428,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                     updated.measurement_end_date = normalizeDateForInput(data.surveyInfo.measurement_date);
                   }
                 }
-                
+
                 // note 필드에 예비조사 정보 추가
                 const noteParts: string[] = [];
                 if (data.surveyInfo.preliminary_surveyor) {
@@ -442,7 +443,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 if (data.surveyInfo.report_writer) {
                   noteParts.push(`보고서 담당: ${data.surveyInfo.report_writer}`);
                 }
-                
+
                 // note 필드에 추가 (기존 note 배열에 추가)
                 if (noteParts.length > 0) {
                   const currentNotes = Array.isArray(prev.note) ? [...prev.note] : (prev.note ? [prev.note] : []);
@@ -454,7 +455,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   updated.note = currentNotes;
                 }
               }
-              
+
               // K2B 전송자 fallback: 예비조사 정보가 없을 때만 직전 측정일지나 요약 정보 사용
               if (!updated.k2b_sender) {
                 if (data.previousData?.k2b_sender) {
@@ -465,7 +466,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   console.log('[JournalEditForm] 요약 정보에서 K2B 전송자 설정:', data.summaryInfo.k2b_sender);
                 }
               }
-              
+
               return updated;
             });
           }
@@ -474,16 +475,16 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           // 오류가 발생해도 계속 진행
         }
       };
-      
+
       // 미수금 정보 조회
       const fetchUnpaidInfo = async () => {
         if (!entry.business_name) return;
-        
+
         try {
           const response = await fetch(
             `/api/sales/check-unpaid?businessName=${encodeURIComponent(entry.business_name)}`
           );
-          
+
           if (response.ok) {
             const data = await response.json();
             if (data.unpaidCount > 0) {
@@ -507,7 +508,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           // 오류가 발생해도 계속 진행
         }
       };
-      
+
       fetchPreviousData();
       fetchUnpaidInfo();
     }
@@ -603,10 +604,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           const response = await fetch(
             `/api/journal/previous-data?code=${encodeURIComponent(entry.code)}&year=${entry.measurement_year}&period=${encodeURIComponent(entry.measurement_period)}`
           );
-          
+
           if (response.ok) {
             const data = await response.json();
-            
+
             // 국고지원 상태가 있고, 현재 값이 비어있을 때만 업데이트
             if (data.nationalSupportStatus) {
               setFormData((prev) => {
@@ -630,7 +631,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           // 오류가 발생해도 계속 진행
         }
       };
-      
+
       fetchNationalSupportStatus();
     }
   }, [entry.id, entry.code, entry.measurement_year, entry.measurement_period]);
@@ -644,18 +645,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       noteType: typeof entry.note,
       noteLength: entry.note ? (typeof entry.note === 'string' ? entry.note.length : entry.note.length) : 0,
     });
-    
+
     // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
     const validNoteValues = noteOptions.map(opt => opt.value);
     let noteArray: string[] = [];
-    
+
     if (entry.note) {
       if (typeof entry.note === 'string') {
         // 개선된 파싱: 콤마로 분리하고, 체크박스 값만 추출
         // 콜론(:)이 포함된 항목(예비조사 정보)은 제외
         const noteString = entry.note.trim();
         const splitNotes = noteString.split(',').map(n => n.trim()).filter(Boolean);
-        
+
         // 체크박스 값만 필터링 (콜론이 없는 항목 중 validNoteValues에 일치하는 것만)
         noteArray = splitNotes.filter(note => {
           // 콜론이 포함된 항목은 예비조사 정보이므로 제외
@@ -665,7 +666,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           // validNoteValues에 정확히 일치하는 것만 포함
           return validNoteValues.includes(note);
         });
-        
+
         console.log('[JournalEditForm] note 파싱 상세 (개선):', {
           원본값: entry.note,
           split후: splitNotes,
@@ -682,9 +683,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         noteArray = entry.note.filter(note => validNoteValues.includes(note));
       }
     }
-    
+
     console.log('[JournalEditForm] note 배열 변환 결과 (필터링 후):', noteArray);
-    
+
     setFormData({
       // 기본 정보
       code: entry.code,
@@ -696,13 +697,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       document_number: entry.document_number || "",
       sequence_number: entry.sequence_number || "",
       five_plus_sequence: entry.five_plus_sequence || "",
-      
+
       // 측정 정보
       measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
       measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
       measurer: entry.measurer || "",
       completion_status: entry.completion_status || "미완료",
-      
+
       // 사업장 정보
       business_name: entry.business_name || "",
       total_employees: entry.total_employees || "",
@@ -720,35 +721,35 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         }
         return entry.business_category || "";
       })(),
-      
+
       // 담당자 정보
       manager_name: entry.manager_name || "",
       manager_position: entry.manager_position || "",
       manager_mobile: entry.manager_mobile || "",
       manager_email: entry.manager_email || "",
-      
+
       // K2B 정보
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
       k2b_sender: entry.k2b_sender || "",
       invoice_email: entry.invoice_email || "",
       electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
-      
+
       // 측정비 정보
       measurement_fee_total: entry.measurement_fee_total || "",
       measurement_fee_business: entry.measurement_fee_business || "",
       measurement_fee_national: entry.measurement_fee_national || "",
-      
+
       // 입금 정보
       deposit_total: entry.deposit_total || "",
       deposit_date_business: normalizeDateForInput(entry.deposit_date_business),
       deposit_amount_business: entry.deposit_amount_business || "",
       deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
       deposit_amount_national: entry.deposit_amount_national || "",
-      
+
       // 특이사항
       special_notes: entry.special_notes || "",
     });
-    
+
     // originalYear, originalPeriod도 업데이트
     setOriginalYear(entry.measurement_year);
     setOriginalPeriod(entry.measurement_period);
@@ -795,14 +796,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       const feeTotal = parseFloat(parseCurrency(formData.measurement_fee_total)) || 0;
       const depositTotal = parseFloat(parseCurrency(formData.deposit_total)) || 0;
       const endDate = formData.measurement_end_date;
-      
+
       // 조건: 측정비 합계 = 입금액 합계이고, 측정 종료일이 과거인 경우
       if (feeTotal > 0 && depositTotal > 0 && feeTotal === depositTotal && endDate) {
         const endDateObj = new Date(endDate);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         endDateObj.setHours(0, 0, 0, 0);
-        
+
         // 측정 종료일이 오늘 이전이면 완료 제안
         if (endDateObj <= today) {
           setCompletionSuggestion("측정비와 입금액이 일치하고 측정이 종료되었습니다. 완료여부를 '완료'로 변경하시겠습니까?");
@@ -820,13 +821,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 측정년도/측정주기 변경 검증 (수정 모드에서만)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // 중복 제출 방지
     if (loading) {
       console.warn("[JournalEditForm] 이미 제출 중입니다. 중복 제출을 방지합니다.");
       return;
     }
-    
+
     setLoading(true);
     setError(null);
 
@@ -845,7 +846,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       const submitData: any = {};
       Object.keys(formData).forEach((key) => {
         const value = formData[key as keyof typeof formData];
-        
+
         // note 필드는 배열을 콤마로 구분된 문자열로 변환
         if (key === 'note') {
           if (Array.isArray(value) && value.length > 0) {
@@ -1000,10 +1001,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               <label className="block text-sm font-medium text-text-700 mb-2">비고 (복수 선택 가능)</label>
               <div className="flex flex-nowrap gap-x-4 gap-y-2 p-3 bg-white border border-surface-200 rounded-lg overflow-x-auto">
                 {noteOptions.map((option) => {
-                  const isChecked = Array.isArray(formData.note) 
+                  const isChecked = Array.isArray(formData.note)
                     ? formData.note.includes(option.value)
                     : formData.note === option.value;
-                  
+
                   // 디버깅: 체크박스 렌더링 시 로그 출력 (첫 렌더링만)
                   if (typeof window !== 'undefined' && entry.id) {
                     const debugKey = `note-debug-${entry.id}-${option.value}`;
@@ -1019,7 +1020,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                       sessionStorage.setItem(debugKey, 'true');
                     }
                   }
-                  
+
                   return (
                     <Checkbox
                       key={option.value}
@@ -1027,10 +1028,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                       label={option.label}
                       checked={isChecked}
                       onChange={(e) => {
-                        const currentNotes = Array.isArray(formData.note) 
-                          ? [...formData.note] 
+                        const currentNotes = Array.isArray(formData.note)
+                          ? [...formData.note]
                           : (formData.note ? [formData.note] : []);
-                        
+
                         if (e.target.checked) {
                           // 체크된 경우 추가
                           if (!currentNotes.includes(option.value)) {
@@ -1043,7 +1044,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                             currentNotes.splice(index, 1);
                           }
                         }
-                        
+
                         setFormData({ ...formData, note: currentNotes });
                       }}
                     />
@@ -1143,15 +1144,15 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   onClick={async () => {
                     const newDocumentNumber = prompt("새 공문연번을 입력하세요 (변경하지 않으려면 현재 값 입력):", formData.document_number || "");
                     if (newDocumentNumber === null) return;
-                    
+
                     const newSequenceNumber = prompt("새 연번을 입력하세요 (변경하지 않으려면 현재 값 입력):", formData.sequence_number || "");
                     if (newSequenceNumber === null) return;
-                    
+
                     const newFivePlusSequence = prompt("새 5인 이상 연번을 입력하세요 (변경하지 않으려면 현재 값 입력):", formData.five_plus_sequence || "");
                     if (newFivePlusSequence === null) return;
 
                     // 변경 사항 확인
-                    const hasChanges = 
+                    const hasChanges =
                       newDocumentNumber !== formData.document_number ||
                       newSequenceNumber !== formData.sequence_number ||
                       newFivePlusSequence !== formData.five_plus_sequence;
@@ -1630,15 +1631,15 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         />
       </div>
 
-        {/* 버튼 */}
-        <div className="flex gap-2 justify-end pt-4 border-t">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
-            취소
-          </Button>
-          <Button type="submit" disabled={loading || isCompleted}>
-            {loading ? <LoadingSpinner /> : entry.id ? "수정" : "등록"}
-          </Button>
-        </div>
+      {/* 버튼 */}
+      <div className="flex gap-2 justify-end pt-4 border-t">
+        <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
+          취소
+        </Button>
+        <Button type="submit" disabled={loading || isCompleted}>
+          {loading ? <LoadingSpinner /> : entry.id ? "수정" : "등록"}
+        </Button>
+      </div>
     </form>
   );
 };

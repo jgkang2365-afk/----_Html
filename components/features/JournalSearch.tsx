@@ -40,6 +40,12 @@ interface JournalEntry {
   total_employees?: number | null;
   manager_name?: string | null;
   manager_mobile?: string | null;
+  business_number?: string | null;
+  representative_name?: string | null;
+  phone?: string | null;
+  fax?: string | null;
+  manager_email?: string | null;
+  industrial_accident_number?: string | null;
   created_at: string;
   updated_at: string;
   _isFromBusiness?: boolean; // measurement_business에서 온 데이터인지 표시
@@ -318,6 +324,15 @@ export const JournalSearch: React.FC = () => {
     measurement_period: string;
     designated_office: string;
     address: string;
+    business_number?: string;
+    representative_name?: string;
+    total_employees?: number | null;
+    phone?: string;
+    fax?: string;
+    manager_name?: string;
+    manager_mobile?: string;
+    manager_email?: string;
+    industrial_accident_number?: string;
   }) => {
     setIsRegisterModalOpen(false);
 
@@ -329,6 +344,15 @@ export const JournalSearch: React.FC = () => {
       business_name: data.business_name,
       designated_office: data.designated_office,
       address: data.address,
+      business_number: data.business_number,
+      representative_name: data.representative_name,
+      total_employees: data.total_employees,
+      phone: data.phone,
+      fax: data.fax,
+      manager_name: data.manager_name,
+      manager_mobile: data.manager_mobile,
+      manager_email: data.manager_email,
+      industrial_accident_number: data.industrial_accident_number,
       completion_status: "미완료",
       measurement_start_date: null,
       measurement_end_date: null,
