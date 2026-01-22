@@ -34,6 +34,7 @@ interface Survey {
   actual_measurer: string | null;
   report_writer: string | null;
   sequence_number: number | null;
+  business_number: string | null; // Added field
   created_at: string;
   updated_at: string;
 }
@@ -66,7 +67,7 @@ export default function SurveyPage() {
   const [selectedYear, setSelectedYear] = useState<string>(""); // 선택된 년도 (빈 문자열이면 전체)
   // 사업장명 검색 상태 (예비조사 목록용)
   const [businessNameFilter, setBusinessNameFilter] = useState<string>(""); // 사업장명 검색 필터
-  
+
   // 검색 관련 상태
   const [searchParams, setSearchParams] = useState({
     code: "",
@@ -231,7 +232,7 @@ export default function SurveyPage() {
   const handleExportExcel = async () => {
     try {
       const response = await fetch("/api/export/survey");
-      
+
       if (!response.ok) {
         throw new Error("엑셀 다운로드 실패");
       }
@@ -266,11 +267,10 @@ export default function SurveyPage() {
               setHasSearched(false);
               setBusinesses([]);
             }}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === "search"
-                ? "text-primary-500 border-b-2 border-primary-500"
-                : "text-text-700 hover:text-text-900"
-            }`}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "search"
+              ? "text-primary-500 border-b-2 border-primary-500"
+              : "text-text-700 hover:text-text-900"
+              }`}
           >
             사업장 검색
           </button>
@@ -279,11 +279,10 @@ export default function SurveyPage() {
               setActiveTab("list");
               loadSurveys();
             }}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === "list"
-                ? "text-primary-500 border-b-2 border-primary-500"
-                : "text-text-700 hover:text-text-900"
-            }`}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "list"
+              ? "text-primary-500 border-b-2 border-primary-500"
+              : "text-text-700 hover:text-text-900"
+              }`}
           >
             예비조사 목록
           </button>
@@ -294,118 +293,118 @@ export default function SurveyPage() {
       {activeTab === "search" && (
         <Card className="p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-text-900 mb-6">검색 조건</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <Input
-            label="코드"
-            value={searchParams.code}
-            onChange={(e) =>
-              setSearchParams({ ...searchParams, code: e.target.value })
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleSearch();
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <Input
+              label="코드"
+              value={searchParams.code}
+              onChange={(e) =>
+                setSearchParams({ ...searchParams, code: e.target.value })
               }
-            }}
-            placeholder="코드 입력"
-          />
-          <Input
-            label="사업자번호"
-            value={searchParams.businessNumber}
-            onChange={(e) =>
-              setSearchParams({ ...searchParams, businessNumber: e.target.value })
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleSearch();
-              }
-            }}
-            placeholder="사업자번호 입력"
-          />
-          <Input
-            label="사업장명"
-            value={searchParams.businessName}
-            onChange={(e) =>
-              setSearchParams({ ...searchParams, businessName: e.target.value })
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleSearch();
-              }
-            }}
-            placeholder="사업장명 입력"
-          />
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-1">
-              소재지 관할청
-            </label>
-            <div className="relative">
-              <Input
-                list="office-jurisdiction-list"
-                value={searchParams.officeJurisdiction}
-                onChange={(e) =>
-                  setSearchParams({ ...searchParams, officeJurisdiction: e.target.value })
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSearch();
                 }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleSearch();
-                  }
-                }}
-                placeholder="소재지 관할청 입력 또는 선택"
-              />
-              <datalist id="office-jurisdiction-list">
-                {officeOptions
-                  .filter((opt) => opt.value !== "")
-                  .map((opt) => (
-                    <option key={opt.value} value={opt.value} />
-                  ))}
-              </datalist>
-            </div>
-          </div>
-          <Input
-            label="주소"
-            value={searchParams.address}
-            onChange={(e) =>
-              setSearchParams({ ...searchParams, address: e.target.value })
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleSearch();
+              }}
+              placeholder="코드 입력"
+            />
+            <Input
+              label="사업자번호"
+              value={searchParams.businessNumber}
+              onChange={(e) =>
+                setSearchParams({ ...searchParams, businessNumber: e.target.value })
               }
-            }}
-            placeholder="주소 입력"
-          />
-        </div>
-        <div className="flex gap-3 mt-6 justify-end">
-          <Button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handleSearch();
-            }}
-            disabled={loading}
-            className="shadow-sm"
-          >
-            {loading ? "검색 중..." : "검색"}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handleReset();
-            }}
-            disabled={loading}
-          >
-            초기화
-          </Button>
-        </div>
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSearch();
+                }
+              }}
+              placeholder="사업자번호 입력"
+            />
+            <Input
+              label="사업장명"
+              value={searchParams.businessName}
+              onChange={(e) =>
+                setSearchParams({ ...searchParams, businessName: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSearch();
+                }
+              }}
+              placeholder="사업장명 입력"
+            />
+            <div>
+              <label className="block text-sm font-medium text-text-700 mb-1">
+                소재지 관할청
+              </label>
+              <div className="relative">
+                <Input
+                  list="office-jurisdiction-list"
+                  value={searchParams.officeJurisdiction}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, officeJurisdiction: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
+                  placeholder="소재지 관할청 입력 또는 선택"
+                />
+                <datalist id="office-jurisdiction-list">
+                  {officeOptions
+                    .filter((opt) => opt.value !== "")
+                    .map((opt) => (
+                      <option key={opt.value} value={opt.value} />
+                    ))}
+                </datalist>
+              </div>
+            </div>
+            <Input
+              label="주소"
+              value={searchParams.address}
+              onChange={(e) =>
+                setSearchParams({ ...searchParams, address: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSearch();
+                }
+              }}
+              placeholder="주소 입력"
+            />
+          </div>
+          <div className="flex gap-3 mt-6 justify-end">
+            <Button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleSearch();
+              }}
+              disabled={loading}
+              className="shadow-sm"
+            >
+              {loading ? "검색 중..." : "검색"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleReset();
+              }}
+              disabled={loading}
+            >
+              초기화
+            </Button>
+          </div>
         </Card>
       )}
 
@@ -444,9 +443,9 @@ export default function SurveyPage() {
                       <TableCell className="font-medium">{business.business_name}</TableCell>
                       <TableCell>{business.office_jurisdiction || "-"}</TableCell>
                       <TableCell>
-                        {business.address || 
-                         [business.address1, business.address2].filter(Boolean).join(" ") || 
-                         "-"}
+                        {business.address ||
+                          [business.address1, business.address2].filter(Boolean).join(" ") ||
+                          "-"}
                       </TableCell>
                       <TableCell className={`text-center font-semibold ${(business.unpaid_count || 0) >= 1 ? 'text-red-600' : 'text-black'}`}>
                         {(business.unpaid_count || 0)}회
@@ -636,14 +635,14 @@ export default function SurveyPage() {
                 return survey.business_name.toLowerCase().includes(businessNameFilter.toLowerCase());
               });
             }
-            
+
             // 순번 기준 정렬
             const sortedSurveys = [...filteredSurveys].sort((a, b) => {
               const seqA = a.sequence_number || 999999; // 순번이 없으면 뒤로
               const seqB = b.sequence_number || 999999;
               return sequenceSortOrder === "asc" ? seqA - seqB : seqB - seqA;
             });
-            
+
             return sortedSurveys.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-text-500 text-lg">검색 결과가 없습니다.</p>
@@ -680,6 +679,7 @@ export default function SurveyPage() {
                         <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">종료일</th>
                         <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정요일</th>
                         <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">사업장명</th>
+                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">사업자번호</th>
                         <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정자</th>
                         <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">공시료 코드</th>
                         <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">예비조사자</th>
@@ -704,6 +704,7 @@ export default function SurveyPage() {
                           </td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurement_weekdays || "-"}</td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{survey.business_name}</td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.business_number || "-"}</td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurer || "-"}</td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.survey_code || "-"}</td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.preliminary_surveyor || "-"}</td>
@@ -756,32 +757,33 @@ export default function SurveyPage() {
         >
           <SurveyForm
             initialData={
-              editingSurvey 
+              editingSurvey
                 ? {
-                    id: editingSurvey.id,
-                    code: editingSurvey.code,
-                    business_name: editingSurvey.business_name,
-                    measurement_date: editingSurvey.measurement_date,
-                    end_date: editingSurvey.end_date ?? undefined,
-                    measurement_weekdays: editingSurvey.measurement_weekdays ?? undefined,
-                    measurer: editingSurvey.measurer ?? undefined,
-                    survey_code: editingSurvey.survey_code ?? undefined,
-                    address: editingSurvey.address ?? undefined,
-                    preliminary_surveyor: editingSurvey.preliminary_surveyor ?? undefined,
-                    actual_measurer: editingSurvey.actual_measurer ?? undefined,
-                    report_writer: editingSurvey.report_writer ?? undefined,
-                    sequence_number: editingSurvey.sequence_number ?? undefined,
-                  } as any
+                  id: editingSurvey.id,
+                  code: editingSurvey.code,
+                  business_name: editingSurvey.business_name,
+                  business_number: editingSurvey.business_number ?? undefined,
+                  measurement_date: editingSurvey.measurement_date,
+                  end_date: editingSurvey.end_date ?? undefined,
+                  measurement_weekdays: editingSurvey.measurement_weekdays ?? undefined,
+                  measurer: editingSurvey.measurer ?? undefined,
+                  survey_code: editingSurvey.survey_code ?? undefined,
+                  address: editingSurvey.address ?? undefined,
+                  preliminary_surveyor: editingSurvey.preliminary_surveyor ?? undefined,
+                  actual_measurer: editingSurvey.actual_measurer ?? undefined,
+                  report_writer: editingSurvey.report_writer ?? undefined,
+                  sequence_number: editingSurvey.sequence_number ?? undefined,
+                } as any
                 : selectedBusinessForForm
-                ? {
+                  ? {
                     code: selectedBusinessForForm.code,
                     business_name: selectedBusinessForForm.business_name,
                     business_number: selectedBusinessForForm.business_number || "",
-                    address: selectedBusinessForForm.address || 
-                             [selectedBusinessForForm.address1, selectedBusinessForForm.address2]
-                               .filter(Boolean).join(" ") || "",
+                    address: selectedBusinessForForm.address ||
+                      [selectedBusinessForForm.address1, selectedBusinessForForm.address2]
+                        .filter(Boolean).join(" ") || "",
                   }
-                : undefined
+                  : undefined
             }
             onSuccess={handleFormSuccess}
             onCancel={handleFormCancel}

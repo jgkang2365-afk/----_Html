@@ -19,6 +19,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { toShortName } from "@/lib/constants/designated-offices";
+import { ExcelUpload } from "@/components/features/ExcelUpload";
 
 interface BusinessEntry {
   code: string;
@@ -79,8 +80,9 @@ export const BusinessManagement: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isNationalSupportUploadModalOpen, setIsNationalSupportUploadModalOpen] = useState(false);
+  const [isExcelUploadModalOpen, setIsExcelUploadModalOpen] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessEntry | null>(null);
-  
+
   // 건강디딤돌 신청결과 업로드 상태
   const [nationalSupportUploadFile, setNationalSupportUploadFile] = useState<File | null>(null);
   const [nationalSupportUploadLoading, setNationalSupportUploadLoading] = useState(false);
@@ -238,7 +240,7 @@ export const BusinessManagement: React.FC = () => {
       if (selectedPeriod) params.append("period", selectedPeriod);
 
       const response = await fetch(`/api/export/businesses?${params.toString()}`);
-      
+
       if (!response.ok) {
         throw new Error("엑셀 다운로드 실패");
       }
@@ -364,6 +366,13 @@ export const BusinessManagement: React.FC = () => {
             className="shadow-sm"
           >
             건강디딤돌 신청결과 업로드
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setIsExcelUploadModalOpen(true)}
+            className="shadow-sm"
+          >
+            측정대상 목록 엑셀 업로드
           </Button>
         </div>
       </Card>
@@ -495,63 +504,62 @@ export const BusinessManagement: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                {filteredBusinesses.map((entry, index) => {
-                  const entryKey = `${entry.code}-${entry.year}-${entry.period}`;
-                  return (
-                    <tr key={entryKey} className="border-b border-slate-100 transition-colors hover:bg-surface-50">
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            entry.isRegistered
+                  {filteredBusinesses.map((entry, index) => {
+                    const entryKey = `${entry.code}-${entry.year}-${entry.period}`;
+                    return (
+                      <tr key={entryKey} className="border-b border-slate-100 transition-colors hover:bg-surface-50">
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${entry.isRegistered
                               ? "bg-green-100 text-green-800"
                               : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {entry.isRegistered ? "등록됨" : "미등록"}
-                        </span>
-                      </td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{entry.code}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                        {entry.national_support_status ? (
-                          <span className="text-text-700 text-sm">{entry.national_support_status}</span>
-                        ) : (
-                          <span className="text-text-400 text-sm">-</span>
-                        )}
-                      </td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.measurer || "-"}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium w-[180px]">{entry.business_name}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.business_category || "-"}</td>
-                      <td className="p-4 align-middle text-slate-600 min-w-[200px]">
-                        {entry.address || "-"}
-                      </td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.office_jurisdiction || "-"}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_name || "-"}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_mobile || "-"}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                        {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
-                      </td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.future_measurement_date)}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
-                      <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                        <Input
-                          value={editingNotes.get(entryKey) ?? entry.notes ?? ""}
-                          onChange={(e) => {
-                            const newMap = new Map(editingNotes);
-                            newMap.set(entryKey, e.target.value);
-                            setEditingNotes(newMap);
-                            // TODO: API 호출하여 비고 저장
-                          }}
-                          placeholder="비고 입력"
-                          className="min-w-[120px]"
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                              }`}
+                          >
+                            {entry.isRegistered ? "등록됨" : "미등록"}
+                          </span>
+                        </td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{entry.code}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          {entry.national_support_status ? (
+                            <span className="text-text-700 text-sm">{entry.national_support_status}</span>
+                          ) : (
+                            <span className="text-text-400 text-sm">-</span>
+                          )}
+                        </td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.measurer || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium w-[180px]">{entry.business_name}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.business_category || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 min-w-[200px]">
+                          {entry.address || "-"}
+                        </td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.office_jurisdiction || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_name || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_mobile || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
+                        </td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.future_measurement_date)}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          <Input
+                            value={editingNotes.get(entryKey) ?? entry.notes ?? ""}
+                            onChange={(e) => {
+                              const newMap = new Map(editingNotes);
+                              newMap.set(entryKey, e.target.value);
+                              setEditingNotes(newMap);
+                              // TODO: API 호출하여 비고 저장
+                            }}
+                            placeholder="비고 입력"
+                            className="min-w-[120px]"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -738,6 +746,29 @@ export const BusinessManagement: React.FC = () => {
               disabled={!nationalSupportUploadFile || nationalSupportUploadLoading || !!nationalSupportUploadResult}
             >
               {nationalSupportUploadLoading ? "업로드 중..." : "업로드"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isExcelUploadModalOpen}
+        onClose={() => setIsExcelUploadModalOpen(false)}
+        title="측정 대상 사업장 목록 수동 업로드"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <ExcelUpload
+            onSuccess={() => {
+              // 업로드 성공 시 약간의 지연 후 목록 새로고침
+              setTimeout(() => {
+                loadBusinesses();
+              }, 1000);
+            }}
+          />
+          <div className="flex justify-end pt-4">
+            <Button variant="secondary" onClick={() => setIsExcelUploadModalOpen(false)}>
+              닫기
             </Button>
           </div>
         </div>

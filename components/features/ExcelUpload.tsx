@@ -365,7 +365,7 @@ export function ExcelUpload({ onSuccess }: ExcelUploadProps) {
               </div>
               <span className={`ml-3 text-sm font-medium ${autoSync ? "text-text-900" : "text-text-600"
                 }`}>
-                업로드 후 자동 동기화
+                업로드 후 DB 자동 동기화
               </span>
             </label>
           </div>

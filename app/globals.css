@@ -24,7 +24,8 @@
 }
 
 html {
-  font-size: 16px; /* Explicitly set base size */
+  font-size: 16px;
+  /* Explicitly set base size */
 }
 
 body {
@@ -34,10 +35,12 @@ body {
 
 /* 인쇄 스타일 */
 @media print {
+
   /* A4 사이즈 설정 - 여백 최소화 */
   @page {
     size: A4;
-    margin: 3mm 8mm 3mm 8mm; /* 상하 3mm, 좌우 8mm */
+    margin: 3mm 8mm 3mm 8mm;
+    /* 상하 3mm, 좌우 8mm */
   }
 
   /* 전체 페이지 스타일 */
@@ -48,12 +51,12 @@ body {
   }
 
   /* 모달 오버레이 숨김 */
-  body > div[role="dialog"] > div:first-child {
+  body>div[role="dialog"]>div:first-child {
     display: none !important;
   }
 
   /* 모달 컨테이너 스타일 조정 */
-  body > div[role="dialog"] {
+  body>div[role="dialog"] {
     position: static !important;
     display: block !important;
     padding: 0 !important;
@@ -64,31 +67,31 @@ body {
   }
 
   /* 모달이 아닌 body의 직접 자식 요소만 숨김 (모달 내부는 제외) */
-  body > div:not([role="dialog"]),
-  body > script,
-  body > style {
+  body>div:not([role="dialog"]),
+  body>script,
+  body>style {
     display: none !important;
   }
 
   /* 모달이 여러 개 있는 경우 첫 번째만 표시 */
-  body > div[role="dialog"]:not(:first-of-type) {
+  body>div[role="dialog"]:not(:first-of-type) {
     display: none !important;
     visibility: hidden !important;
   }
 
   /* 인쇄 시 모달이 하나만 표시되도록 강제 */
-  body > div[role="dialog"]:first-of-type {
+  body>div[role="dialog"]:first-of-type {
     display: block !important;
     visibility: visible !important;
   }
 
-  body > div[role="dialog"]:nth-of-type(n+2) {
+  body>div[role="dialog"]:nth-of-type(n+2) {
     display: none !important;
     visibility: hidden !important;
   }
 
   /* 모달 박스 스타일 조정 */
-  body > div[role="dialog"] > div:last-child {
+  body>div[role="dialog"]>div:last-child {
     position: static !important;
     transform: none !important;
     max-width: 100% !important;
@@ -104,13 +107,13 @@ body {
   }
 
   /* 모달 박스 내부의 모든 요소 표시 */
-  body > div[role="dialog"] > div:last-child * {
+  body>div[role="dialog"]>div:last-child * {
     display: revert !important;
     visibility: visible !important;
   }
 
   /* 모달 헤더의 닫기 버튼 숨김 */
-  body > div[role="dialog"] button[aria-label="닫기"] {
+  body>div[role="dialog"] button[aria-label="닫기"] {
     display: none !important;
   }
 
@@ -136,19 +139,19 @@ body {
   }
 
   /* 간격 최소화 - 1페이지 제한을 위해 더 작게 */
-  .print-content .space-y-4 > * + * {
+  .print-content .space-y-4>*+* {
     margin-top: 0.15rem !important;
   }
 
-  .print-content .space-y-6 > * + * {
+  .print-content .space-y-6>*+* {
     margin-top: 0.2rem !important;
   }
 
-  .print-content .space-y-3 > * + * {
+  .print-content .space-y-3>*+* {
     margin-top: 0.15rem !important;
   }
 
-  .print-content .space-y-2 > * + * {
+  .print-content .space-y-2>*+* {
     margin-top: 0.1rem !important;
   }
 
@@ -221,7 +224,7 @@ body {
   }
 
   /* 모든 주요 섹션에 페이지 나누기 방지 */
-  .print-content > div {
+  .print-content>div {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
@@ -245,7 +248,7 @@ body {
   }
 
   /* 그리드 아이템도 페이지 나누기 방지 */
-  .print-content .grid > div {
+  .print-content .grid>div {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
@@ -276,7 +279,7 @@ body {
   }
 
   /* 모달 헤더 스타일 조정 - 1페이지 제한 */
-  body > div[role="dialog"] > div:last-child > div:first-child {
+  body>div[role="dialog"]>div:last-child>div:first-child {
     position: static !important;
     padding: 0.1rem 0 !important;
     border-bottom: 1px solid #e2e8f0 !important;
@@ -284,7 +287,7 @@ body {
     margin-top: 0 !important;
   }
 
-  body > div[role="dialog"] > div:last-child > div:first-child h2 {
+  body>div[role="dialog"]>div:last-child>div:first-child h2 {
     font-size: 9px !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -292,7 +295,7 @@ body {
   }
 
   /* 모달 내용 영역 스타일 조정 */
-  body > div[role="dialog"] > div:last-child > div:last-child {
+  body>div[role="dialog"]>div:last-child>div:last-child {
     padding: 0 !important;
     overflow: visible !important;
     max-height: none !important;
@@ -301,13 +304,13 @@ body {
   }
 
   /* 모달 내용 영역 내부의 모든 요소 표시 */
-  body > div[role="dialog"] > div:last-child > div:last-child * {
+  body>div[role="dialog"]>div:last-child>div:last-child * {
     display: revert !important;
     visibility: visible !important;
   }
 
   /* 모달 내용 영역 내부 div 표시 및 패딩 제거 */
-  body > div[role="dialog"] > div:last-child > div:last-child > div {
+  body>div[role="dialog"]>div:last-child>div:last-child>div {
     display: block !important;
     padding-top: 0 !important;
     margin-top: 0 !important;
@@ -322,13 +325,13 @@ body {
   }
 
   /* 모달 컨테이너 상단 여백 제거 */
-  body > div[role="dialog"] {
+  body>div[role="dialog"] {
     margin-top: 0 !important;
     padding-top: 0 !important;
   }
 
   /* 모달 박스 상단 여백 제거 */
-  body > div[role="dialog"] > div:last-child {
+  body>div[role="dialog"]>div:last-child {
     margin-top: 0 !important;
     padding-top: 0 !important;
     page-break-inside: avoid !important;
@@ -336,7 +339,7 @@ body {
   }
 
   /* 모달 전체가 하나의 페이지에 표시되도록 */
-  body > div[role="dialog"] {
+  body>div[role="dialog"] {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     orphans: 999 !important;
@@ -344,49 +347,49 @@ body {
   }
 
   /* 모달 내부의 모든 요소가 표시되도록 보장 */
-  body > div[role="dialog"] * {
+  body>div[role="dialog"] * {
     visibility: visible !important;
   }
 
   /* 모달 내부의 div 요소 표시 */
-  body > div[role="dialog"] div:not(.print-hide-empty) {
+  body>div[role="dialog"] div:not(.print-hide-empty) {
     display: block !important;
   }
 
   /* 모달 내부의 그리드 요소 표시 */
-  body > div[role="dialog"] .grid:not(.print-hide-empty) {
+  body>div[role="dialog"] .grid:not(.print-hide-empty) {
     display: grid !important;
   }
 
   /* 모달 내부의 flex 요소 표시 */
-  body > div[role="dialog"] .flex:not(.print-hide-empty) {
+  body>div[role="dialog"] .flex:not(.print-hide-empty) {
     display: flex !important;
   }
 
   /* 모달 내부의 인라인 요소 표시 */
-  body > div[role="dialog"] span:not(.print-hide-empty),
-  body > div[role="dialog"] label:not(.print-hide-empty),
-  body > div[role="dialog"] a:not(.print-hide-empty) {
+  body>div[role="dialog"] span:not(.print-hide-empty),
+  body>div[role="dialog"] label:not(.print-hide-empty),
+  body>div[role="dialog"] a:not(.print-hide-empty) {
     display: inline !important;
   }
 
   /* 모달 내부의 인라인 블록 요소 표시 */
-  body > div[role="dialog"] input:not(.print-hide-empty),
-  body > div[role="dialog"] textarea:not(.print-hide-empty),
-  body > div[role="dialog"] select:not(.print-hide-empty),
-  body > div[role="dialog"] button:not(.print-hide-empty):not(.no-print) {
+  body>div[role="dialog"] input:not(.print-hide-empty),
+  body>div[role="dialog"] textarea:not(.print-hide-empty),
+  body>div[role="dialog"] select:not(.print-hide-empty),
+  body>div[role="dialog"] button:not(.print-hide-empty):not(.no-print) {
     display: inline-block !important;
   }
 
   /* 모달 내부의 h2, h3, h4 등 제목 요소 표시 */
-  body > div[role="dialog"] h2:not(.print-hide-empty),
-  body > div[role="dialog"] h3:not(.print-hide-empty),
-  body > div[role="dialog"] h4:not(.print-hide-empty) {
+  body>div[role="dialog"] h2:not(.print-hide-empty),
+  body>div[role="dialog"] h3:not(.print-hide-empty),
+  body>div[role="dialog"] h4:not(.print-hide-empty) {
     display: block !important;
   }
 
   /* 모달 박스도 페이지 나누기 방지 */
-  body > div[role="dialog"] > div:last-child {
+  body>div[role="dialog"]>div:last-child {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     orphans: 999 !important;
@@ -394,7 +397,7 @@ body {
   }
 
   /* 모달 내용 영역도 페이지 나누기 방지 */
-  body > div[role="dialog"] > div:last-child > div:last-child {
+  body>div[role="dialog"]>div:last-child>div:last-child {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
@@ -405,12 +408,12 @@ body {
   }
 
   /* 빈 입력 필드가 있는 그리드 아이템 숨김 */
-  .print-content .grid > div:has(input[value=""]) {
+  .print-content .grid>div:has(input[value=""]) {
     display: none !important;
   }
 
   /* 빈 텍스트 영역이 있는 그리드 아이템 숨김 */
-  .print-content .grid > div:has(textarea:empty) {
+  .print-content .grid>div:has(textarea:empty) {
     display: none !important;
   }
 
@@ -428,19 +431,19 @@ body {
   }
 
   /* 모달 컨테이너 높이 제한 */
-  body > div[role="dialog"] {
+  body>div[role="dialog"] {
     max-height: 100vh !important;
     overflow: hidden !important;
   }
 
   /* 모달 박스 높이 제한 */
-  body > div[role="dialog"] > div:last-child {
+  body>div[role="dialog"]>div:last-child {
     max-height: 100vh !important;
     overflow: hidden !important;
   }
 
   /* 모달 내용 영역 높이 제한 */
-  body > div[role="dialog"] > div:last-child > div:last-child {
+  body>div[role="dialog"]>div:last-child>div:last-child {
     max-height: calc(100vh - 15px) !important;
     overflow: hidden !important;
   }
@@ -458,4 +461,3 @@ body {
     resize: none !important;
   }
 }
-

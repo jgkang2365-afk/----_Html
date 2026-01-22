@@ -68,17 +68,17 @@ export async function GET(request: NextRequest) {
     if (officeJurisdiction) {
       // 부분 일치 검색 (대소문자 구분 없음)
       const searchTerm = officeJurisdiction.trim();
-      
+
       // Supabase의 ilike는 부분 일치를 지원하므로 직접 사용
       // "대전지방고용노동청 보령지청" 전체 문자열로 검색
       businessInfoQuery = businessInfoQuery.ilike("office_jurisdiction", `%${searchTerm}%`);
-      
+
       // 디버깅: 검색 조건 로그
       console.log("소재지 관할청 검색 조건:", searchTerm);
     }
 
     const { data: businessInfoList, error: businessInfoError } = await businessInfoQuery;
-    
+
     // 디버깅: 검색 결과 로그
     if (officeJurisdiction) {
       console.log(`소재지 관할청 "${officeJurisdiction}" 검색 결과:`, {
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
           office_jurisdiction: b.office_jurisdiction,
         })),
       });
-      
+
       // 실제 데이터베이스에 어떤 관할청 값들이 있는지 샘플 확인
       if (!businessInfoList || businessInfoList.length === 0) {
         console.warn("검색 결과가 없습니다. 데이터베이스의 관할청 샘플 확인 중...");
@@ -99,9 +99,9 @@ export async function GET(request: NextRequest) {
           .limit(50);
         const uniqueOffices = [...new Set(sampleData?.map((b: any) => b.office_jurisdiction).filter(Boolean) || [])];
         console.log("데이터베이스의 관할청 샘플 (중복 제거, 상위 20개):", uniqueOffices.slice(0, 20));
-        
+
         // 검색어와 유사한 값 찾기
-        const similarOffices = uniqueOffices.filter((office: string) => 
+        const similarOffices = uniqueOffices.filter((office: string) =>
           office.includes(officeJurisdiction) || officeJurisdiction.includes(office)
         );
         if (similarOffices.length > 0) {
@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
       // office_jurisdiction 컬럼이 없는 경우 (마이그레이션 미실행) fallback 처리
       if (businessInfoError.message?.includes("office_jurisdiction") || businessInfoError.code === "PGRST204") {
         console.warn("office_jurisdiction 컬럼이 없습니다. measurement_business에서 검색합니다.");
-        
+
         // 기본 쿼리 재실행 (office_jurisdiction 제외)
         let fallbackQuery = supabase
           .from("business_info")
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
         // measurement_business에서 관할청 필터링
         const codes = fallbackList?.map((b: any) => b.code) || [];
         let filteredCodes = codes;
-        
+
         if (officeJurisdiction && codes.length > 0) {
           const { data: measurementBusinessList, error: mbError } = await supabase
             .from("measurement_business")
@@ -187,7 +187,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({ surveys: surveys || [] });
       }
-      
+
       return NextResponse.json(
         { error: "사업장정보 검색 중 오류가 발생했습니다.", details: businessInfoError.message },
         { status: 500 }
@@ -196,18 +196,18 @@ export async function GET(request: NextRequest) {
 
     // 검색 조건에 맞는 코드 목록
     const codes = businessInfoList?.map((b: any) => b.code) || [];
-    
+
     // 검색 조건이 있지만 매칭되는 코드가 없는 경우 빈 배열 반환
     if (codes.length === 0 && (code || businessNumber || businessName || address || officeJurisdiction)) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         businesses: [],
-        surveys: [] 
+        surveys: []
       });
     }
 
     // 2. 예비조사 테이블에서 해당 코드들로 검색
     let surveys: any[] = [];
-    
+
     // 검색 조건이 없으면 전체 예비조사 목록 반환
     if (codes.length === 0 && !code && !businessNumber && !businessName && !address && !officeJurisdiction) {
       const { data: allSurveys, error: allSurveysError } = await supabase
@@ -231,11 +231,39 @@ export async function GET(request: NextRequest) {
         .order("created_at", { ascending: false });
 
       const { data: surveyData, error: surveyError } = await surveyQuery;
-      
+
       if (surveyError) {
         console.error("예비조사 조회 오류:", surveyError);
       } else {
         surveys = surveyData || [];
+      }
+    }
+
+    // 사업자번호 연동: 조회된 예비조사 목록의 코드를 이용해 business_info에서 사업자번호 조회
+    if (surveys.length > 0) {
+      const surveyCodes = [...new Set(surveys.map((s) => s.code).filter(Boolean))];
+
+      if (surveyCodes.length > 0) {
+        const { data: businessInfos, error: businessInfoError } = await supabase
+          .from("business_info")
+          .select("code, business_number")
+          .in("code", surveyCodes);
+
+        if (!businessInfoError && businessInfos) {
+          // 코드별 사업자번호 맵 생성
+          const businessNumberMap = new Map();
+          businessInfos.forEach((info) => {
+            if (info.code) {
+              businessNumberMap.set(info.code, info.business_number);
+            }
+          });
+
+          // 예비조사 목록에 사업자번호 추가
+          surveys = surveys.map((survey) => ({
+            ...survey,
+            business_number: survey.code ? businessNumberMap.get(survey.code) || null : null
+          }));
+        }
       }
     }
 
@@ -278,9 +306,9 @@ export async function GET(request: NextRequest) {
       unpaid_count: unpaidCountMap.get(business.business_name) || 0,
     })) || [];
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       businesses: businesses,
-      surveys: surveys 
+      surveys: surveys
     });
   } catch (error) {
     console.error("예비조사 API 오류:", error);
@@ -356,14 +384,14 @@ export async function POST(request: NextRequest) {
 
       if (!journalError && latestJournal) {
         // measurement_end_date 또는 measurement_start_date 중 더 최신 날짜 사용
-        const endDate = latestJournal.measurement_end_date 
-          ? new Date(latestJournal.measurement_end_date).getTime() 
+        const endDate = latestJournal.measurement_end_date
+          ? new Date(latestJournal.measurement_end_date).getTime()
           : 0;
-        const startDate = latestJournal.measurement_start_date 
-          ? new Date(latestJournal.measurement_start_date).getTime() 
+        const startDate = latestJournal.measurement_start_date
+          ? new Date(latestJournal.measurement_start_date).getTime()
           : 0;
-        const lastMeasurementDate = endDate > startDate 
-          ? latestJournal.measurement_end_date 
+        const lastMeasurementDate = endDate > startDate
+          ? latestJournal.measurement_end_date
           : latestJournal.measurement_start_date;
 
         if (lastMeasurementDate) {
@@ -448,7 +476,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       survey,
       warning: warningMessage // 경고 메시지 포함 (있을 경우)
     }, { status: 201 });
