@@ -43,6 +43,7 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
     const [loading, setLoading] = useState(false);
     const [businesses, setBusinesses] = useState<Business[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
     const [selectedBusinessCode, setSelectedBusinessCode] = useState("");
 
     // Default values
@@ -74,6 +75,7 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
 
             // Reset states
             setSearchTerm("");
+            setSearchQuery("");
             setSelectedBusinessCode("");
             setYear(currentYear.toString());
             setPeriod(initialPeriod);
@@ -85,12 +87,16 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
 
     // Filter businesses
     const filteredBusinesses = useMemo(() => {
-        if (!searchTerm) return businesses.slice(0, 50); // Limit initial display
+        if (!searchQuery) return businesses.slice(0, 50); // Limit initial display
         return businesses.filter(b =>
-            b.business_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            b.code.toLowerCase().includes(searchTerm.toLowerCase())
+            b.business_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            b.code.toLowerCase().includes(searchQuery.toLowerCase())
         ).slice(0, 100); // Limit search results
-    }, [businesses, searchTerm]);
+    }, [businesses, searchQuery]);
+
+    const handleSearch = () => {
+        setSearchQuery(searchTerm);
+    };
 
     const handleSelect = async () => {
         if (!selectedBusinessCode) return;
@@ -149,13 +155,30 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
         >
             <div className="space-y-6">
                 <div className="space-y-4">
-                    <Input
-                        label="사업장 검색 (명칭 또는 코드)"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder="사업장명 입력..."
-                        autoFocus
-                    />
+                    <div className="flex gap-2 items-end">
+                        <div className="flex-1">
+                            <Input
+                                label="사업장 검색 (명칭 또는 코드)"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        handleSearch();
+                                    }
+                                }}
+                                placeholder="사업장명 또는 코드 입력 후 조회..."
+                                autoFocus
+                            />
+                        </div>
+                        <Button
+                            type="button"
+                            onClick={handleSearch}
+                            className="mb-[2px]"
+                            variant="secondary"
+                        >
+                            조회
+                        </Button>
+                    </div>
 
                     <div className="border rounded-md max-h-60 overflow-y-auto">
                         {loading ? (
