@@ -530,101 +530,113 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
 
     // 워크시트를 사용할 수 없는 경우, 여러 fallback 시도
     if (!managerMobile) {
-      // 방법 1: __EMPTY_62로 시도
-      const bkColumnKey = "__EMPTY_62";
-      if (row[bkColumnKey] !== undefined && row[bkColumnKey] !== null) {
-        const value = String(row[bkColumnKey]).trim();
-        if (value) {
-          managerMobile = value;
+      // 방법 1: __EMPTY_xx 키로 시도 (61, 62, 63)
+      // 패턴 검사를 반드시 수행하여 직위 등이 들어가는 것 방지
+      const mobilePattern = /^01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}$/;
+      const looseMobilePattern = /^\d{2,3}[-\s.]?\d{3,4}[-\s.]?\d{4}$/;
+
+      const fallbackKeys = ["__EMPTY_62", "__EMPTY_61", "__EMPTY_63"];
+
+      for (const key of fallbackKeys) {
+        if (row[key] !== undefined && row[key] !== null) {
+          const value = String(row[key]).trim();
+          if (value && (mobilePattern.test(value) || looseMobilePattern.test(value))) {
+            managerMobile = value;
+            if (dataIndex === 0) {
+              console.log(`[Fallback 탐색] ${key}에서 휴대폰 번호 발견: ${managerMobile}`);
+            }
+            break;
+          }
         }
       }
+    }
 
-      // 방법 2: 모든 컬럼에서 휴대폰 번호 패턴 찾기 (010-, 011-, 016-, 017-, 018-, 019-로 시작)
-      if (!managerMobile) {
-        const mobilePattern = /^(010|011|016|017|018|019)-\d{3,4}-\d{4}/;
-        for (const [key, value] of Object.entries(row)) {
-          if (value && typeof value === "string") {
-            const strValue = String(value).trim();
-            if (mobilePattern.test(strValue)) {
-              // J열의 전화번호가 아닌 경우만 (일반 전화번호는 지역번호로 시작)
-              if (!strValue.match(/^(02|031|032|033|041|042|043|044|051|052|053|054|055|061|062|063|064)-\d{3,4}-\d{4}/)) {
-                managerMobile = strValue;
-                // 디버깅: 첫 번째 행만 로그
-                if (dataIndex === 0) {
-                  console.log(`[휴대폰 번호 패턴] 컬럼 "${key}"에서 휴대폰 번호 발견: ${managerMobile}`);
-                }
-                break;
+    // 방법 2: 모든 컬럼에서 휴대폰 번호 패턴 찾기 (010-, 011-, 016-, 017-, 018-, 019-로 시작)
+    if (!managerMobile) {
+      const mobilePattern = /^(010|011|016|017|018|019)-\d{3,4}-\d{4}/;
+      for (const [key, value] of Object.entries(row)) {
+        if (value && typeof value === "string") {
+          const strValue = String(value).trim();
+          if (mobilePattern.test(strValue)) {
+            // J열의 전화번호가 아닌 경우만 (일반 전화번호는 지역번호로 시작)
+            if (!strValue.match(/^(02|031|032|033|041|042|043|044|051|052|053|054|055|061|062|063|064)-\d{3,4}-\d{4}/)) {
+              managerMobile = strValue;
+              // 디버깅: 첫 번째 행만 로그
+              if (dataIndex === 0) {
+                console.log(`[휴대폰 번호 패턴] 컬럼 "${key}"에서 휴대폰 번호 발견: ${managerMobile}`);
               }
+              break;
             }
           }
         }
-        if (!managerMobile && dataIndex === 0) {
-          console.log(`[휴대폰 번호 패턴] 휴대폰 번호 패턴을 찾지 못했습니다.`);
-        }
+      }
+      if (!managerMobile && dataIndex === 0) {
+        console.log(`[휴대폰 번호 패턴] 휴대폰 번호 패턴을 찾지 못했습니다.`);
       }
     }
+  }
 
 
     const managerEmail = row["Email"] || row["이메일"] || row["담당자 e-mail"] || row["담당자 email"] || row["담당자이메일"] || null;
-    const invoiceEmail = row["세금 Email"] || row["세금이메일"] || row["세금 Email"] || row["계산서 메일"] || row["계산서메일"] || null;
-    const industrialAccidentNumber = row["산재관리번호"] || row["산재관리 번호"] || null;
-    const representativeName = row["대표자명"] || row["대표자"] || null;
+  const invoiceEmail = row["세금 Email"] || row["세금이메일"] || row["세금 Email"] || row["계산서 메일"] || row["계산서메일"] || null;
+  const industrialAccidentNumber = row["산재관리번호"] || row["산재관리 번호"] || null;
+  const representativeName = row["대표자명"] || row["대표자"] || null;
 
-    // 값이 있는 경우에만 추가 (마이그레이션 후 컬럼이 있으면 저장됨)
-    if (managerName) optionalFields.manager_name = managerName;
-    if (managerPosition) optionalFields.manager_position = managerPosition;
+  // 값이 있는 경우에만 추가 (마이그레이션 후 컬럼이 있으면 저장됨)
+  if (managerName) optionalFields.manager_name = managerName;
+  if (managerPosition) optionalFields.manager_position = managerPosition;
 
-    // manager_mobile은 null이더라도 항상 포함 (동기화 시 기존 잘못된 값을 덮어쓰기 위함)
-    optionalFields.manager_mobile = managerMobile;
+  // manager_mobile은 null이더라도 항상 포함 (동기화 시 기존 잘못된 값을 덮어쓰기 위함)
+  optionalFields.manager_mobile = managerMobile;
 
-    if (managerEmail) optionalFields.manager_email = managerEmail;
-    if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
-    if (industrialAccidentNumber) optionalFields.industrial_accident_number = industrialAccidentNumber;
-    if (representativeName) optionalFields.representative_name = representativeName;
+  if (managerEmail) optionalFields.manager_email = managerEmail;
+  if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
+  if (industrialAccidentNumber) optionalFields.industrial_accident_number = industrialAccidentNumber;
+  if (representativeName) optionalFields.representative_name = representativeName;
 
-    // 향후측정주기 (개월 단위, 예: 6, 12)
-    // 여러 가능한 컬럼명 시도 (공백, 띄어쓰기 변형 포함)
-    // 헤더가 비어있는 경우 __EMPTY_XX 형식으로 처리됨
-    // 실제 Excel 파일에서 AV 열 근처의 헤더가 비어있는 컬럼이 __EMPTY_45로 매핑됨
-    const futurePeriodValue = row["향후측정주기"] || row["향후 측정주기"] || row["향후측정 주기"] ||
-      row["향후측정기간"] || row["향후 측정기간"] || row["측정주기"] ||
-      row["재측정주기"] || row["재측정 주기"] || row["다음측정주기"] ||
-      row["향후측정기"] || row["향후 측정기"] ||
-      row["__EMPTY_45"]; // 실제 Excel 파일에서 이 키에 "향후측정주기" 데이터가 있음
+  // 향후측정주기 (개월 단위, 예: 6, 12)
+  // 여러 가능한 컬럼명 시도 (공백, 띄어쓰기 변형 포함)
+  // 헤더가 비어있는 경우 __EMPTY_XX 형식으로 처리됨
+  // 실제 Excel 파일에서 AV 열 근처의 헤더가 비어있는 컬럼이 __EMPTY_45로 매핑됨
+  const futurePeriodValue = row["향후측정주기"] || row["향후 측정주기"] || row["향후측정 주기"] ||
+    row["향후측정기간"] || row["향후 측정기간"] || row["측정주기"] ||
+    row["재측정주기"] || row["재측정 주기"] || row["다음측정주기"] ||
+    row["향후측정기"] || row["향후 측정기"] ||
+    row["__EMPTY_45"]; // 실제 Excel 파일에서 이 키에 "향후측정주기" 데이터가 있음
 
-    if (futurePeriodValue) {
-      const periodValue = futurePeriodValue;
-      const periodStr = String(periodValue).trim();
+  if (futurePeriodValue) {
+    const periodValue = futurePeriodValue;
+    const periodStr = String(periodValue).trim();
 
-      // 헤더 텍스트인 "향후측정주기"는 건너뛰기
-      if (periodStr === "향후측정주기" || periodStr === "향후 측정주기") {
-        // 헤더 텍스트이므로 건너뛰기 - optionalFields에 추가하지 않음
-      } else if (typeof periodValue === "number") {
-        optionalFields.future_measurement_period = Math.round(periodValue);
+    // 헤더 텍스트인 "향후측정주기"는 건너뛰기
+    if (periodStr === "향후측정주기" || periodStr === "향후 측정주기") {
+      // 헤더 텍스트이므로 건너뛰기 - optionalFields에 추가하지 않음
+    } else if (typeof periodValue === "number") {
+      optionalFields.future_measurement_period = Math.round(periodValue);
+    } else {
+      // "1년", "6개월" 형식 파싱
+      if (periodStr.includes("년")) {
+        const years = parseFloat(periodStr.replace("년", "").trim());
+        if (!isNaN(years) && years > 0) {
+          optionalFields.future_measurement_period = Math.round(years * 12);
+        }
+      } else if (periodStr.includes("개월")) {
+        const months = parseFloat(periodStr.replace("개월", "").trim());
+        if (!isNaN(months) && months > 0) {
+          optionalFields.future_measurement_period = Math.round(months);
+        }
       } else {
-        // "1년", "6개월" 형식 파싱
-        if (periodStr.includes("년")) {
-          const years = parseFloat(periodStr.replace("년", "").trim());
-          if (!isNaN(years) && years > 0) {
-            optionalFields.future_measurement_period = Math.round(years * 12);
-          }
-        } else if (periodStr.includes("개월")) {
-          const months = parseFloat(periodStr.replace("개월", "").trim());
-          if (!isNaN(months) && months > 0) {
-            optionalFields.future_measurement_period = Math.round(months);
-          }
-        } else {
-          // 숫자만 있는 경우
-          const parsedPeriod = parseInt(periodStr, 10);
-          if (!isNaN(parsedPeriod) && parsedPeriod > 0) {
-            optionalFields.future_measurement_period = parsedPeriod;
-          }
+        // 숫자만 있는 경우
+        const parsedPeriod = parseInt(periodStr, 10);
+        if (!isNaN(parsedPeriod) && parsedPeriod > 0) {
+          optionalFields.future_measurement_period = parsedPeriod;
         }
       }
     }
+  }
 
-    return { ...baseData, ...optionalFields };
-  }).filter((row) => row.code && row.year && row.period && row.business_name); // 필수 필드 체크
+  return { ...baseData, ...optionalFields };
+}).filter((row) => row.code && row.year && row.period && row.business_name); // 필수 필드 체크
 }
 
 /**
