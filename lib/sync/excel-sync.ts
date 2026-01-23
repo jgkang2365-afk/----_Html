@@ -40,16 +40,16 @@ export interface SyncLog {
 function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): any[] | { data: any[]; worksheet: XLSX.WorkSheet; headerRowIndex: number } {
   try {
     // 파일 경로 또는 Buffer에서 파일 버퍼 가져오기
-    const fileBuffer = typeof filePathOrBuffer === "string" 
+    const fileBuffer = typeof filePathOrBuffer === "string"
       ? readFileSync(filePathOrBuffer)
       : filePathOrBuffer;
-    
-    const filePathForCheck = typeof filePathOrBuffer === "string" 
-      ? filePathOrBuffer 
+
+    const filePathForCheck = typeof filePathOrBuffer === "string"
+      ? filePathOrBuffer
       : (fileName || "");
     const isMeasurementBusinessFile = filePathForCheck.includes("측정사업장") || fileName?.includes("measurement-business");
-    
-    const workbook = XLSX.read(fileBuffer, { 
+
+    const workbook = XLSX.read(fileBuffer, {
       type: "buffer",
       cellDates: true,
       cellNF: false,
@@ -57,20 +57,20 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
     });
     const sheetName = workbook.SheetNames[0]; // 첫 번째 시트 사용
     const worksheet = workbook.Sheets[sheetName];
-    
+
     // 측정사업장.xlsx 파일은 첫 번째 행이 비어있고 두 번째 행이 헤더입니다.
     // range 옵션을 사용하여 두 번째 행부터 읽기 (헤더는 행 2, 데이터는 행 3부터)
     const range = worksheet["!ref"];
     if (!range) {
       return [];
     }
-    
+
     const decodedRange = XLSX.utils.decode_range(range);
-    
+
     // 첫 번째 행이 비어있는지 확인 (측정사업장.xlsx만 해당)
     const firstRowCell = XLSX.utils.encode_cell({ r: 0, c: 0 });
     const firstRowHasData = worksheet[firstRowCell] && String(worksheet[firstRowCell].v || "").trim();
-    
+
     if (!firstRowHasData && isMeasurementBusinessFile) {
       // 첫 번째 행이 비어있으면 두 번째 행을 헤더로 사용
       // range를 조정하여 행 1부터 시작하도록 설정 (0-based index)
@@ -79,7 +79,7 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
         e: { r: decodedRange.e.r, c: decodedRange.e.c }
       };
       const newRangeStr = XLSX.utils.encode_range(newRange);
-      const data = XLSX.utils.sheet_to_json(worksheet, { 
+      const data = XLSX.utils.sheet_to_json(worksheet, {
         defval: null,
         raw: false,
         range: newRangeStr
@@ -88,7 +88,7 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
       return { data, worksheet, headerRowIndex: 1 }; // headerRowIndex: 1 = 두 번째 행 (0-based)
     } else {
       // 기본 동작: 첫 번째 행을 헤더로 인식
-      const data = XLSX.utils.sheet_to_json(worksheet, { 
+      const data = XLSX.utils.sheet_to_json(worksheet, {
         defval: null,
         raw: false
       });
@@ -108,7 +108,7 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
 async function getLatestFileFromStorage(fileType: "business-info" | "measurement-business"): Promise<{ buffer: Buffer; fileName: string } | null> {
   try {
     const supabase = await createClient();
-    
+
     // Storage에서 파일 목록 조회 (최신순 정렬)
     const { data: files, error: listError } = await supabase.storage
       .from("excel-files")
@@ -166,15 +166,15 @@ function parseBusinessInfo(data: any[]): any[] {
 
     // 추가 필드들 (마이그레이션 후에만 저장됨)
     const optionalFields: any = {};
-    
+
     // 우편번호
     if (row["우편번호"]) optionalFields.postal_code = String(row["우편번호"]).trim();
-    
+
     // 업태, 업종
     if (row["업태"]) optionalFields.business_type = String(row["업태"]).trim();
     if (row["업종코드"]) optionalFields.business_category_code = String(row["업종코드"]).trim();
     if (row["업종"]) optionalFields.business_category = String(row["업종"]).trim();
-    
+
     // 관할청 정보
     // 엑셀 파일의 실제 컬럼명 확인: "관할청" 또는 다른 변형 가능
     // null, undefined, 빈 문자열 모두 체크
@@ -185,7 +185,7 @@ function parseBusinessInfo(data: any[]): any[] {
         optionalFields.office_jurisdiction = trimmedValue;
       }
     }
-    
+
     const officeCodeValue = row["관할청코드"] || null;
     if (officeCodeValue != null) {
       const trimmedValue = String(officeCodeValue).trim();
@@ -193,28 +193,28 @@ function parseBusinessInfo(data: any[]): any[] {
         optionalFields.office_code = trimmedValue;
       }
     }
-    
+
     // 주생산품
     if (row["주생산품"]) optionalFields.main_product = String(row["주생산품"]).trim();
-    
+
     // 근로자 수
     if (row["남근로수"]) optionalFields.male_employees = parseInt(String(row["남근로수"]), 10) || null;
     if (row["여근로수"]) optionalFields.female_employees = parseInt(String(row["여근로수"]), 10) || null;
-    
+
     // 관리번호
     if (row["관리번호"]) optionalFields.management_number = String(row["관리번호"]).trim();
-    
+
     // 계산서 관련
     if (row["계산서 메일"]) optionalFields.invoice_email = String(row["계산서 메일"]).trim();
     if (row["계산서 담당"]) optionalFields.invoice_manager = String(row["계산서 담당"]).trim();
-    
+
     // 담당자 정보
     if (row["직위"]) optionalFields.manager_position = String(row["직위"]).trim();
     if (row["연락처"]) optionalFields.manager_contact = String(row["연락처"]).trim();
-    
+
     // 년도
     if (row["년도"]) optionalFields.year = parseInt(String(row["년도"]), 10) || null;
-    
+
     // 날짜 필드
     if (row["등록일"]) {
       const regDate = row["등록일"];
@@ -227,7 +227,7 @@ function parseBusinessInfo(data: any[]): any[] {
         }
       }
     }
-    
+
     if (row["향후측정예상일"]) {
       const futureDate = row["향후측정예상일"];
       if (typeof futureDate === "number") {
@@ -239,7 +239,7 @@ function parseBusinessInfo(data: any[]): any[] {
         }
       }
     }
-    
+
     // 향후측정주기 (개월 단위, 예: 6, 12)
     // "1년", "6개월" 형식 지원
     if (row["향후측정주기"]) {
@@ -248,7 +248,7 @@ function parseBusinessInfo(data: any[]): any[] {
         optionalFields.future_measurement_period = Math.round(periodValue);
       } else {
         const periodStr = String(periodValue).trim();
-        
+
         // "1년", "6개월" 형식 파싱
         if (periodStr.includes("년")) {
           const years = parseFloat(periodStr.replace("년", "").trim());
@@ -269,7 +269,7 @@ function parseBusinessInfo(data: any[]): any[] {
         }
       }
     }
-    
+
     // 비고
     if (row["비고"]) optionalFields.notes = String(row["비고"]).trim();
 
@@ -306,7 +306,7 @@ function findColumnValue(row: any, columnNames: string[]): any {
       return row[name];
     }
   }
-  
+
   // 2단계: 공백만 제거하고 정확히 일치하는 컬럼 확인
   const keys = Object.keys(row);
   for (const name of columnNames) {
@@ -320,7 +320,7 @@ function findColumnValue(row: any, columnNames: string[]): any {
       }
     }
   }
-  
+
   return null;
 }
 
@@ -330,10 +330,10 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
   if (data.length > 0) {
     const firstRow = data[0];
     const keys = Object.keys(firstRow);
-    
+
     // "코드" 컬럼의 정확한 이름 찾기 (정확히 일치하는 것만)
     const exactCodeColumn = keys.find(k => k === "코드");
-    
+
     if (exactCodeColumn) {
       console.log(`[파싱] "코드" 컬럼 확인: 정확히 일치하는 컬럼 발견`);
     } else {
@@ -345,16 +345,16 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
         console.warn(`[파싱] 경고: "코드" 컬럼을 찾을 수 없습니다!`);
       }
     }
-    
+
     // BK 열 관련 컬럼 찾기 (담당자 휴대폰)
     // Excel 파일에서 BK 열 헤더는 "전화번호"
-    const bkRelatedKeys = keys.filter(k => 
+    const bkRelatedKeys = keys.filter(k =>
       k === "전화번호" ||
-      k === "BK" || 
-      k.includes("BK") || 
+      k === "BK" ||
+      k.includes("BK") ||
       (k.includes("담당자") && (k.includes("전화") || k.includes("휴대폰") || k.includes("폰")))
     );
-    
+
     if (bkRelatedKeys.length > 0) {
       console.log(`[파싱] BK 열 관련 컬럼 발견:`, bkRelatedKeys);
       // 각 키에 대한 샘플 값 확인
@@ -364,7 +364,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
           console.log(`[파싱]   - ${key}: ${value} (타입: ${typeof value})`);
         }
       });
-      
+
       // "전화번호" 키가 있는지 확인
       if (keys.includes("전화번호")) {
         console.log(`[파싱] "전화번호" 컬럼 발견! 샘플 값: ${firstRow["전화번호"]}`);
@@ -374,16 +374,16 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       console.warn(`[파싱] 사용 가능한 컬럼명 샘플:`, keys.slice(50, 70)); // BI, BJ, BK, BL 근처 컬럼명
     }
   }
-  
+
   return data.map((row: any, dataIndex: number) => {
     // 코드 값 찾기 - 정확히 일치하는 컬럼 우선
     const codeValue = findColumnValue(row, ["코드", "코 드", "Code", "code", "CODE"]);
-    
+
     // 실제 Excel 파일의 컬럼명에 맞게 매핑
     const period = row["구분"] || "";
-    const normalizedPeriod = period.toString().includes("상반기") || period.toString().includes("상") ? "상반기" : 
-                            period.toString().includes("하반기") || period.toString().includes("하") ? "하반기" : 
-                            period.toString().trim();
+    const normalizedPeriod = period.toString().includes("상반기") || period.toString().includes("상") ? "상반기" :
+      period.toString().includes("하반기") || period.toString().includes("하") ? "하반기" :
+        period.toString().trim();
 
     const completionStatus = row["완료여부"] || "미완료";
     const normalizedStatus = completionStatus.toString().includes("완료") && !completionStatus.toString().includes("미완료") ? "완료" : "미완료";
@@ -391,10 +391,10 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     // 날짜 변환 (Excel 날짜 또는 문자열 형식)
     let startDate = null;
     let endDate = null;
-    
+
     const startDateStr = row["측정시작일"];
     const endDateStr = row["측정종료일"];
-    
+
     if (startDateStr) {
       if (typeof startDateStr === "number") {
         // Excel 날짜 숫자 형식
@@ -417,7 +417,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
         }
       }
     }
-    
+
     if (endDateStr) {
       if (typeof endDateStr === "number") {
         endDate = excelDateToJSDate(endDateStr);
@@ -458,33 +458,32 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     // 담당자 정보 및 기타 정보는 마이그레이션 후에만 추가
     // 마이그레이션에 실행되지 않은 경우를 대비하여 조건부로 추가
     const optionalFields: any = {};
-    
+
     // 담당자 정보 (여러 가능한 컬럼명 시도)
     const managerName = row["담당자"] || row["담당자명"] || row["담당자 성명"] || null;
     const managerPosition = row["직위"] || row["담당자 직위"] || null;
-    
+
     // BK 열: Excel의 BK 열은 63번째 열 (A=1, B=2, ..., BK=63, 1-based)
     // xlsx 라이브러리의 sheet_to_json은 첫 번째 열을 0부터 시작하므로 BK는 인덱스 62 (0-based)
     // 중요: "전화번호" 헤더가 두 개 있음 (J열과 BK열). xlsx 라이브러리는 중복 헤더명이 있을 때 첫 번째 것만 사용하므로
     //       row["전화번호"]는 J열만 가리킴. 따라서 BK 열(담당자 휴대폰)은 반드시 워크시트에서 직접 읽어야 함
     let managerMobile: string | null = null;
-    
-    // 워크시트에서 BK 열(인덱스 63, 0-based 인덱스 62)을 직접 읽기
+
+    // 워크시트에서 담당자 휴대폰 열(BK열 등)을 직접 읽기
     if (worksheet && headerRowIndex !== undefined) {
-      // BK 열 인덱스: 62 (0-based, Excel의 BK 열)
+      // 63번째 열 = 인덱스 62 (고정값)
       const bkColumnIndex = 62;
-      // sheet_to_json의 range 옵션 사용 시, data 배열의 인덱스와 실제 Excel 행 번호 매핑
-      // headerRowIndex가 1이면 행 1이 헤더, data[0]는 행 2부터 시작
+
       const excelRowIndex = headerRowIndex + 1 + dataIndex;
       const bkCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: bkColumnIndex });
       const bkCell = worksheet[bkCellAddress];
-      
+
       // 디버깅: 첫 번째 행만 로그 출력
       if (dataIndex === 0) {
-        console.log(`[BK열 읽기] headerRowIndex: ${headerRowIndex}, dataIndex: ${dataIndex}, excelRowIndex: ${excelRowIndex}, cellAddress: ${bkCellAddress}`);
+        console.log(`[BK열 읽기] headerRowIndex: ${headerRowIndex}, dataIndex: ${dataIndex}, excelRowIndex: ${excelRowIndex}, cellAddress: ${bkCellAddress}, columnIndex: ${bkColumnIndex}`);
         console.log(`[BK열 읽기] 셀 존재: ${!!bkCell}, 값: ${bkCell?.v}`);
       }
-      
+
       if (bkCell && bkCell.v !== undefined && bkCell.v !== null) {
         const value = String(bkCell.v).trim();
         if (value) {
@@ -495,7 +494,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
         }
       }
     }
-    
+
     // 워크시트를 사용할 수 없는 경우, 여러 fallback 시도
     if (!managerMobile) {
       // 방법 1: __EMPTY_62로 시도
@@ -506,7 +505,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
           managerMobile = value;
         }
       }
-      
+
       // 방법 2: 모든 컬럼에서 휴대폰 번호 패턴 찾기 (010-, 011-, 016-, 017-, 018-, 019-로 시작)
       if (!managerMobile) {
         const mobilePattern = /^(010|011|016|017|018|019)-\d{3,4}-\d{4}/;
@@ -531,8 +530,8 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
         }
       }
     }
-    
-    
+
+
     const managerEmail = row["Email"] || row["이메일"] || row["담당자 e-mail"] || row["담당자 email"] || row["담당자이메일"] || null;
     const invoiceEmail = row["세금 Email"] || row["세금이메일"] || row["세금 Email"] || row["계산서 메일"] || row["계산서메일"] || null;
     const industrialAccidentNumber = row["산재관리번호"] || row["산재관리 번호"] || null;
@@ -546,21 +545,21 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
     if (industrialAccidentNumber) optionalFields.industrial_accident_number = industrialAccidentNumber;
     if (representativeName) optionalFields.representative_name = representativeName;
-    
+
     // 향후측정주기 (개월 단위, 예: 6, 12)
     // 여러 가능한 컬럼명 시도 (공백, 띄어쓰기 변형 포함)
     // 헤더가 비어있는 경우 __EMPTY_XX 형식으로 처리됨
     // 실제 Excel 파일에서 AV 열 근처의 헤더가 비어있는 컬럼이 __EMPTY_45로 매핑됨
-    const futurePeriodValue = row["향후측정주기"] || row["향후 측정주기"] || row["향후측정 주기"] || 
-                               row["향후측정기간"] || row["향후 측정기간"] || row["측정주기"] ||
-                               row["재측정주기"] || row["재측정 주기"] || row["다음측정주기"] ||
-                               row["향후측정기"] || row["향후 측정기"] ||
-                               row["__EMPTY_45"]; // 실제 Excel 파일에서 이 키에 "향후측정주기" 데이터가 있음
-    
+    const futurePeriodValue = row["향후측정주기"] || row["향후 측정주기"] || row["향후측정 주기"] ||
+      row["향후측정기간"] || row["향후 측정기간"] || row["측정주기"] ||
+      row["재측정주기"] || row["재측정 주기"] || row["다음측정주기"] ||
+      row["향후측정기"] || row["향후 측정기"] ||
+      row["__EMPTY_45"]; // 실제 Excel 파일에서 이 키에 "향후측정주기" 데이터가 있음
+
     if (futurePeriodValue) {
       const periodValue = futurePeriodValue;
       const periodStr = String(periodValue).trim();
-      
+
       // 헤더 텍스트인 "향후측정주기"는 건너뛰기
       if (periodStr === "향후측정주기" || periodStr === "향후 측정주기") {
         // 헤더 텍스트이므로 건너뛰기 - optionalFields에 추가하지 않음
@@ -601,14 +600,14 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
   const fileNameXls = "사업장정보.xls";
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
-  
+
   const syncStartTime = new Date();
   let logId: number | null = null;
   let fileName = fileNameXlsx; // catch 블록에서 사용할 수 있도록 함수 상단에서 선언
 
   try {
     const supabase = await createClient();
-    
+
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let excelData: any[];
     let targetPath: string | Buffer | undefined = filePath;
@@ -669,17 +668,17 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
     }
 
     // Excel 파일 읽기
-    const readResult = fileBuffer 
+    const readResult = fileBuffer
       ? readExcelFile(fileBuffer, storageFileName)
       : readExcelFile(targetPath as string);
-    
+
     // readExcelFile의 반환값이 객체인 경우 (측정사업장 파일)
     if (readResult && typeof readResult === "object" && "data" in readResult) {
       excelData = readResult.data;
     } else {
       excelData = readResult as any[];
     }
-    
+
     // 디버깅: "관할청" 컬럼이 있는 행 찾기
     let sampleRowWithOffice = null;
     for (let i = 0; i < Math.min(excelData.length, 50); i++) {
@@ -695,7 +694,7 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
         break;
       }
     }
-    
+
     if (!sampleRowWithOffice) {
       console.warn("경고: 엑셀 파일에서 '관할청' 데이터가 있는 행을 찾을 수 없습니다.");
       // 첫 5개 행 샘플 출력
@@ -709,9 +708,9 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
         });
       }
     }
-    
+
     const parsedData = parseBusinessInfo(excelData);
-    
+
     // 파싱된 데이터 샘플 확인
     const parsedSampleWithOffice = parsedData.find(p => p.office_jurisdiction);
     if (parsedSampleWithOffice) {
@@ -730,7 +729,7 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
     // 성능 최적화: 모든 code를 한 번에 조회하여 기존 데이터 맵 생성
     const codes = parsedData.map(row => row.code).filter(Boolean);
     const existingCodesSet = new Set<string>();
-    
+
     if (codes.length > 0) {
       // 배치로 기존 code 조회 (1000개씩 나눠서 조회)
       const batchSize = 1000;
@@ -760,7 +759,7 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
 
     parsedData.forEach(row => {
       if (!row.code) return;
-      
+
       const rowWithTimestamp = {
         ...row,
         updated_at: now,
@@ -796,11 +795,11 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
               fax: row.fax,
               representative_name: row.representative_name,
             }));
-            
+
             const { error: basicInsertError } = await supabase
               .from("business_info")
               .insert(basicBatch);
-            
+
             if (basicInsertError) {
               console.error(`배치 삽입 오류 (${i}~${i + batch.length}):`, basicInsertError);
             } else {
@@ -823,7 +822,7 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
 
       for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
         const batch = toUpdate.slice(i, i + updateBatchSize);
-        
+
         // 각 레코드를 병렬로 업데이트
         batch.forEach(row => {
           const promise = supabase
@@ -933,14 +932,14 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
   const fileNameXls = "측정사업장.xls";
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
-  
+
   const syncStartTime = new Date();
   let logId: number | null = null;
   let fileName = fileNameXlsx; // catch 블록에서 사용할 수 있도록 함수 상단에서 선언
 
   try {
     const supabase = await createClient();
-    
+
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let targetPath: string | Buffer | undefined = filePath;
     let fileBuffer: Buffer | undefined;
@@ -1003,11 +1002,11 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     let excelData: any[];
     let worksheet: XLSX.WorkSheet | undefined;
     let headerRowIndex: number | undefined;
-    
-    const readResult = fileBuffer 
+
+    const readResult = fileBuffer
       ? readExcelFile(fileBuffer, storageFileName)
       : readExcelFile(targetPath as string);
-    
+
     // readExcelFile의 반환값이 객체인 경우 (측정사업장 파일)
     if (readResult && typeof readResult === "object" && "data" in readResult) {
       excelData = readResult.data;
@@ -1016,30 +1015,30 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     } else {
       excelData = readResult as any[];
     }
-    
+
     console.log(`[측정사업장 동기화] Excel 파일에서 읽은 데이터 행 수: ${excelData.length}`);
-    
+
     // 디버깅: 첫 번째 행에서 컬럼 확인
     if (excelData.length > 0) {
       const firstRow = excelData[0];
       const keys = Object.keys(firstRow);
       console.log(`[측정사업장 동기화] 첫 번째 행의 컬럼 수: ${keys.length}`);
       console.log("[측정사업장 동기화] 첫 번째 행의 컬럼명 샘플 (최대 30개):", keys.slice(0, 30));
-      
+
       // "코드" 컬럼 정확한 이름 찾기
       const codeColumnExact = keys.find(k => k === "코드");
       const codeColumnContains = keys.filter(k => k && k.includes("코드"));
       console.log(`[측정사업장 동기화] "코드" 컬럼 (정확히 일치): ${codeColumnExact || "없음"}`);
       console.log(`[측정사업장 동기화] "코드"를 포함하는 컬럼:`, codeColumnContains);
-      
+
       // 코드 컬럼 값 샘플 확인
       if (codeColumnExact) {
-        console.log(`[측정사업장 동기화] "코드" 컬럼 첫 5개 값:`, 
+        console.log(`[측정사업장 동기화] "코드" 컬럼 첫 5개 값:`,
           excelData.slice(0, 5).map((r: any) => r["코드"]));
-        console.log(`[측정사업장 동기화] "코드" 컬럼 마지막 5개 값:`, 
+        console.log(`[측정사업장 동기화] "코드" 컬럼 마지막 5개 값:`,
           excelData.slice(-5).map((r: any) => r["코드"]));
       }
-      
+
       // "코드" 컬럼에서 H0432 찾기 (전체 데이터 검색)
       let h0432Found = false;
       let h0432RowIndex = -1;
@@ -1064,7 +1063,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
             }
           }
         }
-        
+
         // H0432를 찾지 못했으면, "코드" 컬럼의 모든 고유 값 중 일부 확인
         if (!h0432Found) {
           console.warn("[측정사업장 동기화] 경고: '코드' 컬럼에서 H0432를 찾을 수 없습니다!");
@@ -1081,13 +1080,13 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       } else {
         console.warn("[측정사업장 동기화] 경고: '코드' 컬럼을 찾을 수 없어 H0432 검색을 수행할 수 없습니다!");
       }
-      
+
       // "향후측정주기" 관련 컬럼 찾기
       const periodColumns = keys.filter(k => k && (k.includes("향후") || (k.includes("주기") && k.includes("측정"))));
       if (periodColumns.length > 0) {
         console.log("[측정사업장 동기화] 향후측정주기 관련 컬럼:", periodColumns);
       }
-      
+
       // BK 열 관련 디버깅: 모든 빈 헤더 확인
       const emptyHeaders = keys.filter(k => k.startsWith("__EMPTY_"));
       if (emptyHeaders.length > 0) {
@@ -1112,9 +1111,9 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     } else {
       console.error("[측정사업장 동기화] Excel 파일에서 데이터를 읽을 수 없습니다!");
     }
-    
+
     const parsedData = parseMeasurementBusiness(excelData, worksheet, headerRowIndex);
-    
+
     // 디버깅: H0432 데이터가 파싱되었는지 확인
     const h0432Parsed = parsedData.filter((row: any) => row.code && (row.code.toUpperCase().includes("H0432") || row.code.toUpperCase().includes("H432")));
     console.log(`[측정사업장 동기화] 파싱된 데이터 중 H0432 포함: ${h0432Parsed.length}건`);
@@ -1128,7 +1127,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     } else {
       console.warn("[측정사업장 동기화] 경고: 파싱된 데이터에 H0432가 없습니다!");
     }
-    
+
     // 디버깅: 파싱된 데이터 중 future_measurement_period가 있는 항목 확인
     const withPeriod = parsedData.filter((row: any) => row.future_measurement_period);
     console.log(`[측정사업장 동기화] future_measurement_period가 있는 항목 수: ${withPeriod.length} / 전체: ${parsedData.length}`);
@@ -1145,15 +1144,15 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
 
     // 데이터 준비
     const baseFields = [
-      "code", "year", "period", "business_name", "business_number", 
-      "total_employees", "address", "office_jurisdiction", 
-      "measurement_start_date", "measurement_end_date", 
+      "code", "year", "period", "business_name", "business_number",
+      "total_employees", "address", "office_jurisdiction",
+      "measurement_start_date", "measurement_end_date",
       "completion_status", "measurer"
     ];
-    
+
     const optionalFields = [
-      "manager_name", "manager_position", "manager_mobile", 
-      "manager_email", "invoice_email", "industrial_accident_number", 
+      "manager_name", "manager_position", "manager_mobile",
+      "manager_email", "invoice_email", "industrial_accident_number",
       "representative_name", "future_measurement_period"
     ];
 
@@ -1163,13 +1162,13 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       .filter(row => row.code && row.year && row.period)
       .map(row => {
         const fullRow: any = {};
-        
+
         // 필수 필드는 항상 포함 (code, year, period, business_name)
         fullRow.code = row.code;
         fullRow.year = row.year;
         fullRow.period = row.period;
         fullRow.business_name = row.business_name;
-        
+
         // 나머지 baseFields는 값이 있는 경우만 포함
         const otherBaseFields = baseFields.filter(f => !["code", "year", "period", "business_name"].includes(f));
         otherBaseFields.forEach(field => {
@@ -1177,14 +1176,14 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
             fullRow[field] = row[field];
           }
         });
-        
+
         // optionalFields는 값이 있는 경우만 포함
         optionalFields.forEach(field => {
           if (row[field] !== undefined && row[field] !== null && row[field] !== "") {
             fullRow[field] = row[field];
           }
         });
-        
+
         return fullRow;
       });
 
@@ -1193,11 +1192,11 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       const upsertBatchSize = 1000;
       for (let i = 0; i < allRows.length; i += upsertBatchSize) {
         const batch = allRows.slice(i, i + upsertBatchSize);
-        
+
         // UPSERT: ON CONFLICT (code, year, period) DO UPDATE
         const { error: upsertError } = await supabase
           .from("measurement_business")
-          .upsert(batch, { 
+          .upsert(batch, {
             onConflict: "code,year,period",
             ignoreDuplicates: false
           });
@@ -1217,7 +1216,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
               business_name: row.business_name
             }))
           });
-          
+
           // H0432가 포함된 배치인지 확인
           const hasH0432 = batch.some(row => row.code === 'H0432');
           if (hasH0432) {
@@ -1227,7 +1226,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
               error: upsertError
             });
           }
-          
+
           // 마이그레이션이 실행되지 않은 경우, 기본 필드만 UPSERT 시도
           if (upsertError.message?.includes("column") && upsertError.message?.includes("schema cache")) {
             const basicBatch = batch.map(fullRow => {
@@ -1239,14 +1238,14 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
               });
               return baseRow;
             });
-            
+
             const { error: basicUpsertError } = await supabase
               .from("measurement_business")
               .upsert(basicBatch, {
                 onConflict: "code,year,period",
                 ignoreDuplicates: false
               });
-            
+
             if (basicUpsertError) {
               console.error(`배치 UPSERT 오류 (기본 필드, ${i}~${i + batch.length}):`, basicUpsertError);
               // 에러가 계속 발생하면 throw하여 catch 블록에서 처리
@@ -1260,7 +1259,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
           }
         } else {
           recordsProcessed += batch.length;
-          
+
           // H0432가 포함된 배치인지 확인 (성공 로그)
           const hasH0432 = batch.some(row => row.code === 'H0432');
           if (hasH0432) {
@@ -1302,7 +1301,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
   } catch (error) {
     const syncEndTime = new Date();
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
+
     // 상세 에러 로깅
     console.error("[측정사업장 동기화] 동기화 중 오류 발생:", {
       error,
