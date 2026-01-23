@@ -540,7 +540,10 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     // 값이 있는 경우에만 추가 (마이그레이션 후 컬럼이 있으면 저장됨)
     if (managerName) optionalFields.manager_name = managerName;
     if (managerPosition) optionalFields.manager_position = managerPosition;
-    if (managerMobile) optionalFields.manager_mobile = managerMobile;
+
+    // manager_mobile은 null이더라도 항상 포함 (동기화 시 기존 잘못된 값을 덮어쓰기 위함)
+    optionalFields.manager_mobile = managerMobile;
+
     if (managerEmail) optionalFields.manager_email = managerEmail;
     if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
     if (industrialAccidentNumber) optionalFields.industrial_accident_number = industrialAccidentNumber;
@@ -1177,10 +1180,17 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
           }
         });
 
-        // optionalFields는 값이 있는 경우만 포함
+        // optionalFields는 값이 있는 경우만 포함하되, 
+        // manager_mobile 등 일부 필드는 잘못된 데이터를 덮어쓰기 위해 null이나 빈 값이라도 포함시킬 수 있음
         optionalFields.forEach(field => {
-          if (row[field] !== undefined && row[field] !== null && row[field] !== "") {
-            fullRow[field] = row[field];
+          const value = row[field];
+          // manager_mobile은 강제로 포함 (잘못된 데이터 클렌징을 위해)
+          if (field === "manager_mobile") {
+            fullRow[field] = value || null;
+          }
+          // 다른 필드는 값이 있는 경우만 포함
+          else if (value !== undefined && value !== null && value !== "") {
+            fullRow[field] = value;
           }
         });
 
