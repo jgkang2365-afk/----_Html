@@ -470,27 +470,60 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     let managerMobile: string | null = null;
 
     // 워크시트에서 담당자 휴대폰 열(BK열 등)을 직접 읽기
-    if (worksheet && headerRowIndex !== undefined) {
-      // 63번째 열 = 인덱스 62 (고정값)
-      const bkColumnIndex = 62;
+    // headerRowIndex가 undefined이면 0(첫 번째 행이 헤더)으로 가정
+    const actualHeaderRowIndex = headerRowIndex !== undefined ? headerRowIndex : 0;
 
-      const excelRowIndex = headerRowIndex + 1 + dataIndex;
-      const bkCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: bkColumnIndex });
-      const bkCell = worksheet[bkCellAddress];
+    if (worksheet) {
+      const excelRowIndex = actualHeaderRowIndex + 1 + dataIndex;
 
-      // 디버깅: 첫 번째 행만 로그 출력
+      // BK열(62)을 중심으로 앞뒤 열(BJ=61, BL=63)도 함께 확인
+      // 엑셀 인덱스 밀림이나 숨겨진 열 가능성 대비
+      const candidates = [62, 61, 63];
+      const foundValues: { [key: number]: string } = {};
+
+      candidates.forEach(idx => {
+        const cellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: idx });
+        const cell = worksheet[cellAddress];
+        if (cell && cell.v !== undefined && cell.v !== null) {
+          foundValues[idx] = String(cell.v).trim();
+        }
+      });
+
+      // 디버깅: 첫 번째 행인 경우 값 출력
       if (dataIndex === 0) {
-        console.log(`[BK열 읽기] headerRowIndex: ${headerRowIndex}, dataIndex: ${dataIndex}, excelRowIndex: ${excelRowIndex}, cellAddress: ${bkCellAddress}, columnIndex: ${bkColumnIndex}`);
-        console.log(`[BK열 읽기] 셀 존재: ${!!bkCell}, 값: ${bkCell?.v}`);
+        console.log(`[담당자 휴대폰 탐색] 행: ${excelRowIndex}, 후보값들:`, foundValues);
       }
 
-      if (bkCell && bkCell.v !== undefined && bkCell.v !== null) {
-        const value = String(bkCell.v).trim();
-        if (value) {
-          managerMobile = value;
-          if (dataIndex === 0) {
-            console.log(`[BK열 읽기] 성공! managerMobile: ${managerMobile}`);
-          }
+      // 우선순위 1: BK(62) 열이 휴대폰 번호 형식이면 채택
+      // 휴대폰 번호 패턴: 010, 011 등으로 시작하고 "-" 또는 숫자가 이어짐
+      const mobilePattern = /^01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}$/;
+      // 좀 더 느슨한 패턴 (숫자와 하이픈만 포함, 길이 체크)
+      const looseMobilePattern = /^\d{2,3}[-\s.]?\d{3,4}[-\s.]?\d{4}$/;
+
+      let selectedMobile: string | null = null;
+
+      // 1. 62(BK)열 검사 - 패턴 매칭되면 즉시 채택
+      if (foundValues[62] && (mobilePattern.test(foundValues[62]) || looseMobilePattern.test(foundValues[62]))) {
+        selectedMobile = foundValues[62];
+      }
+      // 2. 62번이 패턴 매칭이 안되면 61(BJ), 63(BL) 검사
+      else if (foundValues[61] && (mobilePattern.test(foundValues[61]) || looseMobilePattern.test(foundValues[61]))) {
+        selectedMobile = foundValues[61];
+      }
+      else if (foundValues[63] && (mobilePattern.test(foundValues[63]) || looseMobilePattern.test(foundValues[63]))) {
+        selectedMobile = foundValues[63];
+      }
+      // 3. Fallback: 패턴 매칭 실패하더라도 62번에 값이 있고, 일반적인 텍스트(직위, 이메일 등)가 아니라면 사용
+      // "보건관리자", "대표" 등이면 사용 안 함
+      else if (foundValues[62] && !foundValues[62].includes("@") && foundValues[62].length > 4 &&
+        !["사원", "대리", "과장", "차장", "부장", "대표", "이사", "상무", "전무", "팀장", "보건관리자", "연구원"].includes(foundValues[62])) {
+        selectedMobile = foundValues[62];
+      }
+
+      if (selectedMobile) {
+        managerMobile = selectedMobile;
+        if (dataIndex === 0) {
+          console.log(`[담당자 휴대폰 탐색] 최종 선택: ${managerMobile}`);
         }
       }
     }
