@@ -84,6 +84,7 @@ export async function GET(request: Request) {
         address: businessData?.address || businessInfo?.address1 || businessInfo?.address2 || "",
         // 담당자 정보: Journal > Business
         manager_name: journalManagerInfo?.manager_name || businessData?.manager_name || "",
+        manager_position: journalManagerInfo?.manager_position || businessData?.manager_position || "",
         manager_mobile: journalManagerInfo?.manager_mobile || businessData?.manager_mobile || "",
         manager_email: journalManagerInfo?.manager_email || businessData?.manager_email || "",
         phone: journalManagerInfo?.phone || businessData?.phone || businessInfo?.phone || "",
