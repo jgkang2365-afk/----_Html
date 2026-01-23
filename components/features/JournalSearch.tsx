@@ -45,6 +45,7 @@ interface JournalEntry {
   phone?: string | null;
   fax?: string | null;
   manager_email?: string | null;
+  manager_position?: string | null;
   industrial_accident_number?: string | null;
   created_at: string;
   updated_at: string;
@@ -330,6 +331,7 @@ export const JournalSearch: React.FC = () => {
     phone?: string;
     fax?: string;
     manager_name?: string;
+    manager_position?: string;
     manager_mobile?: string;
     manager_email?: string;
     industrial_accident_number?: string;
@@ -350,6 +352,7 @@ export const JournalSearch: React.FC = () => {
       phone: data.phone,
       fax: data.fax,
       manager_name: data.manager_name,
+      manager_position: data.manager_position,
       manager_mobile: data.manager_mobile,
       manager_email: data.manager_email,
       industrial_accident_number: data.industrial_accident_number,

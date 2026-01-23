@@ -29,6 +29,7 @@ interface JournalRegisterModalProps {
         phone?: string;
         fax?: string;
         manager_name?: string;
+        manager_position?: string;
         manager_mobile?: string;
         manager_email?: string;
         industrial_accident_number?: string;
@@ -103,7 +104,7 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
 
         setLoading(true);
         try {
-            const response = await fetch(`/api/journal/businesses?code=${selectedBusinessCode}`);
+            const response = await fetch(`/api/journal/businesses?code=${selectedBusinessCode}&year=${year}&period=${period}`);
             if (response.ok) {
                 const data = await response.json();
                 const business = data.business;
@@ -121,6 +122,7 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
                     phone: business.phone || "",
                     fax: business.fax || "",
                     manager_name: business.manager_name || "",
+                    manager_position: business.manager_position || "",
                     manager_mobile: business.manager_mobile || "",
                     manager_email: business.manager_email || "",
                     industrial_accident_number: business.industrial_accident_number || "",
