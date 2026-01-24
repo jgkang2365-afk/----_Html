@@ -12,7 +12,9 @@
     "dev:clean": "npm run clear-cache && npm run dev",
     "create-templates": "tsx scripts/create-upload-templates.ts",
     "init-users": "tsx scripts/init-users.ts",
-    "reset-admin-password": "tsx scripts/reset-admin-password.ts"
+    "reset-admin-password": "tsx scripts/reset-admin-password.ts",
+    "validate-sync": "tsx scripts/validate-sync.ts",
+    "clean-dev": "clean-start.bat"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",

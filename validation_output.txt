@@ -1,0 +1,6 @@
+
+> measurement-journal-system@0.1.0 validate-sync
+> tsx scripts/validate-sync.ts
+
+[dotenv@17.2.3] injecting env (5) from .env.local -- tip: ?봽 add secrets lifecycle management: https://dotenvx.com/ops
+VALIDATION_RESULT: {"measurement_business_2026":209,"measurement_target_business_2026_by_year":291,"measurement_target_business_2026_by_plan_year":8}

@@ -47,6 +47,8 @@ interface BusinessEntry {
   notes: string | null;
   business_category: string | null; // 분류업종
   future_measurement_period: number | null; // 전회 향후측정주기 (개월)
+  measurement_month: string | null; // 측정월
+  management_status: string | null; // 관리 상태 ('transaction_ended' 등)
 }
 
 export const BusinessManagement: React.FC = () => {
@@ -232,6 +234,35 @@ export const BusinessManagement: React.FC = () => {
     setFilteredBusinesses(filtered);
   }, []);
 
+  // 상태 변경
+  const handleStatusChange = async (code: string, year: number, period: string, newStatus: string) => {
+    const statusValue = newStatus === "auto" ? null : newStatus;
+
+    try {
+      const response = await fetch("/api/businesses/status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, year, period, status: statusValue }),
+      });
+
+      if (!response.ok) throw new Error("Status update failed");
+
+      // 상태 업데이트
+      setBusinesses((prev) =>
+        prev.map((b) => {
+          if (b.code === code && b.year === year && b.period === period) {
+            return { ...b, management_status: statusValue };
+          }
+          return b;
+        })
+      );
+    } catch (err) {
+      console.error(err);
+      alert("상태 변경 중 오류가 발생했습니다.");
+      loadBusinesses(); // 실패 시 새로고침
+    }
+  };
+
   // 엑셀 다운로드
   const handleExportExcel = async () => {
     try {
@@ -372,7 +403,7 @@ export const BusinessManagement: React.FC = () => {
             onClick={() => setIsExcelUploadModalOpen(true)}
             className="shadow-sm"
           >
-            측정대상 목록 엑셀 업로드
+            측정 대상 사업장 엑셀 업로드
           </Button>
         </div>
       </Card>
@@ -417,45 +448,17 @@ export const BusinessManagement: React.FC = () => {
               <table className="w-full caption-bottom text-base border-collapse">
                 <thead className="bg-surface-50 sticky top-0 z-20 shadow-sm">
                   <tr className="border-b border-slate-100">
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">
-                      <div className="flex items-center justify-between">
-                        <span>실시여부</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isRegisteredSortOrder === "asc") {
-                              setIsRegisteredSortOrder("desc");
-                              applyFilters(businesses, filters, "desc");
-                            } else if (isRegisteredSortOrder === "desc") {
-                              setIsRegisteredSortOrder(null);
-                              applyFilters(businesses, filters, null);
-                            } else {
-                              setIsRegisteredSortOrder("asc");
-                              applyFilters(businesses, filters, "asc");
-                            }
-                          }}
-                          className="text-xs text-text-500 hover:text-text-700 px-1.5 py-0.5 rounded hover:bg-surface-100 transition-colors"
-                          title={isRegisteredSortOrder === "asc" ? "내림차순으로 변경" : isRegisteredSortOrder === "desc" ? "정렬 해제" : "오름차순으로 변경"}
-                        >
-                          {isRegisteredSortOrder === "asc" ? (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              <path d="M12 8L8 12H16L12 8Z" fill="#EF4444" />
-                            </svg>
-                          ) : isRegisteredSortOrder === "desc" ? (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              <path d="M12 16L16 12H8L12 16Z" fill="#3B82F6" />
-                            </svg>
-                          ) : (
-                            "⇅"
-                          )}
-                        </button>
-                      </div>
-                    </th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">실시여부</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">코드</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">건강디딤돌</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">국고결과</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">주관담당자</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">전회측정일</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap w-[100px]">전회 측정 주기</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">금회예정일</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">측정예정월</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">금회측정확정일</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">업종분류</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap w-[180px]">사업장명</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">분류업종</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap min-w-[200px]">
                       <div className="flex items-center justify-between">
                         <span>주소</span>
@@ -464,7 +467,6 @@ export const BusinessManagement: React.FC = () => {
                           onClick={() => {
                             if (addressSortOrder === "asc") {
                               setAddressSortOrder("desc");
-                              // 정렬 적용
                               const sorted = [...filteredBusinesses].sort((a, b) => {
                                 const addrA = a.address || "";
                                 const addrB = b.address || "";
@@ -473,10 +475,8 @@ export const BusinessManagement: React.FC = () => {
                               setFilteredBusinesses(sorted);
                             } else if (addressSortOrder === "desc") {
                               setAddressSortOrder(null);
-                              // 정렬 해제 - useEffect가 자동으로 applyFilters를 호출하도록 함
                             } else {
                               setAddressSortOrder("asc");
-                              // 정렬 적용
                               const sorted = [...filteredBusinesses].sort((a, b) => {
                                 const addrA = a.address || "";
                                 const addrB = b.address || "";
@@ -495,30 +495,50 @@ export const BusinessManagement: React.FC = () => {
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">소재지 관할청</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자명</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자 휴대폰</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">회사 전화번호</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">전회측정일</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">전회 향후측정주기</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">금회측정 예정월</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">금회 측정 확정일</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">회사전화번호</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">비고</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredBusinesses.map((entry, index) => {
                     const entryKey = `${entry.code}-${entry.year}-${entry.period}`;
+
+                    // 상태에 따른 스타일 및 값 계산
+                    const currentStatus = entry.management_status === "transaction_ended"
+                      ? "transaction_ended"
+                      : "auto";
+
+                    let statusColorClass = "";
+                    if (currentStatus === "transaction_ended") {
+                      statusColorClass = "bg-red-100 text-red-800 border-red-200";
+                    } else if (entry.isRegistered) {
+                      statusColorClass = "bg-green-100 text-green-800 border-green-200";
+                    } else {
+                      statusColorClass = "bg-yellow-100 text-yellow-800 border-yellow-200";
+                    }
+
                     return (
                       <tr key={entryKey} className="border-b border-slate-100 transition-colors hover:bg-surface-50">
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${entry.isRegistered
-                              ? "bg-green-100 text-green-800"
-                              : "bg-red-100 text-red-800"
-                              }`}
-                          >
-                            {entry.isRegistered ? "등록됨" : "미등록"}
-                          </span>
+                          <div className="w-[100px]">
+                            <select
+                              value={currentStatus}
+                              onChange={(e) => handleStatusChange(entry.code, entry.year, entry.period, e.target.value)}
+                              className={`w-full px-2 py-1 text-xs font-semibold rounded border appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 ${statusColorClass}`}
+                              style={{ textAlignLast: "center" }}
+                            >
+                              <option value="auto">
+                                {entry.isRegistered ? "실시" : "미실시"}
+                              </option>
+                              <option value="transaction_ended" className="bg-white text-red-600">
+                                거래종료
+                              </option>
+                            </select>
+                          </div>
                         </td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{entry.code}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">
+                          {entry.code}
+                        </td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
                           {entry.national_support_status ? (
                             <span className="text-text-700 text-sm">{entry.national_support_status}</span>
@@ -527,8 +547,19 @@ export const BusinessManagement: React.FC = () => {
                           )}
                         </td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.measurer || "-"}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium w-[180px]">{entry.business_name}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
+                        </td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.future_measurement_date)}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          {entry.future_measurement_date
+                            ? `${new Date(entry.future_measurement_date).getMonth() + 1}월`
+                            : "-"}
+                        </td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.business_category || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium w-[180px]">{entry.business_name}</td>
                         <td className="p-4 align-middle text-slate-600 min-w-[200px]">
                           {entry.address || "-"}
                         </td>
@@ -536,12 +567,6 @@ export const BusinessManagement: React.FC = () => {
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_name || "-"}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_mobile || "-"}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                          {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
-                        </td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.future_measurement_date)}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
                           <Input
                             value={editingNotes.get(entryKey) ?? entry.notes ?? ""}
@@ -754,11 +779,14 @@ export const BusinessManagement: React.FC = () => {
       <Modal
         isOpen={isExcelUploadModalOpen}
         onClose={() => setIsExcelUploadModalOpen(false)}
-        title="측정 대상 사업장 목록 수동 업로드"
+        title="측정 대상 사업장 엑셀 업로드"
         size="lg"
       >
         <div className="space-y-4">
           <ExcelUpload
+            fixedFileType="measurement-business"
+            hideAutoSync={true}
+            defaultAutoSync={true}
             onSuccess={() => {
               // 업로드 성공 시 약간의 지연 후 목록 새로고침
               setTimeout(() => {

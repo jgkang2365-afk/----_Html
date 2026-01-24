@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient();
     const targetYear = parseInt(year, 10);
-    
+
     console.log(`[측정 대상 사업장 조회] year: ${targetYear}, period: ${period}`);
 
     // 저장된 측정 대상 사업장 계획 조회
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
         });
       }
       return NextResponse.json(
-        { 
+        {
           error: "측정 대상 사업장 계획 조회 중 오류가 발생했습니다.",
           details: plansError.message || String(plansError)
         },
@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
 
     // 등록된 측정일지 정보 조회 (진행 상황 반영)
     const codes = plans.map((plan: any) => plan.code).filter(Boolean);
-    
+
     let registeredJournals: any[] | null = null;
     if (codes.length > 0) {
       const { data, error: registeredJournalsError } = await supabase
@@ -148,6 +148,56 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // measurement_business에서 추가 정보(향후측정예상일, 금회측정확정일, 업종분류) 가져오기
+    // 측정사업장 엑셀 업로드 시 이 테이블에 저장되므로 여기서도 조회해야 함
+    // 주의: 엑셀에 년도가 없는 경우(0)도 고려하기 위해 년도 필터링을 완화하고 JS에서 매칭
+    let measurementBusinessData: any[] | null = null;
+    if (codes.length > 0) {
+      const { data, error: mbError } = await supabase
+        .from("measurement_business")
+        .select("code, year, period, future_measurement_date, measurement_date, business_category, business_name")
+        .in("code", codes);
+
+      if (mbError) {
+        console.warn("측정사업장 조회 오류:", mbError);
+      } else {
+        measurementBusinessData = data;
+      }
+    }
+
+    const mbMap = new Map<string, any>();
+    const mbNameMap = new Map<string, any>();
+
+    if (measurementBusinessData) {
+      measurementBusinessData.forEach((item: any) => {
+        // 1. 년도/반기가 정확히 일치하는 경우 우선 사용
+        // 2. 년도가 0이거나 없는 레코드도 차선책으로 사용 (단, 기존에 정확한 매칭이 없을 때만)
+        const isExactMatch = item.year === targetYear && item.period === period;
+        const isFallbackMatch = !item.year || item.year === 0;
+
+        // Code Match
+        if (item.code) {
+          if (isExactMatch) {
+            mbMap.set(item.code, item);
+          } else if (isFallbackMatch && !mbMap.has(item.code)) {
+            mbMap.set(item.code, item);
+          }
+        }
+
+        // Name Match (Fallback)
+        if (item.business_name) {
+          const normalizedName = normalizeString(item.business_name);
+          if (normalizedName) {
+            if (isExactMatch) {
+              mbNameMap.set(normalizedName, item);
+            } else if (isFallbackMatch && !mbNameMap.has(normalizedName)) {
+              mbNameMap.set(normalizedName, item);
+            }
+          }
+        }
+      });
+    }
+
     // business_info에서 추가 정보 가져오기 (전화번호, 주소, 담당자명 등)
     let businessInfoFullData: any[] | null = null;
     if (codes.length > 0) {
@@ -166,7 +216,7 @@ export async function GET(request: NextRequest) {
     const businessInfoPhoneMap = new Map<string, string | null>();
     const businessInfoAddressMap = new Map<string, string | null>();
     const businessInfoManagerNameMap = new Map<string, string | null>();
-    
+
     if (businessInfoFullData) {
       businessInfoFullData.forEach((info: any) => {
         businessInfoPhoneMap.set(info.code, info.phone || null);
@@ -325,7 +375,7 @@ export async function GET(request: NextRequest) {
       code: string
     ): string => {
       let finalOffice: string | null = null;
-      
+
       // 1순위: 주소 기반 계산
       if (address) {
         try {
@@ -338,7 +388,7 @@ export async function GET(request: NextRequest) {
           console.error(`[지정지청] 코드 ${code}: 주소 기반 계산 오류:`, error);
         }
       }
-      
+
       // 2순위: office_jurisdiction 기반 계산
       if (!finalOffice && officeJurisdiction) {
         try {
@@ -352,7 +402,7 @@ export async function GET(request: NextRequest) {
           console.error(`[지정지청] 코드 ${code}: 관할청 기반 계산 오류:`, error);
         }
       }
-      
+
       // 3순위: 계획의 designated_office
       if (!finalOffice && planDesignatedOffice) {
         const validated = validateDesignatedOffice(planDesignatedOffice);
@@ -360,7 +410,7 @@ export async function GET(request: NextRequest) {
           finalOffice = validated;
         }
       }
-      
+
       // 4순위: measurement_journal의 designated_office
       if (!finalOffice && journalDesignatedOffice) {
         const validated = validateDesignatedOffice(journalDesignatedOffice);
@@ -368,7 +418,7 @@ export async function GET(request: NextRequest) {
           finalOffice = validated;
         }
       }
-      
+
       // 기본값
       return finalOffice || "천안";
     };
@@ -384,10 +434,10 @@ export async function GET(request: NextRequest) {
       const addressFromBusinessInfo = normalizeAddress(businessInfoAddressMap.get(plan.code));
       const addressFromPlan = normalizeAddress(plan.address);
       const address = addressFromJournal || addressFromBusinessInfo || addressFromPlan;
-      
+
       // office_jurisdiction 결정
       let officeJurisdiction = normalizeString(journal?.office_jurisdiction) || normalizeString(plan.office_jurisdiction) || null;
-      
+
       if (!officeJurisdiction && addressFromBusinessInfo) {
         try {
           const officeByAddress = findOfficeByAddress(addressFromBusinessInfo);
@@ -398,7 +448,7 @@ export async function GET(request: NextRequest) {
           console.error(`코드 ${plan.code} business_info 주소 기반 관할청 찾기 오류:`, error);
         }
       }
-      
+
       if (!officeJurisdiction && address) {
         try {
           const officeByAddress = findOfficeByAddress(address);
@@ -409,7 +459,7 @@ export async function GET(request: NextRequest) {
           console.error(`코드 ${plan.code} 주소 기반 관할청 찾기 오류:`, error);
         }
       }
-      
+
       // 지정지청 계산
       const autoDesignatedOffice = calculateDesignatedOffice(
         address,
@@ -419,13 +469,18 @@ export async function GET(request: NextRequest) {
         plan.code
       );
 
-      // 향후측정예상일
-      const futureMeasurementDate = plan.future_measurement_date || businessInfoDateMap.get(plan.code) || null;
+      // measurement_business 데이터 찾기 (코드 우선, 없으면 사업장명으로 폴백)
+      const normalizedPlanName = normalizeString(plan.business_name || "");
+      const mbItem = mbMap.get(plan.code) || (normalizedPlanName ? mbNameMap.get(normalizedPlanName) : null);
 
-      // 측정일 (예비조사의 측정일, 우선순위: plan.measurement_date > preliminarySurveyDateMap)
-      // plan.measurement_date가 없으면 예비조사의 측정일 사용
-      // measurement_date 컬럼이 없을 수 있으므로 안전하게 접근
-      const measurementDate = (plan.measurement_date !== undefined ? plan.measurement_date : null) || preliminarySurveyDateMap.get(plan.code) || null;
+      // 향후측정예상일: plan -> measurement_business -> business_info 순으로 조회
+      const futureMeasurementDate = plan.future_measurement_date || mbItem?.future_measurement_date || businessInfoDateMap.get(plan.code) || null;
+
+      // 금회측정확정일 (우선순위: plan.measurement_date > measurement_business.measurement_date > preliminarySurveyDateMap)
+      // plan.measurement_date가 없으면 measurement_business의 값, 그것도 없으면 예비조사의 측정일 사용
+      const measurementDate = (plan.measurement_date !== undefined ? plan.measurement_date : null) ||
+        mbItem?.measurement_date ||
+        preliminarySurveyDateMap.get(plan.code) || null;
 
       // 전회 측정일
       const previousMeasurementDate = previousMeasurementDateMap.get(plan.code) || null;
@@ -438,6 +493,9 @@ export async function GET(request: NextRequest) {
       // 국고지원 여부
       const nationalSupportKey = `${plan.code}-${plan.year}-${plan.period}`;
       const nationalSupportStatus = journal?.national_support_status || plan.national_support_status || nationalSupportMap.get(nationalSupportKey) || null;
+
+      // 업종분류: journal -> measurement_business -> null
+      const businessCategory = journal?.business_category || mbItem?.business_category || null;
 
       return {
         code: plan.code,
@@ -463,8 +521,9 @@ export async function GET(request: NextRequest) {
         manager_mobile: managerMobile,
         manager_phone: managerPhone,
         notes: plan.notes || null,
-        business_category: journal?.business_category || null,
+        business_category: businessCategory,
         future_measurement_period: plan.future_measurement_period || null, // 전회 향후측정주기
+        management_status: plan.management_status || null,
       };
     });
 
@@ -540,4 +599,5 @@ interface BusinessEntryResponse {
   notes: string | null;
   business_category: string | null; // 분류업종
   future_measurement_period: number | null; // 전회 향후측정주기 (개월)
+  management_status: string | null; // 관리 상태 (예: transaction_ended)
 }

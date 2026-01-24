@@ -46,17 +46,17 @@ export async function GET(request: NextRequest) {
     // 건강디딤돌 신청결과 조회 (국고지원 상태)
     const codes = (businesses || []).map((b: any) => b.code).filter(Boolean);
     let nationalSupportMap = new Map<string, string | null>();
-    
+
     if (codes.length > 0) {
       let nationalSupportQuery = supabase
         .from("national_support_application")
         .select("code, year, period, national_support_status")
         .in("code", codes);
-      
+
       if (year) {
         nationalSupportQuery = nationalSupportQuery.eq("year", parseInt(year));
       }
-      
+
       if (period) {
         nationalSupportQuery = nationalSupportQuery.eq("period", period);
       }
@@ -79,17 +79,17 @@ export async function GET(request: NextRequest) {
         .from("measurement_journal")
         .select("code, measurement_year, measurement_period, national_support_status, business_category")
         .in("code", codes);
-      
+
       if (year) {
         journalQuery = journalQuery.eq("measurement_year", parseInt(year));
       }
-      
+
       if (period) {
         journalQuery = journalQuery.eq("measurement_period", period);
       }
 
       const { data: journalData, error: journalError } = await journalQuery;
-      
+
       if (!journalError && journalData) {
         journalData.forEach((item: any) => {
           const key = `${item.code}-${item.measurement_year}-${item.measurement_period}`;
@@ -185,7 +185,7 @@ export async function GET(request: NextRequest) {
     const excelData = (businesses || []).map((business) => {
       // 국고지원 상태 결정 (우선순위: measurement_journal > national_support_application > measurement_target_business)
       const nationalSupportKey = `${business.code}-${business.year}-${business.period}`;
-      const nationalSupportStatus = 
+      const nationalSupportStatus =
         journalNationalSupportMap.get(nationalSupportKey) ||
         nationalSupportMap.get(nationalSupportKey) ||
         business.national_support_status ||
@@ -206,14 +206,14 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 금회측정 예정월 (future_measurement_date의 월만 추출)
-      let futureMeasurementMonth = "";
+      // 금회예정일 (future_measurement_date)
+      let futureMeasurementDateFormatted = "";
       if (business.future_measurement_date) {
         try {
           const date = new Date(business.future_measurement_date);
-          futureMeasurementMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+          futureMeasurementDateFormatted = date.toISOString().split("T")[0];
         } catch {
-          futureMeasurementMonth = business.future_measurement_date || "";
+          futureMeasurementDateFormatted = business.future_measurement_date || "";
         }
       }
 
@@ -228,21 +228,34 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // 측정월: 금회측정확정일의 월, 없으면 금회예정일의 월
+      let measurementMonth = "";
+      if (business.measurement_date) {
+        try {
+          measurementMonth = `${new Date(business.measurement_date).getMonth() + 1}월`;
+        } catch { }
+      } else if (business.future_measurement_date) {
+        try {
+          measurementMonth = `${new Date(business.future_measurement_date).getMonth() + 1}월(예정)`;
+        } catch { }
+      }
+
       return {
         코드: business.code || "",
-        건강디딤돌: nationalSupportStatus || "",
+        국고결과: nationalSupportStatus || "",
         주관담당자: business.measurer || "",
-        사업장명: business.business_name || "",
-        분류업종: businessCategory || "",
-        주소: business.address || "",
-        소재지관할청: business.office_jurisdiction || "",
-        담당자명: business.manager_name || "",
-        담당자휴대폰: business.manager_mobile || "",
-        회사전화번호: business.manager_phone || "",
         전회측정일: previousMeasurementDateFormatted,
-        전회향후측정주기: business.future_measurement_period ? `${business.future_measurement_period}개월` : "",
-        금회측정예정월: futureMeasurementMonth || "",
+        "전회 측정 주기": business.future_measurement_period ? `${business.future_measurement_period}개월` : "",
+        금회예정일: futureMeasurementDateFormatted || "",
         금회측정확정일: measurementDateFormatted,
+        측정월: measurementMonth,
+        업종분류: businessCategory || "",
+        사업장명: business.business_name || "",
+        주소: business.address || "",
+        "소재지 관할청": business.office_jurisdiction || "",
+        담당자명: business.manager_name || "",
+        "담당자 휴대폰": business.manager_mobile || "",
+        회사전화번호: business.manager_phone || "",
         비고: business.notes || "",
       };
     });

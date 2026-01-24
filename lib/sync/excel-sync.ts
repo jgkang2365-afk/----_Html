@@ -325,7 +325,7 @@ function findColumnValue(row: any, columnNames: string[]): any {
 }
 
 
-function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, headerRowIndex?: number): any[] {
+function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, headerRowIndex?: number, fileName?: string): any[] {
   // 첫 번째 데이터 행에서 컬럼명 분석 (디버깅용)
   if (data.length > 0) {
     const firstRow = data[0];
@@ -375,15 +375,68 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     }
   }
 
-  return data.map((row: any, dataIndex: number) => {
-    // 코드 값 찾기 - 정확히 일치하는 컬럼 우선
-    const codeValue = findColumnValue(row, ["코드", "코 드", "Code", "code", "CODE"]);
+  // 파일명에서 년도 추출 시도
+  let defaultYear = new Date().getFullYear();
+  let defaultPeriod = "상반기";
 
-    // 실제 Excel 파일의 컬럼명에 맞게 매핑
-    const period = row["구분"] || "";
-    const normalizedPeriod = period.toString().includes("상반기") || period.toString().includes("상") ? "상반기" :
-      period.toString().includes("하반기") || period.toString().includes("하") ? "하반기" :
-        period.toString().trim();
+  if (fileName) {
+    // 년도 추출 (예: 2026)
+    const yearMatch = fileName.match(/20\d{2}/);
+    if (yearMatch) {
+      defaultYear = parseInt(yearMatch[0], 10);
+      console.log(`[파싱] 파일명에서 년도 추출: ${defaultYear}`);
+    }
+
+    // 주기 추출
+    if (fileName.includes("상반기")) defaultPeriod = "상반기";
+    else if (fileName.includes("하반기")) defaultPeriod = "하반기";
+
+    console.log(`[파싱] 파일명(${fileName}) 기반 기본값: 년도=${defaultYear}, 주기=${defaultPeriod}`);
+  }
+
+
+
+  return data.map((row: any, dataIndex: number) => {
+    // Column Index Mapping (Based on verified structure)
+    // 0: 측정년도, 1: 측정주기, 2: 코드, 7: 금회예정일, 8: 측정예정월, 9: 금회측정확정일(추정), 10: 업종분류
+    const IDX_YEAR = 0;
+    const IDX_PERIOD = 1;
+    const IDX_CODE = 2;
+    const IDX_FUTURE_DATE = 7;
+    const IDX_FUTURE_MONTH = 8;
+    const IDX_CONFIRMED_DATE = 9;
+    const IDX_CATEGORY = 10;
+    const IDX_BIZ_NAME = 11;
+    const IDX_ADDRESS = 12;
+    const IDX_MANAGER = 14;
+    const IDX_MOBILE = 15;
+
+    // Row might be an object (if headers parsed) or array (if header:1 used)
+    // convert object values to array for index access if needed, BUT rely on keys if available
+    // Here we assume row is object with keys. If keys are garbled, we might need value array.
+    // However, findColumnValue searches by key names.
+
+    // Fallback: Use Object.values(row) to access by index if keys are not standard
+    const rowValues = Object.values(row);
+
+    // 코드 값 찾기 - 정확히 일치하는 컬럼 우선 (Column 2)
+    let codeValue = findColumnValue(row, ["코드", "코 드", "Code", "code", "CODE"]);
+    if (!codeValue && rowValues[2]) codeValue = rowValues[2];
+
+    // 년도 (Column 0) - 실제 엑셀 헤더명 "측정년도"
+    let yearValue = row["측정년도"] || row["년도"];
+    if (!yearValue && rowValues[0]) yearValue = rowValues[0];
+    const rowYear = yearValue ? parseInt(String(yearValue), 10) : defaultYear;
+
+    // 측정주기 (Column 1) - 실제 엑셀 헤더명 "측정주기"
+    let period = row["측정주기"] || row["구분"] || defaultPeriod;
+    if ((!period || period === defaultPeriod) && rowValues[1]) period = rowValues[1];
+
+    // DB 제약사항(measurement_business_period_check) 준수를 위해 엄격 변환
+    // 값이 없으면 무조건 '상반기'로 처리 (오류 방지)
+    const periodStr = String(period || "").trim();
+    const isSecondHalf = periodStr.includes("하반기") || periodStr.includes("하") || periodStr === "2" || periodStr === "2분기" || periodStr === "4분기";
+    const normalizedPeriod = isSecondHalf ? "하반기" : "상반기";
 
     const completionStatus = row["완료여부"] || "미완료";
     const normalizedStatus = completionStatus.toString().includes("완료") && !completionStatus.toString().includes("미완료") ? "완료" : "미완료";
@@ -391,68 +444,125 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     // 날짜 변환 (Excel 날짜 또는 문자열 형식)
     let startDate = null;
     let endDate = null;
+    let measurementDate = null; // 금회측정확정일 (Column 9)
+    let futureMeasurementDate = null; // 금회예정일 (Column 7)
 
-    const startDateStr = row["측정시작일"];
-    const endDateStr = row["측정종료일"];
+    const startDateStr = findColumnValue(row, ["측정시작일", "측정 시작일", "시작일"]);
+    const endDateStr = findColumnValue(row, ["측정종료일", "측정 종료일", "종료일"]);
 
-    if (startDateStr) {
-      if (typeof startDateStr === "number") {
-        // Excel 날짜 숫자 형식
-        startDate = excelDateToJSDate(startDateStr);
-      } else {
-        // 문자열 형식 (YYYY-MM-DD 또는 YYYYMMDD)
-        const dateStr = String(startDateStr).trim();
-        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-          // YYYY-MM-DD 형식
-          startDate = dateStr;
-        } else if (/^\d{8}$/.test(dateStr)) {
-          // YYYYMMDD 형식 (예: 20260114)
-          const year = dateStr.substring(0, 4);
-          const month = dateStr.substring(4, 6);
-          const day = dateStr.substring(6, 8);
-          startDate = `${year}-${month}-${day}`;
-        } else if (dateStr) {
-          // 다른 형식이면 null로 설정 (잘못된 형식)
-          startDate = null;
+    // 금회측정확정일 (Column 9) - 실제 엑셀 헤더명 "금회측정확정일"
+    let measurementDateStr = findColumnValue(row, ["금회측정확정일", "확정일", "측정확정일"]);
+    if (!measurementDateStr && rowValues[9]) measurementDateStr = rowValues[9];
+
+    // 금회예정일 (Column 7) - 실제 엑셀 헤더명 "금회예정일"
+    let futureMeasurementDateStr = findColumnValue(row, ["금회예정일", "금회 예정일", "예정일"]);
+    // Important: Fallback to column 7 if key lookup fails
+    if (!futureMeasurementDateStr && rowValues[7]) futureMeasurementDateStr = rowValues[7];
+
+    // 측정예정월 (Column 8) - 실제 엑셀 헤더명 "측정예정월"
+    let futurePeriodStr = findColumnValue(row, ["측정예정월", "예정월"]);
+    if (!futurePeriodStr && rowValues[8]) futurePeriodStr = rowValues[8];
+
+    // 업종분류 (Column 10) - 실제 엑셀 헤더명 "업종분류"
+    let businessCategory = findColumnValue(row, ["업종분류", "업종"]);
+    if (!businessCategory && rowValues[10]) businessCategory = rowValues[10];
+
+    // 전회측정일 (Excel 헤더: "전회측정일") - Column 5 - 선언을 여기로 이동
+    const previousMeasurementDateVal = row["전회측정일"] || row["전회 측정일"] || rowValues[5] || null;
+
+    // 날짜 파싱 헬퍼 함수 - 개선된 버전
+    const parseDateValue = (dateVal: any): string | null => {
+      if (!dateVal) return null;
+
+      // 숫자형 처리
+      if (typeof dateVal === "number") {
+        // 20260130 같은 YYYYMMDD 형식의 숫자
+        if (dateVal > 19000000 && dateVal < 21001231) {
+          const dateStr = String(dateVal);
+          if (dateStr.length === 8) {
+            const year = dateStr.substring(0, 4);
+            const month = dateStr.substring(4, 6);
+            const day = dateStr.substring(6, 8);
+            return `${year}-${month}-${day}`;
+          }
+        }
+        // Excel 날짜 시리얼 넘버 (1~50000 범위)
+        if (dateVal > 1 && dateVal < 100000) {
+          return excelDateToJSDate(dateVal);
+        }
+        return null;
+      }
+
+      // 문자열 처리
+      const dateStr = String(dateVal).trim();
+      if (!dateStr) return null;
+
+      // 공백 제거
+      const compactStr = dateStr.replace(/\s/g, "");
+
+      // 1. YYYYMMDD 형식 (문자열)
+      if (/^\d{8}$/.test(compactStr)) {
+        const year = compactStr.substring(0, 4);
+        const month = compactStr.substring(4, 6);
+        const day = compactStr.substring(6, 8);
+        return `${year}-${month}-${day}`;
+      }
+
+      // 2. YYYY-MM-DD 형식
+      if (/^\d{4}-\d{2}-\d{2}$/.test(compactStr)) {
+        return compactStr;
+      }
+
+      // 3. YYYY.MM.DD 또는 YYYY.M.D 형식
+      if (compactStr.includes(".")) {
+        const parts = compactStr.replace(/\.$/, "").split(".");
+        if (parts.length >= 3) {
+          const year = parts[0];
+          const month = parts[1].padStart(2, "0");
+          const day = parts[2].padStart(2, "0");
+          return `${year}-${month}-${day}`;
         }
       }
+
+      return null;
+    };
+
+    startDate = parseDateValue(startDateStr);
+    endDate = parseDateValue(endDateStr);
+    measurementDate = parseDateValue(measurementDateStr);
+    futureMeasurementDate = parseDateValue(futureMeasurementDateStr);
+    const previousMeasurementDate = parseDateValue(previousMeasurementDateVal);
+
+    // 디버깅 로그 (첫 5개 행만)
+    if (dataIndex < 5) {
+      console.log(`[날짜 파싱] 행 ${dataIndex + 1}:`);
+      console.log(`  - 코드: ${codeValue}`);
+      console.log(`  - 금회예정일: "${futureMeasurementDateStr}" -> ${futureMeasurementDate}`);
+      console.log(`  - 금회측정확정일: "${measurementDateStr}" -> ${measurementDate}`);
+      console.log(`  - 전회측정일: "${previousMeasurementDateVal}" -> ${previousMeasurementDate}`);
     }
 
-    if (endDateStr) {
-      if (typeof endDateStr === "number") {
-        endDate = excelDateToJSDate(endDateStr);
-      } else {
-        const dateStr = String(endDateStr).trim();
-        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-          // YYYY-MM-DD 형식
-          endDate = dateStr;
-        } else if (/^\d{8}$/.test(dateStr)) {
-          // YYYYMMDD 형식 (예: 20260114)
-          const year = dateStr.substring(0, 4);
-          const month = dateStr.substring(4, 6);
-          const day = dateStr.substring(6, 8);
-          endDate = `${year}-${month}-${day}`;
-        } else if (dateStr) {
-          // 다른 형식이면 null로 설정 (잘못된 형식)
-          endDate = null;
-        }
-      }
-    }
+    // const businessCategory = findColumnValue(row, ["업종", "업종분류", "분류업종", "업태", "종목"]);
+    // Already declared above as 'let businessCategory'
 
-    // 기본 필드만 먼저 구성 (마이그레이션이 실행되지 않은 경우를 대비)
+    // 기본 필드 구성 (실제 엑셀 헤더명에 맞춤)
     const baseData: any = {
       code: String(codeValue || "").trim(),
-      year: parseInt(row["년도"] || "0", 10),
+      year: rowYear, // Use the already-parsed year value (with fallback to defaultYear)
       period: normalizedPeriod,
-      business_name: String(row["사업장명"] || "").trim(),
+      business_name: String(row["사업장명"] || rowValues[11] || "").trim(),
       business_number: row["사업자번호"] || null,
       total_employees: row["총인원"] ? parseInt(String(row["총인원"]), 10) : null,
-      address: row["주소"] || null,
-      office_jurisdiction: row["관할청명"] || null,
+      address: row["주소"] || rowValues[12] || null,
+      office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || rowValues[13] || null,
       measurement_start_date: startDate || null,
       measurement_end_date: endDate || null,
+      measurement_date: measurementDate || null, // 금회측정확정일
+      future_measurement_date: futureMeasurementDate || null, // 금회예정일
       completion_status: normalizedStatus,
-      measurer: row["측정자(담당)"] || row["측정자"] || row["담당"] || null,
+      measurer: row["주관담당자"] || row["측정자(담당)"] || row["측정자"] || row["담당"] || rowValues[4] || null,
+      national_support_status: row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3] || null,
+      business_category: businessCategory,
     };
 
     // 담당자 정보 및 기타 정보는 마이그레이션 후에만 추가
@@ -460,7 +570,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     const optionalFields: any = {};
 
     // 담당자 정보 (여러 가능한 컬럼명 시도)
-    const managerName = row["담당자"] || row["담당자명"] || row["담당자 성명"] || null;
+    const managerName = row["담당자명"] || row["담당자"] || row["담당자 성명"] || null;
     const managerPosition = row["직위"] || row["담당자 직위"] || null;
 
     // BK 열: Excel의 BK 열은 63번째 열 (A=1, B=2, ..., BK=63, 1-based)
@@ -574,69 +684,98 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
         console.log(`[휴대폰 번호 패턴] 휴대폰 번호 패턴을 찾지 못했습니다.`);
       }
     }
-  }
+
 
 
     const managerEmail = row["Email"] || row["이메일"] || row["담당자 e-mail"] || row["담당자 email"] || row["담당자이메일"] || null;
-  const invoiceEmail = row["세금 Email"] || row["세금이메일"] || row["세금 Email"] || row["계산서 메일"] || row["계산서메일"] || null;
-  const industrialAccidentNumber = row["산재관리번호"] || row["산재관리 번호"] || null;
-  const representativeName = row["대표자명"] || row["대표자"] || null;
+    const invoiceEmail = row["세금 Email"] || row["세금이메일"] || row["세금 Email"] || row["계산서 메일"] || row["계산서메일"] || null;
+    const industrialAccidentNumber = row["산재관리번호"] || row["산재관리 번호"] || null;
+    const representativeName = row["대표자명"] || row["대표자"] || null;
 
-  // 값이 있는 경우에만 추가 (마이그레이션 후 컬럼이 있으면 저장됨)
-  if (managerName) optionalFields.manager_name = managerName;
-  if (managerPosition) optionalFields.manager_position = managerPosition;
+    // 값이 있는 경우에만 추가 (마이그레이션 후 컬럼이 있으면 저장됨)
+    if (managerName) optionalFields.manager_name = managerName;
+    if (managerPosition) optionalFields.manager_position = managerPosition;
 
-  // manager_mobile은 null이더라도 항상 포함 (동기화 시 기존 잘못된 값을 덮어쓰기 위함)
-  optionalFields.manager_mobile = managerMobile;
+    // manager_mobile은 null이더라도 항상 포함 (동기화 시 기존 잘못된 값을 덮어쓰기 위함)
+    optionalFields.manager_mobile = managerMobile;
 
-  if (managerEmail) optionalFields.manager_email = managerEmail;
-  if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
-  if (industrialAccidentNumber) optionalFields.industrial_accident_number = industrialAccidentNumber;
-  if (representativeName) optionalFields.representative_name = representativeName;
+    if (managerEmail) optionalFields.manager_email = managerEmail;
+    if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
+    if (industrialAccidentNumber) optionalFields.industrial_accident_number = industrialAccidentNumber;
+    if (representativeName) optionalFields.representative_name = representativeName;
 
-  // 향후측정주기 (개월 단위, 예: 6, 12)
-  // 여러 가능한 컬럼명 시도 (공백, 띄어쓰기 변형 포함)
-  // 헤더가 비어있는 경우 __EMPTY_XX 형식으로 처리됨
-  // 실제 Excel 파일에서 AV 열 근처의 헤더가 비어있는 컬럼이 __EMPTY_45로 매핑됨
-  const futurePeriodValue = row["향후측정주기"] || row["향후 측정주기"] || row["향후측정 주기"] ||
-    row["향후측정기간"] || row["향후 측정기간"] || row["측정주기"] ||
-    row["재측정주기"] || row["재측정 주기"] || row["다음측정주기"] ||
-    row["향후측정기"] || row["향후 측정기"] ||
-    row["__EMPTY_45"]; // 실제 Excel 파일에서 이 키에 "향후측정주기" 데이터가 있음
+    // 향후측정주기 (개월 단위, 예: 6, 12)
+    // 여러 가능한 컬럼명 시도 - 실제 엑셀 헤더는 "전회 측정 주기"
+    const futurePeriodValue = row["전회 측정 주기"] || row["전회측정주기"] || row["전회 향후측정주기"] || row["향후측정주기"] || row["측정주기"] || row["__EMPTY_6"] || null;
 
-  if (futurePeriodValue) {
-    const periodValue = futurePeriodValue;
-    const periodStr = String(periodValue).trim();
+    // 향후측정주기 파싱 (전회 측정 주기)
+    if (futurePeriodValue) {
+      const periodValue = futurePeriodValue;
+      const periodStr = String(periodValue).trim();
 
-    // 헤더 텍스트인 "향후측정주기"는 건너뛰기
-    if (periodStr === "향후측정주기" || periodStr === "향후 측정주기") {
-      // 헤더 텍스트이므로 건너뛰기 - optionalFields에 추가하지 않음
-    } else if (typeof periodValue === "number") {
-      optionalFields.future_measurement_period = Math.round(periodValue);
-    } else {
-      // "1년", "6개월" 형식 파싱
-      if (periodStr.includes("년")) {
-        const years = parseFloat(periodStr.replace("년", "").trim());
-        if (!isNaN(years) && years > 0) {
-          optionalFields.future_measurement_period = Math.round(years * 12);
+      // 헤더 텍스트는 건너뛰기
+      if (periodStr &&
+          periodStr !== "향후측정주기" &&
+          periodStr !== "향후 측정주기" &&
+          periodStr !== "전회 측정 주기" &&
+          periodStr !== "전회측정주기") {
+
+        if (typeof periodValue === "number") {
+          optionalFields.future_measurement_period = Math.round(periodValue);
+        } else {
+          // "1년", "6개월" 형식 파싱
+          if (periodStr.includes("년")) {
+            const years = parseFloat(periodStr.replace(/년/g, "").trim());
+            if (!isNaN(years) && years > 0) {
+              optionalFields.future_measurement_period = Math.round(years * 12);
+            }
+          } else if (periodStr.includes("개월")) {
+            const months = parseFloat(periodStr.replace(/개월/g, "").trim());
+            if (!isNaN(months) && months > 0) {
+              optionalFields.future_measurement_period = Math.round(months);
+            }
+          } else {
+            // 숫자만 있는 경우
+            const parsedPeriod = parseInt(periodStr.replace(/[^0-9]/g, ""), 10);
+            if (!isNaN(parsedPeriod) && parsedPeriod > 0 && parsedPeriod <= 60) {
+              optionalFields.future_measurement_period = parsedPeriod;
+            }
+          }
         }
-      } else if (periodStr.includes("개월")) {
-        const months = parseFloat(periodStr.replace("개월", "").trim());
-        if (!isNaN(months) && months > 0) {
-          optionalFields.future_measurement_period = Math.round(months);
-        }
-      } else {
-        // 숫자만 있는 경우
-        const parsedPeriod = parseInt(periodStr, 10);
-        if (!isNaN(parsedPeriod) && parsedPeriod > 0) {
-          optionalFields.future_measurement_period = parsedPeriod;
+
+        // 디버깅 로그 (첫 5개 행만)
+        if (dataIndex < 5 && optionalFields.future_measurement_period) {
+          console.log(`[전회 측정 주기 파싱] 행 ${dataIndex + 1}: "${periodStr}" -> ${optionalFields.future_measurement_period}개월`);
         }
       }
     }
-  }
 
-  return { ...baseData, ...optionalFields };
-}).filter((row) => row.code && row.year && row.period && row.business_name); // 필수 필드 체크
+    // 전회측정일 저장 (이미 위에서 파싱됨)
+    if (previousMeasurementDate) {
+      optionalFields.previous_measurement_date = previousMeasurementDate;
+    }
+
+    // 회사전화번호 (Excel 헤더: "회사전화번호")
+    const companyPhone = row["회사전화번호"] || row["회사 전화번호"] || rowValues[16] || null;
+    // 단, "전화번호"는 BK 열 검사에서 제외된 일반 전화번호여야 함. 매니저 정보 파싱 로직에서 처리됨. 
+    // 그러나 여기서 명시적으로 회사전화번호 헤더가 있으면 그것을 우선 사용.
+    if (companyPhone) {
+      // 전화번호 패턴 검사 (지역번호 포함)
+      const phoneStr = String(companyPhone).trim();
+      if (phoneStr.match(/^(02|031|032|033|041|042|043|044|051|052|053|054|055|061|062|063|064)-\d{3,4}-\d{4}/)) {
+        optionalFields.manager_phone = phoneStr;
+      } else if (!optionalFields.manager_phone && phoneStr) {
+        // manager_phone이 아직 없고 값이 있으면 일단 넣음 (패턴이 안 맞더라도)
+        optionalFields.manager_phone = phoneStr;
+      }
+    }
+
+    // 비고 (Column 17) - 실제 엑셀 헤더명 "비고"
+    const notes = row["비고"] || rowValues[17] || null;
+    if (notes) optionalFields.notes = String(notes).trim();
+
+    return { ...baseData, ...optionalFields };
+  }).filter((row: any) => row.code && row.year && row.period && row.business_name); // 필수 필드 체크
 }
 
 /**
@@ -1160,7 +1299,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       console.error("[측정사업장 동기화] Excel 파일에서 데이터를 읽을 수 없습니다!");
     }
 
-    const parsedData = parseMeasurementBusiness(excelData, worksheet, headerRowIndex);
+    const parsedData = parseMeasurementBusiness(excelData, worksheet, headerRowIndex, storageFileName || fileName);
 
     // 디버깅: H0432 데이터가 파싱되었는지 확인
     const h0432Parsed = parsedData.filter((row: any) => row.code && (row.code.toUpperCase().includes("H0432") || row.code.toUpperCase().includes("H432")));
@@ -1195,7 +1334,9 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
       "code", "year", "period", "business_name", "business_number",
       "total_employees", "address", "office_jurisdiction",
       "measurement_start_date", "measurement_end_date",
-      "completion_status", "measurer"
+      "completion_status", "measurer",
+      "measurement_date", "future_measurement_date",
+      "business_category"
     ];
 
     const optionalFields = [
@@ -1244,7 +1385,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
 
     // UPSERT 배치 처리 (1000개씩)
     if (allRows.length > 0) {
-      const upsertBatchSize = 1000;
+      const upsertBatchSize = 100;
       for (let i = 0; i < allRows.length; i += upsertBatchSize) {
         const batch = allRows.slice(i, i + upsertBatchSize);
 
@@ -1257,61 +1398,34 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
           });
 
         if (upsertError) {
-          console.error(`배치 UPSERT 오류 (${i}~${i + batch.length}):`, {
-            error: upsertError,
-            code: upsertError.code,
-            message: upsertError.message,
-            details: upsertError.details,
-            hint: upsertError.hint,
-            batch_size: batch.length,
-            batch_sample: batch.slice(0, 3).map(row => ({
-              code: row.code,
-              year: row.year,
-              period: row.period,
-              business_name: row.business_name
-            }))
-          });
+          // 배치 실패 시 개별 처리 (Fallback)
+          console.warn(`배치 UPSERT 실패. 개별 처리로 전환합니다. (에러: ${upsertError.message})`);
 
-          // H0432가 포함된 배치인지 확인
-          const hasH0432 = batch.some(row => row.code === 'H0432');
-          if (hasH0432) {
-            const h0432Row = batch.find(row => row.code === 'H0432');
-            console.error(`[중요] H0432 데이터 UPSERT 실패:`, {
-              row: h0432Row,
-              error: upsertError
-            });
-          }
+          let successCountInBatch = 0;
+          let failCountInBatch = 0;
 
-          // 마이그레이션이 실행되지 않은 경우, 기본 필드만 UPSERT 시도
-          if (upsertError.message?.includes("column") && upsertError.message?.includes("schema cache")) {
-            const basicBatch = batch.map(fullRow => {
-              const baseRow: any = {};
-              baseFields.forEach(field => {
-                if (fullRow[field] !== undefined) {
-                  baseRow[field] = fullRow[field];
-                }
-              });
-              return baseRow;
-            });
+          for (const row of batch) {
+            try {
+              const { error: singleError } = await supabase
+                .from("measurement_business")
+                .upsert(row, {
+                  onConflict: "code,year,period",
+                  ignoreDuplicates: false
+                });
 
-            const { error: basicUpsertError } = await supabase
-              .from("measurement_business")
-              .upsert(basicBatch, {
-                onConflict: "code,year,period",
-                ignoreDuplicates: false
-              });
-
-            if (basicUpsertError) {
-              console.error(`배치 UPSERT 오류 (기본 필드, ${i}~${i + batch.length}):`, basicUpsertError);
-              // 에러가 계속 발생하면 throw하여 catch 블록에서 처리
-              throw new Error(`배치 UPSERT 실패: ${basicUpsertError.message}`);
-            } else {
-              recordsProcessed += batch.length;
+              if (singleError) {
+                console.error(`개별 UPSERT 실패 (Code: ${row.code}):`, singleError.message);
+                failCountInBatch++;
+              } else {
+                successCountInBatch++;
+                recordsProcessed++;
+              }
+            } catch (e) {
+              console.error(`개별 처리 중 예외 발생:`, e);
+              failCountInBatch++;
             }
-          } else {
-            // 다른 종류의 에러는 throw하여 catch 블록에서 처리
-            throw new Error(`배치 UPSERT 실패: ${upsertError.message || upsertError.code}`);
           }
+          console.log(`배치 개별 처리 완료: 성공 ${successCountInBatch}건, 실패 ${failCountInBatch}건`);
         } else {
           recordsProcessed += batch.length;
 
@@ -1331,6 +1445,61 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     }
 
     const syncEndTime = new Date();
+
+    // measurement_target_business 테이블에도 동기화 (UI에 바로 반영되도록)
+    // measurement_target_business는 "측정 대상 사업장 계획" 테이블로, 화면에 표시되는 데이터임
+    if (allRows.length > 0) {
+      try {
+        // measurement_target_business 테이블에 맞는 필드만 추출
+        const targetBusinessFields = [
+          "code", "year", "period", "business_name", "business_number",
+          "total_employees", "address", "office_jurisdiction", "designated_office",
+          "measurement_start_date", "measurement_end_date", "completion_status", "measurer",
+          "future_measurement_date", "measurement_date", "future_measurement_period",
+          "manager_name", "manager_mobile", "manager_phone", "notes", "business_category"
+        ];
+
+        const targetRows = allRows.map(row => {
+          const targetRow: any = {};
+          targetBusinessFields.forEach(field => {
+            if (row[field] !== undefined) {
+              targetRow[field] = row[field];
+            }
+          });
+          // is_registered 필드는 기본값 false
+          targetRow.is_registered = false;
+
+          // 필수 데이터인 plan_based_year, plan_based_period 추가 (v4 마이그레이션 대응)
+          if (row.year) targetRow.plan_based_year = row.year;
+          if (row.period) targetRow.plan_based_period = row.period;
+
+          return targetRow;
+        });
+
+        // UPSERT 배치 처리 (1000개씩)
+        const targetBatchSize = 1000;
+        for (let i = 0; i < targetRows.length; i += targetBatchSize) {
+          const batch = targetRows.slice(i, i + targetBatchSize);
+
+          const { error: targetUpsertError } = await supabase
+            .from("measurement_target_business")
+            .upsert(batch, {
+              onConflict: "code,year,period",
+              ignoreDuplicates: false
+            });
+
+          if (targetUpsertError) {
+            console.warn(`[측정사업장 동기화] measurement_target_business UPSERT 경고 (${i}~${i + batch.length}):`, targetUpsertError);
+            // measurement_target_business 동기화 실패는 경고로만 처리하고 계속 진행
+          }
+        }
+
+        console.log(`[측정사업장 동기화] measurement_target_business 테이블에도 ${targetRows.length}건 동기화 완료`);
+      } catch (targetError) {
+        console.warn("[측정사업장 동기화] measurement_target_business 동기화 경고:", targetError);
+        // 실패해도 전체 동기화는 성공으로 처리 (measurement_business는 이미 성공)
+      }
+    }
 
     // 동기화 로그 업데이트
     if (logId) {

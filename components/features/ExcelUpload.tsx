@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useRef, DragEvent } from "react";
+import { useState, useRef, DragEvent, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 interface UploadResult {
@@ -24,27 +23,44 @@ interface UploadResult {
 
 interface ExcelUploadProps {
   onSuccess?: () => void;
+  fixedFileType?: "business-info" | "measurement-business";
+  hideAutoSync?: boolean;
+  defaultAutoSync?: boolean;
 }
 
-export function ExcelUpload({ onSuccess }: ExcelUploadProps) {
+export function ExcelUpload({
+  onSuccess,
+  fixedFileType,
+  hideAutoSync = false,
+  defaultAutoSync = false
+}: ExcelUploadProps) {
   const [fileType, setFileType] = useState<"business-info" | "measurement-business" | "">("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
-  const [autoSync, setAutoSync] = useState(false);
+  const [autoSync, setAutoSync] = useState(defaultAutoSync);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // fixedFileType이 변경되면 fileType 상태 업데이트
+  useEffect(() => {
+    if (fixedFileType) {
+      setFileType(fixedFileType);
+    }
+  }, [fixedFileType]);
 
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
     setResult(null);
 
-    // 파일명으로 자동 감지
-    const fileName = selectedFile.name.toLowerCase();
-    if (fileName.includes("사업장정보") || fileName.includes("business-info")) {
-      setFileType("business-info");
-    } else if (fileName.includes("측정사업장") || fileName.includes("measurement-business")) {
-      setFileType("measurement-business");
+    // 고정된 파일 타입이 없을 때만 파일명으로 자동 감지
+    if (!fixedFileType) {
+      const fileName = selectedFile.name.toLowerCase();
+      if (fileName.includes("사업장정보") || fileName.includes("business-info")) {
+        setFileType("business-info");
+      } else if (fileName.includes("측정사업장") || fileName.includes("measurement-business")) {
+        setFileType("measurement-business");
+      }
     }
   };
 
@@ -175,98 +191,109 @@ export function ExcelUpload({ onSuccess }: ExcelUploadProps) {
       <div className="p-6">
         <div className="mb-6">
           <h3 className="text-xl font-bold text-text-900 mb-1">Excel 파일 업로드</h3>
-          <p className="text-sm text-text-500">Excel 파일을 업로드하여 데이터베이스에 동기화합니다</p>
+          <p className="text-sm text-text-500">
+            {fixedFileType === "business-info"
+              ? "사업장정보 Excel 파일을 업로드하여 데이터베이스에 동기화합니다"
+              : fixedFileType === "measurement-business"
+                ? "측정사업장 Excel 파일을 업로드하여 데이터베이스에 동기화합니다"
+                : "Excel 파일을 업로드하여 데이터베이스에 동기화합니다"
+            }
+          </p>
         </div>
 
         <div className="space-y-6">
-          {/* 파일 타입 선택 */}
-          <div>
-            <label className="block text-sm font-semibold text-text-900 mb-3">
-              파일 타입
-            </label>
-            <div className="flex gap-3">
-              <label className="flex-1 cursor-pointer">
-                <input
-                  type="radio"
-                  name="fileType"
-                  value="business-info"
-                  checked={fileType === "business-info"}
-                  onChange={(e) => setFileType(e.target.value as "business-info")}
-                  className="sr-only"
-                  disabled={uploading}
-                />
-                <div className={`
-                  px-4 py-3 rounded-lg border-2 transition-all duration-200
-                  ${fileType === "business-info"
-                    ? "border-primary-500 bg-primary-50 shadow-sm"
-                    : "border-surface-200 bg-white hover:border-primary-300 hover:bg-primary-50/50"
-                  }
-                  ${uploading ? "opacity-50 cursor-not-allowed" : ""}
-                `}>
-                  <div className="flex items-center justify-center">
-                    <div className={`
-                      w-4 h-4 rounded-full border-2 mr-2 flex items-center justify-center
-                      ${fileType === "business-info"
-                        ? "border-primary-500 bg-primary-500"
-                        : "border-surface-300"
-                      }
-                    `}>
-                      {fileType === "business-info" && (
-                        <div className="w-2 h-2 rounded-full bg-white"></div>
-                      )}
-                    </div>
-                    <span className={`text-sm font-medium ${fileType === "business-info" ? "text-primary-700" : "text-text-700"
-                      }`}>
-                      사업장정보
-                    </span>
-                  </div>
-                </div>
+          {/* 파일 타입 선택 (fixedFileType이 없을 때만 표시) */}
+          {!fixedFileType && (
+            <div>
+              <label className="block text-sm font-semibold text-text-900 mb-3">
+                파일 타입
               </label>
-              <label className="flex-1 cursor-pointer">
-                <input
-                  type="radio"
-                  name="fileType"
-                  value="measurement-business"
-                  checked={fileType === "measurement-business"}
-                  onChange={(e) => setFileType(e.target.value as "measurement-business")}
-                  className="sr-only"
-                  disabled={uploading}
-                />
-                <div className={`
-                  px-4 py-3 rounded-lg border-2 transition-all duration-200
-                  ${fileType === "measurement-business"
-                    ? "border-primary-500 bg-primary-50 shadow-sm"
-                    : "border-surface-200 bg-white hover:border-primary-300 hover:bg-primary-50/50"
-                  }
-                  ${uploading ? "opacity-50 cursor-not-allowed" : ""}
-                `}>
-                  <div className="flex items-center justify-center">
-                    <div className={`
-                      w-4 h-4 rounded-full border-2 mr-2 flex items-center justify-center
-                      ${fileType === "measurement-business"
-                        ? "border-primary-500 bg-primary-500"
-                        : "border-surface-300"
-                      }
-                    `}>
-                      {fileType === "measurement-business" && (
-                        <div className="w-2 h-2 rounded-full bg-white"></div>
-                      )}
+              <div className="flex gap-3">
+                <label className="flex-1 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="fileType"
+                    value="business-info"
+                    checked={fileType === "business-info"}
+                    onChange={(e) => setFileType(e.target.value as "business-info")}
+                    className="sr-only"
+                    disabled={uploading}
+                  />
+                  <div className={`
+                    px-4 py-3 rounded-lg border-2 transition-all duration-200
+                    ${fileType === "business-info"
+                      ? "border-primary-500 bg-primary-50 shadow-sm"
+                      : "border-surface-200 bg-white hover:border-primary-300 hover:bg-primary-50/50"
+                    }
+                    ${uploading ? "opacity-50 cursor-not-allowed" : ""}
+                  `}>
+                    <div className="flex items-center justify-center">
+                      <div className={`
+                        w-4 h-4 rounded-full border-2 mr-2 flex items-center justify-center
+                        ${fileType === "business-info"
+                          ? "border-primary-500 bg-primary-500"
+                          : "border-surface-300"
+                        }
+                      `}>
+                        {fileType === "business-info" && (
+                          <div className="w-2 h-2 rounded-full bg-white"></div>
+                        )}
+                      </div>
+                      <span className={`text-sm font-medium ${fileType === "business-info" ? "text-primary-700" : "text-text-700"
+                        }`}>
+                        사업장정보
+                      </span>
                     </div>
-                    <span className={`text-sm font-medium ${fileType === "measurement-business" ? "text-primary-700" : "text-text-700"
-                      }`}>
-                      측정사업장
-                    </span>
                   </div>
-                </div>
-              </label>
+                </label>
+                <label className="flex-1 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="fileType"
+                    value="measurement-business"
+                    checked={fileType === "measurement-business"}
+                    onChange={(e) => setFileType(e.target.value as "measurement-business")}
+                    className="sr-only"
+                    disabled={uploading}
+                  />
+                  <div className={`
+                    px-4 py-3 rounded-lg border-2 transition-all duration-200
+                    ${fileType === "measurement-business"
+                      ? "border-primary-500 bg-primary-50 shadow-sm"
+                      : "border-surface-200 bg-white hover:border-primary-300 hover:bg-primary-50/50"
+                    }
+                    ${uploading ? "opacity-50 cursor-not-allowed" : ""}
+                  `}>
+                    <div className="flex items-center justify-center">
+                      <div className={`
+                        w-4 h-4 rounded-full border-2 mr-2 flex items-center justify-center
+                        ${fileType === "measurement-business"
+                          ? "border-primary-500 bg-primary-500"
+                          : "border-surface-300"
+                        }
+                      `}>
+                        {fileType === "measurement-business" && (
+                          <div className="w-2 h-2 rounded-full bg-white"></div>
+                        )}
+                      </div>
+                      <span className={`text-sm font-medium ${fileType === "measurement-business" ? "text-primary-700" : "text-text-700"
+                        }`}>
+                        측정사업장
+                      </span>
+                    </div>
+                  </div>
+                </label>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* 파일 선택 - 드래그 앤 드롭 */}
           <div>
-            <label className="block text-sm font-semibold text-text-900 mb-3">
-              Excel 파일
-            </label>
+            {!fixedFileType && (
+              <label className="block text-sm font-semibold text-text-900 mb-3">
+                Excel 파일
+              </label>
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -340,35 +367,37 @@ export function ExcelUpload({ onSuccess }: ExcelUploadProps) {
             </div>
           </div>
 
-          {/* 자동 동기화 옵션 */}
-          <div>
-            <label className="flex items-center cursor-pointer group">
-              <div className="relative">
-                <input
-                  type="checkbox"
-                  checked={autoSync}
-                  onChange={(e) => setAutoSync(e.target.checked)}
-                  className="sr-only"
-                  disabled={uploading}
-                />
-                <div className={`
+          {/* 자동 동기화 옵션 (hideAutoSync가 false일 때만 표시) */}
+          {!hideAutoSync && (
+            <div>
+              <label className="flex items-center cursor-pointer group">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    checked={autoSync}
+                    onChange={(e) => setAutoSync(e.target.checked)}
+                    className="sr-only"
+                    disabled={uploading}
+                  />
+                  <div className={`
                   w-11 h-6 rounded-full transition-colors duration-200
                   ${autoSync ? "bg-primary-500" : "bg-surface-300"}
                   ${uploading ? "opacity-50" : ""}
                 `}>
-                  <div className={`
+                    <div className={`
                     absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md
                     transition-transform duration-200
                     ${autoSync ? "translate-x-5" : "translate-x-0"}
                   `}></div>
+                  </div>
                 </div>
-              </div>
-              <span className={`ml-3 text-sm font-medium ${autoSync ? "text-text-900" : "text-text-600"
-                }`}>
-                업로드 후 DB 자동 동기화
-              </span>
-            </label>
-          </div>
+                <span className={`ml-3 text-sm font-medium ${autoSync ? "text-text-900" : "text-text-600"
+                  }`}>
+                  업로드 후 DB 자동 동기화
+                </span>
+              </label>
+            </div>
+          )}
 
           {/* 업로드 버튼 */}
           <Button

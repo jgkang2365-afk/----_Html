@@ -20,11 +20,11 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "대시보드" },
+  { href: "/businesses", label: "측정 대상 사업장 관리" },
   { href: "/survey", label: "예비조사" },
   { href: "/journal", label: "측정일지" },
-  { href: "/businesses", label: "측정 대상 사업장 관리" },
-  { href: "/businesses/national-support", label: "건강디딤돌 신청결과" },
   { href: "/summary", label: "측정정보 요약" },
+  { href: "/businesses/national-support", label: "건강디딤돌 신청결과" },
   { href: "/sales", label: "매출관리" },
 ];
 

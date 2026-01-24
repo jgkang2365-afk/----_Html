@@ -1,0 +1,29 @@
+[dotenv@17.2.3] injecting env (5) from .env.local -- tip: ?숋툘  override existing env vars with { override: true }
+measurement_business years: { '2022': 5, '2023': 384, '2024': 506, '2025': 105 }
+measurement_target_business year_planYear: { '2026_2025': 283, '2026_2026': 8 }
+Sample 2025 data: [
+  {
+    "code": "H0366",
+    "business_name": "?곗꽍醫낇빀嫄댁꽕(二? 泥쒖븞泥??띿닔?댁깮?쒓텒 醫낇빀?뺣퉬?ъ뾽",
+    "year": 2025,
+    "period": "?곷컲湲?,
+    "business_category": "吏諛섏“??嫄댁꽕??,
+    "manager_name": "?덉옱??
+  },
+  {
+    "code": "H0267",
+    "business_name": "?쒖븞援곕냽?묒?議고빀怨듬룞?ъ뾽踰뺤씤",
+    "year": 2025,
+    "period": "?섎컲湲?,
+    "business_category": "怨〓Ъ ?꾩젙??,
+    "manager_name": "?댁쑀吏?
+  },
+  {
+    "code": "H0042",
+    "business_name": "?쇨툒??숈옄?숈감怨듭뾽??,
+    "year": 2025,
+    "period": "?곷컲湲?,
+    "business_category": "?먮룞李?醫낇빀 ?섎━??,
+    "manager_name": "吏??
+  }
+]
