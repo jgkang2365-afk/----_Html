@@ -34,7 +34,7 @@ interface BusinessEntry {
   measurement_start_date: string | null;
   measurement_end_date: string | null;
   completion_status: string | null;
-  measurer: string | null;
+  plan_manager: string | null;
   future_measurement_date: string | null; // 향후측정예상일
   measurement_date: string | null; // 측정일 (예비조사의 측정일)
   previous_measurement_date: string | null; // 전회 측정일
@@ -51,14 +51,18 @@ interface BusinessEntry {
   management_status: string | null; // 관리 상태 ('transaction_ended' 등)
 }
 
+
+
 export const BusinessManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [businesses, setBusinesses] = useState<BusinessEntry[]>([]);
   const [filteredBusinesses, setFilteredBusinesses] = useState<BusinessEntry[]>([]);
-  const [editingNotes, setEditingNotes] = useState<Map<string, string>>(new Map());
+  const [editingBusiness, setEditingBusiness] = useState<BusinessEntry | null>(null);
+  const [editingValues, setEditingValues] = useState<Map<string, string>>(new Map());
   const [addressSortOrder, setAddressSortOrder] = useState<"asc" | "desc" | null>(null);
   const [isRegisteredSortOrder, setIsRegisteredSortOrder] = useState<"asc" | "desc" | null>(null);
+  const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
 
   // 필터 상태
   const [filters, setFilters] = useState({
@@ -68,6 +72,7 @@ export const BusinessManagement: React.FC = () => {
     address: "",
     businessName: "",
     isRegistered: "", // 전체, 등록됨, 미등록
+    planManager: "전체",
   });
 
   // 현재 선택된 년도/반기 (기본값: 현재 년도 상반기)
@@ -96,11 +101,29 @@ export const BusinessManagement: React.FC = () => {
   const [planGenerateError, setPlanGenerateError] = useState<string | null>(null);
   const [planGenerateSuccess, setPlanGenerateSuccess] = useState<string | null>(null);
 
+  // 업체 추가 상태
+  const [newBusiness, setNewBusiness] = useState({
+    year: currentYear.toString(),
+    period: currentPeriod,
+    code: "",
+    business_name: "",
+    address: "",
+    manager_name: "",
+    manager_mobile: "",
+    plan_manager: "",
+    business_category: "",
+    future_measurement_date: "",
+    measurement_date: "",
+    notes: ""
+  });
+
   // 년도 옵션 (현재 년도 기준 -5년 ~ +1년)
   const yearOptions = Array.from({ length: 7 }, (_, i) => {
     const year = currentYear - 5 + i;
     return { value: year.toString(), label: year.toString() };
   }).reverse();
+
+
 
   // 측정 대상 사업장 목록 로드
   const loadBusinesses = async () => {
@@ -128,7 +151,17 @@ export const BusinessManagement: React.FC = () => {
       console.log("[측정 대상 사업장] API 호출:", url);
       const response = await fetch(url);
       console.log("[측정 대상 사업장] API 응답 상태:", response.status);
-      const data = await response.json();
+
+      const contentType = response.headers.get("content-type");
+      let data;
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.error("[측정 대상 사업장] API 응답이 JSON이 아닙니다:", text.substring(0, 200));
+        throw new Error(`서버 응답 오류 (${response.status}): ${text.substring(0, 100)}...`);
+      }
+
       console.log("[측정 대상 사업장] API 응답 데이터:", data);
 
       if (response.ok) {
@@ -187,6 +220,50 @@ export const BusinessManagement: React.FC = () => {
     }
   };
 
+  // 업체 직접 추가
+  const handleAddBusiness = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/businesses/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newBusiness,
+          year: parseInt(newBusiness.year),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert("업체가 성공적으로 추가되었습니다.");
+        setIsAddModalOpen(false);
+        setNewBusiness({
+          year: selectedYear,
+          period: selectedPeriod,
+          code: "",
+          business_name: "",
+          address: "",
+          manager_name: "",
+          manager_mobile: "",
+          plan_manager: "",
+          business_category: "",
+          future_measurement_date: "",
+          measurement_date: "",
+          notes: ""
+        });
+        loadBusinesses();
+      } else {
+        alert(data.error || "업체 추가 중 오류가 발생했습니다.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("업체 추가 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 필터 적용
   const applyFilters = useCallback((data: BusinessEntry[], currentFilters: typeof filters, sortOrder?: "asc" | "desc" | null) => {
     let filtered = [...data];
@@ -211,13 +288,20 @@ export const BusinessManagement: React.FC = () => {
       );
     }
 
-    if (currentFilters.isRegistered === "등록됨") {
+    if (currentFilters.isRegistered === "실시") {
       filtered = filtered.filter((entry) => entry.isRegistered);
-    } else if (currentFilters.isRegistered === "미등록") {
-      filtered = filtered.filter((entry) => !entry.isRegistered);
+    } else if (currentFilters.isRegistered === "미실시") {
+      filtered = filtered.filter((entry) => !entry.isRegistered && entry.management_status !== "transaction_ended");
+    } else if (currentFilters.isRegistered === "거래종료") {
+      filtered = filtered.filter((entry) => entry.management_status === "transaction_ended");
     }
 
-    // 실시여부 정렬 적용
+    if (currentFilters.planManager && currentFilters.planManager !== "전체") {
+      filtered = filtered.filter((entry) => entry.plan_manager === currentFilters.planManager);
+    }
+
+    // 기본 정렬: 측정예정월(오름차순) -> 소재지 관할청(오름차순)
+    // 단, 주소 정렬이나 실시여부 정렬이 지정된 경우 해당 정렬 우선
     if (sortOrder !== undefined && sortOrder !== null) {
       filtered = filtered.sort((a, b) => {
         // 등록됨(true)이 미등록(false)보다 앞에 오도록 정렬
@@ -229,10 +313,163 @@ export const BusinessManagement: React.FC = () => {
           return a.isRegistered === b.isRegistered ? 0 : a.isRegistered ? 1 : -1;
         }
       });
+    } else if (addressSortOrder) {
+      // 주소 정렬은 table rendering 부분에서 처리됨, 여기서는 기본 정렬 적용 안함 (UI에서 이미 처리중인 경우)
+      // 하지만 addressSortOrder는 UI 상태값이고 여기서 실제 정렬을 수행하지 않으면 원본 순서가 됨.
+      // Table 헤더에서 클릭 시 setFilteredBusinesses를 직접 호출하여 정렬하므로 여기서는 addressSortOrder 체크 불필요할 수도 있으나,
+      // 필터가 변경될 때마다 재정렬이 필요하므로 여기서 처리하는게 좋음.
+      // 현재 코드 구조상 Address 정렬은 Table 헤더 클릭 이벤트핸들러 안에서 즉시 setFilteredBusinesses를 호출함.
+      // 따라서 필터 적용 시(useEffect)에는 주소 정렬 상태가 유지되지 않을 수 있음. 
+      // 일단 사용자 요구사항인 "측정예정월(오름차순) 순, 소재지 관할청으로 필터(정렬)"을 기본으로 적용.
+
+      filtered.sort((a, b) => {
+        // 1. 측정예정월 (future_measurement_date) 오름차순
+        const dateA = a.future_measurement_date ? new Date(a.future_measurement_date).getTime() : Infinity;
+        const dateB = b.future_measurement_date ? new Date(b.future_measurement_date).getTime() : Infinity;
+
+        if (dateA !== dateB) {
+          return dateA - dateB;
+        }
+
+        // 2. 소재지 관할청 (office_jurisdiction) 오름차순
+        const officeA = a.office_jurisdiction || "";
+        const officeB = b.office_jurisdiction || "";
+        return officeA.localeCompare(officeB);
+      });
+    } else {
+      // 기본 정렬 적용
+      filtered.sort((a, b) => {
+        // 1. 측정예정월 (future_measurement_date) 오름차순
+        // 날짜가 없는 경우 뒤로 보냄
+        const dateA = a.future_measurement_date ? new Date(a.future_measurement_date).getTime() : 9999999999999;
+        const dateB = b.future_measurement_date ? new Date(b.future_measurement_date).getTime() : 9999999999999;
+
+        if (dateA !== dateB) {
+          return dateA - dateB;
+        }
+
+        // 2. 소재지 관할청 (office_jurisdiction) 오름차순
+        const officeA = a.office_jurisdiction || "";
+        const officeB = b.office_jurisdiction || "";
+        return officeA.localeCompare(officeB);
+      });
     }
 
     setFilteredBusinesses(filtered);
-  }, []);
+  }, [addressSortOrder]);
+
+  // 필드 업데이트 (금회예정일, 확정일, 업종분류, 비고 등)
+  const updateBusinessField = async (code: string, year: number, period: string, field: string, value: string | null) => {
+    try {
+      const response = await fetch("/api/businesses", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          year,
+          period,
+          updates: { [field]: value || null }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Update failed");
+      }
+
+      // 로컬 데이터 업데이트
+      setBusinesses((prev) =>
+        prev.map((b) => {
+          if (b.code === code && b.year === year && b.period === period) {
+            return { ...b, [field]: value };
+          }
+          return b;
+        })
+      );
+
+      return true;
+    } catch (err: any) {
+      console.error(err);
+      alert(`저장 중 오류가 발생했습니다: ${err.message}`);
+      return false;
+    }
+  };
+
+  const handleFieldChange = (entryKey: string, field: string, value: string) => {
+    const key = `${entryKey}-${field}`;
+    const newMap = new Map(editingValues);
+    newMap.set(key, value);
+    setEditingValues(newMap);
+  };
+
+  const handleFieldBlur = async (entry: BusinessEntry, field: string) => {
+    const entryKey = `${entry.code}-${entry.year}-${entry.period}`;
+    const key = `${entryKey}-${field}`;
+    const value = editingValues.get(key);
+
+    // 변경된 값이 있을 때만 API 호출
+    if (value !== undefined) {
+      const success = await updateBusinessField(entry.code, entry.year, entry.period, field, value);
+      if (success) {
+        // 성공 시 편집 상태 제거하여 원본 데이터 표시 (원본 데이터가 위에서 이미 업데이트됨)
+        const newMap = new Map(editingValues);
+        newMap.delete(key);
+        setEditingValues(newMap);
+      }
+    }
+  };
+
+  const handleUpdateBusiness = async () => {
+    if (!editingBusiness) return;
+    setLoading(true);
+    try {
+      const { code, year, period, ...updates } = editingBusiness;
+      // API에서 허용하는 필드만 추출
+      const allowedUpdateData = {
+        business_name: editingBusiness.business_name,
+        address: editingBusiness.address,
+        manager_name: editingBusiness.manager_name,
+        manager_mobile: editingBusiness.manager_mobile,
+        plan_manager: editingBusiness.plan_manager,
+        business_category: editingBusiness.business_category,
+        future_measurement_date: editingBusiness.future_measurement_date,
+        measurement_date: editingBusiness.measurement_date,
+        notes: editingBusiness.notes
+      };
+
+      const response = await fetch("/api/businesses", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          year,
+          period,
+          updates: allowedUpdateData
+        }),
+      });
+
+      if (!response.ok) throw new Error("Update failed");
+
+      // 로컬 데이터 업데이트
+      setBusinesses((prev) =>
+        prev.map((b) => {
+          if (b.code === code && b.year === year && b.period === period) {
+            return { ...b, ...allowedUpdateData };
+          }
+          return b;
+        })
+      );
+
+      setIsEditModalOpen(false);
+      setEditingBusiness(null);
+      alert("성공적으로 수정되었습니다.");
+    } catch (err) {
+      console.error(err);
+      alert("수정 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // 상태 변경
   const handleStatusChange = async (code: string, year: number, period: string, newStatus: string) => {
@@ -262,6 +499,26 @@ export const BusinessManagement: React.FC = () => {
       loadBusinesses(); // 실패 시 새로고침
     }
   };
+
+  // 업종분류 목록 조회
+  useEffect(() => {
+    const fetchBusinessCategories = async () => {
+      try {
+        const response = await fetch("/api/business-categories");
+        if (response.ok) {
+          const data = await response.json();
+          const categories = (data.categories || []).map((cat: { id: number; name: string }) => ({
+            value: cat.name,
+            label: cat.name,
+          }));
+          setBusinessCategories(categories);
+        }
+      } catch (err) {
+        console.error("업종분류 목록 조회 오류:", err);
+      }
+    };
+    fetchBusinessCategories();
+  }, []);
 
   // 엑셀 다운로드
   const handleExportExcel = async () => {
@@ -371,8 +628,9 @@ export const BusinessManagement: React.FC = () => {
               onChange={(e) => setFilters({ ...filters, isRegistered: e.target.value })}
               options={[
                 { value: "", label: "전체" },
-                { value: "등록됨", label: "등록됨" },
-                { value: "미등록", label: "미등록" },
+                { value: "실시", label: "실시" },
+                { value: "미실시", label: "미실시" },
+                { value: "거래종료", label: "거래종료" },
               ]}
             />
           </div>
@@ -386,7 +644,13 @@ export const BusinessManagement: React.FC = () => {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => {
+              setNewBusiness(prev => ({
+                ...prev,
+                plan_manager: filters.planManager !== "전체" ? filters.planManager : ""
+              }));
+              setIsAddModalOpen(true);
+            }}
             className="shadow-sm"
           >
             업체 추가
@@ -429,9 +693,26 @@ export const BusinessManagement: React.FC = () => {
           <h2 className="text-xl font-semibold text-text-900">
             측정 대상 사업장 목록 ({filteredBusinesses.length}건)
           </h2>
-          <Button variant="secondary" onClick={handleExportExcel}>
-            엑셀 다운로드
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mr-2 bg-surface-50 px-3 py-1 rounded-md border border-surface-200">
+              <span className="text-base font-bold text-blue-600 whitespace-nowrap">계획담당자</span>
+              <div className="w-[100px]">
+                <select
+                  value={filters.planManager}
+                  onChange={(e) => setFilters({ ...filters, planManager: e.target.value })}
+                  className="w-full h-8 text-base border-gray-300 rounded-md shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white"
+                >
+                  <option value="전체">전체</option>
+                  <option value="한기문">한기문</option>
+                  <option value="이주형">이주형</option>
+                  <option value="강종구">강종구</option>
+                </select>
+              </div>
+            </div>
+            <Button variant="secondary" onClick={handleExportExcel}>
+              엑셀 다운로드
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -451,7 +732,7 @@ export const BusinessManagement: React.FC = () => {
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">실시여부</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">코드</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">국고결과</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">주관담당자</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">계획담당자</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">전회측정일</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap w-[100px]">전회 측정 주기</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">금회예정일</th>
@@ -497,6 +778,7 @@ export const BusinessManagement: React.FC = () => {
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자 휴대폰</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">회사전화번호</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">비고</th>
+                    <th className="bg-surface-50 h-12 px-4 text-center align-middle font-bold text-slate-800 whitespace-nowrap">관리</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -546,7 +828,7 @@ export const BusinessManagement: React.FC = () => {
                             <span className="text-text-400 text-sm">-</span>
                           )}
                         </td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.measurer || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.plan_manager || "-"}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
                           {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
@@ -558,7 +840,21 @@ export const BusinessManagement: React.FC = () => {
                             : "-"}
                         </td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.business_category || "-"}</td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          <select
+                            value={editingValues.get(`${entryKey}-business_category`) ?? entry.business_category ?? ""}
+                            onChange={(e) => handleFieldChange(entryKey, "business_category", e.target.value)}
+                            onBlur={() => handleFieldBlur(entry, "business_category")}
+                            className="w-[120px] px-1 py-0.5 text-sm border border-transparent hover:border-slate-200 rounded focus:border-primary-500 focus:outline-none bg-transparent focus:bg-white transition-all appearance-none cursor-pointer"
+                          >
+                            <option value="">-</option>
+                            {businessCategories.map((cat) => (
+                              <option key={cat.value} value={cat.value}>
+                                {cat.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium w-[180px]">{entry.business_name}</td>
                         <td className="p-4 align-middle text-slate-600 min-w-[200px]">
                           {entry.address || "-"}
@@ -568,17 +864,25 @@ export const BusinessManagement: React.FC = () => {
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_mobile || "-"}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                          <Input
-                            value={editingNotes.get(entryKey) ?? entry.notes ?? ""}
-                            onChange={(e) => {
-                              const newMap = new Map(editingNotes);
-                              newMap.set(entryKey, e.target.value);
-                              setEditingNotes(newMap);
-                              // TODO: API 호출하여 비고 저장
-                            }}
-                            placeholder="비고 입력"
-                            className="min-w-[120px]"
+                          <input
+                            value={editingValues.get(`${entryKey}-notes`) ?? entry.notes ?? ""}
+                            onChange={(e) => handleFieldChange(entryKey, "notes", e.target.value)}
+                            onBlur={() => handleFieldBlur(entry, "notes")}
+                            placeholder="..."
+                            className="min-w-[120px] px-1 py-0.5 text-sm border border-transparent hover:border-slate-200 rounded focus:border-primary-500 focus:outline-none bg-transparent focus:bg-white transition-all"
                           />
+                        </td>
+                        <td className="p-4 align-middle text-center whitespace-nowrap">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              setEditingBusiness({ ...entry });
+                              setIsEditModalOpen(true);
+                            }}
+                          >
+                            수정
+                          </Button>
                         </td>
                       </tr>
                     );
@@ -593,14 +897,135 @@ export const BusinessManagement: React.FC = () => {
       {/* 업체 추가 모달 */}
       <Modal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setNewBusiness({
+            year: selectedYear,
+            period: selectedPeriod,
+            code: "",
+            business_name: "",
+            address: "",
+            manager_name: "",
+            manager_mobile: "",
+            plan_manager: filters.planManager !== "전체" ? filters.planManager : "",
+            business_category: "",
+            future_measurement_date: "",
+            measurement_date: "",
+            notes: ""
+          });
+        }}
         title="업체 추가"
+        size="xl"
       >
-        <div className="space-y-4">
-          <p>업체 추가 기능은 API 구현 후 추가됩니다.</p>
-          <div className="flex justify-end gap-3">
+        <div className="space-y-6">
+          <div className="grid grid-cols-4 gap-4">
+            <Select
+              label="측정년도"
+              value={newBusiness.year}
+              onChange={(e) => setNewBusiness({ ...newBusiness, year: e.target.value })}
+              options={yearOptions}
+            />
+            <Select
+              label="측정주기"
+              value={newBusiness.period}
+              onChange={(e) => setNewBusiness({ ...newBusiness, period: e.target.value })}
+              options={[
+                { value: "상반기", label: "상반기" },
+                { value: "하반기", label: "하반기" },
+              ]}
+            />
+            <Input
+              label="코드"
+              value={newBusiness.code}
+              onFocus={(e) => {
+                if (!newBusiness.code) {
+                  setNewBusiness({ ...newBusiness, code: "H" });
+                }
+              }}
+              onChange={(e) => {
+                let val = e.target.value;
+                if (val && !val.startsWith("H")) {
+                  val = "H" + val;
+                }
+                setNewBusiness({ ...newBusiness, code: val });
+              }}
+              placeholder="예: H1234"
+            />
+            <Input
+              label="계획담당자"
+              value={newBusiness.plan_manager}
+              onChange={(e) => setNewBusiness({ ...newBusiness, plan_manager: e.target.value })}
+              placeholder="계획담당자"
+            />
+          </div>
+
+          <div className="grid grid-cols-4 gap-4">
+            <Input
+              label="금회예정일"
+              type="date"
+              value={newBusiness.future_measurement_date}
+              onChange={(e) => setNewBusiness({ ...newBusiness, future_measurement_date: e.target.value })}
+            />
+            <Input
+              label="금회측정확정일"
+              type="date"
+              value={newBusiness.measurement_date}
+              onChange={(e) => setNewBusiness({ ...newBusiness, measurement_date: e.target.value })}
+            />
+            <Select
+              label="업종분류"
+              value={newBusiness.business_category}
+              onChange={(e) => setNewBusiness({ ...newBusiness, business_category: e.target.value })}
+              options={[{ value: "", label: "선택" }, ...businessCategories]}
+            />
+            <Input
+              label="사업장명"
+              value={newBusiness.business_name}
+              onChange={(e) => setNewBusiness({ ...newBusiness, business_name: e.target.value })}
+              placeholder="사업장명"
+            />
+          </div>
+
+          <div className="grid grid-cols-4 gap-4">
+            <div className="col-span-2">
+              <Input
+                label="주소"
+                value={newBusiness.address}
+                onChange={(e) => setNewBusiness({ ...newBusiness, address: e.target.value })}
+                placeholder="주소 입력"
+              />
+            </div>
+            <Input
+              label="담당자명"
+              value={newBusiness.manager_name}
+              onChange={(e) => setNewBusiness({ ...newBusiness, manager_name: e.target.value })}
+              placeholder="담당자명"
+            />
+            <Input
+              label="담당자 연락처"
+              value={newBusiness.manager_mobile}
+              onChange={(e) => setNewBusiness({ ...newBusiness, manager_mobile: e.target.value })}
+              placeholder="010-0000-0000"
+            />
+          </div>
+
+          <div className="grid grid-cols-4 gap-4">
+            <div className="col-span-4">
+              <Input
+                label="비고"
+                value={newBusiness.notes}
+                onChange={(e) => setNewBusiness({ ...newBusiness, notes: e.target.value })}
+                placeholder="비고 입력"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
             <Button variant="secondary" onClick={() => setIsAddModalOpen(false)}>
-              닫기
+              취소
+            </Button>
+            <Button variant="primary" onClick={handleAddBusiness} disabled={loading}>
+              {loading ? "추가 중..." : "업체 추가"}
             </Button>
           </div>
         </div>
@@ -611,29 +1036,112 @@ export const BusinessManagement: React.FC = () => {
         isOpen={isEditModalOpen}
         onClose={() => {
           setIsEditModalOpen(false);
-          setSelectedBusiness(null);
+          setEditingBusiness(null);
         }}
-        title="업체 수정"
+        title="업체 정보 수정"
+        size="xl"
       >
-        <div className="space-y-4">
-          {selectedBusiness && (
-            <div>
-              <p>코드: {selectedBusiness.code}</p>
-              <p>사업장명: {selectedBusiness.business_name}</p>
-            </div>
+        <div className="space-y-6">
+          {editingBusiness && (
+            <>
+              <div className="grid grid-cols-4 gap-4">
+                <Input
+                  label="측정년도"
+                  value={editingBusiness.year.toString()}
+                  disabled
+                  className="bg-slate-50"
+                />
+                <Input
+                  label="측정주기"
+                  value={editingBusiness.period}
+                  disabled
+                  className="bg-slate-50"
+                />
+                <Input
+                  label="코드"
+                  value={editingBusiness.code}
+                  disabled
+                  className="bg-slate-50"
+                />
+                <Input
+                  label="계획담당자"
+                  value={editingBusiness.plan_manager || ""}
+                  onChange={(e) => setEditingBusiness({ ...editingBusiness, plan_manager: e.target.value })}
+                  placeholder="계획담당자"
+                />
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Input
+                  label="금회예정일"
+                  type="date"
+                  value={editingBusiness.future_measurement_date || ""}
+                  onChange={(e) => setEditingBusiness({ ...editingBusiness, future_measurement_date: e.target.value })}
+                />
+                <Input
+                  label="금회측정확정일"
+                  type="date"
+                  value={editingBusiness.measurement_date || ""}
+                  onChange={(e) => setEditingBusiness({ ...editingBusiness, measurement_date: e.target.value })}
+                />
+                <Select
+                  label="업종분류"
+                  value={editingBusiness.business_category || ""}
+                  onChange={(e) => setEditingBusiness({ ...editingBusiness, business_category: e.target.value })}
+                  options={[{ value: "", label: "선택" }, ...businessCategories]}
+                />
+                <Input
+                  label="사업장명"
+                  value={editingBusiness.business_name || ""}
+                  onChange={(e) => setEditingBusiness({ ...editingBusiness, business_name: e.target.value })}
+                  placeholder="사업장명"
+                />
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <div className="col-span-2">
+                  <Input
+                    label="주소"
+                    value={editingBusiness.address || ""}
+                    onChange={(e) => setEditingBusiness({ ...editingBusiness, address: e.target.value })}
+                    placeholder="주소 입력"
+                  />
+                </div>
+                <Input
+                  label="담당자명"
+                  value={editingBusiness.manager_name || ""}
+                  onChange={(e) => setEditingBusiness({ ...editingBusiness, manager_name: e.target.value })}
+                  placeholder="담당자명"
+                />
+                <Input
+                  label="담당자 연락처"
+                  value={editingBusiness.manager_mobile || ""}
+                  onChange={(e) => setEditingBusiness({ ...editingBusiness, manager_mobile: e.target.value })}
+                  placeholder="010-0000-0000"
+                />
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <div className="col-span-4">
+                  <Input
+                    label="비고"
+                    value={editingBusiness.notes || ""}
+                    onChange={(e) => setEditingBusiness({ ...editingBusiness, notes: e.target.value })}
+                    placeholder="비고 입력"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>
+                  취소
+                </Button>
+                <Button variant="primary" onClick={handleUpdateBusiness} disabled={loading}>
+                  {loading ? "저장 중..." : "변경 내용 저장"}
+                </Button>
+              </div>
+            </>
           )}
-          <p>업체 수정 기능은 API 구현 후 추가됩니다.</p>
-          <div className="flex justify-end gap-3">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setIsEditModalOpen(false);
-                setSelectedBusiness(null);
-              }}
-            >
-              닫기
-            </Button>
-          </div>
         </div>
       </Modal>
 

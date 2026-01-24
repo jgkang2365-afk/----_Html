@@ -560,7 +560,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       measurement_date: measurementDate || null, // 금회측정확정일
       future_measurement_date: futureMeasurementDate || null, // 금회예정일
       completion_status: normalizedStatus,
-      measurer: row["주관담당자"] || row["측정자(담당)"] || row["측정자"] || row["담당"] || rowValues[4] || null,
+      measurer: row["계획담당자"] || row["주관담당자"] || null,
       national_support_status: row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3] || null,
       business_category: businessCategory,
     };
@@ -715,10 +715,10 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
 
       // 헤더 텍스트는 건너뛰기
       if (periodStr &&
-          periodStr !== "향후측정주기" &&
-          periodStr !== "향후 측정주기" &&
-          periodStr !== "전회 측정 주기" &&
-          periodStr !== "전회측정주기") {
+        periodStr !== "향후측정주기" &&
+        periodStr !== "향후 측정주기" &&
+        periodStr !== "전회 측정 주기" &&
+        periodStr !== "전회측정주기") {
 
         if (typeof periodValue === "number") {
           optionalFields.future_measurement_period = Math.round(periodValue);

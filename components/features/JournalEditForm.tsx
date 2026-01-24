@@ -33,12 +33,14 @@ interface JournalEditFormProps {
   entry: JournalEntry;
   onClose: () => void;
   onSuccess: (savedJournalId?: number | null) => void;
+  setIsSubmitting?: (isSubmitting: boolean) => void;
 }
 
 export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   entry,
   onClose,
   onSuccess,
+  setIsSubmitting,
 }) => {
   const { user } = useUser();
   const isAdmin = user?.role === "관리자";
@@ -179,7 +181,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 측정주기 옵션
   const periodOptions = [
     { value: "상반기", label: "상반기" },
+    { value: "상반기(수시)", label: "상반기(수시)" },
     { value: "하반기", label: "하반기" },
+    { value: "하반기(수시)", label: "하반기(수시)" },
   ];
 
   // 국고지원 여부 옵션
@@ -818,6 +822,53 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   }, [formData.measurement_fee_total, formData.deposit_total, formData.measurement_end_date, formData.completion_status]);
 
+  // 업종분류가 '공업사'일 때 자동화 로직
+  useEffect(() => {
+    if (formData.business_category === "공업사") {
+      setFormData(prev => {
+        const updates: any = {};
+        let hasUpdates = false;
+
+        // 1. 비고: '공정 수시변경' 자동 체크
+        const NOTE_VALUE = "공정 수시변경";
+        const currentNotes = Array.isArray(prev.note) ? [...prev.note] : (prev.note ? [String(prev.note)] : []);
+
+        if (!currentNotes.includes(NOTE_VALUE)) {
+          currentNotes.push(NOTE_VALUE);
+          updates.note = currentNotes;
+          hasUpdates = true;
+        }
+
+        // 2. 전자계산서 발행일: 측정 시작일 + 1일 (워킹데이 기준)
+        if (prev.measurement_start_date) {
+          const startDate = new Date(prev.measurement_start_date);
+          const nextDate = new Date(startDate);
+          nextDate.setDate(startDate.getDate() + 1);
+
+          const day = nextDate.getDay(); // 0: 일, 6: 토
+          if (day === 6) { // 토요일 -> 월요일 (2일 추가)
+            nextDate.setDate(nextDate.getDate() + 2);
+          } else if (day === 0) { // 일요일 -> 월요일 (1일 추가)
+            nextDate.setDate(nextDate.getDate() + 1);
+          }
+
+          const nextWorkingDay = normalizeDateForInput(nextDate.toISOString()); // YYYY-MM-DD 변환
+
+          // 기존 값과 다르면 업데이트 (사용자가 수정한 경우 덮어쓰게 되지만, '기본값' 요구사항에 따라 반영)
+          if (prev.electronic_invoice_date !== nextWorkingDay) {
+            updates.electronic_invoice_date = nextWorkingDay;
+            hasUpdates = true;
+          }
+        }
+
+        if (hasUpdates) {
+          return { ...prev, ...updates };
+        }
+        return prev;
+      });
+    }
+  }, [formData.business_category, formData.measurement_start_date]);
+
   // 측정년도/측정주기 변경 검증 (수정 모드에서만)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -829,6 +880,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
 
     setLoading(true);
+    if (setIsSubmitting) setIsSubmitting(true);
     setError(null);
 
     // 총인원 검증 (5인 이상 연번과 연관이 있으므로 필수)
@@ -836,6 +888,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     if (!totalEmployees || isNaN(totalEmployees)) {
       setError("총인원을 입력해주세요. 5인 이상 연번은 총인원과 연관이 있습니다.");
       setLoading(false);
+      if (setIsSubmitting) setIsSubmitting(false);
       return;
     }
 
@@ -931,11 +984,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       setError(err.message || "저장 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
+      if (setIsSubmitting) setIsSubmitting(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form id="journal-edit-form" onSubmit={handleSubmit} className="space-y-6">
       {/* 오류 및 알림 메시지 영역 - 상단 고정 (높이 고정) */}
       <div className="sticky top-0 z-20 bg-white -mx-8 px-8 pt-0 pb-3 border-b border-surface-200 h-28">
         <div className="h-full overflow-y-auto space-y-3">
@@ -966,7 +1020,364 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         </div>
       </div>
 
-      {/* 기본 정보 */}
+      {/* 1. 사업장 정보 */}
+      <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
+        <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
+          사업장 정보
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Input
+            label="사업장명 *"
+            value={formData.business_name}
+            onChange={(e) =>
+              setFormData({ ...formData, business_name: e.target.value })
+            }
+            required
+          />
+          <Input
+            label="총인원"
+            type="number"
+            value={formData.total_employees}
+            onChange={(e) =>
+              setFormData({ ...formData, total_employees: e.target.value })
+            }
+          />
+          <Input
+            label="사업자번호"
+            value={formatBusinessNumber(formData.business_number)}
+            onChange={(e) => {
+              // 숫자만 추출하여 저장 (하이픈 제거)
+              const numbers = parseBusinessNumber(e.target.value);
+              setFormData({ ...formData, business_number: numbers });
+            }}
+            placeholder="305-86-41481"
+            maxLength={12}
+          />
+          <Input
+            label="산재관리번호"
+            value={formData.industrial_accident_number}
+            onChange={(e) =>
+              setFormData({ ...formData, industrial_accident_number: e.target.value })
+            }
+          />
+          <Input
+            label="대표자명"
+            value={formData.representative_name}
+            onChange={(e) =>
+              setFormData({ ...formData, representative_name: e.target.value })
+            }
+          />
+          <Select
+            label="국고지원 여부"
+            value={formData.national_support_status}
+            onChange={(e) =>
+              setFormData({ ...formData, national_support_status: e.target.value })
+            }
+            options={nationalSupportOptions}
+          />
+          <Input
+            label="주소"
+            value={formData.address}
+            onChange={(e) => handleAddressChange(e.target.value)}
+            className="md:col-span-2 lg:col-span-3"
+            placeholder={autoFilling ? "자동 입력 중..." : "주소 입력"}
+          />
+          <Input
+            label="소재지 관할청"
+            value={formData.office_jurisdiction}
+            disabled
+            className="bg-surface-50"
+            placeholder="주소 입력 시 자동 입력됩니다"
+          />
+          <Select
+            label="업종 분류"
+            value={formData.business_category}
+            onChange={(e) => setFormData({ ...formData, business_category: e.target.value })}
+            options={[
+              { value: "", label: "선택" },
+              ...businessCategories,
+            ]}
+          />
+          <div className="md:col-span-2 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              label="전화번호"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            />
+            <Input
+              label="FAX"
+              value={formData.fax}
+              onChange={(e) => setFormData({ ...formData, fax: e.target.value })}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 2. 입금 정보 (강조) */}
+      <div className="bg-teal-50 rounded-lg p-5 border-2 border-primary-600 shadow-md">
+        <h3 className="text-lg font-bold text-teal-900 mb-4 pb-2 border-b-2 border-primary-500">
+          입금 정보
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Input
+            label="입금액(합계)"
+            type="text"
+            value={formatCurrency(formData.deposit_total)}
+            onChange={(e) => {
+              const parsed = parseCurrency(e.target.value);
+              setFormData({ ...formData, deposit_total: parsed });
+            }}
+            disabled
+            className="bg-white font-bold text-primary-700"
+            placeholder="자동 계산됩니다"
+          />
+          <div>
+            <Input
+              label="입금일(사업장)"
+              type="date"
+              value={normalizeDateForInput(formData.deposit_date_business)}
+              onChange={(e) => {
+                const date = e.target.value;
+                setFormData((prev) => {
+                  const updated = { ...prev, deposit_date_business: date };
+
+                  // 입금일 입력 시, 입금액(사업장)이 비어있으면 측정비(사업장) 값으로 자동 채움
+                  if (date && !prev.deposit_amount_business && prev.measurement_fee_business) {
+                    updated.deposit_amount_business = prev.measurement_fee_business;
+                  }
+
+                  return updated;
+                });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const inputs = e.currentTarget.form?.querySelectorAll("input");
+                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
+                  if (inputs && currentIndex < inputs.length - 1) {
+                    inputs[currentIndex + 1].focus();
+                  }
+                }
+              }}
+              className="max-w-[200px]"
+            />
+            <Input
+              label="입금액(사업장)"
+              type="text"
+              value={formatCurrency(formData.deposit_amount_business)}
+              onChange={(e) => {
+                const parsed = parseCurrency(e.target.value);
+                setFormData({ ...formData, deposit_amount_business: parsed });
+              }}
+              onFocus={() => {
+                // 포커스 시 값이 비어있으면 측정비(사업장) 값으로 자동 채움
+                if (!formData.deposit_amount_business && formData.measurement_fee_business) {
+                  setFormData({ ...formData, deposit_amount_business: formData.measurement_fee_business });
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const inputs = e.currentTarget.form?.querySelectorAll("input");
+                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
+                  if (inputs && currentIndex < inputs.length - 1) {
+                    inputs[currentIndex + 1].focus();
+                  }
+                }
+              }}
+              placeholder={formData.measurement_fee_business ? `기본값: ${formatCurrency(formData.measurement_fee_business)}` : "숫자만 입력"}
+              className={`font-medium ${formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}`}
+            />
+          </div>
+          <div>
+            <Input
+              label="입금일(국고)"
+              type="date"
+              value={normalizeDateForInput(formData.deposit_date_national)}
+              onChange={(e) => {
+                const date = e.target.value;
+                setFormData((prev) => {
+                  const updated = { ...prev, deposit_date_national: date };
+
+                  // 입금일 입력 시, 입금액(국고)이 비어있으면 측정비(국고) 값으로 자동 채움
+                  if (date && !prev.deposit_amount_national && prev.measurement_fee_national) {
+                    updated.deposit_amount_national = prev.measurement_fee_national;
+                  }
+
+                  return updated;
+                });
+              }}
+              disabled={formData.national_support_status === "비대상"}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const inputs = e.currentTarget.form?.querySelectorAll("input");
+                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
+                  if (inputs && currentIndex < inputs.length - 1) {
+                    inputs[currentIndex + 1].focus();
+                  }
+                }
+              }}
+              className={`max-w-[200px] ${formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}`}
+            />
+            <Input
+              label="입금액(국고)"
+              type="text"
+              value={formatCurrency(formData.deposit_amount_national)}
+              onChange={(e) => {
+                const parsed = parseCurrency(e.target.value);
+                setFormData({ ...formData, deposit_amount_national: parsed });
+              }}
+              onFocus={() => {
+                // 포커스 시 값이 비어있으면 측정비(국고) 값으로 자동 채움
+                if (!formData.deposit_amount_national && formData.measurement_fee_national) {
+                  setFormData({ ...formData, deposit_amount_national: formData.measurement_fee_national });
+                }
+              }}
+              disabled={formData.national_support_status === "비대상"}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const inputs = e.currentTarget.form?.querySelectorAll("input");
+                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
+                  if (inputs && currentIndex < inputs.length - 1) {
+                    inputs[currentIndex + 1].focus();
+                  }
+                }
+              }}
+              placeholder={formData.measurement_fee_national ? `기본값: ${formatCurrency(formData.measurement_fee_national)}` : "숫자만 입력"}
+              className={formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 3. 측정비 정보 */}
+      <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
+        <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
+          측정비 정보
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Input
+            label="측정비(합계)"
+            type="text"
+            value={formatCurrency(formData.measurement_fee_total)}
+            onChange={(e) => {
+              const parsed = parseCurrency(e.target.value);
+              setFormData({ ...formData, measurement_fee_total: parsed });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const inputs = e.currentTarget.form?.querySelectorAll("input");
+                const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
+                if (inputs && currentIndex < inputs.length - 1) {
+                  inputs[currentIndex + 1].focus();
+                }
+              }
+            }}
+            disabled
+            className="bg-surface-50"
+            placeholder="자동 계산됩니다"
+          />
+          <div>
+            <Input
+              label="측정비(사업장)"
+              type="text"
+              value={formatCurrency(formData.measurement_fee_business)}
+              onChange={(e) => {
+                const parsed = parseCurrency(e.target.value);
+                setFormData({ ...formData, measurement_fee_business: parsed });
+              }}
+              list="business-fee-options"
+              placeholder={previousMeasurementFee.business ? `전회: ${formatCurrency(String(previousMeasurementFee.business))}원` : "숫자 입력 또는 선택"}
+            />
+            <datalist id="business-fee-options">
+              <option value="200000">200,000원</option>
+              {previousMeasurementFee.business && (() => {
+                const previousValue = String(previousMeasurementFee.business);
+                if (previousValue !== "200000") {
+                  return <option key={previousValue} value={previousValue}>{formatCurrency(previousValue)}원 (전회치)</option>;
+                }
+                return null;
+              })()}
+            </datalist>
+            {previousMeasurementFee.business && (
+              <p className="mt-1 text-sm text-text-600 font-medium">
+                전회: {formatCurrency(String(previousMeasurementFee.business))}원 (참고용)
+              </p>
+            )}
+          </div>
+          <div>
+            <Input
+              label="측정비(국고)"
+              type="text"
+              value={formatCurrency(formData.measurement_fee_national)}
+              onChange={(e) => {
+                const parsed = parseCurrency(e.target.value);
+                setFormData({ ...formData, measurement_fee_national: parsed });
+              }}
+              disabled={formData.national_support_status === "비대상"}
+              list="national-fee-options"
+              placeholder={previousMeasurementFee.national ? `전회: ${formatCurrency(String(previousMeasurementFee.national))}원` : "숫자 입력 또는 선택"}
+              className={formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}
+            />
+            <datalist id="national-fee-options">
+              <option value="400000">400,000원</option>
+              <option value="1000000">1,000,000원</option>
+            </datalist>
+            {previousMeasurementFee.national && (
+              <p className="mt-1 text-sm text-text-600 font-medium">
+                전회: {formatCurrency(String(previousMeasurementFee.national))}원 (참고용)
+              </p>
+            )}
+          </div>
+          <Input
+            label="계산서 메일"
+            type="email"
+            value={formData.invoice_email}
+            onChange={(e) =>
+              setFormData({ ...formData, invoice_email: e.target.value })
+            }
+          />
+          <Input
+            label="전자계산서 발행일"
+            type="date"
+            value={normalizeDateForInput(formData.electronic_invoice_date)}
+            onChange={(e) =>
+              setFormData({ ...formData, electronic_invoice_date: e.target.value })
+            }
+            className="max-w-[200px]"
+          />
+        </div>
+      </div>
+
+      {/* 4. K2B 정보 */}
+      <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
+        <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
+          K2B 정보
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Input
+            label="K2B 전송일"
+            type="date"
+            value={normalizeDateForInput(formData.k2b_send_date)}
+            onChange={(e) =>
+              setFormData({ ...formData, k2b_send_date: e.target.value })
+            }
+            className="max-w-[200px]"
+          />
+          <Input
+            label="K2B 전송자"
+            value={formData.k2b_sender}
+            onChange={(e) =>
+              setFormData({ ...formData, k2b_sender: e.target.value })
+            }
+          />
+        </div>
+      </div>
+
+      {/* 5. 기본 정보 */}
       <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
         <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
           기본 정보
@@ -1088,39 +1499,45 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               <Input
                 label="공문연번"
                 value={formData.document_number}
-                disabled={!isAdmin || isCompleted}
+                disabled={!isAdmin && !!entry.document_number} // 기존 값이 있으면 관리자만 수정 가능
                 onChange={(e) => isAdmin && setFormData({ ...formData, document_number: e.target.value })}
-                className={isAdmin && !isCompleted ? "" : "bg-surface-50 font-mono"}
-                placeholder="자동 부여됩니다"
+                className={isAdmin || !entry.document_number ? "" : "bg-surface-50 font-mono"}
+                placeholder={!isAdmin && !!entry.document_number ? "변경 불가" : "자동 부여됩니다"}
               />
               {!isAdmin && (
-                <p className="text-xs text-text-500 mt-1">관리자 승인 필요</p>
+                <p className="text-xs text-text-500 mt-1">
+                  {entry.document_number ? "관리자만 수정 가능" : "관리자 승인 필요"}
+                </p>
               )}
             </div>
             <div>
               <Input
                 label="연번"
                 value={formData.sequence_number}
-                disabled={!isAdmin || isCompleted}
+                disabled={!isAdmin && !!entry.sequence_number} // 기존 값이 있으면 관리자만 수정 가능
                 onChange={(e) => isAdmin && setFormData({ ...formData, sequence_number: e.target.value })}
-                className={isAdmin && !isCompleted ? "" : "bg-surface-50 font-mono"}
-                placeholder="자동 부여됩니다"
+                className={isAdmin || !entry.sequence_number ? "" : "bg-surface-50 font-mono"}
+                placeholder={!isAdmin && !!entry.sequence_number ? "변경 불가" : "자동 부여됩니다"}
               />
               {!isAdmin && (
-                <p className="text-xs text-text-500 mt-1">관리자 승인 필요</p>
+                <p className="text-xs text-text-500 mt-1">
+                  {entry.sequence_number ? "관리자만 수정 가능" : "관리자 승인 필요"}
+                </p>
               )}
             </div>
             <div>
               <Input
                 label="5인 이상 연번"
                 value={formData.five_plus_sequence}
-                disabled={!isAdmin || isCompleted}
+                disabled={!isAdmin && !!entry.five_plus_sequence} // 기존 값이 있으면 관리자만 수정 가능
                 onChange={(e) => isAdmin && setFormData({ ...formData, five_plus_sequence: e.target.value })}
-                className={isAdmin && !isCompleted ? "" : "bg-surface-50 font-mono"}
-                placeholder="자동 부여됩니다"
+                className={isAdmin || !entry.five_plus_sequence ? "" : "bg-surface-50 font-mono"}
+                placeholder={!isAdmin && !!entry.five_plus_sequence ? "변경 불가" : "자동 부여됩니다"}
               />
               {!isAdmin && (
-                <p className="text-xs text-text-500 mt-1">관리자 승인 필요</p>
+                <p className="text-xs text-text-500 mt-1">
+                  {entry.five_plus_sequence ? "관리자만 수정 가능" : "관리자 승인 필요"}
+                </p>
               )}
             </div>
           </div>
@@ -1203,7 +1620,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         </div>
       </div>
 
-      {/* 측정 정보 */}
+      {/* 6. 측정 정보 */}
       <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
         <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
           측정 정보
@@ -1244,100 +1661,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         </div>
       </div>
 
-      {/* 사업장 정보 */}
-      <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
-        <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
-          사업장 정보
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <Input
-            label="사업장명 *"
-            value={formData.business_name}
-            onChange={(e) =>
-              setFormData({ ...formData, business_name: e.target.value })
-            }
-            required
-          />
-          <Input
-            label="총인원"
-            type="number"
-            value={formData.total_employees}
-            onChange={(e) =>
-              setFormData({ ...formData, total_employees: e.target.value })
-            }
-          />
-          <Input
-            label="사업자번호"
-            value={formatBusinessNumber(formData.business_number)}
-            onChange={(e) => {
-              // 숫자만 추출하여 저장 (하이픈 제거)
-              const numbers = parseBusinessNumber(e.target.value);
-              setFormData({ ...formData, business_number: numbers });
-            }}
-            placeholder="305-86-41481"
-            maxLength={12}
-          />
-          <Input
-            label="산재관리번호"
-            value={formData.industrial_accident_number}
-            onChange={(e) =>
-              setFormData({ ...formData, industrial_accident_number: e.target.value })
-            }
-          />
-          <Input
-            label="대표자명"
-            value={formData.representative_name}
-            onChange={(e) =>
-              setFormData({ ...formData, representative_name: e.target.value })
-            }
-          />
-          <Select
-            label="국고지원 여부"
-            value={formData.national_support_status}
-            onChange={(e) =>
-              setFormData({ ...formData, national_support_status: e.target.value })
-            }
-            options={nationalSupportOptions}
-          />
-          <Input
-            label="주소"
-            value={formData.address}
-            onChange={(e) => handleAddressChange(e.target.value)}
-            className="md:col-span-2 lg:col-span-3"
-            placeholder={autoFilling ? "자동 입력 중..." : "주소 입력"}
-          />
-          <Input
-            label="소재지 관할청"
-            value={formData.office_jurisdiction}
-            disabled
-            className="bg-surface-50"
-            placeholder="주소 입력 시 자동 입력됩니다"
-          />
-          <Select
-            label="업종 분류"
-            value={formData.business_category}
-            onChange={(e) => setFormData({ ...formData, business_category: e.target.value })}
-            options={[
-              { value: "", label: "선택" },
-              ...businessCategories,
-            ]}
-          />
-          <div className="md:col-span-2 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              label="전화번호"
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-            />
-            <Input
-              label="FAX"
-              value={formData.fax}
-              onChange={(e) => setFormData({ ...formData, fax: e.target.value })}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 담당자 정보 */}
+      {/* 7. 담당자 정보 */}
       <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
         <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
           담당자 정보
@@ -1375,248 +1699,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         </div>
       </div>
 
-      {/* K2B 정보 */}
-      <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
-        <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
-          K2B 정보
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input
-            label="K2B 전송일"
-            type="date"
-            value={normalizeDateForInput(formData.k2b_send_date)}
-            onChange={(e) =>
-              setFormData({ ...formData, k2b_send_date: e.target.value })
-            }
-            className="max-w-[200px]"
-          />
-          <Input
-            label="K2B 전송자"
-            value={formData.k2b_sender}
-            onChange={(e) =>
-              setFormData({ ...formData, k2b_sender: e.target.value })
-            }
-          />
-        </div>
-      </div>
-
-      {/* 측정비 정보 */}
-      <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
-        <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
-          측정비 정보
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <Input
-            label="측정비(합계)"
-            type="text"
-            value={formatCurrency(formData.measurement_fee_total)}
-            onChange={(e) => {
-              const parsed = parseCurrency(e.target.value);
-              setFormData({ ...formData, measurement_fee_total: parsed });
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                const inputs = e.currentTarget.form?.querySelectorAll("input");
-                const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                if (inputs && currentIndex < inputs.length - 1) {
-                  inputs[currentIndex + 1].focus();
-                }
-              }
-            }}
-            disabled
-            className="bg-surface-50"
-            placeholder="자동 계산됩니다"
-          />
-          <div>
-            <Input
-              label="측정비(사업장)"
-              type="text"
-              value={formatCurrency(formData.measurement_fee_business)}
-              onChange={(e) => {
-                const parsed = parseCurrency(e.target.value);
-                setFormData({ ...formData, measurement_fee_business: parsed });
-              }}
-              list="business-fee-options"
-              placeholder={previousMeasurementFee.business ? `전회: ${formatCurrency(String(previousMeasurementFee.business))}원` : "숫자 입력 또는 선택"}
-            />
-            <datalist id="business-fee-options">
-              <option value="200000">200,000원</option>
-              {previousMeasurementFee.business && (() => {
-                const previousValue = String(previousMeasurementFee.business);
-                if (previousValue !== "200000") {
-                  return <option key={previousValue} value={previousValue}>{formatCurrency(previousValue)}원 (전회치)</option>;
-                }
-                return null;
-              })()}
-            </datalist>
-            {previousMeasurementFee.business && (
-              <p className="mt-1 text-sm text-text-600 font-medium">
-                전회: {formatCurrency(String(previousMeasurementFee.business))}원 (참고용)
-              </p>
-            )}
-          </div>
-          <div>
-            <Input
-              label="측정비(국고)"
-              type="text"
-              value={formatCurrency(formData.measurement_fee_national)}
-              onChange={(e) => {
-                const parsed = parseCurrency(e.target.value);
-                setFormData({ ...formData, measurement_fee_national: parsed });
-              }}
-              disabled={formData.national_support_status === "비대상"}
-              list="national-fee-options"
-              placeholder={previousMeasurementFee.national ? `전회: ${formatCurrency(String(previousMeasurementFee.national))}원` : "숫자 입력 또는 선택"}
-              className={formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}
-            />
-            <datalist id="national-fee-options">
-              <option value="400000">400,000원</option>
-              <option value="1000000">1,000,000원</option>
-            </datalist>
-            {previousMeasurementFee.national && (
-              <p className="mt-1 text-sm text-text-600 font-medium">
-                전회: {formatCurrency(String(previousMeasurementFee.national))}원 (참고용)
-              </p>
-            )}
-          </div>
-          <Input
-            label="계산서 메일"
-            type="email"
-            value={formData.invoice_email}
-            onChange={(e) =>
-              setFormData({ ...formData, invoice_email: e.target.value })
-            }
-          />
-          <Input
-            label="전자계산서 발행일"
-            type="date"
-            value={normalizeDateForInput(formData.electronic_invoice_date)}
-            onChange={(e) =>
-              setFormData({ ...formData, electronic_invoice_date: e.target.value })
-            }
-            className="max-w-[200px]"
-          />
-        </div>
-      </div>
-
-      {/* 입금 정보 */}
-      <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
-        <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
-          입금 정보
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <Input
-            label="입금액(합계)"
-            type="text"
-            value={formatCurrency(formData.deposit_total)}
-            onChange={(e) => {
-              const parsed = parseCurrency(e.target.value);
-              setFormData({ ...formData, deposit_total: parsed });
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                const inputs = e.currentTarget.form?.querySelectorAll("input");
-                const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                if (inputs && currentIndex < inputs.length - 1) {
-                  inputs[currentIndex + 1].focus();
-                }
-              }
-            }}
-            disabled
-            className="bg-surface-50"
-            placeholder="자동 계산됩니다"
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              label="입금일자(사업장)"
-              type="date"
-              value={normalizeDateForInput(formData.deposit_date_business)}
-              onChange={(e) =>
-                setFormData({ ...formData, deposit_date_business: e.target.value })
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const inputs = e.currentTarget.form?.querySelectorAll("input");
-                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                  if (inputs && currentIndex < inputs.length - 1) {
-                    inputs[currentIndex + 1].focus();
-                  }
-                }
-              }}
-              className="max-w-[200px]"
-            />
-            <Input
-              label="입금액(사업장)"
-              type="text"
-              value={formatCurrency(formData.deposit_amount_business)}
-              onChange={(e) => {
-                const parsed = parseCurrency(e.target.value);
-                setFormData({ ...formData, deposit_amount_business: parsed });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const inputs = e.currentTarget.form?.querySelectorAll("input");
-                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                  if (inputs && currentIndex < inputs.length - 1) {
-                    inputs[currentIndex + 1].focus();
-                  }
-                }
-              }}
-              placeholder="숫자만 입력"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              label="입금일자(국고)"
-              type="date"
-              value={normalizeDateForInput(formData.deposit_date_national)}
-              onChange={(e) =>
-                setFormData({ ...formData, deposit_date_national: e.target.value })
-              }
-              disabled={formData.national_support_status === "비대상"}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const inputs = e.currentTarget.form?.querySelectorAll("input");
-                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                  if (inputs && currentIndex < inputs.length - 1) {
-                    inputs[currentIndex + 1].focus();
-                  }
-                }
-              }}
-              className={`max-w-[200px] ${formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}`}
-            />
-            <Input
-              label="입금액(국고)"
-              type="text"
-              value={formatCurrency(formData.deposit_amount_national)}
-              onChange={(e) => {
-                const parsed = parseCurrency(e.target.value);
-                setFormData({ ...formData, deposit_amount_national: parsed });
-              }}
-              disabled={formData.national_support_status === "비대상"}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const inputs = e.currentTarget.form?.querySelectorAll("input");
-                  const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-                  if (inputs && currentIndex < inputs.length - 1) {
-                    inputs[currentIndex + 1].focus();
-                  }
-                }
-              }}
-              placeholder="숫자만 입력"
-              className={formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 특이사항 */}
+      {/* 8. 특이사항 */}
       <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
         <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
           특이사항
@@ -1629,16 +1712,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           }
           rows={4}
         />
-      </div>
-
-      {/* 버튼 */}
-      <div className="flex gap-2 justify-end pt-4 border-t">
-        <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
-          취소
-        </Button>
-        <Button type="submit" disabled={loading || isCompleted}>
-          {loading ? <LoadingSpinner /> : entry.id ? "수정" : "등록"}
-        </Button>
       </div>
     </form>
   );

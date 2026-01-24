@@ -46,7 +46,8 @@ export async function PATCH(
     // 신청결과에 따라 국고지원 상태 자동 계산
     let calculatedStatus: "지원" | "비대상" | null = national_support_status;
     if (!calculatedStatus) {
-      if (result && (result === "대상" || result.includes("대상"))) {
+      // '비대상'이 아니면서 '대상'을 포함하는 경우에만 지원으로 설정
+      if (result && (result === "대상" || (result.includes("대상") && !result.includes("비대상")))) {
         calculatedStatus = "지원";
       } else if (result || application_status) {
         calculatedStatus = "비대상";

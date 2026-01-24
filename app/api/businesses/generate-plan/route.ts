@@ -57,15 +57,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. measurement_business에서 향후측정주기 정보 확인 (2025년 측정일지 데이터 기준)
+    // 2. measurement_business에서 향후측정주기 및 담당자(Plan Manager) 정보 확인
     const codesFromPrevYear = new Set<string>();
     prevYearJournals.forEach((item: any) => codesFromPrevYear.add(item.code));
 
-    // measurement_business 테이블에서 향후측정주기 조회
+    // measurement_business 테이블에서 향후측정주기 및 담당자 조회
     // 2025년 측정일지와 연결된 measurement_business 레코드에서 가져옴
     const { data: measurementBusinessData, error: mbError } = await supabase
       .from("measurement_business")
-      .select("code, year, period, future_measurement_period")
+      .select("code, year, period, future_measurement_period, measurer")
       .in("code", Array.from(codesFromPrevYear))
       .eq("year", prevYear);
 
@@ -74,18 +74,25 @@ export async function POST(request: NextRequest) {
     }
 
     // code + year + period 조합으로 맵 생성 (같은 code에 여러 period가 있을 수 있음)
-    const measurementBusinessMap = new Map<string, number | null>();
+    // 값: { futurePeriod: number | null, measurer: string | null }
+    const measurementBusinessMap = new Map<string, { futurePeriod: number | null, measurer: string | null }>();
     if (measurementBusinessData) {
       measurementBusinessData.forEach((mb: any) => {
         // 같은 code의 여러 period 중 가장 최근 것을 사용 (상반기 < 하반기)
         const key = mb.code;
         const existing = measurementBusinessMap.get(key);
-        if (!existing && mb.future_measurement_period) {
-          measurementBusinessMap.set(key, mb.future_measurement_period);
-        } else if (mb.future_measurement_period) {
-          // 기존 값이 없거나, 하반기인 경우 업데이트
+
+        const newValue = {
+          futurePeriod: mb.future_measurement_period || null,
+          measurer: mb.measurer || null
+        };
+
+        if (!existing && (mb.future_measurement_period || mb.measurer)) {
+          measurementBusinessMap.set(key, newValue);
+        } else if (mb.future_measurement_period || mb.measurer) {
+          // 기존 값이 없거나, 하반기인 경우 업데이트 (더 최신 정보 우선)
           if (mb.period === "하반기" || !existing) {
-            measurementBusinessMap.set(key, mb.future_measurement_period);
+            measurementBusinessMap.set(key, newValue);
           }
         }
       });
@@ -93,22 +100,22 @@ export async function POST(request: NextRequest) {
 
     // 3. 각 코드별로 가장 최근 측정일지만 사용하기 위해 그룹화
     const journalMapByCode = new Map<string, any>();
-    
+
     prevYearJournals.forEach((journal: any) => {
       const code = journal.code;
       const existing = journalMapByCode.get(code);
-      
+
       if (!existing) {
         journalMapByCode.set(code, journal);
       } else {
         const existingEndDate = existing.measurement_end_date ? new Date(existing.measurement_end_date).getTime() : 0;
         const existingStartDate = existing.measurement_start_date ? new Date(existing.measurement_start_date).getTime() : 0;
         const existingLatestDate = existingEndDate > existingStartDate ? existingEndDate : existingStartDate;
-        
+
         const currentEndDate = journal.measurement_end_date ? new Date(journal.measurement_end_date).getTime() : 0;
         const currentStartDate = journal.measurement_start_date ? new Date(journal.measurement_start_date).getTime() : 0;
         const currentLatestDate = currentEndDate > currentStartDate ? currentEndDate : currentStartDate;
-        
+
         if (currentLatestDate > existingLatestDate) {
           journalMapByCode.set(code, journal);
         }
@@ -121,14 +128,18 @@ export async function POST(request: NextRequest) {
 
     journalMapByCode.forEach((prevYearJournal: any) => {
       const code = prevYearJournal.code;
-      const futurePeriod = measurementBusinessMap.get(code) || null;
+      const businessInfo = measurementBusinessMap.get(code);
+      const futurePeriod = businessInfo?.futurePeriod || null;
+      // Plan Manager는 Source (measurement_business)에서 가져옴. 없으면 null.
+      // 절대 Journal(Actual Measurer)에서 가져오지 않음.
+      const planManager = businessInfo?.measurer || null;
 
       // 전회 측정일 결정
       let lastMeasurementDate: Date | null = null;
       const endDate = prevYearJournal.measurement_end_date ? new Date(prevYearJournal.measurement_end_date).getTime() : 0;
       const startDate = prevYearJournal.measurement_start_date ? new Date(prevYearJournal.measurement_start_date).getTime() : 0;
       const latestDateStr = endDate > startDate ? prevYearJournal.measurement_end_date : prevYearJournal.measurement_start_date;
-      
+
       if (latestDateStr) {
         lastMeasurementDate = new Date(latestDateStr);
       }
@@ -137,18 +148,18 @@ export async function POST(request: NextRequest) {
       if (futurePeriod && lastMeasurementDate) {
         const nextMeasurementDate = new Date(lastMeasurementDate);
         nextMeasurementDate.setMonth(nextMeasurementDate.getMonth() + futurePeriod);
-        
+
         const nextYear = nextMeasurementDate.getFullYear();
         const nextMonth = nextMeasurementDate.getMonth() + 1;
         const nextPeriod = nextMonth <= 6 ? "상반기" : "하반기";
-        
+
         // 목표 년도/반기와 정확히 일치하는지 확인
         if (nextYear === targetYear && nextPeriod === period) {
           // 지정지청 계산
           const address = normalizeAddress(prevYearJournal.address);
           const officeJurisdiction = normalizeString(prevYearJournal.office_jurisdiction);
           let designatedOffice = "천안";
-          
+
           if (address) {
             try {
               const addressBased = getDesignatedOfficeByAddress(address);
@@ -157,7 +168,7 @@ export async function POST(request: NextRequest) {
               console.error(`[지정지청] 코드 ${code}: 주소 기반 계산 오류:`, error);
             }
           }
-          
+
           if (designatedOffice === "천안" && officeJurisdiction) {
             try {
               const officeFullName = shortNameToFullName(officeJurisdiction) || officeJurisdiction;
@@ -178,7 +189,7 @@ export async function POST(request: NextRequest) {
             address: address,
             office_jurisdiction: officeJurisdiction,
             designated_office: designatedOffice,
-            measurer: prevYearJournal.measurer || null,
+            plan_manager: planManager, // Renamed from measurer and using new source
             measurement_start_date: null,
             measurement_end_date: null,
             completion_status: "미완료",
@@ -250,7 +261,7 @@ export async function POST(request: NextRequest) {
     plans.forEach((plan) => {
       const journal = registeredJournalMap.get(plan.code);
       const existing = existingPlanMap.get(plan.code);
-      
+
       if (journal) {
         plan.journal_id = journal.id;
         plan.is_registered = true;
@@ -258,7 +269,7 @@ export async function POST(request: NextRequest) {
         plan.measurement_start_date = journal.measurement_start_date;
         plan.measurement_end_date = journal.measurement_end_date;
         plan.completion_status = journal.completion_status || plan.completion_status;
-        plan.measurer = journal.measurer || plan.measurer;
+        // plan.measurer = journal.measurer || plan.measurer; // 원본 계획의 담당자 유지 (측정자 덮어쓰기 방지)
         plan.national_support_status = journal.national_support_status || plan.national_support_status;
         plan.manager_name = journal.manager_name || plan.manager_name;
         plan.manager_mobile = journal.manager_mobile || plan.manager_mobile;

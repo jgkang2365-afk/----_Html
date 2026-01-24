@@ -35,7 +35,8 @@ export async function POST(request: NextRequest) {
     // 신청결과에 따라 국고지원 상태 자동 계산
     let calculatedStatus: "지원" | "비대상" | null = national_support_status;
     if (!calculatedStatus) {
-      if (result && (result === "대상" || result.includes("대상"))) {
+      // '비대상'이 아니면서 '대상'을 포함하는 경우에만 지원으로 설정
+      if (result && (result === "대상" || (result.includes("대상") && !result.includes("비대상")))) {
         calculatedStatus = "지원";
       } else if (result || application_status) {
         calculatedStatus = "비대상";
@@ -111,7 +112,7 @@ export async function GET(request: NextRequest) {
   } catch (permissionError: any) {
     console.error("권한 체크 오류:", permissionError);
     return NextResponse.json(
-      { 
+      {
         error: permissionError.message || "권한이 없습니다.",
         details: permissionError?.message
       },
@@ -124,6 +125,7 @@ export async function GET(request: NextRequest) {
     const year = searchParams.get("year");
     const period = searchParams.get("period");
     const code = searchParams.get("code");
+    const resultParam = searchParams.get("result");
 
     const supabase = await createClient();
 
@@ -142,11 +144,15 @@ export async function GET(request: NextRequest) {
     }
 
     if (period) {
-      query = query.eq("period", period);
+      query = query.ilike("period", `${period}%`);
     }
 
     if (code) {
       query = query.ilike("code", `%${code}%`);
+    }
+
+    if (resultParam) {
+      query = query.ilike("result", `%${resultParam}%`);
     }
 
     const { data: entries, error } = await query;
@@ -162,36 +168,71 @@ export async function GET(request: NextRequest) {
     // code 목록 추출
     const codes = (entries || []).map((entry: any) => entry.code).filter(Boolean);
 
-    // measurement_business에서 사업장명 조회
-    let businessMap = new Map<string, string>();
+    // 사업장 정보 조회 (우선순위: 1. business_info, 2. measurement_business)
+    let businessMap = new Map<string, { name: string; address: string }>();
     if (codes.length > 0) {
       try {
-        const { data: businesses, error: businessError } = await supabase
-          .from("measurement_business")
-          .select("code, business_name")
+        // 1차: business_info에서 조회
+        const { data: infoBusinesses, error: infoError } = await supabase
+          .from("business_info")
+          .select("code, business_name, address1, address2")
           .in("code", codes);
 
-        if (businessError) {
-          console.error("사업장명 조회 오류:", businessError);
-          // 사업장명 조회 실패해도 계속 진행 (사업장명만 null로 표시)
-        } else if (businesses) {
-          businesses.forEach((business: any) => {
-            if (business.code && business.business_name) {
-              businessMap.set(business.code, business.business_name);
+        if (infoError) {
+          console.error("사업장정보 조회 오류:", infoError);
+        } else if (infoBusinesses) {
+          infoBusinesses.forEach((info: any) => {
+            if (info.code) {
+              const fullAddress = [info.address1, info.address2].filter(Boolean).join(" ");
+              businessMap.set(info.code, {
+                name: info.business_name,
+                address: fullAddress
+              });
             }
           });
         }
+
+        // 2차: business_info에 없는 사업장 measurement_business에서 조회
+        const missingCodes = codes.filter((code: string) => !businessMap.has(code));
+
+        if (missingCodes.length > 0) {
+          try {
+            const { data: businesses, error: businessError } = await supabase
+              .from("measurement_business")
+              .select("code, business_name, address")
+              .in("code", missingCodes);
+
+            if (businessError) {
+              console.error("측정사업장 추가 조회 오류:", businessError);
+            } else if (businesses) {
+              businesses.forEach((business: any) => {
+                if (business.code) {
+                  businessMap.set(business.code, {
+                    name: business.business_name,
+                    address: business.address
+                  });
+                }
+              });
+            }
+          } catch (mbErr) {
+            console.error("측정사업장 추가 조회 중 예외:", mbErr);
+          }
+        }
+
       } catch (err) {
         console.error("사업장명 조회 중 예외 발생:", err);
-        // 예외 발생해도 계속 진행
       }
     }
 
-    // 사업장명 포함하여 반환
-    const formattedEntries = (entries || []).map((entry: any) => ({
-      ...entry,
-      business_name: businessMap.get(entry.code) || null,
-    }));
+    // 사업장명, 주소 포함하여 반환
+    const formattedEntries = (entries || []).map((entry: any) => {
+      const businessInfo = businessMap.get(entry.code) || { name: null, address: null };
+      return {
+        ...entry,
+        business_name: businessInfo.name,
+        address: businessInfo.address,
+      };
+    });
 
     return NextResponse.json({
       entries: formattedEntries,

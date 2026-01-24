@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       console.error("[API /api/journal/search] Supabase 환경 변수가 설정되지 않았습니다.");
       return NextResponse.json(
-        { 
+        {
           error: "서버 설정 오류",
           details: "Supabase 환경 변수가 설정되지 않았습니다. .env.local 파일을 확인하세요."
         },
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       console.error("[API /api/journal/search] 권한 체크 오류:", permissionError);
       console.error("[API /api/journal/search] 권한 체크 오류 스택:", permissionError?.stack);
       console.error("[API /api/journal/search] 권한 체크 오류 메시지:", permissionError?.message);
-      
+
       if (permissionError?.message === "Unauthorized") {
         return NextResponse.json(
           { error: "로그인이 필요합니다." },
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       }
       // 기타 오류는 500으로 반환
       return NextResponse.json(
-        { 
+        {
           error: "권한 확인 중 오류가 발생했습니다.",
           details: permissionError?.message || String(permissionError)
         },
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
     } catch (supabaseError: any) {
       console.error("[API /api/journal/search] Supabase 클라이언트 생성 오류:", supabaseError);
       return NextResponse.json(
-        { 
+        {
           error: "데이터베이스 연결 오류",
           details: supabaseError?.message || "Supabase 클라이언트를 생성할 수 없습니다."
         },
@@ -95,7 +95,8 @@ export async function GET(request: NextRequest) {
     }
 
     if (measurementPeriod) {
-      businessQuery = businessQuery.eq("period", measurementPeriod);
+      // 상반기/하반기 검색 시 (수시) 포함 등 포괄적 검색을 위해 앞뒤 와일드카드 적용
+      businessQuery = businessQuery.ilike("period", `%${measurementPeriod}%`);
     }
 
     if (businessName) {
@@ -158,7 +159,8 @@ export async function GET(request: NextRequest) {
     }
 
     if (measurementPeriod) {
-      journalQuery = journalQuery.eq("measurement_period", measurementPeriod);
+      // 상반기/하반기 검색 시 (수시) 포함 등 포괄적 검색을 위해 앞뒤 와일드카드 적용
+      journalQuery = journalQuery.ilike("measurement_period", `%${measurementPeriod}%`);
     }
 
     if (businessName) {
@@ -263,28 +265,32 @@ export async function GET(request: NextRequest) {
         // designated_office 재검증 (주소 기반으로 다시 계산)
         // measurement_journal에 저장된 designated_office가 잘못되었을 수 있으므로
         // 주소 기반으로 다시 계산하여 검증
+        // designated_office 결정: DB 값 우선, 없으면 주소/관할청 기반 계산
         let finalDesignatedOffice = journal.designated_office ? toShortName(journal.designated_office) : null;
-        
-        // 1순위: 주소가 있으면 주소 기반으로 designated_office 재계산
-        if (journal.address) {
-          const addressBasedOffice = getDesignatedOfficeByAddress(journal.address);
-          if (addressBasedOffice) {
-            finalDesignatedOffice = addressBasedOffice;
+
+        // DB에 값이 없는 경우에만 자동 계산 시도
+        if (!finalDesignatedOffice) {
+          // 1순위: 주소 기반
+          if (journal.address) {
+            const addressBasedOffice = getDesignatedOfficeByAddress(journal.address);
+            if (addressBasedOffice) {
+              finalDesignatedOffice = addressBasedOffice;
+            }
+          }
+
+          // 2순위: 관할청 기반
+          if (!finalDesignatedOffice && journal.office_jurisdiction) {
+            const officeJurisdictionFullName = shortNameToFullName(journal.office_jurisdiction) || journal.office_jurisdiction || "";
+            const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
+            if (officeBasedDesignatedOffice) {
+              finalDesignatedOffice = officeBasedDesignatedOffice;
+            }
           }
         }
-        
-        // 2순위: office_jurisdiction이 있으면 그것도 검증
-        if ((!finalDesignatedOffice || finalDesignatedOffice === "천안") && journal.office_jurisdiction) {
-          const officeJurisdictionFullName = shortNameToFullName(journal.office_jurisdiction) || journal.office_jurisdiction || "";
-          const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
-          if (officeBasedDesignatedOffice) {
-            finalDesignatedOffice = officeBasedDesignatedOffice;
-          }
-        }
-        
-        // 최종적으로 결정된 designated_office 설정
-        journal.designated_office = finalDesignatedOffice || "천안"; // 기본값
-        
+
+        // 최종 설정 (없으면 기본값 '천안')
+        journal.designated_office = finalDesignatedOffice || "천안";
+
         results.push(journal);
         processedKeys.add(key);
       }
@@ -298,14 +304,14 @@ export async function GET(request: NextRequest) {
         const businessInfo = businessInfoMap.get(business.code);
 
         // 주소 가져오기 (measurement_business -> business_info 순서)
-        const address = business.address || (businessInfo 
-          ? [businessInfo.address1, businessInfo.address2].filter(Boolean).join(" ").trim() 
+        const address = business.address || (businessInfo
+          ? [businessInfo.address1, businessInfo.address2].filter(Boolean).join(" ").trim()
           : "");
 
         // designated_office 계산: 주소 기반 우선, 그 다음 office_jurisdiction 기반
         let autoDesignatedOffice = "천안"; // 기본값
         let officeJurisdictionFullName = business.office_jurisdiction || null;
-        
+
         // 1순위: 주소 기반으로 designated_office 계산
         if (address) {
           const addressBasedOffice = getDesignatedOfficeByAddress(address);
@@ -313,7 +319,7 @@ export async function GET(request: NextRequest) {
             autoDesignatedOffice = addressBasedOffice;
           }
         }
-        
+
         // 2순위: office_jurisdiction 기반으로 designated_office 계산
         if (autoDesignatedOffice === "천안" && business.office_jurisdiction) {
           const officeJurisdictionRaw = business.office_jurisdiction || "";
@@ -483,7 +489,7 @@ export async function GET(request: NextRequest) {
     console.log(`[검색 API] 최종 반환 결과 수: ${finalResults.length}건 (중복 제거 전: ${filteredResults.length}건)`);
     const finalH0432 = finalResults.filter((r: any) => r.code && r.code.includes("H0432"));
     console.log(`[검색 API] 최종 H0432 데이터: ${finalH0432.length}건`);
-    
+
     // 중복이 있는지 확인
     const duplicateCheck = new Map<string, number>();
     finalResults.forEach((entry: any) => {
@@ -514,17 +520,17 @@ export async function GET(request: NextRequest) {
       h0432_in_results: finalH0432.length,
     };
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       results: finalResults,
       debug: debugInfo, // 프로덕션에서도 디버깅 정보 포함
     });
   } catch (error) {
     console.error("[API /api/journal/search] 측정일지 검색 API 오류:", error);
-    
+
     if (error instanceof Error) {
       console.error("[API /api/journal/search] 에러 메시지:", error.message);
       console.error("[API /api/journal/search] 에러 스택:", error.stack);
-      
+
       if (error.message.includes("Unauthorized")) {
         return NextResponse.json(
           { error: "로그인이 필요합니다." },

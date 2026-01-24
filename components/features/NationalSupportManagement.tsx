@@ -26,6 +26,7 @@ interface NationalSupportEntry {
   result: string | null;
   national_support_status: string | null;
   business_name: string | null;
+  address?: string | null; // Added
   created_at: string;
   updated_at: string;
 }
@@ -41,6 +42,7 @@ export const NationalSupportManagement: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState<string>(currentYear.toString());
   const [selectedPeriod, setSelectedPeriod] = useState<string>("상반기");
   const [searchCode, setSearchCode] = useState("");
+  const [searchResult, setSearchResult] = useState("");
 
   // 모달 상태
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -63,7 +65,9 @@ export const NationalSupportManagement: React.FC = () => {
 
   const periodOptions = [
     { value: "상반기", label: "상반기" },
+    { value: "상반기(수시)", label: "상반기(수시)" },
     { value: "하반기", label: "하반기" },
+    { value: "하반기(수시)", label: "하반기(수시)" },
   ];
 
   // 건강디딤돌 신청결과 목록 로드
@@ -76,9 +80,10 @@ export const NationalSupportManagement: React.FC = () => {
       if (selectedYear) params.append("year", selectedYear);
       if (selectedPeriod) params.append("period", selectedPeriod);
       if (searchCode) params.append("code", searchCode);
+      if (searchResult) params.append("result", searchResult);
 
       const response = await fetch(`/api/businesses/national-support?${params.toString()}`);
-      
+
       if (!response.ok) {
         let errorMessage = "건강디딤돌 신청결과 목록을 불러오는 중 오류가 발생했습니다.";
         try {
@@ -112,20 +117,31 @@ export const NationalSupportManagement: React.FC = () => {
     loadEntries();
   }, [selectedYear, selectedPeriod]);
 
-  // 검색 코드 변경 시 필터링
+  // 검색어 변경 시 필터링 (클라이언트 사이드 보조)
   useEffect(() => {
-    if (!searchCode.trim()) {
-      setFilteredEntries(entries);
-    } else {
+    let filtered = entries;
+
+    if (searchCode.trim()) {
       const searchLower = searchCode.toLowerCase();
-      setFilteredEntries(
-        entries.filter((entry) =>
-          entry.code.toLowerCase().includes(searchLower) ||
-          (entry.business_name && entry.business_name.toLowerCase().includes(searchLower))
-        )
+      filtered = filtered.filter((entry) =>
+        entry.code.toLowerCase().includes(searchLower) ||
+        (entry.business_name && entry.business_name.toLowerCase().includes(searchLower))
       );
     }
-  }, [searchCode, entries]);
+
+    if (searchResult.trim()) {
+      const resultLower = searchResult.toLowerCase();
+      filtered = filtered.filter((entry) =>
+        entry.result && entry.result.toLowerCase().includes(resultLower)
+      );
+    }
+
+    setFilteredEntries(filtered);
+  }, [searchCode, searchResult, entries]);
+
+  // 엑셀 다운로드
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   // 엑셀 다운로드
   const handleExportExcel = async () => {
@@ -134,9 +150,10 @@ export const NationalSupportManagement: React.FC = () => {
       if (selectedYear) params.append("year", selectedYear);
       if (selectedPeriod) params.append("period", selectedPeriod);
       if (searchCode) params.append("code", searchCode);
+      if (searchResult) params.append("result", searchResult);
 
       const response = await fetch(`/api/export/national-support?${params.toString()}`);
-      
+
       if (!response.ok) {
         throw new Error("엑셀 다운로드 실패");
       }
@@ -156,11 +173,52 @@ export const NationalSupportManagement: React.FC = () => {
     }
   };
 
+  // 엑셀 업로드
+  const handleUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm(`${file.name} 파일을 업로드하시겠습니까?\n(${selectedYear}년 ${selectedPeriod} 기준으로 처리됩니다.)`)) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("year", selectedYear);
+    formData.append("period", selectedPeriod);
+
+    try {
+      const response = await fetch("/api/businesses/national-support/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert(data.message || "업로드가 완료되었습니다.");
+        loadEntries();
+      } else {
+        throw new Error(data.error || "업로드 중 오류가 발생했습니다.");
+      }
+    } catch (err: any) {
+      console.error("업로드 오류:", err);
+      alert("업로드 실패: " + (err.message || "알 수 없는 오류"));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* 필터 영역 */}
       <Card className="p-6 shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
           <Select
             label="측정년도"
             value={selectedYear}
@@ -177,14 +235,34 @@ export const NationalSupportManagement: React.FC = () => {
             label="코드/사업장명 검색"
             value={searchCode}
             onChange={(e) => setSearchCode(e.target.value)}
-            placeholder="코드 또는 사업장명 입력"
+            placeholder="코드 또는 사업장명"
+          />
+          <Input
+            label="신청결과 검색"
+            value={searchResult}
+            onChange={(e) => setSearchResult(e.target.value)}
+            placeholder="예: 대상, 비대상"
           />
           <div className="flex gap-2">
             <Button variant="primary" onClick={loadEntries} disabled={loading}>
-              {loading ? "조회 중..." : "조회"}
+              {loading ? "조회..." : "조회"}
             </Button>
             <Button variant="secondary" onClick={handleExportExcel}>
               엑셀 다운로드
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept=".xlsx,.xls"
+              onChange={handleUploadExcel}
+            />
+            <Button
+              variant="secondary"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? "업로드 중..." : "엑셀 업로드"}
             </Button>
             <Button
               variant="primary"
@@ -227,51 +305,52 @@ export const NationalSupportManagement: React.FC = () => {
           <Table maxHeight="max-h-[calc(100vh-300px)]">
             <TableHeader>
               <TableRow>
-                <TableHead className="bg-surface-50">코드</TableHead>
-                <TableHead className="bg-surface-50">사업장명</TableHead>
-                <TableHead className="bg-surface-50">측정년도</TableHead>
-                <TableHead className="bg-surface-50">측정주기</TableHead>
-                <TableHead className="bg-surface-50">신청 여부</TableHead>
-                <TableHead className="bg-surface-50">신청결과</TableHead>
-                <TableHead className="bg-surface-50">국고지원 상태</TableHead>
-                <TableHead className="bg-surface-50">등록일시</TableHead>
-                <TableHead className="bg-surface-50">수정일시</TableHead>
-                <TableHead className="bg-surface-50">관리</TableHead>
+                <TableHead className="bg-surface-50 w-[120px]">코드</TableHead>
+                <TableHead className="bg-surface-50 w-[220px]">사업장명</TableHead>
+                <TableHead className="bg-surface-50 w-[300px]">주소</TableHead>
+                <TableHead className="bg-surface-50 text-center w-[100px]">측정년도</TableHead>
+                <TableHead className="bg-surface-50 text-center w-[100px]">측정주기</TableHead>
+                <TableHead className="bg-surface-50 text-center w-[100px]">신청 여부</TableHead>
+                <TableHead className="bg-surface-50 text-center w-[100px]">신청결과</TableHead>
+                <TableHead className="bg-surface-50 text-center w-[120px]">국고지원 상태</TableHead>
+                <TableHead className="bg-surface-50 w-[180px]">등록일시</TableHead>
+                <TableHead className="bg-surface-50 w-[180px]">수정일시</TableHead>
+                <TableHead className="bg-surface-50 w-[80px]">관리</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredEntries.map((entry) => (
                 <TableRow key={entry.id} className="hover:bg-surface-50">
-                  <TableCell className="font-medium">{entry.code}</TableCell>
-                  <TableCell className="font-medium">{entry.business_name || "-"}</TableCell>
-                  <TableCell>{entry.year}</TableCell>
-                  <TableCell>{entry.period}</TableCell>
-                  <TableCell>{entry.application_status || "-"}</TableCell>
-                  <TableCell>{entry.result || "-"}</TableCell>
-                  <TableCell>
+                  <TableCell className="font-medium align-middle">{entry.code}</TableCell>
+                  <TableCell className="font-medium align-middle truncate max-w-[220px]" title={entry.business_name || ""}>{entry.business_name || "-"}</TableCell>
+                  <TableCell className="text-sm text-text-500 align-middle truncate max-w-[300px]" title={entry.address || ""}>{entry.address || "-"}</TableCell>
+                  <TableCell className="text-center align-middle">{entry.year}</TableCell>
+                  <TableCell className="align-middle text-center">{entry.period}</TableCell>
+                  <TableCell className="align-middle text-center">{entry.application_status || "-"}</TableCell>
+                  <TableCell className="align-middle text-center">{entry.result || "-"}</TableCell>
+                  <TableCell className="align-middle text-center">
                     <span
-                      className={`px-2 py-1 rounded text-sm font-medium ${
-                        entry.national_support_status === "지원"
-                          ? "bg-green-100 text-green-800"
-                          : entry.national_support_status === "비대상"
+                      className={`px-2 py-1 rounded text-sm font-medium ${entry.national_support_status === "지원"
+                        ? "bg-green-100 text-green-800"
+                        : entry.national_support_status === "비대상"
                           ? "bg-gray-100 text-gray-800"
                           : "bg-surface-100 text-surface-600"
-                      }`}
+                        }`}
                     >
                       {entry.national_support_status || "-"}
                     </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="align-middle text-sm text-text-500">
                     {entry.created_at
                       ? new Date(entry.created_at).toLocaleString("ko-KR")
                       : "-"}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="align-middle text-sm text-text-500">
                     {entry.updated_at
                       ? new Date(entry.updated_at).toLocaleString("ko-KR")
                       : "-"}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="align-middle">
                     <Button
                       variant="secondary"
                       size="sm"
@@ -324,6 +403,24 @@ export const NationalSupportManagement: React.FC = () => {
             required
             disabled={!!selectedEntry}
           />
+          {selectedEntry && (
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="사업장명"
+                value={selectedEntry.business_name || ""}
+                readOnly
+                disabled
+                className="bg-gray-100"
+              />
+              <Input
+                label="주소"
+                value={selectedEntry.address || ""}
+                readOnly
+                disabled
+                className="bg-gray-100"
+              />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="측정년도 *"

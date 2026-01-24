@@ -98,33 +98,27 @@ export const SalesManagement: React.FC = () => {
     byYear: Record<number, YearlySummary>;
   } | null>(null);
 
-  // 필터 상태
-  const [filters, setFilters] = useState({
-    year: getCurrentYearString(),
-    businessName: "",
-    measurementPeriod: "",
-    designatedOffice: "",
-  });
+
 
   // 년도별 집계 년도 선택 상태 (기본값: 현재 년도)
   const [yearlySummaryYear, setYearlySummaryYear] = useState<string>(getCurrentYearString());
-  
+
   // 미수금 집계 년도 선택 상태
   const [unpaidSummaryYear, setUnpaidSummaryYear] = useState<string>(getCurrentYearString());
-  
+
   // 매출 집계 년도 선택 상태
   const [salesSummaryYear, setSalesSummaryYear] = useState<string>(getCurrentYearString());
-  
+
   // 매출 집계 상세 내역 모달 상태
   const [isSalesDetailModalOpen, setIsSalesDetailModalOpen] = useState(false);
   const [salesDetailType, setSalesDetailType] = useState<"measurementTotal" | "measurementDeposit" | null>(null);
   const [salesDetailList, setSalesDetailList] = useState<MeasurementRevenue[]>([]);
   const [salesDetailTitle, setSalesDetailTitle] = useState<string>("");
-  
+
   // 측정비 입금액 상세 모달 상태
   const [isMeasurementDepositDetailModalOpen, setIsMeasurementDepositDetailModalOpen] = useState(false);
   const [measurementDepositDetailItem, setMeasurementDepositDetailItem] = useState<MeasurementRevenue | null>(null);
-  
+
   // 미수금 사업장 목록 모달 상태
   const [isUnpaidBusinessModalOpen, setIsUnpaidBusinessModalOpen] = useState(false);
   const [unpaidBusinessList, setUnpaidBusinessList] = useState<Array<{
@@ -165,6 +159,7 @@ export const SalesManagement: React.FC = () => {
 
   // 측정일지 수정 모달 상태
   const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+  const [isJournalFormSubmitting, setIsJournalFormSubmitting] = useState(false);
   const [selectedJournalEntry, setSelectedJournalEntry] = useState<any>(null);
 
   // 미수관리 필터 및 정렬 상태
@@ -234,14 +229,14 @@ export const SalesManagement: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const params = new URLSearchParams();
-      if (filters.year) params.append("year", filters.year);
-      if (filters.businessName) params.append("businessName", filters.businessName);
-      if (filters.measurementPeriod) params.append("measurementPeriod", filters.measurementPeriod);
-      if (filters.designatedOffice) params.append("designatedOffice", filters.designatedOffice);
+      // const params = new URLSearchParams();
+      // if (filters.year) params.append("year", filters.year);
+      // if (filters.businessName) params.append("businessName", filters.businessName);
+      // if (filters.measurementPeriod) params.append("measurementPeriod", filters.measurementPeriod);
+      // if (filters.designatedOffice) params.append("designatedOffice", filters.designatedOffice);
 
-      const response = await fetch(`/api/sales?${params.toString()}`);
-      
+      const response = await fetch(`/api/sales`);
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("API 응답 오류:", response.status, errorText);
@@ -295,9 +290,7 @@ export const SalesManagement: React.FC = () => {
     return isNaN(num) ? null : num;
   };
 
-  const handleFilterChange = () => {
-    loadSalesData();
-  };
+
 
   const handleOtherEdit = (item: OtherRevenue | null) => {
     if (item) {
@@ -341,22 +334,22 @@ export const SalesManagement: React.FC = () => {
       const cleanedData = {
         item_name: otherFormData.item_name || "",
         invoice_date: otherFormData.invoice_date || null,
-        supply_amount: otherFormData.supply_amount !== null && otherFormData.supply_amount !== undefined 
-          ? Number(otherFormData.supply_amount) 
+        supply_amount: otherFormData.supply_amount !== null && otherFormData.supply_amount !== undefined
+          ? Number(otherFormData.supply_amount)
           : null,
-        vat_amount: otherFormData.vat_amount !== null && otherFormData.vat_amount !== undefined 
-          ? Number(otherFormData.vat_amount) 
+        vat_amount: otherFormData.vat_amount !== null && otherFormData.vat_amount !== undefined
+          ? Number(otherFormData.vat_amount)
           : null,
-        total_amount: otherFormData.total_amount !== null && otherFormData.total_amount !== undefined 
-          ? Number(otherFormData.total_amount) 
+        total_amount: otherFormData.total_amount !== null && otherFormData.total_amount !== undefined
+          ? Number(otherFormData.total_amount)
           : 0,
         deposit_date: otherFormData.deposit_date || null,
-        deposit_amount: otherFormData.deposit_amount !== null && otherFormData.deposit_amount !== undefined 
-          ? Number(otherFormData.deposit_amount) 
+        deposit_amount: otherFormData.deposit_amount !== null && otherFormData.deposit_amount !== undefined
+          ? Number(otherFormData.deposit_amount)
           : null,
         notes: otherFormData.notes || null,
-        revenue_year: otherFormData.revenue_year !== null && otherFormData.revenue_year !== undefined 
-          ? Number(otherFormData.revenue_year) 
+        revenue_year: otherFormData.revenue_year !== null && otherFormData.revenue_year !== undefined
+          ? Number(otherFormData.revenue_year)
           : null,
         revenue_period: otherFormData.revenue_period || null,
       };
@@ -371,7 +364,7 @@ export const SalesManagement: React.FC = () => {
       // 합계금액 검증: 공급가액과 부가세가 모두 입력되지 않으면 합계금액이 0일 수 있음
       const calculatedTotal = (cleanedData.supply_amount || 0) + (cleanedData.vat_amount || 0);
       const finalTotal = cleanedData.total_amount || calculatedTotal;
-      
+
       if (!finalTotal || finalTotal <= 0) {
         setError("공급가액과 부가세를 입력하거나 합계금액을 입력해주세요.");
         setSaving(false);
@@ -429,12 +422,12 @@ export const SalesManagement: React.FC = () => {
           newSet.add(id);
           return newSet;
         });
-        
+
         // 로컬 상태에서 삭제된 항목 즉시 제거
         setOtherRevenue(prev => prev.filter(item => item.id !== id));
         // 선택된 항목에서도 제거
         setSelectedOtherIds(selectedOtherIds.filter((selectedId) => selectedId !== id));
-        
+
         // 서버와 동기화는 하지 않고 로컬 상태만 업데이트
         // (사용자가 수동으로 새로고침하거나 다른 작업을 할 때 자동으로 동기화됨)
       } else {
@@ -480,7 +473,7 @@ export const SalesManagement: React.FC = () => {
       // 배치로 삭제 요청 (한 번에 10개씩 처리하여 서버 부하 방지)
       const batchSize = 10;
       const results: PromiseSettledResult<Response>[] = [];
-      
+
       for (let i = 0; i < selectedOtherIds.length; i += batchSize) {
         const batch = selectedOtherIds.slice(i, i + batchSize);
         const batchPromises = batch.map((id) =>
@@ -488,24 +481,24 @@ export const SalesManagement: React.FC = () => {
         );
         const batchResults = await Promise.allSettled(batchPromises);
         results.push(...batchResults);
-        
+
         // 배치 간 약간의 지연 (서버 부하 방지)
         if (i + batchSize < selectedOtherIds.length) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
-      
+
       let successCount = 0;
       let errorCount = 0;
       const errors: string[] = [];
 
       const successfullyDeletedIds: number[] = [];
-      
+
       // 각 삭제 요청의 응답을 확인
       for (let index = 0; index < selectedOtherIds.length; index++) {
         const id = selectedOtherIds[index];
         const result = results[index];
-        
+
         if (result.status === "fulfilled") {
           const response = result.value;
           try {
@@ -524,7 +517,7 @@ export const SalesManagement: React.FC = () => {
                 // 파싱 실패 시 성공으로 간주 (상태 코드가 200-299이면)
                 responseData = { success: true };
               }
-              
+
               if (responseData.success !== false) {
                 successCount++;
                 successfullyDeletedIds.push(id);
@@ -572,13 +565,13 @@ export const SalesManagement: React.FC = () => {
           successfullyDeletedIds.forEach(id => newSet.add(id));
           return newSet;
         });
-        
+
         setOtherRevenue(prev => prev.filter(item => !deletedIdsSet.has(item.id)));
       }
-      
+
       // 선택 초기화
       setSelectedOtherIds([]);
-      
+
       // 서버와 동기화는 하지 않고 로컬 상태만 업데이트
       // (사용자가 수동으로 새로고침하거나 다른 작업을 할 때 자동으로 동기화됨)
 
@@ -671,61 +664,7 @@ export const SalesManagement: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {/* 필터 */}
-      <Card className="p-4">
-        <h2 className="text-lg font-semibold text-text-900 mb-4">검색 조건</h2>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-1">년도</label>
-            <Select
-              value={filters.year}
-              onChange={(e) => {
-                setFilters({ ...filters, year: e.target.value });
-                setTimeout(handleFilterChange, 0);
-              }}
-              options={[{ value: "", label: "전체" }, ...yearOptions]}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-1">측정주기</label>
-            <Select
-              value={filters.measurementPeriod}
-              onChange={(e) => {
-                setFilters({ ...filters, measurementPeriod: e.target.value });
-                setTimeout(handleFilterChange, 0);
-              }}
-              options={periodOptions}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-1">지정지청</label>
-            <Select
-              value={filters.designatedOffice}
-              onChange={(e) => {
-                setFilters({ ...filters, designatedOffice: e.target.value });
-                setTimeout(handleFilterChange, 0);
-              }}
-              options={officeOptions}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-1">사업장명</label>
-            <Input
-              value={filters.businessName}
-              onChange={(e) => setFilters({ ...filters, businessName: e.target.value })}
-              onKeyPress={(e) => {
-                if (e.key === "Enter") handleFilterChange();
-              }}
-              placeholder="사업장명 입력"
-            />
-          </div>
-          <div className="flex items-end">
-            <Button variant="primary" onClick={handleFilterChange}>
-              검색
-            </Button>
-          </div>
-        </div>
-      </Card>
+
 
       {error && <Alert variant="error">{error}</Alert>}
 
@@ -812,16 +751,16 @@ export const SalesManagement: React.FC = () => {
                     // 선택된 년도 데이터가 있으면 해당 년도 데이터 사용, 없으면 전체 데이터 사용
                     const yearData = selectedYearData
                       ? {
-                          firstHalf: office === "기타"
-                            ? selectedYearData.firstHalf.otherTotal
-                            : selectedYearData.firstHalf.measurementTotal,
-                          secondHalf: office === "기타"
-                            ? selectedYearData.secondHalf.otherTotal
-                            : selectedYearData.secondHalf.measurementTotal,
-                          total: office === "기타"
-                            ? selectedYearData.total.otherTotal
-                            : selectedYearData.total.measurementTotal,
-                        }
+                        firstHalf: office === "기타"
+                          ? selectedYearData.firstHalf.otherTotal
+                          : selectedYearData.firstHalf.measurementTotal,
+                        secondHalf: office === "기타"
+                          ? selectedYearData.secondHalf.otherTotal
+                          : selectedYearData.secondHalf.measurementTotal,
+                        total: office === "기타"
+                          ? selectedYearData.total.otherTotal
+                          : selectedYearData.total.measurementTotal,
+                      }
                       : null;
 
                     const measurementFee = office === "기타"
@@ -1137,7 +1076,7 @@ export const SalesManagement: React.FC = () => {
                       const businessFee = item.measurement_fee_business || 0;
                       const businessDeposit = item.deposit_amount_business || 0;
                       const businessUnpaid = businessFee - businessDeposit;
-                      
+
                       if (businessUnpaid > 0) {
                         const count = businessUnpaidCountMap.get(item.business_name) || 0;
                         businessUnpaidCountMap.set(item.business_name, count + 1);
@@ -1220,8 +1159,8 @@ export const SalesManagement: React.FC = () => {
                       {/* 합계 행 */}
                       <TableRow className="border-t-2 border-b-2 border-gray-300">
                         <TableCell className="text-center font-bold text-black py-3 px-3">합계</TableCell>
-                        <TableCell 
-                          className="text-center font-bold text-black py-3 px-4 cursor-pointer hover:bg-gray-100"
+                        <TableCell
+                          className="text-center font-bold text-blue-600 py-3 px-4 cursor-pointer hover:bg-gray-100 underline"
                           onClick={() => handleUnpaidBusinessClick(null, "total")}
                           title="클릭하여 사업장 목록 보기"
                         >
@@ -1233,8 +1172,8 @@ export const SalesManagement: React.FC = () => {
                         <TableCell className="text-right font-bold text-black py-3 px-4">
                           {formatCurrency(totalRow.totalUnpaid)}
                         </TableCell>
-                        <TableCell 
-                          className="text-center font-bold text-black py-3 px-4 cursor-pointer hover:bg-gray-100"
+                        <TableCell
+                          className="text-center font-bold text-blue-600 py-3 px-4 cursor-pointer hover:bg-gray-100 underline"
                           onClick={() => handleUnpaidBusinessClick(null, "business")}
                           title="클릭하여 사업장 목록 보기"
                         >
@@ -1246,8 +1185,8 @@ export const SalesManagement: React.FC = () => {
                         <TableCell className="text-right font-bold text-black py-3 px-4">
                           {formatCurrency(totalRow.businessUnpaid)}
                         </TableCell>
-                        <TableCell 
-                          className="text-center font-bold text-black py-3 px-4 cursor-pointer hover:bg-gray-100"
+                        <TableCell
+                          className="text-center font-bold text-blue-600 py-3 px-4 cursor-pointer hover:bg-gray-100 underline"
                           onClick={() => handleUnpaidBusinessClick(null, "national")}
                           title="클릭하여 사업장 목록 보기"
                         >
@@ -1267,8 +1206,8 @@ export const SalesManagement: React.FC = () => {
                           className={`border-b border-gray-200 ${data.office === "천안" ? "bg-green-50" : ""}`}
                         >
                           <TableCell className="text-center text-black py-2 px-3">{data.label}</TableCell>
-                          <TableCell 
-                            className="text-center text-black py-2 px-4 cursor-pointer hover:bg-gray-100"
+                          <TableCell
+                            className="text-center text-blue-600 py-2 px-4 cursor-pointer hover:bg-gray-100 underline"
                             onClick={() => handleUnpaidBusinessClick(data.office, "total")}
                             title="클릭하여 사업장 목록 보기"
                           >
@@ -1280,8 +1219,8 @@ export const SalesManagement: React.FC = () => {
                           <TableCell className="text-right text-black py-2 px-4">
                             {formatCurrency(data.total.unpaid)}
                           </TableCell>
-                          <TableCell 
-                            className="text-center text-black py-2 px-4 cursor-pointer hover:bg-gray-100"
+                          <TableCell
+                            className="text-center text-blue-600 py-2 px-4 cursor-pointer hover:bg-gray-100 underline"
                             onClick={() => handleUnpaidBusinessClick(data.office, "business")}
                             title="클릭하여 사업장 목록 보기"
                           >
@@ -1293,8 +1232,8 @@ export const SalesManagement: React.FC = () => {
                           <TableCell className="text-right text-black py-2 px-4">
                             {formatCurrency(data.business.unpaid)}
                           </TableCell>
-                          <TableCell 
-                            className="text-center text-black py-2 px-4 cursor-pointer hover:bg-gray-100"
+                          <TableCell
+                            className="text-center text-blue-600 py-2 px-4 cursor-pointer hover:bg-gray-100 underline"
                             onClick={() => handleUnpaidBusinessClick(data.office, "national")}
                             title="클릭하여 사업장 목록 보기"
                           >
@@ -1403,7 +1342,7 @@ export const SalesManagement: React.FC = () => {
                   const filteredMeasurementRevenue = salesSummaryYear && salesSummaryYear !== ""
                     ? measurementRevenue.filter((item) => item.measurement_year === parseInt(salesSummaryYear))
                     : measurementRevenue;
-                  
+
                   const filteredOtherRevenue = salesSummaryYear && salesSummaryYear !== ""
                     ? otherRevenue.filter((item) => item.revenue_year === parseInt(salesSummaryYear))
                     : otherRevenue;
@@ -1418,7 +1357,7 @@ export const SalesManagement: React.FC = () => {
                     const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
                     const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
                     const unpaid = revenue - deposit;
-                    
+
                     measurementRevenueSum += revenue;
                     measurementTotalSum += revenue;
                     measurementDepositSum += deposit;
@@ -1438,7 +1377,7 @@ export const SalesManagement: React.FC = () => {
                     const total = parseFloat(item.total_amount?.toString() || "0") || 0;
                     const deposit = parseFloat(item.deposit_amount?.toString() || "0") || 0;
                     const unpaid = total - deposit;
-                    
+
                     otherRevenueSum += supply;
                     otherVatSum += vat;
                     otherTotalSum += total;
@@ -1475,14 +1414,14 @@ export const SalesManagement: React.FC = () => {
                           {formatCurrency(measurementRevenueSum)}원
                         </TableCell>
                         <TableCell className="text-right">0원</TableCell>
-                        <TableCell 
+                        <TableCell
                           className="text-right font-semibold cursor-pointer hover:bg-gray-100 hover:text-primary-600 transition-colors"
                           onClick={handleMeasurementTotalClick}
                           title="클릭하여 상세 내역 보기"
                         >
                           {formatCurrency(measurementTotalSum)}원
                         </TableCell>
-                        <TableCell 
+                        <TableCell
                           className="text-right cursor-pointer hover:bg-gray-100 hover:text-primary-600 transition-colors"
                           onClick={handleMeasurementDepositClick}
                           title="클릭하여 상세 내역 보기"
@@ -1552,7 +1491,7 @@ export const SalesManagement: React.FC = () => {
                   const total = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
                   const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
                   const unpaid = total - deposit;
-                  
+
                   return (
                     <TableRow key={item.id || index} className="border-b border-gray-200">
                       <TableCell className="text-center text-black py-1 px-2 text-sm">{index + 1}</TableCell>
@@ -1885,7 +1824,7 @@ export const SalesManagement: React.FC = () => {
                                   <TableCell className="text-right font-semibold">
                                     {formatCurrency(item.measurement_fee_total)}원
                                   </TableCell>
-                                  <TableCell 
+                                  <TableCell
                                     className="text-right cursor-pointer hover:bg-gray-100 hover:text-primary-600 transition-colors"
                                     onClick={() => {
                                       if (item.deposit_total && parseFloat(item.deposit_total.toString()) > 0) {
@@ -2654,11 +2593,10 @@ export const SalesManagement: React.FC = () => {
                                   >
                                     <TableCell>
                                       <span
-                                        className={`px-2 py-1 rounded text-xs ${
-                                          item.type === "measurement"
-                                            ? "bg-primary-100 text-primary-700"
-                                            : "bg-secondary-100 text-secondary-700"
-                                        }`}
+                                        className={`px-2 py-1 rounded text-xs ${item.type === "measurement"
+                                          ? "bg-primary-100 text-primary-700"
+                                          : "bg-secondary-100 text-secondary-700"
+                                          }`}
                                       >
                                         {item.type === "measurement" ? "측정비" : "기타"}
                                       </span>
@@ -3005,7 +2943,28 @@ export const SalesManagement: React.FC = () => {
             setSelectedJournalEntry(null);
           }}
           title="측정일지 수정"
-          size="xl"
+          size="3xl"
+          headerActions={
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setIsJournalModalOpen(false);
+                  setSelectedJournalEntry(null);
+                }}
+                disabled={isJournalFormSubmitting}
+              >
+                취소
+              </Button>
+              <Button
+                type="submit"
+                form="journal-edit-form"
+                disabled={isJournalFormSubmitting}
+              >
+                {isJournalFormSubmitting ? <LoadingSpinner /> : "수정"}
+              </Button>
+            </div>
+          }
         >
           <JournalEditForm
             entry={selectedJournalEntry}
@@ -3013,6 +2972,7 @@ export const SalesManagement: React.FC = () => {
               setIsJournalModalOpen(false);
               setSelectedJournalEntry(null);
             }}
+            setIsSubmitting={setIsJournalFormSubmitting}
             onSuccess={async (savedJournalId) => {
               setIsJournalModalOpen(false);
               setSelectedJournalEntry(null);

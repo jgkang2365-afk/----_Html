@@ -243,7 +243,7 @@ export async function GET(request: NextRequest) {
       return {
         코드: business.code || "",
         국고결과: nationalSupportStatus || "",
-        주관담당자: business.measurer || "",
+        계획담당자: business.measurer || "",
         전회측정일: previousMeasurementDateFormatted,
         "전회 측정 주기": business.future_measurement_period ? `${business.future_measurement_period}개월` : "",
         금회예정일: futureMeasurementDateFormatted || "",

@@ -99,6 +99,7 @@ export const JournalSearch: React.FC = () => {
   // 공통 상태
   const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isJournalFormSubmitting, setIsJournalFormSubmitting] = useState(false);
 
   // 업로드 관련 상태
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -131,7 +132,9 @@ export const JournalSearch: React.FC = () => {
   const periodOptions = [
     { value: "", label: "전체" },
     { value: "상반기", label: "상반기" },
+    { value: "상반기(수시)", label: "상반기(수시)" },
     { value: "하반기", label: "하반기" },
+    { value: "하반기(수시)", label: "하반기(수시)" },
   ];
 
   // 지정한계_관할지청 옵션
@@ -445,7 +448,7 @@ export const JournalSearch: React.FC = () => {
 
     if (currentFilters.measurementPeriod) {
       filtered = filtered.filter(
-        (entry) => entry.measurement_period === currentFilters.measurementPeriod
+        (entry) => entry.measurement_period?.startsWith(currentFilters.measurementPeriod)
       );
     }
 
@@ -1247,12 +1250,31 @@ export const JournalSearch: React.FC = () => {
           onClose={handleModalClose}
           title={selectedEntry.id ? "측정일지 수정" : "측정일지 등록"}
           size="full-75"
+          headerActions={
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                onClick={handleModalClose}
+                disabled={isJournalFormSubmitting}
+              >
+                취소
+              </Button>
+              <Button
+                type="submit"
+                form="journal-edit-form"
+                disabled={isJournalFormSubmitting}
+              >
+                {isJournalFormSubmitting ? <LoadingSpinner /> : selectedEntry.id ? "수정" : "등록"}
+              </Button>
+            </div>
+          }
         >
           <JournalEditForm
             key={selectedEntry.id || `new-${selectedEntry.code}-${selectedEntry.measurement_year}-${selectedEntry.measurement_period}`}
             entry={selectedEntry}
             onClose={handleModalClose}
             onSuccess={handleSaveSuccess}
+            setIsSubmitting={setIsJournalFormSubmitting}
           />
         </Modal>
       )}

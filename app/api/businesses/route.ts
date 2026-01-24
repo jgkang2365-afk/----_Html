@@ -494,8 +494,8 @@ export async function GET(request: NextRequest) {
       const nationalSupportKey = `${plan.code}-${plan.year}-${plan.period}`;
       const nationalSupportStatus = journal?.national_support_status || plan.national_support_status || nationalSupportMap.get(nationalSupportKey) || null;
 
-      // 업종분류: journal -> measurement_business -> null
-      const businessCategory = journal?.business_category || mbItem?.business_category || null;
+      // 업종분류: plan -> journal -> measurement_business -> null
+      const businessCategory = plan.business_category || journal?.business_category || mbItem?.business_category || null;
 
       return {
         code: plan.code,
@@ -510,7 +510,7 @@ export async function GET(request: NextRequest) {
         measurement_start_date: journal?.measurement_start_date || plan.measurement_start_date || null,
         measurement_end_date: journal?.measurement_end_date || plan.measurement_end_date || null,
         completion_status: journal?.completion_status || plan.completion_status || null,
-        measurer: journal?.measurer || plan.measurer || null,
+        plan_manager: plan.plan_manager || null,
         future_measurement_date: futureMeasurementDate,
         measurement_date: measurementDate,
         previous_measurement_date: previousMeasurementDate,
@@ -528,10 +528,12 @@ export async function GET(request: NextRequest) {
     });
 
     // 실시여부 필터 적용
-    if (isRegistered === "등록됨") {
+    if (isRegistered === "실시") {
       businesses = businesses.filter((b) => b.isRegistered);
-    } else if (isRegistered === "미등록") {
-      businesses = businesses.filter((b) => !b.isRegistered);
+    } else if (isRegistered === "미실시") {
+      businesses = businesses.filter((b) => !b.isRegistered && b.management_status !== "transaction_ended");
+    } else if (isRegistered === "거래종료") {
+      businesses = businesses.filter((b) => b.management_status === "transaction_ended");
     }
 
     // 정렬 (코드순)
@@ -573,6 +575,82 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function PATCH(request: NextRequest) {
+  try {
+    await checkPermission("journal:write");
+
+    const body = await request.json();
+    const { code, year, period, updates } = body;
+
+    if (!code || !year || !period || !updates) {
+      return NextResponse.json(
+        { error: "필수 정보가 누락되었습니다. (code, year, period, updates)" },
+        { status: 400 }
+      );
+    }
+
+    const supabase = await createClient();
+
+    // 허용된 필드만 업데이트
+    const allowedFields = [
+      'future_measurement_date',
+      'measurement_date',
+      'business_category',
+      'notes',
+      'plan_manager',
+      'business_name',
+      'address',
+      'manager_name',
+      'manager_mobile'
+    ];
+    const filteredUpdates: any = {};
+
+    Object.keys(updates).forEach(key => {
+      if (allowedFields.includes(key)) {
+        filteredUpdates[key] = updates[key];
+      }
+    });
+
+    if (Object.keys(filteredUpdates).length === 0) {
+      return NextResponse.json(
+        { error: "업데이트할 수 있는 필드가 없습니다." },
+        { status: 400 }
+      );
+    }
+
+    filteredUpdates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from("measurement_target_business")
+      .update(filteredUpdates)
+      .eq("code", code)
+      .eq("year", year)
+      .eq("period", period)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("측정 대상 사업장 업데이트 오류:", error);
+      return NextResponse.json(
+        { error: "업데이트 중 오류가 발생했습니다.", details: error.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data
+    });
+
+  } catch (error) {
+    console.error("PATCH API 오류:", error);
+    return NextResponse.json(
+      { error: "서버 내부 오류가 발생했습니다." },
+      { status: 500 }
+    );
+  }
+}
+
 interface BusinessEntryResponse {
   code: string;
   year: number;
@@ -586,7 +664,7 @@ interface BusinessEntryResponse {
   measurement_start_date: string | null;
   measurement_end_date: string | null;
   completion_status: string | null;
-  measurer: string | null;
+  plan_manager: string | null;
   future_measurement_date: string | null;
   measurement_date: string | null; // 예비조사의 측정일
   previous_measurement_date: string | null; // 전회 측정일

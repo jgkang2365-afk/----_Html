@@ -97,14 +97,11 @@ export const Modal: React.FC<ModalProps> = ({
       return;
     }
 
-    if (modalRef.current) {
-      const modalRect = modalRef.current.getBoundingClientRect();
-      setDragStart({
-        x: e.clientX - modalRect.left - (modalRect.width / 2) + position.x,
-        y: e.clientY - modalRect.top - (modalRect.height / 2) + position.y,
-      });
-      setIsDragging(true);
-    }
+    setDragStart({
+      x: e.clientX - position.x,
+      y: e.clientY - position.y,
+    });
+    setIsDragging(true);
   };
 
   if (!isOpen) return null;

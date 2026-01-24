@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     // 헤더 매칭 (여러 가능한 컬럼명 시도)
     const codeHeader = Object.keys(data[0] || {}).find(
       (key) =>
-        key.includes("코드") || 
+        key.includes("코드") ||
         key.includes("사업장코드") ||
         key === "code"
     );
@@ -125,8 +125,8 @@ export async function POST(request: NextRequest) {
       // 신청결과가 "대상"인 경우: "지원"
       // 그 외: "비대상"
       let nationalSupportStatus: "지원" | "비대상" | null = null;
-      
-      if (result && (result === "대상" || result.includes("대상"))) {
+
+      if (result && (result === "대상" || (result.includes("대상") && !result.includes("비대상")))) {
         nationalSupportStatus = "지원";
       } else if (result || applicationStatus) {
         // 신청결과가 있지만 "대상"이 아니면 "비대상"

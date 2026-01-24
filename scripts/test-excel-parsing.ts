@@ -84,9 +84,9 @@ function parsePeriod(periodValue: any): number | null {
 
   // 헤더 텍스트는 건너뛰기
   if (periodStr === "향후측정주기" ||
-      periodStr === "향후 측정주기" ||
-      periodStr === "전회 측정 주기" ||
-      periodStr === "전회측정주기") {
+    periodStr === "향후 측정주기" ||
+    periodStr === "전회 측정 주기" ||
+    periodStr === "전회측정주기") {
     return null;
   }
 
@@ -183,7 +183,7 @@ for (let i = 0; i < Math.min(5, data.length); i++) {
   console.log(`담당자 휴대폰: ${row["담당자 휴대폰"] || rowValues[15]}`);
   console.log(`회사전화번호: ${row["회사전화번호"] || rowValues[16]}`);
   console.log(`국고결과: ${row["국고결과"] || rowValues[3]}`);
-  console.log(`주관담당자: ${row["주관담당자"] || rowValues[4]}`);
+  console.log(`계획담당자: ${row["계획담당자"] || row["주관담당자"] || rowValues[4]}`);
   console.log("");
 }
 

@@ -1,5 +1,16 @@
 # Cursor AI 코딩 규칙
 
+## 0. 사용자 필수 규칙 (User Mandatory Rules)
+
+### 0.1 한국어 사용 (Korean Language)
+- **모든 설명과 답변은 반드시 한국어로 작성해야 합니다.**
+- All explanations and responses must be provided in Korean.
+
+### 0.2 비즈니스 로직: 계획담당자 (Business Logic: Plan Manager)
+- **표시 원칙**: "측정 대상 사업장 목록"의 "계획담당자"는 실제 측정 수행자(actual measurer, 예: 고유빈)가 아닌, **업로드된 계획(엑셀)상의 담당자**를 표시해야 합니다.
+- **데이터 우선순위**: `measurement_journal`(측정일지) 테이블의 `measurer`보다 `measurement_target_business`(계획) 테이블의 `measurer` 정보를 우선적으로 사용해야 합니다.
+- **담당자 목록**: 계획담당자는 주로 "한기문", "이주형", "강종구" 등으로 구성됩니다. 실제 측정자가 계획담당자 컬럼에 노출되지 않도록 주의하세요.
+
 ## 문제 해결 시 필수 절차
 
 ### 1. 프론트엔드 코드 먼저 확인
