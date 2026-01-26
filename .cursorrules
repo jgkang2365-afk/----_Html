@@ -3,8 +3,8 @@
 ## 0. 사용자 필수 규칙 (User Mandatory Rules)
 
 ### 0.1 한국어 사용 (Korean Language)
-- **모든 설명과 답변은 반드시 한국어로 작성해야 합니다.**
-- All explanations and responses must be provided in Korean.
+- **새 대화창을 열거나, 어떤 상황에서도 모든 설명과 답변은 반드시 한국어로 작성해야 합니다.**
+- **All explanations and responses MUST be provided in Korean, including in new chat sessions.**
 
 ### 0.2 비즈니스 로직: 계획담당자 (Business Logic: Plan Manager)
 - **표시 원칙**: "측정 대상 사업장 목록"의 "계획담당자"는 실제 측정 수행자(actual measurer, 예: 고유빈)가 아닌, **업로드된 계획(엑셀)상의 담당자**를 표시해야 합니다.

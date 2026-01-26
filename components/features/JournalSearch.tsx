@@ -980,9 +980,9 @@ export const JournalSearch: React.FC = () => {
                                 variant="secondary"
                                 size="sm"
                                 onClick={() => handleSelectJournal(entry)}
-                                className="shadow-sm h-8 px-2 text-xs"
+                                className={`shadow-sm h-8 px-2 text-xs ${entry.id ? "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border border-yellow-200" : ""}`}
                               >
-                                선택
+                                {entry.id ? "수정" : "등록"}
                               </Button>
                             </td>
                           </tr>

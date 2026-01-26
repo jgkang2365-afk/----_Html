@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { DESIGNATED_OFFICE_OPTIONS } from "@/lib/constants/designated-offices";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -83,10 +83,15 @@ interface SummaryEntry {
 }
 
 export const SummaryTable: React.FC = () => {
+  // 초기값 설정
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const currentPeriod = currentMonth <= 6 ? "상반기" : "하반기";
+
   // 검색 관련 상태
   const [searchParams, setSearchParams] = useState({
-    measurementYear: "",
-    measurementPeriod: "",
+    measurementYear: currentYear.toString(),
+    measurementPeriod: currentPeriod,
     businessName: "",
     designatedOffice: "",
   });
@@ -102,7 +107,6 @@ export const SummaryTable: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   // 측정년도 옵션 생성 (현재 년도 기준 -5년 ~ +1년, 내림차순)
-  const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 7 }, (_, i) => {
     const year = currentYear - 5 + i;
     return { value: year.toString(), label: year.toString() };
@@ -157,6 +161,11 @@ export const SummaryTable: React.FC = () => {
     }
   };
 
+  // 페이지 로드 시 자동 검색
+  useEffect(() => {
+    handleSearch();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 수정 모달 열기
   const handleEdit = (entry: SummaryEntry) => {
     setSelectedEntry(entry);
@@ -195,7 +204,7 @@ export const SummaryTable: React.FC = () => {
 
       // 저장할 데이터 준비 (빈 문자열을 null로 변환)
       const saveData = { ...editFormData };
-      
+
       // national_support_status 빈 문자열을 null로 변환
       if (saveData.national_support_status === "") {
         saveData.national_support_status = null;
@@ -379,11 +388,10 @@ export const SummaryTable: React.FC = () => {
                     <TableCell>{entry.report_writer || "-"}</TableCell>
                     <TableCell>
                       <span
-                        className={`px-2 py-1 rounded text-xs ${
-                          entry.completion_status === "완료"
-                            ? "bg-success-100 text-success-700"
-                            : "bg-warning-100 text-warning-700"
-                        }`}
+                        className={`px-2 py-1 rounded text-xs ${entry.completion_status === "완료"
+                          ? "bg-success-100 text-success-700"
+                          : "bg-warning-100 text-warning-700"
+                          }`}
                       >
                         {entry.completion_status}
                       </span>
@@ -393,9 +401,12 @@ export const SummaryTable: React.FC = () => {
                         variant="secondary"
                         size="sm"
                         onClick={() => handleEdit(entry)}
-                        disabled={entry.completion_status === "완료"}
+                        className={entry.completion_status === "완료"
+                          ? ""
+                          : "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border-yellow-200"
+                        }
                       >
-                        수정
+                        {entry.completion_status === "완료" ? "조회" : "수정"}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -414,7 +425,7 @@ export const SummaryTable: React.FC = () => {
           setSelectedEntry(null);
           setEditFormData({});
         }}
-        title="측정정보 수정"
+        title={selectedEntry?.completion_status === "완료" ? "측정정보 요약 조회" : "측정정보 수정"}
         size="xl"
       >
         {selectedEntry && (
@@ -467,8 +478,10 @@ export const SummaryTable: React.FC = () => {
 
             {/* 수정 가능 필드 */}
             <div className="space-y-6">
-              <h3 className="font-semibold text-text-900 mb-3">수정 가능 필드</h3>
-              
+              <h3 className="font-semibold text-text-900 mb-3">
+                {selectedEntry.completion_status === "완료" ? "조회 가능 필드" : "수정 가능 필드"}
+              </h3>
+
               {/* 측정 정보 */}
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-text-700 border-b pb-1">측정 정보</h4>
@@ -491,6 +504,7 @@ export const SummaryTable: React.FC = () => {
                           return updated;
                         });
                       }}
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -506,6 +520,7 @@ export const SummaryTable: React.FC = () => {
                           measurement_end_date: e.target.value,
                         })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                 </div>
@@ -524,6 +539,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, business_name: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -539,6 +555,7 @@ export const SummaryTable: React.FC = () => {
                           total_employees: e.target.value ? parseInt(e.target.value) : null,
                         })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -552,6 +569,7 @@ export const SummaryTable: React.FC = () => {
                         const numbers = parseBusinessNumber(e.target.value);
                         setEditFormData({ ...editFormData, business_number: numbers });
                       }}
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -563,6 +581,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, industrial_accident_number: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div className="col-span-3">
@@ -574,6 +593,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, address: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -585,6 +605,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, phone: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -596,6 +617,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, fax: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                 </div>
@@ -614,6 +636,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, manager_name: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -625,6 +648,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, manager_position: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -636,6 +660,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, manager_mobile: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -648,6 +673,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, manager_email: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -660,6 +686,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, invoice_email: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                 </div>
@@ -679,6 +706,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, k2b_send_date: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -690,6 +718,7 @@ export const SummaryTable: React.FC = () => {
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, k2b_sender: e.target.value })
                       }
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                 </div>
@@ -714,6 +743,7 @@ export const SummaryTable: React.FC = () => {
                         });
                       }}
                       placeholder="숫자만 입력"
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                   <div>
@@ -733,6 +763,7 @@ export const SummaryTable: React.FC = () => {
                         { value: "지원", label: "지원" },
                         { value: "비대상", label: "비대상" },
                       ]}
+                      disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
                 </div>
@@ -749,25 +780,41 @@ export const SummaryTable: React.FC = () => {
                     }
                     placeholder="특이사항을 입력하세요"
                     rows={4}
+                    disabled={selectedEntry.completion_status === "완료"}
                   />
                 </div>
               </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-4 border-t no-print">
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setSelectedEntry(null);
-                  setEditFormData({});
-                }}
-              >
-                취소
-              </Button>
-              <Button variant="primary" onClick={handleSave} disabled={saving}>
-                {saving ? "저장 중..." : "저장"}
-              </Button>
+              {selectedEntry.completion_status === "완료" ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setSelectedEntry(null);
+                    setEditFormData({});
+                  }}
+                >
+                  닫기
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      setSelectedEntry(null);
+                      setEditFormData({});
+                    }}
+                  >
+                    취소
+                  </Button>
+                  <Button variant="primary" onClick={handleSave} disabled={saving}>
+                    {saving ? "저장 중..." : "저장"}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         )}
