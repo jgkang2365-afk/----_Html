@@ -12,6 +12,14 @@ import {
 } from "@/components/ui/Table";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
+import { Select } from "@/components/ui/Select";
+import {
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  Line, ComposedChart
+} from "recharts";
+import { Banknote, TrendingUp, ClipboardCheck, Send, AlertTriangle } from "lucide-react";
+
 
 interface DashboardData {
   totalCount: number;
@@ -34,12 +42,14 @@ interface DashboardData {
     비대상: number;
     전체: number;
   };
-  recentActivity: Array<{
+  overdueItems: Array<{
     id: number;
     business_name: string;
-    completion_status: string;
-    created_at: string;
-    updated_at: string;
+    measurement_end_date: string;
+    elapsed_days: number;
+    remaining_days: number;
+    status_prediction: string;
+    measurer: string;
   }>;
   k2bStats: {
     전송완료: number;
@@ -58,8 +68,11 @@ interface DashboardData {
     }>;
     monthly: Array<{
       month: string;
-      amount: number;
+      current: number | null;
+      previous: number;
     }>;
+    comparisonYear: number;
+    prevYear: number;
   };
   officeRevenue: Array<{
     office: string;
@@ -71,54 +84,70 @@ interface DashboardData {
   }>;
 }
 
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6366f1'];
+const STATUS_COLORS = { complete: '#10b981', incomplete: '#f59e0b' };
+
 export const Dashboard: React.FC = () => {
+  // 서울 시간대(Asia/Seoul) 기준으로 현재 년도 가져오기
+  const getCurrentYear = () => {
+    const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+    return seoulTime.getFullYear();
+  };
+
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 필터 상태
+  const [selectedYear, setSelectedYear] = useState<string>(getCurrentYear().toString());
+  const [selectedPeriod, setSelectedPeriod] = useState<string>("전체");
+
+  // 년도 옵션 생성
+  const currentYear = getCurrentYear();
+  const yearOptions = [
+    { value: "전체", label: "전체 년도" },
+    ...Array.from({ length: 6 }, (_, i) => {
+      const year = currentYear - i; // 올해부터 과거 5년
+      return { value: year.toString(), label: `${year}년` };
+    })
+  ];
+
+  const periodOptions = [
+    { value: "전체", label: "전체 주기" },
+    { value: "상반기", label: "상반기" },
+    { value: "하반기", label: "하반기" },
+  ];
+
   useEffect(() => {
     loadDashboardData();
-  }, []);
+  }, [selectedYear, selectedPeriod]);
 
   const loadDashboardData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await fetch("/api/dashboard", {
+      const params = new URLSearchParams();
+      if (selectedYear !== "전체") params.append("year", selectedYear);
+      if (selectedPeriod !== "전체") params.append("period", selectedPeriod);
+
+      const response = await fetch(`/api/dashboard?${params.toString()}`, {
         cache: "no-store",
       });
 
-      // 응답이 성공이 아니면 에러 처리
       if (!response.ok) {
         let errorMessage = `서버 오류 (${response.status})`;
         try {
-          // JSON 응답 시도
           const errorData = await response.json();
           errorMessage = errorData.error || errorData.message || errorData.details || errorMessage;
         } catch (jsonError) {
-          // JSON이 아니면 텍스트로 읽기 시도
-          try {
-            const text = await response.text();
-            if (text && text.length > 0) {
-              errorMessage = text.substring(0, 200); // 너무 길면 잘라내기
-            }
-          } catch (textError) {
-            // 읽기 실패 시 기본 메시지 사용
-            console.error("응답 읽기 실패:", textError);
-          }
+          // Ignore
         }
-        console.error("대시보드 API 오류:", {
-          status: response.status,
-          statusText: response.statusText,
-          errorMessage,
-        });
         setError(errorMessage);
         setLoading(false);
         return;
       }
 
-      // 성공 응답 파싱
       const result = await response.json();
       setData(result);
       setLoading(false);
@@ -131,13 +160,18 @@ export const Dashboard: React.FC = () => {
 
   const formatCurrency = (amount: number | null | undefined): string => {
     const numAmount = amount ?? 0;
-    return new Intl.NumberFormat("ko-KR", {
-      style: "currency",
-      currency: "KRW",
-    })
-      .format(numAmount)
-      .replace("₩", "")
-      .trim();
+    // 억/만 단위 간소화 (그래프용)
+    if (numAmount >= 100000000) {
+      return (numAmount / 100000000).toFixed(1) + "억";
+    } else if (numAmount >= 10000) {
+      return (numAmount / 10000).toFixed(0) + "만";
+    }
+    return new Intl.NumberFormat("ko-KR").format(numAmount);
+  };
+
+  const formatFullCurrency = (amount: number | null | undefined): string => {
+    const numAmount = amount ?? 0;
+    return new Intl.NumberFormat("ko-KR").format(numAmount);
   };
 
   if (loading) {
@@ -156,386 +190,271 @@ export const Dashboard: React.FC = () => {
     return <Alert variant="error">데이터를 불러올 수 없습니다.</Alert>;
   }
 
+  // 차트 데이터 준비
+  const pieData = data.officeRevenue.map(item => ({ name: item.office, value: item.amount }));
+  const periodBarData = [
+    {
+      name: "상반기",
+      완료: data.periodStats.상반기.complete,
+      미완료: data.periodStats.상반기.incomplete,
+      total: data.periodStats.상반기.total
+    },
+    {
+      name: "하반기",
+      완료: data.periodStats.하반기.complete,
+      미완료: data.periodStats.하반기.incomplete,
+      total: data.periodStats.하반기.total
+    }
+  ];
+
   return (
-    <div className="space-y-4">
-      {/* 주요 지표 카드 섹션 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">전체 측정건수</h3>
-          <p className="text-2xl font-bold text-text-900">{data.totalCount}건</p>
-        </Card>
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">완료 건수</h3>
-          <p className="text-2xl font-bold text-primary-600">{data.completeCount}건</p>
-        </Card>
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">미완료 건수</h3>
-          <p className="text-2xl font-bold text-warning-600">{data.incompleteCount}건</p>
-        </Card>
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">완료율</h3>
-          <p className="text-2xl font-bold text-success-600">{data.completionRate.toFixed(1)}%</p>
-        </Card>
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">측정비 매출</h3>
-          <p className="text-lg font-bold text-text-900">
-            {formatCurrency(data.revenue.measurementFee)}원
-          </p>
-        </Card>
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">기타 매출</h3>
-          <p className="text-lg font-bold text-text-900">
-            {formatCurrency(data.revenue.otherRevenue)}원
-          </p>
-        </Card>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      {/* 상단 필터 영역 */}
+      <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+        <h2 className="text-xl font-bold text-gray-800">대시보드</h2>
+        <div className="flex gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600">년도:</span>
+            <Select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              options={yearOptions}
+              className="w-32"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600">주기:</span>
+            <Select
+              value={selectedPeriod}
+              onChange={(e) => setSelectedPeriod(e.target.value)}
+              options={periodOptions}
+              className="w-32"
+            />
+          </div>
+        </div>
       </div>
 
-      {/* 재무 지표 카드 섹션 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">총 매출</h3>
-          <p className="text-lg font-bold text-primary-600">
-            {formatCurrency(data.revenue.total)}원
-          </p>
-        </Card>
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">총 입금액</h3>
-          <p className="text-lg font-bold text-success-600">
-            {formatCurrency(data.revenue.deposit)}원
-          </p>
-        </Card>
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">입금률</h3>
-          <p className="text-lg font-bold text-success-600">
-            {data.revenue.depositRate.toFixed(1)}%
-          </p>
-        </Card>
-        <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">평균 측정 기간</h3>
-          <p className="text-lg font-bold text-primary-600">
-            {data.averageMeasurementDays > 0 ? `${data.averageMeasurementDays}일` : "데이터 없음"}
-          </p>
-        </Card>
+      {/* 1. 핵심 지표 (KPI) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPIButton
+          title="총 매출"
+          value={`${formatFullCurrency(data.revenue.total)}원`}
+          subValue={`목표 대비 ${data.revenue.total > 0 ? '달성중' : '-'}`}
+          icon={<Banknote className="w-6 h-6" />}
+          color="blue"
+        />
+        <KPIButton
+          title="입금률"
+          value={`${data.revenue.depositRate.toFixed(1)}%`}
+          subValue={`미수금 ${formatCurrency(data.revenue.total - data.revenue.deposit)}원`}
+          icon={<TrendingUp className="w-6 h-6" />}
+          color={data.revenue.depositRate >= 80 ? "green" : "orange"}
+        />
+        <KPIButton
+          title="측정 완료율"
+          value={`${data.completionRate.toFixed(1)}%`}
+          subValue={`완료 ${data.completeCount} / 전체 ${data.totalCount}`}
+          icon={<ClipboardCheck className="w-6 h-6" />}
+          color={data.completionRate >= 80 ? "green" : "blue"}
+        />
+        <KPIButton
+          title="K2B 전송률"
+          value={`${data.totalCount > 0 ? ((data.k2bStats.전송완료 / data.totalCount) * 100).toFixed(1) : 0}%`}
+          subValue={`미전송 ${data.k2bStats.미전송}건`}
+          icon={<Send className="w-6 h-6" />}
+          color="purple"
+        />
       </div>
 
-      {/* 측정주기별 통계 및 국고지원 현황 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-text-900 mb-3">측정주기별 통계</h2>
-          <div className="space-y-3">
-            {(["상반기", "하반기"] as const).map((period) => {
-              const stats = data.periodStats[period];
-              const rate = stats.total > 0 ? (stats.complete / stats.total) * 100 : 0;
-              return (
-                <div key={period} className="border border-surface-200 rounded-lg p-3">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-semibold text-text-900">{period}</span>
-                    <span className="text-xs text-text-500">{stats.total}건</span>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-text-600">완료</span>
-                      <span className="font-medium text-primary-600">
-                        {stats.complete}건 ({rate.toFixed(1)}%)
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-text-600">미완료</span>
-                      <span className="font-medium text-warning-600">{stats.incomplete}건</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+      {/* 2. 메인 차트: 매출 추이 & 지청별 비중 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 월별 매출 추이 (비교 그래프) */}
+        <Card className="col-span-2 p-6 shadow-sm">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-bold text-gray-800">
+              월별 매출 추이 ({data.revenueTrend.comparisonYear} vs {data.revenueTrend.prevYear})
+            </h3>
+          </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={data.revenueTrend.monthly} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorCurrent" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={formatCurrency} />
+                <Tooltip
+                  formatter={(value: any, name: any) => [
+                    `${formatFullCurrency(value)}원`,
+                    name === "current" ? `${data.revenueTrend.comparisonYear}년` : `${data.revenueTrend.prevYear}년`
+                  ]}
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                <Legend formatter={(value) => value === "current" ? `${data.revenueTrend.comparisonYear}년 (현재)` : `${data.revenueTrend.prevYear}년 (이전)`} />
+
+                {/* 이전 년도: 점선 Line */}
+                <Line type="monotone" dataKey="previous" stroke="#9ca3af" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 4, fill: '#9ca3af' }} name="previous" />
+
+                {/* 현재 년도: 영역 Area */}
+                <Area type="monotone" dataKey="current" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorCurrent)" dot={{ r: 4, fill: '#3b82f6' }} name="current" />
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
         </Card>
 
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-text-900 mb-3">국고지원 현황</h2>
-          {data.nationalSupport.전체 === 0 ? (
-            <p className="text-text-400 text-sm text-center py-4">데이터가 없습니다.</p>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                <span className="text-sm font-medium text-text-700">지원</span>
-                <div className="text-right">
-                  <p className="text-lg font-bold text-success-600">{data.nationalSupport.지원}건</p>
-                  <p className="text-xs text-text-500">
-                    {data.nationalSupport.전체 > 0
-                      ? ((data.nationalSupport.지원 / data.nationalSupport.전체) * 100).toFixed(1)
-                      : 0}%
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-text-700">비대상</span>
-                <div className="text-right">
-                  <p className="text-lg font-bold text-text-600">{data.nationalSupport.비대상}건</p>
-                  <p className="text-xs text-text-500">
-                    {data.nationalSupport.전체 > 0
-                      ? ((data.nationalSupport.비대상 / data.nationalSupport.전체) * 100).toFixed(1)
-                      : 0}%
-                  </p>
-                </div>
-              </div>
-              <div className="pt-2 border-t border-surface-200">
-                <div className="flex justify-between text-xs text-text-500">
-                  <span>전체</span>
-                  <span className="font-medium">{data.nationalSupport.전체}건</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* K2B 전송 현황 및 연도/주기별 측정건수 추이 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-text-900 mb-3">K2B 전송 현황</h2>
-          <div className="space-y-2">
-            <div className="flex justify-between items-center py-2 border-b border-surface-100">
-              <span className="text-sm text-text-700">전송완료</span>
-              <span className="text-sm font-semibold text-success-600">{data.k2bStats.전송완료}건</span>
-            </div>
-            <div className="flex justify-between items-center py-2">
-              <span className="text-sm text-text-700">미전송</span>
-              <span className="text-sm font-semibold text-warning-600">{data.k2bStats.미전송}건</span>
-            </div>
-            {data.totalCount > 0 && (
-              <div className="pt-2 border-t border-surface-200">
-                <div className="text-xs text-text-500">
-                  전송률: {((data.k2bStats.전송완료 / data.totalCount) * 100).toFixed(1)}%
-                </div>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-text-900 mb-3">연도/주기별 측정건수 추이</h2>
-          {data.countTrend.length === 0 ? (
-            <p className="text-text-400 text-sm text-center py-4">데이터가 없습니다.</p>
-          ) : (
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {data.countTrend.slice(0, 10).map((item, index) => (
-                <div
-                  key={index}
-                  className="flex justify-between items-center py-1 border-b border-surface-100 last:border-0"
+        {/* 지청별 매출 비중 */}
+        <Card className="p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-800 mb-6">지청별 매출 비중</h3>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  paddingAngle={5}
+                  dataKey="value"
                 >
-                  <span className="text-sm font-medium text-text-700">
-                    {item.year}년 {item.period}
-                  </span>
-                  <span className="text-sm font-semibold text-text-900 whitespace-nowrap">
-                    {item.count}건
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+                  {pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: any) => `${formatFullCurrency(value)}원`} />
+                <Legend content={renderCustomizedLegend} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </Card>
       </div>
 
-      {/* 매출 추이 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-text-900 mb-3">년도별 매출 추이</h2>
-          {data.revenueTrend.yearly.length === 0 ? (
-            <p className="text-text-400 text-sm text-center py-4">데이터가 없습니다.</p>
-          ) : (
-            <div className="space-y-3">
-              {(() => {
-                const maxAmount = Math.max(...data.revenueTrend.yearly.map((item) => item.amount));
-                return data.revenueTrend.yearly.map((item) => {
-                  const percentage = maxAmount > 0 ? (item.amount / maxAmount) * 100 : 0;
-                  return (
-                    <div key={item.year} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-text-700">{item.year}년</span>
-                        <span className="text-sm font-semibold text-text-900 whitespace-nowrap">
-                          {formatCurrency(item.amount)}원
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-3 bg-surface-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary-500 rounded-full transition-all"
-                            style={{ width: `${percentage}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-text-500 w-12 text-right">
-                          {percentage.toFixed(0)}%
-                        </span>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          )}
+      {/* 3. 하단 차트: 완료 현황 & 테이블 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-800 mb-6">측정주기별 진행 현황</h3>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={periodBarData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+                <XAxis type="number" hide />
+                <YAxis dataKey="name" type="category" fontSize={14} width={50} tickLine={false} axisLine={false} />
+                <Tooltip cursor={{ fill: 'transparent' }} />
+                <Legend iconType="circle" />
+                <Bar dataKey="완료" stackId="a" fill={STATUS_COLORS.complete} radius={[0, 4, 4, 0]} barSize={20} />
+                <Bar dataKey="미완료" stackId="a" fill={STATUS_COLORS.incomplete} radius={[0, 4, 4, 0]} barSize={20} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </Card>
 
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-text-900 mb-3">월별 매출 추이 (최근 12개월)</h2>
-          {data.revenueTrend.monthly.length === 0 ? (
-            <p className="text-text-400 text-sm text-center py-4">데이터가 없습니다.</p>
-          ) : (
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {(() => {
-                const maxAmount = Math.max(...data.revenueTrend.monthly.map((item) => item.amount));
-                return data.revenueTrend.monthly.map((item) => {
-                  const percentage = maxAmount > 0 ? (item.amount / maxAmount) * 100 : 0;
-                  return (
-                    <div key={item.month} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-text-700">{item.month}</span>
-                        <span className="text-sm font-semibold text-text-900 whitespace-nowrap">
-                          {formatCurrency(item.amount)}원
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2.5 bg-surface-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary-500 rounded-full transition-all"
-                            style={{ width: `${percentage}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-text-500 w-10 text-right">
-                          {percentage.toFixed(0)}%
-                        </span>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* 지정지청별 및 측정주기별 매출 현황 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-text-900 mb-3">지정지청별 매출 현황</h2>
-          {data.officeRevenue.length === 0 ? (
-            <p className="text-text-400 text-sm text-center py-4">데이터가 없습니다.</p>
-          ) : (
-            <div className="space-y-3">
-              {(() => {
-                const maxAmount = Math.max(...data.officeRevenue.map((item) => item.amount));
-                return data.officeRevenue.map((item) => {
-                  const percentage = maxAmount > 0 ? (item.amount / maxAmount) * 100 : 0;
-                  return (
-                    <div key={item.office} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-text-700 truncate pr-2">
-                          {item.office}
-                        </span>
-                        <span className="text-sm font-semibold text-primary-600 whitespace-nowrap">
-                          {formatCurrency(item.amount)}원
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-3 bg-surface-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary-500 rounded-full transition-all"
-                            style={{ width: `${percentage}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-text-500 w-12 text-right">
-                          {percentage.toFixed(0)}%
-                        </span>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          )}
-        </Card>
-
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-text-900 mb-3">측정주기별 매출 현황</h2>
-          {data.periodRevenue.length === 0 ? (
-            <p className="text-text-400 text-sm text-center py-4">데이터가 없습니다.</p>
-          ) : (
-            <div className="space-y-3">
-              {(() => {
-                const totalRevenue = data.periodRevenue.reduce((sum, p) => sum + p.amount, 0);
-                return data.periodRevenue.map((item) => {
-                  const percentage = totalRevenue > 0 ? (item.amount / totalRevenue) * 100 : 0;
-                  return (
-                    <div key={item.period} className="border border-surface-200 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-semibold text-text-900">{item.period}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-text-500">{percentage.toFixed(1)}%</span>
-                          <span className="text-sm font-bold text-primary-600">
-                            {formatCurrency(item.amount)}원
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-3 bg-surface-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary-500 rounded-full transition-all"
-                            style={{ width: `${percentage}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* 최근 측정 활동 */}
-      <Card className="p-4">
-        <h2 className="text-sm font-semibold text-text-900 mb-3">최근 측정 활동 (최근 7일)</h2>
-        {data.recentActivity.length === 0 ? (
-          <p className="text-text-400 text-sm text-center py-4">최근 활동이 없습니다.</p>
-        ) : (
-          <div className="overflow-x-auto">
+        {/* 측정 경과 일수(K2B 전송 잔여일수) 현황 */}
+        <Card className="p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle className="w-5 h-5 text-red-500 animate-pulse" />
+            <h3 className="text-lg font-bold text-gray-800">측정 경과 일수(측정종료일 기준 20일 경과만 표시)</h3>
+            <span className="text-xs text-gray-500 font-normal ml-auto">기준: 측정종료일 포함 30일</span>
+          </div>
+          <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="bg-surface-50 text-xs">사업장명</TableHead>
-                  <TableHead className="bg-surface-50 text-xs">완료상태</TableHead>
-                  <TableHead className="bg-surface-50 text-xs">생성일</TableHead>
-                  <TableHead className="bg-surface-50 text-xs">수정일</TableHead>
+                <TableRow className="border-b border-gray-100 hover:bg-transparent">
+                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 shadow-sm h-10 w-[20%]">사업장명</TableHead>
+                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[10%]">보고서 담당자</TableHead>
+                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[15%]">측정종료일</TableHead>
+                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-right shadow-sm h-10 w-[10%]">경과일수</TableHead>
+                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-right shadow-sm h-10 w-[10%]">잔여일수</TableHead>
+                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[15%]">K2B전송일</TableHead>
+                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[10%]">처리결과</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.recentActivity.map((activity) => (
-                  <TableRow key={activity.id} className="hover:bg-surface-50">
-                    <TableCell className="text-sm font-medium">{activity.business_name}</TableCell>
-                    <TableCell className="text-sm">
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs ${
-                          activity.completion_status === "완료"
-                            ? "bg-success-100 text-success-700"
-                            : "bg-warning-100 text-warning-700"
-                        }`}
-                      >
-                        {activity.completion_status}
+                {data.overdueItems.map((item) => (
+                  <TableRow key={item.id} className="border-b border-gray-50 last:border-0 hover:bg-red-50/30">
+                    <TableCell className="text-sm font-medium text-gray-700 py-3">{item.business_name}</TableCell>
+                    <TableCell className="text-sm text-gray-600 text-center py-3">{item.measurer}</TableCell>
+                    <TableCell className="text-sm text-gray-600 text-center py-3">
+                      {new Date(item.measurement_end_date).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-sm text-gray-600 text-right py-3">
+                      {item.elapsed_days}일
+                    </TableCell>
+                    <TableCell className={`text-sm font-bold text-right py-3 ${item.remaining_days >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                      {item.remaining_days >= 0 ? `-${item.remaining_days}일` : `+${Math.abs(item.remaining_days)}일`}
+                    </TableCell>
+                    <TableCell className="text-sm text-gray-400 text-center py-3">-</TableCell>
+                    <TableCell className="text-center py-3">
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${item.status_prediction === "적합"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-red-100 text-red-700"
+                        }`}>
+                        {item.status_prediction}
                       </span>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {new Date(activity.created_at).toLocaleDateString("ko-KR")}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {new Date(activity.updated_at).toLocaleDateString("ko-KR")}
                     </TableCell>
                   </TableRow>
                 ))}
+                {data.overdueItems.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-gray-400 py-8">
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-2xl">✓</span>
+                        <span>미처리된 K2B 전송 건이 없습니다. (최근 20일 이상 경과 건 없음)</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </div>
-        )}
-      </Card>
+        </Card>
+      </div>
     </div>
+  );
+};
+
+// 보조 컴포넌트들 (KPIButton, Legend)
+const KPIButton = ({ title, value, subValue, icon, color }: { title: string, value: string, subValue: string, icon: React.ReactNode, color: string }) => {
+  const colorMap: Record<string, string> = {
+    blue: "bg-blue-50 text-blue-600 border-blue-100",
+    green: "bg-emerald-50 text-emerald-600 border-emerald-100",
+    orange: "bg-amber-50 text-amber-600 border-amber-100",
+    purple: "bg-purple-50 text-purple-600 border-purple-100",
+    red: "bg-rose-50 text-rose-600 border-rose-100",
+  };
+
+  const activeColor = colorMap[color] || colorMap.blue;
+
+  return (
+    <Card className="p-5 shadow-sm hover:shadow-md transition-shadow duration-200 border-l-4 border-l-transparent hover:border-l-primary-500">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-medium text-text-500 mb-1">{title}</p>
+          <h3 className="text-2xl font-bold text-text-900">{value}</h3>
+          <p className="text-xs text-text-400 mt-2">{subValue}</p>
+        </div>
+        <div className={`p-3 rounded-xl ${activeColor} transition-transform hover:scale-110`}>
+          {icon}
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+const renderCustomizedLegend = (props: any) => {
+  const { payload } = props;
+  return (
+    <ul className="flex flex-wrap justify-center gap-2 mt-4 text-xs">
+      {payload.map((entry: any, index: number) => (
+        <li key={`item-${index}`} className="flex items-center gap-1 text-gray-600">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+          <span>{entry.value}</span>
+        </li>
+      ))}
+    </ul>
   );
 };
