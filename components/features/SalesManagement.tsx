@@ -23,6 +23,8 @@ import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { DESIGNATED_OFFICE_OPTIONS, DESIGNATED_OFFICES_FOR_SALES } from "@/lib/constants/designated-offices";
 import { JournalEditForm } from "./JournalEditForm";
 
+import * as XLSX from "xlsx";
+
 interface MeasurementRevenue {
   id: number;
   code: string;
@@ -161,6 +163,19 @@ export const SalesManagement: React.FC = () => {
   const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
   const [isJournalFormSubmitting, setIsJournalFormSubmitting] = useState(false);
   const [selectedJournalEntry, setSelectedJournalEntry] = useState<any>(null);
+
+  // 측정비 일괄 업로드 관련 상태
+  const [isMeasurementUploadModalOpen, setIsMeasurementUploadModalOpen] = useState(false);
+  const [measurementUploadFile, setMeasurementUploadFile] = useState<File | null>(null);
+  const [measurementUploadLoading, setMeasurementUploadLoading] = useState(false);
+  const [measurementUploadError, setMeasurementUploadError] = useState<string | null>(null);
+  const [measurementUploadResult, setMeasurementUploadResult] = useState<{
+    success: boolean;
+    message: string;
+    successCount: number;
+    failCount: number;
+    details?: string[];
+  } | null>(null);
 
   // 미수관리 필터 및 정렬 상태
   const [unpaidFilters, setUnpaidFilters] = useState({
@@ -648,6 +663,122 @@ export const SalesManagement: React.FC = () => {
     setUploadResult(null);
   };
 
+  // 측정비 일괄 업로드 핸들러
+  const handleMeasurementUploadFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const validExtensions = [".xlsx", ".xls"];
+      const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf("."));
+      if (!validExtensions.includes(fileExtension)) {
+        setMeasurementUploadError("Excel 파일(.xlsx, .xls)만 업로드할 수 있습니다.");
+        return;
+      }
+      setMeasurementUploadFile(file);
+      setMeasurementUploadError(null);
+      setMeasurementUploadResult(null);
+    }
+  };
+
+  const handleMeasurementUpload = async () => {
+    if (!measurementUploadFile) {
+      setMeasurementUploadError("파일을 선택해주세요.");
+      return;
+    }
+
+    setMeasurementUploadLoading(true);
+    setMeasurementUploadError(null);
+    setMeasurementUploadResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", measurementUploadFile);
+
+      const response = await fetch("/api/sales/measurement/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setMeasurementUploadResult(data);
+        await loadSalesData();
+      } else {
+        setMeasurementUploadError(data.error || "업로드 중 오류가 발생했습니다.");
+      }
+    } catch (error: any) {
+      console.error("업로드 오류:", error);
+      setMeasurementUploadError(error.message || "업로드 중 오류가 발생했습니다.");
+    } finally {
+      setMeasurementUploadLoading(false);
+    }
+  };
+
+  const handleMeasurementUploadModalClose = () => {
+    setIsMeasurementUploadModalOpen(false);
+    setMeasurementUploadFile(null);
+    setMeasurementUploadError(null);
+    setMeasurementUploadResult(null);
+  };
+
+  // 양식 다운로드 핸들러
+  const handleDownloadTemplate = () => {
+    // 템플릿 데이터 생성
+    const templateData = [
+      {
+        "코드(필수)": "H0433",
+        "측정년도(필수)": "2025",
+        "측정주기(필수)": "상반기",
+        "사업장명(참고용)": "(주)예시사업장",
+        "측정비(사업장)": "150000",
+        "입금일(사업장)": "2025-05-15",
+        "입금액(사업장)": "150000",
+        "측정비(국고)": "300000",
+        "입금일(국고)": "2025-06-20",
+        "입금액(국고)": "300000",
+        "전자계산서 발행일": "2025-05-10",
+        "계산서 이메일": "tax@example.com"
+      },
+      {
+        "코드(필수)": "입력필수",
+        "측정년도(필수)": "입력필수",
+        "측정주기(필수)": "입력필수",
+        "사업장명(참고용)": "",
+        "측정비(사업장)": "",
+        "입금일(사업장)": "",
+        "입금액(사업장)": "",
+        "측정비(국고)": "",
+        "입금일(국고)": "",
+        "입금액(국고)": "",
+        "전자계산서 발행일": "",
+        "계산서 이메일": ""
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+
+    // 컬럼 너비 설정
+    const wscols = [
+      { wch: 10 }, // 코드
+      { wch: 15 }, // 측정년도
+      { wch: 15 }, // 측정주기
+      { wch: 20 }, // 사업장명
+      { wch: 15 }, // 측정비(사업장)
+      { wch: 15 }, // 입금일(사업장)
+      { wch: 15 }, // 입금액(사업장)
+      { wch: 15 }, // 측정비(국고)
+      { wch: 15 }, // 입금일(국고)
+      { wch: 15 }, // 입금액(국고)
+      { wch: 15 }, // 전자계산서 발행일
+      { wch: 20 }, // 계산서 이메일
+    ];
+    ws["!cols"] = wscols;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "입금정보일괄업로드양식");
+    XLSX.writeFile(wb, "측정비_입금정보_업로드_양식.xlsx");
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -664,6 +795,24 @@ export const SalesManagement: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="secondary"
+          className="bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+          onClick={handleDownloadTemplate}
+        >
+          <span className="mr-2">📥</span>
+          양식 다운로드
+        </Button>
+        <Button
+          variant="secondary"
+          className="bg-white border-primary-200 text-primary-700 hover:bg-primary-50"
+          onClick={() => setIsMeasurementUploadModalOpen(true)}
+        >
+          <span className="mr-2">📊</span>
+          측정비 일괄 업로드
+        </Button>
+      </div>
 
 
       {error && <Alert variant="error">{error}</Alert>}
@@ -3129,6 +3278,89 @@ export const SalesManagement: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* 측정비 일괄 업로드 모달 (부분 업데이트) */}
+      <Modal
+        isOpen={isMeasurementUploadModalOpen}
+        onClose={handleMeasurementUploadModalClose}
+        title="측정비 일괄 업로드 (부분 업데이트)"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800 mb-4">
+            <h4 className="font-bold mb-2">📌 업로드 안내</h4>
+            <ul className="list-disc ml-4 space-y-1">
+              <li><strong>식별자(필수):</strong> 코드, 측정년도, 측정주기가 반드시 일치해야 업데이트됩니다.</li>
+              <li><strong>부분 업데이트:</strong> 엑셀 파일에 값이 <strong>입력된 셀만 업데이트</strong>되며, 비어있는 셀은 기존 값을 유지합니다.</li>
+              <li><strong>업데이트 가능 항목:</strong> 측정비(사업장/국고), 입금일/입금액(사업장/국고), 전자계산서 발행일, 계산서 이메일 등</li>
+            </ul>
+          </div>
+
+          <div className="flex justify-end mb-4">
+            <Button
+              variant="secondary"
+              className="text-sm py-1 px-3"
+              onClick={handleDownloadTemplate}
+            >
+              📥 양식 다운로드
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-text-700">Excel 파일 선택</label>
+            <Input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleMeasurementUploadFileChange}
+              className="block w-full text-sm text-text-600 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 cursor-pointer"
+              disabled={measurementUploadLoading}
+            />
+            {measurementUploadFile && (
+              <p className="mt-2 text-sm text-text-600">선택된 파일: {measurementUploadFile.name}</p>
+            )}
+          </div>
+
+          {measurementUploadError && (
+            <Alert variant="error">{measurementUploadError}</Alert>
+          )}
+
+          {measurementUploadResult && (
+            <Alert variant={measurementUploadResult.success ? "success" : "warning"}>
+              <div className="space-y-2">
+                <p className="font-semibold">{measurementUploadResult.message}</p>
+                {measurementUploadResult.details && measurementUploadResult.details.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-sm font-medium">
+                      상세 결과 ({measurementUploadResult.failCount}건 오류)
+                    </summary>
+                    <ul className="mt-2 ml-4 list-disc space-y-1 text-sm max-h-60 overflow-y-auto">
+                      {measurementUploadResult.details.map((msg, index) => (
+                        <li key={index}>{msg}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            </Alert>
+          )}
+
+          <div className="flex justify-end gap-2 pt-4 border-t">
+            <Button
+              variant="secondary"
+              onClick={handleMeasurementUploadModalClose}
+            >
+              닫기
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleMeasurementUpload}
+              disabled={!measurementUploadFile || measurementUploadLoading}
+            >
+              {measurementUploadLoading ? "업로드 중..." : "업로드"}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
