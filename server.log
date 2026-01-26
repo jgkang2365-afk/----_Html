@@ -1,0 +1,142 @@
+
+> measurement-journal-system@0.1.0 dev
+> next dev
+
+  ??Next.js 14.2.0
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ??Starting...
+ ??Ready in 2.1s
+ ??Compiled /middleware in 486ms (84 modules)
+ ??Compiling /api/auth/user ...
+ ??Compiled /api/auth/user in 540ms (115 modules)
+[API /api/auth/user] ?ъ슜???뺣낫 議고쉶 ?쒖옉
+[API /api/auth/user] getUser ?몄텧 ?쒖옉
+[API /api/auth/user] getUser ?몄텧 ?꾨즺, user: null
+ GET /api/auth/user 200 in 2433ms
+ GET /api/auth/user 200 in 1803ms
+[API /api/auth/user] ?ъ슜???뺣낫 議고쉶 ?쒖옉
+[API /api/auth/user] getUser ?몄텧 ?쒖옉
+[API /api/auth/user] getUser ?몄텧 ?꾨즺, user: null
+[getSession] ?몄뀡 荑좏궎 ?뚯떛 ?ㅻ쪟: SyntaxError: Unexpected token 'i', "invalid_json" is not valid JSON
+    at JSON.parse (<anonymous>)
+    at getSession (webpack-internal:///(rsc)/./lib/auth/session.ts:42:25)
+    at async getUser (webpack-internal:///(rsc)/./lib/auth/get-user.ts:13:25)
+    at async GET (webpack-internal:///(rsc)/./app/api/auth/user/route.ts:20:20)
+    at async C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:53238
+    at async e_.execute (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:44501)
+    at async e_.handle (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:54492)
+    at async doRender (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1372:42)
+    at async cacheEntry.responseCache.get.routeKind (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1594:28)
+[getSession] ?뚯떛 ?ㅻ쪟 硫붿떆吏: Unexpected token 'i', "invalid_json" is not valid JSON
+[getSession] 荑좏궎 媛? invalid_json
+ GET /api/auth/user 200 in 42ms
+ GET /api/auth/user 200 in 30ms
+[API /api/auth/user] ?ъ슜???뺣낫 議고쉶 ?쒖옉
+[API /api/auth/user] getUser ?몄텧 ?쒖옉
+[getUser] ?ъ슜??議고쉶 ?ㅻ쪟: {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[getUser] ?ㅻ쪟 肄붾뱶: PGRST116
+[getUser] ?ㅻ쪟 硫붿떆吏: Cannot coerce the result to a single JSON object
+[getUser] ?몄뀡 userId: 99999
+[getUser] ?⑥닔 ?ㅻ쪟: Error: ?ъ슜??議고쉶 ?ㅽ뙣: Cannot coerce the result to a single JSON object
+    at getUser (webpack-internal:///(rsc)/./lib/auth/get-user.ts:32:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async GET (webpack-internal:///(rsc)/./app/api/auth/user/route.ts:20:20)
+    at async C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:53238
+    at async e_.execute (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:44501)
+    at async e_.handle (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:54492)
+    at async doRender (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1372:42)
+    at async cacheEntry.responseCache.get.routeKind (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1594:28)
+    at async DevServer.renderToResponseWithComponentsImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1502:28)
+    at async DevServer.renderPageComponent (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1919:24)
+    at async DevServer.renderToResponseImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1957:32)
+    at async DevServer.pipeImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:915:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:811:17)
+    at async C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:174:21)
+    at async handleRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:353:24)
+    at async requestHandlerImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:377:13)
+    at async Server.requestListener (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\start-server.js:141:13)
+[getUser] ?먮윭 硫붿떆吏: ?ъ슜??議고쉶 ?ㅽ뙣: Cannot coerce the result to a single JSON object
+[getUser] ?먮윭 ?ㅽ깮: Error: ?ъ슜??議고쉶 ?ㅽ뙣: Cannot coerce the result to a single JSON object
+    at getUser (webpack-internal:///(rsc)/./lib/auth/get-user.ts:32:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async GET (webpack-internal:///(rsc)/./app/api/auth/user/route.ts:20:20)
+    at async C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:53238
+    at async e_.execute (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:44501)
+    at async e_.handle (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:54492)
+    at async doRender (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1372:42)
+    at async cacheEntry.responseCache.get.routeKind (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1594:28)
+    at async DevServer.renderToResponseWithComponentsImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1502:28)
+    at async DevServer.renderPageComponent (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1919:24)
+    at async DevServer.renderToResponseImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1957:32)
+    at async DevServer.pipeImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:915:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:811:17)
+    at async C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:174:21)
+    at async handleRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:353:24)
+    at async requestHandlerImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:377:13)
+    at async Server.requestListener (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\start-server.js:141:13)
+[API /api/auth/user] getUser ?몄텧 以??ㅻ쪟: Error: ?ъ슜??議고쉶 ?ㅽ뙣: Cannot coerce the result to a single JSON object
+    at getUser (webpack-internal:///(rsc)/./lib/auth/get-user.ts:32:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async GET (webpack-internal:///(rsc)/./app/api/auth/user/route.ts:20:20)
+    at async C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:53238
+    at async e_.execute (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:44501)
+    at async e_.handle (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:54492)
+    at async doRender (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1372:42)
+    at async cacheEntry.responseCache.get.routeKind (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1594:28)
+    at async DevServer.renderToResponseWithComponentsImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1502:28)
+    at async DevServer.renderPageComponent (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1919:24)
+    at async DevServer.renderToResponseImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1957:32)
+    at async DevServer.pipeImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:915:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:811:17)
+    at async C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:174:21)
+    at async handleRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:353:24)
+    at async requestHandlerImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:377:13)
+    at async Server.requestListener (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\start-server.js:141:13)
+[API /api/auth/user] ===== ?덉쇅 諛쒖깮 =====
+[API /api/auth/user] ?ㅻ쪟 ??? object
+[API /api/auth/user] ?ㅻ쪟 ?대쫫: Error
+[API /api/auth/user] ?ㅻ쪟 硫붿떆吏: ?ъ슜??議고쉶 ?ㅽ뙣: Cannot coerce the result to a single JSON object
+[API /api/auth/user] ?ㅻ쪟 ?ㅽ깮: Error: ?ъ슜??議고쉶 ?ㅽ뙣: Cannot coerce the result to a single JSON object
+    at getUser (webpack-internal:///(rsc)/./lib/auth/get-user.ts:32:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async GET (webpack-internal:///(rsc)/./app/api/auth/user/route.ts:20:20)
+    at async C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:53238
+    at async e_.execute (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:44501)
+    at async e_.handle (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:54492)
+    at async doRender (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1372:42)
+    at async cacheEntry.responseCache.get.routeKind (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1594:28)
+    at async DevServer.renderToResponseWithComponentsImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1502:28)
+    at async DevServer.renderPageComponent (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1919:24)
+    at async DevServer.renderToResponseImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:1957:32)
+    at async DevServer.pipeImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:915:25)
+    at async NextNodeServer.handleCatchallRenderRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\base-server.js:811:17)
+    at async C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:174:21)
+    at async handleRequest (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:353:24)
+    at async requestHandlerImpl (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\router-server.js:377:13)
+    at async Server.requestListener (C:\Users\USER\Desktop\cursor\痢≪젙?쇱?_html\node_modules\next\dist\server\lib\start-server.js:141:13)
+ GET /api/auth/user 500 in 1605ms
+ GET /api/auth/user 500 in 1597ms
+ ??Compiled in 393ms (115 modules)

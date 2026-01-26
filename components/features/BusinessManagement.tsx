@@ -86,15 +86,9 @@ export const BusinessManagement: React.FC = () => {
   // 모달 상태
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isNationalSupportUploadModalOpen, setIsNationalSupportUploadModalOpen] = useState(false);
   const [isExcelUploadModalOpen, setIsExcelUploadModalOpen] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessEntry | null>(null);
 
-  // 건강디딤돌 신청결과 업로드 상태
-  const [nationalSupportUploadFile, setNationalSupportUploadFile] = useState<File | null>(null);
-  const [nationalSupportUploadLoading, setNationalSupportUploadLoading] = useState(false);
-  const [nationalSupportUploadError, setNationalSupportUploadError] = useState<string | null>(null);
-  const [nationalSupportUploadResult, setNationalSupportUploadResult] = useState<any>(null);
 
   // 계획 생성 상태
   const [generatingPlan, setGeneratingPlan] = useState(false);
@@ -657,13 +651,6 @@ export const BusinessManagement: React.FC = () => {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => setIsNationalSupportUploadModalOpen(true)}
-            className="shadow-sm"
-          >
-            건강디딤돌 신청결과 업로드
-          </Button>
-          <Button
-            variant="secondary"
             onClick={() => setIsExcelUploadModalOpen(true)}
             className="shadow-sm"
           >
@@ -1146,143 +1133,7 @@ export const BusinessManagement: React.FC = () => {
       </Modal>
 
       {/* 건강디딤돌 신청결과 업로드 모달 */}
-      <Modal
-        isOpen={isNationalSupportUploadModalOpen}
-        onClose={() => {
-          setIsNationalSupportUploadModalOpen(false);
-          setNationalSupportUploadFile(null);
-          setNationalSupportUploadError(null);
-          setNationalSupportUploadResult(null);
-        }}
-        title="건강디딤돌 신청결과 업로드"
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-2">
-              Excel 파일 선택
-            </label>
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  setNationalSupportUploadFile(file);
-                  setNationalSupportUploadError(null);
-                  setNationalSupportUploadResult(null);
-                }
-              }}
-              className="block w-full text-sm text-text-600
-                file:mr-4 file:py-2 file:px-4
-                file:rounded-md file:border-0
-                file:text-sm file:font-semibold
-                file:bg-primary-600 file:text-white
-                hover:file:bg-primary-700"
-            />
-          </div>
 
-          {nationalSupportUploadError && (
-            <Alert variant="error">{nationalSupportUploadError}</Alert>
-          )}
-
-          {nationalSupportUploadResult && (
-            <Alert variant={nationalSupportUploadResult.success ? "success" : "error"}>
-              <div>
-                <p className="font-semibold mb-1">{nationalSupportUploadResult.message || "처리 완료"}</p>
-                {nationalSupportUploadResult.processed !== undefined && (
-                  <p className="text-sm">처리된 사업장: {nationalSupportUploadResult.processed}개</p>
-                )}
-                {nationalSupportUploadResult.updated !== undefined && (
-                  <p className="text-sm">업데이트된 측정일지: {nationalSupportUploadResult.updated}개</p>
-                )}
-                {nationalSupportUploadResult.errors && nationalSupportUploadResult.errors.length > 0 && (
-                  <div className="mt-2 text-sm">
-                    <p className="font-semibold">오류 상세 ({nationalSupportUploadResult.errors.length}건):</p>
-                    <ul className="list-disc list-inside mt-1 max-h-40 overflow-y-auto">
-                      {nationalSupportUploadResult.errors.slice(0, 10).map((error: string, idx: number) => (
-                        <li key={idx}>{error}</li>
-                      ))}
-                      {nationalSupportUploadResult.errors.length > 10 && (
-                        <li>...외 {nationalSupportUploadResult.errors.length - 10}건</li>
-                      )}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </Alert>
-          )}
-
-          <div className="flex justify-end gap-3">
-            <Button
-              variant={nationalSupportUploadResult ? "primary" : "secondary"}
-              onClick={() => {
-                setIsNationalSupportUploadModalOpen(false);
-                setNationalSupportUploadFile(null);
-                setNationalSupportUploadError(null);
-                setNationalSupportUploadResult(null);
-              }}
-              disabled={nationalSupportUploadLoading}
-            >
-              {nationalSupportUploadResult ? "닫기" : "취소"}
-            </Button>
-            <Button
-              variant="primary"
-              onClick={async () => {
-                if (!nationalSupportUploadFile) {
-                  setNationalSupportUploadError("파일을 선택해주세요.");
-                  return;
-                }
-
-                setNationalSupportUploadLoading(true);
-                setNationalSupportUploadError(null);
-                setNationalSupportUploadResult(null);
-
-                try {
-                  const formData = new FormData();
-                  formData.append("file", nationalSupportUploadFile);
-                  formData.append("year", selectedYear);
-                  formData.append("period", selectedPeriod);
-
-                  const response = await fetch("/api/businesses/national-support/upload", {
-                    method: "POST",
-                    body: formData,
-                  });
-
-                  const data = await response.json();
-                  console.log("업로드 응답:", data, "response.ok:", response.ok); // 디버깅용
-
-                  // 응답이 성공이거나 데이터가 있으면 결과 표시
-                  if (response.ok) {
-                    if (data.success) {
-                      setNationalSupportUploadResult(data);
-                      // 업로드 성공 시 목록 새로고침 (약간의 지연 후)
-                      setTimeout(async () => {
-                        await loadBusinesses();
-                      }, 500);
-                    } else {
-                      // API에서 success: false를 반환한 경우
-                      setNationalSupportUploadResult(data);
-                      setNationalSupportUploadError(data.error || data.message || "업로드 처리 중 오류가 발생했습니다.");
-                    }
-                  } else {
-                    // HTTP 오류 응답
-                    setNationalSupportUploadResult(data);
-                    setNationalSupportUploadError(data.error || data.message || `업로드 실패 (${response.status})`);
-                  }
-                } catch (error: any) {
-                  console.error("건강디딤돌 신청결과 업로드 오류:", error);
-                  setNationalSupportUploadError(error.message || "업로드 중 오류가 발생했습니다.");
-                } finally {
-                  setNationalSupportUploadLoading(false);
-                }
-              }}
-              disabled={!nationalSupportUploadFile || nationalSupportUploadLoading || !!nationalSupportUploadResult}
-            >
-              {nationalSupportUploadLoading ? "업로드 중..." : "업로드"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
 
       <Modal
         isOpen={isExcelUploadModalOpen}

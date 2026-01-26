@@ -25,7 +25,9 @@ export async function getUser() {
       .from("users")
       .select("id, name, role")
       .eq("id", session.userId)
-      .single();
+      .eq("id", session.userId)
+      .limit(1)
+      .maybeSingle();
 
     if (userError) {
       console.error("[getUser] 사용자 조회 오류:", userError);

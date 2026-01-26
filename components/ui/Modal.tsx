@@ -137,7 +137,7 @@ export const Modal: React.FC<ModalProps> = ({
         className={cn(
           "relative bg-white rounded-2xl shadow-2xl w-full mx-auto animate-scale-up ring-1 ring-slate-900/5 flex flex-col",
           sizes[size],
-          "max-h-[85vh]",
+          "max-h-[85vh] overflow-hidden",
           isDragging && "cursor-move"
         )}
         style={{
@@ -188,7 +188,7 @@ export const Modal: React.FC<ModalProps> = ({
         )}
 
         {/* 내용 - 스크롤 가능 */}
-        <div className="px-8 pb-8 overflow-y-auto custom-scrollbar flex-1">
+        <div className="px-8 pb-8 overflow-y-auto custom-scrollbar flex-1 min-h-0">
           <div className="text-text-900">{children}</div>
         </div>
       </div>

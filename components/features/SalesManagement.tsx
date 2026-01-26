@@ -2942,7 +2942,7 @@ export const SalesManagement: React.FC = () => {
             setIsJournalModalOpen(false);
             setSelectedJournalEntry(null);
           }}
-          title="측정일지 수정"
+          title="매출관리 수정"
           size="3xl"
           headerActions={
             <div className="flex gap-2">
@@ -2968,6 +2968,7 @@ export const SalesManagement: React.FC = () => {
         >
           <JournalEditForm
             entry={selectedJournalEntry}
+            mode="sales"
             onClose={() => {
               setIsJournalModalOpen(false);
               setSelectedJournalEntry(null);

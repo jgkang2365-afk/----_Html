@@ -47,6 +47,7 @@ interface JournalEntry {
   manager_email?: string | null;
   manager_position?: string | null;
   industrial_accident_number?: string | null;
+  invoice_email?: string | null;
   created_at: string;
   updated_at: string;
   _isFromBusiness?: boolean; // measurement_business에서 온 데이터인지 표시
@@ -338,6 +339,7 @@ export const JournalSearch: React.FC = () => {
     manager_mobile?: string;
     manager_email?: string;
     industrial_accident_number?: string;
+    invoice_email?: string;
   }) => {
     setIsRegisterModalOpen(false);
 
@@ -359,6 +361,7 @@ export const JournalSearch: React.FC = () => {
       manager_mobile: data.manager_mobile,
       manager_email: data.manager_email,
       industrial_accident_number: data.industrial_accident_number,
+      invoice_email: data.invoice_email,
       completion_status: "미완료",
       measurement_start_date: null,
       measurement_end_date: null,
@@ -1272,6 +1275,7 @@ export const JournalSearch: React.FC = () => {
           <JournalEditForm
             key={selectedEntry.id || `new-${selectedEntry.code}-${selectedEntry.measurement_year}-${selectedEntry.measurement_period}`}
             entry={selectedEntry}
+            mode="journal"
             onClose={handleModalClose}
             onSuccess={handleSaveSuccess}
             setIsSubmitting={setIsJournalFormSubmitting}
