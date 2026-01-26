@@ -3,7 +3,7 @@
  * 역할 기반 접근 제어(RBAC)를 구현합니다.
  */
 
-export type UserRole = "관리자" | "사용자";
+export type UserRole = "관리자" | "사용자" | "DB관리";
 
 export type Permission =
   | "journal:read"
@@ -22,6 +22,18 @@ export type Permission =
  */
 const rolePermissions: Record<UserRole, Permission[]> = {
   관리자: [
+    "journal:read",
+    "journal:write",
+    "journal:delete",
+    "survey:read",
+    "survey:write",
+    "dashboard:read",
+    "sales:read",
+    "sales:write",
+    "system:settings",
+    "users:manage",
+  ],
+  DB관리: [
     "journal:read",
     "journal:write",
     "journal:delete",
