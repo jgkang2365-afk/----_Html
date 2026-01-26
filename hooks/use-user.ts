@@ -7,7 +7,7 @@ interface User {
   id: string;
   email: string;
   name: string;
-  role: "관리자" | "사용자";
+  role: "관리자" | "사용자" | "DB관리";
 }
 
 export function useUser() {
@@ -21,7 +21,7 @@ export function useUser() {
       const response = await fetch("/api/auth/user", {
         cache: "no-store",
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log("[useUser] 사용자 정보:", data.user);
@@ -53,7 +53,7 @@ export function useUser() {
         fetchUser();
       }
     }, 1000);
-    
+
     return () => clearTimeout(retryTimer);
   }, []);
 

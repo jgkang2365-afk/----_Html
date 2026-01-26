@@ -17,11 +17,18 @@ import * as XLSX from "xlsx";
 export async function POST(request: NextRequest) {
     try {
         // 1. 권한 및 사용자 체크
-        await checkPermission("sales:write");
         const user = await getUser();
         if (!user) {
             return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
         }
+
+        // 관리자 권한 체크 (한글 '관리자' 확인)
+        if (user.role !== '관리자') {
+            return NextResponse.json({ error: "관리자 권한이 필요합니다." }, { status: 403 });
+        }
+
+        // sales:write 권한도 기본적으로 필요
+        await checkPermission("sales:write");
 
         // 2. 파일 수신
         const formData = await request.formData();
@@ -34,13 +41,12 @@ export async function POST(request: NextRequest) {
         const arrayBuffer = await file.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, {
             type: "buffer",
-            cellDates: true, // 날짜 자동 인식
+            cellDates: false, // 날짜 자동 변환 끔 (숫자로 받음)
             cellNF: false,
             cellText: false,
         });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        // 헤더를 포함한 JSON 변환 (raw: false로 하면 포맷팅된 문자열로 읽힘, 여기선 날짜 처리를 위해 일부러 raw값 확인 로직 필요할 수도 있으나 cellDates: true로 Date객체 유도)
         const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: undefined }) as Record<string, any>[];
 
         if (!rawData || rawData.length === 0) {
@@ -51,7 +57,6 @@ export async function POST(request: NextRequest) {
         const firstRow = rawData[0];
         const headerKeys = Object.keys(firstRow);
 
-        // 필수 식별자 컬럼 확인 함수
         const findKey = (candidates: string[]) => headerKeys.find(key => candidates.some(c => key.includes(c) || key.toLowerCase() === c));
 
         const codeKey = findKey(["코드", "code"]);
@@ -73,14 +78,56 @@ export async function POST(request: NextRequest) {
         // 헬퍼: 날짜 파싱 (YYYY-MM-DD)
         const parseDate = (val: any): string | null => {
             if (!val) return null;
-            if (val instanceof Date) return val.toISOString().split("T")[0];
-            const str = String(val).trim();
-            // YYYY-MM-DD
-            if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-            // YYYY/MM/DD
-            if (/^\d{4}\/\d{2}\/\d{2}$/.test(str)) return str.replace(/\//g, "-");
-            // 그 외 엑셀 숫자형 날짜 등 처리 필요 시 추가
-            return null;
+
+            try {
+                // 1. 숫자인 경우 (Excel Serial Number) - cellDates: false 일 때 날짜는 숫자로 옴
+                if (typeof val === "number") {
+                    // 엑셀 기준일(1899-12-30)과 JS 기준일(1970-01-01) 차이: 25569일
+                    // 타임존과 무관하게 절대적인 날짜 계산
+                    const serial = Math.floor(val);
+                    const utc_days = serial - 25569;
+                    const date_info = new Date(utc_days * 86400 * 1000);
+                    return date_info.toISOString().split("T")[0];
+                }
+
+                // 2. Date 객체인 경우 (혹시 모를 대비)
+                if (val instanceof Date) {
+                    const kstString = val.toLocaleDateString("ko-KR", {
+                        timeZone: "Asia/Seoul",
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                    });
+                    const parts = kstString.match(/\d+/g);
+                    if (parts && parts.length >= 3) {
+                        return `${parts[0]}-${parts[1]}-${parts[2]}`;
+                    }
+                    const adjusted = new Date(val.getTime() + (9 * 60 * 60 * 1000));
+                    return adjusted.toISOString().split("T")[0];
+                }
+
+                // 3. 문자열 파싱
+                const str = String(val).trim();
+                if (!str) return null;
+
+                const parts = str.split(/[\.\-\/\s]+/).filter(p => p.length > 0);
+                if (parts.length >= 3) {
+                    const y = parts[0];
+                    const year = y.length === 2 ? `20${y}` : y;
+
+                    if (year.length === 4) {
+                        const m = parts[1].padStart(2, "0");
+                        const d = parts[2].padStart(2, "0");
+                        if (parseInt(m) >= 1 && parseInt(m) <= 12 && parseInt(d) >= 1 && parseInt(d) <= 31) {
+                            return `${year}-${m}-${d}`;
+                        }
+                    }
+                }
+                return null;
+            } catch (e) {
+                console.error("날짜 파싱 오류:", e, val);
+                return null;
+            }
         };
 
         // 헬퍼: 숫자 파싱
@@ -93,24 +140,18 @@ export async function POST(request: NextRequest) {
         // 5. 데이터 처리 루프
         for (let i = 0; i < rawData.length; i++) {
             const row = rawData[i];
-            const rowIndex = i + 2; // 엑셀 행 번호 (헤더1 + 인덱스0 시작 = 2)
+            const rowIndex = i + 2;
 
-            const code = String(row[codeKey!] || "").trim();
+            const code = String(row[codeKey!] || "").trim().toUpperCase();
             const year = parseInt(String(row[yearKey!] || "0"));
             const period = String(row[periodKey!] || "").trim();
 
             if (!code || !year || !period) {
-                // 식별자 누락 시 스킵
                 continue;
             }
 
             try {
-                // 업데이트할 데이터를 담을 객체
                 const updates: Record<string, any> = {};
-
-                // === 매핑 로직 ===
-                // 엑셀 컬럼명(한글) -> DB 컬럼명
-                // 값이 "존재하는 경우"에만 updates 객체에 추가 (Partial Update)
 
                 const mapField = (dbField: string, keywords: string[], type: "string" | "number" | "date") => {
                     const key = findKey(keywords);
@@ -128,52 +169,117 @@ export async function POST(request: NextRequest) {
                     }
                 };
 
-                // --- 필드 매핑 정의 ---
-                // 측정비
                 mapField("measurement_fee_business", ["측정비(사업장)", "사업장측정비"], "number");
                 mapField("measurement_fee_national", ["측정비(국고)", "국고측정비", "공단측정비"], "number");
-
-                // 입금 정보 (사업장)
                 mapField("deposit_date_business", ["입금일(사업장)", "사업장입금일"], "date");
                 mapField("deposit_amount_business", ["입금액(사업장)", "사업장입금액"], "number");
-
-                // 입금 정보 (국고)
                 mapField("deposit_date_national", ["입금일(국고)", "국고입금일", "공단입금일"], "date");
                 mapField("deposit_amount_national", ["입금액(국고)", "국고입금액", "공단입금액"], "number");
-
-                // 계산서 정보
                 mapField("electronic_invoice_date", ["전자계산서", "발행일", "계산서발행일"], "date");
                 mapField("invoice_email", ["이메일", "계산서타켓", "계산서이메일"], "string");
 
-                // 업데이트할 내용이 없으면 스킵
                 if (Object.keys(updates).length === 0) {
                     continue;
                 }
 
-                // --- DB 업데이트 ---
-                // 1. 해당 일지 찾기
+                // 1. 해당 일지 존재 여부 확인 및 기존 금액 조회
                 const { data: journal, error: findError } = await supabase
                     .from("measurement_journal")
-                    .select("id")
+                    .select("id, measurement_fee_business, measurement_fee_national, deposit_amount_business, deposit_amount_national")
                     .eq("code", code)
                     .eq("measurement_year", year)
                     .eq("measurement_period", period)
                     .maybeSingle();
 
                 if (findError) throw new Error(`검색 오류: ${findError.message}`);
-                if (!journal) {
-                    failCount++;
-                    errors.push(`[${rowIndex}행] 일지를 찾을 수 없음 (Code: ${code})`);
+
+                // 2. 합계 금액 자동 계산 (부분 업데이트 시 필수)
+                // updates에 없는 필드는 기존 값(journal)을 이용해 합계를 재계산해야 함
+                const currentFeeBusiness = updates.measurement_fee_business ?? journal?.measurement_fee_business ?? 0;
+                const currentFeeNational = updates.measurement_fee_national ?? journal?.measurement_fee_national ?? 0;
+                updates.measurement_fee_total = currentFeeBusiness + currentFeeNational;
+
+                const currentDepositBusiness = updates.deposit_amount_business ?? journal?.deposit_amount_business ?? 0;
+                const currentDepositNational = updates.deposit_amount_national ?? journal?.deposit_amount_national ?? 0;
+                updates.deposit_total = currentDepositBusiness + currentDepositNational;
+
+                let journalId = journal?.id;
+
+                // 2. 일지가 없으면 자동 생성 시도
+                if (!journalId) {
+                    // measurement_business에서 기본 정보 찾기
+                    const { data: businessData, error: businessError } = await supabase
+                        .from("measurement_business")
+                        .select("*")
+                        .eq("code", code)
+                        .eq("year", year)
+                        .eq("period", period)
+                        .maybeSingle();
+
+                    if (businessError) throw new Error(`사업장 조회 오류: ${businessError.message}`);
+                    if (!businessData) {
+                        failCount++;
+                        errors.push(`[${rowIndex}행] 대상 사업장 정보를 찾을 수 없음 (Code=${code}, Year=${year}, Period=${period}). 일지 생성 불가.`);
+                        continue;
+                    }
+
+                    // business_info에서 추가 정보 찾기 (선택)
+                    const { data: infoData } = await supabase
+                        .from("business_info")
+                        .select("*")
+                        .eq("code", code)
+                        .maybeSingle();
+
+                    // 새 일지 생성
+                    const newJournalData = {
+                        code,
+                        measurement_year: year,
+                        measurement_period: period,
+                        business_name: businessData.business_name,
+                        address: businessData.address,
+                        office_jurisdiction: businessData.office_jurisdiction,
+                        measurement_start_date: businessData.measurement_start_date,
+                        measurement_end_date: businessData.measurement_end_date,
+                        measurer: businessData.measurer,
+                        total_employees: businessData.total_employees,
+
+                        // business_info에서 보완
+                        business_number: infoData?.business_number || businessData.business_number,
+                        representative_name: infoData?.representative_name || businessData.representative_name,
+                        phone: infoData?.phone,
+                        fax: infoData?.fax,
+
+                        manager_name: businessData.manager_name || infoData?.manager_name,
+                        manager_position: businessData.manager_position,
+                        manager_mobile: businessData.manager_mobile,
+                        manager_email: businessData.manager_email,
+                        invoice_email: businessData.invoice_email,
+                        industrial_accident_number: businessData.industrial_accident_number,
+
+                        // 기본값
+                        designated_office: "천안", // 기본값 설정 (필요시 로직 추가)
+                        completion_status: "미완료",
+                        created_by: user.name,
+                        updated_by: user.name,
+
+                        // 엑셀에서 받은 업데이트 데이터 바로 적용
+                        ...updates
+                    };
+
+                    const { data: newJournal, error: createError } = await supabase
+                        .from("measurement_journal")
+                        .insert(newJournalData)
+                        .select("id")
+                        .single();
+
+                    if (createError) throw new Error(`일지 생성 실패: ${createError.message}`);
+
+                    successCount++;
+                    // 생성과 동시에 업데이트 되었으므로 continue
                     continue;
                 }
 
-                // 2. 합계 금액 자동 계산 (옵션)
-                // 만약 사업장/국고 측정비가 업데이트되었다면, measurement_fee_total도 업데이트해주면 좋음.
-                // 하지만 기존 값을 읽어와야 하므로 쿼리가 복잡해짐.
-                // 사용자가 명시하지 않은 필드는 건드리지 않는다는 원칙에 따라, 
-                // 입력된 값만 업데이트함. (Trigger나 DB 함수가 없다면 합계 불일치 가능성 있으나, "부분 업로드" 취지에 맞게 명시적 입력만 처리)
-
-                // 업데이트 실행
+                // 3. 기존 일지가 있으면 업데이트 실행
                 const { error: updateError } = await supabase
                     .from("measurement_journal")
                     .update({
@@ -181,7 +287,7 @@ export async function POST(request: NextRequest) {
                         updated_at: new Date().toISOString(),
                         updated_by: user.name
                     })
-                    .eq("id", journal.id);
+                    .eq("id", journalId);
 
                 if (updateError) throw new Error(`업데이트 실패: ${updateError.message}`);
 
@@ -195,7 +301,7 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({
             success: true,
-            message: `${successCount}건 업데이트 완료, ${failCount}건 실패`,
+            message: `${successCount}건 처리 완료 (신규 생성 포함), ${failCount}건 실패`,
             details: errors,
             successCount,
             failCount

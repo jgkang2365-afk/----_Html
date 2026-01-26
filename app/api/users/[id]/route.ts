@@ -23,8 +23,8 @@ export async function PATCH(
       return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
     }
 
-    if (session.role !== "관리자") {
-      return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
+    if (!["관리자", "DB관리"].includes(session.role)) {
+      return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
     }
 
     const userId = parseInt(params.id);
@@ -34,7 +34,14 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { survey_code } = body;
+    const { role, survey_code } = body;
+
+    if (role && !["관리자", "사용자", "DB관리"].includes(role)) {
+      return NextResponse.json(
+        { error: "역할은 '관리자', '사용자', 'DB관리' 중 하나여야 합니다." },
+        { status: 400 }
+      );
+    }
 
     const supabase = await createClient();
 
@@ -53,6 +60,7 @@ export async function PATCH(
     const { data: updatedUser, error: updateError } = await supabase
       .from("users")
       .update({
+        ...(role && { role }),
         survey_code: survey_code || null,
       })
       .eq("id", userId)
@@ -95,8 +103,8 @@ export async function DELETE(
       return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
     }
 
-    if (session.role !== "관리자") {
-      return NextResponse.json({ error: "관리자만 접근할 수 있습니다." }, { status: 403 });
+    if (!["관리자", "DB관리"].includes(session.role)) {
+      return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
     }
 
     const userId = parseInt(params.id);

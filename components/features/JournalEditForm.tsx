@@ -45,7 +45,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   mode = 'journal',
 }) => {
   const { user } = useUser();
-  const isAdmin = user?.role === "관리자";
+  const isAdmin = user?.role === "관리자" || user?.role === "DB관리";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [originalYear, setOriginalYear] = useState(entry.measurement_year);
@@ -62,7 +62,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   }>({ business: null, national: null });
   // 완료여부 체크는 기존 측정일지(id가 있는 경우)를 수정할 때만 적용
   // 검색 결과에서 선택한 경우(id가 null)는 등록 모드이므로 완료여부와 관계없이 등록 가능
-  const isCompleted = entry.id ? entry.completion_status === "완료" : false;
+  const isCompleted = (entry.id && user?.role !== "DB관리") ? entry.completion_status === "완료" : false;
   const [formData, setFormData] = useState({
     // 기본 정보
     code: entry.code,

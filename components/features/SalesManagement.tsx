@@ -795,23 +795,29 @@ export const SalesManagement: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end gap-2">
-        <Button
-          variant="secondary"
-          className="bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
-          onClick={handleDownloadTemplate}
-        >
-          <span className="mr-2">📥</span>
-          양식 다운로드
-        </Button>
-        <Button
-          variant="secondary"
-          className="bg-white border-primary-200 text-primary-700 hover:bg-primary-50"
-          onClick={() => setIsMeasurementUploadModalOpen(true)}
-        >
-          <span className="mr-2">📊</span>
-          측정비 일괄 업로드
-        </Button>
+      <div className="flex justify-between items-start mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-text-900 mb-2">매출관리</h1>
+          <p className="text-text-700">측정비와 기타 매출을 관리하고 집계할 수 있습니다.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            className="bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+            onClick={handleDownloadTemplate}
+          >
+            <span className="mr-2">📥</span>
+            양식 다운로드
+          </Button>
+          <Button
+            variant="secondary"
+            className="bg-white border-primary-200 text-primary-700 hover:bg-primary-50"
+            onClick={() => setIsMeasurementUploadModalOpen(true)}
+          >
+            <span className="mr-2">📊</span>
+            측정비 일괄 업로드
+          </Button>
+        </div>
       </div>
 
 
@@ -898,19 +904,49 @@ export const SalesManagement: React.FC = () => {
                     };
 
                     // 선택된 년도 데이터가 있으면 해당 년도 데이터 사용, 없으면 전체 데이터 사용
-                    const yearData = selectedYearData
-                      ? {
-                        firstHalf: office === "기타"
-                          ? selectedYearData.firstHalf.otherTotal
-                          : selectedYearData.firstHalf.measurementTotal,
-                        secondHalf: office === "기타"
-                          ? selectedYearData.secondHalf.otherTotal
-                          : selectedYearData.secondHalf.measurementTotal,
-                        total: office === "기타"
-                          ? selectedYearData.total.otherTotal
-                          : selectedYearData.total.measurementTotal,
+                    // 선택된 년도 데이터가 있으면 직접 계산 (summary.byYear는 전체 합계이므로 사용 불가)
+                    let yearData = null;
+                    if (yearlySummaryYear && yearlySummaryYear !== "") {
+                      const targetYear = parseInt(yearlySummaryYear);
+                      let firstHalfTotal = 0;
+                      let secondHalfTotal = 0;
+                      let yearlyTotalAmount = 0;
+
+                      if (office === "기타") {
+                        // 기타 매출 데이터 집계
+                        const targetStats = otherRevenue.filter(item => item.revenue_year === targetYear);
+                        targetStats.forEach(item => {
+                          const amount = item.total_amount || 0;
+                          if (item.revenue_period?.includes("상반기")) {
+                            firstHalfTotal += amount;
+                          } else if (item.revenue_period?.includes("하반기")) {
+                            secondHalfTotal += amount;
+                          }
+                          yearlyTotalAmount += amount;
+                        });
+                      } else {
+                        // 측정비 데이터 집계 (해당 지청)
+                        const targetStats = measurementRevenue.filter(item =>
+                          item.designated_office === office && item.measurement_year === targetYear
+                        );
+                        targetStats.forEach(item => {
+                          const amount = item.measurement_fee_total || 0;
+                          // 측정주기에 따라 상/하반기 구분
+                          if (item.measurement_period?.includes("상반기")) {
+                            firstHalfTotal += amount;
+                          } else if (item.measurement_period?.includes("하반기")) {
+                            secondHalfTotal += amount;
+                          }
+                          yearlyTotalAmount += amount;
+                        });
                       }
-                      : null;
+
+                      yearData = {
+                        firstHalf: firstHalfTotal,
+                        secondHalf: secondHalfTotal,
+                        total: yearlyTotalAmount,
+                      };
+                    }
 
                     const measurementFee = office === "기타"
                       ? officeSummary.otherRevenue
@@ -1044,364 +1080,398 @@ export const SalesManagement: React.FC = () => {
               />
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-sky-100">
-                  <TableHead rowSpan={2} className="text-center font-semibold py-3 px-3 text-black align-middle">구분</TableHead>
-                  <TableHead colSpan={3} className="text-center font-semibold py-3 px-4 text-black">합계</TableHead>
-                  <TableHead colSpan={3} className="text-center font-semibold py-3 px-4 text-black">측정비(사업장)</TableHead>
-                  <TableHead colSpan={3} className="text-center font-semibold py-3 px-4 text-black">측정비(국고)</TableHead>
-                </TableRow>
-                <TableRow className="bg-sky-100">
-                  <TableHead className="text-center font-semibold py-2 px-4 text-black">사업장 수</TableHead>
-                  <TableHead className="text-center font-semibold py-2 px-4 text-black">입금액</TableHead>
-                  <TableHead className="text-center font-semibold py-2 px-4 text-black">미수금액</TableHead>
-                  <TableHead className="text-center font-semibold py-2 px-4 text-black">사업장 수</TableHead>
-                  <TableHead className="text-center font-semibold py-2 px-4 text-black">입금액</TableHead>
-                  <TableHead className="text-center font-semibold py-2 px-4 text-black">미수금액</TableHead>
-                  <TableHead className="text-center font-semibold py-2 px-4 text-black">사업장 수</TableHead>
-                  <TableHead className="text-center font-semibold py-2 px-4 text-black">입금액</TableHead>
-                  <TableHead className="text-center font-semibold py-2 px-4 text-black">미수금액</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(() => {
-                  // 관할지역 목록
-                  const offices = [...DESIGNATED_OFFICES_FOR_SALES];
-                  const officeLabels: Record<string, string> = {
-                    천안: "천안",
-                    대전: "대전",
-                    평택: "평택",
-                    경기: "경기",
-                    기타: "기타",
-                  };
+          <Table maxHeight="max-h-[400px]">
+            <TableHeader>
+              <TableRow className="bg-sky-100">
+                <TableHead rowSpan={2} className="text-center font-semibold py-3 px-3 text-black align-middle">구분</TableHead>
+                <TableHead colSpan={4} className="text-center font-semibold py-3 px-4 text-black">합계</TableHead>
+                <TableHead colSpan={3} className="text-center font-semibold py-3 px-4 text-black">측정비(사업장)</TableHead>
+                <TableHead colSpan={3} className="text-center font-semibold py-3 px-4 text-black">측정비(국고)</TableHead>
+              </TableRow>
+              <TableRow className="bg-sky-100">
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">사업장 수</TableHead>
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">소계(입금+미수)</TableHead>
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">입금액</TableHead>
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">미수금액</TableHead>
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">사업장 수</TableHead>
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">입금액</TableHead>
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">미수금액</TableHead>
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">사업장 수</TableHead>
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">입금액</TableHead>
+                <TableHead className="text-center font-semibold py-2 px-4 text-black">미수금액</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(() => {
+                // 관할지역 목록
+                const offices = [...DESIGNATED_OFFICES_FOR_SALES];
+                const officeLabels: Record<string, string> = {
+                  천안: "천안",
+                  대전: "대전",
+                  평택: "평택",
+                  경기: "경기",
+                  기타: "기타",
+                };
 
-                  // 미수금 집계 데이터 계산
-                  const unpaidData = offices.map((office) => {
-                    // 해당 관할지역의 측정비 데이터 필터링
-                    const officeMeasurementData = measurementRevenue.filter((item) => {
-                      if (office === "기타") {
-                        // 기타는 other_revenue에서 처리하지 않고, 측정비에서 designated_office가 없는 경우만 처리
-                        return !item.designated_office || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(item.designated_office);
-                      }
-                      return item.designated_office === office;
-                    });
-
-                    // 년도 필터링
-                    const filteredData = unpaidSummaryYear && unpaidSummaryYear !== ""
-                      ? officeMeasurementData.filter((item) => item.measurement_year === parseInt(unpaidSummaryYear))
-                      : officeMeasurementData;
-
-                    // 합계 계산
-                    let totalBusinessCount = 0;
-                    let totalDepositAmount = 0;
-                    let totalUnpaidAmount = 0;
-                    let businessSiteCount = 0;
-                    let businessSiteDeposit = 0;
-                    let businessSiteUnpaid = 0;
-                    let nationalCount = 0;
-                    let nationalDeposit = 0;
-                    let nationalUnpaid = 0;
-
-                    filteredData.forEach((item) => {
-                      const businessFee = item.measurement_fee_business || 0;
-                      const businessDeposit = item.deposit_amount_business || 0;
-                      const nationalFee = item.measurement_fee_national || 0;
-                      const nationalDepositAmount = item.deposit_amount_national || 0;
-
-                      const businessUnpaid = businessFee - businessDeposit;
-                      const nationalUnpaidAmount = nationalFee - nationalDepositAmount;
-                      const itemTotalUnpaid = businessUnpaid + nationalUnpaidAmount;
-                      const itemTotalDeposit = businessDeposit + nationalDepositAmount;
-
-                      // 합계
-                      if (itemTotalUnpaid > 0 || itemTotalDeposit > 0) {
-                        totalBusinessCount++;
-                        totalDepositAmount += itemTotalDeposit;
-                        totalUnpaidAmount += itemTotalUnpaid;
-                      }
-
-                      // 측정비(사업장)
-                      if (businessUnpaid > 0 || businessDeposit > 0) {
-                        businessSiteCount++;
-                        businessSiteDeposit += businessDeposit;
-                        businessSiteUnpaid += businessUnpaid;
-                      }
-
-                      // 측정비(국고)
-                      if (nationalUnpaidAmount > 0 || nationalDepositAmount > 0) {
-                        nationalCount++;
-                        nationalDeposit += nationalDepositAmount;
-                        nationalUnpaid += nationalUnpaidAmount;
-                      }
-                    });
-
-                    return {
-                      office,
-                      label: officeLabels[office as keyof typeof officeLabels] || office,
-                      total: {
-                        count: totalBusinessCount,
-                        deposit: totalDepositAmount,
-                        unpaid: totalUnpaidAmount,
-                      },
-                      business: {
-                        count: businessSiteCount,
-                        deposit: businessSiteDeposit,
-                        unpaid: businessSiteUnpaid,
-                      },
-                      national: {
-                        count: nationalCount,
-                        deposit: nationalDeposit,
-                        unpaid: nationalUnpaid,
-                      },
-                    };
+                // 미수금 집계 데이터 계산
+                const unpaidData = offices.map((office) => {
+                  // 해당 관할지역의 측정비 데이터 필터링
+                  const officeMeasurementData = measurementRevenue.filter((item) => {
+                    if (office === "기타") {
+                      // 기타는 other_revenue에서 처리하지 않고, 측정비에서 designated_office가 없는 경우만 처리
+                      return !item.designated_office || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(item.designated_office);
+                    }
+                    return item.designated_office === office;
                   });
 
-                  // 전체 합계 계산
-                  const totalRow = unpaidData.reduce(
-                    (acc, data) => ({
-                      totalCount: acc.totalCount + data.total.count,
-                      totalDeposit: acc.totalDeposit + data.total.deposit,
-                      totalUnpaid: acc.totalUnpaid + data.total.unpaid,
-                      businessCount: acc.businessCount + data.business.count,
-                      businessDeposit: acc.businessDeposit + data.business.deposit,
-                      businessUnpaid: acc.businessUnpaid + data.business.unpaid,
-                      nationalCount: acc.nationalCount + data.national.count,
-                      nationalDeposit: acc.nationalDeposit + data.national.deposit,
-                      nationalUnpaid: acc.nationalUnpaid + data.national.unpaid,
-                    }),
-                    {
-                      totalCount: 0,
-                      totalDeposit: 0,
-                      totalUnpaid: 0,
-                      businessCount: 0,
-                      businessDeposit: 0,
-                      businessUnpaid: 0,
-                      nationalCount: 0,
-                      nationalDeposit: 0,
-                      nationalUnpaid: 0,
+                  // 년도 필터링
+                  const filteredData = unpaidSummaryYear && unpaidSummaryYear !== ""
+                    ? officeMeasurementData.filter((item) => item.measurement_year === parseInt(unpaidSummaryYear))
+                    : officeMeasurementData;
+
+                  // 기타 매출 데이터 필터링 (관할지청이 '기타'인 경우에만)
+                  const filteredOtherData = office === "기타"
+                    ? (unpaidSummaryYear && unpaidSummaryYear !== ""
+                      ? otherRevenue.filter((item) => item.revenue_year === parseInt(unpaidSummaryYear))
+                      : otherRevenue)
+                    : [];
+
+                  // 합계 계산
+                  let totalBusinessCount = 0;
+                  let totalDepositAmount = 0;
+                  let totalUnpaidAmount = 0;
+                  let businessSiteCount = 0;
+                  let businessSiteDeposit = 0;
+                  let businessSiteUnpaid = 0;
+                  let nationalCount = 0;
+                  let nationalDeposit = 0;
+                  let nationalUnpaid = 0;
+
+                  filteredData.forEach((item) => {
+                    const businessFee = item.measurement_fee_business || 0;
+                    const businessDeposit = item.deposit_amount_business || 0;
+                    const nationalFee = item.measurement_fee_national || 0;
+                    const nationalDepositAmount = item.deposit_amount_national || 0;
+
+                    const businessUnpaid = businessFee - businessDeposit;
+                    const nationalUnpaidAmount = nationalFee - nationalDepositAmount;
+                    const itemTotalUnpaid = businessUnpaid + nationalUnpaidAmount;
+                    const itemTotalDeposit = businessDeposit + nationalDepositAmount;
+
+                    // 합계
+                    if (itemTotalUnpaid > 0 || itemTotalDeposit > 0) {
+                      totalBusinessCount++;
+                      totalDepositAmount += itemTotalDeposit;
+                      totalUnpaidAmount += itemTotalUnpaid;
                     }
-                  );
 
-                  // 사업장 목록 모달 열기 핸들러
-                  const handleUnpaidBusinessClick = (
-                    office: string | null,
-                    category: "total" | "business" | "national"
-                  ) => {
-                    const officeLabel = office ? (officeLabels[office as keyof typeof officeLabels] || office) : "전체";
-                    let categoryLabel = "";
-                    let businessList: Array<{
-                      business_name: string;
-                      unpaid_amount: number;
-                      measurement_year: number;
-                      measurement_period: string;
-                      unpaid_count: number;
-                      designated_office: string | null;
-                      measurement_fee_total: number | null;
-                      deposit_amount_business: number | null;
-                    }> = [];
+                    // 측정비(사업장)
+                    if (businessUnpaid > 0 || businessDeposit > 0) {
+                      businessSiteCount++;
+                      businessSiteDeposit += businessDeposit;
+                      businessSiteUnpaid += businessUnpaid;
+                    }
 
-                    // 해당 관할지역의 측정비 데이터 필터링
-                    const officeMeasurementData = measurementRevenue.filter((item) => {
-                      if (!office) {
-                        // 전체인 경우 모든 데이터
-                        return true;
-                      } else if (office === "기타") {
-                        return !item.designated_office || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(item.designated_office);
-                      } else {
-                        return item.designated_office === office;
+                    // 측정비(국고)
+                    if (nationalUnpaidAmount > 0 || nationalDepositAmount > 0) {
+                      nationalCount++;
+                      nationalDeposit += nationalDepositAmount;
+                      nationalUnpaid += nationalUnpaidAmount;
+                    }
+                  });
+
+                  // 기타 매출 합산
+                  if (office === "기타") {
+                    filteredOtherData.forEach((item) => {
+                      const totalAmount = item.total_amount || 0;
+                      const depositAmount = item.deposit_amount || 0;
+                      const unpaidAmount = totalAmount - depositAmount;
+
+                      // 합계 (기타 매출은 사업장 수 계산에 포함? 측정비가 아니므로 건수로 취급)
+                      // 기타 매출 하나를 사업장 하나로 칠 것인가? -> 예, businessSiteCount 증가
+                      if (totalAmount > 0) {
+                        totalBusinessCount++;
+                        totalDepositAmount += depositAmount;
+                        totalUnpaidAmount += unpaidAmount;
+
+                        // 측정비(사업장)에 포함 (국고 없음)
+                        businessSiteCount++;
+                        businessSiteDeposit += depositAmount;
+                        businessSiteUnpaid += unpaidAmount;
                       }
                     });
+                  }
 
-                    // 년도 필터링
-                    const filteredData = unpaidSummaryYear && unpaidSummaryYear !== ""
-                      ? officeMeasurementData.filter((item) => item.measurement_year === parseInt(unpaidSummaryYear))
-                      : officeMeasurementData;
+                  return {
+                    office,
+                    label: officeLabels[office as keyof typeof officeLabels] || office,
+                    total: {
+                      count: totalBusinessCount,
+                      deposit: totalDepositAmount,
+                      unpaid: totalUnpaidAmount,
+                    },
+                    business: {
+                      count: businessSiteCount,
+                      deposit: businessSiteDeposit,
+                      unpaid: businessSiteUnpaid,
+                    },
+                    national: {
+                      count: nationalCount,
+                      deposit: nationalDeposit,
+                      unpaid: nationalUnpaid,
+                    },
+                  };
+                });
 
-                    // 측정비(사업장) 기준 미수 횟수 계산을 위한 맵 생성
-                    const businessUnpaidCountMap = new Map<string, number>();
-                    filteredData.forEach((item) => {
-                      const businessFee = item.measurement_fee_business || 0;
-                      const businessDeposit = item.deposit_amount_business || 0;
-                      const businessUnpaid = businessFee - businessDeposit;
+                // 전체 합계 계산
+                const totalRow = unpaidData.reduce(
+                  (acc, data) => ({
+                    totalCount: acc.totalCount + data.total.count,
+                    totalDeposit: acc.totalDeposit + data.total.deposit,
+                    totalUnpaid: acc.totalUnpaid + data.total.unpaid,
+                    businessCount: acc.businessCount + data.business.count,
+                    businessDeposit: acc.businessDeposit + data.business.deposit,
+                    businessUnpaid: acc.businessUnpaid + data.business.unpaid,
+                    nationalCount: acc.nationalCount + data.national.count,
+                    nationalDeposit: acc.nationalDeposit + data.national.deposit,
+                    nationalUnpaid: acc.nationalUnpaid + data.national.unpaid,
+                  }),
+                  {
+                    totalCount: 0,
+                    totalDeposit: 0,
+                    totalUnpaid: 0,
+                    businessCount: 0,
+                    businessDeposit: 0,
+                    businessUnpaid: 0,
+                    nationalCount: 0,
+                    nationalDeposit: 0,
+                    nationalUnpaid: 0,
+                  }
+                );
 
-                      if (businessUnpaid > 0) {
-                        const count = businessUnpaidCountMap.get(item.business_name) || 0;
-                        businessUnpaidCountMap.set(item.business_name, count + 1);
-                      }
-                    });
+                // 사업장 목록 모달 열기 핸들러
+                const handleUnpaidBusinessClick = (
+                  office: string | null,
+                  category: "total" | "business" | "national"
+                ) => {
+                  const officeLabel = office ? (officeLabels[office as keyof typeof officeLabels] || office) : "전체";
+                  let categoryLabel = "";
+                  let businessList: Array<{
+                    business_name: string;
+                    unpaid_amount: number;
+                    measurement_year: number;
+                    measurement_period: string;
+                    unpaid_count: number;
+                    designated_office: string | null;
+                    measurement_fee_total: number | null;
+                    deposit_amount_business: number | null;
+                  }> = [];
 
-                    // 카테고리별 사업장 필터링
-                    filteredData.forEach((item) => {
-                      const businessFee = item.measurement_fee_business || 0;
-                      const businessDeposit = item.deposit_amount_business || 0;
-                      const nationalFee = item.measurement_fee_national || 0;
-                      const itemNationalDeposit = item.deposit_amount_national || 0;
+                  // 해당 관할지역의 측정비 데이터 필터링
+                  const officeMeasurementData = measurementRevenue.filter((item) => {
+                    if (!office) {
+                      // 전체인 경우 모든 데이터
+                      return true;
+                    } else if (office === "기타") {
+                      return !item.designated_office || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(item.designated_office);
+                    } else {
+                      return item.designated_office === office;
+                    }
+                  });
 
-                      const businessUnpaid = businessFee - businessDeposit;
-                      const nationalUnpaidAmount = nationalFee - itemNationalDeposit;
-                      const itemTotalUnpaid = businessUnpaid + nationalUnpaidAmount;
+                  // 년도 필터링
+                  const filteredData = unpaidSummaryYear && unpaidSummaryYear !== ""
+                    ? officeMeasurementData.filter((item) => item.measurement_year === parseInt(unpaidSummaryYear))
+                    : officeMeasurementData;
 
-                      let unpaidAmount = 0;
-                      let shouldInclude = false;
+                  // 측정비(사업장) 기준 미수 횟수 계산을 위한 맵 생성
+                  const businessUnpaidCountMap = new Map<string, number>();
+                  filteredData.forEach((item) => {
+                    const businessFee = item.measurement_fee_business || 0;
+                    const businessDeposit = item.deposit_amount_business || 0;
+                    const businessUnpaid = businessFee - businessDeposit;
 
-                      if (category === "total" && itemTotalUnpaid > 0) {
-                        unpaidAmount = itemTotalUnpaid;
-                        shouldInclude = true;
-                        categoryLabel = "합계";
-                      } else if (category === "business" && businessUnpaid > 0) {
-                        unpaidAmount = businessUnpaid;
-                        shouldInclude = true;
-                        categoryLabel = "측정비(사업장)";
-                      } else if (category === "national" && nationalUnpaidAmount > 0) {
-                        unpaidAmount = nationalUnpaidAmount;
-                        shouldInclude = true;
-                        categoryLabel = "측정비(국고)";
-                      }
+                    if (businessUnpaid > 0) {
+                      const count = businessUnpaidCountMap.get(item.business_name) || 0;
+                      businessUnpaidCountMap.set(item.business_name, count + 1);
+                    }
+                  });
 
-                      if (shouldInclude) {
-                        const unpaidCount = businessUnpaidCountMap.get(item.business_name) || 0;
-                        businessList.push({
-                          business_name: item.business_name,
-                          unpaid_amount: unpaidAmount,
-                          measurement_year: item.measurement_year,
-                          measurement_period: item.measurement_period,
-                          unpaid_count: unpaidCount,
-                          designated_office: item.designated_office || null,
-                          measurement_fee_total: item.measurement_fee_total,
-                          deposit_amount_business: item.deposit_amount_business,
-                        });
-                      }
-                    });
+                  // 카테고리별 사업장 필터링
+                  filteredData.forEach((item) => {
+                    const businessFee = item.measurement_fee_business || 0;
+                    const businessDeposit = item.deposit_amount_business || 0;
+                    const nationalFee = item.measurement_fee_national || 0;
+                    const itemNationalDeposit = item.deposit_amount_national || 0;
 
-                    // 정렬: 미수 횟수(내림차순) → 지청(천안, 대전, 평택, 경기, 기타) → 사업장명(오름차순)
-                    const officeOrder = ["천안", "대전", "평택", "경기", "기타"];
-                    const getOfficeOrder = (office: string | null): number => {
-                      if (!office) return officeOrder.indexOf("기타");
-                      const index = officeOrder.indexOf(office);
-                      return index === -1 ? officeOrder.length : index;
-                    };
+                    const businessUnpaid = businessFee - businessDeposit;
+                    const nationalUnpaidAmount = nationalFee - itemNationalDeposit;
+                    const itemTotalUnpaid = businessUnpaid + nationalUnpaidAmount;
 
-                    businessList.sort((a, b) => {
-                      // 1. 미수 횟수 내림차순
-                      if (b.unpaid_count !== a.unpaid_count) {
-                        return b.unpaid_count - a.unpaid_count;
-                      }
-                      // 2. 지청 순서
-                      const officeOrderA = getOfficeOrder(a.designated_office);
-                      const officeOrderB = getOfficeOrder(b.designated_office);
-                      if (officeOrderA !== officeOrderB) {
-                        return officeOrderA - officeOrderB;
-                      }
-                      // 3. 사업장명 오름차순
-                      return a.business_name.localeCompare(b.business_name, "ko");
-                    });
+                    let unpaidAmount = 0;
+                    let shouldInclude = false;
 
-                    setUnpaidBusinessList(businessList);
-                    setUnpaidBusinessModalTitle(`${officeLabel} - ${categoryLabel} 미수금 사업장 목록`);
-                    setIsUnpaidBusinessModalOpen(true);
+                    if (category === "total" && itemTotalUnpaid > 0) {
+                      unpaidAmount = itemTotalUnpaid;
+                      shouldInclude = true;
+                      categoryLabel = "합계";
+                    } else if (category === "business" && businessUnpaid > 0) {
+                      unpaidAmount = businessUnpaid;
+                      shouldInclude = true;
+                      categoryLabel = "측정비(사업장)";
+                    } else if (category === "national" && nationalUnpaidAmount > 0) {
+                      unpaidAmount = nationalUnpaidAmount;
+                      shouldInclude = true;
+                      categoryLabel = "측정비(국고)";
+                    }
+
+                    if (shouldInclude) {
+                      const unpaidCount = businessUnpaidCountMap.get(item.business_name) || 0;
+                      businessList.push({
+                        business_name: item.business_name,
+                        unpaid_amount: unpaidAmount,
+                        measurement_year: item.measurement_year,
+                        measurement_period: item.measurement_period,
+                        unpaid_count: unpaidCount,
+                        designated_office: item.designated_office || null,
+                        measurement_fee_total: item.measurement_fee_total,
+                        deposit_amount_business: item.deposit_amount_business,
+                      });
+                    }
+                  });
+
+                  // 정렬: 미수 횟수(내림차순) → 지청(천안, 대전, 평택, 경기, 기타) → 사업장명(오름차순)
+                  const officeOrder = ["천안", "대전", "평택", "경기", "기타"];
+                  const getOfficeOrder = (office: string | null): number => {
+                    if (!office) return officeOrder.indexOf("기타");
+                    const index = officeOrder.indexOf(office);
+                    return index === -1 ? officeOrder.length : index;
                   };
 
-                  return (
-                    <>
-                      {/* 합계 행 */}
-                      <TableRow className="border-t-2 border-b-2 border-gray-300">
-                        <TableCell className="text-center font-bold text-black py-3 px-3">합계</TableCell>
+                  businessList.sort((a, b) => {
+                    // 1. 미수 횟수 내림차순
+                    if (b.unpaid_count !== a.unpaid_count) {
+                      return b.unpaid_count - a.unpaid_count;
+                    }
+                    // 2. 지청 순서
+                    const officeOrderA = getOfficeOrder(a.designated_office);
+                    const officeOrderB = getOfficeOrder(b.designated_office);
+                    if (officeOrderA !== officeOrderB) {
+                      return officeOrderA - officeOrderB;
+                    }
+                    // 3. 사업장명 오름차순
+                    return a.business_name.localeCompare(b.business_name, "ko");
+                  });
+
+                  setUnpaidBusinessList(businessList);
+                  setUnpaidBusinessModalTitle(`${officeLabel} - ${categoryLabel} 미수금 사업장 목록`);
+                  setIsUnpaidBusinessModalOpen(true);
+                };
+
+                return (
+                  <>
+                    {/* 합계 행 */}
+                    <TableRow className="border-t-2 border-b-2 border-gray-300">
+                      <TableCell className="text-center font-bold text-black py-3 px-3">합계</TableCell>
+                      <TableCell
+                        className="text-center font-bold text-blue-600 py-3 px-4 cursor-pointer hover:bg-gray-100 underline"
+                        onClick={() => handleUnpaidBusinessClick(null, "total")}
+                        title="클릭하여 사업장 목록 보기"
+                      >
+                        {totalRow.totalCount}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-black py-3 px-4">
+                        {formatCurrency(totalRow.totalDeposit + totalRow.totalUnpaid)}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-black py-3 px-4">
+                        {formatCurrency(totalRow.totalDeposit)}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-black py-3 px-4">
+                        {formatCurrency(totalRow.totalUnpaid)}
+                      </TableCell>
+                      <TableCell
+                        className="text-center font-bold text-blue-600 py-3 px-4 cursor-pointer hover:bg-gray-100 underline"
+                        onClick={() => handleUnpaidBusinessClick(null, "business")}
+                        title="클릭하여 사업장 목록 보기"
+                      >
+                        {totalRow.businessCount}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-black py-3 px-4">
+                        {formatCurrency(totalRow.businessDeposit)}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-black py-3 px-4">
+                        {formatCurrency(totalRow.businessUnpaid)}
+                      </TableCell>
+                      <TableCell
+                        className="text-center font-bold text-blue-600 py-3 px-4 cursor-pointer hover:bg-gray-100 underline"
+                        onClick={() => handleUnpaidBusinessClick(null, "national")}
+                        title="클릭하여 사업장 목록 보기"
+                      >
+                        {totalRow.nationalCount}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-black py-3 px-4">
+                        {formatCurrency(totalRow.nationalDeposit)}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-black py-3 px-4">
+                        {formatCurrency(totalRow.nationalUnpaid)}
+                      </TableCell>
+                    </TableRow>
+                    {/* 각 관할지역 행 */}
+                    {unpaidData.map((data, index) => (
+                      <TableRow
+                        key={data.office}
+                        className={`border-b border-gray-200 ${data.office === "천안" ? "bg-green-50" : ""}`}
+                      >
+                        <TableCell className="text-center text-black py-2 px-3">{data.label}</TableCell>
                         <TableCell
-                          className="text-center font-bold text-blue-600 py-3 px-4 cursor-pointer hover:bg-gray-100 underline"
-                          onClick={() => handleUnpaidBusinessClick(null, "total")}
+                          className="text-center text-blue-600 py-2 px-4 cursor-pointer hover:bg-gray-100 underline"
+                          onClick={() => handleUnpaidBusinessClick(data.office, "total")}
                           title="클릭하여 사업장 목록 보기"
                         >
-                          {totalRow.totalCount}
+                          {data.total.count}
                         </TableCell>
-                        <TableCell className="text-right font-bold text-black py-3 px-4">
-                          {formatCurrency(totalRow.totalDeposit)}
+                        <TableCell className="text-right text-black py-2 px-4">
+                          {formatCurrency(data.total.deposit + data.total.unpaid)}
                         </TableCell>
-                        <TableCell className="text-right font-bold text-black py-3 px-4">
-                          {formatCurrency(totalRow.totalUnpaid)}
+                        <TableCell className="text-right text-black py-2 px-4">
+                          {formatCurrency(data.total.deposit)}
                         </TableCell>
-                        <TableCell
-                          className="text-center font-bold text-blue-600 py-3 px-4 cursor-pointer hover:bg-gray-100 underline"
-                          onClick={() => handleUnpaidBusinessClick(null, "business")}
-                          title="클릭하여 사업장 목록 보기"
-                        >
-                          {totalRow.businessCount}
-                        </TableCell>
-                        <TableCell className="text-right font-bold text-black py-3 px-4">
-                          {formatCurrency(totalRow.businessDeposit)}
-                        </TableCell>
-                        <TableCell className="text-right font-bold text-black py-3 px-4">
-                          {formatCurrency(totalRow.businessUnpaid)}
+                        <TableCell className="text-right text-black py-2 px-4">
+                          {formatCurrency(data.total.unpaid)}
                         </TableCell>
                         <TableCell
-                          className="text-center font-bold text-blue-600 py-3 px-4 cursor-pointer hover:bg-gray-100 underline"
-                          onClick={() => handleUnpaidBusinessClick(null, "national")}
+                          className="text-center text-blue-600 py-2 px-4 cursor-pointer hover:bg-gray-100 underline"
+                          onClick={() => handleUnpaidBusinessClick(data.office, "business")}
                           title="클릭하여 사업장 목록 보기"
                         >
-                          {totalRow.nationalCount}
+                          {data.business.count}
                         </TableCell>
-                        <TableCell className="text-right font-bold text-black py-3 px-4">
-                          {formatCurrency(totalRow.nationalDeposit)}
+                        <TableCell className="text-right text-black py-2 px-4">
+                          {formatCurrency(data.business.deposit)}
                         </TableCell>
-                        <TableCell className="text-right font-bold text-black py-3 px-4">
-                          {formatCurrency(totalRow.nationalUnpaid)}
+                        <TableCell className="text-right text-black py-2 px-4">
+                          {formatCurrency(data.business.unpaid)}
+                        </TableCell>
+                        <TableCell
+                          className="text-center text-blue-600 py-2 px-4 cursor-pointer hover:bg-gray-100 underline"
+                          onClick={() => handleUnpaidBusinessClick(data.office, "national")}
+                          title="클릭하여 사업장 목록 보기"
+                        >
+                          {data.national.count}
+                        </TableCell>
+                        <TableCell className="text-right text-black py-2 px-4">
+                          {formatCurrency(data.national.deposit)}
+                        </TableCell>
+                        <TableCell className="text-right text-black py-2 px-4">
+                          {formatCurrency(data.national.unpaid)}
                         </TableCell>
                       </TableRow>
-                      {/* 각 관할지역 행 */}
-                      {unpaidData.map((data, index) => (
-                        <TableRow
-                          key={data.office}
-                          className={`border-b border-gray-200 ${data.office === "천안" ? "bg-green-50" : ""}`}
-                        >
-                          <TableCell className="text-center text-black py-2 px-3">{data.label}</TableCell>
-                          <TableCell
-                            className="text-center text-blue-600 py-2 px-4 cursor-pointer hover:bg-gray-100 underline"
-                            onClick={() => handleUnpaidBusinessClick(data.office, "total")}
-                            title="클릭하여 사업장 목록 보기"
-                          >
-                            {data.total.count}
-                          </TableCell>
-                          <TableCell className="text-right text-black py-2 px-4">
-                            {formatCurrency(data.total.deposit)}
-                          </TableCell>
-                          <TableCell className="text-right text-black py-2 px-4">
-                            {formatCurrency(data.total.unpaid)}
-                          </TableCell>
-                          <TableCell
-                            className="text-center text-blue-600 py-2 px-4 cursor-pointer hover:bg-gray-100 underline"
-                            onClick={() => handleUnpaidBusinessClick(data.office, "business")}
-                            title="클릭하여 사업장 목록 보기"
-                          >
-                            {data.business.count}
-                          </TableCell>
-                          <TableCell className="text-right text-black py-2 px-4">
-                            {formatCurrency(data.business.deposit)}
-                          </TableCell>
-                          <TableCell className="text-right text-black py-2 px-4">
-                            {formatCurrency(data.business.unpaid)}
-                          </TableCell>
-                          <TableCell
-                            className="text-center text-blue-600 py-2 px-4 cursor-pointer hover:bg-gray-100 underline"
-                            onClick={() => handleUnpaidBusinessClick(data.office, "national")}
-                            title="클릭하여 사업장 목록 보기"
-                          >
-                            {data.national.count}
-                          </TableCell>
-                          <TableCell className="text-right text-black py-2 px-4">
-                            {formatCurrency(data.national.deposit)}
-                          </TableCell>
-                          <TableCell className="text-right text-black py-2 px-4">
-                            {formatCurrency(data.national.unpaid)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </>
-                  );
-                })()}
-              </TableBody>
-            </Table>
-          </div>
+                    ))}
+                  </>
+                );
+              })()}
+            </TableBody>
+          </Table>
         </Card>
       )}
 
@@ -1412,13 +1482,13 @@ export const SalesManagement: React.FC = () => {
         title={unpaidBusinessModalTitle}
         size="2xl"
       >
-        <div className="overflow-y-auto">
+        <div>
           {unpaidBusinessList.length === 0 ? (
             <div className="py-8 text-center text-text-600 text-sm">
               사업장이 없습니다.
             </div>
           ) : (
-            <Table>
+            <Table maxHeight="max-h-[60vh]">
               <TableHeader>
                 <TableRow className="bg-sky-100">
                   <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">연번</TableHead>
@@ -1616,13 +1686,13 @@ export const SalesManagement: React.FC = () => {
         title={salesDetailTitle}
         size="2xl"
       >
-        <div className="overflow-y-auto">
+        <div>
           {salesDetailList.length === 0 ? (
             <div className="py-8 text-center text-text-600 text-sm">
               내역이 없습니다.
             </div>
           ) : (
-            <Table>
+            <Table maxHeight="max-h-[60vh]">
               <TableHeader>
                 <TableRow className="bg-sky-100">
                   <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">연번</TableHead>
@@ -1711,8 +1781,22 @@ export const SalesManagement: React.FC = () => {
 
                 // 정렬 적용
                 filteredMeasurement.sort((a, b) => {
-                  let aValue: any = a[measurementSort.column as keyof MeasurementRevenue];
-                  let bValue: any = b[measurementSort.column as keyof MeasurementRevenue];
+                  let aValue: any;
+                  let bValue: any;
+
+                  // 미수금액 컬럼 처리 (계산된 값)
+                  if (measurementSort.column === "unpaid") {
+                    const aTotal = parseFloat(a.measurement_fee_total?.toString() || "0") || 0;
+                    const aDeposit = parseFloat(a.deposit_total?.toString() || "0") || 0;
+                    aValue = aTotal - aDeposit;
+
+                    const bTotal = parseFloat(b.measurement_fee_total?.toString() || "0") || 0;
+                    const bDeposit = parseFloat(b.deposit_total?.toString() || "0") || 0;
+                    bValue = bTotal - bDeposit;
+                  } else {
+                    aValue = a[measurementSort.column as keyof MeasurementRevenue];
+                    bValue = b[measurementSort.column as keyof MeasurementRevenue];
+                  }
 
                   // 문자열 비교
                   if (typeof aValue === "string" && typeof bValue === "string") {
@@ -1724,7 +1808,7 @@ export const SalesManagement: React.FC = () => {
                   if (aValue === null || aValue === undefined) aValue = "";
                   if (bValue === null || bValue === undefined) bValue = "";
 
-                  if (otherSort.direction === "asc") {
+                  if (measurementSort.direction === "asc") {
                     return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
                   } else {
                     return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
@@ -1734,10 +1818,10 @@ export const SalesManagement: React.FC = () => {
                 // 정렬 아이콘 컴포넌트
                 const MeasurementSortIcon = ({ column }: { column: string }) => {
                   if (measurementSort.column !== column) {
-                    return <span className="text-text-400 text-xs ml-1">↕</span>;
+                    return <span className="text-gray-400 text-xs ml-1">↕</span>;
                   }
                   return (
-                    <span className="text-primary-600 text-xs ml-1">
+                    <span className={`text-xs ml-1 font-bold ${measurementSort.direction === "asc" ? "text-red-600" : "text-blue-600"}`}>
                       {measurementSort.direction === "asc" ? "↑" : "↓"}
                     </span>
                   );
@@ -1914,7 +1998,13 @@ export const SalesManagement: React.FC = () => {
                             </TableHead>
                             <TableHead className="text-right">
                               <div className="space-y-1">
-                                <div className="text-sm font-medium">미수금액</div>
+                                <div
+                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("unpaid")}
+                                >
+                                  미수금액
+                                  <MeasurementSortIcon column="unpaid" />
+                                </div>
                                 <div className="text-xs text-text-500">-</div>
                               </div>
                             </TableHead>
@@ -2078,10 +2168,10 @@ export const SalesManagement: React.FC = () => {
                 // 정렬 아이콘 컴포넌트
                 const OtherSortIcon = ({ column }: { column: string }) => {
                   if (otherSort.column !== column) {
-                    return <span className="text-text-400 text-xs ml-1">↕</span>;
+                    return <span className="text-gray-400 text-xs ml-1">↕</span>;
                   }
                   return (
-                    <span className="text-primary-600 text-xs ml-1">
+                    <span className={`text-xs ml-1 font-bold ${otherSort.direction === "asc" ? "text-red-600" : "text-blue-600"}`}>
                       {otherSort.direction === "asc" ? "↑" : "↓"}
                     </span>
                   );
@@ -2547,280 +2637,278 @@ export const SalesManagement: React.FC = () => {
                         필터 초기화
                       </Button>
                     </div>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
+                    <Table maxHeight="max-h-[calc(100vh-300px)]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>
+                            <div className="space-y-1">
+                              <div
+                                className="flex items-center cursor-pointer hover:text-primary-600"
+                                onClick={() => handleSort("type")}
+                              >
+                                구분
+                                <SortIcon column="type" />
+                              </div>
+                              <Select
+                                value={unpaidFilters.type}
+                                onChange={(e) =>
+                                  setUnpaidFilters({ ...unpaidFilters, type: e.target.value })
+                                }
+                                options={[
+                                  { value: "", label: "전체" },
+                                  { value: "measurement", label: "측정비" },
+                                  { value: "other", label: "기타" },
+                                ]}
+                                className="text-xs"
+                              />
+                            </div>
+                          </TableHead>
+                          <TableHead>
+                            <div className="space-y-1">
+                              <div
+                                className="flex items-center cursor-pointer hover:text-primary-600"
+                                onClick={() => handleSort("name")}
+                              >
+                                사업장명/품명
+                                <SortIcon column="name" />
+                              </div>
+                              <Input
+                                value={unpaidFilters.name}
+                                onChange={(e) =>
+                                  setUnpaidFilters({ ...unpaidFilters, name: e.target.value })
+                                }
+                                placeholder="검색..."
+                                className="text-xs h-7"
+                              />
+                            </div>
+                          </TableHead>
+                          <TableHead>
+                            <div className="space-y-1">
+                              <div
+                                className="flex items-center cursor-pointer hover:text-primary-600"
+                                onClick={() => handleSort("year")}
+                              >
+                                매출년도
+                                <SortIcon column="year" />
+                              </div>
+                              <Select
+                                value={unpaidFilters.year}
+                                onChange={(e) =>
+                                  setUnpaidFilters({ ...unpaidFilters, year: e.target.value })
+                                }
+                                options={[
+                                  { value: "", label: "전체" },
+                                  ...yearOptions,
+                                ]}
+                                className="text-xs"
+                              />
+                            </div>
+                          </TableHead>
+                          <TableHead>
+                            <div className="space-y-1">
+                              <div
+                                className="flex items-center cursor-pointer hover:text-primary-600"
+                                onClick={() => handleSort("period")}
+                              >
+                                측정주기
+                                <SortIcon column="period" />
+                              </div>
+                              <Select
+                                value={unpaidFilters.period}
+                                onChange={(e) =>
+                                  setUnpaidFilters({ ...unpaidFilters, period: e.target.value })
+                                }
+                                options={[
+                                  { value: "", label: "전체" },
+                                  { value: "상반기", label: "상반기" },
+                                  { value: "하반기", label: "하반기" },
+                                ]}
+                                className="text-xs"
+                              />
+                            </div>
+                          </TableHead>
+                          <TableHead className="text-right">
+                            <div className="space-y-1">
+                              <div
+                                className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                onClick={() => handleSort("revenue")}
+                              >
+                                매출금액
+                                <SortIcon column="revenue" />
+                              </div>
+                              <div className="text-xs text-text-500">-</div>
+                            </div>
+                          </TableHead>
+                          <TableHead className="text-right">
+                            <div className="space-y-1">
+                              <div
+                                className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                onClick={() => handleSort("deposit")}
+                              >
+                                입금액
+                                <SortIcon column="deposit" />
+                              </div>
+                              <div className="text-xs text-text-500">-</div>
+                            </div>
+                          </TableHead>
+                          <TableHead className="text-right">
+                            <div className="space-y-1">
+                              <div
+                                className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                onClick={() => handleSort("unpaid")}
+                              >
+                                미수금
+                                <SortIcon column="unpaid" />
+                              </div>
+                              <div className="text-xs text-text-500">-</div>
+                            </div>
+                          </TableHead>
+                          <TableHead>
+                            <div className="space-y-1">
+                              <div
+                                className="flex items-center cursor-pointer hover:text-primary-600"
+                                onClick={() => handleSort("depositDate")}
+                              >
+                                입금일
+                                <SortIcon column="depositDate" />
+                              </div>
+                              <Select
+                                value={unpaidFilters.hasDepositDate}
+                                onChange={(e) =>
+                                  setUnpaidFilters({ ...unpaidFilters, hasDepositDate: e.target.value })
+                                }
+                                options={[
+                                  { value: "", label: "전체" },
+                                  { value: "yes", label: "입금일 있음" },
+                                  { value: "no", label: "입금일 없음" },
+                                ]}
+                                className="text-xs"
+                              />
+                            </div>
+                          </TableHead>
+                          <TableHead>
+                            <div className="space-y-1">
+                              <div
+                                className="flex items-center cursor-pointer hover:text-primary-600"
+                                onClick={() => handleSort("designatedOffice")}
+                              >
+                                지정지청
+                                <SortIcon column="designatedOffice" />
+                              </div>
+                              <Select
+                                value={unpaidFilters.designatedOffice}
+                                onChange={(e) =>
+                                  setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
+                                }
+                                options={[
+                                  { value: "", label: "전체" },
+                                  ...DESIGNATED_OFFICE_OPTIONS.slice(1), // "전체" 제외
+                                ]}
+                                className="text-xs"
+                              />
+                            </div>
+                          </TableHead>
+                          <TableHead>작업</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredItems.length === 0 ? (
                           <TableRow>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("type")}
-                                >
-                                  구분
-                                  <SortIcon column="type" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.type}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, type: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    { value: "measurement", label: "측정비" },
-                                    { value: "other", label: "기타" },
-                                  ]}
-                                  className="text-xs"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("name")}
-                                >
-                                  사업장명/품명
-                                  <SortIcon column="name" />
-                                </div>
-                                <Input
-                                  value={unpaidFilters.name}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, name: e.target.value })
-                                  }
-                                  placeholder="검색..."
-                                  className="text-xs h-7"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("year")}
-                                >
-                                  매출년도
-                                  <SortIcon column="year" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.year}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, year: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    ...yearOptions,
-                                  ]}
-                                  className="text-xs"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("period")}
-                                >
-                                  측정주기
-                                  <SortIcon column="period" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.period}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, period: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    { value: "상반기", label: "상반기" },
-                                    { value: "하반기", label: "하반기" },
-                                  ]}
-                                  className="text-xs"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("revenue")}
-                                >
-                                  매출금액
-                                  <SortIcon column="revenue" />
-                                </div>
-                                <div className="text-xs text-text-500">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("deposit")}
-                                >
-                                  입금액
-                                  <SortIcon column="deposit" />
-                                </div>
-                                <div className="text-xs text-text-500">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("unpaid")}
-                                >
-                                  미수금
-                                  <SortIcon column="unpaid" />
-                                </div>
-                                <div className="text-xs text-text-500">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("depositDate")}
-                                >
-                                  입금일
-                                  <SortIcon column="depositDate" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.hasDepositDate}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, hasDepositDate: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    { value: "yes", label: "입금일 있음" },
-                                    { value: "no", label: "입금일 없음" },
-                                  ]}
-                                  className="text-xs"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead>
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("designatedOffice")}
-                                >
-                                  지정지청
-                                  <SortIcon column="designatedOffice" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.designatedOffice}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    ...DESIGNATED_OFFICE_OPTIONS.slice(1), // "전체" 제외
-                                  ]}
-                                  className="text-xs"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead>작업</TableHead>
+                            <TableCell colSpan={10} className="text-center text-text-500 py-8">
+                              {unpaidItems.length === 0
+                                ? "미수금이 있는 항목이 없습니다."
+                                : "필터 조건에 맞는 항목이 없습니다."}
+                            </TableCell>
                           </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredItems.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={10} className="text-center text-text-500 py-8">
-                                {unpaidItems.length === 0
-                                  ? "미수금이 있는 항목이 없습니다."
-                                  : "필터 조건에 맞는 항목이 없습니다."}
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            <>
-                              {filteredItems.map((item) => {
-                                const hasNoDepositDate = !item.depositDate;
-                                return (
-                                  <TableRow
-                                    key={item.id}
-                                    className={hasNoDepositDate ? "bg-warning-50" : ""}
-                                  >
-                                    <TableCell>
-                                      <span
-                                        className={`px-2 py-1 rounded text-xs ${item.type === "measurement"
-                                          ? "bg-primary-100 text-primary-700"
-                                          : "bg-secondary-100 text-secondary-700"
-                                          }`}
-                                      >
-                                        {item.type === "measurement" ? "측정비" : "기타"}
-                                      </span>
-                                    </TableCell>
-                                    <TableCell className="font-medium">{item.name}</TableCell>
-                                    <TableCell>{item.year}</TableCell>
-                                    <TableCell>{item.period}</TableCell>
-                                    <TableCell className="text-right">
-                                      {formatCurrency(item.revenue)}원
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                      {formatCurrency(item.deposit)}원
-                                    </TableCell>
-                                    <TableCell className="text-right text-warning-600 font-semibold">
-                                      {formatCurrency(item.unpaid)}원
-                                    </TableCell>
-                                    <TableCell
-                                      className={hasNoDepositDate ? "text-warning-600 font-semibold" : ""}
+                        ) : (
+                          <>
+                            {filteredItems.map((item) => {
+                              const hasNoDepositDate = !item.depositDate;
+                              return (
+                                <TableRow
+                                  key={item.id}
+                                  className={hasNoDepositDate ? "bg-warning-50" : ""}
+                                >
+                                  <TableCell>
+                                    <span
+                                      className={`px-2 py-1 rounded text-xs ${item.type === "measurement"
+                                        ? "bg-primary-100 text-primary-700"
+                                        : "bg-secondary-100 text-secondary-700"
+                                        }`}
                                     >
-                                      {item.depositDate ? formatDateYYYYMMDD(item.depositDate) : "미입금"}
-                                    </TableCell>
-                                    <TableCell>{item.designatedOffice || "-"}</TableCell>
-                                    <TableCell>
-                                      {item.type === "measurement" && item.measurementId && item.code ? (
-                                        <Button
-                                          variant="secondary"
-                                          size="sm"
-                                          onClick={async () => {
-                                            try {
-                                              // 측정일지 데이터 가져오기
-                                              const response = await fetch(
-                                                `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
-                                                { cache: 'no-store' }
-                                              );
-                                              if (response.ok) {
-                                                const data = await response.json();
-                                                const journal = data.results?.find((j: any) => j.id === item.measurementId);
-                                                if (journal) {
-                                                  setSelectedJournalEntry(journal);
-                                                  setIsJournalModalOpen(true);
-                                                } else {
-                                                  setError("측정일지를 찾을 수 없습니다.");
-                                                }
+                                      {item.type === "measurement" ? "측정비" : "기타"}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell className="font-medium">{item.name}</TableCell>
+                                  <TableCell>{item.year}</TableCell>
+                                  <TableCell>{item.period}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(item.revenue)}원
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(item.deposit)}원
+                                  </TableCell>
+                                  <TableCell className="text-right text-warning-600 font-semibold">
+                                    {formatCurrency(item.unpaid)}원
+                                  </TableCell>
+                                  <TableCell
+                                    className={hasNoDepositDate ? "text-warning-600 font-semibold" : ""}
+                                  >
+                                    {item.depositDate ? formatDateYYYYMMDD(item.depositDate) : "미입금"}
+                                  </TableCell>
+                                  <TableCell>{item.designatedOffice || "-"}</TableCell>
+                                  <TableCell>
+                                    {item.type === "measurement" && item.measurementId && item.code ? (
+                                      <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={async () => {
+                                          try {
+                                            // 측정일지 데이터 가져오기
+                                            const response = await fetch(
+                                              `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
+                                              { cache: 'no-store' }
+                                            );
+                                            if (response.ok) {
+                                              const data = await response.json();
+                                              const journal = data.results?.find((j: any) => j.id === item.measurementId);
+                                              if (journal) {
+                                                setSelectedJournalEntry(journal);
+                                                setIsJournalModalOpen(true);
                                               } else {
-                                                setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
+                                                setError("측정일지를 찾을 수 없습니다.");
                                               }
-                                            } catch (err) {
-                                              console.error("측정일지 조회 오류:", err);
+                                            } else {
                                               setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
                                             }
-                                          }}
-                                        >
-                                          수정
-                                        </Button>
-                                      ) : (
-                                        <span className="text-text-400 text-sm">-</span>
-                                      )}
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                              <TableRow className="bg-surface-50">
-                                <TableCell colSpan={7} className="text-right font-semibold">
-                                  미수금 합계
-                                </TableCell>
-                                <TableCell className="text-right font-bold text-warning-600 text-lg">
-                                  {formatCurrency(totalUnpaid)}원
-                                </TableCell>
-                                <TableCell colSpan={2}>{""}</TableCell>
-                              </TableRow>
-                            </>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
+                                          } catch (err) {
+                                            console.error("측정일지 조회 오류:", err);
+                                            setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
+                                          }
+                                        }}
+                                      >
+                                        수정
+                                      </Button>
+                                    ) : (
+                                      <span className="text-text-400 text-sm">-</span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                            <TableRow className="bg-surface-50">
+                              <TableCell colSpan={7} className="text-right font-semibold">
+                                미수금 합계
+                              </TableCell>
+                              <TableCell className="text-right font-bold text-warning-600 text-lg">
+                                {formatCurrency(totalUnpaid)}원
+                              </TableCell>
+                              <TableCell colSpan={2}>{""}</TableCell>
+                            </TableRow>
+                          </>
+                        )}
+                      </TableBody>
+                    </Table>
                   </div>
                 );
               })(),
@@ -3286,6 +3374,7 @@ export const SalesManagement: React.FC = () => {
         onClose={handleMeasurementUploadModalClose}
         title="측정비 일괄 업로드 (부분 업데이트)"
         size="lg"
+        resizable={true}
       >
         <div className="space-y-4">
           <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800 mb-4">
