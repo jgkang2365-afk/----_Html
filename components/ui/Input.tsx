@@ -14,14 +14,16 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     const handleKeyDownInternal = (e: React.KeyboardEvent<HTMLInputElement>) => {
       // Enter키 처리 (disabled가 아닌 경우에만)
       if (e.key === "Enter" && !props.disabled) {
-        e.preventDefault();
         const form = e.currentTarget.form;
         if (form) {
           const inputs = Array.from(form.querySelectorAll("input:not([disabled]), textarea:not([disabled]), select:not([disabled])")) as HTMLElement[];
           const currentIndex = inputs.indexOf(e.currentTarget);
+          // 다음 입력 필드가 있는 경우에만 포커스 이동하고 기본 동작 방지
           if (currentIndex >= 0 && currentIndex < inputs.length - 1) {
+            e.preventDefault();
             inputs[currentIndex + 1].focus();
           }
+          // 마지막 입력 필드면 e.preventDefault()가 호출되지 않아 기본 동작(폼 제출)이 실행됨
         }
       }
       // 사용자 정의 핸들러도 호출

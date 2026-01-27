@@ -8,8 +8,16 @@ interface MainLayoutProps {
   children: React.ReactNode;
 }
 
+import { usePathname } from "next/navigation";
+
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
+  const isLoginPage = pathname === "/login";
+
+  if (isLoginPage) {
+    return <main className="min-h-screen">{children}</main>;
+  }
 
   return (
     <div className="min-h-screen bg-surface-50">

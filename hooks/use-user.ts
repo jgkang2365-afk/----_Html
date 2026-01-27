@@ -72,12 +72,15 @@ export function useUser() {
 
   const logout = async () => {
     try {
+      // 로그아웃 API 호출
       await fetch("/api/auth/logout", { method: "POST" });
-      setUser(null);
-      router.push("/login");
-      router.refresh();
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error("Logout API error:", error);
+    } finally {
+      // API 성공 여부와 상관없이 클라이언트 상태 초기화 및 로그인 페이지로 강제 이동
+      setUser(null);
+      // window.location.href를 사용하여 전체 페이지를 새로고침하며 이동 (메모리 및 상태 완전 초기화)
+      window.location.href = "/login";
     }
   };
 

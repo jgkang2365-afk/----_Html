@@ -220,6 +220,46 @@ export const SalesManagement: React.FC = () => {
     direction: "asc" | "desc";
   }>({ column: "measurement_fee_total", direction: "desc" });
 
+  // 디바운싱된 필터 상태 추가
+  const [debouncedUnpaidFilters, setDebouncedUnpaidFilters] = useState(unpaidFilters);
+  const [debouncedOtherFilters, setDebouncedOtherFilters] = useState(otherFilters);
+  const [debouncedMeasurementFilters, setDebouncedMeasurementFilters] = useState(measurementFilters);
+
+  // 필터 업데이트 감지 여부 (로딩 표시용)
+  const [isMeasurementFiltering, setIsMeasurementFiltering] = useState(false);
+  const [isOtherFiltering, setIsOtherFiltering] = useState(false);
+  const [isUnpaidFiltering, setIsUnpaidFiltering] = useState(false);
+
+  // 미수관리 디바운싱 효과
+  useEffect(() => {
+    setIsUnpaidFiltering(true);
+    const timer = setTimeout(() => {
+      setDebouncedUnpaidFilters(unpaidFilters);
+      setIsUnpaidFiltering(false);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [unpaidFilters]);
+
+  // 기타 매출 디바운싱 효과
+  useEffect(() => {
+    setIsOtherFiltering(true);
+    const timer = setTimeout(() => {
+      setDebouncedOtherFilters(otherFilters);
+      setIsOtherFiltering(false);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [otherFilters]);
+
+  // 측정비 디바운싱 효과
+  useEffect(() => {
+    setIsMeasurementFiltering(true);
+    const timer = setTimeout(() => {
+      setDebouncedMeasurementFilters(measurementFilters);
+      setIsMeasurementFiltering(false);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [measurementFilters]);
+
   // 측정년도 옵션
   const currentYear = getCurrentYear();
   const yearOptions = Array.from({ length: 7 }, (_, i) => {
@@ -1786,13 +1826,13 @@ export const SalesManagement: React.FC = () => {
 
                 // 필터링 적용
                 let filteredMeasurement = measurementRevenue.filter((item) => {
-                  if (measurementFilters.businessName && !checkSearchMatch(item.business_name, measurementFilters.businessName)) return false;
-                  if (measurementFilters.representativeName && !checkSearchMatch(item.representative_name, measurementFilters.representativeName)) return false;
-                  if (measurementFilters.year && item.measurement_year.toString() !== measurementFilters.year) return false;
-                  if (measurementFilters.period && item.measurement_period !== measurementFilters.period) return false;
-                  if (measurementFilters.designatedOffice && item.designated_office !== measurementFilters.designatedOffice) return false;
-                  if (measurementFilters.hasInvoiceDate === "yes" && !item.electronic_invoice_date) return false;
-                  if (measurementFilters.hasInvoiceDate === "no" && item.electronic_invoice_date) return false;
+                  if (debouncedMeasurementFilters.businessName && !checkSearchMatch(item.business_name, debouncedMeasurementFilters.businessName)) return false;
+                  if (debouncedMeasurementFilters.representativeName && !checkSearchMatch(item.representative_name, debouncedMeasurementFilters.representativeName)) return false;
+                  if (debouncedMeasurementFilters.year && item.measurement_year.toString() !== debouncedMeasurementFilters.year) return false;
+                  if (debouncedMeasurementFilters.period && item.measurement_period !== debouncedMeasurementFilters.period) return false;
+                  if (debouncedMeasurementFilters.designatedOffice && item.designated_office !== debouncedMeasurementFilters.designatedOffice) return false;
+                  if (debouncedMeasurementFilters.hasInvoiceDate === "yes" && !item.electronic_invoice_date) return false;
+                  if (debouncedMeasurementFilters.hasInvoiceDate === "no" && item.electronic_invoice_date) return false;
                   return true;
                 });
 
@@ -1858,30 +1898,41 @@ export const SalesManagement: React.FC = () => {
 
                 return (
                   <div className="mt-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="text-sm text-text-600">
-                        총 {filteredMeasurement.length}건 (전체 {measurementRevenue.length}건)
+                    <div className="sticky top-[-1px] z-40 bg-white py-3 flex justify-between items-center border-b border-surface-100 mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="text-sm font-medium text-text-700">
+                          검색 결과: <span className="text-primary-600 font-bold">{filteredMeasurement.length}</span>건 <span className="text-text-400 font-normal ml-1">(전체 {measurementRevenue.length}건)</span>
+                        </div>
+                        {isMeasurementFiltering && (
+                          <div className="flex items-center gap-2 text-xs text-primary-500 animate-pulse">
+                            <LoadingSpinner className="w-3 h-3" />
+                            <span>검색 중...</span>
+                          </div>
+                        )}
                       </div>
                       <Button
                         variant="secondary"
                         size="sm"
+                        className="h-8 text-xs"
                         onClick={() => {
-                          setMeasurementFilters({
+                          const initial = {
                             businessName: "",
                             representativeName: "",
                             year: "",
                             period: "",
                             designatedOffice: "",
                             hasInvoiceDate: "",
-                          });
+                          };
+                          setMeasurementFilters(initial);
+                          setDebouncedMeasurementFilters(initial);
                           setMeasurementSort({ column: "measurement_fee_total", direction: "desc" });
                         }}
                       >
                         필터 초기화
                       </Button>
                     </div>
-                    <div className="rounded-lg border border-surface-200">
-                      <Table maxHeight="max-h-[calc(100vh-300px)]">
+                    <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white">
+                      <Table maxHeight="max-h-[calc(100vh-350px)]">
                         <TableHeader>
                           <TableRow>
                             <TableHead>
@@ -2185,14 +2236,14 @@ export const SalesManagement: React.FC = () => {
               content: (() => {
                 // 필터링 적용
                 let filteredOther = otherRevenue.filter((item) => {
-                  if (otherFilters.itemName && !item.item_name.toLowerCase().includes(otherFilters.itemName.toLowerCase())) return false;
-                  if (otherFilters.year && item.revenue_year?.toString() !== otherFilters.year) return false;
-                  if (otherFilters.period && item.revenue_period !== otherFilters.period) return false;
-                  if (otherFilters.hasInvoiceDate === "yes" && !item.invoice_date) return false;
-                  if (otherFilters.hasInvoiceDate === "no" && item.invoice_date) return false;
-                  if (otherFilters.hasDepositDate === "yes" && !item.deposit_date) return false;
-                  if (otherFilters.hasDepositDate === "no" && item.deposit_date) return false;
-                  if (otherFilters.notes && (!item.notes || !item.notes.toLowerCase().includes(otherFilters.notes.toLowerCase()))) return false;
+                  if (debouncedOtherFilters.itemName && !item.item_name.toLowerCase().includes(debouncedOtherFilters.itemName.toLowerCase())) return false;
+                  if (debouncedOtherFilters.year && item.revenue_year?.toString() !== debouncedOtherFilters.year) return false;
+                  if (debouncedOtherFilters.period && item.revenue_period !== debouncedOtherFilters.period) return false;
+                  if (debouncedOtherFilters.hasInvoiceDate === "yes" && !item.invoice_date) return false;
+                  if (debouncedOtherFilters.hasInvoiceDate === "no" && item.invoice_date) return false;
+                  if (debouncedOtherFilters.hasDepositDate === "yes" && !item.deposit_date) return false;
+                  if (debouncedOtherFilters.hasDepositDate === "no" && item.deposit_date) return false;
+                  if (debouncedOtherFilters.notes && (!item.notes || !item.notes.toLowerCase().includes(debouncedOtherFilters.notes.toLowerCase()))) return false;
                   return true;
                 });
 
@@ -2244,49 +2295,67 @@ export const SalesManagement: React.FC = () => {
 
                 return (
                   <div className="mt-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="flex gap-2 items-center">
-                        <div className="text-sm text-text-600">
-                          총 {filteredOther.length}건 (전체 {otherRevenue.length}건)
+                    <div className="sticky top-[-1px] z-40 bg-white py-3 flex justify-between items-center border-b border-surface-100 mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="text-sm font-medium text-text-700">
+                          검색 결과: <span className="text-primary-600 font-bold">{filteredOther.length}</span>건 <span className="text-text-400 font-normal ml-1">(전체 {otherRevenue.length}건)</span>
                         </div>
+                        {isOtherFiltering && (
+                          <div className="flex items-center gap-2 text-xs text-primary-500 animate-pulse">
+                            <LoadingSpinner className="w-3 h-3" />
+                            <span>검색 중...</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
                         {selectedOtherIds.length > 0 && (
                           <Button
                             variant="secondary"
+                            size="sm"
                             onClick={handleBulkDeleteOther}
                             disabled={isDeleting}
                           >
                             {isDeleting ? "삭제 중..." : `선택 삭제 (${selectedOtherIds.length})`}
                           </Button>
                         )}
-                      </div>
-                      <div className="flex gap-2">
                         <Button
                           variant="secondary"
                           size="sm"
+                          className="h-8 text-xs font-semibold"
                           onClick={() => {
-                            setOtherFilters({
+                            const initial = {
                               itemName: "",
                               year: "",
                               period: "",
                               hasInvoiceDate: "",
                               hasDepositDate: "",
                               notes: "",
-                            });
+                            };
+                            setOtherFilters(initial);
+                            setDebouncedOtherFilters(initial);
                             setOtherSort({ column: "total_amount", direction: "desc" });
                           }}
                         >
                           필터 초기화
                         </Button>
-                        <Button variant="secondary" onClick={() => setIsUploadModalOpen(true)}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setIsUploadModalOpen(true)}
+                        >
                           Excel 업로드
                         </Button>
-                        <Button variant="primary" onClick={() => handleOtherEdit(null)}>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleOtherEdit(null)}
+                        >
                           기타 매출 등록
                         </Button>
                       </div>
                     </div>
-                    <div className="overflow-x-auto">
-                      <Table>
+                    <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden">
+                      <Table maxHeight="max-h-[calc(100vh-350px)]">
                         <TableHeader>
                           <TableRow>
                             <TableHead className="w-12">
@@ -2607,13 +2676,13 @@ export const SalesManagement: React.FC = () => {
 
                 // 필터링 적용
                 let filteredItems = unpaidItems.filter((item) => {
-                  if (unpaidFilters.type && item.type !== unpaidFilters.type) return false;
-                  if (unpaidFilters.name && !item.name.toLowerCase().includes(unpaidFilters.name.toLowerCase())) return false;
-                  if (unpaidFilters.year && item.year.toString() !== unpaidFilters.year) return false;
-                  if (unpaidFilters.period && item.period !== unpaidFilters.period) return false;
-                  if (unpaidFilters.designatedOffice && item.designatedOffice !== unpaidFilters.designatedOffice) return false;
-                  if (unpaidFilters.hasDepositDate === "yes" && !item.depositDate) return false;
-                  if (unpaidFilters.hasDepositDate === "no" && item.depositDate) return false;
+                  if (debouncedUnpaidFilters.type && item.type !== debouncedUnpaidFilters.type) return false;
+                  if (debouncedUnpaidFilters.name && !item.name.toLowerCase().includes(debouncedUnpaidFilters.name.toLowerCase())) return false;
+                  if (debouncedUnpaidFilters.year && item.year.toString() !== debouncedUnpaidFilters.year) return false;
+                  if (debouncedUnpaidFilters.period && item.period !== debouncedUnpaidFilters.period) return false;
+                  if (debouncedUnpaidFilters.designatedOffice && item.designatedOffice !== debouncedUnpaidFilters.designatedOffice) return false;
+                  if (debouncedUnpaidFilters.hasDepositDate === "yes" && !item.depositDate) return false;
+                  if (debouncedUnpaidFilters.hasDepositDate === "no" && item.depositDate) return false;
                   return true;
                 });
 
@@ -2668,310 +2737,323 @@ export const SalesManagement: React.FC = () => {
 
                 return (
                   <div className="mt-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="text-sm text-text-600">
-                        총 {filteredItems.length}건 (전체 {unpaidItems.length}건)
+                    <div className="sticky top-[-1px] z-40 bg-white py-3 flex justify-between items-center border-b border-surface-100 mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="text-sm font-medium text-text-700">
+                          검색 결과: <span className="text-primary-600 font-bold">{filteredItems.length}</span>건 <span className="text-text-400 font-normal ml-1">(전체 {unpaidItems.length}건)</span>
+                        </div>
+                        {isUnpaidFiltering && (
+                          <div className="flex items-center gap-2 text-xs text-primary-500 animate-pulse">
+                            <LoadingSpinner className="w-3 h-3" />
+                            <span>검색 중...</span>
+                          </div>
+                        )}
                       </div>
                       <Button
                         variant="secondary"
                         size="sm"
+                        className="h-8 text-xs font-semibold"
                         onClick={() => {
-                          setUnpaidFilters({
+                          const initial = {
                             type: "",
                             name: "",
                             year: "",
                             period: "",
                             designatedOffice: "",
                             hasDepositDate: "",
-                          });
+                          };
+                          setUnpaidFilters(initial);
+                          setDebouncedUnpaidFilters(initial);
                           setUnpaidSort({ column: "unpaid", direction: "desc" });
                         }}
                       >
                         필터 초기화
                       </Button>
                     </div>
-                    <Table maxHeight="max-h-[calc(100vh-300px)]">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>
-                            <div className="space-y-1">
-                              <div
-                                className="flex items-center cursor-pointer hover:text-primary-600"
-                                onClick={() => handleSort("type")}
-                              >
-                                구분
-                                <SortIcon column="type" />
-                              </div>
-                              <Select
-                                value={unpaidFilters.type}
-                                onChange={(e) =>
-                                  setUnpaidFilters({ ...unpaidFilters, type: e.target.value })
-                                }
-                                options={[
-                                  { value: "", label: "전체" },
-                                  { value: "measurement", label: "측정비" },
-                                  { value: "other", label: "기타" },
-                                ]}
-                                className="text-xs"
-                              />
-                            </div>
-                          </TableHead>
-                          <TableHead>
-                            <div className="space-y-1">
-                              <div
-                                className="flex items-center cursor-pointer hover:text-primary-600"
-                                onClick={() => handleSort("name")}
-                              >
-                                사업장명/품명
-                                <SortIcon column="name" />
-                              </div>
-                              <Input
-                                value={unpaidFilters.name}
-                                onChange={(e) =>
-                                  setUnpaidFilters({ ...unpaidFilters, name: e.target.value })
-                                }
-                                placeholder="검색..."
-                                className="text-xs h-7"
-                              />
-                            </div>
-                          </TableHead>
-                          <TableHead>
-                            <div className="space-y-1">
-                              <div
-                                className="flex items-center cursor-pointer hover:text-primary-600"
-                                onClick={() => handleSort("year")}
-                              >
-                                매출년도
-                                <SortIcon column="year" />
-                              </div>
-                              <Select
-                                value={unpaidFilters.year}
-                                onChange={(e) =>
-                                  setUnpaidFilters({ ...unpaidFilters, year: e.target.value })
-                                }
-                                options={[
-                                  { value: "", label: "전체" },
-                                  ...yearOptions,
-                                ]}
-                                className="text-xs"
-                              />
-                            </div>
-                          </TableHead>
-                          <TableHead>
-                            <div className="space-y-1">
-                              <div
-                                className="flex items-center cursor-pointer hover:text-primary-600"
-                                onClick={() => handleSort("period")}
-                              >
-                                측정주기
-                                <SortIcon column="period" />
-                              </div>
-                              <Select
-                                value={unpaidFilters.period}
-                                onChange={(e) =>
-                                  setUnpaidFilters({ ...unpaidFilters, period: e.target.value })
-                                }
-                                options={[
-                                  { value: "", label: "전체" },
-                                  { value: "상반기", label: "상반기" },
-                                  { value: "하반기", label: "하반기" },
-                                ]}
-                                className="text-xs"
-                              />
-                            </div>
-                          </TableHead>
-                          <TableHead className="text-right">
-                            <div className="space-y-1">
-                              <div
-                                className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                onClick={() => handleSort("revenue")}
-                              >
-                                매출금액
-                                <SortIcon column="revenue" />
-                              </div>
-                              <div className="text-xs text-text-500">-</div>
-                            </div>
-                          </TableHead>
-                          <TableHead className="text-right">
-                            <div className="space-y-1">
-                              <div
-                                className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                onClick={() => handleSort("deposit")}
-                              >
-                                입금액
-                                <SortIcon column="deposit" />
-                              </div>
-                              <div className="text-xs text-text-500">-</div>
-                            </div>
-                          </TableHead>
-                          <TableHead className="text-right">
-                            <div className="space-y-1">
-                              <div
-                                className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                onClick={() => handleSort("unpaid")}
-                              >
-                                미수금
-                                <SortIcon column="unpaid" />
-                              </div>
-                              <div className="text-xs text-text-500">-</div>
-                            </div>
-                          </TableHead>
-                          <TableHead>
-                            <div className="space-y-1">
-                              <div
-                                className="flex items-center cursor-pointer hover:text-primary-600"
-                                onClick={() => handleSort("depositDate")}
-                              >
-                                입금일
-                                <SortIcon column="depositDate" />
-                              </div>
-                              <Select
-                                value={unpaidFilters.hasDepositDate}
-                                onChange={(e) =>
-                                  setUnpaidFilters({ ...unpaidFilters, hasDepositDate: e.target.value })
-                                }
-                                options={[
-                                  { value: "", label: "전체" },
-                                  { value: "yes", label: "입금일 있음" },
-                                  { value: "no", label: "입금일 없음" },
-                                ]}
-                                className="text-xs"
-                              />
-                            </div>
-                          </TableHead>
-                          <TableHead>
-                            <div className="space-y-1">
-                              <div
-                                className="flex items-center cursor-pointer hover:text-primary-600"
-                                onClick={() => handleSort("designatedOffice")}
-                              >
-                                지정지청
-                                <SortIcon column="designatedOffice" />
-                              </div>
-                              <Select
-                                value={unpaidFilters.designatedOffice}
-                                onChange={(e) =>
-                                  setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
-                                }
-                                options={[
-                                  { value: "", label: "전체" },
-                                  ...DESIGNATED_OFFICE_OPTIONS.slice(1), // "전체" 제외
-                                ]}
-                                className="text-xs"
-                              />
-                            </div>
-                          </TableHead>
-                          <TableHead>작업</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredItems.length === 0 ? (
+                    <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden">
+                      <Table maxHeight="max-h-[calc(100vh-350px)]">
+                        <TableHeader>
                           <TableRow>
-                            <TableCell colSpan={10} className="text-center text-text-500 py-8">
-                              {unpaidItems.length === 0
-                                ? "미수금이 있는 항목이 없습니다."
-                                : "필터 조건에 맞는 항목이 없습니다."}
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          <>
-                            {filteredItems.map((item) => {
-                              const hasNoDepositDate = !item.depositDate;
-                              return (
-                                <TableRow
-                                  key={item.id}
-                                  className={hasNoDepositDate ? "bg-warning-50" : ""}
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("type")}
                                 >
-                                  <TableCell>
-                                    <span
-                                      className={`px-2 py-1 rounded text-xs ${item.type === "measurement"
-                                        ? "bg-primary-100 text-primary-700"
-                                        : "bg-secondary-100 text-secondary-700"
-                                        }`}
-                                    >
-                                      {item.type === "measurement" ? "측정비" : "기타"}
-                                    </span>
-                                  </TableCell>
-                                  <TableCell className="font-medium">{item.name}</TableCell>
-                                  <TableCell>{item.year}</TableCell>
-                                  <TableCell>{item.period}</TableCell>
-                                  <TableCell className="text-right">
-                                    {formatCurrency(item.revenue)}원
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    {formatCurrency(item.deposit)}원
-                                  </TableCell>
-                                  <TableCell className="text-right text-warning-600 font-semibold">
-                                    {formatCurrency(item.unpaid)}원
-                                  </TableCell>
-                                  <TableCell
-                                    className={hasNoDepositDate ? "text-warning-600 font-semibold" : ""}
+                                  구분
+                                  <SortIcon column="type" />
+                                </div>
+                                <Select
+                                  value={unpaidFilters.type}
+                                  onChange={(e) =>
+                                    setUnpaidFilters({ ...unpaidFilters, type: e.target.value })
+                                  }
+                                  options={[
+                                    { value: "", label: "전체" },
+                                    { value: "measurement", label: "측정비" },
+                                    { value: "other", label: "기타" },
+                                  ]}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("name")}
+                                >
+                                  사업장명/품명
+                                  <SortIcon column="name" />
+                                </div>
+                                <Input
+                                  value={unpaidFilters.name}
+                                  onChange={(e) =>
+                                    setUnpaidFilters({ ...unpaidFilters, name: e.target.value })
+                                  }
+                                  placeholder="검색..."
+                                  className="text-xs h-7"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("year")}
+                                >
+                                  매출년도
+                                  <SortIcon column="year" />
+                                </div>
+                                <Select
+                                  value={unpaidFilters.year}
+                                  onChange={(e) =>
+                                    setUnpaidFilters({ ...unpaidFilters, year: e.target.value })
+                                  }
+                                  options={[
+                                    { value: "", label: "전체" },
+                                    ...yearOptions,
+                                  ]}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("period")}
+                                >
+                                  측정주기
+                                  <SortIcon column="period" />
+                                </div>
+                                <Select
+                                  value={unpaidFilters.period}
+                                  onChange={(e) =>
+                                    setUnpaidFilters({ ...unpaidFilters, period: e.target.value })
+                                  }
+                                  options={[
+                                    { value: "", label: "전체" },
+                                    { value: "상반기", label: "상반기" },
+                                    { value: "하반기", label: "하반기" },
+                                  ]}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead className="text-right">
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("revenue")}
+                                >
+                                  매출금액
+                                  <SortIcon column="revenue" />
+                                </div>
+                                <div className="text-xs text-text-500">-</div>
+                              </div>
+                            </TableHead>
+                            <TableHead className="text-right">
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("deposit")}
+                                >
+                                  입금액
+                                  <SortIcon column="deposit" />
+                                </div>
+                                <div className="text-xs text-text-500">-</div>
+                              </div>
+                            </TableHead>
+                            <TableHead className="text-right">
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("unpaid")}
+                                >
+                                  미수금
+                                  <SortIcon column="unpaid" />
+                                </div>
+                                <div className="text-xs text-text-500">-</div>
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("depositDate")}
+                                >
+                                  입금일
+                                  <SortIcon column="depositDate" />
+                                </div>
+                                <Select
+                                  value={unpaidFilters.hasDepositDate}
+                                  onChange={(e) =>
+                                    setUnpaidFilters({ ...unpaidFilters, hasDepositDate: e.target.value })
+                                  }
+                                  options={[
+                                    { value: "", label: "전체" },
+                                    { value: "yes", label: "입금일 있음" },
+                                    { value: "no", label: "입금일 없음" },
+                                  ]}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("designatedOffice")}
+                                >
+                                  지정지청
+                                  <SortIcon column="designatedOffice" />
+                                </div>
+                                <Select
+                                  value={unpaidFilters.designatedOffice}
+                                  onChange={(e) =>
+                                    setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
+                                  }
+                                  options={[
+                                    { value: "", label: "전체" },
+                                    ...DESIGNATED_OFFICE_OPTIONS.slice(1), // "전체" 제외
+                                  ]}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>작업</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredItems.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={10} className="text-center text-text-500 py-8">
+                                {unpaidItems.length === 0
+                                  ? "미수금이 있는 항목이 없습니다."
+                                  : "필터 조건에 맞는 항목이 없습니다."}
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            <>
+                              {filteredItems.map((item) => {
+                                const hasNoDepositDate = !item.depositDate;
+                                return (
+                                  <TableRow
+                                    key={item.id}
+                                    className={hasNoDepositDate ? "bg-warning-50" : ""}
                                   >
-                                    {item.depositDate ? formatDateYYYYMMDD(item.depositDate) : "미입금"}
-                                  </TableCell>
-                                  <TableCell>{item.designatedOffice || "-"}</TableCell>
-                                  <TableCell>
-                                    {item.type === "measurement" && item.measurementId && item.code ? (
-                                      <Button
-                                        variant="secondary"
-                                        size="sm"
-                                        onClick={async () => {
-                                          try {
-                                            // 측정일지 데이터 가져오기
-                                            const response = await fetch(
-                                              `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
-                                              { cache: 'no-store' }
-                                            );
-                                            if (response.ok) {
-                                              const data = await response.json();
-                                              const journal = data.results?.find((j: any) => j.id === item.measurementId);
-                                              if (journal) {
-                                                setSelectedJournalEntry(journal);
-                                                setIsJournalModalOpen(true);
+                                    <TableCell>
+                                      <span
+                                        className={`px-2 py-1 rounded text-xs ${item.type === "measurement"
+                                          ? "bg-primary-100 text-primary-700"
+                                          : "bg-secondary-100 text-secondary-700"
+                                          }`}
+                                      >
+                                        {item.type === "measurement" ? "측정비" : "기타"}
+                                      </span>
+                                    </TableCell>
+                                    <TableCell className="font-medium">{item.name}</TableCell>
+                                    <TableCell>{item.year}</TableCell>
+                                    <TableCell>{item.period}</TableCell>
+                                    <TableCell className="text-right">
+                                      {formatCurrency(item.revenue)}원
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      {formatCurrency(item.deposit)}원
+                                    </TableCell>
+                                    <TableCell className="text-right text-warning-600 font-semibold">
+                                      {formatCurrency(item.unpaid)}원
+                                    </TableCell>
+                                    <TableCell
+                                      className={hasNoDepositDate ? "text-warning-600 font-semibold" : ""}
+                                    >
+                                      {item.depositDate ? formatDateYYYYMMDD(item.depositDate) : "미입금"}
+                                    </TableCell>
+                                    <TableCell>{item.designatedOffice || "-"}</TableCell>
+                                    <TableCell>
+                                      {item.type === "measurement" && item.measurementId && item.code ? (
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          onClick={async () => {
+                                            try {
+                                              // 측정일지 데이터 가져오기
+                                              const response = await fetch(
+                                                `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
+                                                { cache: 'no-store' }
+                                              );
+                                              if (response.ok) {
+                                                const data = await response.json();
+                                                const journal = data.results?.find((j: any) => j.id === item.measurementId);
+                                                if (journal) {
+                                                  setSelectedJournalEntry(journal);
+                                                  setIsJournalModalOpen(true);
+                                                } else {
+                                                  setError("측정일지를 찾을 수 없습니다.");
+                                                }
                                               } else {
-                                                setError("측정일지를 찾을 수 없습니다.");
+                                                setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
                                               }
-                                            } else {
+                                            } catch (err) {
+                                              console.error("측정일지 조회 오류:", err);
                                               setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
                                             }
-                                          } catch (err) {
-                                            console.error("측정일지 조회 오류:", err);
-                                            setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
-                                          }
-                                        }}
-                                      >
-                                        수정
-                                      </Button>
-                                    ) : (
-                                      <span className="text-text-400 text-sm">-</span>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                            <TableRow className="bg-surface-50">
-                              <TableCell colSpan={7} className="text-right font-semibold">
-                                미수금 합계
-                              </TableCell>
-                              <TableCell className="text-right font-bold text-warning-600 text-lg">
-                                {formatCurrency(totalUnpaid)}원
-                              </TableCell>
-                              <TableCell colSpan={2}>{""}</TableCell>
-                            </TableRow>
-                          </>
-                        )}
-                      </TableBody>
-                    </Table>
+                                          }}
+                                        >
+                                          수정
+                                        </Button>
+                                      ) : (
+                                        <span className="text-text-400 text-sm">-</span>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                              <TableRow className="bg-surface-50">
+                                <TableCell colSpan={7} className="text-right font-semibold">
+                                  미수금 합계
+                                </TableCell>
+                                <TableCell className="text-right font-bold text-warning-600 text-lg">
+                                  {formatCurrency(totalUnpaid)}원
+                                </TableCell>
+                                <TableCell colSpan={2}>{""}</TableCell>
+                              </TableRow>
+                            </>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </div>
                 );
               })(),
             },
           ]}
         />
-      </Card>
+      </Card >
 
       {/* 기타 매출 등록/수정 모달 */}
-      <Modal
+      < Modal
         isOpen={isOtherModalOpen}
         onClose={() => {
           setIsOtherModalOpen(false);
@@ -3222,57 +3304,59 @@ export const SalesManagement: React.FC = () => {
             </Button>
           </div>
         </div>
-      </Modal>
+      </Modal >
 
       {/* 측정일지 수정 모달 */}
-      {selectedJournalEntry && (
-        <Modal
-          isOpen={isJournalModalOpen}
-          onClose={() => {
-            setIsJournalModalOpen(false);
-            setSelectedJournalEntry(null);
-          }}
-          title="매출관리 수정"
-          size="3xl"
-          headerActions={
-            <div className="flex gap-2">
-              <Button
-                type="submit"
-                form="journal-edit-form"
-                disabled={isJournalFormSubmitting}
-              >
-                {isJournalFormSubmitting ? <LoadingSpinner /> : "수정"}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setIsJournalModalOpen(false);
-                  setSelectedJournalEntry(null);
-                }}
-                disabled={isJournalFormSubmitting}
-              >
-                취소
-              </Button>
-            </div>
-          }
-        >
-          <JournalEditForm
-            entry={selectedJournalEntry}
-            mode="sales"
+      {
+        selectedJournalEntry && (
+          <Modal
+            isOpen={isJournalModalOpen}
             onClose={() => {
               setIsJournalModalOpen(false);
               setSelectedJournalEntry(null);
             }}
-            setIsSubmitting={setIsJournalFormSubmitting}
-            onSuccess={async (savedJournalId) => {
-              setIsJournalModalOpen(false);
-              setSelectedJournalEntry(null);
-              // 데이터 다시 불러오기
-              await loadSalesData();
-            }}
-          />
-        </Modal>
-      )}
+            title="매출관리 수정"
+            size="3xl"
+            headerActions={
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  form="journal-edit-form"
+                  disabled={isJournalFormSubmitting}
+                >
+                  {isJournalFormSubmitting ? <LoadingSpinner /> : "수정"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setIsJournalModalOpen(false);
+                    setSelectedJournalEntry(null);
+                  }}
+                  disabled={isJournalFormSubmitting}
+                >
+                  취소
+                </Button>
+              </div>
+            }
+          >
+            <JournalEditForm
+              entry={selectedJournalEntry}
+              mode="sales"
+              onClose={() => {
+                setIsJournalModalOpen(false);
+                setSelectedJournalEntry(null);
+              }}
+              setIsSubmitting={setIsJournalFormSubmitting}
+              onSuccess={async (savedJournalId) => {
+                setIsJournalModalOpen(false);
+                setSelectedJournalEntry(null);
+                // 데이터 다시 불러오기
+                await loadSalesData();
+              }}
+            />
+          </Modal>
+        )
+      }
 
       {/* Excel 업로드 모달 */}
       <Modal
@@ -3504,6 +3588,6 @@ export const SalesManagement: React.FC = () => {
           </div>
         </div>
       </Modal>
-    </div>
+    </div >
   );
 };

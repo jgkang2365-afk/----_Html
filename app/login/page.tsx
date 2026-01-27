@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, FormEvent, useEffect, Suspense, useRef, useCallback, useMemo } from "react";
+import { useState, FormEvent, useEffect, Suspense, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
 
@@ -16,75 +17,22 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isInitialSetup, setIsInitialSetup] = useState(false);
-  const [checkingSetup, setCheckingSetup] = useState(false);
-  
+  const [rememberName, setRememberName] = useState(false);
+
   // 입력 필드 포커스 유지를 위한 ref
   const nameInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
 
-  // 이름 입력 시 최초 설정 필요 여부 확인
+  // LocalStorage에서 저장된 이름 불러오기
   useEffect(() => {
-    const checkInitialSetup = async () => {
-      if (!name.trim()) {
-        setIsInitialSetup(false);
-        setConfirmPassword(""); // 이름이 변경되면 확인 비밀번호 초기화
-        return;
-      }
-
-      // 현재 포커스된 요소와 커서 위치 저장
-      const activeElement = document.activeElement as HTMLInputElement | null;
-      const savedSelectionStart = activeElement?.selectionStart ?? null;
-      const savedSelectionEnd = activeElement?.selectionEnd ?? null;
-      const savedInputId = activeElement?.id;
-
-      setCheckingSetup(true);
-      try {
-        const response = await fetch(`/api/auth/check-initial-setup?name=${encodeURIComponent(name)}`);
-        const data = await response.json();
-        setIsInitialSetup(data.needsSetup || false);
-        if (!data.needsSetup) {
-          setConfirmPassword(""); // 일반 로그인이면 확인 비밀번호 초기화
-        }
-      } catch (err) {
-        setIsInitialSetup(false);
-        setConfirmPassword("");
-      } finally {
-        setCheckingSetup(false);
-        
-        // 포커스와 커서 위치 복원
-        requestAnimationFrame(() => {
-          if (savedInputId === "name" && nameInputRef.current) {
-            nameInputRef.current.focus();
-            if (savedSelectionStart !== null && savedSelectionEnd !== null) {
-              nameInputRef.current.setSelectionRange(savedSelectionStart, savedSelectionEnd);
-            }
-          } else if (savedInputId === "password" && passwordInputRef.current) {
-            passwordInputRef.current.focus();
-            if (savedSelectionStart !== null && savedSelectionEnd !== null) {
-              passwordInputRef.current.setSelectionRange(savedSelectionStart, savedSelectionEnd);
-            }
-          }
-        });
-      }
-    };
-
-    // 디바운싱: 입력 후 500ms 후에 확인
-    const timeoutId = setTimeout(checkInitialSetup, 500);
-    return () => clearTimeout(timeoutId);
-  }, [name]);
-
-  // 입력 핸들러 메모이제이션
-  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setName(e.target.value);
+    const savedName = localStorage.getItem("savedLoginName");
+    if (savedName) {
+      setName(savedName);
+      setRememberName(true);
+    }
   }, []);
 
-  const handlePasswordChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setPassword(e.target.value);
-  }, []);
 
-  const handleConfirmPasswordChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setConfirmPassword(e.target.value);
-  }, []);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -93,7 +41,7 @@ function LoginForm() {
 
     try {
       let response;
-      
+
       if (isInitialSetup) {
         // 최초 비밀번호 설정 - 비밀번호 확인 검증
         if (password !== confirmPassword) {
@@ -141,6 +89,13 @@ function LoginForm() {
         return;
       }
 
+      // 로그인 성공 시 이름 저장 처리
+      if (rememberName) {
+        localStorage.setItem("savedLoginName", name);
+      } else {
+        localStorage.removeItem("savedLoginName");
+      }
+
       // 로그인 성공 시 리다이렉트
       // 완전한 페이지 새로고침을 통해 사용자 정보가 즉시 반영되도록 함
       const redirect = searchParams.get("redirect") || "/dashboard";
@@ -184,19 +139,15 @@ function LoginForm() {
               <Input
                 ref={nameInputRef}
                 id="name"
-                key="name-input"
                 type="text"
                 value={name}
-                onChange={handleNameChange}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="이름을 입력하세요"
                 required
                 disabled={loading}
                 autoFocus
                 autoComplete="username"
               />
-              {checkingSetup && (
-                <p className="mt-1 text-xs text-text-500">확인 중...</p>
-              )}
             </div>
 
             <div>
@@ -206,16 +157,16 @@ function LoginForm() {
               <Input
                 ref={passwordInputRef}
                 id="password"
-                key="password-input"
                 type="password"
                 value={password}
-                onChange={handlePasswordChange}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder={isInitialSetup ? "설정할 비밀번호 (최소 4자)" : "••••••••"}
                 required
                 disabled={loading}
                 autoComplete={isInitialSetup ? "new-password" : "current-password"}
               />
             </div>
+
 
             {isInitialSetup && (
               <div>
@@ -224,33 +175,44 @@ function LoginForm() {
                 </label>
                 <Input
                   id="confirmPassword"
-                  key="confirm-password-input"
                   type="password"
                   value={confirmPassword}
-                  onChange={handleConfirmPasswordChange}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="비밀번호를 다시 입력하세요"
                   required
                   disabled={loading}
                   autoComplete="new-password"
                 />
-                {confirmPassword && password !== confirmPassword && (
-                  <p className="mt-1 text-xs text-red-600">비밀번호가 일치하지 않습니다.</p>
-                )}
-                {confirmPassword && password === confirmPassword && password.length >= 4 && (
-                  <p className="mt-1 text-xs text-green-600">비밀번호가 일치합니다.</p>
-                )}
+                <div className="min-h-[1.25rem] mt-1">
+                  {confirmPassword && password !== confirmPassword && (
+                    <p className="text-xs text-red-600">비밀번호가 일치하지 않습니다.</p>
+                  )}
+                  {confirmPassword && password === confirmPassword && password.length >= 4 && (
+                    <p className="text-xs text-green-600">비밀번호가 일치합니다.</p>
+                  )}
+                </div>
               </div>
             )}
 
-            <Button type="submit" variant="primary" className="w-full" disabled={loading || checkingSetup}>
+            <Button type="submit" variant="primary" className="w-full" disabled={loading}>
               {loading
                 ? isInitialSetup
                   ? "설정 중..."
                   : "로그인 중..."
                 : isInitialSetup
-                ? "비밀번호 설정 및 로그인"
-                : "로그인"}
+                  ? "비밀번호 설정 및 로그인"
+                  : "로그인"}
             </Button>
+
+            <div className="flex items-center justify-end mt-2">
+              <Checkbox
+                id="rememberName"
+                label="이름 저장"
+                checked={rememberName}
+                onChange={(e) => setRememberName(e.target.checked)}
+                disabled={loading}
+              />
+            </div>
           </form>
 
           <div className="mt-6 text-center text-sm text-text-500">

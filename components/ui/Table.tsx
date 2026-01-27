@@ -53,7 +53,10 @@ export const TableHeader = React.forwardRef<HTMLTableSectionElement, TableHeader
     return (
       <thead
         ref={ref}
-        className={cn("bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-20", className)}
+        className={cn(
+          "bg-slate-50 sticky top-0 z-30 shadow-sm after:content-[''] after:absolute after:left-0 after:bottom-0 after:w-full after:border-b after:border-slate-200",
+          className
+        )}
         {...props}
       >
         {children}
