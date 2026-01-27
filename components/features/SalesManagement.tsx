@@ -1983,6 +1983,18 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500">-</div>
                               </div>
                             </TableHead>
+                            <TableHead className="text-center">
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("deposit_date_business")}
+                                >
+                                  측정비(입금일)
+                                  <MeasurementSortIcon column="deposit_date_business" />
+                                </div>
+                                <div className="text-xs text-text-500">-</div>
+                              </div>
+                            </TableHead>
                             <TableHead className="text-right">
                               <div className="space-y-1">
                                 <div
@@ -2060,7 +2072,7 @@ export const SalesManagement: React.FC = () => {
                         <TableBody>
                           {filteredMeasurement.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={12} className="text-center text-text-500 py-8">
+                              <TableCell colSpan={13} className="text-center text-text-500 py-8">
                                 {measurementRevenue.length === 0
                                   ? "데이터가 없습니다."
                                   : "필터 조건에 맞는 항목이 없습니다."}
@@ -2080,6 +2092,9 @@ export const SalesManagement: React.FC = () => {
                                   <TableCell>{item.designated_office}</TableCell>
                                   <TableCell className="text-right">
                                     {formatCurrency(item.measurement_fee_business)}원
+                                  </TableCell>
+                                  <TableCell className="text-center text-sm">
+                                    {item.deposit_date_business || "-"}
                                   </TableCell>
                                   <TableCell className="text-right">
                                     {formatCurrency(item.measurement_fee_national)}원
