@@ -1770,10 +1770,24 @@ export const SalesManagement: React.FC = () => {
               id: "measurement",
               label: "측정비",
               content: (() => {
+                // 검색어 매칭 헬퍼 함수 (콤마로 구분된 다중 키워드 OR 검색)
+                const checkSearchMatch = (targetValue: string | null, searchValue: string) => {
+                  if (!searchValue) return true;
+                  if (!targetValue) return false;
+
+                  const target = targetValue.toLowerCase();
+                  const terms = searchValue.split(",").map(term => term.trim().toLowerCase()).filter(term => term.length > 0);
+
+                  if (terms.length === 0) return true;
+
+                  // 하나라도 포함되면 true (OR 조건)
+                  return terms.some(term => target.includes(term));
+                };
+
                 // 필터링 적용
                 let filteredMeasurement = measurementRevenue.filter((item) => {
-                  if (measurementFilters.businessName && !item.business_name.toLowerCase().includes(measurementFilters.businessName.toLowerCase())) return false;
-                  if (measurementFilters.representativeName && (!item.representative_name || !item.representative_name.toLowerCase().includes(measurementFilters.representativeName.toLowerCase()))) return false;
+                  if (measurementFilters.businessName && !checkSearchMatch(item.business_name, measurementFilters.businessName)) return false;
+                  if (measurementFilters.representativeName && !checkSearchMatch(item.representative_name, measurementFilters.representativeName)) return false;
                   if (measurementFilters.year && item.measurement_year.toString() !== measurementFilters.year) return false;
                   if (measurementFilters.period && item.measurement_period !== measurementFilters.period) return false;
                   if (measurementFilters.designatedOffice && item.designated_office !== measurementFilters.designatedOffice) return false;

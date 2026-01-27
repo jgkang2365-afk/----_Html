@@ -277,9 +277,17 @@ export const BusinessManagement: React.FC = () => {
     }
 
     if (currentFilters.address) {
-      filtered = filtered.filter((entry) =>
-        entry.address?.toLowerCase().includes(currentFilters.address.toLowerCase())
-      );
+      filtered = filtered.filter((entry) => {
+        if (!entry.address) return false;
+
+        const address = entry.address.toLowerCase();
+        const terms = currentFilters.address.split(",").map(term => term.trim().toLowerCase()).filter(term => term.length > 0);
+
+        if (terms.length === 0) return true;
+
+        // 하나라도 포함되면 true (OR 조건)
+        return terms.some(term => address.includes(term));
+      });
     }
 
     if (currentFilters.businessName) {
