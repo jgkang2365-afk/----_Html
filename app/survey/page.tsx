@@ -35,6 +35,8 @@ interface Survey {
   report_writer: string | null;
   sequence_number: number | null;
   business_number: string | null; // Added field
+  year: number | null;
+  period: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -675,6 +677,8 @@ export default function SurveyPage() {
                             </button>
                           </div>
                         </th>
+                        <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정년도</th>
+                        <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">주기</th>
                         <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정일</th>
                         <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">종료일</th>
                         <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정요일</th>
@@ -693,6 +697,12 @@ export default function SurveyPage() {
                         <tr key={survey.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/50">
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap text-center">
                             {survey.sequence_number || "-"}
+                          </td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap text-center">
+                            {survey.year || "-"}
+                          </td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap text-center">
+                            {survey.period || "-"}
                           </td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
                             {survey.measurement_date
@@ -773,6 +783,8 @@ export default function SurveyPage() {
                   actual_measurer: editingSurvey.actual_measurer ?? undefined,
                   report_writer: editingSurvey.report_writer ?? undefined,
                   sequence_number: editingSurvey.sequence_number ?? undefined,
+                  year: editingSurvey.year ?? undefined,
+                  period: editingSurvey.period ?? undefined,
                 } as any
                 : selectedBusinessForForm
                   ? {

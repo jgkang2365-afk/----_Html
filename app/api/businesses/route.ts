@@ -423,6 +423,41 @@ export async function GET(request: NextRequest) {
       return finalOffice || "천안";
     };
 
+    // 미수 내역 조회 (전체 기간) - 루프 밖에서 미리 조회
+    let unpaidMap = new Map<string, any[]>();
+    if (codes && codes.length > 0) {
+      try {
+        const { data: unpaidData, error: unpaidError } = await supabase
+          .from("measurement_journal")
+          .select("code, measurement_year, measurement_period, measurement_fee_total, deposit_total, business_name")
+          .in("code", codes);
+
+        if (unpaidError) {
+          console.error("미수 내역 조회 오류:", unpaidError);
+        } else if (unpaidData) {
+          unpaidData.forEach((item: any) => {
+            const fee = parseFloat(item.measurement_fee_total?.toString() || "0");
+            const deposit = parseFloat(item.deposit_total?.toString() || "0");
+            const unpaid = fee - deposit;
+
+            if (unpaid > 0) {
+              const list = unpaidMap.get(item.code) || [];
+              list.push({
+                year: item.measurement_year,
+                period: item.measurement_period,
+                amount: unpaid,
+                total: fee,
+                deposit: deposit
+              });
+              unpaidMap.set(item.code, list);
+            }
+          });
+        }
+      } catch (error) {
+        console.error("미수 내역 처리 중 오류:", error);
+      }
+    }
+
     // 결과 생성
     let businesses: BusinessEntryResponse[] = plans.map((plan: any) => {
       const journal = registeredJournalMap.get(plan.code);
@@ -482,8 +517,14 @@ export async function GET(request: NextRequest) {
         mbItem?.measurement_date ||
         preliminarySurveyDateMap.get(plan.code) || null;
 
+      // 미수 내역
+      const unpaidList = unpaidMap.get(plan.code) || [];
+      const unpaidCount = unpaidList.length;
+
       // 전회 측정일
       const previousMeasurementDate = previousMeasurementDateMap.get(plan.code) || null;
+
+
 
       // 담당자 정보
       const managerName = normalizeString(journal?.manager_name) || normalizeString(businessInfoManagerNameMap.get(plan.code)) || normalizeString(plan.manager_name) || null;
@@ -524,6 +565,8 @@ export async function GET(request: NextRequest) {
         business_category: businessCategory,
         future_measurement_period: plan.future_measurement_period || null, // 전회 향후측정주기
         management_status: plan.management_status || null,
+        unpaid_count: unpaidCount,
+        unpaid_details: unpaidList,
       };
     });
 
@@ -678,4 +721,6 @@ interface BusinessEntryResponse {
   business_category: string | null; // 분류업종
   future_measurement_period: number | null; // 전회 향후측정주기 (개월)
   management_status: string | null; // 관리 상태 (예: transaction_ended)
+  unpaid_count?: number;
+  unpaid_details?: any[];
 }

@@ -42,6 +42,7 @@ interface MeasurementRevenue {
   deposit_amount_national: number | null;
   invoice_email: string | null;
   electronic_invoice_date: string | null;
+  representative_name: string | null;
 }
 
 interface OtherRevenue {
@@ -208,6 +209,7 @@ export const SalesManagement: React.FC = () => {
   // 측정비 필터 및 정렬 상태
   const [measurementFilters, setMeasurementFilters] = useState({
     businessName: "", // 사업장명
+    representativeName: "", // 대표자명
     year: getCurrentYearString(), // 측정년도
     period: "", // 측정주기
     designatedOffice: "", // 지정한계_관할지청
@@ -1771,6 +1773,7 @@ export const SalesManagement: React.FC = () => {
                 // 필터링 적용
                 let filteredMeasurement = measurementRevenue.filter((item) => {
                   if (measurementFilters.businessName && !item.business_name.toLowerCase().includes(measurementFilters.businessName.toLowerCase())) return false;
+                  if (measurementFilters.representativeName && (!item.representative_name || !item.representative_name.toLowerCase().includes(measurementFilters.representativeName.toLowerCase()))) return false;
                   if (measurementFilters.year && item.measurement_year.toString() !== measurementFilters.year) return false;
                   if (measurementFilters.period && item.measurement_period !== measurementFilters.period) return false;
                   if (measurementFilters.designatedOffice && item.designated_office !== measurementFilters.designatedOffice) return false;
@@ -1851,6 +1854,7 @@ export const SalesManagement: React.FC = () => {
                         onClick={() => {
                           setMeasurementFilters({
                             businessName: "",
+                            representativeName: "",
                             year: "",
                             period: "",
                             designatedOffice: "",
@@ -1920,6 +1924,25 @@ export const SalesManagement: React.FC = () => {
                                   value={measurementFilters.businessName}
                                   onChange={(e) =>
                                     setMeasurementFilters({ ...measurementFilters, businessName: e.target.value })
+                                  }
+                                  placeholder="검색..."
+                                  className="text-xs h-7"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead>
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleMeasurementSort("representative_name")}
+                                >
+                                  대표자명
+                                  <MeasurementSortIcon column="representative_name" />
+                                </div>
+                                <Input
+                                  value={measurementFilters.representativeName}
+                                  onChange={(e) =>
+                                    setMeasurementFilters({ ...measurementFilters, representativeName: e.target.value })
                                   }
                                   placeholder="검색..."
                                   className="text-xs h-7"
@@ -2037,7 +2060,7 @@ export const SalesManagement: React.FC = () => {
                         <TableBody>
                           {filteredMeasurement.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={11} className="text-center text-text-500 py-8">
+                              <TableCell colSpan={12} className="text-center text-text-500 py-8">
                                 {measurementRevenue.length === 0
                                   ? "데이터가 없습니다."
                                   : "필터 조건에 맞는 항목이 없습니다."}
@@ -2053,6 +2076,7 @@ export const SalesManagement: React.FC = () => {
                                   <TableCell>{item.measurement_year}</TableCell>
                                   <TableCell>{item.measurement_period}</TableCell>
                                   <TableCell className="font-medium">{item.business_name}</TableCell>
+                                  <TableCell>{item.representative_name}</TableCell>
                                   <TableCell>{item.designated_office}</TableCell>
                                   <TableCell className="text-right">
                                     {formatCurrency(item.measurement_fee_business)}원

@@ -345,6 +345,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const {
+      year,
+      period,
       measurement_date,
       end_date,
       measurement_weekdays,
@@ -425,6 +427,8 @@ export async function POST(request: NextRequest) {
     const { data: survey, error } = await supabase
       .from("preliminary_survey")
       .insert({
+        year: year ? parseInt(year) : 2026,
+        period: period || "상반기",
         measurement_date,
         end_date: end_date || measurement_date,
         measurement_weekdays: measurement_weekdays || null,

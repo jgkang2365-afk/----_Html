@@ -49,6 +49,8 @@ interface BusinessEntry {
   future_measurement_period: number | null; // 전회 향후측정주기 (개월)
   measurement_month: string | null; // 측정월
   management_status: string | null; // 관리 상태 ('transaction_ended' 등)
+  unpaid_count: number;
+  unpaid_details: any[];
 }
 
 
@@ -86,7 +88,11 @@ export const BusinessManagement: React.FC = () => {
   // 모달 상태
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
   const [isExcelUploadModalOpen, setIsExcelUploadModalOpen] = useState(false);
+  const [isUnpaidDetailModalOpen, setIsUnpaidDetailModalOpen] = useState(false);
+  const [selectedUnpaidDetails, setSelectedUnpaidDetails] = useState<any[]>([]);
+  const [selectedUnpaidBusinessName, setSelectedUnpaidBusinessName] = useState("");
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessEntry | null>(null);
 
 
@@ -726,7 +732,6 @@ export const BusinessManagement: React.FC = () => {
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">측정예정월</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">금회측정확정일</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">업종분류</th>
-                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap w-[180px]">사업장명</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap min-w-[200px]">
                       <div className="flex items-center justify-between">
                         <span>주소</span>
@@ -761,6 +766,8 @@ export const BusinessManagement: React.FC = () => {
                       </div>
                     </th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">소재지 관할청</th>
+                    <th className="bg-surface-50 h-12 px-4 text-center align-middle font-bold text-slate-800 whitespace-nowrap">미수횟수</th>
+                    <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap w-[180px]">사업장명</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자명</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">담당자 휴대폰</th>
                     <th className="bg-surface-50 h-12 px-4 text-left align-middle font-bold text-slate-800 whitespace-nowrap">회사전화번호</th>
@@ -842,11 +849,27 @@ export const BusinessManagement: React.FC = () => {
                             ))}
                           </select>
                         </td>
-                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium w-[180px]">{entry.business_name}</td>
                         <td className="p-4 align-middle text-slate-600 min-w-[200px]">
                           {entry.address || "-"}
                         </td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.office_jurisdiction || "-"}</td>
+                        <td className="p-4 align-middle text-center font-medium">
+                          {entry.unpaid_count && entry.unpaid_count > 0 ? (
+                            <span
+                              className="text-red-600 font-bold cursor-pointer hover:underline"
+                              onClick={() => {
+                                setSelectedUnpaidBusinessName(entry.business_name);
+                                setSelectedUnpaidDetails(entry.unpaid_details || []);
+                                setIsUnpaidDetailModalOpen(true);
+                              }}
+                            >
+                              {entry.unpaid_count}회
+                            </span>
+                          ) : (
+                            <span className="text-gray-300">-</span>
+                          )}
+                        </td>
+                        <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium w-[180px]">{entry.business_name}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_name || "-"}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_mobile || "-"}</td>
                         <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>
@@ -1155,6 +1178,70 @@ export const BusinessManagement: React.FC = () => {
           />
           <div className="flex justify-end pt-4">
             <Button variant="secondary" onClick={() => setIsExcelUploadModalOpen(false)}>
+              닫기
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 미수 상세 내역 모달 */}
+      <Modal
+        isOpen={isUnpaidDetailModalOpen}
+        onClose={() => setIsUnpaidDetailModalOpen(false)}
+        title={`${selectedUnpaidBusinessName} 미수 내역`}
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="bg-red-50 p-4 rounded-lg flex justify-between items-center text-red-700 mb-4 border border-red-100">
+            <span className="font-medium">총 미수금액</span>
+            <span className="text-lg font-bold">
+              {new Intl.NumberFormat("ko-KR").format(
+                selectedUnpaidDetails.reduce((sum, item) => sum + item.amount, 0)
+              )}원
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3">측정년도</th>
+                  <th className="px-4 py-3">측정주기</th>
+                  <th className="px-4 py-3 text-right">매출금액</th>
+                  <th className="px-4 py-3 text-right">입금액</th>
+                  <th className="px-4 py-3 text-right">미수금액</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {selectedUnpaidDetails.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                      미수 내역이 없습니다.
+                    </td>
+                  </tr>
+                ) : (
+                  selectedUnpaidDetails.map((detail: any, idx: number) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="px-4 py-3">{detail.year}년</td>
+                      <td className="px-4 py-3">{detail.period}</td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {new Intl.NumberFormat("ko-KR").format(detail.total || 0)}원
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {new Intl.NumberFormat("ko-KR").format(detail.deposit || 0)}원
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-red-600">
+                        {new Intl.NumberFormat("ko-KR").format(detail.amount || 0)}원
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end pt-4">
+            <Button variant="secondary" onClick={() => setIsUnpaidDetailModalOpen(false)}>
               닫기
             </Button>
           </div>

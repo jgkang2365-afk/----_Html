@@ -36,6 +36,8 @@ interface BusinessInfo {
 }
 
 interface SurveyFormData {
+  year: string;
+  period: string;
   measurement_date: string; // YYYY-MM-DD 형식
   end_date: string; // YYYY-MM-DD 형식
   measurement_weekdays: string;
@@ -62,6 +64,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   onCancel,
 }) => {
   const [formData, setFormData] = useState<SurveyFormData>({
+    year: "2026",
+    period: "상반기",
     measurement_date: "",
     end_date: "",
     measurement_weekdays: "",
@@ -90,7 +94,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const [loadingBusiness, setLoadingBusiness] = useState(false);
   const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
   const [unpaidWarningMessage, setUnpaidWarningMessage] = useState<string>("");
-  
+
   // 사업장 검색 관련 상태
   const [showBusinessSearch, setShowBusinessSearch] = useState(false);
   const [searchParams, setSearchParams] = useState({
@@ -101,10 +105,10 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   });
   const [searchResults, setSearchResults] = useState<BusinessInfo[]>([]);
   const [searching, setSearching] = useState(false);
-  
+
   // 사용자 목록 (측정자와 연동)
   const [users, setUsers] = useState<Array<{ id: number; name: string; survey_code: string | null }>>([]);
-  
+
   // 순번 자동 계산 (신규 등록 시)
   const [nextSequenceNumber, setNextSequenceNumber] = useState<number | null>(null);
 
@@ -157,9 +161,11 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       // 날짜 값을 엄격하게 정규화
       const normalizedMeasurementDate = normalizeForDateInput(initialData.measurement_date);
       const normalizedEndDate = normalizeForDateInput(initialData.end_date);
-      
+
       // 정규화된 날짜를 포함한 초기 데이터 설정
       setFormData({
+        year: initialData.year ? String(initialData.year) : "2026",
+        period: initialData.period || "상반기",
         measurement_date: normalizedMeasurementDate,
         end_date: normalizedEndDate || normalizedMeasurementDate, // 종료일이 없으면 측정일과 동일하게
         measurement_weekdays: initialData.measurement_weekdays || "",
@@ -173,32 +179,32 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         actual_measurer: initialData.actual_measurer || "",
         report_writer: initialData.report_writer || "",
       });
-      
+
       // 종료일이 없고 측정일만 있으면 종료일을 측정일과 동일하게 설정
       if (normalizedMeasurementDate && !normalizedEndDate) {
         setEndDateManuallyModified(false);
       } else if (normalizedEndDate) {
         setEndDateManuallyModified(true); // 초기 데이터가 있으면 수동 수정된 것으로 간주
       }
-      
+
       // 측정자 설정
       if (initialData.measurer) {
         setSelectedMeasurers(initialData.measurer.split(",").map((m) => m.trim()));
       }
-      
+
       // 예비조사자 설정 (조합 목록과 매칭)
       if (initialData.preliminary_surveyor) {
         const savedValue = initialData.preliminary_surveyor.trim();
         // 저장된 값 정규화 함수 (공백 제거 후 비교)
-        const normalizeValue = (value: string) => 
+        const normalizeValue = (value: string) =>
           value.replace(/\s*,\s*/g, ",").trim();
-        
+
         const normalizedSavedValue = normalizeValue(savedValue);
-        
+
         // 저장된 값이 여러 조합으로 저장되어 있을 수 있음 (콤마로 구분된 여러 조합)
         // 예: "이태환, 한기문" -> ["이태환", "한기문"]로 분리
         // 하지만 실제로는 "이태환, 한기문"이 하나의 조합일 수도 있음
-        
+
         // 먼저 전체 값이 조합 목록 중 하나와 일치하는지 확인
         let matchedOptions: string[] = [];
         PRELIMINARY_SURVEYOR_OPTIONS.forEach((option) => {
@@ -207,7 +213,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             matchedOptions.push(option);
           }
         });
-        
+
         // 일치하는 조합이 없으면, 저장된 값을 콤마로 분리하여 각각이 조합 목록에 있는지 확인
         if (matchedOptions.length === 0 && savedValue.includes(",")) {
           const parts = savedValue.split(",").map(s => s.trim()).filter(Boolean);
@@ -215,13 +221,13 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             const normalizedOption = normalizeValue(option);
             // 조합의 각 부분이 저장된 값의 부분과 일치하는지 확인
             const optionParts = option.split(",").map(s => s.trim());
-            if (optionParts.every(part => parts.includes(part)) && 
-                parts.every(part => optionParts.includes(part))) {
+            if (optionParts.every(part => parts.includes(part)) &&
+              parts.every(part => optionParts.includes(part))) {
               matchedOptions.push(option);
             }
           });
         }
-        
+
         if (matchedOptions.length > 0) {
           setPreliminarySurveyors(matchedOptions);
         } else {
@@ -237,7 +243,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         const writers = initialData.report_writer.split(",").map((m) => m.trim());
         setReportWriter(writers[0] || "");
       }
-      
+
       // 사업장 정보는 초기 데이터에서 자동으로 채워지므로 별도 처리 불필요
     }
   }, [initialData]);
@@ -261,7 +267,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
       const response = await fetch(`/api/business-info/search?${params.toString()}`);
       const data = await response.json();
-      
+
       if (response.ok && data.businesses) {
         setSearchResults(data.businesses);
       } else {
@@ -310,7 +316,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     setShowBusinessSearch(false);
     setSearchResults([]);
     setSearchParams({ code: "", businessName: "", designatedOffice: "", address: "" });
-    
+
     // 미수금 확인
     checkUnpaidCount(business.business_name);
   };
@@ -322,18 +328,18 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     if (value && isValidDateString(value)) {
       setFormData((prev) => {
         const updated = { ...prev, measurement_date: value };
-        
+
         // 종료일이 수동으로 수정되지 않았고 비어있거나 측정일과 동일한 경우에만 종료일을 측정일과 동일하게 설정
         if (!endDateManuallyModified && (!prev.end_date || prev.end_date === prev.measurement_date)) {
           updated.end_date = value;
         }
-        
+
         // 측정요일 계산
         const currentEndDate = updated.end_date || value;
         if (value && currentEndDate) {
           updateMeasurementWeekdays(value, currentEndDate);
         }
-        
+
         return updated;
       });
     } else if (!value) {
@@ -377,7 +383,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const handleBusinessSelect = (code: string) => {
     setSelectedBusiness(code);
     setIsNewBusiness(false);
-    
+
     const business = businessList.find((b) => b.code === code);
     if (business) {
       setFormData((prev) => ({
@@ -386,7 +392,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         business_name: business.business_name,
         address: business.address || "",
       }));
-      
+
       // 미수금 확인
       checkUnpaidCount(business.business_name);
     }
@@ -423,9 +429,9 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     const updated = isAdding
       ? [...selectedMeasurers, measurer]
       : selectedMeasurers.filter((m) => m !== measurer);
-    
+
     setSelectedMeasurers(updated);
-    
+
     // 공시료 코드 자동 부여
     // 첫 번째 측정자의 공시료 코드를 사용
     let surveyCode = "";
@@ -433,7 +439,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       const firstMeasurer = updated[0];
       // 사용자 목록에서 해당 측정자의 survey_code 확인
       const user = users.find((u) => u.name === firstMeasurer);
-      
+
       if (user && user.survey_code) {
         // 사용자에 등록된 공시료 코드가 있으면 사용
         surveyCode = user.survey_code;
@@ -442,7 +448,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         surveyCode = getSurveyCode(firstMeasurer) || "";
       }
     }
-    
+
     const measurerStr = updated.join(", ");
     setFormData((prev) => ({
       ...prev,
@@ -489,7 +495,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       ...prev,
       actual_measurer: updated.join(", "),
     }));
-    
+
     // 실측정자가 선택되면 보고서 담당도 동일 이름으로 자동 체크
     if (updated.includes(measurer)) {
       // 실측정자가 추가된 경우, 보고서 담당도 동일 이름으로 설정
@@ -544,12 +550,12 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
     try {
       const isEditMode = initialData?.id !== undefined;
-      const url = isEditMode 
+      const url = isEditMode
         ? `/api/survey/${initialData.id}`
         : "/api/survey";
-      
+
       const method = isEditMode ? "PUT" : "POST";
-      
+
       const response = await fetch(url, {
         method,
         headers: {
@@ -593,12 +599,54 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       {/* 기본 정보 */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold text-text-900 mb-4">기본 정보</h3>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mb-6">
+          <div className="md:col-span-3 lg:col-span-2">
+            <Input
+              label="년도"
+              type="number"
+              value={formData.year}
+              onChange={(e) => setFormData(prev => ({ ...prev, year: e.target.value }))}
+              required
+            />
+          </div>
+          <div className="md:col-span-9 lg:col-span-10">
+            <label className="block text-sm font-medium text-text-700 mb-2">
+              주기
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {["상반기", "상반기(수시)", "하반기", "하반기(수시)"].map((period) => (
+                <div
+                  key={period}
+                  className={`p-2 rounded-md border transition-colors cursor-pointer ${formData.period === period
+                      ? "bg-indigo-100 border-indigo-400 shadow-sm ring-2 ring-indigo-300"
+                      : "bg-white border-gray-200 hover:bg-indigo-50"
+                    }`}
+                  onClick={() => setFormData(prev => ({ ...prev, period }))}
+                >
+                  <div className="flex items-center justify-center">
+                    <input
+                      type="radio"
+                      name="period"
+                      checked={formData.period === period}
+                      onChange={() => setFormData(prev => ({ ...prev, period }))}
+                      className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 focus:ring-2 cursor-pointer"
+                    />
+                    <label className="ml-2 text-sm font-medium text-text-700 cursor-pointer">
+                      {period}
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input
             label="순번"
             value={
-              initialData?.id 
-                ? ((initialData as any).sequence_number?.toString() || "-") 
+              initialData?.id
+                ? ((initialData as any).sequence_number?.toString() || "-")
                 : (nextSequenceNumber?.toString() || "계산 중...")
             }
             readOnly
@@ -698,11 +746,10 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
               {PRELIMINARY_SURVEYOR_OPTIONS.map((option) => (
                 <div
                   key={option}
-                  className={`p-2 rounded-md border transition-colors cursor-pointer ${
-                    preliminarySurveyors.includes(option)
-                      ? "bg-blue-100 border-blue-400 shadow-sm"
-                      : "bg-white border-blue-200 hover:bg-blue-50"
-                  }`}
+                  className={`p-2 rounded-md border transition-colors cursor-pointer ${preliminarySurveyors.includes(option)
+                    ? "bg-blue-100 border-blue-400 shadow-sm"
+                    : "bg-white border-blue-200 hover:bg-blue-50"
+                    }`}
                   onClick={() => handlePreliminarySurveyorToggle(option)}
                 >
                   <Checkbox
@@ -724,11 +771,10 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
               {MEASURER_LIST.map((measurer) => (
                 <div
                   key={measurer}
-                  className={`p-2 rounded-md border transition-colors cursor-pointer ${
-                    actualMeasurers.includes(measurer)
-                      ? "bg-green-100 border-green-400 shadow-sm"
-                      : "bg-white border-green-200 hover:bg-green-50"
-                  }`}
+                  className={`p-2 rounded-md border transition-colors cursor-pointer ${actualMeasurers.includes(measurer)
+                    ? "bg-green-100 border-green-400 shadow-sm"
+                    : "bg-white border-green-200 hover:bg-green-50"
+                    }`}
                   onClick={() => handleActualMeasurerToggle(measurer)}
                 >
                   <Checkbox
@@ -750,11 +796,10 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
               {MEASURER_LIST.map((measurer) => (
                 <div
                   key={measurer}
-                  className={`p-2 rounded-md border transition-colors cursor-pointer ${
-                    reportWriter === measurer
-                      ? "bg-purple-100 border-purple-400 shadow-sm ring-2 ring-purple-300"
-                      : "bg-white border-purple-200 hover:bg-purple-50"
-                  }`}
+                  className={`p-2 rounded-md border transition-colors cursor-pointer ${reportWriter === measurer
+                    ? "bg-purple-100 border-purple-400 shadow-sm ring-2 ring-purple-300"
+                    : "bg-white border-purple-200 hover:bg-purple-50"
+                    }`}
                   onClick={() => handleReportWriterChange(measurer)}
                 >
                   <div className="flex items-center">

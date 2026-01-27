@@ -331,6 +331,8 @@ export async function GET(request: NextRequest) {
         }
 
         // measurement_business를 measurement_journal 형식으로 변환
+        const isRegularPeriod = !business.period.includes("수시");
+
         const journalEntry = {
           id: null, // journal이 아니므로 null
           code: business.code,
@@ -340,10 +342,14 @@ export async function GET(request: NextRequest) {
           designated_office: autoDesignatedOffice, // 약칭으로 자동 계산
           address: address,
           completion_status: business.completion_status || "미완료",
-          measurement_start_date: business.measurement_start_date,
-          measurement_end_date: business.measurement_end_date,
-          measurer: business.measurer || null,
-          total_employees: business.total_employees,
+
+          // 정기 측정(수시 아님)인 경우, 측정 관련 정보와 담당자 정보를 초기화하여 보여줌
+          // (수시 측정 데이터나 잘못된 DB 데이터가 정기 측정에 노출되는 것을 방지)
+          measurement_start_date: isRegularPeriod ? null : business.measurement_start_date,
+          measurement_end_date: isRegularPeriod ? null : business.measurement_end_date,
+          measurer: isRegularPeriod ? null : (business.measurer || null),
+          total_employees: isRegularPeriod ? null : business.total_employees,
+
           office_jurisdiction: officeJurisdictionFullName || business.office_jurisdiction || null,
           note: null,
           document_number: null,
@@ -351,18 +357,21 @@ export async function GET(request: NextRequest) {
           five_plus_sequence: null,
           created_at: business.created_at,
           updated_at: business.updated_at,
-          // business_info에서 가져오기
+
+          // business_info에서 가져오기 (사업자 정보는 공통이므로 유지)
           business_number: business.business_number || (businessInfo?.business_number || null),
           representative_name: business.representative_name || businessInfo?.representative_name || null,
           phone: businessInfo?.phone || null,
           fax: businessInfo?.fax || null,
-          // 담당자 정보 (measurement_business -> business_info 순서)
-          industrial_accident_number: business.industrial_accident_number || null,
-          manager_name: business.manager_name || businessInfo?.manager_name || null,
-          manager_position: business.manager_position || null,
-          manager_mobile: business.manager_mobile || null,
-          manager_email: business.manager_email || null,
-          invoice_email: business.invoice_email || null,
+
+          // 담당자 정보: 정기 측정인 경우 초기화, 수시인 경우만 가져옴
+          industrial_accident_number: isRegularPeriod ? null : (business.industrial_accident_number || null),
+          manager_name: isRegularPeriod ? null : (business.manager_name || businessInfo?.manager_name || null),
+          manager_position: isRegularPeriod ? null : (business.manager_position || null),
+          manager_mobile: isRegularPeriod ? null : (business.manager_mobile || null),
+          manager_email: isRegularPeriod ? null : (business.manager_email || null),
+          invoice_email: isRegularPeriod ? null : (business.invoice_email || null),
+
           // measurement_journal에만 있는 필드들은 null
           national_support_status: null,
           k2b_send_date: null,

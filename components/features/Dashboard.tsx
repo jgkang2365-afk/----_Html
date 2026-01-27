@@ -87,40 +87,14 @@ interface DashboardData {
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6366f1'];
 const STATUS_COLORS = { complete: '#10b981', incomplete: '#f59e0b' };
 
-export const Dashboard: React.FC = () => {
-  // 서울 시간대(Asia/Seoul) 기준으로 현재 년도 가져오기
-  const getCurrentYear = () => {
-    const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-    return seoulTime.getFullYear();
-  };
-
+export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, period }) => {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 필터 상태
-  const [selectedYear, setSelectedYear] = useState<string>(getCurrentYear().toString());
-  const [selectedPeriod, setSelectedPeriod] = useState<string>("전체");
-
-  // 년도 옵션 생성
-  const currentYear = getCurrentYear();
-  const yearOptions = [
-    { value: "전체", label: "전체 년도" },
-    ...Array.from({ length: 6 }, (_, i) => {
-      const year = currentYear - i; // 올해부터 과거 5년
-      return { value: year.toString(), label: `${year}년` };
-    })
-  ];
-
-  const periodOptions = [
-    { value: "전체", label: "전체 주기" },
-    { value: "상반기", label: "상반기" },
-    { value: "하반기", label: "하반기" },
-  ];
-
   useEffect(() => {
     loadDashboardData();
-  }, [selectedYear, selectedPeriod]);
+  }, [year, period]);
 
   const loadDashboardData = async () => {
     try {
@@ -128,8 +102,8 @@ export const Dashboard: React.FC = () => {
       setError(null);
 
       const params = new URLSearchParams();
-      if (selectedYear !== "전체") params.append("year", selectedYear);
-      if (selectedPeriod !== "전체") params.append("period", selectedPeriod);
+      if (year !== "전체") params.append("year", year);
+      if (period !== "전체") params.append("period", period);
 
       const response = await fetch(`/api/dashboard?${params.toString()}`, {
         cache: "no-store",
@@ -209,31 +183,6 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* 상단 필터 영역 */}
-      <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-        <h2 className="text-xl font-bold text-gray-800">대시보드</h2>
-        <div className="flex gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600">년도:</span>
-            <Select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              options={yearOptions}
-              className="w-32"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600">주기:</span>
-            <Select
-              value={selectedPeriod}
-              onChange={(e) => setSelectedPeriod(e.target.value)}
-              options={periodOptions}
-              className="w-32"
-            />
-          </div>
-        </div>
-      </div>
-
       {/* 1. 핵심 지표 (KPI) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPIButton

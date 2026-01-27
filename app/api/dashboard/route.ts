@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const yearParam = searchParams.get("year");
     const periodParam = searchParams.get("period");
     const targetYear = yearParam && yearParam !== "전체" && yearParam !== "" ? parseInt(yearParam) : null;
-    const targetPeriod = periodParam && periodParam !== "전체" && periodParam !== "" ? periodParam : null;
+    const targetPeriod = periodParam && periodParam !== "전체" && periodParam !== "" ? periodParam.trim() : null;
 
     const supabase = await createClient();
 
@@ -109,7 +109,8 @@ export async function GET(request: NextRequest) {
       .order("measurement_end_date", { ascending: true }) // 오래된 순
       .limit(1000);
 
-    // q7 = applyFilters(q7, 'measurement'); // 필터 해제
+    // 필터 적용 (측정주기 등으로 필터링 가능하도록 수정)
+    q7 = applyFilters(q7, 'measurement');
     const { data: overdueItems } = await q7;
 
     const processedOverdueItems = overdueItems?.map(item => {

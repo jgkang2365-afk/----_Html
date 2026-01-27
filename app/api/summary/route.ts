@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (measurementPeriod) {
-      journalQuery = journalQuery.eq("measurement_period", measurementPeriod);
+      journalQuery = journalQuery.ilike("measurement_period", `%${measurementPeriod}%`);
     }
 
     if (businessName) {

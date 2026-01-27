@@ -22,6 +22,8 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
     const {
+      year,
+      period,
       measurement_date,
       end_date,
       measurement_weekdays,
@@ -49,6 +51,8 @@ export async function PUT(
     const { data: survey, error } = await supabase
       .from("preliminary_survey")
       .update({
+        year: year ? parseInt(year) : undefined,
+        period: period || undefined,
         measurement_date,
         end_date: end_date || measurement_date,
         measurement_weekdays: measurement_weekdays || null,
