@@ -585,7 +585,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       year: rowYear,
       period: normalizedPeriod,
       business_name: String(row["사업장명"] || rowValues[5] || "").trim(),
-      business_number: row["사업자번호"] || null,
+      business_number: row["사업자번호"] ? String(row["사업자번호"]).replace(/[^\d]/g, "").trim() : null,
       total_employees: row["총인원"] ? parseInt(String(row["총인원"]), 10) : null,
       address: row["주소"] || rowValues[12] || null,
       office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || rowValues[13] || null,
@@ -668,28 +668,38 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     const managerEmail = row["Email"] || row["이메일"] || row["담당자 e-mail"] || row["담당자 email"] || row["담당자이메일"] || null;
     const invoiceEmail = row["세금 Email"] || row["세금이메일"] || row["세금 Email"] || row["계산서 메일"] || row["계산서메일"] || null;
 
-    // 산재관리번호
+    // 산재관리번호 & 개시번호 추출 (사용자 확인: I열-9번째(인덱스 8), J열-10번째(인덱스 9))
     let industrialAccidentNumber = row["산재관리번호"] || row["산재관리 번호"];
-    if (!industrialAccidentNumber) {
-      const key = Object.keys(row).find(k => k.includes("산재관리번호") || k.includes("산재관리"));
-      if (key) industrialAccidentNumber = row[key];
-    }
-    // Fallback: 8번째 열 확인 (신규 파일 구조: 산재관리번호가 인덱스 8)
-    if (!industrialAccidentNumber && rowValues[8]) {
-      const val = String(rowValues[8]).replace(/-/g, "").trim();
-      if (/^\d{11}$/.test(val)) industrialAccidentNumber = val;
+    let commencementNumber = row["개시번호"] || row["개시 번호"];
+
+    // rawArrayData 기반 보완 (인덱스 고정: I=8, J=9)
+    if (rawArrayData && rawArrayData[dataIndex + 2]) {
+      const rawRow = rawArrayData[dataIndex + 2];
+      // 산재관리번호: I열 (인덱스 8)
+      if (!industrialAccidentNumber && (rawRow[8] !== undefined && rawRow[8] !== null)) {
+        industrialAccidentNumber = String(rawRow[8]);
+      }
+      // 개시번호: J열 (인덱스 9)
+      if (!commencementNumber && (rawRow[9] !== undefined && rawRow[9] !== null)) {
+        commencementNumber = String(rawRow[9]);
+      }
     }
 
-    // 디버깅: 첫 5개 행 + H0433에서 산재관리번호 파싱 상태 출력
-    if (dataIndex < 5 || String(codeValue).includes("H0433")) {
-      console.log(`[산재관리번호 디버깅] 행 ${dataIndex + 1} (코드: ${codeValue}):`);
-      console.log(`  - row["산재관리번호"]: ${row["산재관리번호"]}`);
-      console.log(`  - rowValues[8]: ${rowValues[8]}`);
-      console.log(`  - Object.keys 샘플: ${Object.keys(row).slice(0, 12).join(", ")}`);
-      console.log(`  - 최종 industrialAccidentNumber: ${industrialAccidentNumber}`);
-    }
+    // 데이터 정제 로직 (숫자만 추출, 자릿수 보정)
+    const normalizeDigits = (val: any, length: number) => {
+      if (val === undefined || val === null || String(val).trim() === "") return "";
+      const cleaned = String(val).replace(/[^\d]/g, "").trim();
+      if (!cleaned) return "";
 
-    const commencementNumber = row["개시번호"] || row["개시 번호"] || null;
+      // 자릿수가 짧으면 0으로 채움 (DB 제약 조건 준수)
+      if (cleaned.length > 0 && cleaned.length < length) {
+        return cleaned.padStart(length, "0");
+      }
+      return cleaned;
+    };
+
+    const finalSanjae = normalizeDigits(industrialAccidentNumber, 11);
+    const finalCommencement = normalizeDigits(commencementNumber, 11);
     const representativeName = row["대표자명"] || row["대표자"] || null;
 
     if (managerName) optionalFields.manager_name = managerName;
@@ -697,8 +707,8 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     optionalFields.manager_mobile = managerMobile;
     if (managerEmail) optionalFields.manager_email = managerEmail;
     if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
-    if (industrialAccidentNumber) optionalFields.industrial_accident_number = String(industrialAccidentNumber).trim();
-    if (commencementNumber) optionalFields.commencement_number = commencementNumber;
+    if (finalSanjae) optionalFields.industrial_accident_number = finalSanjae;
+    if (finalCommencement) optionalFields.commencement_number = finalCommencement;
     if (representativeName) optionalFields.representative_name = representativeName;
 
     // 향후측정주기
@@ -1346,7 +1356,7 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
     const optionalFields = [
       "manager_name", "manager_position", "manager_mobile",
       "manager_email", "invoice_email", "industrial_accident_number",
-      "representative_name", "future_measurement_period"
+      "representative_name", "future_measurement_period", "commencement_number"
     ];
 
     // UPSERT를 위해 모든 데이터 준비
@@ -1371,14 +1381,20 @@ export async function syncMeasurementBusiness(filePath?: string): Promise<SyncRe
         });
 
         // optionalFields는 값이 있는 경우만 포함하되, 
-        // manager_mobile 등 일부 필드는 잘못된 데이터를 덮어쓰기 위해 null이나 빈 값이라도 포함시킬 수 있음
+        // 주요 번호 필드들은 잘못된 데이터 클렌징 및 비어있을 때 비워주기 위해 강제로 포함
         optionalFields.forEach(field => {
           const value = row[field];
-          // manager_mobile은 강제로 포함 (잘못된 데이터 클렌징을 위해)
-          if (field === "manager_mobile") {
-            fullRow[field] = value || null;
+          const forceIncludeFields = [
+            "manager_mobile",
+            "commencement_number",
+            "industrial_accident_number",
+            "business_number"
+          ];
+
+          if (forceIncludeFields.includes(field)) {
+            fullRow[field] = (value === undefined || value === "") ? null : value;
           }
-          // 다른 필드는 값이 있는 경우만 포함
+          // 다른 필드는 값이 있는 경우만 포함 (기존 값 보호)
           else if (value !== undefined && value !== null && value !== "") {
             fullRow[field] = value;
           }

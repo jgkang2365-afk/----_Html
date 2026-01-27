@@ -47,6 +47,7 @@ interface JournalEntry {
   manager_email?: string | null;
   manager_position?: string | null;
   industrial_accident_number?: string | null;
+  commencement_number?: string | null;
   invoice_email?: string | null;
   created_at: string;
   updated_at: string;
@@ -339,6 +340,7 @@ export const JournalSearch: React.FC = () => {
     manager_mobile?: string;
     manager_email?: string;
     industrial_accident_number?: string;
+    commencement_number?: string;
     invoice_email?: string;
   }) => {
     setIsRegisterModalOpen(false);
@@ -361,6 +363,7 @@ export const JournalSearch: React.FC = () => {
       manager_mobile: data.manager_mobile,
       manager_email: data.manager_email,
       industrial_accident_number: data.industrial_accident_number,
+      commencement_number: data.commencement_number,
       invoice_email: data.invoice_email,
       completion_status: "미완료",
       measurement_start_date: null,
@@ -1256,18 +1259,18 @@ export const JournalSearch: React.FC = () => {
           headerActions={
             <div className="flex gap-2">
               <Button
-                variant="secondary"
-                onClick={handleModalClose}
-                disabled={isJournalFormSubmitting}
-              >
-                취소
-              </Button>
-              <Button
                 type="submit"
                 form="journal-edit-form"
                 disabled={isJournalFormSubmitting}
               >
                 {isJournalFormSubmitting ? <LoadingSpinner /> : selectedEntry.id ? "수정" : "등록"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleModalClose}
+                disabled={isJournalFormSubmitting}
+              >
+                취소
               </Button>
             </div>
           }

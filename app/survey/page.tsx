@@ -716,7 +716,7 @@ export default function SurveyPage() {
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{survey.business_name}</td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.business_number || "-"}</td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurer || "-"}</td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.survey_code || "-"}</td>
+                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap notranslate" translate="no">{survey.survey_code || "-"}</td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.preliminary_surveyor || "-"}</td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.actual_measurer || "-"}</td>
                           <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.report_writer || "-"}</td>

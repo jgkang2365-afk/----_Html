@@ -85,6 +85,21 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 측정사업장 정보 조회 (개시번호 가져오기)
+    let measurementBusinesses: any[] = [];
+    if (codes.length > 0) {
+      const { data: mbData, error: mbError } = await supabase
+        .from("measurement_business")
+        .select("code, commencement_number")
+        .in("code", codes);
+
+      if (mbError) {
+        console.warn("측정사업장 조회 오류 (개시번호):", mbError);
+      } else {
+        measurementBusinesses = mbData || [];
+      }
+    }
+
     // code를 키로 하는 예비조사 맵 생성 (가장 최신 것만 사용)
     const surveyMap = new Map<string, any>();
     surveys.forEach((survey) => {
@@ -96,9 +111,18 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    // code를 키로 하는 측정사업장 맵 생성
+    const mbMap = new Map<string, any>();
+    measurementBusinesses.forEach((mb) => {
+      if (mb.code) {
+        mbMap.set(mb.code, mb);
+      }
+    });
+
     // 예비조사 정보를 조인하여 요약 데이터 생성
     const summaryData = (journals || []).map((journal: any) => {
       const survey = journal.code ? surveyMap.get(journal.code) : null;
+      const mb = journal.code ? mbMap.get(journal.code) : null;
 
       return {
         id: journal.id,
@@ -127,6 +151,7 @@ export async function GET(request: NextRequest) {
         total_employees: journal.total_employees,
         business_number: journal.business_number,
         industrial_accident_number: journal.industrial_accident_number,
+        commencement_number: mb?.commencement_number || null, // 개시번호 추가
         national_support_status: journal.national_support_status,
         manager_name: journal.manager_name,
         manager_position: journal.manager_position,

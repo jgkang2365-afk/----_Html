@@ -67,6 +67,7 @@ export async function GET(request: Request) {
 
       const prioritizedDefaults = {
         industrial_accident_number: findFirstValue("industrial_accident_number"),
+        commencement_number: findFirstValue("commencement_number"),
         manager_email: findFirstValue("manager_email"),
         invoice_email: findFirstValue("invoice_email"), // 계산서 메일
         manager_name: findFirstValue("manager_name"),
@@ -84,7 +85,7 @@ export async function GET(request: Request) {
       let journalManagerInfo: Record<string, any> = {};
       const { data: recentJournals, error: journalError } = await supabase
         .from("measurement_journal")
-        .select("manager_name, manager_mobile, manager_email, manager_position, phone, fax, invoice_email, industrial_accident_number")
+        .select("manager_name, manager_mobile, manager_email, manager_position, phone, fax, invoice_email, industrial_accident_number, commencement_number")
         .eq("code", code)
         .order("measurement_year", { ascending: false })
         .order("measurement_period", { ascending: false })
@@ -95,7 +96,7 @@ export async function GET(request: Request) {
         const fieldsToFind = [
           "manager_name", "manager_mobile", "manager_email",
           "manager_position", "phone", "fax",
-          "invoice_email", "industrial_accident_number"
+          "invoice_email", "industrial_accident_number", "commencement_number"
         ];
 
         for (const field of fieldsToFind) {
@@ -129,6 +130,9 @@ export async function GET(request: Request) {
         // 산재관리번호 (우선순위: BaseData(요청연도) > History(과거이력, 값이 있는 경우만) > Journal(최근일지))
         // 주의: BaseData에 값이 있더라도 빈 문자열이면 History를 찾아야 함
         industrial_accident_number: (baseBusinessData?.industrial_accident_number || "") || prioritizedDefaults.industrial_accident_number || journalManagerInfo?.industrial_accident_number || "",
+
+        // 개시번호
+        commencement_number: (baseBusinessData?.commencement_number || "") || prioritizedDefaults.commencement_number || journalManagerInfo?.commencement_number || "",
 
         // 담당자 정보: BaseData > History > Journal
         manager_name: (baseBusinessData?.manager_name || "") || prioritizedDefaults.manager_name || journalManagerInfo?.manager_name || "",

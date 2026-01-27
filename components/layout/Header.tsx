@@ -103,7 +103,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         <div className="px-4 lg:px-6">
           <div className="flex items-center justify-between py-2">
             {/* 일반 메뉴 */}
-            <ul className="flex flex-wrap gap-1">
+            <ul className="flex items-center gap-1 overflow-x-auto no-scrollbar">
               {navItems.map((item) => {
                 const isActive =
                   pathname === item.href ||
@@ -116,11 +116,11 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                     ));
 
                 return (
-                  <li key={item.href}>
+                  <li key={item.href} className="shrink-0">
                     <Link
                       href={item.href}
                       className={cn(
-                        "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                        "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap block",
                         isActive
                           ? "bg-primary-50 text-primary-600"
                           : "text-text-700 hover:bg-surface-50 hover:text-text-900"
@@ -136,17 +136,17 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
             {/* 관리자 메뉴 (맨 오른쪽) */}
             {!loading && isAdmin && (
-              <ul className="flex gap-1">
+              <ul className="flex items-center gap-1 shrink-0 ml-4">
                 {adminNavItems.map((item) => {
                   const isActive =
                     pathname === item.href || pathname?.startsWith(item.href + "/");
 
                   return (
-                    <li key={item.href}>
+                    <li key={item.href} className="shrink-0">
                       <Link
                         href={item.href}
                         className={cn(
-                          "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                          "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap block",
                           isActive
                             ? "bg-primary-50 text-primary-600"
                             : "text-text-700 hover:bg-surface-50 hover:text-text-900"

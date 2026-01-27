@@ -257,6 +257,7 @@ export async function GET(request: NextRequest) {
           journal.manager_email = journal.manager_email || matchingBusiness.manager_email || null;
           journal.invoice_email = journal.invoice_email || matchingBusiness.invoice_email || null;
           journal.industrial_accident_number = journal.industrial_accident_number || matchingBusiness.industrial_accident_number || null;
+          journal.commencement_number = journal.commencement_number || matchingBusiness.commencement_number || null;
           // 주소 보완 (measurement_journal에 없으면 measurement_business에서 가져오기)
           if (!journal.address && matchingBusiness.address) {
             journal.address = matchingBusiness.address;
@@ -366,6 +367,7 @@ export async function GET(request: NextRequest) {
 
           // 담당자 정보: 정기 측정인 경우 초기화, 수시인 경우만 가져옴
           industrial_accident_number: isRegularPeriod ? null : (business.industrial_accident_number || null),
+          commencement_number: isRegularPeriod ? null : (business.commencement_number || null),
           manager_name: isRegularPeriod ? null : (business.manager_name || businessInfo?.manager_name || null),
           manager_position: isRegularPeriod ? null : (business.manager_position || null),
           manager_mobile: isRegularPeriod ? null : (business.manager_mobile || null),

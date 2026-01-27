@@ -5,6 +5,7 @@ import { getUser } from "@/lib/auth/get-user";
 import { assignAllNumbers } from "@/lib/utils/number-assignment";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
+import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
 
 /**
  * 측정일지 등록 API
@@ -84,6 +85,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 자릿수 검증 (추가된 요구사항: 사업자 10자리, 산재/개시 11자리)
+    const bNum = body.business_number || body.businessNumber;
+    const sNum = body.industrial_accident_number || body.industrialAccidentNumber;
+    const cNum = body.commencement_number || body.commencementNumber;
+
+    if (!isValidDigitCount(bNum, 10)) {
+      return NextResponse.json({ error: "사업자등록번호는 10자리 숫자(예: 3058641481)여야 합니다." }, { status: 400 });
+    }
+    if (!isValidDigitCount(sNum, 11)) {
+      return NextResponse.json({ error: "산재관리번호는 11자리 숫자(예: 30586414810)여야 합니다." }, { status: 400 });
+    }
+    if (!isValidDigitCount(cNum, 11)) {
+      return NextResponse.json({ error: "개시번호는 11자리 숫자(예: 00000000000)여야 합니다." }, { status: 400 });
+    }
+
+
     const supabase = await createClient();
 
     // measurement_business 테이블에서 해당 code, year, period 조합이 존재하는지 확인
@@ -128,7 +145,7 @@ export async function POST(request: NextRequest) {
 
     const { data: allExistingJournals, error: existingError } = await supabase
       .from("measurement_journal")
-      .select("id, code, business_name, document_number, sequence_number, five_plus_sequence, updated_at, created_at")
+      .select("id, code, business_name, document_number, sequence_number, five_plus_sequence, commencement_number, updated_at, created_at")
       .eq("code", code)
       .eq("measurement_year", measurementYear)
       .eq("measurement_period", measurementPeriod)
@@ -181,6 +198,7 @@ export async function POST(request: NextRequest) {
           document_number: assignedNumbers.document_number,
           sequence_number: assignedNumbers.sequence_number,
           five_plus_sequence: assignedNumbers.five_plus_sequence,
+          commencement_number: cleanToDigits(body.commencement_number || businessData.commencement_number),
           // body에서 전달된 모든 필드 (번호 필드 제외)
           ...bodyWithoutNumbers,
           // 필수 필드 (body에 없으면 기존 값 유지)
@@ -342,6 +360,7 @@ export async function POST(request: NextRequest) {
       document_number: assignedNumbers.document_number,
       sequence_number: assignedNumbers.sequence_number,
       five_plus_sequence: assignedNumbers.five_plus_sequence,
+      commencement_number: body.commencement_number || businessData.commencement_number || null,
       business_name: business_name || businessData.business_name,
       address: address || businessData.address,
       total_employees: total_employees || businessData.total_employees,
@@ -350,7 +369,7 @@ export async function POST(request: NextRequest) {
       measurement_end_date: measurement_end_date || businessData.measurement_end_date,
       measurer: measurer || businessData.measurer,
       // business_info에서 가져오기
-      business_number: businessInfo?.business_number || businessData.business_number || null,
+      business_number: cleanToDigits(body.business_number || businessInfo?.business_number || businessData.business_number),
       representative_name: businessInfo?.representative_name || businessData.representative_name || null,
       phone: businessInfo?.phone || null,
       fax: businessInfo?.fax || null,
@@ -362,7 +381,7 @@ export async function POST(request: NextRequest) {
         return null;
       })(),
       // measurement_business에서 담당자 정보 가져오기 (사용자 입력 값 우선)
-      industrial_accident_number: body.industrial_accident_number || businessData.industrial_accident_number || null,
+      industrial_accident_number: cleanToDigits(body.industrial_accident_number || businessData.industrial_accident_number),
       manager_name: (() => {
         let name = body.manager_name || businessData.manager_name || null;
         let position = body.manager_position || businessData.manager_position || null;

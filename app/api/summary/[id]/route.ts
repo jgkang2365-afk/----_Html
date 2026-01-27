@@ -62,9 +62,9 @@ export async function PATCH(
     }
 
     // 유효한 값만 허용 ('지원', '비대상', null)
-    if (updateData.national_support_status && 
-        updateData.national_support_status !== "지원" && 
-        updateData.national_support_status !== "비대상") {
+    if (updateData.national_support_status &&
+      updateData.national_support_status !== "지원" &&
+      updateData.national_support_status !== "비대상") {
       // "대상"을 "지원"으로 변환
       if (updateData.national_support_status === "대상") {
         updateData.national_support_status = "지원";
@@ -123,7 +123,7 @@ export async function PATCH(
       'deposit_amount_business',
       'deposit_amount_national'
     ];
-    
+
     amountFields.forEach(field => {
       if (updateData[field] !== undefined) {
         if (typeof updateData[field] === "string") {
@@ -161,6 +161,7 @@ export async function PATCH(
       'k2b_sender',
       'invoice_email',
       'electronic_invoice_date',
+      'commencement_number',
       'measurement_fee_total',
       'measurement_fee_business',
       'measurement_fee_national',
@@ -212,7 +213,7 @@ export async function PATCH(
       name: error.name,
     });
     return NextResponse.json(
-      { 
+      {
         error: error.message || "측정정보를 수정하는 중 오류가 발생했습니다.",
         details: error.message
       },

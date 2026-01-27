@@ -33,6 +33,7 @@ interface JournalRegisterModalProps {
         manager_mobile?: string;
         manager_email?: string;
         industrial_accident_number?: string;
+        commencement_number?: string;
         invoice_email?: string;
     }) => void;
 }
@@ -127,6 +128,7 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
                     manager_mobile: business.manager_mobile || "",
                     manager_email: business.manager_email || "",
                     industrial_accident_number: business.industrial_accident_number || "",
+                    commencement_number: business.commencement_number || "",
                     invoice_email: business.invoice_email || "",
                 });
                 onClose();

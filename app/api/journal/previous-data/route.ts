@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
     let fallbackDefaults: Record<string, any> = {};
     const { data: recentJournals } = await supabase
       .from("measurement_journal")
-      .select("manager_name, manager_mobile, manager_email, manager_position, phone, fax, invoice_email, industrial_accident_number")
+      .select("manager_name, manager_mobile, manager_email, manager_position, phone, fax, invoice_email, industrial_accident_number, commencement_number")
       .eq("code", code)
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false })
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
       const fieldsToFind = [
         "manager_name", "manager_mobile", "manager_email",
         "manager_position", "phone", "fax",
-        "invoice_email", "industrial_accident_number"
+        "invoice_email", "industrial_accident_number", "commencement_number"
       ];
 
       for (const field of fieldsToFind) {
@@ -169,7 +169,7 @@ export async function GET(request: NextRequest) {
     // measurement_business에서 국고지원 정보 및 산재관리번호 조회 (현재 시점 데이터)
     const { data: businessData } = await supabase
       .from("measurement_business")
-      .select("national_support_status, industrial_accident_number, manager_email, invoice_email, manager_name, manager_position, manager_mobile")
+      .select("national_support_status, industrial_accident_number, commencement_number, manager_email, invoice_email, manager_name, manager_position, manager_mobile")
       .eq("code", code)
       .eq("year", measurementYear)
       .eq("period", period)
@@ -181,7 +181,7 @@ export async function GET(request: NextRequest) {
     let businessHistoryDefaults: Record<string, any> = {};
     const { data: businessHistory } = await supabase
       .from("measurement_business")
-      .select("year, period, industrial_accident_number, manager_email, invoice_email, manager_name, manager_position, manager_mobile")
+      .select("year, period, industrial_accident_number, commencement_number, manager_email, invoice_email, manager_name, manager_position, manager_mobile")
       .eq("code", code)
       // 현재 시점보다 과거 데이터만 조회 (같은 년도 이전 주기 + 이전 년도들)
       .or(`year.lt.${measurementYear},and(year.eq.${measurementYear},period.eq.상반기)`)
@@ -206,7 +206,7 @@ export async function GET(request: NextRequest) {
       });
 
       const fieldsToFind = [
-        "industrial_accident_number", "manager_email", "invoice_email",
+        "industrial_accident_number", "commencement_number", "manager_email", "invoice_email",
         "manager_name", "manager_position", "manager_mobile"
       ];
 
@@ -292,6 +292,9 @@ export async function GET(request: NextRequest) {
 
       // 산재관리번호 (우선순위: 직전본문 > 최근이력(fallback) > 사업장이력(history) > 현재사업장정보)
       industrial_accident_number: previousJournal?.industrial_accident_number || fallbackDefaults.industrial_accident_number || businessHistoryDefaults.industrial_accident_number || businessData?.industrial_accident_number || null,
+
+      // 개시번호 (우선순위: 직전본문 > 최근이력(fallback) > 사업장이력(history) > 현재사업장정보)
+      commencement_number: previousJournal?.commencement_number || fallbackDefaults.commencement_number || businessHistoryDefaults.commencement_number || businessData?.commencement_number || null,
     } : null;
 
     // 디버깅: previousData 확인

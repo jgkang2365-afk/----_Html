@@ -42,6 +42,7 @@ erDiagram
         date measurement_end_date
         string completion_status
         string measurer
+        string commencement_number
         datetime created_at
         datetime updated_at
     }
@@ -198,7 +199,7 @@ erDiagram
 | year | INT | NOT NULL | 측정년도 |
 | period | VARCHAR(10) | NOT NULL | 측정주기 (상반기/하반기) |
 | business_name | VARCHAR(200) | NOT NULL | 사업장명 |
-| business_number | VARCHAR(20) | | 사업자번호 |
+| business_number | VARCHAR(20) | CHECK (10자 숫자) | 사업자번호 |
 | total_employees | INT | | 총인원 |
 | address | VARCHAR(500) | | 주소 |
 | office_jurisdiction | VARCHAR(100) | | 소재지 관할청 |
@@ -206,6 +207,8 @@ erDiagram
 | measurement_end_date | DATE | | 측정 종료일 |
 | completion_status | VARCHAR(20) | | 완료여부 (완료/미완료) |
 | measurer | VARCHAR(100) | | 측정자 |
+| industrial_accident_number | VARCHAR(50) | CHECK (11자 숫자) | 산재관리번호 |
+| commencement_number | VARCHAR(50) | CHECK (11자 숫자) | 개시번호 |
 | created_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | 생성일시 |
 | updated_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | 수정일시 |
 
@@ -241,9 +244,10 @@ erDiagram
 | office_jurisdiction | VARCHAR(100) | | 소재지 관할청 |
 | business_name | VARCHAR(200) | NOT NULL | 사업장명 |
 | total_employees | INT | | 총인원 |
-| business_number | VARCHAR(20) | | 사업자번호 |
-| industrial_accident_number | VARCHAR(50) | | 산재관리번호 |
+| business_number | VARCHAR(20) | CHECK (10자 숫자) | 사업자번호 |
+| industrial_accident_number | VARCHAR(50) | CHECK (11자 숫자) | 산재관리번호 |
 | representative_name | VARCHAR(100) | | 대표자명 |
+| commencement_number | VARCHAR(50) | CHECK (11자 숫자) | 개시번호 |
 | national_support_status | VARCHAR(20) | | 국고지원 여부 (지원/비대상) |
 | address | VARCHAR(500) | | 주소 |
 | phone | VARCHAR(20) | | 전화번호 |

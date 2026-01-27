@@ -73,6 +73,7 @@ interface SummaryEntry {
   address: string | null;
   phone: string | null;
   fax: string | null;
+  commencement_number: string | null;
   k2b_send_date: string | null;
   k2b_sender: string | null;
   measurement_fee_business: number | null;
@@ -185,6 +186,7 @@ export const SummaryTable: React.FC = () => {
       manager_mobile: entry.manager_mobile || "",
       manager_email: entry.manager_email || "",
       invoice_email: entry.invoice_email || "",
+      commencement_number: entry.commencement_number || "",
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
       k2b_sender: entry.k2b_sender || "",
       measurement_fee_business: entry.measurement_fee_business || null,
@@ -425,8 +427,34 @@ export const SummaryTable: React.FC = () => {
           setSelectedEntry(null);
           setEditFormData({});
         }}
-        title={selectedEntry?.completion_status === "완료" ? "측정정보 요약 조회" : "측정정보 수정"}
+        title="측정정보 요약"
         size="xl"
+        headerActions={
+          <div className="flex gap-2">
+            {selectedEntry?.completion_status !== "완료" && (
+              <Button variant="primary" onClick={handleSave} disabled={saving}>
+                {saving ? "저장 중..." : "저장"}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="success"
+              onClick={() => window.print()}
+            >
+              출력
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setIsModalOpen(false);
+                setSelectedEntry(null);
+                setEditFormData({});
+              }}
+            >
+              {selectedEntry?.completion_status === "완료" ? "닫기" : "취소"}
+            </Button>
+          </div>
+        }
       >
         {selectedEntry && (
           <div className="space-y-4">
@@ -436,19 +464,19 @@ export const SummaryTable: React.FC = () => {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-text-600 mb-1 text-sm">공문연번</label>
-                  <div className="font-mono bg-white p-2 rounded border text-base">
+                  <div className="font-bold bg-white p-2 rounded border text-base">
                     {selectedEntry.document_number || "-"}
                   </div>
                 </div>
                 <div>
                   <label className="block text-text-600 mb-1 text-sm">연번</label>
-                  <div className="font-mono bg-white p-2 rounded border text-base">
+                  <div className="font-bold bg-white p-2 rounded border text-base">
                     {selectedEntry.sequence_number || "-"}
                   </div>
                 </div>
                 <div>
                   <label className="block text-text-600 mb-1 text-sm">5인 이상 연번</label>
-                  <div className="font-mono bg-white p-2 rounded border text-base">
+                  <div className="font-bold bg-white p-2 rounded border text-base">
                     {selectedEntry.five_plus_sequence || "-"}
                   </div>
                 </div>
@@ -526,11 +554,10 @@ export const SummaryTable: React.FC = () => {
                 </div>
               </div>
 
-              {/* 사업장 정보 */}
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-text-700 border-b pb-1">사업장 정보</h4>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="col-span-3">
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-10">
                     <label className="block text-sm font-medium text-text-700 mb-1">
                       사업장명
                     </label>
@@ -542,7 +569,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
+                  <div className="col-span-2">
                     <label className="block text-sm font-medium text-text-700 mb-1">
                       총인원
                     </label>
@@ -556,23 +583,23 @@ export const SummaryTable: React.FC = () => {
                         })
                       }
                       disabled={selectedEntry.completion_status === "완료"}
+                      className="text-right"
                     />
                   </div>
-                  <div>
+                  <div className="col-span-4">
                     <label className="block text-sm font-medium text-text-700 mb-1">
                       사업자번호
                     </label>
                     <Input
                       value={formatBusinessNumber(editFormData.business_number)}
                       onChange={(e) => {
-                        // 숫자만 추출하여 저장 (하이픈 제거)
                         const numbers = parseBusinessNumber(e.target.value);
                         setEditFormData({ ...editFormData, business_number: numbers });
                       }}
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
+                  <div className="col-span-4">
                     <label className="block text-sm font-medium text-text-700 mb-1">
                       산재관리번호
                     </label>
@@ -584,7 +611,19 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="col-span-3">
+                  <div className="col-span-4">
+                    <label className="block text-sm font-medium text-text-700 mb-1">
+                      개시번호
+                    </label>
+                    <Input
+                      value={editFormData.commencement_number || ""}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, commencement_number: e.target.value })
+                      }
+                      disabled={selectedEntry.completion_status === "완료"}
+                    />
+                  </div>
+                  <div className="col-span-12">
                     <label className="block text-sm font-medium text-text-700 mb-1">
                       주소
                     </label>
@@ -596,7 +635,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
+                  <div className="col-span-6">
                     <label className="block text-sm font-medium text-text-700 mb-1">
                       전화번호
                     </label>
@@ -608,7 +647,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
+                  <div className="col-span-6">
                     <label className="block text-sm font-medium text-text-700 mb-1">
                       팩스
                     </label>
@@ -786,36 +825,6 @@ export const SummaryTable: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t no-print">
-              {selectedEntry.completion_status === "완료" ? (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setIsModalOpen(false);
-                    setSelectedEntry(null);
-                    setEditFormData({});
-                  }}
-                >
-                  닫기
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setIsModalOpen(false);
-                      setSelectedEntry(null);
-                      setEditFormData({});
-                    }}
-                  >
-                    취소
-                  </Button>
-                  <Button variant="primary" onClick={handleSave} disabled={saving}>
-                    {saving ? "저장 중..." : "저장"}
-                  </Button>
-                </>
-              )}
-            </div>
           </div>
         )}
       </Modal>

@@ -10,8 +10,9 @@ import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
-import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
+import { formatBusinessNumber, parseBusinessNumber, isValidDigitCount } from "@/lib/utils/business-number";
 import { useUser } from "@/hooks/use-user";
+import { cn } from "@/lib/utils";
 
 interface JournalEntry {
   id: number | null;
@@ -126,6 +127,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     total_employees: entry.total_employees || "",
     business_number: entry.business_number || "",
     industrial_accident_number: entry.industrial_accident_number || "",
+    commencement_number: entry.commencement_number || "",
     representative_name: entry.representative_name || "",
     national_support_status: entry.national_support_status || "",
     address: entry.address || "",
@@ -390,6 +392,19 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 if (!currentIndustrialAccidentNumber && previousIndustrialAccidentNumber) {
                   updated.industrial_accident_number = previousIndustrialAccidentNumber;
                   console.log('[JournalEditForm] 산재관리번호 자동 채움:', previousIndustrialAccidentNumber);
+                }
+
+                // 개시번호 (비어있을 때만 자동 채우기)
+                const currentCommencementNumber = prev.commencement_number || "";
+                const previousCommencementNumber = data.previousData.commencement_number || null;
+                console.log('[JournalEditForm] 개시번호 비교:', {
+                  current: currentCommencementNumber,
+                  previous: previousCommencementNumber,
+                  willUpdate: !currentCommencementNumber && previousCommencementNumber
+                });
+                if (!currentCommencementNumber && previousCommencementNumber) {
+                  updated.commencement_number = previousCommencementNumber;
+                  console.log('[JournalEditForm] 개시번호 자동 채움:', previousCommencementNumber);
                 }
 
                 // 전회 측정비 정보 저장 (참고용)
@@ -776,6 +791,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       total_employees: entry.total_employees || "",
       business_number: entry.business_number || "",
       industrial_accident_number: entry.industrial_accident_number || "",
+      commencement_number: entry.commencement_number || "",
       representative_name: entry.representative_name || "",
       national_support_status: entry.national_support_status || "",
       address: entry.address || "",
@@ -1066,38 +1082,54 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           required
         />
         <Input
-          label="총인원"
-          type="number"
-          value={formData.total_employees}
-          onChange={(e) =>
-            setFormData({ ...formData, total_employees: e.target.value })
-          }
-        />
-        <Input
-          label="사업자번호"
-          value={formatBusinessNumber(formData.business_number)}
-          onChange={(e) => {
-            // 숫자만 추출하여 저장 (하이픈 제거)
-            const numbers = parseBusinessNumber(e.target.value);
-            setFormData({ ...formData, business_number: numbers });
-          }}
-          placeholder="305-86-41481"
-          maxLength={12}
-        />
-        <Input
-          label="산재관리번호"
-          value={formData.industrial_accident_number}
-          onChange={(e) =>
-            setFormData({ ...formData, industrial_accident_number: e.target.value })
-          }
-        />
-        <Input
           label="대표자명"
           value={formData.representative_name}
           onChange={(e) =>
             setFormData({ ...formData, representative_name: e.target.value })
           }
         />
+        <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-6 gap-4">
+          <Input
+            label="총인원"
+            type="number"
+            value={formData.total_employees}
+            onChange={(e) =>
+              setFormData({ ...formData, total_employees: e.target.value })
+            }
+            className="md:col-span-1"
+          />
+          <Input
+            label="사업자번호"
+            value={formatBusinessNumber(formData.business_number)}
+            onChange={(e) => {
+              // 숫자만 추출하여 저장 (하이픈 제거)
+              const numbers = parseBusinessNumber(e.target.value);
+              setFormData({ ...formData, business_number: numbers });
+            }}
+            placeholder="305-86-41481"
+            maxLength={12}
+            className="md:col-span-2"
+            error={!isValidDigitCount(formData.business_number, 10) ? "10자리 숫자를 입력해 주세요" : undefined}
+          />
+          <Input
+            label="산재관리번호"
+            value={formData.industrial_accident_number}
+            onChange={(e) =>
+              setFormData({ ...formData, industrial_accident_number: e.target.value })
+            }
+            className="md:col-span-2"
+            error={!isValidDigitCount(formData.industrial_accident_number, 11) ? "11자리 숫자를 입력해 주세요" : undefined}
+          />
+          <Input
+            label="개시번호"
+            value={formData.commencement_number}
+            onChange={(e) =>
+              setFormData({ ...formData, commencement_number: e.target.value })
+            }
+            className="md:col-span-1"
+            error={!isValidDigitCount(formData.commencement_number, 11) ? "11자리 숫자를 입력해 주세요" : undefined}
+          />
+        </div>
         <Select
           label="국고지원 여부"
           value={formData.national_support_status}
@@ -1550,7 +1582,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               value={formData.document_number}
               disabled={!isAdmin && !!entry.document_number} // 기존 값이 있으면 관리자만 수정 가능
               onChange={(e) => isAdmin && setFormData({ ...formData, document_number: e.target.value })}
-              className={isAdmin || !entry.document_number ? "" : "bg-surface-50 font-mono"}
+              className={cn("font-bold", (!isAdmin && !!entry.document_number) ? "bg-surface-50" : "")}
               placeholder={!isAdmin && !!entry.document_number ? "변경 불가" : "자동 부여됩니다"}
             />
             {!isAdmin && (
@@ -1565,7 +1597,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               value={formData.sequence_number}
               disabled={!isAdmin && !!entry.sequence_number} // 기존 값이 있으면 관리자만 수정 가능
               onChange={(e) => isAdmin && setFormData({ ...formData, sequence_number: e.target.value })}
-              className={isAdmin || !entry.sequence_number ? "" : "bg-surface-50 font-mono"}
+              className={cn("font-bold", (!isAdmin && !!entry.sequence_number) ? "bg-surface-50" : "")}
               placeholder={!isAdmin && !!entry.sequence_number ? "변경 불가" : "자동 부여됩니다"}
             />
             {!isAdmin && (
@@ -1580,7 +1612,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               value={formData.five_plus_sequence}
               disabled={!isAdmin && !!entry.five_plus_sequence} // 기존 값이 있으면 관리자만 수정 가능
               onChange={(e) => isAdmin && setFormData({ ...formData, five_plus_sequence: e.target.value })}
-              className={isAdmin || !entry.five_plus_sequence ? "" : "bg-surface-50 font-mono"}
+              className={cn("font-bold", (!isAdmin && !!entry.five_plus_sequence) ? "bg-surface-50" : "")}
               placeholder={!isAdmin && !!entry.five_plus_sequence ? "변경 불가" : "자동 부여됩니다"}
             />
             {!isAdmin && (
@@ -1771,60 +1803,64 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
   return (
     <form id="journal-edit-form" onSubmit={handleSubmit} className="space-y-6">
-      {/* 오류 및 알림 메시지 영역 - 상단 고정 (높이 고정) */}
-      <div className="sticky top-0 z-20 bg-white -mx-8 px-8 pt-0 pb-3 border-b border-surface-200 h-28">
-        <div className="h-full overflow-y-auto space-y-3">
-          {error && <Alert variant="error">{error}</Alert>}
-          {isCompleted && (
-            <Alert variant="warning">
-              완료된 측정일지입니다. 입금, 측정비, K2B 정보 등 일부 항목만 수정 가능합니다.
-            </Alert>
-          )}
-          {completionSuggestion && (
-            <Alert variant="warning">
-              {completionSuggestion}
-              <div className="mt-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setFormData({ ...formData, completion_status: "완료" });
-                    setCompletionSuggestion(null);
-                  }}
-                >
-                  완료로 변경
-                </Button>
-              </div>
-            </Alert>
-          )}
+      {!isAdmin && isCompleted && (
+        <div className="mb-4">
+          <span className="text-sm text-yellow-600 bg-yellow-50 px-3 py-1.5 rounded-md font-medium">
+            완료된 항목 (일부 수정 가능)
+          </span>
         </div>
+      )}
+
+      {/* 오류 및 알림 메시지 영역 */}
+      <div className="space-y-3">
+        {error && <Alert variant="error">{error}</Alert>}
+        {completionSuggestion && (
+          <Alert variant="warning">
+            {completionSuggestion}
+            <div className="mt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setFormData({ ...formData, completion_status: "완료" });
+                  setCompletionSuggestion(null);
+                }}
+              >
+                완료로 변경
+              </Button>
+            </div>
+          </Alert>
+        )}
       </div>
 
-      {mode === 'journal' ? (
-        <>
-          {renderBasicInfo()}
-          {renderBusinessInfo()}
-          {renderMeasurementInfo()}
-          {renderManagerInfo()}
-          {renderK2BInfo()}
-          {renderFeeInfo()}
-          {renderDepositInfo()}
-          {renderSpecialNotes()}
-        </>
-      ) : (
-        <>
-          {renderBusinessInfo()}
-          {renderDepositInfo()}
-          {renderFeeInfo()}
-          {renderK2BInfo()}
-          {renderBasicInfo()}
-          {renderMeasurementInfo()}
-          {renderManagerInfo()}
-          {renderSpecialNotes()}
-        </>
-      )}
-    </form>
+
+      {
+        mode === 'journal' ? (
+          <>
+            {renderBasicInfo()}
+            {renderBusinessInfo()}
+            {renderMeasurementInfo()}
+            {renderManagerInfo()}
+            {renderK2BInfo()}
+            {renderFeeInfo()}
+            {renderDepositInfo()}
+            {renderSpecialNotes()}
+          </>
+        ) : (
+          <>
+            {renderBusinessInfo()}
+            {renderDepositInfo()}
+            {renderFeeInfo()}
+            {renderK2BInfo()}
+            {renderBasicInfo()}
+            {renderMeasurementInfo()}
+            {renderManagerInfo()}
+            {renderSpecialNotes()}
+          </>
+        )
+      }
+    </form >
   );
 };
 

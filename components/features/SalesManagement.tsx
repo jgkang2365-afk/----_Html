@@ -3237,6 +3237,13 @@ export const SalesManagement: React.FC = () => {
           headerActions={
             <div className="flex gap-2">
               <Button
+                type="submit"
+                form="journal-edit-form"
+                disabled={isJournalFormSubmitting}
+              >
+                {isJournalFormSubmitting ? <LoadingSpinner /> : "수정"}
+              </Button>
+              <Button
                 variant="secondary"
                 onClick={() => {
                   setIsJournalModalOpen(false);
@@ -3245,13 +3252,6 @@ export const SalesManagement: React.FC = () => {
                 disabled={isJournalFormSubmitting}
               >
                 취소
-              </Button>
-              <Button
-                type="submit"
-                form="journal-edit-form"
-                disabled={isJournalFormSubmitting}
-              >
-                {isJournalFormSubmitting ? <LoadingSpinner /> : "수정"}
               </Button>
             </div>
           }

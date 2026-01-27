@@ -6,6 +6,7 @@ import { canDeleteJournal } from "@/lib/permissions";
 import { assignAllNumbers } from "@/lib/utils/number-assignment";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
+import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
 
 /**
  * 측정일지 수정 API
@@ -29,6 +30,21 @@ export async function PUT(
 
     const journalId = params.id;
     const body = await request.json();
+
+    // 자릿수 검증 (추가된 요구사항: 사업자 10자리, 산재/개시 11자리)
+    const bNum = body.business_number;
+    const sNum = body.industrial_accident_number;
+    const cNum = body.commencement_number;
+
+    if (!isValidDigitCount(bNum, 10)) {
+      return NextResponse.json({ error: "사업자등록번호는 10자리 숫자(예: 3058641481)여야 합니다." }, { status: 400 });
+    }
+    if (!isValidDigitCount(sNum, 11)) {
+      return NextResponse.json({ error: "산재관리번호는 11자리 숫자(예: 30586414810)여야 합니다." }, { status: 400 });
+    }
+    if (!isValidDigitCount(cNum, 11)) {
+      return NextResponse.json({ error: "개시번호는 11자리 숫자(예: 00000000000)여야 합니다." }, { status: 400 });
+    }
 
     const supabase = await createClient();
 
@@ -60,6 +76,8 @@ export async function PUT(
         "special_notes",
         // 담당자/연락처 정보 (수정 허용)
         "manager_name", "manager_position", "manager_mobile", "manager_email", "phone", "fax",
+        // 개시번호
+        "commencement_number",
         // 상태 변경 (미완료로 되돌리는 경우 허용)
         "completion_status",
         // 메타데이터 및 무시할 필드
@@ -281,13 +299,10 @@ export async function PUT(
       // VARCHAR(50) 제한 필드들 (기존 값이 있으면 유지, 없으면 새 값 사용)
       code: truncateField(bodyWithoutNumbers.code ?? existingJournal.code, 50, 'code'),
       note: truncateField(bodyWithoutNumbers.note ?? existingJournal.note, 50, 'note'),
-      industrial_accident_number: truncateField(
-        bodyWithoutNumbers.industrial_accident_number ?? existingJournal.industrial_accident_number,
-        50,
-        'industrial_accident_number'
-      ),
+      industrial_accident_number: cleanToDigits(bodyWithoutNumbers.industrial_accident_number ?? existingJournal.industrial_accident_number),
+      commencement_number: cleanToDigits(bodyWithoutNumbers.commencement_number ?? existingJournal.commencement_number),
       // VARCHAR(20) 제한 필드들
-      business_number: truncateField(bodyWithoutNumbers.business_number ?? existingJournal.business_number, 20, 'business_number'),
+      business_number: cleanToDigits(bodyWithoutNumbers.business_number ?? existingJournal.business_number),
       phone: truncateField(bodyWithoutNumbers.phone ?? existingJournal.phone, 20, 'phone'),
       fax: truncateField(bodyWithoutNumbers.fax ?? existingJournal.fax, 20, 'fax'),
       manager_mobile: truncateField(bodyWithoutNumbers.manager_mobile ?? existingJournal.manager_mobile, 20, 'manager_mobile'),

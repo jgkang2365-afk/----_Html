@@ -15,6 +15,8 @@ export interface ModalProps {
   resizable?: boolean;
 }
 
+import { createPortal } from "react-dom";
+
 export const Modal: React.FC<ModalProps> = ({
   isOpen,
   onClose,
@@ -28,6 +30,7 @@ export const Modal: React.FC<ModalProps> = ({
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [mounted, setMounted] = useState(false);
 
   // 리사이즈 관련 상태
   const [isResizing, setIsResizing] = useState(false);
@@ -36,6 +39,11 @@ export const Modal: React.FC<ModalProps> = ({
 
   const modalRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -106,7 +114,7 @@ export const Modal: React.FC<ModalProps> = ({
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
       document.body.style.userSelect = "none";
-    }
+    };
 
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
@@ -148,7 +156,7 @@ export const Modal: React.FC<ModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const sizes = {
     sm: "max-w-md",
@@ -161,7 +169,7 @@ export const Modal: React.FC<ModalProps> = ({
     "full-75": "max-w-[71.25vw]",
   };
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
       role="dialog"
@@ -272,7 +280,8 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
