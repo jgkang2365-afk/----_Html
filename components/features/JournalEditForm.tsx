@@ -1777,7 +1777,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           {error && <Alert variant="error">{error}</Alert>}
           {isCompleted && (
             <Alert variant="warning">
-              완료된 측정일지는 수정할 수 없습니다. 완료여부를 &quot;미완료&quot;로 변경한 후 수정하세요.
+              완료된 측정일지입니다. 입금, 측정비, K2B 정보 등 일부 항목만 수정 가능합니다.
             </Alert>
           )}
           {completionSuggestion && (
