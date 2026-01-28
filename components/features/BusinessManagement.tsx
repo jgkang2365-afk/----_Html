@@ -583,6 +583,17 @@ export const BusinessManagement: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold text-text-900">측정 대상 사업장 관리</h1>
+        <Button
+          onClick={generatePlan}
+          disabled={generatingPlan}
+          className="bg-green-500 hover:bg-green-600 text-white shadow-sm"
+        >
+          {generatingPlan ? "계획 생성 중..." : "계획 생성"}
+        </Button>
+      </div>
+
       {/* 년도/반기 선택 및 필터 */}
       <Card className="p-6 shadow-sm">
         <div className="flex flex-wrap items-end gap-4 mb-6">
@@ -644,11 +655,10 @@ export const BusinessManagement: React.FC = () => {
           </div>
           <Button
             variant="primary"
-            onClick={generatePlan}
-            disabled={generatingPlan}
+            onClick={loadBusinesses}
             className="shadow-sm"
           >
-            {generatingPlan ? "계획 생성 중..." : "계획 생성"}
+            검색
           </Button>
           <Button
             variant="secondary"
