@@ -32,6 +32,35 @@ body {
   background: var(--color-surface-0);
 }
 
+/* 네이티브 날짜 선택기(Calendar) 스타일 개선 */
+.large-date-input::-webkit-calendar-picker-indicator {
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.large-date-input::-webkit-calendar-picker-indicator:hover {
+  background-color: var(--color-surface-100);
+}
+
+/* Chrome/Edge에서 zoom을 키우면 네이티브 달력 팝업도 강제로 커집니다. */
+.large-date-input {
+  font-size: 1.125rem !important;
+  font-weight: 700 !important;
+  zoom: 1.25;
+  /* 달력 팝업 자체를 확대하는 핵심 설정 */
+  cursor: pointer;
+}
+
+/* 입력을 감싸는 div의 레이아웃이 zoom 때문에 틀어지는 것을 방지 */
+.large-date-input-container {
+  display: inline-flex;
+  align-items: center;
+}
+
 /* 인쇄 스타일 */
 @media print {
   @page {
