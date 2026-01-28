@@ -89,6 +89,7 @@ export const JournalSearch: React.FC = () => {
     measurementPeriod: currentPeriod,
     designatedOffice: "",
     completionStatus: "",
+    businessName: "",
   });
 
   // 순번 정렬 관련 상태
@@ -473,6 +474,13 @@ export const JournalSearch: React.FC = () => {
       );
     }
 
+    if (currentFilters.businessName) {
+      const searchTerm = currentFilters.businessName.toLowerCase();
+      filtered = filtered.filter(
+        (entry) => entry.business_name?.toLowerCase().includes(searchTerm)
+      );
+    }
+
     // 등록 순서로 정렬 (created_at 기준)
     filtered = filtered.sort((a, b) => {
       const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -497,6 +505,7 @@ export const JournalSearch: React.FC = () => {
       measurementPeriod: "",
       designatedOffice: "",
       completionStatus: "",
+      businessName: "",
     };
     setFilters(resetFilters);
     applyFilters(allJournals, resetFilters, sequenceSortOrder);
@@ -1026,35 +1035,66 @@ export const JournalSearch: React.FC = () => {
                 필터 초기화
               </Button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Select
-                label="측정년도"
-                value={filters.measurementYear}
-                onChange={(e) => handleFilterChange("measurementYear", e.target.value)}
-                options={[{ value: "", label: "전체" }, ...yearOptions]}
-              />
-              <Select
-                label="측정주기"
-                value={filters.measurementPeriod}
-                onChange={(e) => handleFilterChange("measurementPeriod", e.target.value)}
-                options={periodOptions}
-              />
-              <Select
-                label="지정지청"
-                value={filters.designatedOffice}
-                onChange={(e) => handleFilterChange("designatedOffice", e.target.value)}
-                options={designatedOfficeOptions}
-              />
-              <Select
-                label="완료여부"
-                value={filters.completionStatus}
-                onChange={(e) => handleFilterChange("completionStatus", e.target.value)}
-                options={[
-                  { value: "", label: "전체" },
-                  { value: "완료", label: "완료" },
-                  { value: "미완료", label: "미완료" },
-                ]}
-              />
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="flex-1 min-w-[120px]">
+                <Select
+                  label="측정년도"
+                  value={filters.measurementYear}
+                  onChange={(e) => handleFilterChange("measurementYear", e.target.value)}
+                  options={[{ value: "", label: "전체" }, ...yearOptions]}
+                />
+              </div>
+              <div className="flex-1 min-w-[120px]">
+                <Select
+                  label="측정주기"
+                  value={filters.measurementPeriod}
+                  onChange={(e) => handleFilterChange("measurementPeriod", e.target.value)}
+                  options={periodOptions}
+                />
+              </div>
+              <div className="flex-1 min-w-[120px]">
+                <Select
+                  label="지정지청"
+                  value={filters.designatedOffice}
+                  onChange={(e) => handleFilterChange("designatedOffice", e.target.value)}
+                  options={designatedOfficeOptions}
+                />
+              </div>
+              <div className="flex-1 min-w-[120px]">
+                <Select
+                  label="완료여부"
+                  value={filters.completionStatus}
+                  onChange={(e) => handleFilterChange("completionStatus", e.target.value)}
+                  options={[
+                    { value: "", label: "전체" },
+                    { value: "완료", label: "완료" },
+                    { value: "미완료", label: "미완료" },
+                  ]}
+                />
+              </div>
+              <div className="flex-[2] min-w-[200px] flex items-end gap-2">
+                <div className="flex-1">
+                  <Input
+                    label="사업장명"
+                    value={filters.businessName}
+                    onChange={(e) => setFilters({ ...filters, businessName: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        applyFilters(allJournals, filters, sequenceSortOrder);
+                      }
+                    }}
+                    placeholder="사업장명 입력"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => applyFilters(allJournals, filters, sequenceSortOrder)}
+                  className="mb-0.5"
+                >
+                  검색
+                </Button>
+              </div>
             </div>
           </Card>
 
