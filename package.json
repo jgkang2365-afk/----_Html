@@ -14,6 +14,7 @@
     "init-users": "tsx scripts/init-users.ts",
     "reset-admin-password": "tsx scripts/reset-admin-password.ts",
     "validate-sync": "tsx scripts/validate-sync.ts",
+    "backup": "tsx scripts/backup-db.ts",
     "clean-dev": "clean-start.bat"
   },
   "dependencies": {
