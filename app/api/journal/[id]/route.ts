@@ -48,6 +48,17 @@ export async function PUT(
 
     const supabase = await createClient();
 
+    // isAdmin 정의 (관리자)
+    const isAdmin = user.role === "관리자";
+
+    // 값 비교 헬퍼 함수
+    const areValuesEqual = (val1: any, val2: any): boolean => {
+      // null, undefined, 빈 문자열은 모두 같은 것으로 취급
+      const v1 = val1 === null || val1 === undefined ? "" : String(val1).trim();
+      const v2 = val2 === null || val2 === undefined ? "" : String(val2).trim();
+      return v1 === v2;
+    };
+
     // 기존 측정일지 조회
     const { data: existingJournal, error: fetchError } = await supabase
       .from("measurement_journal")
@@ -62,59 +73,53 @@ export async function PUT(
       );
     }
 
-    // 완료된 측정일지는 수정 불가 (단, 입금정보, 측정비 정보, k2b 정보는 수정 가능)
-    if (existingJournal.completion_status === "완료") {
-      const allowedFields = [
-        // 입금 정보
-        "deposit_date_business", "deposit_amount_business",
-        "deposit_date_national", "deposit_amount_national", "deposit_total",
-        // 측정비 정보
-        "measurement_fee_total", "measurement_fee_business", "measurement_fee_national",
-        // K2B 정보
-        "k2b_send_date", "k2b_sender", "invoice_email", "electronic_invoice_date",
-        // 특이사항 (자동 업데이트 등으로 인한 편집 차단 방지)
-        "special_notes",
-        // 담당자/연락처 정보 (수정 허용)
-        "manager_name", "manager_position", "manager_mobile", "manager_email", "phone", "fax",
-        // 개시번호
-        "commencement_number",
-        // 상태 변경 (미완료로 되돌리는 경우 허용)
-        "completion_status",
-        // 메타데이터 및 무시할 필드
-        "updated_at", "updated_by", "id"
+    // 완료된 측정일지 수정 제한 로직 (관리자는 모든 수정 허용)
+    if (existingJournal.completion_status === "완료" && !isAdmin) {
+      // 수정 불가능한 필드 정의 (공문연번, 연번, 5인 이상 연번, 측정자, 비고)
+      // 비고(note) 필드에는 예비조사자명, 공시료 코드, 보고서 담당자 정보가 포함됨
+      const lockedFields = [
+        "document_number",
+        "sequence_number",
+        "five_plus_sequence",
+        "measurer",
+        "note",
+        "k2b_sender"
       ];
-
-      // 값 비교 헬퍼 함수
-      const areValuesEqual = (val1: any, val2: any): boolean => {
-        // null, undefined, 빈 문자열은 모두 같은 것으로 취급
-        const v1 = val1 === null || val1 === undefined ? "" : String(val1).trim();
-        const v2 = val2 === null || val2 === undefined ? "" : String(val2).trim();
-        return v1 === v2;
-      };
-
-      // 변경하려는 필드 중 허용되지 않은 필드가 있는지 확인
-      const unauthorizedChanges = Object.keys(body).filter(key => {
-        // 허용된 필드는 검사 제외
-        if (allowedFields.includes(key)) return false;
+      // 변경하려는 필드 중 제한된 필드가 있는지 확인
+      const forbiddenChanges = Object.keys(body).filter(key => {
+        // 제한된 필드가 아니면 통과
+        if (!lockedFields.includes(key)) return false;
 
         // 값이 변경되었는지 확인
         const newValue = body[key];
         const oldValue = existingJournal[key];
 
-        // 값이 다르면(변경되었으면) 권한 없는 변경으로 간주
+        // 값이 다르면(변경되었으면) 차단
         if (!areValuesEqual(newValue, oldValue)) {
-          console.log(`[측정일지 수정 차단] 허용되지 않은 필드 변경 시도: ${key} ("${oldValue}" -> "${newValue}")`);
+          console.log(`[측정일지 수정 차단] 완료 상태에서 제한된 필드 변경 시도: ${key} ("${oldValue}" -> "${newValue}")`);
           return true;
         }
 
         return false;
       });
 
-      if (unauthorizedChanges.length > 0) {
+      if (forbiddenChanges.length > 0) {
+        // 한글 필드 명칭 매핑
+        const fieldNameMap: Record<string, string> = {
+          document_number: "공문연번",
+          sequence_number: "연번",
+          five_plus_sequence: "5인 이상 연번",
+          measurer: "측정자",
+          note: "비고(예비조사자, 공시료 코드 등)",
+          k2b_sender: "보고서 담당자(K2B 전송자)"
+        };
+
+        const forbiddenNames = forbiddenChanges.map(f => fieldNameMap[f] || f);
+
         return NextResponse.json(
           {
-            error: "완료된 측정일지는 수정할 수 없습니다. (입금, 측정비, K2B 정보만 수정 가능)",
-            details: `수정 불가능한 필드가 변경되었습니다: ${unauthorizedChanges.join(", ")}`
+            error: "완료된 측정일지의 일부 필드는 수정할 수 없습니다.",
+            details: `수정 불가능한 필드가 변경되었습니다: ${forbiddenNames.join(", ")}`
           },
           { status: 403 }
         );
@@ -122,7 +127,7 @@ export async function PUT(
     }
 
     // 번호 필드 변경 검증 (관리자만 직접 변경 가능)
-    const isAdmin = user.role === "관리자";
+    // isAdmin은 위에서 이미 정의됨
     const requestedDocumentNumber = body.document_number;
     const requestedSequenceNumber = body.sequence_number;
     const requestedFivePlusSequence = body.five_plus_sequence;

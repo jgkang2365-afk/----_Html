@@ -46,7 +46,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   mode = 'journal',
 }) => {
   const { user } = useUser();
-  const isAdmin = user?.role === "관리자" || user?.role === "DB관리";
+  // isAdmin은 user.role이 "관리자"인 경우
+  const isAdmin = user?.role === "관리자";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [originalYear, setOriginalYear] = useState(entry.measurement_year);
@@ -61,9 +62,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     business: number | null;
     national: number | null;
   }>({ business: null, national: null });
-  // 완료여부 체크는 기존 측정일지(id가 있는 경우)를 수정할 때만 적용
-  // 검색 결과에서 선택한 경우(id가 null)는 등록 모드이므로 완료여부와 관계없이 등록 가능
-  const isCompleted = (entry.id && user?.role !== "DB관리") ? entry.completion_status === "완료" : false;
+
+  // 완료 상태에 따른 잠금 여부 (관리자나 DB관리는 잠그지 않음)
+  const isLockedByCompletion = (entry.id && !isAdmin) ? entry.completion_status === "완료" : false;
+  // 기존의 isCompleted 변수 (일부 버튼 비활성화 등에 사용됨)
+  const isCompleted = isLockedByCompletion;
   const [formData, setFormData] = useState({
     // 기본 정보
     code: entry.code,
@@ -1454,6 +1457,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           onChange={(e) =>
             setFormData({ ...formData, k2b_sender: e.target.value })
           }
+          disabled={isLockedByCompletion}
+          className={isLockedByCompletion ? "bg-surface-50" : ""}
         />
         <Input
           label="계산서 메일"
@@ -1520,6 +1525,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                     label={option.label}
                     checked={isChecked}
                     onChange={(e) => {
+                      // 완료 상태이고 관리자가 아니면 수정 불가
+                      if (isLockedByCompletion) return;
+
                       const currentNotes = Array.isArray(formData.note)
                         ? [...formData.note]
                         : (formData.note ? [formData.note] : []);
@@ -1539,6 +1547,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
                       setFormData({ ...formData, note: currentNotes });
                     }}
+                    disabled={isLockedByCompletion}
                   />
                 );
               })}
@@ -1570,8 +1579,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 setFormData({ ...formData, completion_status: e.target.value })
               }
               options={completionStatusOptions}
-              disabled={isCompleted}
-              className={isCompleted ? "bg-surface-50" : ""}
+            // 완료여부는 완료 상태에서도 수정 가능 (미완료로 변경하기 위함)
             />
           </div>
         </div>
@@ -1580,10 +1588,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Input
               label="공문연번"
               value={formData.document_number}
-              disabled={!isAdmin && !!entry.document_number} // 기존 값이 있으면 관리자만 수정 가능
+              // 관리자가 아니고 + (이미 값이 있거나 완료 상태인 경우) 비활성화
+              disabled={!isAdmin && (!!entry.document_number || isLockedByCompletion)}
               onChange={(e) => isAdmin && setFormData({ ...formData, document_number: e.target.value })}
-              className={cn("font-bold", (!isAdmin && !!entry.document_number) ? "bg-surface-50" : "")}
-              placeholder={!isAdmin && !!entry.document_number ? "변경 불가" : "자동 부여됩니다"}
+              className={cn("font-bold", (!isAdmin && (!!entry.document_number || isLockedByCompletion)) ? "bg-surface-50" : "")}
+              placeholder={(!isAdmin && (!!entry.document_number || isLockedByCompletion)) ? "변경 불가" : "자동 부여됩니다"}
             />
             {!isAdmin && (
               <p className="text-xs text-text-500 mt-1">
@@ -1595,10 +1604,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Input
               label="연번"
               value={formData.sequence_number}
-              disabled={!isAdmin && !!entry.sequence_number} // 기존 값이 있으면 관리자만 수정 가능
+              // 관리자가 아니고 + (이미 값이 있거나 완료 상태인 경우) 비활성화
+              disabled={!isAdmin && (!!entry.sequence_number || isLockedByCompletion)}
               onChange={(e) => isAdmin && setFormData({ ...formData, sequence_number: e.target.value })}
-              className={cn("font-bold", (!isAdmin && !!entry.sequence_number) ? "bg-surface-50" : "")}
-              placeholder={!isAdmin && !!entry.sequence_number ? "변경 불가" : "자동 부여됩니다"}
+              className={cn("font-bold", (!isAdmin && (!!entry.sequence_number || isLockedByCompletion)) ? "bg-surface-50" : "")}
+              placeholder={(!isAdmin && (!!entry.sequence_number || isLockedByCompletion)) ? "변경 불가" : "자동 부여됩니다"}
             />
             {!isAdmin && (
               <p className="text-xs text-text-500 mt-1">
@@ -1610,10 +1620,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Input
               label="5인 이상 연번"
               value={formData.five_plus_sequence}
-              disabled={!isAdmin && !!entry.five_plus_sequence} // 기존 값이 있으면 관리자만 수정 가능
+              // 관리자가 아니고 + (이미 값이 있거나 완료 상태인 경우) 비활성화
+              disabled={!isAdmin && (!!entry.five_plus_sequence || isLockedByCompletion)}
               onChange={(e) => isAdmin && setFormData({ ...formData, five_plus_sequence: e.target.value })}
-              className={cn("font-bold", (!isAdmin && !!entry.five_plus_sequence) ? "bg-surface-50" : "")}
-              placeholder={!isAdmin && !!entry.five_plus_sequence ? "변경 불가" : "자동 부여됩니다"}
+              className={cn("font-bold", (!isAdmin && (!!entry.five_plus_sequence || isLockedByCompletion)) ? "bg-surface-50" : "")}
+              placeholder={(!isAdmin && (!!entry.five_plus_sequence || isLockedByCompletion)) ? "변경 불가" : "자동 부여됩니다"}
             />
             {!isAdmin && (
               <p className="text-xs text-text-500 mt-1">
@@ -1739,6 +1750,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           value={formData.measurer}
           onChange={(e) => setFormData({ ...formData, measurer: e.target.value })}
           placeholder="측정자 입력"
+          disabled={isLockedByCompletion}
+          className={isLockedByCompletion ? "bg-surface-50" : ""}
         />
       </div>
     </div>

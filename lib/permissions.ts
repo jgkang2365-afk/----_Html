@@ -3,7 +3,7 @@
  * 역할 기반 접근 제어(RBAC)를 구현합니다.
  */
 
-export type UserRole = "관리자" | "사용자" | "DB관리";
+export type UserRole = "관리자" | "사용자";
 
 export type Permission =
   | "journal:read"
@@ -22,18 +22,6 @@ export type Permission =
  */
 const rolePermissions: Record<UserRole, Permission[]> = {
   관리자: [
-    "journal:read",
-    "journal:write",
-    "journal:delete",
-    "survey:read",
-    "survey:write",
-    "dashboard:read",
-    "sales:read",
-    "sales:write",
-    "system:settings",
-    "users:manage",
-  ],
-  DB관리: [
     "journal:read",
     "journal:write",
     "journal:delete",
@@ -92,6 +80,11 @@ export function canEditJournal(
   role: UserRole,
   isCompleted: boolean
 ): { allowed: boolean; reason?: string } {
+  // 관리자는 완료 여부와 관계없이 수정 가능
+  if (role === "관리자") {
+    return { allowed: true };
+  }
+
   if (isCompleted) {
     return {
       allowed: false,

@@ -21,7 +21,7 @@ export async function GET() {
       return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
     }
 
-    if (!["관리자", "DB관리"].includes(session.role)) {
+    if (session.role !== "관리자") {
       return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
     }
 
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
     }
 
-    if (!["관리자", "DB관리"].includes(session.role)) {
+    if (session.role !== "관리자") {
       return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
     }
 
@@ -75,9 +75,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!["관리자", "사용자", "DB관리"].includes(role)) {
+    if (!["관리자", "사용자"].includes(role)) {
       return NextResponse.json(
-        { error: "역할은 '관리자', '사용자', 'DB관리' 중 하나여야 합니다." },
+        { error: "역할은 '관리자', '사용자' 중 하나여야 합니다." },
         { status: 400 }
       );
     }

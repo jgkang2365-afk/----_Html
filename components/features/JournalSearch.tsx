@@ -49,6 +49,7 @@ interface JournalEntry {
   industrial_accident_number?: string | null;
   commencement_number?: string | null;
   invoice_email?: string | null;
+  special_notes?: string | null;
   created_at: string;
   updated_at: string;
   _isFromBusiness?: boolean; // measurement_business에서 온 데이터인지 표시
@@ -342,6 +343,7 @@ export const JournalSearch: React.FC = () => {
     industrial_accident_number?: string;
     commencement_number?: string;
     invoice_email?: string;
+    special_notes?: string;
   }) => {
     setIsRegisterModalOpen(false);
 
@@ -365,6 +367,7 @@ export const JournalSearch: React.FC = () => {
       industrial_accident_number: data.industrial_accident_number,
       commencement_number: data.commencement_number,
       invoice_email: data.invoice_email,
+      special_notes: data.special_notes,
       completion_status: "미완료",
       measurement_start_date: null,
       measurement_end_date: null,

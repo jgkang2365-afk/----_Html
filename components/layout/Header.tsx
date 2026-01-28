@@ -37,7 +37,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading, logout } = useUser();
-  const isAdmin = user?.role === "관리자" || user?.role === "DB관리";
+  const isAdmin = user?.role === "관리자";
 
   // 디버깅: 사용자 정보 확인
   React.useEffect(() => {

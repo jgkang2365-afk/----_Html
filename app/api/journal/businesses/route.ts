@@ -149,6 +149,21 @@ export async function GET(request: Request) {
         fax: (baseBusinessData?.fax || "") || prioritizedDefaults.fax || journalManagerInfo?.fax || businessInfo?.fax || "",
       };
 
+      // 4. measurement_target_business 조회 (비고 데이터 활용)
+      if (year && period) {
+        const { data: targetData, error: targetError } = await supabase
+          .from("measurement_target_business")
+          .select("notes")
+          .eq("code", code)
+          .eq("year", parseInt(year))
+          .eq("period", period)
+          .maybeSingle();
+
+        if (!targetError && targetData?.notes) {
+          (business as any).special_notes = targetData.notes;
+        }
+      }
+
       console.log(`[API /api/journal/businesses] Final Business Object for ${code}:`, {
         industrial_accident_number: business.industrial_accident_number,
         invoice_email: business.invoice_email,

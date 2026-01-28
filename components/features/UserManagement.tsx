@@ -20,7 +20,7 @@ import {
 interface User {
   id: number;
   name: string;
-  role: "관리자" | "사용자" | "DB관리";
+  role: "관리자" | "사용자";
   survey_code?: string | null;
   created_at: string;
   updated_at: string;
@@ -36,7 +36,7 @@ export const UserManagement: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createForm, setCreateForm] = useState({
     name: "",
-    role: "사용자" as "관리자" | "사용자" | "DB관리",
+    role: "사용자" as "관리자" | "사용자",
     password: "",
     survey_code: "",
   });
@@ -53,7 +53,7 @@ export const UserManagement: React.FC = () => {
   const [editForm, setEditForm] = useState({
     id: 0,
     name: "",
-    role: "사용자" as "관리자" | "사용자" | "DB관리",
+    role: "사용자" as "관리자" | "사용자",
     survey_code: "",
   });
 
@@ -331,12 +331,11 @@ export const UserManagement: React.FC = () => {
             label="역할"
             value={createForm.role}
             onChange={(e) =>
-              setCreateForm({ ...createForm, role: e.target.value as "관리자" | "사용자" | "DB관리" })
+              setCreateForm({ ...createForm, role: e.target.value as "관리자" | "사용자" })
             }
             options={[
               { value: "사용자", label: "사용자" },
               { value: "관리자", label: "관리자" },
-              { value: "DB관리", label: "DB관리 (모든 권한)" },
             ]}
             required
           />
@@ -447,12 +446,11 @@ export const UserManagement: React.FC = () => {
             label="역할"
             value={editForm.role}
             onChange={(e) =>
-              setEditForm({ ...editForm, role: e.target.value as "관리자" | "사용자" | "DB관리" })
+              setEditForm({ ...editForm, role: e.target.value as "관리자" | "사용자" })
             }
             options={[
               { value: "사용자", label: "사용자" },
               { value: "관리자", label: "관리자" },
-              { value: "DB관리", label: "DB관리 (모든 권한)" },
             ]}
           />
           <Input

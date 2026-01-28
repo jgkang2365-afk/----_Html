@@ -211,6 +211,25 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 3.5 measurement_target_business 조회 (비고란 데이터 활용을 위해)
+    const targetBusinessMap = new Map<string, string>();
+    if (allCodes.size > 0) {
+      const { data: targetData, error: targetError } = await supabase
+        .from("measurement_target_business")
+        .select("code, year, period, notes")
+        .in("code", Array.from(allCodes));
+
+      if (!targetError && targetData) {
+        targetData.forEach((target: any) => {
+          // 키: code + year + period
+          const key = `${target.code}-${target.year}-${target.period}`;
+          if (target.notes) {
+            targetBusinessMap.set(key, target.notes);
+          }
+        });
+      }
+    }
+
     // 4. measurement_journal이 있으면 우선 사용, 없으면 measurement_business 데이터를 변환
     // 중복 제거: 같은 code-year-period 조합 중 가장 최신 것만 사용
     const journalMap = new Map<string, any>();
@@ -263,6 +282,16 @@ export async function GET(request: NextRequest) {
             journal.address = matchingBusiness.address;
           }
         }
+
+        // measurement_target_business에서 비고(notes) 가져와서 special_notes에 반영
+        // 단, 기존 special_notes가 비어있는 경우에만 반영하도록 하여 기존 데이터를 존중함
+        if (!journal.special_notes) {
+          const targetNotes = targetBusinessMap.get(key);
+          if (targetNotes) {
+            journal.special_notes = targetNotes;
+          }
+        }
+
         // designated_office 재검증 (주소 기반으로 다시 계산)
         // measurement_journal에 저장된 designated_office가 잘못되었을 수 있으므로
         // 주소 기반으로 다시 계산하여 검증
@@ -387,7 +416,7 @@ export async function GET(request: NextRequest) {
           deposit_amount_business: null,
           deposit_date_national: null,
           deposit_amount_national: null,
-          special_notes: null,
+          special_notes: targetBusinessMap.get(key) || null,
           created_by: null,
           updated_by: null,
           _isFromBusiness: true, // measurement_business에서 온 데이터임을 표시
