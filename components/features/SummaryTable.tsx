@@ -266,39 +266,54 @@ export const SummaryTable: React.FC = () => {
             <label className="block text-sm font-medium text-text-700 mb-1">
               측정년도
             </label>
-            <Select
+            <Input
               value={searchParams.measurementYear}
               onChange={(e) =>
                 setSearchParams({ ...searchParams, measurementYear: e.target.value })
               }
-              options={[
-                { value: "", label: "전체" },
-                ...yearOptions,
-              ]}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSearch();
+                }
+              }}
+              placeholder="예: 2024, 2025"
+              autoComplete="off"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-text-700 mb-1">
               측정주기
             </label>
-            <Select
+            <Input
               value={searchParams.measurementPeriod}
               onChange={(e) =>
                 setSearchParams({ ...searchParams, measurementPeriod: e.target.value })
               }
-              options={periodOptions}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSearch();
+                }
+              }}
+              placeholder="예: 상반기, 하반기"
+              autoComplete="off"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-text-700 mb-1">
               지정지청
             </label>
-            <Select
+            <Input
               value={searchParams.designatedOffice}
               onChange={(e) =>
                 setSearchParams({ ...searchParams, designatedOffice: e.target.value })
               }
-              options={designatedOfficeOptions}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSearch();
+                }
+              }}
+              placeholder="예: 대전, 천안"
+              autoComplete="off"
             />
           </div>
           <div>
@@ -310,12 +325,17 @@ export const SummaryTable: React.FC = () => {
               onChange={(e) =>
                 setSearchParams({ ...searchParams, businessName: e.target.value })
               }
-              placeholder="사업장명 입력"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSearch();
+                }
+              }}
+              placeholder="예: 사업장A, 사업장B"
               autoComplete="off"
             />
           </div>
           <div className="flex items-end">
-            <Button variant="primary" onClick={handleSearch} disabled={loading}>
+            <Button variant="primary" onClick={handleSearch} disabled={loading} className="w-full">
               {loading ? "검색 중..." : "검색"}
             </Button>
           </div>

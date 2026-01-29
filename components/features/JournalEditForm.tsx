@@ -152,7 +152,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
     // K2B 정보
     k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
-    k2b_sender: entry.k2b_sender || "",
+    k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
     invoice_email: entry.invoice_email || "",
     electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
 
@@ -494,14 +494,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   // 콤마로 구분된 경우 첫 번째 값만 사용
                   const reportWriterValue = data.surveyInfo.report_writer.split(',').map((w: string) => w.trim()).filter(Boolean)[0] || data.surveyInfo.report_writer.trim();
 
-                  // 예비조사 정보가 있으면 최우선으로 사용 (기존 기본값 덮어쓰기)
-                  updated.k2b_sender = reportWriterValue || prev.k2b_sender || "";
-                  console.log('[JournalEditForm] 예비조사 정보에서 K2B 전송자 기본값 설정:', {
-                    모드: entry.id ? '수정' : '등록',
-                    기존값: prev.k2b_sender,
-                    원본값: data.surveyInfo.report_writer,
-                    설정값: reportWriterValue,
-                  });
+                  // 예비조사 정보가 있으면 최우선으로 사용 (로그인 사용자 이름이나 기존 DB 값보다 우선)
+                  if (reportWriterValue) {
+                    updated.k2b_sender = reportWriterValue;
+                    console.log('[JournalEditForm] 예비조사 정보(report_writer)로 K2B 전송자 강제 덮어쓰기:', reportWriterValue);
+                  }
                 }
 
                 // 측정 시작일 (예비조사의 measurement_date가 있으면 기본값으로 설정)
@@ -661,20 +658,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   }, [formData.designated_office]);
 
-  // 등록 모드일 때 로그인 사용자 정보로 기본값 설정
-  // 주의: 측정자는 예비조사 정보에서 가져오므로 여기서는 설정하지 않음
+  // 등록 모드일 때 로그인 사용자 정보로 기본값 설정 (Fallback)
   useEffect(() => {
-    // 등록 모드이고, 사용자 정보가 있고, 해당 필드가 비어있을 때만 설정
+    // 등록 모드이고, 사용자 정보가 있고, 해당 필드가 아직 비어있을 때만 설정
+    // 주의: surveyInfo 로드 후 report_writer가 있으면 해당 값이 덮어쓰게 됩니다.
     if (!entry.id && user?.name) {
       setFormData((prev) => {
-        const updated = { ...prev };
-        // 측정자는 예비조사 정보에서 가져오므로 로그인 사용자 정보로 설정하지 않음
-        // K2B 전송자 기본값 (비어있을 때만, K2B 전송자 옵션에 있는 경우만)
+        // 이미 값이 있으면 (예: surveyInfo나 직전 데이터에서 가져온 경우) 건드리지 않음
+        if (prev.k2b_sender) return prev;
+
         const k2bSenderOptions = ["한기문", "강종구", "이주형", "배윤민", "고유빈"];
-        if (!prev.k2b_sender && k2bSenderOptions.includes(user.name)) {
-          updated.k2b_sender = user.name;
+        if (k2bSenderOptions.includes(user.name)) {
+          return { ...prev, k2b_sender: user.name };
         }
-        return updated;
+        return prev;
       });
     }
   }, [entry.id, user?.name]); // eslint-disable-line react-hooks/exhaustive-deps

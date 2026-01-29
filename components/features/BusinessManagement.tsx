@@ -598,30 +598,42 @@ export const BusinessManagement: React.FC = () => {
       <Card className="p-6 shadow-sm">
         <div className="flex flex-wrap items-end gap-4 mb-6">
           <div className="flex-1 min-w-[120px]">
-            <Select
+            <Input
               label="측정년도"
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              options={yearOptions}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  loadBusinesses();
+                }
+              }}
+              placeholder="예: 2024, 2025"
             />
           </div>
           <div className="flex-1 min-w-[120px]">
-            <Select
+            <Input
               label="측정주기"
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value)}
-              options={[
-                { value: "상반기", label: "상반기" },
-                { value: "하반기", label: "하반기" },
-              ]}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  loadBusinesses();
+                }
+              }}
+              placeholder="예: 상반기, 하반기"
             />
           </div>
           <div className="flex-1 min-w-[150px]">
-            <Select
+            <Input
               label="지정지청"
               value={filters.designatedOffice}
               onChange={(e) => setFilters({ ...filters, designatedOffice: e.target.value })}
-              options={[{ value: "", label: "전체" }, ...DESIGNATED_OFFICE_OPTIONS]}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  loadBusinesses();
+                }
+              }}
+              placeholder="예: 대전, 천안"
             />
           </div>
           <div className="flex-1 min-w-[150px]">
@@ -629,7 +641,12 @@ export const BusinessManagement: React.FC = () => {
               label="사업장명 검색"
               value={filters.businessName}
               onChange={(e) => setFilters({ ...filters, businessName: e.target.value })}
-              placeholder="사업장명 입력"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  loadBusinesses();
+                }
+              }}
+              placeholder="예: 사업장A, 사업장B"
             />
           </div>
           <div className="flex-1 min-w-[150px]">
@@ -637,7 +654,12 @@ export const BusinessManagement: React.FC = () => {
               label="주소 검색"
               value={filters.address}
               onChange={(e) => setFilters({ ...filters, address: e.target.value })}
-              placeholder="주소 입력"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  loadBusinesses();
+                }
+              }}
+              placeholder="예: 서울, 경기"
             />
           </div>
           <div className="flex-1 min-w-[120px]">

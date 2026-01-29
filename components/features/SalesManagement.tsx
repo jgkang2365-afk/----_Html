@@ -97,13 +97,48 @@ export const SalesManagement: React.FC = () => {
   const isMatchSelection = (itemPeriod: string | null, selectedPeriod: string) => {
     if (!selectedPeriod) return true;
     if (!itemPeriod) return false;
-    if (selectedPeriod === "상반기") {
-      return itemPeriod === "상반기" || itemPeriod === "상반기(수시)" || itemPeriod === "수시(상)";
-    }
-    if (selectedPeriod === "하반기") {
-      return itemPeriod === "하반기" || itemPeriod === "하반기(수시)" || itemPeriod === "수시(하)";
-    }
-    return false;
+
+    // 콤마로 구분된 검색 지원
+    const searchTerms = selectedPeriod.split(',').map(s => s.trim()).filter(Boolean);
+    if (searchTerms.length === 0) return true;
+
+    return searchTerms.some(term => {
+      if (term === "상반기") {
+        return itemPeriod === "상반기" || itemPeriod === "상반기(수시)" || itemPeriod === "수시(상)";
+      }
+      if (term === "하반기") {
+        return itemPeriod === "하반기" || itemPeriod === "하반기(수시)" || itemPeriod === "수시(하)";
+      }
+      return itemPeriod === term;
+    });
+  };
+
+  // 검색어 매칭 헬퍼 함수 (콤마로 구분된 다중 키워드 OR 검색, 부분 일치)
+  const checkSearchMatch = (targetValue: string | null | number, searchValue: string) => {
+    if (!searchValue) return true;
+    if (targetValue === null || targetValue === undefined) return false;
+
+    const target = targetValue.toString().toLowerCase();
+    const terms = searchValue.split(",").map(term => term.trim().toLowerCase()).filter(term => term.length > 0);
+
+    if (terms.length === 0) return true;
+
+    // 하나라도 포함되면 true (OR 조건)
+    return terms.some(term => target.includes(term));
+  };
+
+  // 정확한 매칭 헬퍼 함수 (콤마로 구분된 다중 키워드 OR 검색, 정확히 일치)
+  const checkExactMatch = (targetValue: string | null | number, searchValue: string) => {
+    if (!searchValue) return true;
+    if (targetValue === null || targetValue === undefined) return false;
+
+    const target = targetValue.toString().trim();
+    const terms = searchValue.split(",").map(term => term.trim()).filter(term => term.length > 0);
+
+    if (terms.length === 0) return true;
+
+    // 하나라도 정확히 일치하면 true (OR 조건)
+    return terms.some(term => target === term);
   };
 
   const [loading, setLoading] = useState(true);
@@ -1416,20 +1451,20 @@ export const SalesManagement: React.FC = () => {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium text-text-700 whitespace-nowrap">년도 선택 :</label>
-                <Select
+                <Input
                   value={unpaidSummaryYear}
                   onChange={(e) => setUnpaidSummaryYear(e.target.value)}
-                  options={[{ value: "", label: "전체" }, ...yearOptions]}
-                  className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
+                  placeholder="예: 2024, 2025"
+                  className="w-40 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
                 />
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium text-text-700 whitespace-nowrap">주기 선택 :</label>
-                <Select
+                <Input
                   value={unpaidSummaryPeriod}
                   onChange={(e) => setUnpaidSummaryPeriod(e.target.value)}
-                  options={periodOptions}
-                  className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
+                  placeholder="예: 상반기, 하반기"
+                  className="w-40 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
                 />
               </div>
             </div>
@@ -1885,27 +1920,13 @@ export const SalesManagement: React.FC = () => {
               id: "measurement",
               label: "측정비",
               content: (() => {
-                // 검색어 매칭 헬퍼 함수 (콤마로 구분된 다중 키워드 OR 검색)
-                const checkSearchMatch = (targetValue: string | null, searchValue: string) => {
-                  if (!searchValue) return true;
-                  if (!targetValue) return false;
-
-                  const target = targetValue.toLowerCase();
-                  const terms = searchValue.split(",").map(term => term.trim().toLowerCase()).filter(term => term.length > 0);
-
-                  if (terms.length === 0) return true;
-
-                  // 하나라도 포함되면 true (OR 조건)
-                  return terms.some(term => target.includes(term));
-                };
-
                 // 필터링 적용
                 let filteredMeasurement = measurementRevenue.filter((item) => {
                   if (debouncedMeasurementFilters.businessName && !checkSearchMatch(item.business_name, debouncedMeasurementFilters.businessName)) return false;
                   if (debouncedMeasurementFilters.representativeName && !checkSearchMatch(item.representative_name, debouncedMeasurementFilters.representativeName)) return false;
-                  if (debouncedMeasurementFilters.year && item.measurement_year.toString() !== debouncedMeasurementFilters.year) return false;
-                  if (debouncedMeasurementFilters.period && item.measurement_period !== debouncedMeasurementFilters.period) return false;
-                  if (debouncedMeasurementFilters.designatedOffice && item.designated_office !== debouncedMeasurementFilters.designatedOffice) return false;
+                  if (debouncedMeasurementFilters.year && !checkExactMatch(item.measurement_year, debouncedMeasurementFilters.year)) return false;
+                  if (debouncedMeasurementFilters.period && !isMatchSelection(item.measurement_period, debouncedMeasurementFilters.period)) return false;
+                  if (debouncedMeasurementFilters.designatedOffice && !checkExactMatch(item.designated_office, debouncedMeasurementFilters.designatedOffice)) return false;
                   if (debouncedMeasurementFilters.hasInvoiceDate === "yes" && !item.electronic_invoice_date) return false;
                   if (debouncedMeasurementFilters.hasInvoiceDate === "no" && item.electronic_invoice_date) return false;
                   return true;
@@ -2019,16 +2040,13 @@ export const SalesManagement: React.FC = () => {
                                   측정년도
                                   <MeasurementSortIcon column="measurement_year" />
                                 </div>
-                                <Select
+                                <Input
                                   value={measurementFilters.year}
                                   onChange={(e) =>
                                     setMeasurementFilters({ ...measurementFilters, year: e.target.value })
                                   }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    ...yearOptions,
-                                  ]}
-                                  className="text-xs"
+                                  placeholder="예: 2024"
+                                  className="text-xs h-7"
                                 />
                               </div>
                             </TableHead>
@@ -2041,13 +2059,13 @@ export const SalesManagement: React.FC = () => {
                                   측정주기
                                   <MeasurementSortIcon column="measurement_period" />
                                 </div>
-                                <Select
+                                <Input
                                   value={measurementFilters.period}
                                   onChange={(e) =>
                                     setMeasurementFilters({ ...measurementFilters, period: e.target.value })
                                   }
-                                  options={periodOptions}
-                                  className="text-xs"
+                                  placeholder="예: 상반기"
+                                  className="text-xs h-7"
                                 />
                               </div>
                             </TableHead>
@@ -2098,16 +2116,13 @@ export const SalesManagement: React.FC = () => {
                                   지정지청
                                   <MeasurementSortIcon column="designated_office" />
                                 </div>
-                                <Select
+                                <Input
                                   value={measurementFilters.designatedOffice}
                                   onChange={(e) =>
                                     setMeasurementFilters({ ...measurementFilters, designatedOffice: e.target.value })
                                   }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    ...DESIGNATED_OFFICE_OPTIONS.slice(1), // "전체" 제외
-                                  ]}
-                                  className="text-xs"
+                                  placeholder="예: 대전, 천안"
+                                  className="text-xs h-7"
                                 />
                               </div>
                             </TableHead>
@@ -2311,14 +2326,14 @@ export const SalesManagement: React.FC = () => {
               content: (() => {
                 // 필터링 적용
                 let filteredOther = otherRevenue.filter((item) => {
-                  if (debouncedOtherFilters.itemName && !item.item_name.toLowerCase().includes(debouncedOtherFilters.itemName.toLowerCase())) return false;
-                  if (debouncedOtherFilters.year && item.revenue_year?.toString() !== debouncedOtherFilters.year) return false;
-                  if (debouncedOtherFilters.period && item.revenue_period !== debouncedOtherFilters.period) return false;
+                  if (debouncedOtherFilters.itemName && !checkSearchMatch(item.item_name, debouncedOtherFilters.itemName)) return false;
+                  if (debouncedOtherFilters.year && !checkExactMatch(item.revenue_year, debouncedOtherFilters.year)) return false;
+                  if (debouncedOtherFilters.period && !isMatchSelection(item.revenue_period, debouncedOtherFilters.period)) return false;
                   if (debouncedOtherFilters.hasInvoiceDate === "yes" && !item.invoice_date) return false;
                   if (debouncedOtherFilters.hasInvoiceDate === "no" && item.invoice_date) return false;
                   if (debouncedOtherFilters.hasDepositDate === "yes" && !item.deposit_date) return false;
                   if (debouncedOtherFilters.hasDepositDate === "no" && item.deposit_date) return false;
-                  if (debouncedOtherFilters.notes && (!item.notes || !item.notes.toLowerCase().includes(debouncedOtherFilters.notes.toLowerCase()))) return false;
+                  if (debouncedOtherFilters.notes && !checkSearchMatch(item.notes, debouncedOtherFilters.notes)) return false;
                   return true;
                 });
 
@@ -2584,29 +2599,26 @@ export const SalesManagement: React.FC = () => {
                             <TableHead>
                               <div className="space-y-1">
                                 <div className="text-sm font-medium">매출년도</div>
-                                <Select
+                                <Input
                                   value={otherFilters.year}
                                   onChange={(e) =>
                                     setOtherFilters({ ...otherFilters, year: e.target.value })
                                   }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    ...yearOptions,
-                                  ]}
-                                  className="text-xs"
+                                  placeholder="예: 2024"
+                                  className="text-xs h-7"
                                 />
                               </div>
                             </TableHead>
                             <TableHead>
                               <div className="space-y-1">
                                 <div className="text-sm font-medium">매출주기</div>
-                                <Select
+                                <Input
                                   value={otherFilters.period}
                                   onChange={(e) =>
                                     setOtherFilters({ ...otherFilters, period: e.target.value })
                                   }
-                                  options={periodOptions}
-                                  className="text-xs"
+                                  placeholder="예: 상반기"
+                                  className="text-xs h-7"
                                 />
                               </div>
                             </TableHead>
@@ -2752,10 +2764,10 @@ export const SalesManagement: React.FC = () => {
                 // 필터링 적용
                 let filteredItems = unpaidItems.filter((item) => {
                   if (debouncedUnpaidFilters.type && item.type !== debouncedUnpaidFilters.type) return false;
-                  if (debouncedUnpaidFilters.name && !item.name.toLowerCase().includes(debouncedUnpaidFilters.name.toLowerCase())) return false;
-                  if (debouncedUnpaidFilters.year && item.year.toString() !== debouncedUnpaidFilters.year) return false;
-                  if (debouncedUnpaidFilters.period && item.period !== debouncedUnpaidFilters.period) return false;
-                  if (debouncedUnpaidFilters.designatedOffice && item.designatedOffice !== debouncedUnpaidFilters.designatedOffice) return false;
+                  if (debouncedUnpaidFilters.name && !checkSearchMatch(item.name, debouncedUnpaidFilters.name)) return false;
+                  if (debouncedUnpaidFilters.year && !checkExactMatch(item.year, debouncedUnpaidFilters.year)) return false;
+                  if (debouncedUnpaidFilters.period && !isMatchSelection(item.period, debouncedUnpaidFilters.period)) return false;
+                  if (debouncedUnpaidFilters.designatedOffice && !checkExactMatch(item.designatedOffice, debouncedUnpaidFilters.designatedOffice)) return false;
                   if (debouncedUnpaidFilters.hasDepositDate === "yes" && !item.depositDate) return false;
                   if (debouncedUnpaidFilters.hasDepositDate === "no" && item.depositDate) return false;
                   return true;
@@ -2900,16 +2912,13 @@ export const SalesManagement: React.FC = () => {
                                   매출년도
                                   <SortIcon column="year" />
                                 </div>
-                                <Select
+                                <Input
                                   value={unpaidFilters.year}
                                   onChange={(e) =>
                                     setUnpaidFilters({ ...unpaidFilters, year: e.target.value })
                                   }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    ...yearOptions,
-                                  ]}
-                                  className="text-xs"
+                                  placeholder="예: 2024"
+                                  className="text-xs h-7"
                                 />
                               </div>
                             </TableHead>
@@ -2922,17 +2931,13 @@ export const SalesManagement: React.FC = () => {
                                   측정주기
                                   <SortIcon column="period" />
                                 </div>
-                                <Select
+                                <Input
                                   value={unpaidFilters.period}
                                   onChange={(e) =>
                                     setUnpaidFilters({ ...unpaidFilters, period: e.target.value })
                                   }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    { value: "상반기", label: "상반기" },
-                                    { value: "하반기", label: "하반기" },
-                                  ]}
-                                  className="text-xs"
+                                  placeholder="예: 상반기"
+                                  className="text-xs h-7"
                                 />
                               </div>
                             </TableHead>
@@ -3004,16 +3009,13 @@ export const SalesManagement: React.FC = () => {
                                   지정지청
                                   <SortIcon column="designatedOffice" />
                                 </div>
-                                <Select
+                                <Input
                                   value={unpaidFilters.designatedOffice}
                                   onChange={(e) =>
                                     setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
                                   }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    ...DESIGNATED_OFFICE_OPTIONS.slice(1), // "전체" 제외
-                                  ]}
-                                  className="text-xs"
+                                  placeholder="예: 대전, 천안"
+                                  className="text-xs h-7"
                                 />
                               </div>
                             </TableHead>
@@ -3200,12 +3202,11 @@ export const SalesManagement: React.FC = () => {
                 // 필터링 적용
                 const filteredDeposits = unifiedDeposits.filter(item => {
                   const dateMatch = item.date >= depositStartDate && item.date <= depositEndDate;
-                  const officeMatch = !depositOffice || item.designatedOffice === depositOffice;
-                  const yearMatch = !depositYear || item.year?.toString() === depositYear;
-                  const periodMatch = !depositPeriod || item.period === depositPeriod;
+                  const officeMatch = checkExactMatch(item.designatedOffice, depositOffice);
+                  const yearMatch = checkExactMatch(item.year, depositYear);
+                  const periodMatch = isMatchSelection(item.period || null, depositPeriod);
                   const categoryMatch = !depositCategory || item.category === depositCategory;
-                  const businessNameMatch = !debouncedDepositBusinessName ||
-                    item.name.toLowerCase().includes(debouncedDepositBusinessName.toLowerCase());
+                  const businessNameMatch = checkSearchMatch(item.name, debouncedDepositBusinessName);
 
                   return dateMatch && officeMatch && yearMatch && periodMatch && categoryMatch && businessNameMatch;
                 });
@@ -3222,41 +3223,32 @@ export const SalesManagement: React.FC = () => {
                         {/* 1. 매출년도 */}
                         <div className="flex flex-col gap-2">
                           <label className="text-sm font-bold text-text-800 ml-1">매출년도</label>
-                          <Select
+                          <Input
                             value={depositYear}
                             onChange={(e) => setDepositYear(e.target.value)}
-                            options={[
-                              { value: "", label: "전체" },
-                              ...yearOptions,
-                            ]}
-                            className="w-32 h-11 text-sm font-medium"
+                            placeholder="예: 2024, 2025"
+                            className="w-40 h-11 text-sm font-medium"
                           />
                         </div>
 
                         {/* 2. 주기 */}
                         <div className="flex flex-col gap-2">
                           <label className="text-sm font-bold text-text-800 ml-1">주기</label>
-                          <Select
+                          <Input
                             value={depositPeriod}
                             onChange={(e) => setDepositPeriod(e.target.value)}
-                            options={[
-                              { value: "", label: "전체 주기" },
-                              ...periodOptions.filter(opt => opt.value !== ""),
-                            ]}
-                            className="w-32 h-11 text-sm font-medium"
+                            placeholder="예: 상반기, 하반기"
+                            className="w-40 h-11 text-sm font-medium"
                           />
                         </div>
 
                         {/* 3. 지정지청 */}
                         <div className="flex flex-col gap-2">
                           <label className="text-sm font-bold text-text-800 ml-1">지정지청</label>
-                          <Select
+                          <Input
                             value={depositOffice}
                             onChange={(e) => setDepositOffice(e.target.value)}
-                            options={[
-                              { value: "", label: "전체 지청" },
-                              ...DESIGNATED_OFFICE_OPTIONS.slice(1),
-                            ]}
+                            placeholder="예: 대전, 천안"
                             className="w-44 h-11 text-sm font-medium"
                           />
                         </div>

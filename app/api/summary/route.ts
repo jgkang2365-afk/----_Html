@@ -32,26 +32,53 @@ export async function GET(request: NextRequest) {
 
     // 검색 조건 적용
     if (measurementYear) {
-      journalQuery = journalQuery.eq("measurement_year", parseInt(measurementYear));
+      if (measurementYear.includes(",")) {
+        const years = measurementYear.split(",").map(y => parseInt(y.trim())).filter(y => !isNaN(y));
+        if (years.length > 0) {
+          journalQuery = journalQuery.in("measurement_year", years);
+        }
+      } else {
+        journalQuery = journalQuery.eq("measurement_year", parseInt(measurementYear));
+      }
     }
 
     if (measurementPeriod) {
-      journalQuery = journalQuery.ilike("measurement_period", `%${measurementPeriod}%`);
+      if (measurementPeriod.includes(",")) {
+        const periods = measurementPeriod.split(",").map(p => p.trim()).filter(Boolean);
+        if (periods.length > 0) {
+          const orFilter = periods.map(p => `measurement_period.ilike.%${p}%`).join(",");
+          journalQuery = journalQuery.or(orFilter);
+        }
+      } else {
+        journalQuery = journalQuery.ilike("measurement_period", `%${measurementPeriod}%`);
+      }
     }
 
     if (businessName) {
-      journalQuery = journalQuery.ilike("business_name", `%${businessName}%`);
+      if (businessName.includes(",")) {
+        const names = businessName.split(",").map(n => n.trim()).filter(Boolean);
+        if (names.length > 0) {
+          const orFilter = names.map(name => `business_name.ilike.%${name}%`).join(",");
+          journalQuery = journalQuery.or(orFilter);
+        }
+      } else {
+        journalQuery = journalQuery.ilike("business_name", `%${businessName}%`);
+      }
     }
 
     if (designatedOffice) {
-      // 약칭으로 정규화하여 검색 (기존 전체명과 호환)
-      const normalizedOffice = toShortName(designatedOffice);
-      // 기존 전체명과 약칭 모두 매칭 (.in() 사용하여 더 안전하게 처리)
-      const officesToMatch = [normalizedOffice];
-      if (normalizedOffice !== designatedOffice) {
-        officesToMatch.push(designatedOffice);
+      const officeList = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
+      if (officeList.length > 0) {
+        const allOffices: string[] = [];
+        officeList.forEach(office => {
+          const normalized = toShortName(office);
+          allOffices.push(normalized);
+          if (normalized !== office) {
+            allOffices.push(office);
+          }
+        });
+        journalQuery = journalQuery.in("designated_office", allOffices);
       }
-      journalQuery = journalQuery.in("designated_office", officesToMatch);
     }
 
     const { data: journals, error: journalError } = await journalQuery;

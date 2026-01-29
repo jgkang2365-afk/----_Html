@@ -48,27 +48,74 @@ export async function GET(request: NextRequest) {
 
     // 저장된 측정 대상 사업장 계획 조회
     // measurement_target_business 테이블에서 해당 년도/반기의 계획 데이터 조회
-    // measurement_date 컬럼이 없을 수 있으므로 *만 사용하고 안전하게 접근
     let query = supabase
       .from("measurement_target_business")
-      .select("*")
-      .eq("year", targetYear)
-      .eq("period", period);
+      .select("*");
+
+    // 년도 필터
+    if (year) {
+      if (year.includes(",")) {
+        const years = year.split(",").map(y => parseInt(y.trim(), 10)).filter(y => !isNaN(y));
+        if (years.length > 0) {
+          query = query.in("year", years);
+        }
+      } else {
+        query = query.eq("year", parseInt(year, 10));
+      }
+    }
+
+    // 주기 필터
+    if (period) {
+      if (period.includes(",")) {
+        const periods = period.split(",").map(p => p.trim()).filter(Boolean);
+        if (periods.length > 0) {
+          query = query.in("period", periods);
+        }
+      } else {
+        query = query.eq("period", period);
+      }
+    }
 
     // 주소 필터 적용
     if (address) {
-      query = query.ilike("address", `%${address}%`);
+      if (address.includes(",")) {
+        const addresses = address.split(",").map(a => a.trim()).filter(Boolean);
+        if (addresses.length > 0) {
+          const orFilter = addresses.map(addr => `address.ilike.%${addr}%`).join(",");
+          query = query.or(orFilter);
+        }
+      } else {
+        query = query.ilike("address", `%${address}%`);
+      }
     }
 
     // 사업장명 필터 적용
     if (businessName) {
-      query = query.ilike("business_name", `%${businessName}%`);
+      if (businessName.includes(",")) {
+        const names = businessName.split(",").map(n => n.trim()).filter(Boolean);
+        if (names.length > 0) {
+          const orFilter = names.map(name => `business_name.ilike.%${name}%`).join(",");
+          query = query.or(orFilter);
+        }
+      } else {
+        query = query.ilike("business_name", `%${businessName}%`);
+      }
     }
 
     // 지정지청 필터 적용
     if (designatedOffice) {
-      const normalizedOffice = toShortName(designatedOffice);
-      query = query.eq("designated_office", normalizedOffice);
+      const officeList = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
+      if (officeList.length > 0) {
+        const allOffices: string[] = [];
+        officeList.forEach(office => {
+          const normalized = toShortName(office);
+          allOffices.push(normalized);
+          if (normalized !== office) {
+            allOffices.push(office);
+          }
+        });
+        query = query.in("designated_office", allOffices);
+      }
     }
 
     const { data: plans, error: plansError } = await query.order("code", { ascending: true });

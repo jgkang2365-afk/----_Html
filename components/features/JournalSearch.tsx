@@ -852,27 +852,39 @@ export const JournalSearch: React.FC = () => {
                       handleSearch();
                     }
                   }}
-                  placeholder="코드 입력"
+                  placeholder="예: H0001, H0002"
                 />
               </div>
               <div className="flex-1 min-w-[120px]">
-                <Select
+                <Input
                   label="측정년도"
                   value={searchParams.measurementYear}
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, measurementYear: e.target.value })
                   }
-                  options={[{ value: "", label: "전체" }, ...yearOptions]}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
+                  placeholder="예: 2024, 2025"
                 />
               </div>
               <div className="flex-1 min-w-[120px]">
-                <Select
+                <Input
                   label="측정주기"
                   value={searchParams.measurementPeriod}
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, measurementPeriod: e.target.value })
                   }
-                  options={periodOptions}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
+                  placeholder="예: 상반기, 하반기"
                 />
               </div>
               <div className="flex-1 min-w-[150px]">
@@ -888,17 +900,23 @@ export const JournalSearch: React.FC = () => {
                       handleSearch();
                     }
                   }}
-                  placeholder="사업장명 입력"
+                  placeholder="예: 사업장A, 사업장B"
                 />
               </div>
               <div className="flex-1 min-w-[150px]">
-                <Select
+                <Input
                   label="지정지청"
                   value={searchParams.designatedOffice}
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, designatedOffice: e.target.value })
                   }
-                  options={designatedOfficeOptions}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
+                  placeholder="예: 대전, 천안"
                 />
               </div>
               <div className="flex-1 min-w-[150px]">
@@ -914,7 +932,7 @@ export const JournalSearch: React.FC = () => {
                       handleSearch();
                     }
                   }}
-                  placeholder="주소 입력"
+                  placeholder="예: 서울, 경기"
                 />
               </div>
             </div>

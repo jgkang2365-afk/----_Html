@@ -31,23 +31,52 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false });
 
     if (year) {
-      measurementQuery = measurementQuery.eq("measurement_year", parseInt(year));
-    }
-    if (businessName) {
-      measurementQuery = measurementQuery.ilike("business_name", `%${businessName}%`);
-    }
-    if (measurementPeriod) {
-      measurementQuery = measurementQuery.eq("measurement_period", measurementPeriod);
-    }
-    if (designatedOffice) {
-      // 약칭으로 정규화하여 검색 (기존 전체명과 호환)
-      const normalizedOffice = toShortName(designatedOffice);
-      // 기존 전체명과 약칭 모두 매칭 (.in() 사용하여 더 안전하게 처리)
-      const officesToMatch = [normalizedOffice];
-      if (normalizedOffice !== designatedOffice) {
-        officesToMatch.push(designatedOffice);
+      if (year.includes(",")) {
+        const years = year.split(",").map(y => parseInt(y.trim())).filter(y => !isNaN(y));
+        if (years.length > 0) {
+          measurementQuery = measurementQuery.in("measurement_year", years);
+        }
+      } else {
+        measurementQuery = measurementQuery.eq("measurement_year", parseInt(year));
       }
-      measurementQuery = measurementQuery.in("designated_office", officesToMatch);
+    }
+
+    if (businessName) {
+      if (businessName.includes(",")) {
+        const names = businessName.split(",").map(n => n.trim()).filter(Boolean);
+        if (names.length > 0) {
+          const orFilter = names.map(name => `business_name.ilike.%${name}%`).join(",");
+          measurementQuery = measurementQuery.or(orFilter);
+        }
+      } else {
+        measurementQuery = measurementQuery.ilike("business_name", `%${businessName}%`);
+      }
+    }
+
+    if (measurementPeriod) {
+      if (measurementPeriod.includes(",")) {
+        const periods = measurementPeriod.split(",").map(p => p.trim()).filter(Boolean);
+        if (periods.length > 0) {
+          measurementQuery = measurementQuery.in("measurement_period", periods);
+        }
+      } else {
+        measurementQuery = measurementQuery.eq("measurement_period", measurementPeriod);
+      }
+    }
+
+    if (designatedOffice) {
+      const officeList = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
+      if (officeList.length > 0) {
+        const allOffices: string[] = [];
+        officeList.forEach(office => {
+          const normalized = toShortName(office);
+          allOffices.push(normalized);
+          if (normalized !== office) {
+            allOffices.push(office);
+          }
+        });
+        measurementQuery = measurementQuery.in("designated_office", allOffices);
+      }
     }
 
     const { data: measurementRevenue, error: measurementError } = await measurementQuery;
@@ -71,20 +100,25 @@ export async function GET(request: NextRequest) {
         .order("created_at", { ascending: false });
 
       if (year) {
-        otherQuery = otherQuery.eq("revenue_year", parseInt(year));
+        if (year.includes(",")) {
+          const years = year.split(",").map(y => parseInt(y.trim())).filter(y => !isNaN(y));
+          if (years.length > 0) {
+            otherQuery = otherQuery.in("revenue_year", years);
+          }
+        } else {
+          otherQuery = otherQuery.eq("revenue_year", parseInt(year));
+        }
       }
       if (measurementPeriod) {
-        otherQuery = otherQuery.eq("revenue_period", measurementPeriod);
+        if (measurementPeriod.includes(",")) {
+          const periods = measurementPeriod.split(",").map(p => p.trim()).filter(Boolean);
+          if (periods.length > 0) {
+            otherQuery = otherQuery.in("revenue_period", periods);
+          }
+        } else {
+          otherQuery = otherQuery.eq("revenue_period", measurementPeriod);
+        }
       }
-      // other_revenue 테이블에는 designated_office 필드가 없으므로 필터링 제거
-      // if (designatedOffice) {
-      //   const normalizedOffice = toShortName(designatedOffice);
-      //   const officesToMatch = [normalizedOffice];
-      //   if (normalizedOffice !== designatedOffice) {
-      //     officesToMatch.push(designatedOffice);
-      //   }
-      //   otherQuery = otherQuery.in("designated_office", officesToMatch);
-      // }
 
       const { data, error: otherError } = await otherQuery;
 
@@ -105,12 +139,12 @@ export async function GET(request: NextRequest) {
 
     // 3. 집계 데이터 계산
     const offices = [...DESIGNATED_OFFICES];
-    
+
     // otherRevenue가 undefined일 경우 빈 배열로 설정
     if (!otherRevenue) {
       otherRevenue = [];
     }
-    
+
     // 지정한계_관할지청별 집계
     const officeSummary: Record<string, {
       measurementRevenue: number;
@@ -172,11 +206,11 @@ export async function GET(request: NextRequest) {
     (measurementRevenue || []).forEach((item: any) => {
       const office = item.designated_office || "기타";
       const officeKey = offices.includes(office) ? office : "기타";
-      
+
       const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
       const unpaid = revenue - deposit;
-      
+
       // 측정비는 부가세 없음 (매출금액 = 매출총액)
       officeSummary[officeKey].measurementRevenue += revenue;
       officeSummary[officeKey].measurementVat += 0; // 측정비는 부가세 없음
@@ -189,13 +223,13 @@ export async function GET(request: NextRequest) {
     (otherRevenue || []).forEach((item: any) => {
       const office = item.designated_office || "기타";
       const officeKey = offices.includes(office) ? office : "기타";
-      
+
       const supply = parseFloat(item.supply_amount?.toString() || "0") || 0;
       const vat = parseFloat(item.vat_amount?.toString() || "0") || 0;
       const total = parseFloat(item.total_amount?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_amount?.toString() || "0") || 0;
       const unpaid = total - deposit;
-      
+
       officeSummary[officeKey].otherRevenue += supply;
       officeSummary[officeKey].otherVat += vat;
       officeSummary[officeKey].otherTotal += total;
@@ -253,7 +287,7 @@ export async function GET(request: NextRequest) {
       }
 
       const period = item.measurement_period === "상반기" ? "firstHalf" : "secondHalf";
-      
+
       const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
       const unpaid = revenue - deposit;
@@ -280,7 +314,7 @@ export async function GET(request: NextRequest) {
       }
 
       const period = item.revenue_period === "상반기" ? "firstHalf" : "secondHalf";
-      
+
       const supply = parseFloat(item.supply_amount?.toString() || "0") || 0;
       const vat = parseFloat(item.vat_amount?.toString() || "0") || 0;
       const total = parseFloat(item.total_amount?.toString() || "0") || 0;
@@ -298,14 +332,14 @@ export async function GET(request: NextRequest) {
     Object.keys(yearlySummary).forEach(yearStr => {
       const year = parseInt(yearStr);
       const summary = yearlySummary[year];
-      
+
       // 상반기 + 하반기 = 합계
       Object.keys(summary.firstHalf).forEach(key => {
-        summary.total[key as keyof typeof summary.total] = 
-          summary.firstHalf[key as keyof typeof summary.firstHalf] + 
+        summary.total[key as keyof typeof summary.total] =
+          summary.firstHalf[key as keyof typeof summary.firstHalf] +
           summary.secondHalf[key as keyof typeof summary.secondHalf];
       });
-      
+
       // 각 기간별로 totalRevenue, totalVat, totalAmount 계산
       [summary.firstHalf, summary.secondHalf, summary.total].forEach(periodSummary => {
         periodSummary.totalRevenue = periodSummary.measurementRevenue + periodSummary.otherRevenue;
