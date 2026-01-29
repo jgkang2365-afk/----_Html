@@ -188,9 +188,9 @@ export const Modal: React.FC<ModalProps> = ({
         ref={modalRef}
         className={cn(
           "relative bg-white rounded-2xl shadow-2xl flex flex-col ring-1 ring-slate-900/5",
-          // 리사이즈 중이거나 사이즈가 설정되어 있으면 max-w 클래스 제거 또는 무시됨
+          "w-full sm:w-auto", // 모바일에서는 전체 너비 사용
           !modalSize.width && sizes[size],
-          !modalSize.height && "max-h-[85vh]",
+          !modalSize.height && "max-h-[90vh] sm:max-h-[85vh]", // 모바일에서 좀 더 높게
           isDragging && "cursor-move",
           // 리사이즈 중일 때는 transition 제거하여 부드럽게
           (isDragging || isResizing) ? "transition-none" : "animate-scale-up transition-transform duration-200 ease-out"
@@ -209,7 +209,7 @@ export const Modal: React.FC<ModalProps> = ({
           <div
             ref={headerRef}
             className={cn(
-              "flex items-center justify-between px-8 pt-8 pb-4",
+              "flex flex-col sm:flex-row sm:items-center justify-between px-4 sm:px-8 pt-5 sm:pt-8 pb-3 sm:pb-4 gap-3 sm:gap-4",
               "cursor-move select-none",
               "sticky top-0 z-10 bg-white border-b border-slate-200",
               !title && "h-6",
@@ -218,13 +218,13 @@ export const Modal: React.FC<ModalProps> = ({
             onMouseDown={handleHeaderMouseDown}
           >
             {title && (
-              <h2 id="modal-title" className="text-2xl font-bold text-slate-900 flex-1 tracking-tight">
+              <h2 id="modal-title" className="text-xl sm:text-2xl font-bold text-slate-900 flex-1 tracking-tight leading-tight">
                 {title}
               </h2>
             )}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
               {headerActions && (
-                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-2 flex-1 sm:flex-none overflow-x-auto no-scrollbar" onClick={(e) => e.stopPropagation()}>
                   {headerActions}
                 </div>
               )}
@@ -249,11 +249,11 @@ export const Modal: React.FC<ModalProps> = ({
 
         {/* 내용 - 스크롤 가능 */}
         <div className={cn(
-          "px-8 pb-8 overflow-y-auto custom-scrollbar flex-1 min-h-0",
+          "px-4 sm:px-8 pb-6 sm:pb-8 overflow-y-auto custom-scrollbar flex-1 min-h-0",
           // 리사이즈 핸들이 내용을 가리지 않도록 하단 패딩 추가
           resizable && "pb-8"
         )}>
-          <div className="text-text-900 h-full">{children}</div>
+          <div className="text-text-900">{children}</div>
         </div>
 
         {/* 리사이즈 핸들 */}

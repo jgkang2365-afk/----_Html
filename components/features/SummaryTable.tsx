@@ -526,9 +526,9 @@ export const SummaryTable: React.FC = () => {
         title="측정정보 요약"
         size="xl"
         headerActions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 justify-end">
             {selectedEntry?.completion_status !== "완료" && (
-              <Button variant="primary" onClick={handleSave} disabled={saving}>
+              <Button variant="primary" onClick={handleSave} disabled={saving} className="md:flex-none text-sm px-3 h-9">
                 {saving ? "저장 중..." : "저장"}
               </Button>
             )}
@@ -536,6 +536,7 @@ export const SummaryTable: React.FC = () => {
               type="button"
               variant="success"
               onClick={() => window.print()}
+              className="md:flex-none text-sm px-3 h-9"
             >
               출력
             </Button>
@@ -546,6 +547,7 @@ export const SummaryTable: React.FC = () => {
                 setSelectedEntry(null);
                 setEditFormData({});
               }}
+              className="md:flex-none text-sm px-3 h-9"
             >
               {selectedEntry?.completion_status === "완료" ? "닫기" : "취소"}
             </Button>
@@ -556,44 +558,44 @@ export const SummaryTable: React.FC = () => {
           <div className="space-y-4">
             {/* 수정 불가 필드 (읽기 전용) */}
             <div className="bg-surface-50 p-4 rounded-lg space-y-2">
-              <h3 className="font-semibold text-text-900 mb-3">수정 불가 필드</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-text-600 mb-1 text-sm">공문연번</label>
-                  <div className="font-bold bg-white p-2 rounded border text-base">
+              <h3 className="font-semibold text-text-900 mb-3 px-1">수정 불가 필드</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                <div className="p-1">
+                  <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
+                  <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
                     {selectedEntry.document_number || "-"}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-text-600 mb-1 text-sm">연번</label>
-                  <div className="font-bold bg-white p-2 rounded border text-base">
+                <div className="p-1">
+                  <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">연번</label>
+                  <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
                     {selectedEntry.sequence_number || "-"}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-text-600 mb-1 text-sm">5인 이상 연번</label>
-                  <div className="font-bold bg-white p-2 rounded border text-base">
+                <div className="p-1">
+                  <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
+                  <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
                     {selectedEntry.five_plus_sequence || "-"}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-text-600 mb-1 text-sm">예비조사자명(공시료 코드)</label>
-                  <div className="bg-white p-2 rounded border text-base">
+                <div className="p-1">
+                  <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
+                  <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
                     {selectedEntry.preliminary_surveyor || "-"}
                     {selectedEntry.survey_code && (
-                      <span className="text-text-500"> ({selectedEntry.survey_code})</span>
+                      <span className="text-text-500 ml-1.5 font-normal">({selectedEntry.survey_code})</span>
                     )}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-text-600 mb-1 text-sm">측정자</label>
-                  <div className="bg-white p-2 rounded border text-base">
+                <div className="p-1">
+                  <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
+                  <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
                     {selectedEntry.measurer || "-"}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-text-600 mb-1 text-sm">보고서 담당</label>
-                  <div className="bg-white p-2 rounded border text-base">
+                <div className="p-1">
+                  <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">보고서 담당</label>
+                  <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
                     {selectedEntry.report_writer || "-"}
                   </div>
                 </div>
@@ -607,15 +609,16 @@ export const SummaryTable: React.FC = () => {
               </h3>
 
               {/* 측정 정보 */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">측정 정보</h4>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+              <div className="space-y-4">
+                <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정 정보</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       측정시작일
                     </label>
                     <Input
                       type="date"
+                      className="h-11 md:h-10 text-base md:text-sm"
                       value={normalizeDateForInput(editFormData.measurement_start_date)}
                       onChange={(e) => {
                         const startDate = e.target.value;
@@ -631,12 +634,13 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       측정종료일
                     </label>
                     <Input
                       type="date"
+                      className="h-11 md:h-10 text-base md:text-sm"
                       value={normalizeDateForInput(editFormData.measurement_end_date)}
                       onChange={(e) =>
                         setEditFormData({
@@ -650,14 +654,16 @@ export const SummaryTable: React.FC = () => {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">사업장 정보</h4>
-                <div className="grid grid-cols-12 gap-4">
-                  <div className="col-span-10">
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+              {/* 사업장 정보 */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">사업장 정보</h4>
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4">
+                  <div className="md:col-span-10 p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       사업장명
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.business_name || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, business_name: e.target.value })
@@ -665,11 +671,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="md:col-span-2 p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       총인원
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm text-right shadow-sm"
                       type="number"
                       value={editFormData.total_employees || ""}
                       onChange={(e) =>
@@ -679,14 +686,14 @@ export const SummaryTable: React.FC = () => {
                         })
                       }
                       disabled={selectedEntry.completion_status === "완료"}
-                      className="text-right"
                     />
                   </div>
-                  <div className="col-span-4">
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="md:col-span-4 p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       사업자번호
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={formatBusinessNumber(editFormData.business_number)}
                       onChange={(e) => {
                         const numbers = parseBusinessNumber(e.target.value);
@@ -695,11 +702,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="col-span-4">
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="md:col-span-4 p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       산재관리번호
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.industrial_accident_number || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, industrial_accident_number: e.target.value })
@@ -707,11 +715,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="col-span-4">
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="md:col-span-4 p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       개시번호
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.commencement_number || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, commencement_number: e.target.value })
@@ -719,11 +728,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="col-span-12">
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="md:col-span-12 p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       주소
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.address || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, address: e.target.value })
@@ -731,11 +741,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="col-span-6">
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="md:col-span-6 p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       전화번호
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.phone || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, phone: e.target.value })
@@ -743,11 +754,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="col-span-6">
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="md:col-span-6 p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       팩스
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.fax || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, fax: e.target.value })
@@ -759,14 +771,15 @@ export const SummaryTable: React.FC = () => {
               </div>
 
               {/* 담당자 정보 */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">담당자 정보</h4>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+              <div className="space-y-4">
+                <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">담당자 정보</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       담당자명
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.manager_name || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, manager_name: e.target.value })
@@ -774,11 +787,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       담당자 직책
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.manager_position || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, manager_position: e.target.value })
@@ -786,11 +800,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       담당자 휴대폰
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.manager_mobile || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, manager_mobile: e.target.value })
@@ -798,11 +813,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       담당자 이메일
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       type="email"
                       value={editFormData.manager_email || ""}
                       onChange={(e) =>
@@ -811,11 +827,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       계산서 메일(주가)
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       type="email"
                       value={editFormData.invoice_email || ""}
                       onChange={(e) =>
@@ -828,14 +845,15 @@ export const SummaryTable: React.FC = () => {
               </div>
 
               {/* K2B 정보 */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">K2B 정보</h4>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+              <div className="space-y-4">
+                <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">K2B 정보</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       K2B 발송일
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       type="date"
                       value={normalizeDateForInput(editFormData.k2b_send_date)}
                       onChange={(e) =>
@@ -844,11 +862,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       K2B 발송자
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.k2b_sender || ""}
                       onChange={(e) =>
                         setEditFormData({ ...editFormData, k2b_sender: e.target.value })
@@ -860,14 +879,15 @@ export const SummaryTable: React.FC = () => {
               </div>
 
               {/* 측정비 정보 */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-text-700 border-b pb-1">측정비 정보</h4>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+              <div className="space-y-4">
+                <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정비 정보</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       측정비(사업장)
                     </label>
                     <Input
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       type="text"
                       value={formatCurrency(editFormData.measurement_fee_business)}
                       onChange={(e) => {
@@ -881,11 +901,12 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-700 mb-1">
+                  <div className="p-1">
+                    <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       국고지원 여부
                     </label>
                     <Select
+                      className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                       value={editFormData.national_support_status || ""}
                       onChange={(e) => {
                         const value = e.target.value;
