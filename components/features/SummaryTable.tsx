@@ -260,8 +260,8 @@ export const SummaryTable: React.FC = () => {
     <div className="space-y-4">
       {/* 검색 폼 */}
       <Card className="p-4">
-        <h2 className="text-lg font-semibold text-text-900 mb-4">검색 조건</h2>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <h2 className="text-lg font-semibold text-text-900 mb-4 px-1">검색 조건</h2>
+        <div className="flex flex-col md:grid md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-text-700 mb-1">
               측정년도
@@ -348,7 +348,7 @@ export const SummaryTable: React.FC = () => {
       {/* 검색 결과 */}
       {hasSearched && (
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 px-1">
             <h2 className="text-lg font-semibold text-text-900">
               검색 결과 ({results.length}건)
             </h2>
@@ -358,83 +358,159 @@ export const SummaryTable: React.FC = () => {
               <LoadingSpinner />
             </div>
           ) : results.length === 0 ? (
-            <p className="text-text-500 text-center py-8">검색 결과가 없습니다.</p>
+            <p className="text-text-500 text-center py-8 font-medium">검색 결과가 없습니다.</p>
           ) : (
-            <Table maxHeight="max-h-[calc(100vh-300px)]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>측정년도</TableHead>
-                  <TableHead>측정주기</TableHead>
-                  <TableHead>사업장명</TableHead>
-                  <TableHead>공문연번</TableHead>
-                  <TableHead>연번</TableHead>
-                  <TableHead>5인 이상 연번</TableHead>
-                  <TableHead>측정시작일</TableHead>
-                  <TableHead>측정종료일</TableHead>
-                  <TableHead>측정자</TableHead>
-                  <TableHead>예비조사자</TableHead>
-                  <TableHead>실측정자</TableHead>
-                  <TableHead>보고서 담당</TableHead>
-                  <TableHead>완료여부</TableHead>
-                  <TableHead>작업</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* 데스크톱 테이블 뷰 (768px 이상) */}
+              <div className="hidden md:block">
+                <Table maxHeight="max-h-[calc(100vh-300px)]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>측정년도</TableHead>
+                      <TableHead>측정주기</TableHead>
+                      <TableHead>사업장명</TableHead>
+                      <TableHead>공문연번</TableHead>
+                      <TableHead>연번</TableHead>
+                      <TableHead>5인 이상 연번</TableHead>
+                      <TableHead>측정시작일</TableHead>
+                      <TableHead>측정종료일</TableHead>
+                      <TableHead>측정자</TableHead>
+                      <TableHead>예비조사자</TableHead>
+                      <TableHead>실측정자</TableHead>
+                      <TableHead>보고서 담당</TableHead>
+                      <TableHead>완료여부</TableHead>
+                      <TableHead>작업</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {results.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell>{entry.measurement_year}</TableCell>
+                        <TableCell>{entry.measurement_period}</TableCell>
+                        <TableCell className="font-medium">{entry.business_name}</TableCell>
+                        <TableCell className="bg-surface-50 font-mono">
+                          {entry.document_number || "-"}
+                        </TableCell>
+                        <TableCell className="bg-surface-50 font-mono">
+                          {entry.sequence_number || "-"}
+                        </TableCell>
+                        <TableCell className="bg-surface-50 font-mono">
+                          {entry.five_plus_sequence || "-"}
+                        </TableCell>
+                        <TableCell>
+                          {entry.measurement_start_date
+                            ? formatDateYYYYMMDD(entry.measurement_start_date)
+                            : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {entry.measurement_end_date
+                            ? formatDateYYYYMMDD(entry.measurement_end_date)
+                            : "-"}
+                        </TableCell>
+                        <TableCell>{entry.measurer || "-"}</TableCell>
+                        <TableCell>{entry.preliminary_surveyor || "-"}</TableCell>
+                        <TableCell>{entry.actual_measurer || "-"}</TableCell>
+                        <TableCell>{entry.report_writer || "-"}</TableCell>
+                        <TableCell>
+                          <span
+                            className={`px-2 py-1 rounded text-xs ${entry.completion_status === "완료"
+                              ? "bg-success-100 text-success-700"
+                              : "bg-warning-100 text-warning-700"
+                              }`}
+                          >
+                            {entry.completion_status}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleEdit(entry)}
+                            className={entry.completion_status === "완료"
+                              ? ""
+                              : "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border-yellow-200"
+                            }
+                          >
+                            {entry.completion_status === "완료" ? "조회" : "수정"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* 모바일 카드 뷰 (768px 미만) */}
+              <div className="md:hidden space-y-4">
                 {results.map((entry) => (
-                  <TableRow key={entry.id}>
-                    <TableCell>{entry.measurement_year}</TableCell>
-                    <TableCell>{entry.measurement_period}</TableCell>
-                    <TableCell className="font-medium">{entry.business_name}</TableCell>
-                    <TableCell className="bg-surface-50 font-mono">
-                      {entry.document_number || "-"}
-                    </TableCell>
-                    <TableCell className="bg-surface-50 font-mono">
-                      {entry.sequence_number || "-"}
-                    </TableCell>
-                    <TableCell className="bg-surface-50 font-mono">
-                      {entry.five_plus_sequence || "-"}
-                    </TableCell>
-                    <TableCell>
-                      {entry.measurement_start_date
-                        ? formatDateYYYYMMDD(entry.measurement_start_date)
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {entry.measurement_end_date
-                        ? formatDateYYYYMMDD(entry.measurement_end_date)
-                        : "-"}
-                    </TableCell>
-                    <TableCell>{entry.measurer || "-"}</TableCell>
-                    <TableCell>{entry.preliminary_surveyor || "-"}</TableCell>
-                    <TableCell>{entry.actual_measurer || "-"}</TableCell>
-                    <TableCell>{entry.report_writer || "-"}</TableCell>
-                    <TableCell>
-                      <span
-                        className={`px-2 py-1 rounded text-xs ${entry.completion_status === "완료"
-                          ? "bg-success-100 text-success-700"
-                          : "bg-warning-100 text-warning-700"
-                          }`}
-                      >
-                        {entry.completion_status}
-                      </span>
-                    </TableCell>
-                    <TableCell>
+                  <div
+                    key={entry.id}
+                    className="p-4 border rounded-xl shadow-sm bg-white active:bg-surface-50 transition-colors"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-surface-100 text-text-600">
+                            {entry.measurement_year} {entry.measurement_period}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-black tracking-tight ${entry.completion_status === "완료"
+                              ? "bg-success-100 text-success-800"
+                              : "bg-warning-100 text-warning-800"
+                              }`}
+                          >
+                            {entry.completion_status}
+                          </span>
+                        </div>
+                        <h3 className="text-base font-bold text-text-900 leading-tight">
+                          {entry.business_name}
+                        </h3>
+                      </div>
                       <Button
                         variant="secondary"
                         size="sm"
                         onClick={() => handleEdit(entry)}
-                        className={entry.completion_status === "완료"
-                          ? ""
-                          : "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border-yellow-200"
-                        }
+                        className={`h-9 px-4 font-bold text-sm rounded-lg ${entry.completion_status === "완료"
+                          ? "bg-surface-100 text-text-800"
+                          : "bg-primary-600 text-white hover:bg-primary-700 border-none shadow-md"
+                          }`}
                       >
                         {entry.completion_status === "완료" ? "조회" : "수정"}
                       </Button>
-                    </TableCell>
-                  </TableRow>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-y-2.5 gap-x-4 text-sm mt-4 p-3 bg-surface-50 rounded-lg">
+                      <div className="space-y-0.5">
+                        <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">공문연번</span>
+                        <p className="font-mono text-xs font-bold text-text-800">{entry.document_number || "-"}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">연번</span>
+                        <p className="font-mono text-xs font-bold text-text-800">{entry.sequence_number || "-"}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">측정자</span>
+                        <p className="font-medium text-text-700">{entry.measurer || "-"}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">보고서 담당</span>
+                        <p className="font-medium text-text-700">{entry.report_writer || "-"}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between text-xs font-medium text-text-500 px-1 border-t pt-3">
+                      <div>
+                        시작: <span className="text-text-700">{entry.measurement_start_date ? formatDateYYYYMMDD(entry.measurement_start_date) : "-"}</span>
+                      </div>
+                      <div className="w-4 h-[1px] bg-surface-200" />
+                      <div>
+                        종료: <span className="text-text-700">{entry.measurement_end_date ? formatDateYYYYMMDD(entry.measurement_end_date) : "-"}</span>
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+            </>
           )}
         </Card>
       )}
