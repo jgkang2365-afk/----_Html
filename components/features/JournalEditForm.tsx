@@ -302,10 +302,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   }, [entry.id]);
 
-  // 등록 모드일 때 직전 측정일지 데이터 자동 채우기
+  // 직전 측정일지 및 예비조사 데이터 자동 채우기
   useEffect(() => {
-    // 등록 모드(id가 null)이고, 필수 필드가 모두 있을 때만 실행
-    if (!entry.id && entry.code && entry.measurement_year && entry.measurement_period) {
+    // 필수 필드가 모두 있을 때만 실행 (등록/수정 모두 포함)
+    if (entry.code && entry.measurement_year && entry.measurement_period) {
       const fetchPreviousData = async () => {
         try {
           const response = await fetch(
@@ -483,9 +483,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   기존_k2b_sender: prev.k2b_sender,
                 });
 
-                // 측정자 (예비조사의 measurer가 있으면 무조건 사용, 기존 값 덮어쓰기)
+                // 측정자 (예비조사의 measurer가 있으면 사용)
                 if (data.surveyInfo.measurer) {
-                  updated.measurer = data.surveyInfo.measurer;
+                  updated.measurer = prev.measurer || data.surveyInfo.measurer;
                 }
 
                 // K2B 전송자 (예비조사의 report_writer가 있으면 기본값으로 설정, 최우선)
@@ -494,9 +494,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   // 콤마로 구분된 경우 첫 번째 값만 사용
                   const reportWriterValue = data.surveyInfo.report_writer.split(',').map((w: string) => w.trim()).filter(Boolean)[0] || data.surveyInfo.report_writer.trim();
 
-                  // 등록 모드: 항상 예비조사 정보 사용
-                  // 수정 모드: 예비조사 정보를 우선 사용 (기존 값 덮어쓰기)
-                  updated.k2b_sender = reportWriterValue;
+                  // 예비조사 정보가 있으면 최우선으로 사용 (기존 기본값 덮어쓰기)
+                  updated.k2b_sender = reportWriterValue || prev.k2b_sender || "";
                   console.log('[JournalEditForm] 예비조사 정보에서 K2B 전송자 기본값 설정:', {
                     모드: entry.id ? '수정' : '등록',
                     기존값: prev.k2b_sender,

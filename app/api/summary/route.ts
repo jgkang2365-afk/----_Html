@@ -100,17 +100,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // code를 키로 하는 예비조사 맵 생성 (가장 최신 것만 사용)
-    const surveyMap = new Map<string, any>();
-    surveys.forEach((survey) => {
-      if (survey.code) {
-        const existing = surveyMap.get(survey.code);
-        if (!existing || new Date(survey.created_at) > new Date(existing.created_at)) {
-          surveyMap.set(survey.code, survey);
-        }
-      }
-    });
-
     // code를 키로 하는 측정사업장 맵 생성
     const mbMap = new Map<string, any>();
     measurementBusinesses.forEach((mb) => {
@@ -121,7 +110,31 @@ export async function GET(request: NextRequest) {
 
     // 예비조사 정보를 조인하여 요약 데이터 생성
     const summaryData = (journals || []).map((journal: any) => {
-      const survey = journal.code ? surveyMap.get(journal.code) : null;
+      // 해당 측정일지의 년도와 주기에 맞는 예비조사 찾기
+      const journalYear = journal.measurement_year;
+      const journalPeriod = journal.measurement_period; // "상반기" or "하반기"
+
+      // 해당 코드의 모든 예비조사 필터링
+      const businessSurveys = surveys.filter(s => s.code === journal.code);
+
+      // 기간이 일치하는 예비조사 찾기
+      let survey = businessSurveys.find(s => {
+        if (!s.measurement_date) return false;
+        const sDate = new Date(s.measurement_date);
+        const sYear = sDate.getFullYear();
+        const sMonth = sDate.getMonth() + 1;
+        const sPeriod = sMonth <= 6 ? "상반기" : "하반기";
+
+        return sYear === journalYear && (journalPeriod.includes(sPeriod));
+      });
+
+      // 만약 기간 일치 항목이 없으면 가장 최근 것 사용 (기존 로직 유지)
+      if (!survey && businessSurveys.length > 0) {
+        survey = businessSurveys.sort((a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )[0];
+      }
+
       const mb = journal.code ? mbMap.get(journal.code) : null;
 
       return {

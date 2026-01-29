@@ -188,7 +188,7 @@ export const SummaryTable: React.FC = () => {
       invoice_email: entry.invoice_email || "",
       commencement_number: entry.commencement_number || "",
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
-      k2b_sender: entry.k2b_sender || "",
+      k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
       measurement_fee_business: entry.measurement_fee_business || null,
       national_support_status: entry.national_support_status || "",
       special_notes: entry.special_notes || "",
