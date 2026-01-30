@@ -253,30 +253,48 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   }, [formData.measurement_fee_business, formData.measurement_fee_national, formData.national_support_status]);
 
-  // 입금액 합계 자동 계산
+  // 입금액 합계 자동 계산 (로직 개선)
   useEffect(() => {
-    // 국고지원 여부가 "비대상"인 경우 사업장만으로 계산
-    if (formData.national_support_status === "비대상") {
-      const business = parseFloat(parseCurrency(formData.deposit_amount_business)) || 0;
-      const business2 = parseFloat(parseCurrency(formData.deposit_amount_business_2)) || 0;
-      const total = business + business2;
-      setFormData((prev) => ({
-        ...prev,
-        deposit_total: total > 0 ? total.toString() : "",
-      }));
-    } else {
-      const business = parseFloat(parseCurrency(formData.deposit_amount_business)) || 0;
-      const business2 = parseFloat(parseCurrency(formData.deposit_amount_business_2)) || 0;
-      const national = parseFloat(parseCurrency(formData.deposit_amount_national)) || 0;
-      const total = business + business2 + national;
-      if (total > 0 || formData.deposit_amount_business || formData.deposit_amount_national || formData.deposit_amount_business_2) {
+    const getNumber = (val: any) => {
+      if (!val) return 0;
+      // 콤마 제거 및 공백 제거 후 파싱
+      const str = String(val).replace(/,/g, "").trim();
+      const num = parseFloat(str);
+      return isNaN(num) ? 0 : num;
+    };
+
+    const business = getNumber(formData.deposit_amount_business);
+    const business2 = getNumber(formData.deposit_amount_business_2);
+    const national = getNumber(formData.deposit_amount_national);
+
+    const isNA = formData.national_support_status === "비대상";
+
+    // 국고지원이 비대상이면 국고 금액 제외하고 합산
+    const total = isNA ? (business + business2) : (business + business2 + national);
+
+    const newTotalStr = total > 0 ? total.toString() : "";
+
+    // 현재 값(문자열 변환)과 다를 때만 업데이트 (무한 루프 방지)
+    if (String(formData.deposit_total || "") !== newTotalStr) {
+      if (total > 0 || formData.deposit_amount_business || formData.deposit_amount_business_2 || (!isNA && formData.deposit_amount_national)) {
+        console.log('[JournalEditForm] 입금액 합계 자동 갱신:', {
+          기존합계: formData.deposit_total,
+          신규합계: newTotalStr,
+          상세: { business, business2, national, isNA }
+        });
         setFormData((prev) => ({
           ...prev,
-          deposit_total: total > 0 ? total.toString() : "",
+          deposit_total: newTotalStr,
         }));
       }
     }
-  }, [formData.deposit_amount_business, formData.deposit_amount_national, formData.deposit_amount_business_2, formData.national_support_status]);
+  }, [
+    formData.deposit_amount_business,
+    formData.deposit_amount_business_2,
+    formData.deposit_amount_national,
+    formData.national_support_status,
+    formData.deposit_total
+  ]);
 
   // 국고지원 여부가 "비대상"일 때 국고 관련 필드 초기화
   useEffect(() => {
@@ -826,6 +844,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       k2b_sender: entry.k2b_sender || "",
       invoice_email: entry.invoice_email || "",
       electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
+      invoice_email_2: entry.invoice_email_2 || "",
+      electronic_invoice_date_2: normalizeDateForInput(entry.electronic_invoice_date_2),
 
       // 측정비 정보
       measurement_fee_total: entry.measurement_fee_total || "",
@@ -836,6 +856,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       deposit_total: entry.deposit_total || "",
       deposit_date_business: normalizeDateForInput(entry.deposit_date_business),
       deposit_amount_business: entry.deposit_amount_business || "",
+      deposit_date_business_2: normalizeDateForInput(entry.deposit_date_business_2),
+      deposit_amount_business_2: entry.deposit_amount_business_2 || "",
       deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
       deposit_amount_national: entry.deposit_amount_national || "",
 
@@ -1037,12 +1059,19 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         submitData.deposit_amount_business_2 = parseFloat(parseCurrency(String(submitData.deposit_amount_business_2)));
       }
 
-      // 국고지원 여부가 "비대상"인 경우 측정비 합계와 입금액 합계를 사업장만으로 재계산
+      // 입금액 합계 재계산 (비동기 상태 업데이트 지연 방지 및 사업장2 포함 보장)
+      const calcBus = typeof submitData.deposit_amount_business === 'number' ? submitData.deposit_amount_business : 0;
+      const calcBus2 = typeof submitData.deposit_amount_business_2 === 'number' ? submitData.deposit_amount_business_2 : 0;
+      const calcNat = typeof submitData.deposit_amount_national === 'number' ? submitData.deposit_amount_national : 0;
+
+      const calcTotal = calcBus + calcBus2 + calcNat;
+      submitData.deposit_total = calcTotal > 0 ? calcTotal : null;
+
+      // 국고지원 여부가 "비대상"인 경우 측정비 합계를 사업장만으로 재계산
       if (submitData.national_support_status === "비대상") {
         const businessFee = submitData.measurement_fee_business || 0;
-        const businessDeposit = submitData.deposit_amount_business || 0;
         submitData.measurement_fee_total = businessFee > 0 ? businessFee : null;
-        submitData.deposit_total = businessDeposit > 0 ? businessDeposit : null;
+
         console.log('[JournalEditForm] 국고지원 여부가 "비대상"이므로 합계를 사업장만으로 재계산:', {
           measurement_fee_total: submitData.measurement_fee_total,
           deposit_total: submitData.deposit_total,
@@ -1204,6 +1233,21 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       ? "bg-white font-bold text-primary-700"
       : "bg-surface-50";
 
+    // 실시간 합계 계산 (UI 표시용)
+    const getNum = (val: any) => {
+      if (!val) return 0;
+      const str = String(val).replace(/,/g, "").trim();
+      const num = parseFloat(str);
+      return isNaN(num) ? 0 : num;
+    };
+    const currentTotal = (() => {
+      const b1 = getNum(formData.deposit_amount_business);
+      const b2 = getNum(formData.deposit_amount_business_2); // 사업장2 포함
+      const nat = getNum(formData.deposit_amount_national);
+      const isNA = formData.national_support_status === "비대상";
+      return isNA ? (b1 + b2) : (b1 + b2 + nat);
+    })();
+
     return (
       <div className={containerClass}>
         <h3 className={titleClass}>
@@ -1213,11 +1257,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           <Input
             label="입금액(합계)"
             type="text"
-            value={formatCurrency(formData.deposit_total)}
-            onChange={(e) => {
-              const parsed = parseCurrency(e.target.value);
-              setFormData({ ...formData, deposit_total: parsed });
-            }}
+            value={formatCurrency(currentTotal)}
+            onChange={() => { }} // Read-only
             disabled
             className={totalInputClass}
             placeholder="자동 계산됩니다"
@@ -1277,7 +1318,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 }
               }}
               placeholder={formData.measurement_fee_business ? `기본값: ${formatCurrency(formData.measurement_fee_business)}` : "숫자만 입력"}
-              className={`font-medium ${formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}`}
+              className="font-medium"
             />
 
             <div className="mt-4 pt-4 border-t border-dashed border-gray-300">

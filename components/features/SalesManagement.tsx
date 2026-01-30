@@ -1163,7 +1163,52 @@ export const SalesManagement: React.FC = () => {
                         {formatCurrency(total)}원
                       </TableCell>
                       <TableCell className="text-right text-black py-1 px-2 text-sm">
-                        {formatCurrency(deposit)}원
+                        {/* 합계 + 상세 내역 표시 (시인성 개선) */}
+                        <div className="flex flex-col items-end gap-0.5">
+                          {/* 합계 (강조) */}
+                          <div className="font-bold text-black border-b border-gray-200 pb-0.5 mb-0.5 w-full text-right">
+                            {formatCurrency(deposit)}원
+                          </div>
+
+                          {/* 상세 내역 (글자 크기 축소, 약간 흐리게) */}
+                          {((item.deposit_amount_business || 0) > 0) && (
+                            <div className="text-[11px] text-gray-600 flex justify-end items-center gap-1 whitespace-nowrap">
+                              <span className="text-gray-400">사1:</span>
+                              <span>{formatCurrency(item.deposit_amount_business)}</span>
+                              {item.deposit_date_business && (
+                                <span className="text-gray-400 text-[10px] tracking-tighter">
+                                  ({item.deposit_date_business.substring(5)})
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {((item.deposit_amount_business_2 || 0) > 0) && (
+                            <div className="text-[11px] text-indigo-600 flex justify-end items-center gap-1 whitespace-nowrap">
+                              <span className="text-indigo-400">사2:</span>
+                              <span>{formatCurrency(item.deposit_amount_business_2)}</span>
+                              {item.deposit_date_business_2 && (
+                                <span className="text-indigo-400 text-[10px] tracking-tighter">
+                                  ({item.deposit_date_business_2.substring(5)})
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {((item.deposit_amount_national || 0) > 0) && (
+                            <div className="text-[11px] text-emerald-600 flex justify-end items-center gap-1 whitespace-nowrap">
+                              <span className="text-emerald-400">국:</span>
+                              <span>{formatCurrency(item.deposit_amount_national)}</span>
+                              {item.deposit_date_national && (
+                                <span className="text-emerald-400 text-[10px] tracking-tighter">
+                                  ({item.deposit_date_national.substring(5)})
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {(deposit === 0) && <div className="text-gray-400 text-xs">-</div>}
+                        </div>
                       </TableCell>
                       <TableCell className={`text-right py-1 px-2 text-sm font-semibold ${unpaid > 0 ? 'text-warning-600' : 'text-black'}`}>
                         {formatCurrency(unpaid)}원
@@ -1674,7 +1719,7 @@ export const SalesManagement: React.FC = () => {
                   const businessUnpaidCountMap = new Map<string, number>();
                   filteredData.forEach((item) => {
                     const businessFee = item.measurement_fee_business || 0;
-                    const businessDeposit = item.deposit_amount_business || 0;
+                    const businessDeposit = (item.deposit_amount_business || 0) + (item.deposit_amount_business_2 || 0);
                     const businessUnpaid = businessFee - businessDeposit;
 
                     if (businessUnpaid > 0) {
@@ -1686,7 +1731,7 @@ export const SalesManagement: React.FC = () => {
                   // 카테고리별 사업장 필터링
                   filteredData.forEach((item) => {
                     const businessFee = item.measurement_fee_business || 0;
-                    const businessDeposit = item.deposit_amount_business || 0;
+                    const businessDeposit = (item.deposit_amount_business || 0) + (item.deposit_amount_business_2 || 0);
                     const nationalFee = item.measurement_fee_national || 0;
                     const itemNationalDeposit = item.deposit_amount_national || 0;
 
@@ -1721,7 +1766,7 @@ export const SalesManagement: React.FC = () => {
                         unpaid_count: unpaidCount,
                         designated_office: item.designated_office || null,
                         measurement_fee_total: item.measurement_fee_total,
-                        deposit_amount_business: item.deposit_amount_business,
+                        deposit_amount_business: businessDeposit,
                       });
                     }
                   });
@@ -2252,8 +2297,29 @@ export const SalesManagement: React.FC = () => {
                                   <TableCell className="text-right">
                                     {formatCurrency(item.measurement_fee_business)}원
                                   </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {item.deposit_date_business || "-"}
+                                  <TableCell className="text-right text-sm align-top">
+                                    <div className="flex flex-col gap-1 items-end">
+                                      {item.deposit_date_business ? (
+                                        <div className="whitespace-nowrap">
+                                          <span className="text-[10px] text-gray-400 mr-1">사:</span>
+                                          <span className="text-gray-600">{item.deposit_date_business}</span>
+                                        </div>
+                                      ) : (!item.deposit_date_business_2 && !item.deposit_date_national ? <span className="text-gray-400">-</span> : null)}
+
+                                      {item.deposit_date_business_2 && (
+                                        <div className="whitespace-nowrap">
+                                          <span className="text-[10px] text-indigo-400 mr-1">사2:</span>
+                                          <span className="text-indigo-600">{item.deposit_date_business_2}</span>
+                                        </div>
+                                      )}
+
+                                      {item.deposit_date_national && (
+                                        <div className="whitespace-nowrap">
+                                          <span className="text-[10px] text-emerald-400 mr-1">국:</span>
+                                          <span className="text-emerald-600">{item.deposit_date_national}</span>
+                                        </div>
+                                      )}
+                                    </div>
                                   </TableCell>
                                   <TableCell className="text-right">
                                     {formatCurrency(item.measurement_fee_national)}원
@@ -2261,17 +2327,41 @@ export const SalesManagement: React.FC = () => {
                                   <TableCell className="text-right font-semibold">
                                     {formatCurrency(item.measurement_fee_total)}원
                                   </TableCell>
-                                  <TableCell
-                                    className="text-right cursor-pointer hover:bg-gray-100 hover:text-primary-600 transition-colors"
-                                    onClick={() => {
-                                      if (item.deposit_total && parseFloat(item.deposit_total.toString()) > 0) {
-                                        setMeasurementDepositDetailItem(item);
-                                        setIsMeasurementDepositDetailModalOpen(true);
-                                      }
-                                    }}
-                                    title={item.deposit_total && parseFloat(item.deposit_total.toString()) > 0 ? "입금액 상세 보기" : ""}
-                                  >
-                                    {formatCurrency(item.deposit_total)}원
+                                  <TableCell className="text-right align-top">
+                                    <div className="flex flex-col items-end gap-1">
+                                      <div
+                                        className="font-semibold cursor-pointer hover:text-primary-600 border-b border-transparent hover:border-primary-600 transition-colors"
+                                        onClick={() => {
+                                          if (item.deposit_total && parseFloat(item.deposit_total.toString()) > 0) {
+                                            setMeasurementDepositDetailItem(item);
+                                            setIsMeasurementDepositDetailModalOpen(true);
+                                          }
+                                        }}
+                                        title="클릭하여 상세 내역 보기"
+                                      >
+                                        {formatCurrency(item.deposit_total)}원
+                                      </div>
+
+                                      {/* 상세 내역 표시 */}
+                                      {((item.deposit_amount_business || 0) > 0) && (
+                                        <div className="text-[11px] text-gray-500 whitespace-nowrap">
+                                          사: {formatCurrency(item.deposit_amount_business)}
+                                          {item.deposit_date_business && <span className="text-[10px] ml-1 text-gray-400">({item.deposit_date_business.substring(5)})</span>}
+                                        </div>
+                                      )}
+                                      {((item.deposit_amount_business_2 || 0) > 0) && (
+                                        <div className="text-[11px] text-indigo-600 whitespace-nowrap">
+                                          사2: {formatCurrency(item.deposit_amount_business_2)}
+                                          {item.deposit_date_business_2 && <span className="text-[10px] ml-1 text-indigo-400">({item.deposit_date_business_2.substring(5)})</span>}
+                                        </div>
+                                      )}
+                                      {((item.deposit_amount_national || 0) > 0) && (
+                                        <div className="text-[11px] text-emerald-600 whitespace-nowrap">
+                                          국: {formatCurrency(item.deposit_amount_national)}
+                                          {item.deposit_date_national && <span className="text-[10px] ml-1 text-emerald-400">({item.deposit_date_national.substring(5)})</span>}
+                                        </div>
+                                      )}
+                                    </div>
                                   </TableCell>
                                   <TableCell className="text-right text-warning-600 font-semibold">
                                     {formatCurrency(unpaid)}원
@@ -3149,8 +3239,9 @@ export const SalesManagement: React.FC = () => {
 
                 const unifiedDeposits: UnifiedDeposit[] = [];
 
-                // 1. 측정비 사업장 입금
+                // 1. 측정비 사업장 입금 (1차, 2차)
                 measurementRevenue.forEach(item => {
+                  // 1차 입금
                   if (item.deposit_date_business && item.deposit_amount_business) {
                     unifiedDeposits.push({
                       id: `meas-biz-${item.id}`,
@@ -3160,6 +3251,22 @@ export const SalesManagement: React.FC = () => {
                       representative: item.representative_name,
                       amount: item.deposit_amount_business,
                       notes: `${item.measurement_year}년 ${item.measurement_period}`,
+                      designatedOffice: item.designated_office,
+                      year: item.measurement_year,
+                      period: item.measurement_period,
+                    });
+                  }
+
+                  // 2차 입금
+                  if (item.deposit_date_business_2 && item.deposit_amount_business_2) {
+                    unifiedDeposits.push({
+                      id: `meas-biz2-${item.id}`,
+                      date: item.deposit_date_business_2,
+                      category: "측정비(사업장)",
+                      name: item.business_name,
+                      representative: item.representative_name,
+                      amount: item.deposit_amount_business_2,
+                      notes: `${item.measurement_year}년 ${item.measurement_period} (2차)`,
                       designatedOffice: item.designated_office,
                       year: item.measurement_year,
                       period: item.measurement_period,
