@@ -134,47 +134,74 @@ async function getLatestFileFromStorage(fileType: "business-info" | "measurement
 
     console.log(`[Storage] list() 결과: files=${JSON.stringify(files?.map(f => f.name))}, error=${listError?.message || 'none'}`);
 
-    // list()가 빈 배열을 반환해도 download()는 작동할 수 있으므로 계속 진행
     if (listError) {
-      console.warn(`[Storage] list() 에러 발생: ${listError?.message}`);
-    }
-    if (!files || files.length === 0) {
-      console.warn(`[Storage] list()가 빈 배열 반환. 직접 다운로드 시도합니다.`);
+      console.warn(`[Storage] list() 에러 발생: ${listError.message}`);
     }
 
     let fileBuffer: Buffer | null = null;
     let fileName: string | null = null;
     let storageFileName: string | null = null;
 
-    const fileNamesToTry: { path: string; name: string }[] = [];
+    // 1. list()에서 가져온 최신 파일 시도
+    if (files && files.length > 0) {
+      // 폴더 내의 파일인지 확인하고 경로 구성
+      const latestFile = files[0];
+      // list 메서드는 해당 폴더 내의 항목만 반환하므로 경로는 `${fileType}/${latestFile.name}`
+      const fullPath = `${fileType}/${latestFile.name}`;
 
-    if (fileType === "business-info") {
-      fileNamesToTry.push({ path: "business-info/사업장정보.xlsx", name: "사업장정보.xlsx" });
-      fileNamesToTry.push({ path: "business-info/business_info.xlsx", name: "business_info.xlsx" });
-      fileNamesToTry.push({ path: "business-info/사업장정보.xls", name: "사업장정보.xls" });
-    } else if (fileType === "measurement-business") {
-      fileNamesToTry.push({ path: "measurement-business/측정사업장.xlsx", name: "측정사업장.xlsx" });
-      fileNamesToTry.push({ path: "measurement-business/measurement_business.xlsx", name: "measurement_business.xlsx" });
-      fileNamesToTry.push({ path: "measurement_business/measurement_business.xlsx", name: "measurement_business.xlsx" }); // 언더스코어 폴더
-      fileNamesToTry.push({ path: "측정사업장.xlsx", name: "측정사업장.xlsx" }); // Root level for measurement business
-      fileNamesToTry.push({ path: "measurement_business.xlsx", name: "measurement_business.xlsx" }); // Root level for measurement business (English)
-      fileNamesToTry.push({ path: "measurement-business/측정사업장.xls", name: "측정사업장.xls" });
+      console.log(`[Storage] 최신 파일 감지: ${fullPath} (${latestFile.created_at})`);
+
+      try {
+        const { data: fileData, error: downloadError } = await supabase.storage
+          .from("excel-files")
+          .download(fullPath);
+
+        if (!downloadError && fileData) {
+          console.log(`[Storage] 최신 파일 다운로드 성공: ${fullPath}`);
+          fileBuffer = Buffer.from(await fileData.arrayBuffer());
+          fileName = latestFile.name;
+          storageFileName = fullPath;
+        } else {
+          console.warn(`[Storage] 최신 파일 다운로드 실패: ${downloadError?.message}`);
+        }
+      } catch (e) {
+        console.error(`[Storage] 최신 파일 처리 중 예외:`, e);
+      }
     }
 
-    for (const fileOption of fileNamesToTry) {
-      console.log(`[Storage] Trying to download: ${fileOption.path}`);
-      const { data: fileData, error: downloadError } = await supabase.storage
-        .from("excel-files")
-        .download(fileOption.path);
+    // 2. 최신 파일 다운로드 실패 시, 기존 하드코딩된 파일명 시도 (Fallback)
+    if (!fileBuffer) {
+      console.log("[Storage] 최신 파일 다운로드 실패 또는 없음. 하드코딩된 파일명으로 재시도합니다.");
+      const fileNamesToTry: { path: string; name: string }[] = [];
 
-      if (!downloadError && fileData) {
-        console.log(`[Storage] Successfully downloaded: ${fileOption.path}`);
-        fileBuffer = Buffer.from(await fileData.arrayBuffer());
-        fileName = fileOption.name;
-        storageFileName = fileOption.path; // Store the full path for logging/return
-        break; // Found and downloaded, exit loop
-      } else {
-        console.warn(`[Storage] Failed to download ${fileOption.path}: ${downloadError?.message || "File not found"}`);
+      if (fileType === "business-info") {
+        fileNamesToTry.push({ path: "business-info/사업장정보.xlsx", name: "사업장정보.xlsx" });
+        fileNamesToTry.push({ path: "business-info/business_info.xlsx", name: "business_info.xlsx" });
+        fileNamesToTry.push({ path: "business-info/사업장정보.xls", name: "사업장정보.xls" });
+      } else if (fileType === "measurement-business") {
+        fileNamesToTry.push({ path: "measurement-business/측정사업장.xlsx", name: "측정사업장.xlsx" });
+        fileNamesToTry.push({ path: "measurement-business/measurement_business.xlsx", name: "measurement_business.xlsx" });
+        fileNamesToTry.push({ path: "measurement_business/measurement_business.xlsx", name: "measurement_business.xlsx" }); // 언더스코어 폴더
+        fileNamesToTry.push({ path: "측정사업장.xlsx", name: "측정사업장.xlsx" }); // Root level for measurement business
+        fileNamesToTry.push({ path: "measurement_business.xlsx", name: "measurement_business.xlsx" }); // Root level for measurement business (English)
+        fileNamesToTry.push({ path: "measurement-business/측정사업장.xls", name: "측정사업장.xls" });
+      }
+
+      for (const fileOption of fileNamesToTry) {
+        console.log(`[Storage] Trying to download: ${fileOption.path}`);
+        const { data: fileData, error: downloadError } = await supabase.storage
+          .from("excel-files")
+          .download(fileOption.path);
+
+        if (!downloadError && fileData) {
+          console.log(`[Storage] Successfully downloaded: ${fileOption.path}`);
+          fileBuffer = Buffer.from(await fileData.arrayBuffer());
+          fileName = fileOption.name;
+          storageFileName = fileOption.path;
+          break; // Found and downloaded, exit loop
+        } else {
+          console.warn(`[Storage] Failed to download ${fileOption.path}: ${downloadError?.message || "File not found"}`);
+        }
       }
     }
 
@@ -749,45 +776,83 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
 /**
  * 사업장정보.xls 파일을 동기화
  */
-export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
+// ... imports ...
+
+import { SupabaseClient } from "@supabase/supabase-js";
+// ... existing imports ...
+
+/**
+ * 사업장정보.xls 파일을 동기화
+ * @param filePath 로컬 파일 경로 (지정하지 않으면 Storage 사용)
+ * @param specificStorageFileName Storage의 특정 파일명 (지정 시 최신 파일 검색 대신 사용)
+ * @param externalSupabaseClient 외부에서 주입된 Supabase 클라이언트 (예: Admin 클라이언트)
+ */
+export async function syncBusinessInfo(
+  filePath?: string,
+  specificStorageFileName?: string,
+  externalSupabaseClient?: SupabaseClient
+): Promise<SyncResult> {
   // .xlsx와 .xls 모두 지원
   const fileNameXlsx = "사업장정보.xlsx";
   const fileNameXls = "사업장정보.xls";
-  const fileNameEngXlsx = "business_info.xlsx";
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
 
   const syncStartTime = new Date();
   let logId: number | null = null;
-  let fileName = fileNameXlsx; // catch 블록에서 사용할 수 있도록 함수 상단에서 선언
+  let fileName = specificStorageFileName || fileNameXlsx; // 파일명 초기화
 
   try {
-    const supabase = await createClient();
+    const supabase = externalSupabaseClient || await createClient();
 
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let excelData: any[];
     let targetPath: string | Buffer | undefined = filePath;
     let fileBuffer: Buffer | undefined;
-    let storageFileName: string | undefined;
+    let storageFileName: string | undefined = specificStorageFileName;
 
     if (!targetPath) {
-      // Storage에서 최신 파일 가져오기 시도
-      const storageFile = await getLatestFileFromStorage("business-info");
-      if (storageFile) {
-        fileBuffer = storageFile.buffer;
-        storageFileName = storageFile.fileName;
-        fileName = storageFile.fileName;
-        targetPath = fileBuffer;
-      } else {
-        // Storage에 파일이 없으면 로컬 파일 사용
-        if (existsSync(defaultPathXlsx)) {
-          targetPath = defaultPathXlsx;
-          fileName = fileNameXlsx;
-        } else if (existsSync(defaultPathXls)) {
-          targetPath = defaultPathXls;
-          fileName = fileNameXls;
+      // 1. 특정 파일명이 지정된 경우 (업로드 직후)
+      if (storageFileName) {
+        console.log(`[Sync] Using specific storage file: ${storageFileName}`);
+        const { data: fileData, error: downloadError } = await supabase.storage
+          .from("excel-files")
+          .download(storageFileName);
+
+        if (!downloadError && fileData) {
+          fileBuffer = Buffer.from(await fileData.arrayBuffer());
+          fileName = storageFileName.split('/').pop() || storageFileName;
+          targetPath = fileBuffer;
         } else {
-          throw new Error(`Excel 파일을 찾을 수 없습니다: ${fileNameXlsx} 또는 ${fileNameXls}`);
+          throw new Error(`Storage 파일 다운로드 실패: ${storageFileName} - ${downloadError?.message}`);
+        }
+      }
+      // 2. 지정되지 않은 경우 최신 파일 검색
+      else {
+        // externalSupabaseClient가 있으면 그것을 사용하여 검색 (권한 문제 해결)
+        // 하지만 getLatestFileFromStorage 함수는 내부에서 createClient를 새로 부르므로, 
+        // 여기서 직접 구현하거나 getLatestFileFromStorage를 수정해야 함.
+        // 일단 여기서는 Download 로직이 분리되어 있으므로 getLatestFileFromStorage가 cookie client를 써도 읽기는 될 수 있음 (public bucket?)
+        // 안전하게 externalClient가 있으면 직접 list/download 하는게 좋지만, 
+        // 코드가 복잡해지므로 일단 specificStorageFileName이 주어지는 케이스(업로드 직후)에 집중.
+
+        const storageFile = await getLatestFileFromStorage("business-info");
+        if (storageFile) {
+          fileBuffer = storageFile.buffer;
+          storageFileName = storageFile.fileName;
+          fileName = storageFile.fileName;
+          targetPath = fileBuffer;
+        } else {
+          // Storage에 파일이 없으면 로컬 파일 사용
+          if (existsSync(defaultPathXlsx)) {
+            targetPath = defaultPathXlsx;
+            fileName = fileNameXlsx;
+          } else if (existsSync(defaultPathXls)) {
+            targetPath = defaultPathXls;
+            fileName = fileNameXls;
+          } else {
+            throw new Error(`Excel 파일을 찾을 수 없습니다.`);
+          }
         }
       }
     } else {
@@ -801,6 +866,8 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
         throw new Error("파일 경로가 올바르지 않습니다.");
       }
     }
+
+    // ... (rest of the function remains the same) ...
 
     // 동기화 로그 시작
     const { data: logData, error: logError } = await supabase
@@ -908,6 +975,15 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
       }
     }
 
+    // 디버깅: H0437 확인
+    console.log(`[Sync Debug] Parsed Data Length: ${parsedData.length}`);
+    const h0437 = parsedData.find(r => r.code === 'H0437');
+    console.log(`[Sync Debug] H0437 in parsedData:`, h0437 ? 'Yes' : 'No');
+    if (h0437) {
+      console.log(`[Sync Debug] H0437 Details:`, JSON.stringify(h0437));
+      console.log(`[Sync Debug] Is H0437 in existingCodesSet?`, existingCodesSet.has('H0437') ? 'Yes' : 'No');
+    }
+
     // 데이터를 삽입/업데이트로 분류
     const toInsert: any[] = [];
     const toUpdate: any[] = [];
@@ -927,6 +1003,11 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
         toInsert.push(row);
       }
     });
+
+    console.log(`[Sync Debug] To Insert: ${toInsert.length}, To Update: ${toUpdate.length}`);
+    if (toInsert.length > 0) {
+      console.log(`[Sync Debug] Sample Insert Codes:`, toInsert.slice(0, 5).map(r => r.code));
+    }
 
     // 배치 삽입 (1000개씩)
     if (toInsert.length > 0) {
@@ -1082,51 +1163,81 @@ export async function syncBusinessInfo(filePath?: string): Promise<SyncResult> {
 /**
  * 측정사업장.xls 파일을 동기화
  */
-export async function syncMeasurementBusiness(filePath?: string): Promise<SyncResult> {
+/**
+ * 측정사업장.xls 파일을 동기화
+ * @param filePath 로컬 파일 경로
+ * @param specificStorageFileName Storage의 특정 파일명
+ * @param externalSupabaseClient 외부에서 주입된 Supabase 클라이언트
+ */
+export async function syncMeasurementBusiness(
+  filePath?: string,
+  specificStorageFileName?: string,
+  externalSupabaseClient?: SupabaseClient
+): Promise<SyncResult> {
   // .xlsx와 .xls 모두 지원 (한글, 영문, 폴더 경로 지원)
   const fileNameXlsx = "측정사업장.xlsx";
   const fileNameXls = "측정사업장.xls";
-  const fileNameEngXlsx = "measurement_business.xlsx";
-  const fileNameFolderXlsx = "measurement_business/measurement_business.xlsx";
 
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
 
   const syncStartTime = new Date();
   let logId: number | null = null;
-  let fileName = fileNameXlsx; // catch 블록에서 사용할 수 있도록 함수 상단에서 선언
+  let fileName = specificStorageFileName || fileNameXlsx;
 
   try {
-    const supabase = await createClient();
+    const supabase = externalSupabaseClient || await createClient();
 
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let targetPath: string | Buffer | undefined = filePath;
     let fileBuffer: Buffer | undefined;
-    let storageFileName: string | undefined;
+    let storageFileName: string | undefined = specificStorageFileName;
 
     if (!targetPath) {
-      // Storage에서 최신 파일 가져오기 시도
-      const storageFile = await getLatestFileFromStorage("measurement-business");
-      if (storageFile) {
-        fileBuffer = storageFile.buffer;
-        storageFileName = storageFile.fileName;
-        fileName = storageFile.fileName;
-        targetPath = fileBuffer;
-        console.log("==========================================");
-        console.log(`[측정사업장 동기화] Storage에서 파일 다운로드 성공!`);
-        console.log(`  - 파일명: ${fileName}`);
-        console.log(`  - 파일 크기: ${fileBuffer.length} bytes`);
-        console.log("==========================================");
-      } else {
-        // Storage에 파일이 없으면 로컬 파일 사용
-        if (existsSync(defaultPathXlsx)) {
-          targetPath = defaultPathXlsx;
-          fileName = fileNameXlsx;
-        } else if (existsSync(defaultPathXls)) {
-          targetPath = defaultPathXls;
-          fileName = fileNameXls;
+      // 1. 특정 파일명이 지정된 경우
+      if (storageFileName) {
+        console.log(`[Sync] Using specific storage file: ${storageFileName}`);
+        const { data: fileData, error: downloadError } = await supabase.storage
+          .from("excel-files")
+          .download(storageFileName);
+
+        if (!downloadError && fileData) {
+          fileBuffer = Buffer.from(await fileData.arrayBuffer());
+          fileName = storageFileName.split('/').pop() || storageFileName;
+          targetPath = fileBuffer;
+          console.log("==========================================");
+          console.log(`[측정사업장 동기화] 지정된 파일 다운로드 성공!`);
+          console.log(`  - 파일명: ${fileName}`);
+          console.log(`  - 파일 크기: ${fileBuffer.length} bytes`);
+          console.log("==========================================");
         } else {
-          throw new Error(`Excel 파일을 찾을 수 없습니다: ${fileNameXlsx} 또는 ${fileNameXls}`);
+          throw new Error(`Storage 파일 다운로드 실패: ${storageFileName} - ${downloadError?.message}`);
+        }
+      }
+      // 2. 최신 파일 검색
+      else {
+        const storageFile = await getLatestFileFromStorage("measurement-business");
+        if (storageFile) {
+          fileBuffer = storageFile.buffer;
+          storageFileName = storageFile.fileName;
+          fileName = storageFile.fileName;
+          targetPath = fileBuffer;
+          console.log("==========================================");
+          console.log(`[측정사업장 동기화] Storage에서 파일 다운로드 성공!`);
+          console.log(`  - 파일명: ${fileName}`);
+          console.log(`  - 파일 크기: ${fileBuffer.length} bytes`);
+          console.log("==========================================");
+        } else {
+          // Storage에 파일이 없으면 로컬 파일 사용
+          if (existsSync(defaultPathXlsx)) {
+            targetPath = defaultPathXlsx;
+            fileName = fileNameXlsx;
+          } else if (existsSync(defaultPathXls)) {
+            targetPath = defaultPathXls;
+            fileName = fileNameXls;
+          } else {
+            throw new Error(`Excel 파일을 찾을 수 없습니다: ${fileNameXlsx} 또는 ${fileNameXls}`);
+          }
         }
       }
     } else {

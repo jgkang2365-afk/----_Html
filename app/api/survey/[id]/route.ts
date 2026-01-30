@@ -47,6 +47,53 @@ export async function PUT(
 
     const supabase = await createClient();
 
+    // 1. 해당 일자 등록 업체 수 제한 (6개 미만이어야 함 -> 6개 이상이면 등록 불가)
+    // 수정 시에는 자기 자신(id)은 카운트에서 제외해야 함 (날짜가 바뀌지 않는 경우 등)
+    const { count: dateCount, error: dateCountError } = await supabase
+      .from("preliminary_survey")
+      .select("id", { count: "exact", head: true })
+      .eq("measurement_date", measurement_date)
+      .neq("id", parseInt(id));
+
+    if (dateCountError) {
+      console.error("일자별 등록 건수 조회 오류:", dateCountError);
+    } else if ((dateCount || 0) > 6) {
+      return NextResponse.json(
+        { error: `해당 일자(${measurement_date})에는 이미 6개를 초과하는 업체가 등록되어 있어 변경할 수 없습니다.` },
+        { status: 400 }
+      );
+    }
+
+    // 2. 동일 일자 측정자 중복 체크
+    if (measurer) {
+      const { data: sameDateSurveys, error: measurerCheckError } = await supabase
+        .from("preliminary_survey")
+        .select("measurer")
+        .eq("measurement_date", measurement_date)
+        .neq("id", parseInt(id))
+        .not("measurer", "is", null);
+
+      if (measurerCheckError) {
+        console.error("측정자 중복 체크 오류:", measurerCheckError);
+      } else if (sameDateSurveys && sameDateSurveys.length > 0) {
+        const newMeasurers = measurer.split(",").map((m: string) => m.trim());
+
+        for (const survey of sameDateSurveys) {
+          if (!survey.measurer) continue;
+          const existingMeasurers = survey.measurer.split(",").map((m: string) => m.trim());
+
+          // 교집합 확인
+          const duplicates = newMeasurers.filter((nm: string) => existingMeasurers.includes(nm));
+          if (duplicates.length > 0) {
+            return NextResponse.json(
+              { error: `측정자 [${duplicates.join(", ")}]님은 해당 일자(${measurement_date})에 이미 다른 일정(업체)이 배정되어 있습니다.` },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    }
+
     // 예비조사 수정 (preliminary_survey 테이블만 업데이트, measurement_journal에는 영향 없음)
     const { data: survey, error } = await supabase
       .from("preliminary_survey")

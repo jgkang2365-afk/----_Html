@@ -3,10 +3,12 @@
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { SurveyForm } from "@/components/features/SurveyForm";
+import { BulkRegisterModal } from "@/components/features/BulkRegisterModal";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
+import { Checkbox } from "@/components/ui/Checkbox";
 import {
   Table,
   TableHeader,
@@ -101,6 +103,10 @@ export default function SurveyPage() {
     { value: "", label: "전체" },
   ]);
 
+  // 일괄 등록 관련 상태
+  const [selectedBusinessCodes, setSelectedBusinessCodes] = useState<Set<string>>(new Set());
+  const [isBulkRegisterModalOpen, setIsBulkRegisterModalOpen] = useState(false);
+
   useEffect(() => {
     if (activeTab === "list") {
       loadSurveys();
@@ -131,6 +137,7 @@ export default function SurveyPage() {
   const searchBusinesses = async () => {
     setLoading(true);
     setError(null);
+    setSelectedBusinessCodes(new Set()); // 검색 시 선택 상태 초기화
 
     try {
       const params = new URLSearchParams();
@@ -208,6 +215,7 @@ export default function SurveyPage() {
     });
     setHasSearched(false);
     setBusinesses([]);
+    setSelectedBusinessCodes(new Set());
   };
 
   const handleEditSurvey = (survey: Survey) => {
@@ -253,6 +261,14 @@ export default function SurveyPage() {
     setPendingBusinessForForm(null); // 경고 모달 상태 초기화
   };
 
+  // 일괄 등록 성공
+  const handleBulkSuccess = () => {
+    setIsBulkRegisterModalOpen(false);
+    setSelectedBusinessCodes(new Set());
+    setActiveTab("list");
+    loadSurveys();
+  };
+
   // 엑셀 다운로드
   const handleExportExcel = async () => {
     try {
@@ -277,6 +293,26 @@ export default function SurveyPage() {
     }
   };
 
+  // 체크박스 처리
+  const toggleBusinessSelection = (code: string) => {
+    const newSet = new Set(selectedBusinessCodes);
+    if (newSet.has(code)) {
+      newSet.delete(code);
+    } else {
+      newSet.add(code);
+    }
+    setSelectedBusinessCodes(newSet);
+  };
+
+  const toggleAllSelection = () => {
+    if (selectedBusinessCodes.size === businesses.length) {
+      setSelectedBusinessCodes(new Set());
+    } else {
+      const allCodes = businesses.map(b => b.code);
+      setSelectedBusinessCodes(new Set(allCodes));
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -289,8 +325,7 @@ export default function SurveyPage() {
           <button
             onClick={() => {
               setActiveTab("search");
-              setHasSearched(false);
-              setBusinesses([]);
+              // 상태 유지 (검색 결과 초기화 안함)
             }}
             className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "search"
               ? "text-primary-500 border-b-2 border-primary-500"
@@ -302,7 +337,10 @@ export default function SurveyPage() {
           <button
             onClick={() => {
               setActiveTab("list");
-              loadSurveys();
+              // 목록이 비어있을 때만 로드 (이미 로드된 데이터 유지)
+              if (surveys.length === 0) {
+                loadSurveys();
+              }
             }}
             className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "list"
               ? "text-primary-500 border-b-2 border-primary-500"
@@ -438,9 +476,23 @@ export default function SurveyPage() {
       {/* 검색 결과 (사업장정보) - 사업장 검색 탭 */}
       {activeTab === "search" && hasSearched && !loading && (
         <Card className="p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-text-900 mb-6">
-            사업장정보 검색 결과 ({businesses.length}건)
-          </h2>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold text-text-900">
+              사업장정보 검색 결과 ({businesses.length}건)
+            </h2>
+            {businesses.length > 0 && (
+              <div className="flex gap-2">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={selectedBusinessCodes.size === 0}
+                  onClick={() => setIsBulkRegisterModalOpen(true)}
+                >
+                  선택된 {selectedBusinessCodes.size}건 일괄 등록
+                </Button>
+              </div>
+            )}
+          </div>
 
           {businesses.length === 0 ? (
             <div className="text-center py-12">
@@ -451,6 +503,12 @@ export default function SurveyPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12 text-center bg-surface-50">
+                      <Checkbox
+                        checked={selectedBusinessCodes.size === businesses.length && businesses.length > 0}
+                        onChange={toggleAllSelection}
+                      />
+                    </TableHead>
                     <TableHead className="bg-surface-50">코드</TableHead>
                     <TableHead className="bg-surface-50">사업자번호</TableHead>
                     <TableHead className="bg-surface-50">사업장명</TableHead>
@@ -462,7 +520,13 @@ export default function SurveyPage() {
                 </TableHeader>
                 <TableBody>
                   {businesses.map((business) => (
-                    <TableRow key={business.code} className="hover:bg-surface-50">
+                    <TableRow key={business.code} className={`hover:bg-surface-50 ${selectedBusinessCodes.has(business.code) ? 'bg-indigo-50/50' : ''}`}>
+                      <TableCell className="text-center">
+                        <Checkbox
+                          checked={selectedBusinessCodes.has(business.code)}
+                          onChange={() => toggleBusinessSelection(business.code)}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">{business.code}</TableCell>
                       <TableCell>{business.business_number || "-"}</TableCell>
                       <TableCell className="font-medium">{business.business_name}</TableCell>
@@ -822,6 +886,28 @@ export default function SurveyPage() {
             }
             onSuccess={handleFormSuccess}
             onCancel={handleFormCancel}
+          />
+        </Modal>
+      )}
+
+      {/* 일괄 등록 모달 */}
+      {isBulkRegisterModalOpen && (
+        <Modal
+          isOpen={isBulkRegisterModalOpen}
+          onClose={() => setIsBulkRegisterModalOpen(false)}
+          title="예비조사 일괄 등록"
+          size="lg"
+        >
+          <BulkRegisterModal
+            selectedBusinesses={businesses
+              .filter(b => selectedBusinessCodes.has(b.code))
+              .map(b => ({
+                ...b,
+                address: b.address || [b.address1, b.address2].filter(Boolean).join(" ") || ""
+              }))
+            }
+            onClose={() => setIsBulkRegisterModalOpen(false)}
+            onSuccess={handleBulkSuccess}
           />
         </Modal>
       )}

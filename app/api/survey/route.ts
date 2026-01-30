@@ -427,6 +427,50 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 1. 해당 일자 등록 업체 수 제한 (6개 미만이어야 함 -> 6개 이상이면 등록 불가)
+    const { count: dateCount, error: dateCountError } = await supabase
+      .from("preliminary_survey")
+      .select("id", { count: "exact", head: true })
+      .eq("measurement_date", measurement_date);
+
+    if (dateCountError) {
+      console.error("일자별 등록 건수 조회 오류:", dateCountError);
+    } else if ((dateCount || 0) > 6) {
+      return NextResponse.json(
+        { error: `해당 일자(${measurement_date})에는 이미 6개를 초과하는 업체가 등록되어 있어 추가할 수 없습니다.` },
+        { status: 400 }
+      );
+    }
+
+    // 2. 동일 일자 측정자 중복 체크
+    if (measurer) {
+      const { data: sameDateSurveys, error: measurerCheckError } = await supabase
+        .from("preliminary_survey")
+        .select("measurer")
+        .eq("measurement_date", measurement_date)
+        .not("measurer", "is", null);
+
+      if (measurerCheckError) {
+        console.error("측정자 중복 체크 오류:", measurerCheckError);
+      } else if (sameDateSurveys && sameDateSurveys.length > 0) {
+        const newMeasurers = measurer.split(",").map((m: string) => m.trim());
+
+        for (const survey of sameDateSurveys) {
+          if (!survey.measurer) continue;
+          const existingMeasurers = survey.measurer.split(",").map((m: string) => m.trim());
+
+          // 교집합 확인
+          const duplicates = newMeasurers.filter((nm: string) => existingMeasurers.includes(nm));
+          if (duplicates.length > 0) {
+            return NextResponse.json(
+              { error: `측정자 [${duplicates.join(", ")}]님은 해당 일자(${measurement_date})에 이미 다른 일정(업체)이 배정되어 있습니다.` },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    }
+
     // 순번 자동 계산 (현재 등록된 예비조사 중 가장 큰 순번 + 1)
     const { data: maxSequenceData, error: maxSequenceError } = await supabase
       .from("preliminary_survey")

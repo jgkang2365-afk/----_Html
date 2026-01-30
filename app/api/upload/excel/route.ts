@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const fileType = formData.get("type") as string; // "business-info" | "measurement-business"
     const autoSyncValue = formData.get("autoSync");
     const autoSync = autoSyncValue === "true"; // 업로드 후 자동 동기화
-    
+
     // 디버깅: autoSync 값 확인
     console.log("[업로드 API] autoSync 값:", autoSyncValue, "->", autoSync);
 
@@ -117,18 +117,20 @@ export async function POST(request: NextRequest) {
       try {
         // Storage에 파일이 완전히 반영될 때까지 짧은 대기 시간
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         const { syncBusinessInfo, syncMeasurementBusiness } = await import("@/lib/sync/excel-sync");
-        
+
         // 파일 타입에 따라 해당 동기화 함수 호출
         // 동기화 함수는 Storage에서 최신 파일을 자동으로 가져옵니다
+        // filePath는 Storage 경로 (예: business-info/business-info-2026....xlsx)
+        // supabase ADM client를 전달하여 RLS를 우회하고 확실하게 Insert 권한을 확보
         let syncResult;
         if (targetFileType === "business-info") {
-          console.log("[업로드 API] syncBusinessInfo 호출");
-          syncResult = await syncBusinessInfo();
+          console.log(`[업로드 API] syncBusinessInfo 호출 (파일: ${filePath})`);
+          syncResult = await syncBusinessInfo(undefined, filePath, supabase);
         } else if (targetFileType === "measurement-business") {
-          console.log("[업로드 API] syncMeasurementBusiness 호출");
-          syncResult = await syncMeasurementBusiness();
+          console.log(`[업로드 API] syncMeasurementBusiness 호출 (파일: ${filePath})`);
+          syncResult = await syncMeasurementBusiness(undefined, filePath, supabase);
         } else {
           throw new Error(`알 수 없는 파일 타입: ${targetFileType}`);
         }
