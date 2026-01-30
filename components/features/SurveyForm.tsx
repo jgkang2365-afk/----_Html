@@ -450,27 +450,31 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     }
 
     const measurerStr = updated.join(", ");
+
+    // 측정자 선택/해제에 따라 예비조사자 자동 설정
+    let updatedPreliminarySurveyors = [...preliminarySurveyors];
+    const correspondingPreliminarySurveyor = getPreliminarySurveyorByMeasurer(measurer);
+
+    if (correspondingPreliminarySurveyor) {
+      if (isAdding) {
+        // 측정자가 선택되면 해당 예비조사자 조합도 자동으로 체크
+        if (!updatedPreliminarySurveyors.includes(correspondingPreliminarySurveyor)) {
+          updatedPreliminarySurveyors = [...updatedPreliminarySurveyors, correspondingPreliminarySurveyor];
+        }
+      } else {
+        // 측정자가 해제되면 해당 예비조사자 조합도 자동으로 해제
+        updatedPreliminarySurveyors = updatedPreliminarySurveyors.filter((p) => p !== correspondingPreliminarySurveyor);
+      }
+    }
+
+    setPreliminarySurveyors(updatedPreliminarySurveyors);
+
     setFormData((prev) => ({
       ...prev,
       measurer: measurerStr,
       survey_code: surveyCode,
+      preliminary_surveyor: updatedPreliminarySurveyors.join(", "),
     }));
-
-    // 측정자 선택/해제에 따라 예비조사자 자동 설정
-    const correspondingPreliminarySurveyor = getPreliminarySurveyorByMeasurer(measurer);
-    if (correspondingPreliminarySurveyor) {
-      if (isAdding) {
-        // 측정자가 선택되면 해당 예비조사자 조합도 자동으로 체크
-        if (!preliminarySurveyors.includes(correspondingPreliminarySurveyor)) {
-          setPreliminarySurveyors([...preliminarySurveyors, correspondingPreliminarySurveyor]);
-        }
-      } else {
-        // 측정자가 해제되면 해당 예비조사자 조합도 자동으로 해제
-        setPreliminarySurveyors(
-          preliminarySurveyors.filter((p) => p !== correspondingPreliminarySurveyor)
-        );
-      }
-    }
   };
 
   // 예비조사자 선택 처리 (조합 단위로 선택)
@@ -618,8 +622,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
                 <div
                   key={period}
                   className={`p-2 rounded-md border transition-colors cursor-pointer ${formData.period === period
-                      ? "bg-indigo-100 border-indigo-400 shadow-sm ring-2 ring-indigo-300"
-                      : "bg-white border-gray-200 hover:bg-indigo-50"
+                    ? "bg-indigo-100 border-indigo-400 shadow-sm ring-2 ring-indigo-300"
+                    : "bg-white border-gray-200 hover:bg-indigo-50"
                     }`}
                   onClick={() => setFormData(prev => ({ ...prev, period }))}
                 >
