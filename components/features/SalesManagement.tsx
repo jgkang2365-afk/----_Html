@@ -39,10 +39,14 @@ interface MeasurementRevenue {
   deposit_total: number | null;
   deposit_date_business: string | null;
   deposit_amount_business: number | null;
+  deposit_date_business_2: string | null;
+  deposit_amount_business_2: number | null;
   deposit_date_national: string | null;
   deposit_amount_national: number | null;
   invoice_email: string | null;
   electronic_invoice_date: string | null;
+  invoice_email_2: string | null;
+  electronic_invoice_date_2: string | null;
   representative_name: string | null;
 }
 
@@ -1536,7 +1540,7 @@ export const SalesManagement: React.FC = () => {
 
                   filteredData.forEach((item) => {
                     const businessFee = item.measurement_fee_business || 0;
-                    const businessDeposit = item.deposit_amount_business || 0;
+                    const businessDeposit = (item.deposit_amount_business || 0) + (item.deposit_amount_business_2 || 0);
                     const nationalFee = item.measurement_fee_national || 0;
                     const nationalDepositAmount = item.deposit_amount_national || 0;
 

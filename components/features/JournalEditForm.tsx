@@ -26,6 +26,10 @@ interface JournalEntry {
   measurement_start_date: string | null;
   measurement_end_date: string | null;
   measurer: string | null;
+  invoice_email_2?: string;
+  electronic_invoice_date_2?: string;
+  deposit_date_business_2?: string;
+  deposit_amount_business_2?: number;
   _isFromBusiness?: boolean;
   [key: string]: any;
 }
@@ -155,6 +159,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
     invoice_email: entry.invoice_email || "",
     electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
+    invoice_email_2: entry.invoice_email_2 || "",
+    electronic_invoice_date_2: normalizeDateForInput(entry.electronic_invoice_date_2),
 
     // 측정비 정보
     measurement_fee_total: entry.measurement_fee_total || "",
@@ -165,6 +171,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     deposit_total: entry.deposit_total || "",
     deposit_date_business: normalizeDateForInput(entry.deposit_date_business),
     deposit_amount_business: entry.deposit_amount_business || "",
+    deposit_date_business_2: normalizeDateForInput(entry.deposit_date_business_2),
+    deposit_amount_business_2: entry.deposit_amount_business_2 || "",
     deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
     deposit_amount_national: entry.deposit_amount_national || "",
 
@@ -250,22 +258,25 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // 국고지원 여부가 "비대상"인 경우 사업장만으로 계산
     if (formData.national_support_status === "비대상") {
       const business = parseFloat(parseCurrency(formData.deposit_amount_business)) || 0;
+      const business2 = parseFloat(parseCurrency(formData.deposit_amount_business_2)) || 0;
+      const total = business + business2;
       setFormData((prev) => ({
         ...prev,
-        deposit_total: business > 0 ? business.toString() : "",
+        deposit_total: total > 0 ? total.toString() : "",
       }));
     } else {
       const business = parseFloat(parseCurrency(formData.deposit_amount_business)) || 0;
+      const business2 = parseFloat(parseCurrency(formData.deposit_amount_business_2)) || 0;
       const national = parseFloat(parseCurrency(formData.deposit_amount_national)) || 0;
-      const total = business + national;
-      if (total > 0 || formData.deposit_amount_business || formData.deposit_amount_national) {
+      const total = business + business2 + national;
+      if (total > 0 || formData.deposit_amount_business || formData.deposit_amount_national || formData.deposit_amount_business_2) {
         setFormData((prev) => ({
           ...prev,
           deposit_total: total > 0 ? total.toString() : "",
         }));
       }
     }
-  }, [formData.deposit_amount_business, formData.deposit_amount_national, formData.national_support_status]);
+  }, [formData.deposit_amount_business, formData.deposit_amount_national, formData.deposit_amount_business_2, formData.national_support_status]);
 
   // 국고지원 여부가 "비대상"일 때 국고 관련 필드 초기화
   useEffect(() => {
@@ -1022,6 +1033,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       if (submitData.deposit_amount_national) {
         submitData.deposit_amount_national = parseFloat(parseCurrency(String(submitData.deposit_amount_national)));
       }
+      if (submitData.deposit_amount_business_2) {
+        submitData.deposit_amount_business_2 = parseFloat(parseCurrency(String(submitData.deposit_amount_business_2)));
+      }
 
       // 국고지원 여부가 "비대상"인 경우 측정비 합계와 입금액 합계를 사업장만으로 재계산
       if (submitData.national_support_status === "비대상") {
@@ -1265,6 +1279,26 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               placeholder={formData.measurement_fee_business ? `기본값: ${formatCurrency(formData.measurement_fee_business)}` : "숫자만 입력"}
               className={`font-medium ${formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}`}
             />
+
+            <div className="mt-4 pt-4 border-t border-dashed border-gray-300">
+              <Input
+                label="입금일(사업장2)"
+                type="date"
+                value={normalizeDateForInput(formData.deposit_date_business_2)}
+                onChange={(e) => setFormData({ ...formData, deposit_date_business_2: e.target.value })}
+                className="max-w-[200px]"
+              />
+              <Input
+                label="입금액(사업장2)"
+                type="text"
+                value={formatCurrency(formData.deposit_amount_business_2)}
+                onChange={(e) => {
+                  const parsed = parseCurrency(e.target.value);
+                  setFormData({ ...formData, deposit_amount_business_2: parsed });
+                }}
+                placeholder="숫자만 입력"
+              />
+            </div>
           </div>
           <div>
             <Input
@@ -1411,23 +1445,40 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             </p>
           )}
         </div>
-        <Input
-          label="계산서 메일"
-          type="email"
-          value={formData.invoice_email}
-          onChange={(e) =>
-            setFormData({ ...formData, invoice_email: e.target.value })
-          }
-        />
-        <Input
-          label="전자계산서 발행일"
-          type="date"
-          value={normalizeDateForInput(formData.electronic_invoice_date)}
-          onChange={(e) =>
-            setFormData({ ...formData, electronic_invoice_date: e.target.value })
-          }
-          className="max-w-[200px]"
-        />
+        <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-2 pt-4 border-t border-dashed border-gray-300">
+          <Input
+            label="계산서 메일"
+            type="email"
+            value={formData.invoice_email}
+            onChange={(e) =>
+              setFormData({ ...formData, invoice_email: e.target.value })
+            }
+          />
+          <Input
+            label="전자계산서 발행일"
+            type="date"
+            value={normalizeDateForInput(formData.electronic_invoice_date)}
+            onChange={(e) =>
+              setFormData({ ...formData, electronic_invoice_date: e.target.value })
+            }
+          />
+          <Input
+            label="계산서 메일2"
+            type="email"
+            value={formData.invoice_email_2}
+            onChange={(e) =>
+              setFormData({ ...formData, invoice_email_2: e.target.value })
+            }
+          />
+          <Input
+            label="전자계산서 발행일2"
+            type="date"
+            value={normalizeDateForInput(formData.electronic_invoice_date_2)}
+            onChange={(e) =>
+              setFormData({ ...formData, electronic_invoice_date_2: e.target.value })
+            }
+          />
+        </div>
       </div>
     </div>
   );
