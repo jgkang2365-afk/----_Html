@@ -60,11 +60,29 @@ export default function SurveyPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingSurvey, setEditingSurvey] = useState<Survey | null>(null);
   const [selectedBusinessForForm, setSelectedBusinessForForm] = useState<BusinessInfo | null>(null); // 선택된 사업장 정보
-  const [activeTab, setActiveTab] = useState<"search" | "list">("search"); // 탭 상태 추가
+  // 탭 상태
+  const [activeTab, setActiveTab] = useState<"search" | "list">("search");
+
+  // 초기 로드 시 localStorage에서 탭 상태 복원 (Client-side only)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedTab = localStorage.getItem("surveyActiveTab");
+      if (savedTab === "search" || savedTab === "list") {
+        setActiveTab(savedTab);
+      }
+    }
+  }, []);
+
+  // 탭 변경 시 localStorage에 저장
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("surveyActiveTab", activeTab);
+    }
+  }, [activeTab]);
   const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
   const [pendingBusinessForForm, setPendingBusinessForForm] = useState<BusinessInfo | null>(null); // 경고 모달에서 대기 중인 사업장 정보
   // 순번 정렬 관련 상태
-  const [sequenceSortOrder, setSequenceSortOrder] = useState<"asc" | "desc">("asc"); // 기본값: 오름차순 (등록 순서)
+  const [sequenceSortOrder, setSequenceSortOrder] = useState<"asc" | "desc">("desc"); // 기본값: 내림차순 (최신 등록 순서)
   // 년도 필터 관련 상태
   const [selectedYear, setSelectedYear] = useState<string>(""); // 선택된 년도 (빈 문자열이면 전체)
   // 사업장명 검색 상태 (예비조사 목록용)
@@ -221,6 +239,10 @@ export default function SurveyPage() {
   const handleFormSuccess = () => {
     setIsFormOpen(false);
     setEditingSurvey(null);
+    setPendingBusinessForForm(null); // 경고 모달 상태 초기화
+
+    // 예비조사 목록 탭으로 전환하고 목록 새로고침
+    setActiveTab("list");
     loadSurveys();
   };
 
@@ -228,6 +250,7 @@ export default function SurveyPage() {
     setIsFormOpen(false);
     setEditingSurvey(null);
     setSelectedBusinessForForm(null);
+    setPendingBusinessForForm(null); // 경고 모달 상태 초기화
   };
 
   // 엑셀 다운로드

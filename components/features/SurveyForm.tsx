@@ -533,6 +533,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   // 폼 제출
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("[SurveyForm] Submitting formData:", formData);
     setError(null);
     setWarning(null);
 
@@ -759,7 +760,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
                   <Checkbox
                     label={option}
                     checked={preliminarySurveyors.includes(option)}
-                    onChange={() => handlePreliminarySurveyorToggle(option)}
+                    onChange={() => { }} // 중복 토글 방지를 위해 빈 함수로 설정 (div onClick에서 처리)
                   />
                 </div>
               ))}

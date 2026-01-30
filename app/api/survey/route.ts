@@ -57,11 +57,28 @@ export async function GET(request: NextRequest) {
     }
 
     if (businessName) {
-      businessInfoQuery = businessInfoQuery.ilike("business_name", `%${businessName}%`);
+      // 콤마로 구분된 여러 사업장명 지원 (OR 조건)
+      const terms = businessName.split(",").map(t => t.trim()).filter(Boolean);
+      if (terms.length > 0) {
+        // business_name.ilike.%term1%,business_name.ilike.%term2%...
+        const orQuery = terms.map(term => `business_name.ilike.%${term}%`).join(",");
+        businessInfoQuery = businessInfoQuery.or(orQuery);
+      }
     }
 
     if (address) {
-      businessInfoQuery = businessInfoQuery.or(`address1.ilike.%${address}%,address2.ilike.%${address}%`);
+      // 콤마로 구분된 여러 주소 지원 (OR 조건)
+      const terms = address.split(",").map(t => t.trim()).filter(Boolean);
+      if (terms.length > 0) {
+        // (address1 like term1 OR address2 like term1) OR (address1 like term2 OR address2 like term2)
+        // supabase .or() syntax: column.operator.value,column.operator.value
+        // address1.ilike.%term1%,address2.ilike.%term1%,address1.ilike.%term2%,address2.ilike.%term2%
+        const orConditions = terms.flatMap(term => [
+          `address1.ilike.%${term}%`,
+          `address2.ilike.%${term}%`
+        ]);
+        businessInfoQuery = businessInfoQuery.or(orConditions.join(","));
+      }
     }
 
     // 소재지 관할청 필터링 (business_info 테이블의 office_jurisdiction 필드 사용)
@@ -344,6 +361,7 @@ export async function POST(request: NextRequest) {
     await checkPermission("survey:write");
 
     const body = await request.json();
+    console.log("[API] Survey POST body:", body);
     const {
       year,
       period,
