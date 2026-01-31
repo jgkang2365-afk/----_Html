@@ -299,6 +299,10 @@ export const SalesManagement: React.FC = () => {
   const [debouncedDepositBusinessName, setDebouncedDepositBusinessName] = useState("");
   const [activeQuickDate, setActiveQuickDate] = useState<string | null>("month");
 
+  // 로컬 검색어 상태 (입력 시 흔들림 방지용, Enter키로 검색)
+  const [localBusinessName, setLocalBusinessName] = useState("");
+  const [localRepresentativeName, setLocalRepresentativeName] = useState("");
+
   // 입금 현황 디바운싱 효과
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -342,15 +346,27 @@ export const SalesManagement: React.FC = () => {
     return () => clearTimeout(timer);
   }, [measurementFilters]);
 
+  // 필터 초기화 시 로컬 상태 동기화
+  useEffect(() => {
+    if (measurementFilters.businessName === "") setLocalBusinessName("");
+    if (measurementFilters.representativeName === "") setLocalRepresentativeName("");
+  }, [measurementFilters.businessName, measurementFilters.representativeName]);
+
   // 기간별 입금 현황 날짜 선택 헬퍼
-  const handleQuickDateSelect = (type: "today" | "week" | "month") => {
+  const handleQuickDateSelect = (type: "yesterday" | "today" | "week" | "month") => {
     const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-    const end = seoulTime.toISOString().split('T')[0];
+    const today = seoulTime.toISOString().split('T')[0];
     let start = "";
+    let end = today;
 
     const startDate = new Date(seoulTime);
-    if (type === "today") {
-      start = end;
+
+    if (type === "yesterday") {
+      startDate.setDate(seoulTime.getDate() - 1);
+      start = startDate.toISOString().split('T')[0];
+      end = start; // 전일은 시작일과 종료일이 같음 (어제 하루)
+    } else if (type === "today") {
+      start = today;
     } else if (type === "week") {
       startDate.setDate(seoulTime.getDate() - 7);
       start = startDate.toISOString().split('T')[0];
@@ -980,7 +996,7 @@ export const SalesManagement: React.FC = () => {
                 value={salesSummaryYear}
                 onChange={(e) => setSalesSummaryYear(e.target.value)}
                 options={[{ value: "", label: "전체" }, ...yearOptions]}
-                className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
+                className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300 text-center"
               />
             </div>
           </div>
@@ -1257,7 +1273,7 @@ export const SalesManagement: React.FC = () => {
                   value={yearlySummaryYear}
                   onChange={(e) => setYearlySummaryYear(e.target.value)}
                   options={[{ value: "", label: "전체" }, ...yearOptions]}
-                  className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
+                  className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300 text-center"
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -1266,7 +1282,7 @@ export const SalesManagement: React.FC = () => {
                   value={yearlySummaryPeriod}
                   onChange={(e) => setYearlySummaryPeriod(e.target.value)}
                   options={periodOptions}
-                  className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
+                  className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300 text-center"
                 />
               </div>
             </div>
@@ -1500,20 +1516,20 @@ export const SalesManagement: React.FC = () => {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium text-text-700 whitespace-nowrap">년도 선택 :</label>
-                <Input
+                <Select
                   value={unpaidSummaryYear}
                   onChange={(e) => setUnpaidSummaryYear(e.target.value)}
-                  placeholder="예: 2024, 2025"
-                  className="w-40 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
+                  options={[{ value: "", label: "전체" }, ...yearOptions]}
+                  className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300 text-center"
                 />
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium text-text-700 whitespace-nowrap">주기 선택 :</label>
-                <Input
+                <Select
                   value={unpaidSummaryPeriod}
                   onChange={(e) => setUnpaidSummaryPeriod(e.target.value)}
-                  placeholder="예: 상반기, 하반기"
-                  className="w-40 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300"
+                  options={periodOptions}
+                  className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300 text-center"
                 />
               </div>
             </div>
@@ -2069,6 +2085,7 @@ export const SalesManagement: React.FC = () => {
                             hasInvoiceDate: "",
                           };
                           setMeasurementFilters(initial);
+                          // 로컬 상태 동기화는 useEffect에서 처리됨
                           setDebouncedMeasurementFilters(initial);
                           setMeasurementSort({ column: "measurement_fee_total", direction: "desc" });
                         }}
@@ -2080,7 +2097,7 @@ export const SalesManagement: React.FC = () => {
                       <Table maxHeight="max-h-[calc(100vh-350px)]">
                         <TableHeader>
                           <TableRow>
-                            <TableHead>
+                            <TableHead className="min-w-[120px] w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2089,17 +2106,17 @@ export const SalesManagement: React.FC = () => {
                                   측정년도
                                   <MeasurementSortIcon column="measurement_year" />
                                 </div>
-                                <Input
+                                <Select
                                   value={measurementFilters.year}
                                   onChange={(e) =>
                                     setMeasurementFilters({ ...measurementFilters, year: e.target.value })
                                   }
-                                  placeholder="예: 2024"
-                                  className="text-xs h-7"
+                                  options={[{ value: "", label: "전체" }, ...yearOptions]}
+                                  className="text-sm h-8 py-1 px-2 text-center"
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="min-w-[120px] w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2108,17 +2125,17 @@ export const SalesManagement: React.FC = () => {
                                   측정주기
                                   <MeasurementSortIcon column="measurement_period" />
                                 </div>
-                                <Input
+                                <Select
                                   value={measurementFilters.period}
                                   onChange={(e) =>
                                     setMeasurementFilters({ ...measurementFilters, period: e.target.value })
                                   }
-                                  placeholder="예: 상반기"
-                                  className="text-xs h-7"
+                                  options={periodOptions}
+                                  className="text-sm h-8 py-1 px-2 text-center"
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="min-w-[200px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2128,16 +2145,23 @@ export const SalesManagement: React.FC = () => {
                                   <MeasurementSortIcon column="business_name" />
                                 </div>
                                 <Input
-                                  value={measurementFilters.businessName}
-                                  onChange={(e) =>
-                                    setMeasurementFilters({ ...measurementFilters, businessName: e.target.value })
-                                  }
-                                  placeholder="검색..."
-                                  className="text-xs h-7"
+                                  value={localBusinessName}
+                                  onChange={(e) => setLocalBusinessName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      setMeasurementFilters({ ...measurementFilters, businessName: localBusinessName });
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    // 선택적: 포커스 잃을 때 검색하려면 아래 주석 해제 (사용자 요청은 Enter키 기준)
+                                    // setMeasurementFilters({ ...measurementFilters, businessName: localBusinessName });
+                                  }}
+                                  placeholder="입력 후 Enter"
+                                  className="text-xs h-8"
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="min-w-[120px] w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2147,16 +2171,19 @@ export const SalesManagement: React.FC = () => {
                                   <MeasurementSortIcon column="representative_name" />
                                 </div>
                                 <Input
-                                  value={measurementFilters.representativeName}
-                                  onChange={(e) =>
-                                    setMeasurementFilters({ ...measurementFilters, representativeName: e.target.value })
-                                  }
-                                  placeholder="검색..."
-                                  className="text-xs h-7"
+                                  value={localRepresentativeName}
+                                  onChange={(e) => setLocalRepresentativeName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      setMeasurementFilters({ ...measurementFilters, representativeName: localRepresentativeName });
+                                    }
+                                  }}
+                                  placeholder="입력 후 Enter"
+                                  className="text-xs h-8"
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="min-w-[120px] w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2165,17 +2192,17 @@ export const SalesManagement: React.FC = () => {
                                   지정지청
                                   <MeasurementSortIcon column="designated_office" />
                                 </div>
-                                <Input
+                                <Select
                                   value={measurementFilters.designatedOffice}
                                   onChange={(e) =>
                                     setMeasurementFilters({ ...measurementFilters, designatedOffice: e.target.value })
                                   }
-                                  placeholder="예: 대전, 천안"
-                                  className="text-xs h-7"
+                                  options={officeOptions}
+                                  className="text-sm h-8 py-1 px-2 text-center"
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right min-w-[120px] w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2184,10 +2211,10 @@ export const SalesManagement: React.FC = () => {
                                   측정비(사업장)
                                   <MeasurementSortIcon column="measurement_fee_business" />
                                 </div>
-                                <div className="text-xs text-text-500">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-center">
+                            <TableHead className="text-center min-w-[100px] w-[100px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-center cursor-pointer hover:text-primary-600"
@@ -2196,10 +2223,10 @@ export const SalesManagement: React.FC = () => {
                                   측정비(입금일)
                                   <MeasurementSortIcon column="deposit_date_business" />
                                 </div>
-                                <div className="text-xs text-text-500">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right min-w-[100px] w-[100px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2208,10 +2235,10 @@ export const SalesManagement: React.FC = () => {
                                   측정비(국고)
                                   <MeasurementSortIcon column="measurement_fee_national" />
                                 </div>
-                                <div className="text-xs text-text-500">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right min-w-[120px] w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2220,10 +2247,10 @@ export const SalesManagement: React.FC = () => {
                                   측정비(합계)
                                   <MeasurementSortIcon column="measurement_fee_total" />
                                 </div>
-                                <div className="text-xs text-text-500">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right min-w-[120px] w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2232,10 +2259,10 @@ export const SalesManagement: React.FC = () => {
                                   입금액
                                   <MeasurementSortIcon column="deposit_total" />
                                 </div>
-                                <div className="text-xs text-text-500">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right min-w-[100px] w-[100px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2244,10 +2271,10 @@ export const SalesManagement: React.FC = () => {
                                   미수금액
                                   <MeasurementSortIcon column="unpaid" />
                                 </div>
-                                <div className="text-xs text-text-500">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="min-w-[140px] w-[140px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2266,11 +2293,11 @@ export const SalesManagement: React.FC = () => {
                                     { value: "yes", label: "발행일 있음" },
                                     { value: "no", label: "발행일 없음" },
                                   ]}
-                                  className="text-xs"
+                                  className="text-sm h-8 py-1 px-2 text-center"
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>작업</TableHead>
+                            <TableHead className="min-w-[80px] w-[80px]">작업</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2693,26 +2720,26 @@ export const SalesManagement: React.FC = () => {
                             <TableHead>
                               <div className="space-y-1">
                                 <div className="text-sm font-medium">매출년도</div>
-                                <Input
+                                <Select
                                   value={otherFilters.year}
                                   onChange={(e) =>
                                     setOtherFilters({ ...otherFilters, year: e.target.value })
                                   }
-                                  placeholder="예: 2024"
-                                  className="text-xs h-7"
+                                  options={[{ value: "", label: "전체" }, ...yearOptions]}
+                                  className="text-xs h-7 text-center"
                                 />
                               </div>
                             </TableHead>
                             <TableHead>
                               <div className="space-y-1">
                                 <div className="text-sm font-medium">매출주기</div>
-                                <Input
+                                <Select
                                   value={otherFilters.period}
                                   onChange={(e) =>
                                     setOtherFilters({ ...otherFilters, period: e.target.value })
                                   }
-                                  placeholder="예: 상반기"
-                                  className="text-xs h-7"
+                                  options={periodOptions}
+                                  className="text-xs h-7 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -3006,13 +3033,13 @@ export const SalesManagement: React.FC = () => {
                                   매출년도
                                   <SortIcon column="year" />
                                 </div>
-                                <Input
+                                <Select
                                   value={unpaidFilters.year}
                                   onChange={(e) =>
                                     setUnpaidFilters({ ...unpaidFilters, year: e.target.value })
                                   }
-                                  placeholder="예: 2024"
-                                  className="text-xs h-7"
+                                  options={[{ value: "", label: "전체" }, ...yearOptions]}
+                                  className="text-xs h-7 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -3025,13 +3052,13 @@ export const SalesManagement: React.FC = () => {
                                   측정주기
                                   <SortIcon column="period" />
                                 </div>
-                                <Input
+                                <Select
                                   value={unpaidFilters.period}
                                   onChange={(e) =>
                                     setUnpaidFilters({ ...unpaidFilters, period: e.target.value })
                                   }
-                                  placeholder="예: 상반기"
-                                  className="text-xs h-7"
+                                  options={periodOptions}
+                                  className="text-xs h-7 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -3103,13 +3130,13 @@ export const SalesManagement: React.FC = () => {
                                   지정지청
                                   <SortIcon column="designatedOffice" />
                                 </div>
-                                <Input
+                                <Select
                                   value={unpaidFilters.designatedOffice}
                                   onChange={(e) =>
                                     setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
                                   }
-                                  placeholder="예: 대전, 천안"
-                                  className="text-xs h-7"
+                                  options={[{ value: "", label: "전체" }, ...officeOptions]}
+                                  className="text-xs h-7 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -3334,33 +3361,33 @@ export const SalesManagement: React.FC = () => {
                         {/* 1. 매출년도 */}
                         <div className="flex flex-col gap-2">
                           <label className="text-sm font-bold text-text-800 ml-1">매출년도</label>
-                          <Input
+                          <Select
                             value={depositYear}
                             onChange={(e) => setDepositYear(e.target.value)}
-                            placeholder="예: 2024, 2025"
-                            className="w-40 h-11 text-sm font-medium"
+                            options={[{ value: "", label: "전체" }, ...yearOptions]}
+                            className="w-40 h-11 text-sm font-medium text-center"
                           />
                         </div>
 
                         {/* 2. 주기 */}
                         <div className="flex flex-col gap-2">
                           <label className="text-sm font-bold text-text-800 ml-1">주기</label>
-                          <Input
+                          <Select
                             value={depositPeriod}
                             onChange={(e) => setDepositPeriod(e.target.value)}
-                            placeholder="예: 상반기, 하반기"
-                            className="w-40 h-11 text-sm font-medium"
+                            options={periodOptions}
+                            className="w-40 h-11 text-sm font-medium text-center"
                           />
                         </div>
 
                         {/* 3. 지정지청 */}
                         <div className="flex flex-col gap-2">
                           <label className="text-sm font-bold text-text-800 ml-1">지정지청</label>
-                          <Input
+                          <Select
                             value={depositOffice}
                             onChange={(e) => setDepositOffice(e.target.value)}
-                            placeholder="예: 대전, 천안"
-                            className="w-44 h-11 text-sm font-medium"
+                            options={[{ value: "", label: "전체" }, ...officeOptions]}
+                            className="w-44 h-11 text-sm font-medium text-center"
                           />
                         </div>
 
@@ -3376,7 +3403,7 @@ export const SalesManagement: React.FC = () => {
                               { value: "측정비(국고)", label: "측정비(국고)" },
                               { value: "기타 매출", label: "기타 매출" },
                             ]}
-                            className="w-44 h-11 text-sm font-medium"
+                            className="w-44 h-11 text-sm font-medium text-center"
                           />
                         </div>
 
@@ -3406,6 +3433,19 @@ export const SalesManagement: React.FC = () => {
                               />
                             </div>
                             <div className="flex items-center gap-1.5 ml-2">
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleQuickDateSelect("yesterday")}
+                                className={cn(
+                                  "h-10 px-4 font-bold transition-all rounded-lg text-sm border shadow-none",
+                                  activeQuickDate === "yesterday"
+                                    ? "bg-slate-600 text-white border-slate-700 hover:bg-slate-700 shadow-sm"
+                                    : "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200 hover:text-gray-800"
+                                )}
+                              >
+                                전일
+                              </Button>
                               <Button
                                 variant="secondary"
                                 size="sm"
@@ -3784,8 +3824,8 @@ export const SalesManagement: React.FC = () => {
             >
               취소
             </Button>
-            <Button variant="primary" onClick={handleOtherSave} disabled={saving}>
-              {saving ? "저장 중..." : "저장"}
+            <Button variant="primary" onClick={handleOtherSave} disabled={saving} className="min-w-[80px]">
+              {saving ? <LoadingSpinner size="sm" /> : "저장"}
             </Button>
           </div>
         </div>
@@ -3808,8 +3848,9 @@ export const SalesManagement: React.FC = () => {
                   type="submit"
                   form="journal-edit-form"
                   disabled={isJournalFormSubmitting}
+                  className="min-w-[80px]"
                 >
-                  {isJournalFormSubmitting ? <LoadingSpinner /> : "수정"}
+                  {isJournalFormSubmitting ? <LoadingSpinner size="sm" /> : "수정"}
                 </Button>
                 <Button
                   variant="secondary"

@@ -1323,8 +1323,9 @@ export const JournalSearch: React.FC = () => {
                 type="submit"
                 form="journal-edit-form"
                 disabled={isJournalFormSubmitting}
+                className="min-w-[80px]"
               >
-                {isJournalFormSubmitting ? <LoadingSpinner /> : selectedEntry.id ? "수정" : "등록"}
+                {isJournalFormSubmitting ? <LoadingSpinner size="sm" /> : selectedEntry.id ? "수정" : "등록"}
               </Button>
               <Button
                 variant="secondary"
