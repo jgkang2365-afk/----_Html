@@ -218,36 +218,52 @@ export const NationalSupportManagement: React.FC = () => {
     <div className="space-y-6">
       {/* 필터 영역 */}
       <Card className="p-6 shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-          <Select
-            label="측정년도"
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
-            options={yearOptions}
-          />
-          <Select
-            label="측정주기"
-            value={selectedPeriod}
-            onChange={(e) => setSelectedPeriod(e.target.value)}
-            options={periodOptions}
-          />
-          <Input
-            label="코드/사업장명 검색"
-            value={searchCode}
-            onChange={(e) => setSearchCode(e.target.value)}
-            placeholder="코드 또는 사업장명"
-          />
-          <Input
-            label="신청결과 검색"
-            value={searchResult}
-            onChange={(e) => setSearchResult(e.target.value)}
-            placeholder="예: 대상, 비대상"
-          />
-          <div className="flex gap-2">
-            <Button variant="primary" onClick={loadEntries} disabled={loading}>
+        <div className="flex flex-wrap items-end gap-3 p-1">
+          <div className="w-[100px]">
+            <Select
+              label="측정년도"
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              options={yearOptions}
+              className="text-center"
+            />
+          </div>
+          <div className="w-[120px]">
+            <Select
+              label="측정주기"
+              value={selectedPeriod}
+              onChange={(e) => setSelectedPeriod(e.target.value)}
+              options={periodOptions}
+              className="text-center"
+            />
+          </div>
+          <div className="w-[200px]">
+            <Input
+              label="코드/사업장명 검색"
+              value={searchCode}
+              onChange={(e) => setSearchCode(e.target.value)}
+              placeholder="코드 또는 사업장명"
+            />
+          </div>
+          <div className="w-[120px]">
+            <Select
+              label="신청결과"
+              value={searchResult}
+              onChange={(e) => setSearchResult(e.target.value)}
+              options={[
+                { value: "", label: "전체" },
+                { value: "대상", label: "대상" },
+                { value: "비대상", label: "비대상" }
+              ]}
+              className="text-center"
+            />
+          </div>
+
+          <div className="flex gap-2 ml-auto">
+            <Button variant="primary" onClick={loadEntries} disabled={loading} className="whitespace-nowrap px-4">
               {loading ? "조회..." : "조회"}
             </Button>
-            <Button variant="secondary" onClick={handleExportExcel}>
+            <Button variant="secondary" onClick={handleExportExcel} className="whitespace-nowrap px-4">
               엑셀 다운로드
             </Button>
             <input
@@ -261,11 +277,13 @@ export const NationalSupportManagement: React.FC = () => {
               variant="secondary"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
+              className="whitespace-nowrap px-4"
             >
               {uploading ? "업로드 중..." : "엑셀 업로드"}
             </Button>
             <Button
               variant="primary"
+              className="whitespace-nowrap px-6"
               onClick={() => {
                 setSelectedEntry(null);
                 setFormData({

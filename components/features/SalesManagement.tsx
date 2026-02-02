@@ -15,6 +15,7 @@ import {
   TableHead,
   TableCell,
 } from "@/components/ui/Table";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
@@ -96,6 +97,23 @@ export const SalesManagement: React.FC = () => {
     return seoulTime.getFullYear();
   };
   const getCurrentYearString = () => getCurrentYear().toString();
+
+  // URL 쿼리 파라미터 훅
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // 현재 활성 탭 상태 (URL 파라미터에서 가져오기, 기본값: measurement)
+  const activeTab = searchParams.get("tab") || "measurement";
+
+  // 탭 변경 핸들러 (URL 업데이트)
+  const handleTabChange = (tabId: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", tabId);
+
+    // scroll: false 옵션을 사용하여 스크롤 위치 유지
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
 
   // 주기가 선택된 주기와 일치하는지 확인하는 헬퍼 함수
   const isMatchSelection = (itemPeriod: string | null, selectedPeriod: string) => {
@@ -1288,11 +1306,11 @@ export const SalesManagement: React.FC = () => {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow className="bg-sky-100">
-                  <TableHead className="text-center font-semibold py-3 px-3 text-black">연번</TableHead>
-                  <TableHead className="font-semibold py-3 px-4 text-black">매출 구분</TableHead>
+                  <TableHead className="text-center font-semibold py-3 px-3 text-black w-[60px]">연번</TableHead>
+                  <TableHead className="font-semibold py-3 px-4 text-black w-[150px]">매출 구분</TableHead>
                   <TableHead className="text-right font-semibold py-3 px-4 text-black">측정비</TableHead>
                   <TableHead className="text-right font-semibold py-3 px-4 text-black">부가세</TableHead>
                   <TableHead className="text-right font-semibold py-3 px-4 text-black">측정비(총액)</TableHead>
@@ -1980,6 +1998,8 @@ export const SalesManagement: React.FC = () => {
       <Card className="p-4">
         <h2 className="text-lg font-semibold text-text-900 mb-4">매출 상세 현황</h2>
         <Tab
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
           items={[
             {
               id: "measurement",
@@ -2094,10 +2114,10 @@ export const SalesManagement: React.FC = () => {
                       </Button>
                     </div>
                     <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white">
-                      <Table maxHeight="max-h-[calc(100vh-350px)]">
+                      <Table className="table-fixed" maxHeight="max-h-[calc(100vh-350px)]">
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="min-w-[120px] w-[120px]">
+                            <TableHead className="w-[100px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2116,7 +2136,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="min-w-[120px] w-[120px]">
+                            <TableHead className="w-[100px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2135,7 +2155,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="min-w-[200px]">
+                            <TableHead className="w-[220px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2161,7 +2181,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="min-w-[120px] w-[120px]">
+                            <TableHead className="w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2183,7 +2203,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="min-w-[120px] w-[120px]">
+                            <TableHead className="w-[100px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2202,7 +2222,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="text-right min-w-[120px] w-[120px]">
+                            <TableHead className="text-right w-[110px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2214,7 +2234,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-center min-w-[100px] w-[100px]">
+                            <TableHead className="text-center w-[100px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-center cursor-pointer hover:text-primary-600"
@@ -2226,7 +2246,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right min-w-[100px] w-[100px]">
+                            <TableHead className="text-right w-[100px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2238,7 +2258,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right min-w-[120px] w-[120px]">
+                            <TableHead className="text-right w-[110px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2250,7 +2270,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right min-w-[120px] w-[120px]">
+                            <TableHead className="text-right w-[110px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2262,7 +2282,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right min-w-[100px] w-[100px]">
+                            <TableHead className="text-right w-[100px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2274,7 +2294,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="min-w-[140px] w-[140px]">
+                            <TableHead className="w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2297,7 +2317,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="min-w-[80px] w-[80px]">작업</TableHead>
+                            <TableHead className="w-[80px]">작업</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2318,7 +2338,7 @@ export const SalesManagement: React.FC = () => {
                                 <TableRow key={item.id}>
                                   <TableCell>{item.measurement_year}</TableCell>
                                   <TableCell>{item.measurement_period}</TableCell>
-                                  <TableCell className="font-medium">{item.business_name}</TableCell>
+                                  <TableCell className="font-medium truncate max-w-[200px]" title={item.business_name}>{item.business_name}</TableCell>
                                   <TableCell>{item.representative_name}</TableCell>
                                   <TableCell>{item.designated_office}</TableCell>
                                   <TableCell className="text-right">
@@ -2566,10 +2586,10 @@ export const SalesManagement: React.FC = () => {
                       </div>
                     </div>
                     <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden">
-                      <Table maxHeight="max-h-[calc(100vh-350px)]">
+                      <Table className="table-fixed" maxHeight="max-h-[calc(100vh-350px)]">
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="w-12">
+                            <TableHead className="w-[50px]">
                               <Checkbox
                                 checked={
                                   filteredOther.length > 0 &&
@@ -2585,7 +2605,7 @@ export const SalesManagement: React.FC = () => {
                                 disabled={filteredOther.length === 0}
                               />
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[200px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2604,7 +2624,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2627,7 +2647,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2639,7 +2659,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2651,7 +2671,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2663,7 +2683,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500">-</div>
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2686,7 +2706,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -2698,7 +2718,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500">-</div>
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[200px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -2717,7 +2737,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[100px]">
                               <div className="space-y-1">
                                 <div className="text-sm font-medium">매출년도</div>
                                 <Select
@@ -2730,7 +2750,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[100px]">
                               <div className="space-y-1">
                                 <div className="text-sm font-medium">매출주기</div>
                                 <Select
@@ -2743,7 +2763,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>작업</TableHead>
+                            <TableHead className="w-[140px]">작업</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2767,7 +2787,7 @@ export const SalesManagement: React.FC = () => {
                                       onChange={(e) => handleSelectOther(item.id, e.target.checked)}
                                     />
                                   </TableCell>
-                                  <TableCell className="font-medium">{item.item_name}</TableCell>
+                                  <TableCell className="font-medium truncate max-w-[200px]" title={item.item_name}>{item.item_name}</TableCell>
                                   <TableCell>
                                     {item.invoice_date ? formatDateYYYYMMDD(item.invoice_date) : "-"}
                                   </TableCell>
@@ -2979,10 +2999,10 @@ export const SalesManagement: React.FC = () => {
                       </Button>
                     </div>
                     <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden">
-                      <Table maxHeight="max-h-[calc(100vh-350px)]">
+                      <Table className="table-fixed" maxHeight="max-h-[calc(100vh-350px)]">
                         <TableHeader>
                           <TableRow>
-                            <TableHead>
+                            <TableHead className="w-[80px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -3005,7 +3025,26 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[100px]">
+                              <div className="space-y-1">
+                                <div
+                                  className="flex items-center cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("designatedOffice")}
+                                >
+                                  지정지청
+                                  <SortIcon column="designatedOffice" />
+                                </div>
+                                <Select
+                                  value={unpaidFilters.designatedOffice}
+                                  onChange={(e) =>
+                                    setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
+                                  }
+                                  options={[{ value: "", label: "전체" }, ...officeOptions]}
+                                  className="text-xs h-7 text-center"
+                                />
+                              </div>
+                            </TableHead>
+                            <TableHead className="w-[300px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -3024,7 +3063,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[80px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -3043,7 +3082,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[80px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -3062,7 +3101,7 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -3074,7 +3113,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center justify-end cursor-pointer hover:text-primary-600"
@@ -3086,19 +3125,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="text-right">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("unpaid")}
-                                >
-                                  미수금
-                                  <SortIcon column="unpaid" />
-                                </div>
-                                <div className="text-xs text-text-500">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead>
+                            <TableHead className="w-[120px]">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -3121,26 +3148,19 @@ export const SalesManagement: React.FC = () => {
                                 />
                               </div>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("designatedOffice")}
+                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  onClick={() => handleSort("unpaid")}
                                 >
-                                  지정지청
-                                  <SortIcon column="designatedOffice" />
+                                  미수금
+                                  <SortIcon column="unpaid" />
                                 </div>
-                                <Select
-                                  value={unpaidFilters.designatedOffice}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
-                                  }
-                                  options={[{ value: "", label: "전체" }, ...officeOptions]}
-                                  className="text-xs h-7 text-center"
-                                />
+                                <div className="text-xs text-text-500">-</div>
                               </div>
                             </TableHead>
-                            <TableHead>작업</TableHead>
+                            <TableHead className="w-[80px]">작업</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -3171,7 +3191,8 @@ export const SalesManagement: React.FC = () => {
                                         {item.type === "measurement" ? "측정비" : "기타"}
                                       </span>
                                     </TableCell>
-                                    <TableCell className="font-medium">{item.name}</TableCell>
+                                    <TableCell>{item.designatedOffice || "-"}</TableCell>
+                                    <TableCell className="font-medium truncate max-w-[280px]" title={item.name}>{item.name}</TableCell>
                                     <TableCell>{item.year}</TableCell>
                                     <TableCell>{item.period}</TableCell>
                                     <TableCell className="text-right">
@@ -3180,15 +3201,14 @@ export const SalesManagement: React.FC = () => {
                                     <TableCell className="text-right">
                                       {formatCurrency(item.deposit)}원
                                     </TableCell>
-                                    <TableCell className="text-right text-warning-600 font-semibold">
-                                      {formatCurrency(item.unpaid)}원
-                                    </TableCell>
                                     <TableCell
                                       className={hasNoDepositDate ? "text-warning-600 font-semibold" : ""}
                                     >
                                       {item.depositDate ? formatDateYYYYMMDD(item.depositDate) : "미입금"}
                                     </TableCell>
-                                    <TableCell>{item.designatedOffice || "-"}</TableCell>
+                                    <TableCell className="text-right text-warning-600 font-semibold">
+                                      {formatCurrency(item.unpaid)}원
+                                    </TableCell>
                                     <TableCell>
                                       {item.type === "measurement" && item.measurementId && item.code ? (
                                         <Button
@@ -3229,13 +3249,13 @@ export const SalesManagement: React.FC = () => {
                                 );
                               })}
                               <TableRow className="bg-surface-50">
-                                <TableCell colSpan={7} className="text-right font-semibold">
+                                <TableCell colSpan={8} className="text-right font-semibold">
                                   미수금 합계
                                 </TableCell>
                                 <TableCell className="text-right font-bold text-warning-600 text-lg">
                                   {formatCurrency(totalUnpaid)}원
                                 </TableCell>
-                                <TableCell colSpan={2}>{""}</TableCell>
+                                <TableCell>{""}</TableCell>
                               </TableRow>
                             </>
                           )}
@@ -3357,42 +3377,42 @@ export const SalesManagement: React.FC = () => {
                 return (
                   <div className="mt-4">
                     <div className="bg-white p-6 border border-surface-200 rounded-xl mb-6 shadow-md">
-                      <div className="flex flex-wrap items-end gap-x-8 gap-y-5">
+                      <div className="flex flex-nowrap items-end gap-x-2 overflow-x-auto pb-2 scrollbar-hide">
                         {/* 1. 매출년도 */}
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-1 shrink-0">
                           <label className="text-sm font-bold text-text-800 ml-1">매출년도</label>
                           <Select
                             value={depositYear}
                             onChange={(e) => setDepositYear(e.target.value)}
                             options={[{ value: "", label: "전체" }, ...yearOptions]}
-                            className="w-40 h-11 text-sm font-medium text-center"
+                            className="w-28 h-10 text-sm font-medium text-center py-2"
                           />
                         </div>
 
                         {/* 2. 주기 */}
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-1 shrink-0">
                           <label className="text-sm font-bold text-text-800 ml-1">주기</label>
                           <Select
                             value={depositPeriod}
                             onChange={(e) => setDepositPeriod(e.target.value)}
                             options={periodOptions}
-                            className="w-40 h-11 text-sm font-medium text-center"
+                            className="w-24 h-10 text-sm font-medium text-center py-2"
                           />
                         </div>
 
                         {/* 3. 지정지청 */}
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-1 shrink-0">
                           <label className="text-sm font-bold text-text-800 ml-1">지정지청</label>
                           <Select
                             value={depositOffice}
                             onChange={(e) => setDepositOffice(e.target.value)}
                             options={[{ value: "", label: "전체" }, ...officeOptions]}
-                            className="w-44 h-11 text-sm font-medium text-center"
+                            className="w-28 h-10 text-sm font-medium text-center py-2"
                           />
                         </div>
 
                         {/* 4. 매출 구분 */}
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-1 shrink-0">
                           <label className="text-sm font-bold text-text-800 ml-1">매출 구분</label>
                           <Select
                             value={depositCategory}
@@ -3403,15 +3423,15 @@ export const SalesManagement: React.FC = () => {
                               { value: "측정비(국고)", label: "측정비(국고)" },
                               { value: "기타 매출", label: "기타 매출" },
                             ]}
-                            className="w-44 h-11 text-sm font-medium text-center"
+                            className="w-32 h-10 text-sm font-medium text-center py-2"
                           />
                         </div>
 
                         {/* 5. 입금 기간 */}
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-1 shrink-0">
                           <label className="text-sm font-bold text-text-800 ml-1">입금 기간</label>
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-lg border border-gray-200">
+                            <div className="flex items-center gap-1">
                               <Input
                                 type="date"
                                 value={depositStartDate}
@@ -3419,9 +3439,9 @@ export const SalesManagement: React.FC = () => {
                                   setDepositStartDate(e.target.value);
                                   setActiveQuickDate(null);
                                 }}
-                                className="w-[180px] h-12 text-lg font-bold large-date-input"
+                                className="w-[135px] h-9 text-sm font-bold"
                               />
-                              <span className="text-text-400 font-bold text-2xl mb-1">~</span>
+                              <span className="text-text-400 font-bold text-lg">~</span>
                               <Input
                                 type="date"
                                 value={depositEndDate}
@@ -3429,19 +3449,19 @@ export const SalesManagement: React.FC = () => {
                                   setDepositEndDate(e.target.value);
                                   setActiveQuickDate(null);
                                 }}
-                                className="w-[180px] h-12 text-lg font-bold large-date-input"
+                                className="w-[135px] h-9 text-sm font-bold"
                               />
                             </div>
-                            <div className="flex items-center gap-1.5 ml-2">
+                            <div className="flex items-center gap-1 border-l pl-2">
                               <Button
                                 variant="secondary"
                                 size="sm"
                                 onClick={() => handleQuickDateSelect("yesterday")}
                                 className={cn(
-                                  "h-10 px-4 font-bold transition-all rounded-lg text-sm border shadow-none",
+                                  "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
                                   activeQuickDate === "yesterday"
-                                    ? "bg-slate-600 text-white border-slate-700 hover:bg-slate-700 shadow-sm"
-                                    : "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200 hover:text-gray-800"
+                                    ? "bg-slate-600 text-white border-slate-700 hover:bg-slate-700"
+                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                                 )}
                               >
                                 전일
@@ -3451,10 +3471,10 @@ export const SalesManagement: React.FC = () => {
                                 size="sm"
                                 onClick={() => handleQuickDateSelect("today")}
                                 className={cn(
-                                  "h-10 px-4 font-bold transition-all rounded-lg text-sm border shadow-none",
+                                  "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
                                   activeQuickDate === "today"
-                                    ? "bg-amber-500 text-white border-amber-600 hover:bg-amber-600 shadow-sm"
-                                    : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 hover:text-amber-800"
+                                    ? "bg-amber-500 text-white border-amber-600 hover:bg-amber-600"
+                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                                 )}
                               >
                                 금일
@@ -3464,23 +3484,23 @@ export const SalesManagement: React.FC = () => {
                                 size="sm"
                                 onClick={() => handleQuickDateSelect("week")}
                                 className={cn(
-                                  "h-10 px-4 font-bold transition-all rounded-lg text-sm border shadow-none",
+                                  "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
                                   activeQuickDate === "week"
-                                    ? "bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600 shadow-sm"
-                                    : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:text-emerald-800"
+                                    ? "bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600"
+                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                                 )}
                               >
-                                1주일
+                                1주
                               </Button>
                               <Button
                                 variant="secondary"
                                 size="sm"
                                 onClick={() => handleQuickDateSelect("month")}
                                 className={cn(
-                                  "h-10 px-4 font-bold transition-all rounded-lg text-sm border shadow-none",
+                                  "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
                                   activeQuickDate === "month"
-                                    ? "bg-rose-500 text-white border-rose-600 hover:bg-rose-600 shadow-sm"
-                                    : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 hover:text-rose-800"
+                                    ? "bg-rose-500 text-white border-rose-600 hover:bg-rose-600"
+                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                                 )}
                               >
                                 1개월
@@ -3490,45 +3510,47 @@ export const SalesManagement: React.FC = () => {
                         </div>
 
                         {/* 6. 사업장명 / 품명 */}
-                        <div className="flex flex-col gap-2 w-[260px]">
-                          <label className="text-sm font-bold text-text-800 ml-1">사업장명 / 품명 검색</label>
+                        <div className="flex flex-col gap-1 w-[200px] shrink-0">
+                          <label className="text-sm font-bold text-text-800 ml-1">검색</label>
                           <Input
-                            placeholder="찾으시는 사업장명 또는 품명을 입력하세요..."
+                            placeholder="사업장명/품명..."
                             value={depositBusinessName}
                             onChange={(e) => setDepositBusinessName(e.target.value)}
-                            className="h-11 text-sm font-medium px-4"
+                            className="h-10 text-sm font-medium px-3"
                           />
                         </div>
 
-                        {/* 입금 건수 */}
-                        <div className="bg-blue-600 px-5 py-2.5 rounded-xl shadow-lg shadow-blue-100 flex flex-col items-center justify-center min-w-[120px] ml-auto">
-                          <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.1em] mb-0.5">입금 건수</div>
-                          <div className="text-2xl font-black text-white">
-                            {filteredDeposits.length}<span className="text-sm font-normal ml-1 text-white/80">건</span>
+                        <div className="flex items-center gap-3 ml-auto shrink-0">
+                          {/* 입금 건수 */}
+                          <div className="bg-blue-600 px-4 py-2 rounded-xl shadow-lg shadow-blue-100 flex flex-col items-center justify-center min-w-[100px]">
+                            <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.1em] mb-0.5">입금 건수</div>
+                            <div className="text-xl font-black text-white">
+                              {filteredDeposits.length}<span className="text-xs font-normal ml-1 text-white/80">건</span>
+                            </div>
                           </div>
-                        </div>
 
-                        {/* 합계 금액 - 더 강조된 박스 */}
-                        <div className="bg-primary-600 px-6 py-2.5 rounded-xl shadow-lg shadow-primary-100 flex flex-col items-center justify-center min-w-[200px] ml-4">
-                          <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.1em] mb-0.5">총 입금 합계</div>
-                          <div className="text-2xl font-black text-white">
-                            {formatCurrency(totalDepositAmount)}<span className="text-lg font-normal ml-1">원</span>
+                          {/* 합계 금액 */}
+                          <div className="bg-primary-600 px-5 py-2 rounded-xl shadow-lg shadow-primary-100 flex flex-col items-center justify-center min-w-[160px]">
+                            <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.1em] mb-0.5">총 입금 합계</div>
+                            <div className="text-xl font-black text-white">
+                              {formatCurrency(totalDepositAmount)}<span className="text-sm font-normal ml-1">원</span>
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     <div className="rounded-xl border border-surface-200 min-h-[500px] bg-white overflow-hidden shadow-lg">
-                      <Table maxHeight="max-h-[calc(100vh-420px)]">
+                      <Table className="table-fixed" maxHeight="max-h-[calc(100vh-420px)]">
                         <TableHeader>
                           <TableRow className="bg-surface-50">
-                            <TableHead className="font-bold py-4 text-text-900 text-sm pl-6">지정지청</TableHead>
-                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm">사업장명 / 품명</TableHead>
-                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm text-center">대표자</TableHead>
-                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm">매출 구분</TableHead>
-                            <TableHead className="text-center font-bold py-4 text-text-900 border-l border-surface-100 text-sm">입금일</TableHead>
-                            <TableHead className="text-right font-bold py-4 text-text-900 border-l border-surface-100 px-8 text-sm">입금액</TableHead>
-                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm">비고</TableHead>
+                            <TableHead className="font-bold py-4 text-text-900 text-sm pl-6 w-[120px]">지정지청</TableHead>
+                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm w-[250px]">사업장명 / 품명</TableHead>
+                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm text-center w-[150px]">대표자</TableHead>
+                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm w-[120px]">매출 구분</TableHead>
+                            <TableHead className="text-center font-bold py-4 text-text-900 border-l border-surface-100 text-sm w-[120px]">입금일</TableHead>
+                            <TableHead className="text-right font-bold py-4 text-text-900 border-l border-surface-100 px-8 text-sm w-[150px]">입금액</TableHead>
+                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm w-[200px]">비고</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -3548,7 +3570,7 @@ export const SalesManagement: React.FC = () => {
                                   <div className="absolute left-0 top-0 bottom-0 w-0 group-hover:w-1.5 bg-primary-500 transition-all rounded-r-md" />
                                   {item.designatedOffice || "-"}
                                 </TableCell>
-                                <TableCell className="font-bold text-text-900 text-base">{item.name}</TableCell>
+                                <TableCell className="font-bold text-text-900 text-base truncate max-w-[230px]" title={item.name}>{item.name}</TableCell>
                                 <TableCell className="text-text-700 font-medium text-center">{item.representative || "-"}</TableCell>
                                 <TableCell>
                                   <span className={`px-3 py-1 rounded-lg text-xs font-black

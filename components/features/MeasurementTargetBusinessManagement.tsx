@@ -333,71 +333,77 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             {/* Sticky Container for Filter & Table Header */}
             <div className="sticky top-16 lg:top-[113px] z-40 space-y-4 bg-gray-50/95 backdrop-blur">
                 <Card className="p-4 bg-white shadow-sm border-surface-200">
-                    <div className="flex items-center gap-2 flex-nowrap overflow-x-auto scrollbar-hide p-1">
-                        <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-base font-semibold whitespace-nowrap">측정년도/주기</span>
-                            <Select
-                                options={YEAR_PERIOD_OPTIONS}
-                                value={filters.yearPeriod}
-                                onChange={(e) => setFilters(prev => ({ ...prev, yearPeriod: e.target.value }))}
-                                className="w-[180px] h-10 py-2 text-base text-center"
-                            />
+                    <div className="flex items-center justify-between gap-4 flex-nowrap overflow-x-auto scrollbar-hide p-1">
+                        {/* Filters Group */}
+                        <div className="flex items-center gap-3 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">측정년도/주기</span>
+                                <Select
+                                    options={YEAR_PERIOD_OPTIONS}
+                                    value={filters.yearPeriod}
+                                    onChange={(e) => setFilters(prev => ({ ...prev, yearPeriod: e.target.value }))}
+                                    className="w-[140px] h-9 py-1 text-sm text-center"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">지정지청</span>
+                                <Select
+                                    options={OFFICE_OPTIONS}
+                                    value={filters.designatedOffice}
+                                    onChange={(e) => setFilters(prev => ({ ...prev, designatedOffice: e.target.value }))}
+                                    className="w-[100px] h-9 py-1 text-sm text-center"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">사업장명</span>
+                                <Input
+                                    value={filters.businessName}
+                                    onChange={(e) => setFilters(prev => ({ ...prev, businessName: e.target.value }))}
+                                    onKeyDown={handleKeyDown}
+                                    className="w-[150px] h-9 py-1 text-sm placeholder:text-xs"
+                                    placeholder="명칭 (쉼표)"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">주소</span>
+                                <Input
+                                    value={filters.address}
+                                    onChange={(e) => setFilters(prev => ({ ...prev, address: e.target.value }))}
+                                    onKeyDown={handleKeyDown}
+                                    className="w-[150px] h-9 py-1 text-sm placeholder:text-xs"
+                                    placeholder="주소 (쉼표)"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">실시여부</span>
+                                <Select
+                                    options={STATUS_OPTIONS}
+                                    value={filters.isRegistered}
+                                    onChange={(e) => setFilters(prev => ({ ...prev, isRegistered: e.target.value }))}
+                                    className="w-[110px] h-9 py-1 text-sm text-center"
+                                />
+                            </div>
                         </div>
+
+                        {/* Buttons Group */}
                         <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-base font-semibold whitespace-nowrap">지정지청</span>
-                            <Select
-                                options={OFFICE_OPTIONS}
-                                value={filters.designatedOffice}
-                                onChange={(e) => setFilters(prev => ({ ...prev, designatedOffice: e.target.value }))}
-                                className="w-[120px] h-10 py-2 text-base text-center"
-                            />
+                            <Button onClick={handleSearch} variant="primary" className="h-9 px-4 text-sm font-medium whitespace-nowrap">
+                                조회
+                            </Button>
+                            <Button onClick={handleExcelDownload} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-white border-slate-300 text-slate-700 hover:bg-slate-50">
+                                엑셀 다운로드
+                            </Button>
+                            <Button onClick={() => setIsExcelModalOpen(true)} variant="success" className="h-9 px-3 text-sm font-medium whitespace-nowrap">
+                                엑셀 업로드
+                            </Button>
+                            <Button onClick={() => setIsAddModalOpen(true)} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap">
+                                + 등록
+                            </Button>
+                            <a href="/templates/measure_target_template.xlsx" download="측정대상사업장_등록양식.xlsx" target="_blank" rel="noopener noreferrer"
+                                className="h-9 px-3 inline-flex items-center justify-center rounded-lg font-medium hover:bg-slate-100 border border-slate-200 text-slate-700 text-sm whitespace-nowrap ml-2" title="양식 다운로드">
+                                <span className="text-lg leading-none">⬇</span>
+                            </a>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-base font-semibold whitespace-nowrap">사업장명</span>
-                            <Input
-                                value={filters.businessName}
-                                onChange={(e) => setFilters(prev => ({ ...prev, businessName: e.target.value }))}
-                                onKeyDown={handleKeyDown}
-                                className="w-[200px] h-10 py-2 text-base"
-                                placeholder="명칭 (쉼표로 구분)"
-                            />
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-base font-semibold whitespace-nowrap">주소</span>
-                            <Input
-                                value={filters.address}
-                                onChange={(e) => setFilters(prev => ({ ...prev, address: e.target.value }))}
-                                onKeyDown={handleKeyDown}
-                                className="w-[200px] h-10 py-2 text-base"
-                                placeholder="주소 (쉼표로 구분)"
-                            />
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-base font-semibold whitespace-nowrap">실시여부</span>
-                            <Select
-                                options={STATUS_OPTIONS}
-                                value={filters.isRegistered}
-                                onChange={(e) => setFilters(prev => ({ ...prev, isRegistered: e.target.value }))}
-                                className="w-[140px] h-10 py-2 text-base text-center"
-                            />
-                        </div>
-                        <Button onClick={handleSearch} variant="primary" className="h-10 px-6 ml-2 text-base shrink-0 whitespace-nowrap">
-                            검색
-                        </Button>
-                        <div className="flex-1" />
-                        <Button onClick={() => setIsAddModalOpen(true)} variant="secondary" className="h-10 px-4 mr-2 bg-white text-base shrink-0 whitespace-nowrap">
-                            + 업체추가
-                        </Button>
-                        <Button onClick={() => setIsExcelModalOpen(true)} variant="success" className="h-10 px-4 mr-2 text-base shrink-0 whitespace-nowrap">
-                            엑셀업로드
-                        </Button>
-                        <Button onClick={handleExcelDownload} variant="secondary" className="h-10 px-4 mr-2 text-base shrink-0 whitespace-nowrap">
-                            엑셀다운로드
-                        </Button>
-                        <a href="/templates/measure_target_template.xlsx" download="측정대상사업장_등록양식.xlsx" target="_blank" rel="noopener noreferrer"
-                            className="h-10 px-4 inline-flex items-center justify-center rounded-lg font-medium hover:bg-slate-100 border border-slate-200 text-slate-700 text-base shrink-0 whitespace-nowrap">
-                            양식다운로드
-                        </a>
                     </div>
                 </Card>
 

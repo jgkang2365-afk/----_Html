@@ -13,10 +13,22 @@ export interface TabProps {
   items: TabItem[];
   defaultTab?: string;
   className?: string;
+  activeTab?: string;
+  onTabChange?: (tabId: string) => void;
 }
 
-export const Tab: React.FC<TabProps> = ({ items, defaultTab, className }) => {
-  const [activeTab, setActiveTab] = useState(defaultTab || items[0]?.id);
+export const Tab: React.FC<TabProps> = ({ items, defaultTab, className, activeTab: controlledActiveTab, onTabChange }) => {
+  const [internalActiveTab, setInternalActiveTab] = useState(defaultTab || items[0]?.id);
+
+  const isControlled = controlledActiveTab !== undefined;
+  const activeTab = isControlled ? controlledActiveTab : internalActiveTab;
+
+  const handleTabChange = (tabId: string) => {
+    if (!isControlled) {
+      setInternalActiveTab(tabId);
+    }
+    onTabChange?.(tabId);
+  };
 
   const activeContent = items.find((item) => item.id === activeTab)?.content;
 
@@ -33,7 +45,7 @@ export const Tab: React.FC<TabProps> = ({ items, defaultTab, className }) => {
               aria-selected={isActive}
               aria-controls={`tabpanel-${item.id}`}
               id={`tab-${item.id}`}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => handleTabChange(item.id)}
               className={cn(
                 "px-4 py-3 text-sm font-medium transition-colors",
                 "focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2",
