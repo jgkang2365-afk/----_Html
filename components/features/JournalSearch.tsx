@@ -957,46 +957,48 @@ export const JournalSearch: React.FC = () => {
                     <table className="w-full caption-bottom text-base">
                       <thead className="bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-10">
                         <tr className="border-b border-slate-100">
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-16 whitespace-nowrap sticky top-0 z-10">코드</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">측정년도</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">측정주기</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-24 whitespace-nowrap sticky top-0 z-10">지정지청</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-left align-middle font-bold text-slate-800 w-[280px] whitespace-nowrap sticky top-0 z-10">사업장명</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-left align-middle font-bold text-slate-800 w-[200px] whitespace-nowrap sticky top-0 z-10">주소</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-24 whitespace-nowrap sticky top-0 z-10">공문연번</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">연번</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-24 whitespace-nowrap sticky top-0 z-10">5인 이상 연번</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">총인원</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-24 whitespace-nowrap sticky top-0 z-10">측정<br />시작일</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">담당자</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-24 whitespace-nowrap sticky top-0 z-10">담당자 휴대폰</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">측정자</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">완료여부</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-4 text-center align-middle font-bold text-slate-800 w-16 whitespace-nowrap sticky top-0 z-10">작업</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-16 whitespace-nowrap sticky top-0 z-10">코드</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">측정년도</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">측정주기</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-24 whitespace-nowrap sticky top-0 z-10">지정지청</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-left align-middle font-bold text-slate-800 w-[200px] whitespace-nowrap sticky top-0 z-10">사업장명</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-left align-middle font-bold text-slate-800 w-[260px] whitespace-nowrap sticky top-0 z-10">주소</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">공문연번</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">연번</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">5인 이상 연번</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">총인원</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-28 whitespace-nowrap sticky top-0 z-10">측정시작일</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">담당자</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-32 whitespace-nowrap sticky top-0 z-10">담당자 휴대폰</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">측정자</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-16 whitespace-nowrap sticky top-0 z-10">완료여부</th>
+                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-16 whitespace-nowrap sticky top-0 z-10">작업</th>
                         </tr>
                       </thead>
                       <tbody>
                         {results.map((entry) => (
                           <tr key={entry.id || `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`} className="border-b border-slate-100 transition-colors hover:bg-slate-50/50">
-                            <td className="p-4 align-middle font-medium text-center">{entry.code}</td>
-                            <td className="p-4 align-middle font-medium text-center">{entry.measurement_year}</td>
-                            <td className="p-4 align-middle text-center">{entry.measurement_period}</td>
-                            <td className="p-4 align-middle text-center">{entry.designated_office}</td>
-                            <td className="p-4 align-middle font-medium truncate max-w-[280px]" title={entry.business_name}>{entry.business_name}</td>
-                            <td className="p-4 align-middle text-text-600 truncate max-w-[200px]" title={entry.address}>
-                              {entry.address || "-"}
+                            <td className="p-2 align-middle font-medium text-center">{entry.code}</td>
+                            <td className="p-2 align-middle font-medium text-center">{entry.measurement_year}</td>
+                            <td className="p-2 align-middle text-center">{entry.measurement_period}</td>
+                            <td className="p-2 align-middle text-center">{entry.designated_office}</td>
+                            <td className="p-2 align-middle font-medium truncate max-w-[200px]" title={entry.business_name}>{entry.business_name}</td>
+                            <td className="p-2 align-middle text-text-600 max-w-[260px] text-xs leading-tight break-keep" title={entry.address}>
+                              <div className="line-clamp-2">
+                                {entry.address || "-"}
+                              </div>
                             </td>
-                            <td className="p-4 align-middle text-center">{entry.document_number || "-"}</td>
-                            <td className="p-4 align-middle text-center">{entry.sequence_number || "-"}</td>
-                            <td className="p-4 align-middle text-center">{entry.five_plus_sequence || "-"}</td>
-                            <td className={`p-4 align-middle text-center ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : ''}`}>
+                            <td className="p-2 align-middle text-center">{entry.document_number || "-"}</td>
+                            <td className="p-2 align-middle text-center">{entry.sequence_number || "-"}</td>
+                            <td className="p-2 align-middle text-center">{entry.five_plus_sequence || "-"}</td>
+                            <td className={`p-2 align-middle text-center ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : ''}`}>
                               {entry.total_employees || "-"}
                             </td>
-                            <td className="p-4 align-middle text-center text-xs">{formatDate(entry.measurement_start_date)}</td>
-                            <td className="p-4 align-middle text-center">{entry.manager_name || "-"}</td>
-                            <td className="p-4 align-middle text-center">{entry.manager_mobile || "-"}</td>
-                            <td className="p-4 align-middle text-text-600 text-center">{entry.measurer || "-"}</td>
-                            <td className="p-4 align-middle text-center">
+                            <td className="p-2 align-middle text-center text-xs">{formatDate(entry.measurement_start_date)}</td>
+                            <td className="p-2 align-middle text-center">{entry.manager_name || "-"}</td>
+                            <td className="p-2 align-middle text-center">{entry.manager_mobile || "-"}</td>
+                            <td className="p-2 align-middle text-text-600 text-center">{entry.measurer || "-"}</td>
+                            <td className="p-2 align-middle text-center">
                               <span
                                 className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${entry.completion_status === "완료"
                                   ? "bg-green-100 text-green-800"
@@ -1006,7 +1008,7 @@ export const JournalSearch: React.FC = () => {
                                 {entry.completion_status}
                               </span>
                             </td>
-                            <td className="p-4 align-middle text-center">
+                            <td className="p-2 align-middle text-center">
                               <Button
                                 variant="secondary"
                                 size="sm"
@@ -1201,13 +1203,13 @@ export const JournalSearch: React.FC = () => {
                       <TableHead className="bg-surface-50 w-20 text-center">측정년도</TableHead>
                       <TableHead className="bg-surface-50 w-20 text-center">측정주기</TableHead>
                       <TableHead className="bg-surface-50 w-24 text-center">지정지청</TableHead>
-                      <TableHead className="bg-surface-50 w-[280px]">사업장명</TableHead>
-                      <TableHead className="bg-surface-50 w-[200px]">주소</TableHead>
-                      <TableHead className="bg-surface-50 w-24 text-center">공문연번</TableHead>
+                      <TableHead className="bg-surface-50 w-[200px]">사업장명</TableHead>
+                      <TableHead className="bg-surface-50 w-[260px]">주소</TableHead>
+                      <TableHead className="bg-surface-50 w-20 text-center">공문연번</TableHead>
                       <TableHead className="bg-surface-50 w-20 text-center">연번</TableHead>
-                      <TableHead className="bg-surface-50 w-24 text-center">5인 이상 연번</TableHead>
+                      <TableHead className="bg-surface-50 w-20 text-center">5인 이상 연번</TableHead>
                       <TableHead className="bg-surface-50 w-20 text-center">총인원</TableHead>
-                      <TableHead className="bg-surface-50 w-24 text-center">측정 시작일</TableHead>
+                      <TableHead className="bg-surface-50 w-20 text-center">측정 시작일</TableHead>
                       <TableHead className="bg-surface-50 w-20 text-center">담당자</TableHead>
                       <TableHead className="bg-surface-50 w-24 text-center">담당자 휴대폰</TableHead>
                       <TableHead className="bg-surface-50 w-20 text-center">측정자</TableHead>
@@ -1253,11 +1255,13 @@ export const JournalSearch: React.FC = () => {
                           </TableCell>
                           <TableCell className="text-center">{entry.measurement_period}</TableCell>
                           <TableCell className="text-center">{entry.designated_office}</TableCell>
-                          <TableCell className="font-medium truncate max-w-[280px]" title={entry.business_name}>
+                          <TableCell className="font-medium truncate max-w-[200px]" title={entry.business_name}>
                             {entry.business_name}
                           </TableCell>
-                          <TableCell className="text-text-600 truncate max-w-[200px]" title={entry.address}>
-                            {entry.address || "-"}
+                          <TableCell className="text-text-600 max-w-[260px] text-xs leading-tight break-keep" title={entry.address}>
+                            <div className="line-clamp-2">
+                              {entry.address || "-"}
+                            </div>
                           </TableCell>
                           <TableCell className="bg-surface-50 text-center">
                             {entry.document_number || "-"}
