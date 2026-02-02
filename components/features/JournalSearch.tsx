@@ -132,7 +132,14 @@ export const JournalSearch: React.FC = () => {
     return { value: year.toString(), label: year.toString() };
   }).reverse(); // 내림차순으로 정렬
 
-  // 측정주기 옵션
+  // 측정주기 옵션 (검색용)
+  const searchPeriodOptions = [
+    { value: "", label: "전체" },
+    { value: "상반기", label: "상반기" },
+    { value: "하반기", label: "하반기" },
+  ];
+
+  // 측정주기 옵션 (등록 현황 필터용)
   const periodOptions = [
     { value: "", label: "전체" },
     { value: "상반기", label: "상반기" },
@@ -141,7 +148,16 @@ export const JournalSearch: React.FC = () => {
     { value: "하반기(수시)", label: "하반기(수시)" },
   ];
 
-  // 지정한계_관할지청 옵션
+  // 지정한계_관할지청 옵션 (검색용)
+  const searchDesignatedOfficeOptions = [
+    { value: "", label: "전체" },
+    { value: "천안", label: "천안" },
+    { value: "대전", label: "대전" },
+    { value: "평택", label: "평택" },
+    { value: "경기", label: "경기" },
+  ];
+
+  // 지정한계_관할지청 옵션 (필터/등록용)
   const designatedOfficeOptions = DESIGNATED_OFFICE_OPTIONS;
 
   const handleSearch = async () => {
@@ -856,35 +872,23 @@ export const JournalSearch: React.FC = () => {
                 />
               </div>
               <div className="flex-1 min-w-[120px]">
-                <Input
+                <Select
                   label="측정년도"
                   value={searchParams.measurementYear}
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, measurementYear: e.target.value })
                   }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSearch();
-                    }
-                  }}
-                  placeholder="예: 2024, 2025"
+                  options={[{ value: "", label: "전체" }, ...yearOptions]}
                 />
               </div>
               <div className="flex-1 min-w-[120px]">
-                <Input
+                <Select
                   label="측정주기"
                   value={searchParams.measurementPeriod}
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, measurementPeriod: e.target.value })
                   }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSearch();
-                    }
-                  }}
-                  placeholder="예: 상반기, 하반기"
+                  options={searchPeriodOptions}
                 />
               </div>
               <div className="flex-1 min-w-[150px]">
@@ -904,19 +908,13 @@ export const JournalSearch: React.FC = () => {
                 />
               </div>
               <div className="flex-1 min-w-[150px]">
-                <Input
+                <Select
                   label="지정지청"
                   value={searchParams.designatedOffice}
                   onChange={(e) =>
                     setSearchParams({ ...searchParams, designatedOffice: e.target.value })
                   }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSearch();
-                    }
-                  }}
-                  placeholder="예: 대전, 천안"
+                  options={searchDesignatedOfficeOptions}
                 />
               </div>
               <div className="flex-1 min-w-[150px]">
