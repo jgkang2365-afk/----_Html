@@ -309,8 +309,8 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
             <h3 className="text-lg font-bold text-gray-800">측정 경과 일수(측정종료일 기준 20일 경과만 표시)</h3>
             <span className="text-xs text-gray-500 font-normal ml-auto">기준: 측정종료일 포함 30일</span>
           </div>
-          <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
-            <Table>
+          <div className="relative border rounded-md">
+            <Table maxHeight="max-h-[600px]">
               <TableHeader>
                 <TableRow className="border-b border-gray-100 hover:bg-transparent">
                   <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 shadow-sm h-10 w-[15%]">사업장명</TableHead>
@@ -360,9 +360,10 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
               </TableBody>
             </Table>
           </div>
+
         </Card>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 };
 

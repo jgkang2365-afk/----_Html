@@ -101,33 +101,75 @@ export async function GET(request: NextRequest) {
     const twentyDaysAgoStr = twentyDaysAgo.toISOString().split('T')[0];
 
     let q7 = supabase.from("measurement_journal")
-      .select("id, business_name, measurement_end_date, measurer")
-      .is("k2b_send_date", null) // 미전송 건만
-      .not("measurement_end_date", "is", null) // 종료일 있는 건만
-      .gte("measurement_end_date", "2025-12-25") // 25.12.25 이후
-      .lte("measurement_end_date", twentyDaysAgoStr) // 20일 이상 경과된 건만
-      .order("measurement_end_date", { ascending: true }) // 오래된 순
+      .select("id, code, measurement_year, measurement_period, business_name, measurement_end_date, measurer")
+      .is("k2b_send_date", null)
+      .not("measurement_end_date", "is", null)
+      .gte("measurement_end_date", "2025-12-25")
+      .lte("measurement_end_date", twentyDaysAgoStr)
+      .order("measurement_end_date", { ascending: true })
       .limit(1000);
 
-    // 필터 적용 (측정주기 등으로 필터링 가능하도록 수정)
     q7 = applyFilters(q7, 'measurement');
     const { data: overdueItems } = await q7;
+
+    // 예비조사 데이터 조회 (보고서 담당자 매칭용)
+    const codes = overdueItems?.map(item => item.code).filter(Boolean) || [];
+    const years = overdueItems?.map(item => item.measurement_year).filter(Boolean) || [];
+    const periods = overdueItems?.map(item => item.measurement_period).filter(Boolean) || [];
+
+    let surveyMap: Record<string, string> = {};
+    if (codes.length > 0) {
+      // 디버깅: 키 확인
+      console.log('[Dashboard] Overdue Items Sample Keys:', {
+        code: codes[0],
+        year: years[0],
+        period: periods[0]
+      });
+
+      const { data: surveyData, error: surveyError } = await supabase
+        .from("preliminary_survey")
+        .select("code, year, period, report_writer")
+        .in("code", codes)
+        .in("year", years) // 최적화: 관련된 연도만 조회
+        .limit(2000); // 충분한 limit 설정
+
+      if (surveyError) {
+        console.error('[Dashboard] Survey Fetch Error:', surveyError);
+      }
+
+      surveyData?.forEach(item => {
+        // 키 생성: code-year-period (문자열 변환 및 공백 제거)
+        const key = `${String(item.code || '').trim()}-${String(item.year || '').trim()}-${String(item.period || '').trim()}`;
+        if (item.report_writer) {
+          surveyMap[key] = item.report_writer;
+        }
+      });
+
+      console.log('[Dashboard] Survey Map Size:', Object.keys(surveyMap).length, 'Sample:', Object.keys(surveyMap)[0]);
+    }
 
     const processedOverdueItems = overdueItems?.map(item => {
       const endDate = new Date(item.measurement_end_date);
       const today = new Date();
-      // 경과일: 오늘 - 종료일 (일 단위, 절삭)
       const elapsed = Math.floor((today.getTime() - endDate.getTime()) / (1000 * 60 * 60 * 24));
       const remaining = 30 - elapsed;
+
+      // 보고서 담당자 매칭 (예비조사 우선 -> 없으면 existing measurer)
+      // 정확한 매칭을 위해 code, year, period 사용 (문자열 변환 및 공백 제거)
+      const key = `${String(item.code || '').trim()}-${String(item.measurement_year || '').trim()}-${String(item.measurement_period || '').trim()}`;
+      const reportWriter = surveyMap[key];
+
+      // report_writer가 콤마로 구분된 경우 첫 번째 사람만 표시 (선택사항)
+      // const displayWriter = reportWriter ? reportWriter.split(',')[0].trim() : (item.measurer || "-");
+      const displayWriter = reportWriter || item.measurer || "-";
 
       return {
         id: item.id,
         business_name: item.business_name,
         measurement_end_date: item.measurement_end_date,
-        measurer: item.measurer || "-",
+        measurer: displayWriter,
         elapsed_days: elapsed,
         remaining_days: remaining,
-        // 30일 이내면 적합, 초과면 부적합
         status_prediction: elapsed <= 30 ? "적합" : "부적합"
       };
     }) || [];
