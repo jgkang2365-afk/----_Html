@@ -366,54 +366,54 @@ export const SummaryTable: React.FC = () => {
                 <Table maxHeight="max-h-[calc(100vh-300px)]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>측정년도</TableHead>
-                      <TableHead>측정주기</TableHead>
-                      <TableHead>사업장명</TableHead>
-                      <TableHead>공문연번</TableHead>
-                      <TableHead>연번</TableHead>
-                      <TableHead>5인 이상 연번</TableHead>
-                      <TableHead>측정시작일</TableHead>
-                      <TableHead>측정종료일</TableHead>
-                      <TableHead>측정자</TableHead>
-                      <TableHead>예비조사자</TableHead>
-                      <TableHead>실측정자</TableHead>
-                      <TableHead>보고서 담당</TableHead>
-                      <TableHead>완료여부</TableHead>
-                      <TableHead>작업</TableHead>
+                      <TableHead className="w-14 text-center text-xs bg-surface-50">측정년도</TableHead>
+                      <TableHead className="w-14 text-center text-xs bg-surface-50">측정주기</TableHead>
+                      <TableHead className="w-[200px] text-xs bg-surface-50">사업장명</TableHead>
+                      <TableHead className="w-14 text-center text-xs bg-surface-50">공문연번</TableHead>
+                      <TableHead className="w-12 text-center text-xs bg-surface-50">연번</TableHead>
+                      <TableHead className="w-14 text-center text-xs bg-surface-50 px-1">5인이상</TableHead>
+                      <TableHead className="w-20 text-center text-xs bg-surface-50">측정시작일</TableHead>
+                      <TableHead className="w-20 text-center text-xs bg-surface-50">측정종료일</TableHead>
+                      <TableHead className="w-14 text-center text-xs bg-surface-50">측정자</TableHead>
+                      <TableHead className="w-16 text-center text-xs bg-surface-50">예비조사자</TableHead>
+                      <TableHead className="w-16 text-center text-xs bg-surface-50">실측정자</TableHead>
+                      <TableHead className="w-16 text-center text-xs bg-surface-50">보고서 담당</TableHead>
+                      <TableHead className="w-14 text-center text-xs bg-surface-50">완료여부</TableHead>
+                      <TableHead className="w-12 text-center text-xs bg-surface-50">작업</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {results.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell>{entry.measurement_year}</TableCell>
-                        <TableCell>{entry.measurement_period}</TableCell>
-                        <TableCell className="font-medium">{entry.business_name}</TableCell>
-                        <TableCell className="bg-surface-50 font-mono">
+                      <TableRow key={entry.id} className="hover:bg-slate-50/50">
+                        <TableCell className="p-1 text-center text-xs font-medium">{entry.measurement_year}</TableCell>
+                        <TableCell className="p-1 text-center text-xs">{entry.measurement_period}</TableCell>
+                        <TableCell className="p-1 font-medium text-xs truncate max-w-[200px]" title={entry.business_name}>{entry.business_name}</TableCell>
+                        <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
                           {entry.document_number || "-"}
                         </TableCell>
-                        <TableCell className="bg-surface-50 font-mono">
+                        <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
                           {entry.sequence_number || "-"}
                         </TableCell>
-                        <TableCell className="bg-surface-50 font-mono">
+                        <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
                           {entry.five_plus_sequence || "-"}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="p-1 text-center text-xs">
                           {entry.measurement_start_date
                             ? formatDateYYYYMMDD(entry.measurement_start_date)
                             : "-"}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="p-1 text-center text-xs">
                           {entry.measurement_end_date
                             ? formatDateYYYYMMDD(entry.measurement_end_date)
                             : "-"}
                         </TableCell>
-                        <TableCell>{entry.measurer || "-"}</TableCell>
-                        <TableCell>{entry.preliminary_surveyor || "-"}</TableCell>
-                        <TableCell>{entry.actual_measurer || "-"}</TableCell>
-                        <TableCell>{entry.report_writer || "-"}</TableCell>
-                        <TableCell>
+                        <TableCell className="p-1 text-center text-xs text-text-600">{entry.measurer || "-"}</TableCell>
+                        <TableCell className="p-1 text-center text-xs text-text-600">{entry.preliminary_surveyor || "-"}</TableCell>
+                        <TableCell className="p-1 text-center text-xs text-text-600">{entry.actual_measurer || "-"}</TableCell>
+                        <TableCell className="p-1 text-center text-xs text-text-600">{entry.report_writer || "-"}</TableCell>
+                        <TableCell className="p-1 text-center">
                           <span
-                            className={`px-2 py-1 rounded text-xs ${entry.completion_status === "완료"
+                            className={`px-1.5 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${entry.completion_status === "완료"
                               ? "bg-success-100 text-success-700"
                               : "bg-warning-100 text-warning-700"
                               }`}
@@ -421,15 +421,15 @@ export const SummaryTable: React.FC = () => {
                             {entry.completion_status}
                           </span>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="p-1 text-center">
                           <Button
                             variant="secondary"
                             size="sm"
                             onClick={() => handleEdit(entry)}
-                            className={entry.completion_status === "완료"
+                            className={`h-7 px-1.5 text-xs ${entry.completion_status === "완료"
                               ? ""
                               : "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border-yellow-200"
-                            }
+                              }`}
                           >
                             {entry.completion_status === "완료" ? "조회" : "수정"}
                           </Button>
@@ -559,7 +559,7 @@ export const SummaryTable: React.FC = () => {
             {/* 수정 불가 필드 (읽기 전용) */}
             <div className="bg-surface-50 p-4 rounded-lg space-y-2">
               <h3 className="font-semibold text-text-900 mb-3 px-1">수정 불가 필드</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                 <div className="p-1">
                   <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
                   <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
@@ -611,7 +611,7 @@ export const SummaryTable: React.FC = () => {
               {/* 측정 정보 */}
               <div className="space-y-4">
                 <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정 정보</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4">
                   <div className="p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       측정시작일
@@ -657,8 +657,8 @@ export const SummaryTable: React.FC = () => {
               {/* 사업장 정보 */}
               <div className="space-y-4">
                 <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">사업장 정보</h4>
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4">
-                  <div className="md:col-span-10 p-1">
+                <div className="grid grid-cols-1 md:grid-cols-12 print:grid-cols-12 gap-3 md:gap-4">
+                  <div className="md:col-span-10 print:col-span-10 p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       사업장명
                     </label>
@@ -671,7 +671,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="md:col-span-2 p-1">
+                  <div className="md:col-span-2 print:col-span-2 p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       총인원
                     </label>
@@ -688,7 +688,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="md:col-span-4 p-1">
+                  <div className="md:col-span-4 print:col-span-4 p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       사업자번호
                     </label>
@@ -702,7 +702,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="md:col-span-4 p-1">
+                  <div className="md:col-span-4 print:col-span-4 p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       산재관리번호
                     </label>
@@ -715,7 +715,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="md:col-span-4 p-1">
+                  <div className="md:col-span-4 print:col-span-4 p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       개시번호
                     </label>
@@ -728,7 +728,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="md:col-span-12 p-1">
+                  <div className="md:col-span-12 print:col-span-12 p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       주소
                     </label>
@@ -741,7 +741,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="md:col-span-6 p-1">
+                  <div className="md:col-span-6 print:col-span-6 p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       전화번호
                     </label>
@@ -754,7 +754,7 @@ export const SummaryTable: React.FC = () => {
                       disabled={selectedEntry.completion_status === "완료"}
                     />
                   </div>
-                  <div className="md:col-span-6 p-1">
+                  <div className="md:col-span-6 print:col-span-6 p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       팩스
                     </label>
@@ -773,7 +773,7 @@ export const SummaryTable: React.FC = () => {
               {/* 담당자 정보 */}
               <div className="space-y-4">
                 <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">담당자 정보</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                   <div className="p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       담당자명
@@ -847,7 +847,7 @@ export const SummaryTable: React.FC = () => {
               {/* K2B 정보 */}
               <div className="space-y-4">
                 <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">K2B 정보</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3 md:gap-4">
                   <div className="p-1">
                     <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                       K2B 발송일
