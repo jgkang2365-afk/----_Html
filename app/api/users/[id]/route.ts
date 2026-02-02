@@ -34,7 +34,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { role, survey_code } = body;
+    const { role, survey_code, job } = body;
 
     if (role && !["관리자", "사용자"].includes(role)) {
       return NextResponse.json(
@@ -61,10 +61,11 @@ export async function PATCH(
       .from("users")
       .update({
         ...(role && { role }),
+        ...(job && { job }),
         survey_code: survey_code || null,
       })
       .eq("id", userId)
-      .select("id, name, role, survey_code, updated_at")
+      .select("id, name, role, job, survey_code, updated_at")
       .single();
 
     if (updateError) {

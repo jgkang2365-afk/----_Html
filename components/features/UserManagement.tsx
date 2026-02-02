@@ -21,6 +21,7 @@ interface User {
   id: number;
   name: string;
   role: "관리자" | "사용자";
+  job?: string;
   survey_code?: string | null;
   created_at: string;
   updated_at: string;
@@ -37,6 +38,7 @@ export const UserManagement: React.FC = () => {
   const [createForm, setCreateForm] = useState({
     name: "",
     role: "사용자" as "관리자" | "사용자",
+    job: "측정",
     password: "",
     survey_code: "",
   });
@@ -54,6 +56,7 @@ export const UserManagement: React.FC = () => {
     id: 0,
     name: "",
     role: "사용자" as "관리자" | "사용자",
+    job: "측정",
     survey_code: "",
   });
 
@@ -111,7 +114,7 @@ export const UserManagement: React.FC = () => {
 
       setSuccess("사용자가 생성되었습니다.");
       setShowCreateModal(false);
-      setCreateForm({ name: "", role: "사용자", password: "", survey_code: "" });
+      setCreateForm({ name: "", role: "사용자", job: "측정", password: "", survey_code: "" });
       fetchUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -164,6 +167,7 @@ export const UserManagement: React.FC = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           role: editForm.role,
+          job: editForm.job,
           survey_code: editForm.survey_code || null,
         }),
       });
@@ -176,7 +180,7 @@ export const UserManagement: React.FC = () => {
 
       setSuccess("사용자 정보가 수정되었습니다.");
       setShowEditModal(false);
-      setEditForm({ id: 0, name: "", role: "사용자", survey_code: "" });
+      setEditForm({ id: 0, name: "", role: "사용자", job: "측정", survey_code: "" });
       fetchUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -242,6 +246,7 @@ export const UserManagement: React.FC = () => {
             <TableRow>
               <TableHead>이름</TableHead>
               <TableHead>역할</TableHead>
+              <TableHead>직무</TableHead>
               <TableHead>공시료 코드</TableHead>
               <TableHead>생성일</TableHead>
               <TableHead className="text-right">작업</TableHead>
@@ -259,6 +264,7 @@ export const UserManagement: React.FC = () => {
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">{user.name}</TableCell>
                   <TableCell>{user.role}</TableCell>
+                  <TableCell>{user.job || "-"}</TableCell>
                   <TableCell>{user.survey_code || "-"}</TableCell>
                   <TableCell>
                     {new Date(user.created_at).toLocaleDateString("ko-KR")}
@@ -269,7 +275,7 @@ export const UserManagement: React.FC = () => {
                         variant="secondary"
                         size="sm"
                         onClick={() => {
-                          setEditForm({ id: user.id, name: user.name, role: user.role, survey_code: user.survey_code || "" });
+                          setEditForm({ id: user.id, name: user.name, role: user.role, job: user.job || "측정", survey_code: user.survey_code || "" });
                           setShowEditModal(true);
                         }}
                       >
@@ -309,7 +315,7 @@ export const UserManagement: React.FC = () => {
         isOpen={showCreateModal}
         onClose={() => {
           setShowCreateModal(false);
-          setCreateForm({ name: "", role: "사용자", password: "", survey_code: "" });
+          setCreateForm({ name: "", role: "사용자", job: "측정", password: "", survey_code: "" });
           setError(null);
         }}
         title="사용자 추가"
@@ -339,6 +345,17 @@ export const UserManagement: React.FC = () => {
             ]}
             required
           />
+          <Select
+            label="직무"
+            value={createForm.job}
+            onChange={(e) =>
+              setCreateForm({ ...createForm, job: e.target.value })
+            }
+            options={[
+              { value: "측정", label: "측정" },
+              { value: "분석", label: "분석" },
+            ]}
+          />
           <Input
             label="비밀번호 (선택사항)"
             type="password"
@@ -361,7 +378,7 @@ export const UserManagement: React.FC = () => {
               variant="secondary"
               onClick={() => {
                 setShowCreateModal(false);
-                setCreateForm({ name: "", role: "사용자", password: "", survey_code: "" });
+                setCreateForm({ name: "", role: "사용자", job: "측정", password: "", survey_code: "" });
                 setError(null);
               }}
             >
@@ -425,7 +442,7 @@ export const UserManagement: React.FC = () => {
         isOpen={showEditModal}
         onClose={() => {
           setShowEditModal(false);
-          setEditForm({ id: 0, name: "", role: "사용자", survey_code: "" });
+          setEditForm({ id: 0, name: "", role: "사용자", job: "측정", survey_code: "" });
           setError(null);
         }}
         title="사용자 수정"
@@ -453,6 +470,17 @@ export const UserManagement: React.FC = () => {
               { value: "관리자", label: "관리자" },
             ]}
           />
+          <Select
+            label="직무"
+            value={editForm.job}
+            onChange={(e) =>
+              setEditForm({ ...editForm, job: e.target.value })
+            }
+            options={[
+              { value: "측정", label: "측정" },
+              { value: "분석", label: "분석" },
+            ]}
+          />
           <Input
             label="공시료 코드 (선택사항)"
             value={editForm.survey_code}
@@ -465,7 +493,7 @@ export const UserManagement: React.FC = () => {
               variant="secondary"
               onClick={() => {
                 setShowEditModal(false);
-                setEditForm({ id: 0, name: "", role: "사용자", survey_code: "" });
+                setEditForm({ id: 0, name: "", role: "사용자", job: "측정", survey_code: "" });
                 setError(null);
               }}
             >

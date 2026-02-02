@@ -1,10 +1,10 @@
 import { requireAuth } from "@/lib/auth/require-auth";
-import { BusinessManagement } from "@/components/features/BusinessManagement";
+import { MeasurementTargetBusinessManagement } from "@/components/features/MeasurementTargetBusinessManagement";
 
 export default async function BusinessesPage() {
   await requireAuth();
 
   return (
-    <BusinessManagement />
+    <MeasurementTargetBusinessManagement />
   );
 }

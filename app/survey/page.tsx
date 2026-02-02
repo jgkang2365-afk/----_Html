@@ -37,6 +37,7 @@ interface Survey {
   report_writer: string | null;
   sequence_number: number | null;
   business_number: string | null; // Added field
+  notes: string | null;
   year: number | null;
   period: string | null;
   created_at: string;
@@ -63,7 +64,7 @@ export default function SurveyPage() {
   const [editingSurvey, setEditingSurvey] = useState<Survey | null>(null);
   const [selectedBusinessForForm, setSelectedBusinessForForm] = useState<BusinessInfo | null>(null); // 선택된 사업장 정보
   // 탭 상태
-  const [activeTab, setActiveTab] = useState<"search" | "list">("search");
+  const [activeTab, setActiveTab] = useState<"search" | "list">("list");
 
   // 초기 로드 시 localStorage에서 탭 상태 복원 (Client-side only)
   useEffect(() => {
@@ -98,6 +99,13 @@ export default function SurveyPage() {
     officeJurisdiction: "",
     address: "",
   });
+
+  // 예비조사 목록 검색 상태
+  const [listSearchParams, setListSearchParams] = useState({
+    measurementDate: "",
+    businessName: "",
+  });
+
   const [hasSearched, setHasSearched] = useState(false);
   const [officeOptions, setOfficeOptions] = useState<{ value: string; label: string }[]>([
     { value: "", label: "전체" },
@@ -181,7 +189,16 @@ export default function SurveyPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/survey");
+      const params = new URLSearchParams();
+      if (listSearchParams.measurementDate) {
+        params.append("measurementDate", listSearchParams.measurementDate);
+      }
+      if (listSearchParams.businessName) {
+        params.append("businessName", listSearchParams.businessName);
+      }
+
+      const url = params.toString() ? `/api/survey?${params.toString()}` : "/api/survey";
+      const response = await fetch(url);
       const data = await response.json();
 
       if (response.ok) {
@@ -324,18 +341,6 @@ export default function SurveyPage() {
         <div className="flex gap-4">
           <button
             onClick={() => {
-              setActiveTab("search");
-              // 상태 유지 (검색 결과 초기화 안함)
-            }}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "search"
-              ? "text-primary-500 border-b-2 border-primary-500"
-              : "text-text-700 hover:text-text-900"
-              }`}
-          >
-            사업장 검색
-          </button>
-          <button
-            onClick={() => {
               setActiveTab("list");
               // 목록이 비어있을 때만 로드 (이미 로드된 데이터 유지)
               if (surveys.length === 0) {
@@ -348,6 +353,18 @@ export default function SurveyPage() {
               }`}
           >
             예비조사 목록
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("search");
+              // 상태 유지 (검색 결과 초기화 안함)
+            }}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "search"
+              ? "text-primary-500 border-b-2 border-primary-500"
+              : "text-text-700 hover:text-text-900"
+              }`}
+          >
+            사업장 검색
           </button>
         </div>
       </div>
@@ -615,6 +632,9 @@ export default function SurveyPage() {
         </div>
       </Modal>
 
+      {/* 목록 탭일 때 표시할 검색 필터 */}
+
+
       {/* 예비조사 목록 (예비조사 목록 탭) */}
       {activeTab === "list" && !loading && (
         <Card className="p-6 shadow-sm">
@@ -630,63 +650,71 @@ export default function SurveyPage() {
                     return surveyYear.toString() === selectedYear;
                   });
                 }
-                if (businessNameFilter) {
-                  filtered = filtered.filter((survey) => {
-                    return survey.business_name.toLowerCase().includes(businessNameFilter.toLowerCase());
-                  });
-                }
+
                 return filtered.length;
               })()}건)
             </h2>
-            <div className="flex items-center gap-3">
-              {/* 사업장명 검색 입력 필드 */}
-              <div className="relative w-[768px]">
+            <div className="flex items-center gap-2">
+              {/* 초기화 버튼 */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setListSearchParams({ measurementDate: "", businessName: "" });
+                }}
+                className="whitespace-nowrap h-10 px-3 mr-2"
+              >
+                초기화
+              </Button>
+
+              {/* 검색 그룹 */}
+              <div className="flex items-center gap-2 mr-2 bg-slate-50 p-1 rounded-lg border border-slate-200">
+                {/* 사업장명 검색 입력 필드 */}
+                <div className="relative w-[300px]">
+                  <Input
+                    value={listSearchParams.businessName}
+                    onChange={(e) => setListSearchParams({ ...listSearchParams, businessName: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        loadSurveys();
+                      }
+                    }}
+                    placeholder="사업장명"
+                    className="w-full h-9 border-none focus:ring-0 bg-transparent"
+                    autoComplete="off"
+                  />
+                  {listSearchParams.businessName && (
+                    <button
+                      type="button"
+                      onClick={() => setListSearchParams({ ...listSearchParams, businessName: "" })}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <span className="sr-only">지우기</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                <div className="h-5 w-px bg-slate-300 mx-1"></div>
+
+                {/* 측정일자 검색 */}
                 <Input
-                  value={businessNameFilter}
-                  onChange={(e) => setBusinessNameFilter(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      // 필터링은 이미 실시간으로 작동하므로 추가 작업 불필요
-                    }
-                  }}
-                  placeholder="사업장명 검색"
-                  className="w-full pr-10"
-                  autoComplete="off"
+                  type="date"
+                  value={listSearchParams.measurementDate}
+                  onChange={(e) => setListSearchParams({ ...listSearchParams, measurementDate: e.target.value })}
+                  className="w-[140px] h-9 border-none focus:ring-0 bg-transparent text-sm"
+                  title="측정일자 검색"
                 />
-                <button
-                  type="button"
-                  onClick={() => {
-                    // 필터링은 이미 실시간으로 작동하므로 포커스만 유지
-                    // 필요시 추가 로직 구현 가능
-                  }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:opacity-70 transition-opacity cursor-pointer"
-                  aria-label="검색"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <circle
-                      cx="11"
-                      cy="11"
-                      r="7"
-                      stroke="#22c55e"
-                      strokeWidth="2"
-                      fill="none"
-                    />
-                    <path
-                      d="m20 20-4-4"
-                      stroke="#22c55e"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
+
+                {/* 검색 버튼 */}
+                <Button onClick={loadSurveys} size="sm" className="h-8 px-4 ml-1 whitespace-nowrap">
+                  검색
+                </Button>
               </div>
+
               {/* 년도 선택 드롭다운 */}
               <Select
                 value={selectedYear}
@@ -701,9 +729,9 @@ export default function SurveyPage() {
                     return { value: year.toString(), label: year.toString() };
                   }),
                 ]}
-                className="w-32 bg-orange-100 text-black font-bold [&>select]:bg-orange-100 [&>select]:text-black [&>select]:font-bold"
+                className="w-28 bg-orange-100 text-black font-bold [&>select]:bg-orange-100 [&>select]:text-black [&>select]:font-bold h-10 py-2 text-sm"
               />
-              <Button variant="secondary" onClick={handleExportExcel} className="whitespace-nowrap">
+              <Button variant="secondary" onClick={handleExportExcel} className="whitespace-nowrap h-10 px-3">
                 엑셀 다운로드
               </Button>
             </div>
@@ -719,11 +747,7 @@ export default function SurveyPage() {
                 return surveyYear.toString() === selectedYear;
               });
             }
-            if (businessNameFilter) {
-              filteredSurveys = filteredSurveys.filter((survey) => {
-                return survey.business_name.toLowerCase().includes(businessNameFilter.toLowerCase());
-              });
-            }
+
 
             // 순번 기준 정렬
             const sortedSurveys = [...filteredSurveys].sort((a, b) => {
@@ -738,82 +762,67 @@ export default function SurveyPage() {
               </div>
             ) : (
               <div className="rounded-lg border border-surface-200 overflow-hidden">
-                <div className="max-h-[calc(100vh-300px)] overflow-y-auto overflow-x-auto">
-                  <table className="w-full caption-bottom text-base">
-                    <thead className="bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-10">
-                      <tr className="border-b border-slate-100">
-                        <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-2">
+                <div className="h-[calc(100vh-280px)] overflow-y-auto border-t border-slate-200">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 sticky top-0 z-10 text-xs uppercase font-semibold text-slate-500">
+                      <tr>
+                        <th className="px-2 py-3 text-center w-[60px]">
+                          <div className="flex items-center justify-center gap-1">
                             <span>순번</span>
                             <button
                               onClick={() => setSequenceSortOrder(sequenceSortOrder === "asc" ? "desc" : "asc")}
-                              className="p-1.5 hover:bg-surface-100 rounded transition-colors flex items-center justify-center"
-                              title={sequenceSortOrder === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}
+                              className="hover:bg-slate-200 rounded p-0.5"
                             >
-                              {sequenceSortOrder === "asc" ? (
-                                // 빨간색 위 삼각형 (오름차순)
-                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <path d="M12 8L8 12H16L12 8Z" fill="#EF4444" />
-                                </svg>
-                              ) : (
-                                // 파란색 아래 삼각형 (내림차순)
-                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <path d="M12 16L16 12H8L12 16Z" fill="#3B82F6" />
-                                </svg>
-                              )}
+                              {sequenceSortOrder === "asc" ? "▲" : "▼"}
                             </button>
                           </div>
                         </th>
-                        <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정년도</th>
-                        <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">주기</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정일</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">종료일</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정요일</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">사업장명</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">사업자번호</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">측정자</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">공시료 코드</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">예비조사자</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">실측정자</th>
-                        <th className="h-12 px-4 text-left align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">보고서 담당</th>
-                        <th className="h-12 px-4 text-center align-middle font-bold text-slate-800 bg-surface-50 whitespace-nowrap">작업</th>
+                        <th className="px-2 py-3 text-center w-[60px]">년도</th>
+                        <th className="px-2 py-3 text-center w-[60px]">주기</th>
+                        <th className="px-2 py-3 text-center w-[90px]">측정일</th>
+                        <th className="px-2 py-3 text-center w-[90px]">종료일</th>
+                        <th className="px-2 py-3 text-center w-[120px]">측정요일</th>
+                        <th className="px-2 py-3 text-left">사업장명</th>
+                        <th className="px-2 py-3 text-center w-[110px]">사업자번호</th>
+                        <th className="px-2 py-3 text-center w-[80px]">측정자</th>
+                        <th className="px-2 py-3 text-center w-[90px]">공시료코드</th>
+                        <th className="px-2 py-3 text-center w-[100px]">예비조사자</th>
+                        <th className="px-2 py-3 text-center w-[80px]">실측정자</th>
+                        <th className="px-2 py-3 text-center w-[80px]">보고서</th>
+                        <th className="px-2 py-3 text-left w-[200px]">비고</th>
+                        <th className="px-2 py-3 text-center w-[120px]">작업</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-slate-100">
                       {sortedSurveys.map((survey) => (
-                        <tr key={survey.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/50">
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap text-center">
-                            {survey.sequence_number || "-"}
-                          </td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap text-center">
-                            {survey.year || "-"}
-                          </td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap text-center">
-                            {survey.period || "-"}
-                          </td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                        <tr key={survey.id} className="hover:bg-slate-50/50">
+                          <td className="px-2 py-2 text-center">{survey.sequence_number || "-"}</td>
+                          <td className="px-2 py-2 text-center">{survey.year || "-"}</td>
+                          <td className="px-2 py-2 text-center">{survey.period || "-"}</td>
+                          <td className="px-2 py-2 text-center">
                             {survey.measurement_date
                               ? formatDateYYYYMMDD(new Date(survey.measurement_date))
                               : "-"}
                           </td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
+                          <td className="px-2 py-2 text-center">
                             {survey.end_date ? formatDateYYYYMMDD(new Date(survey.end_date)) : "-"}
                           </td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurement_weekdays || "-"}</td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap font-medium">{survey.business_name}</td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.business_number || "-"}</td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.measurer || "-"}</td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap notranslate" translate="no">{survey.survey_code || "-"}</td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.preliminary_surveyor || "-"}</td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.actual_measurer || "-"}</td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">{survey.report_writer || "-"}</td>
-                          <td className="p-4 align-middle text-slate-600 whitespace-nowrap">
-                            <div className="flex gap-2 justify-center">
+                          <td className="px-2 py-2 text-center text-xs">{survey.measurement_weekdays || "-"}</td>
+                          <td className="px-2 py-2 font-medium truncate max-w-[200px]" title={survey.business_name}>{survey.business_name}</td>
+                          <td className="px-2 py-2 text-center">{survey.business_number || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs truncate max-w-[80px]" title={survey.measurer || ""}>{survey.measurer || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs">{survey.survey_code || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs truncate max-w-[100px]" title={survey.preliminary_surveyor || ""}>{survey.preliminary_surveyor || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs truncate max-w-[80px]" title={survey.actual_measurer || ""}>{survey.actual_measurer || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs truncate max-w-[80px]" title={survey.report_writer || ""}>{survey.report_writer || "-"}</td>
+                          <td className="px-2 py-2 text-xs truncate max-w-[200px]" title={survey.notes || ""}>{survey.notes || "-"}</td>
+                          <td className="px-2 py-2 text-center">
+                            <div className="flex gap-1 justify-center whitespace-nowrap">
                               <Button
                                 variant="secondary"
                                 size="sm"
                                 onClick={() => handleEditSurvey(survey)}
-                                className="shadow-sm"
+                                className="h-7 px-2 text-xs"
                               >
                                 수정
                               </Button>
@@ -821,7 +830,7 @@ export default function SurveyPage() {
                                 variant="secondary"
                                 size="sm"
                                 onClick={() => handleDeleteSurvey(survey.id)}
-                                className="shadow-sm"
+                                className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
                               >
                                 삭제
                               </Button>
@@ -836,81 +845,89 @@ export default function SurveyPage() {
             );
           })()}
         </Card>
-      )}
+      )
+      }
 
-      {loading && (
-        <div className="flex justify-center py-12">
-          <LoadingSpinner />
-        </div>
-      )}
+      {
+        loading && (
+          <div className="flex justify-center py-12">
+            <LoadingSpinner />
+          </div>
+        )
+      }
 
       {/* 예비조사 입력/수정 모달 */}
-      {isFormOpen && (
-        <Modal
-          isOpen={isFormOpen}
-          onClose={handleFormCancel}
-          title={editingSurvey ? "예비조사 수정" : "예비조사 등록"}
-          size="full"
-        >
-          <SurveyForm
-            initialData={
-              editingSurvey
-                ? {
-                  id: editingSurvey.id,
-                  code: editingSurvey.code,
-                  business_name: editingSurvey.business_name,
-                  business_number: editingSurvey.business_number ?? undefined,
-                  measurement_date: editingSurvey.measurement_date,
-                  end_date: editingSurvey.end_date ?? undefined,
-                  measurement_weekdays: editingSurvey.measurement_weekdays ?? undefined,
-                  measurer: editingSurvey.measurer ?? undefined,
-                  survey_code: editingSurvey.survey_code ?? undefined,
-                  address: editingSurvey.address ?? undefined,
-                  preliminary_surveyor: editingSurvey.preliminary_surveyor ?? undefined,
-                  actual_measurer: editingSurvey.actual_measurer ?? undefined,
-                  report_writer: editingSurvey.report_writer ?? undefined,
-                  sequence_number: editingSurvey.sequence_number ?? undefined,
-                  year: editingSurvey.year ?? undefined,
-                  period: editingSurvey.period ?? undefined,
-                } as any
-                : selectedBusinessForForm
+      {
+        isFormOpen && (
+          <Modal
+            isOpen={isFormOpen}
+            onClose={handleFormCancel}
+            title={editingSurvey ? "예비조사 수정" : "예비조사 등록"}
+            size="full"
+          >
+            <SurveyForm
+              initialData={
+                editingSurvey
                   ? {
-                    code: selectedBusinessForForm.code,
-                    business_name: selectedBusinessForForm.business_name,
-                    business_number: selectedBusinessForForm.business_number || "",
-                    address: selectedBusinessForForm.address ||
-                      [selectedBusinessForForm.address1, selectedBusinessForForm.address2]
-                        .filter(Boolean).join(" ") || "",
-                  }
-                  : undefined
-            }
-            onSuccess={handleFormSuccess}
-            onCancel={handleFormCancel}
-          />
-        </Modal>
-      )}
+                    id: editingSurvey.id,
+                    code: editingSurvey.code,
+                    business_name: editingSurvey.business_name,
+                    business_number: editingSurvey.business_number ?? undefined,
+                    measurement_date: editingSurvey.measurement_date,
+                    end_date: editingSurvey.end_date ?? undefined,
+                    measurement_weekdays: editingSurvey.measurement_weekdays ?? undefined,
+                    measurer: editingSurvey.measurer ?? undefined,
+                    survey_code: editingSurvey.survey_code ?? undefined,
+                    address: editingSurvey.address ?? undefined,
+                    preliminary_surveyor: editingSurvey.preliminary_surveyor ?? undefined,
+                    actual_measurer: editingSurvey.actual_measurer ?? undefined,
+                    report_writer: editingSurvey.report_writer ?? undefined,
+                    notes: editingSurvey.notes ?? undefined,
+                    sequence_number: editingSurvey.sequence_number ?? undefined,
+                    year: editingSurvey.year ?? undefined,
+                    period: editingSurvey.period ?? undefined,
+                  } as any
+                  : selectedBusinessForForm
+                    ? {
+                      code: selectedBusinessForForm.code,
+                      business_name: selectedBusinessForForm.business_name,
+                      business_number: selectedBusinessForForm.business_number || "",
+                      address: selectedBusinessForForm.address ||
+                        [selectedBusinessForForm.address1, selectedBusinessForForm.address2]
+                          .filter(Boolean).join(" ") || "",
+                    }
+                    : undefined
+              }
+              onSuccess={handleFormSuccess}
+              onCancel={handleFormCancel}
+            />
+          </Modal>
+        )
+      }
 
       {/* 일괄 등록 모달 */}
-      {isBulkRegisterModalOpen && (
-        <Modal
-          isOpen={isBulkRegisterModalOpen}
-          onClose={() => setIsBulkRegisterModalOpen(false)}
-          title="예비조사 일괄 등록"
-          size="lg"
-        >
-          <BulkRegisterModal
-            selectedBusinesses={businesses
-              .filter(b => selectedBusinessCodes.has(b.code))
-              .map(b => ({
-                ...b,
-                address: b.address || [b.address1, b.address2].filter(Boolean).join(" ") || ""
-              }))
-            }
+      {
+        isBulkRegisterModalOpen && (
+          <Modal
+            isOpen={isBulkRegisterModalOpen}
             onClose={() => setIsBulkRegisterModalOpen(false)}
-            onSuccess={handleBulkSuccess}
-          />
-        </Modal>
-      )}
-    </div>
+            title="예비조사 일괄 등록"
+            size="lg"
+          >
+            <BulkRegisterModal
+              selectedBusinesses={businesses
+                .filter(b => selectedBusinessCodes.has(b.code))
+                .map(b => ({
+                  ...b,
+                  address: b.address || [b.address1, b.address2].filter(Boolean).join(" ") || ""
+                }))
+              }
+              onClose={() => setIsBulkRegisterModalOpen(false)}
+              onSuccess={handleBulkSuccess}
+            />
+          </Modal>
+        )
+      }
+    </div >
   );
 }

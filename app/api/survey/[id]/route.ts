@@ -35,6 +35,7 @@ export async function PUT(
       preliminary_surveyor,
       actual_measurer,
       report_writer,
+      notes,
     } = body;
 
     // 필수 필드 검증
@@ -111,6 +112,7 @@ export async function PUT(
         preliminary_surveyor: preliminary_surveyor || null,
         actual_measurer: actual_measurer || null,
         report_writer: report_writer || null,
+        notes: notes || null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", parseInt(id))
@@ -130,7 +132,7 @@ export async function PUT(
       // 해당 코드의 가장 최근 예비조사의 측정일을 사용
       const { data: latestSurvey, error: latestSurveyError } = await supabase
         .from("preliminary_survey")
-        .select("measurement_date")
+        .select("measurement_date, notes")
         .eq("code", code)
         .not("measurement_date", "is", null)
         .order("measurement_date", { ascending: false })
@@ -140,8 +142,12 @@ export async function PUT(
       if (!latestSurveyError && latestSurvey?.measurement_date) {
         // measurement_target_business 테이블에서 해당 코드의 모든 레코드 업데이트
         const { error: updateError } = await supabase
+
           .from("measurement_target_business")
-          .update({ measurement_date: latestSurvey.measurement_date })
+          .update({
+            measurement_date: latestSurvey.measurement_date,
+            notes: latestSurvey.notes
+          })
           .eq("code", code);
 
         if (updateError) {
@@ -256,7 +262,7 @@ export async function DELETE(
       // 해당 코드의 가장 최근 예비조사의 측정일을 사용 (삭제 후 남은 것 중)
       const { data: latestSurvey, error: latestSurveyError } = await supabase
         .from("preliminary_survey")
-        .select("measurement_date")
+        .select("measurement_date, notes")
         .eq("code", deletedCode)
         .not("measurement_date", "is", null)
         .order("measurement_date", { ascending: false })
@@ -268,7 +274,10 @@ export async function DELETE(
         // latestSurvey가 null이면 (더 이상 예비조사가 없으면) measurement_date를 null로 설정
         const { error: updateError } = await supabase
           .from("measurement_target_business")
-          .update({ measurement_date: latestSurvey?.measurement_date || null })
+          .update({
+            measurement_date: latestSurvey?.measurement_date || null,
+            notes: latestSurvey?.notes || null
+          })
           .eq("code", deletedCode);
 
         if (updateError) {

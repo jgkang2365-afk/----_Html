@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
     const businessName = searchParams.get("businessName")?.trim() || null;
     const officeJurisdiction = searchParams.get("officeJurisdiction")?.trim() || null;
     const address = searchParams.get("address")?.trim() || null;
+    const measurementDate = searchParams.get("measurementDate")?.trim() || null;
     const maxSequence = searchParams.get("maxSequence") === "true";
 
     const supabase = await createClient();
@@ -190,7 +191,12 @@ export async function GET(request: NextRequest) {
         if (filteredCodes.length > 0) {
           surveyQuery = surveyQuery.in("code", filteredCodes);
         } else if (code || businessNumber || businessName || address || officeJurisdiction) {
+          // 검색 조건이 있지만 매칭되는 코드가 없는 경우
           return NextResponse.json({ surveys: [] });
+        }
+
+        if (measurementDate) {
+          surveyQuery = surveyQuery.eq("measurement_date", measurementDate);
         }
 
         const { data: surveys, error } = await surveyQuery;
@@ -214,8 +220,8 @@ export async function GET(request: NextRequest) {
     // 검색 조건에 맞는 코드 목록
     const codes = businessInfoList?.map((b: any) => b.code) || [];
 
-    // 검색 조건이 있지만 매칭되는 코드가 없는 경우 빈 배열 반환
-    if (codes.length === 0 && (code || businessNumber || businessName || address || officeJurisdiction)) {
+    // 검색 조건이 있지만 매칭되는 코드가 없는 경우 빈 배열 반환 (단, measurementDate만 있는 경우는 제외)
+    if (codes.length === 0 && (code || businessNumber || businessName || address || officeJurisdiction) && !measurementDate) {
       return NextResponse.json({
         businesses: [],
         surveys: []
@@ -225,13 +231,19 @@ export async function GET(request: NextRequest) {
     // 2. 예비조사 테이블에서 해당 코드들로 검색
     let surveys: any[] = [];
 
-    // 검색 조건이 없으면 전체 예비조사 목록 반환
+    // 검색 조건이 없으면 전체 예비조사 목록 반환 (단, measurementDate가 있으면 필터링)
     if (codes.length === 0 && !code && !businessNumber && !businessName && !address && !officeJurisdiction) {
-      const { data: allSurveys, error: allSurveysError } = await supabase
+      let allSurveysQuery = supabase
         .from("preliminary_survey")
         .select("*")
         .order("sequence_number", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false });
+
+      if (measurementDate) {
+        allSurveysQuery = allSurveysQuery.eq("measurement_date", measurementDate);
+      }
+
+      const { data: allSurveys, error: allSurveysError } = await allSurveysQuery;
 
       if (allSurveysError) {
         console.error("예비조사 전체 목록 조회 오류:", allSurveysError);
@@ -240,12 +252,16 @@ export async function GET(request: NextRequest) {
       }
     } else if (codes.length > 0) {
       // 검색 조건이 있으면 해당 코드들로 검색
-      const surveyQuery = supabase
+      let surveyQuery = supabase
         .from("preliminary_survey")
         .select("*")
         .in("code", codes)
         .order("sequence_number", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false });
+
+      if (measurementDate) {
+        surveyQuery = surveyQuery.eq("measurement_date", measurementDate);
+      }
 
       const { data: surveyData, error: surveyError } = await surveyQuery;
 
@@ -376,6 +392,7 @@ export async function POST(request: NextRequest) {
       preliminary_surveyor,
       actual_measurer,
       report_writer,
+      notes,
     } = body;
 
     // 필수 필드 검증
@@ -502,6 +519,7 @@ export async function POST(request: NextRequest) {
         preliminary_surveyor: preliminary_surveyor || null,
         actual_measurer: actual_measurer || null,
         report_writer: report_writer || null,
+        notes: notes || null,
         sequence_number: sequenceNumber,
       })
       .select()
@@ -521,7 +539,7 @@ export async function POST(request: NextRequest) {
       // 가장 최근 예비조사의 측정일을 사용
       const { data: latestSurvey, error: latestSurveyError } = await supabase
         .from("preliminary_survey")
-        .select("measurement_date")
+        .select("measurement_date, notes")
         .eq("code", code)
         .not("measurement_date", "is", null)
         .order("measurement_date", { ascending: false })
@@ -532,7 +550,10 @@ export async function POST(request: NextRequest) {
         // measurement_target_business 테이블에서 해당 코드의 모든 레코드 업데이트
         const { error: updateError } = await supabase
           .from("measurement_target_business")
-          .update({ measurement_date: latestSurvey.measurement_date })
+          .update({
+            measurement_date: latestSurvey.measurement_date,
+            notes: latestSurvey.notes
+          })
           .eq("code", code);
 
         if (updateError) {

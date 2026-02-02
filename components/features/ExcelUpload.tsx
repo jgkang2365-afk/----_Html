@@ -26,13 +26,15 @@ interface ExcelUploadProps {
   fixedFileType?: "business-info" | "measurement-business";
   hideAutoSync?: boolean;
   defaultAutoSync?: boolean;
+  apiEndpoint?: string; // API 엔드포인트 커스터마이징
 }
 
 export function ExcelUpload({
   onSuccess,
   fixedFileType,
   hideAutoSync = false,
-  defaultAutoSync = false
+  defaultAutoSync = false,
+  apiEndpoint = "/api/upload/excel" // 기본값 유지
 }: ExcelUploadProps) {
   const [fileType, setFileType] = useState<"business-info" | "measurement-business" | "">("");
   const [file, setFile] = useState<File | null>(null);
@@ -104,12 +106,27 @@ export function ExcelUpload({
       return;
     }
 
-    if (!fileType) {
-      setResult({
-        success: false,
-        error: "파일 타입을 선택해주세요.",
-      });
-      return;
+    if (!fileType && !apiEndpoint.includes("businesses/upload")) { // 측정대상사업장 업로드 시 fileType 불필요할 수 있음 (로직에 따라)
+      // 기존 호환성을 위해 유지하되, 특정 엔드포인트 예외처리 고려 가능.
+      // 현재는 fileType 검사가 필수이므로 유지.
+    }
+
+    // 만약 fixedFileType이 없는데 fileType도 없으면 에러 (기존 로직)
+    // 하지만 측정대상사업장 엑셀 업로드는 타입 구분이 필요 없을 수 있음.
+    // 일단 안전하게 타입 선택을 강제하거나 'custom' 타입을 허용해야 함.
+    // 여기서는 fileType 체크 로직은 그대로 둠.
+    if (!fileType && !fixedFileType) {
+      // 만약 호출자가 fixedFileType을 안 줬다면 에러
+      // 하지만 MeasurementTargetBusinessManagement에서는 fixedFileType='measurement-business'를 주거나 할 것임.
+      if (!fixedFileType && apiEndpoint === "/api/businesses/upload") {
+        // 측정대상 업로드의 경우 타입을 강제로 지정해서 bypass
+      } else {
+        setResult({
+          success: false,
+          error: "파일 타입을 선택해주세요.",
+        });
+        return;
+      }
     }
 
     setUploading(true);
@@ -118,7 +135,10 @@ export function ExcelUpload({
     try {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("type", fileType);
+      // fileType이 있으면 보냄
+      if (fileType || fixedFileType) {
+        formData.append("type", fileType || fixedFileType || "");
+      }
       formData.append("autoSync", autoSync.toString());
 
       // 디버깅: 전송할 데이터 확인
@@ -126,9 +146,10 @@ export function ExcelUpload({
         fileType,
         autoSync,
         fileName: file.name,
+        endpoint: apiEndpoint
       });
 
-      const response = await fetch("/api/upload/excel", {
+      const response = await fetch(apiEndpoint, {
         method: "POST",
         body: formData,
       });
