@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
     const businessName = searchParams.get("businessName")?.trim() || null;
     const designatedOffice = searchParams.get("designatedOffice")?.trim() || null;
     const address = searchParams.get("address")?.trim() || null;
+    const measurementDate = searchParams.get("measurementDate")?.trim() || null;
 
     let supabase;
     try {
@@ -76,6 +77,42 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // 0. measurementDate가 있으면 preliminary_survey에서 해당 날짜의 사업장 코드/년도/주기 조회
+    let dateFilteredCodes: string[] | null = null;
+    let dateFilteredKeys: Set<string> | null = null;
+    let validSurveys: any[] = [];
+
+    if (measurementDate) {
+      const { data: surveys, error: surveyError } = await supabase
+        .from("preliminary_survey")
+        .select("code, year, period")
+        .eq("measurement_date", measurementDate);
+
+      if (surveyError) {
+        console.error("예비조사 측정일 검색 오류:", surveyError);
+        return NextResponse.json(
+          { error: "측정일 검색 중 오류가 발생했습니다.", details: surveyError.message },
+          { status: 500 }
+        );
+      }
+
+      const surveysList = surveys || [];
+      if (surveysList.length === 0) {
+        return NextResponse.json({ results: [] });
+      }
+
+      validSurveys = surveysList;
+
+      // DB 쿼리 최적화를 위한 코드 리스트
+      dateFilteredCodes = surveysList.map((s: any) => s.code).filter(Boolean);
+
+      // 정확한 매칭을 위한 (code-year-period) 키 집합
+      dateFilteredKeys = new Set(
+        surveysList.map((s: any) => `${s.code}-${s.year}-${s.period}`)
+      );
+      console.log("[DEBUG] Date Filter Keys:", Array.from(dateFilteredKeys));
+    }
+
     // 1. measurement_business에서 검색 (직전 최신 자료)
     let businessQuery = supabase
       .from("measurement_business")
@@ -84,6 +121,12 @@ export async function GET(request: NextRequest) {
       .order("year", { ascending: false })
       .order("period", { ascending: false })
       .order("created_at", { ascending: false });
+
+    // 측정일 필터 적용 (코드 기준 1차 필터링)
+    if (dateFilteredCodes !== null) {
+      console.log("[DEBUG] Filtering by codes:", dateFilteredCodes);
+      businessQuery = businessQuery.in("code", dateFilteredCodes);
+    }
 
     // 검색 조건 적용
     if (code) {
@@ -147,7 +190,7 @@ export async function GET(request: NextRequest) {
     // designatedOffice는 measurement_business에 없으므로 나중에 필터링
     // (office_jurisdiction으로는 정확한 매칭이 어려움)
 
-    const { data: businessData, error: businessError } = await businessQuery;
+    const { data: businessDataRaw, error: businessError } = await businessQuery;
 
     if (businessError) {
       console.error("측정사업장 검색 오류:", businessError);
@@ -155,6 +198,21 @@ export async function GET(request: NextRequest) {
         { error: "검색 중 오류가 발생했습니다.", details: businessError.message },
         { status: 500 }
       );
+    }
+
+    // 측정일 필터 적용 (Year/Period 정밀 필터링)
+    let businessData = businessDataRaw || [];
+    if (dateFilteredKeys !== null) {
+      console.log("[DEBUG] Business Data before key filter:", businessData.length);
+      if (businessData.length > 0) {
+        console.log("[DEBUG] Sample Business Data Key:", `${businessData[0].code}-${businessData[0].year}-${businessData[0].period}`);
+      }
+
+      const originalCount = businessData.length;
+      businessData = businessData.filter((b: any) =>
+        dateFilteredKeys!.has(`${b.code}-${b.year}-${b.period}`)
+      );
+      console.log(`[DEBUG] Business Data filtered: ${originalCount} -> ${businessData.length}`);
     }
 
     // 디버깅: 측정사업장 검색 결과 로그
@@ -186,6 +244,11 @@ export async function GET(request: NextRequest) {
       .not("business_name", "ilike", "%번외%")
       .order("updated_at", { ascending: false })
       .order("created_at", { ascending: false });
+
+    // 측정일 필터 적용
+    if (dateFilteredCodes !== null) {
+      journalQuery = journalQuery.in("code", dateFilteredCodes);
+    }
 
     if (code) {
       if (code.includes(",")) {
@@ -260,7 +323,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { data: journalData, error: journalError } = await journalQuery;
+    const { data: journalDataRaw, error: journalError } = await journalQuery;
 
     if (journalError) {
       console.error("측정일지 검색 오류:", journalError);
@@ -270,10 +333,22 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // 측정일 필터 적용 (Year/Period 정밀 필터링)
+    let journalData = journalDataRaw || [];
+    if (dateFilteredKeys !== null) {
+      journalData = journalData.filter((j: any) =>
+        dateFilteredKeys!.has(`${j.code}-${j.measurement_year}-${j.measurement_period}`)
+      );
+    }
+
     // 3. business_info 조회 (모든 code에 대해)
     const allCodes = new Set<string>();
     (journalData || []).forEach((j: any) => allCodes.add(j.code));
     (businessData || []).forEach((b: any) => allCodes.add(b.code));
+    // 예비조사 코드도 포함 (데이터가 없는 경우를 대비해)
+    if (dateFilteredCodes) {
+      dateFilteredCodes.forEach(c => allCodes.add(c));
+    }
 
     const businessInfoMap = new Map<string, any>();
     if (allCodes.size > 0) {
@@ -504,6 +579,92 @@ export async function GET(request: NextRequest) {
         processedKeys.add(key);
       }
     });
+
+    // 예비조사 데이터 중 아직 결과에 없는 것 추가 (measurement_business에도 없는 경우)
+    if (validSurveys.length > 0) {
+      validSurveys.forEach((survey: any) => {
+        const key = `${survey.code}-${survey.year}-${survey.period}`;
+        if (!processedKeys.has(key)) {
+          // business_info 정보 가져오기
+          const businessInfo = businessInfoMap.get(survey.code);
+
+          if (!businessInfo) return; // 사업장 정보가 없으면 스킵
+
+          // 주소 가져오기
+          const address = [businessInfo.address1, businessInfo.address2].filter(Boolean).join(" ").trim();
+
+          // designated_office 계산
+          let autoDesignatedOffice = "천안"; // 기본값
+          let officeJurisdictionFullName = businessInfo.office_jurisdiction || null;
+
+          // 1순위: 주소 기반
+          if (address) {
+            const addressBasedOffice = getDesignatedOfficeByAddress(address);
+            if (addressBasedOffice) {
+              autoDesignatedOffice = addressBasedOffice;
+            }
+          }
+
+          // 2순위: 관할청 기반
+          if (autoDesignatedOffice === "천안" && businessInfo.office_jurisdiction) {
+            const officeJurisdictionRaw = businessInfo.office_jurisdiction || "";
+            officeJurisdictionFullName = shortNameToFullName(officeJurisdictionRaw) || officeJurisdictionRaw || "";
+            const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
+            if (officeBasedDesignatedOffice) {
+              autoDesignatedOffice = officeBasedDesignatedOffice;
+            }
+          }
+
+          const journalEntry = {
+            id: null,
+            code: survey.code,
+            measurement_year: survey.year,
+            measurement_period: survey.period,
+            business_name: businessInfo.business_name,
+            designated_office: autoDesignatedOffice,
+            address: address,
+            completion_status: "미완료", // 기본값
+
+            measurement_start_date: survey.measurement_date, // 예비조사 측정일을 시작일로 표시
+            measurement_end_date: null,
+            measurer: survey.measurer || null,
+            total_employees: null,
+
+            office_jurisdiction: officeJurisdictionFullName || businessInfo.office_jurisdiction || null,
+            note: survey.notes || null, // 예비조사 비고
+            document_number: null,
+            sequence_number: null,
+            five_plus_sequence: null,
+            created_at: survey.created_at,
+            updated_at: survey.updated_at,
+
+            business_number: businessInfo.business_number || null,
+            representative_name: businessInfo.representative_name || null,
+            phone: businessInfo.phone || null,
+            fax: businessInfo.fax || null,
+
+            industrial_accident_number: null,
+            commencement_number: null,
+            manager_name: businessInfo.manager_name || null,
+            manager_position: null,
+            manager_mobile: null,
+            manager_email: null,
+            invoice_email: null,
+
+            national_support_status: null,
+            measurement_fee_total: null,
+            measurement_fee_business: null,
+            deposit_total: null,
+            deposit_amount_business: null,
+            special_notes: targetBusinessMap.get(key) || null,
+            _isFromSurvey: true, // 예비조사에서 온 데이터임을 표시
+          };
+
+          results.push(journalEntry);
+          processedKeys.add(key);
+        }
+      });
+    }
 
     // 디버깅: 필터링 전 결과 로그
     console.log(`[검색 API] 필터링 전 결과 수: ${results.length}건`);

@@ -67,6 +67,7 @@ export const JournalSearch: React.FC = () => {
     businessName: "",
     designatedOffice: "",
     address: "",
+    measurementDate: "",
   });
   const [results, setResults] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -186,6 +187,9 @@ export const JournalSearch: React.FC = () => {
       if (searchParams.address) {
         params.append("address", searchParams.address);
       }
+      if (searchParams.measurementDate) {
+        params.append("measurementDate", searchParams.measurementDate);
+      }
 
       const response = await fetch(`/api/journal/search?${params.toString()}`);
 
@@ -247,6 +251,7 @@ export const JournalSearch: React.FC = () => {
       businessName: "",
       designatedOffice: "",
       address: "",
+      measurementDate: "",
     });
     setResults([]);
     setError(null);
@@ -855,7 +860,7 @@ export const JournalSearch: React.FC = () => {
               </div>
             </div>
             <div className="flex flex-wrap items-end gap-4">
-              <div className="flex-1 min-w-[120px]">
+              <div className="w-[100px]">
                 <Input
                   label="코드"
                   value={searchParams.code}
@@ -868,10 +873,10 @@ export const JournalSearch: React.FC = () => {
                       handleSearch();
                     }
                   }}
-                  placeholder="예: H0001, H0002"
+                  placeholder=""
                 />
               </div>
-              <div className="flex-1 min-w-[120px]">
+              <div className="w-[110px]">
                 <Select
                   label="측정년도"
                   value={searchParams.measurementYear}
@@ -879,9 +884,10 @@ export const JournalSearch: React.FC = () => {
                     setSearchParams({ ...searchParams, measurementYear: e.target.value })
                   }
                   options={[{ value: "", label: "전체" }, ...yearOptions]}
+                  className="text-center px-1"
                 />
               </div>
-              <div className="flex-1 min-w-[120px]">
+              <div className="w-[100px]">
                 <Select
                   label="측정주기"
                   value={searchParams.measurementPeriod}
@@ -889,9 +895,10 @@ export const JournalSearch: React.FC = () => {
                     setSearchParams({ ...searchParams, measurementPeriod: e.target.value })
                   }
                   options={searchPeriodOptions}
+                  className="text-center px-1"
                 />
               </div>
-              <div className="flex-1 min-w-[150px]">
+              <div className="w-[225px]">
                 <Input
                   label="사업장명"
                   value={searchParams.businessName}
@@ -904,10 +911,10 @@ export const JournalSearch: React.FC = () => {
                       handleSearch();
                     }
                   }}
-                  placeholder="예: 사업장A, 사업장B"
+                  placeholder=""
                 />
               </div>
-              <div className="flex-1 min-w-[150px]">
+              <div className="w-[120px]">
                 <Select
                   label="지정지청"
                   value={searchParams.designatedOffice}
@@ -915,9 +922,26 @@ export const JournalSearch: React.FC = () => {
                     setSearchParams({ ...searchParams, designatedOffice: e.target.value })
                   }
                   options={searchDesignatedOfficeOptions}
+                  className="text-center px-1"
                 />
               </div>
-              <div className="flex-1 min-w-[150px]">
+              <div className="w-[150px]">
+                <Input
+                  type="date"
+                  label="측정일(예비조사)"
+                  value={searchParams.measurementDate}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, measurementDate: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
+                />
+              </div>
+              <div className="w-[360px]">
                 <Input
                   label="주소"
                   value={searchParams.address}
