@@ -313,19 +313,19 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-gray-100 hover:bg-transparent">
-                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 shadow-sm h-10 w-[20%]">사업장명</TableHead>
+                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 shadow-sm h-10 w-[15%]">사업장명</TableHead>
                   <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[10%]">보고서 담당자</TableHead>
                   <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[15%]">측정종료일</TableHead>
                   <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-right shadow-sm h-10 w-[10%]">경과일수</TableHead>
                   <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-right shadow-sm h-10 w-[10%]">잔여일수</TableHead>
                   <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[15%]">K2B전송일</TableHead>
-                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[10%]">처리결과</TableHead>
+                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[25%]">처리결과</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.overdueItems.map((item) => (
                   <TableRow key={item.id} className="border-b border-gray-50 last:border-0 hover:bg-red-50/30">
-                    <TableCell className="text-sm font-medium text-gray-700 py-3">{item.business_name}</TableCell>
+                    <TableCell className="text-sm font-medium text-gray-700 py-3 truncate max-w-[150px]" title={item.business_name}>{item.business_name}</TableCell>
                     <TableCell className="text-sm text-gray-600 text-center py-3">{item.measurer}</TableCell>
                     <TableCell className="text-sm text-gray-600 text-center py-3">
                       {new Date(item.measurement_end_date).toLocaleDateString()}
