@@ -20,7 +20,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { JournalEditForm } from "./JournalEditForm";
 import { JournalRegisterModal } from "./JournalRegisterModal";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 interface JournalEntry {
   id: number | null; // measurement_business에서 온 데이터는 null
@@ -57,7 +57,26 @@ interface JournalEntry {
 
 export const JournalSearch: React.FC = () => {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"search" | "list">("search");
+  const searchParamsUrl = useSearchParams();
+  const pathname = usePathname();
+
+  // URL에서 탭 상태 읽기 (기본값: search)
+  const [activeTab, setActiveTabState] = useState<"search" | "list">("search");
+
+  useEffect(() => {
+    const tabParam = searchParamsUrl.get("tab");
+    if (tabParam === "list" || tabParam === "search") {
+      setActiveTabState(tabParam);
+    }
+  }, [searchParamsUrl]);
+
+  // 탭 변경 핸들러 (URL 업데이트 포함)
+  const setActiveTab = (tab: "search" | "list") => {
+    setActiveTabState(tab);
+    const params = new URLSearchParams(searchParamsUrl.toString());
+    params.set("tab", tab);
+    router.replace(`${pathname}?${params.toString()}`);
+  };
 
   // 검색 관련 상태
   const [searchParams, setSearchParams] = useState({
@@ -496,17 +515,36 @@ export const JournalSearch: React.FC = () => {
     }
 
     if (currentFilters.businessName) {
-      const searchTerm = currentFilters.businessName.toLowerCase();
-      filtered = filtered.filter(
-        (entry) => entry.business_name?.toLowerCase().includes(searchTerm)
-      );
+      const searchTerms = currentFilters.businessName.split(",").map(t => t.trim().toLowerCase()).filter(Boolean);
+      if (searchTerms.length > 0) {
+        filtered = filtered.filter((entry) => {
+          const businessName = entry.business_name?.toLowerCase() || "";
+          return searchTerms.some(term => businessName.includes(term));
+        });
+      }
     }
 
-    // 등록 순서로 정렬 (created_at 기준)
+    // 정렬: 측정년도 -> 측정주기 -> 등록일 (기본 내림차순)
     filtered = filtered.sort((a, b) => {
+      const multiplier = sortOrder === "asc" ? 1 : -1;
+
+      // 1. 측정년도
+      if (a.measurement_year !== b.measurement_year) {
+        return (a.measurement_year - b.measurement_year) * multiplier;
+      }
+
+      // 2. 측정주기 ("하반기" > "상반기" > "수시..." 순서가 되도록 문자열 비교)
+      // "하반기"(D558) > "상반기"(C0C1) 이므로 내림차순시 하반기가 먼저 나옴
+      if (a.measurement_period !== b.measurement_period) {
+        const formA = a.measurement_period || "";
+        const formB = b.measurement_period || "";
+        return formA.localeCompare(formB) * multiplier;
+      }
+
+      // 3. 등록일 (created_at 기준)
       const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
       const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-      return sortOrder === "asc" ? dateA - dateB : dateB - dateA;
+      return (dateA - dateB) * multiplier;
     });
 
     setFilteredJournals(filtered);
@@ -1002,29 +1040,29 @@ export const JournalSearch: React.FC = () => {
                       <tbody>
                         {results.map((entry) => (
                           <tr key={entry.id || `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`} className="border-b border-slate-100 transition-colors hover:bg-slate-50/50">
-                            <td className="p-2 align-middle font-medium text-center">{entry.code}</td>
-                            <td className="p-2 align-middle font-medium text-center">{entry.measurement_year}</td>
-                            <td className="p-2 align-middle text-center">{entry.measurement_period}</td>
-                            <td className="p-2 align-middle text-center">{entry.designated_office}</td>
-                            <td className="p-2 align-middle font-medium truncate max-w-[200px]" title={entry.business_name}>{entry.business_name}</td>
-                            <td className="p-2 align-middle text-text-600 max-w-[260px] text-xs leading-tight break-keep" title={entry.address}>
+                            <td className="p-1 align-middle font-medium text-center text-xs">{entry.code}</td>
+                            <td className="p-1 align-middle font-medium text-center text-xs">{entry.measurement_year}</td>
+                            <td className="p-1 align-middle text-center text-xs">{entry.measurement_period}</td>
+                            <td className="p-1 align-middle text-center text-xs">{entry.designated_office}</td>
+                            <td className="p-1 align-middle font-medium truncate max-w-[180px] text-xs" title={entry.business_name}>{entry.business_name}</td>
+                            <td className="p-1 align-middle text-text-600 max-w-[300px] text-xs leading-tight break-keep" title={entry.address}>
                               <div className="line-clamp-2">
                                 {entry.address || "-"}
                               </div>
                             </td>
-                            <td className="p-2 align-middle text-center">{entry.document_number || "-"}</td>
-                            <td className="p-2 align-middle text-center">{entry.sequence_number || "-"}</td>
-                            <td className="p-2 align-middle text-center">{entry.five_plus_sequence || "-"}</td>
-                            <td className={`p-2 align-middle text-center ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : ''}`}>
+                            <td className="p-1 align-middle text-center text-xs">{entry.document_number || "-"}</td>
+                            <td className="p-1 align-middle text-center text-xs">{entry.sequence_number || "-"}</td>
+                            <td className="p-1 align-middle text-center text-xs">{entry.five_plus_sequence || "-"}</td>
+                            <td className={`p-1 align-middle text-center text-xs ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : ''}`}>
                               {entry.total_employees || "-"}
                             </td>
-                            <td className="p-2 align-middle text-center text-xs">{formatDate(entry.measurement_start_date)}</td>
-                            <td className="p-2 align-middle text-center">{entry.manager_name || "-"}</td>
-                            <td className="p-2 align-middle text-center">{entry.manager_mobile || "-"}</td>
-                            <td className="p-2 align-middle text-text-600 text-center">{entry.measurer || "-"}</td>
-                            <td className="p-2 align-middle text-center">
+                            <td className="p-1 align-middle text-center text-xs">{formatDate(entry.measurement_start_date)}</td>
+                            <td className="p-1 align-middle text-center text-xs">{entry.manager_name || "-"}</td>
+                            <td className="p-1 align-middle text-center text-xs">{entry.manager_mobile || "-"}</td>
+                            <td className="p-1 align-middle text-text-600 text-center text-xs">{entry.measurer || "-"}</td>
+                            <td className="p-1 align-middle text-center">
                               <span
-                                className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${entry.completion_status === "완료"
+                                className={`px-1.5 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${entry.completion_status === "완료"
                                   ? "bg-green-100 text-green-800"
                                   : "bg-yellow-100 text-yellow-800"
                                   }`}
@@ -1032,12 +1070,12 @@ export const JournalSearch: React.FC = () => {
                                 {entry.completion_status}
                               </span>
                             </td>
-                            <td className="p-2 align-middle text-center">
+                            <td className="p-1 align-middle text-center">
                               <Button
                                 variant="secondary"
                                 size="sm"
                                 onClick={() => handleSelectJournal(entry)}
-                                className={`shadow-sm h-8 px-2 text-xs ${entry.id ? "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border border-yellow-200" : ""}`}
+                                className={`shadow-sm h-7 px-1.5 text-xs ${entry.id ? "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border border-yellow-200" : ""}`}
                               >
                                 {entry.id ? "수정" : "등록"}
                               </Button>
@@ -1184,7 +1222,7 @@ export const JournalSearch: React.FC = () => {
                 <Table maxHeight="max-h-[calc(100vh-300px)]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="bg-surface-50 w-12">
+                      <TableHead className="bg-surface-50 w-8">
                         <Checkbox
                           checked={
                             filteredJournals.length > 0 &&
@@ -1196,7 +1234,7 @@ export const JournalSearch: React.FC = () => {
                           disabled={filteredJournals.filter((entry) => entry.id !== null).length === 0}
                         />
                       </TableHead>
-                      <TableHead className="bg-surface-50 w-16 text-center">
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs">
                         <div className="flex items-center justify-center gap-1">
                           <span>순번</span>
                           <button
@@ -1206,39 +1244,39 @@ export const JournalSearch: React.FC = () => {
                               // 현재 필터 상태로 다시 필터링하여 정렬 적용
                               applyFilters(allJournals, filters, newOrder);
                             }}
-                            className="p-1.5 hover:bg-surface-100 rounded transition-colors flex items-center justify-center"
+                            className="p-1 hover:bg-surface-100 rounded transition-colors flex items-center justify-center"
                             title={sequenceSortOrder === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}
                           >
                             {sequenceSortOrder === "asc" ? (
                               // 빨간색 위 삼각형 (오름차순)
-                              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M12 8L8 12H16L12 8Z" fill="#EF4444" />
                               </svg>
                             ) : (
                               // 파란색 아래 삼각형 (내림차순)
-                              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M12 16L16 12H8L12 16Z" fill="#3B82F6" />
                               </svg>
                             )}
                           </button>
                         </div>
                       </TableHead>
-                      <TableHead className="bg-surface-50 w-16 text-center">코드</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">측정년도</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">측정주기</TableHead>
-                      <TableHead className="bg-surface-50 w-24 text-center">지정지청</TableHead>
-                      <TableHead className="bg-surface-50 w-[200px]">사업장명</TableHead>
-                      <TableHead className="bg-surface-50 w-[260px]">주소</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">공문연번</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">연번</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">5인 이상 연번</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">총인원</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">측정 시작일</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">담당자</TableHead>
-                      <TableHead className="bg-surface-50 w-24 text-center">담당자 휴대폰</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">측정자</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center">완료여부</TableHead>
-                      <TableHead className="bg-surface-50 w-16 text-center">작업</TableHead>
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs">코드</TableHead>
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs">측정년도</TableHead>
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs">측정주기</TableHead>
+                      <TableHead className="bg-surface-50 w-14 text-center text-xs">지정지청</TableHead>
+                      <TableHead className="bg-surface-50 w-[180px] text-xs">사업장명</TableHead>
+                      <TableHead className="bg-surface-50 w-[300px] text-xs">주소</TableHead>
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs">공문연번</TableHead>
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs">연번</TableHead>
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs px-1">5인이상</TableHead>
+                      <TableHead className="bg-surface-50 w-10 text-center text-xs">총인원</TableHead>
+                      <TableHead className="bg-surface-50 w-20 text-center text-xs">측정 시작일</TableHead>
+                      <TableHead className="bg-surface-50 w-14 text-center text-xs">담당자</TableHead>
+                      <TableHead className="bg-surface-50 w-20 text-center text-xs">담당자 휴대폰</TableHead>
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs">측정자</TableHead>
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs">완료여부</TableHead>
+                      <TableHead className="bg-surface-50 w-12 text-center text-xs">작업</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1268,46 +1306,46 @@ export const JournalSearch: React.FC = () => {
                               <span className="text-text-400">-</span>
                             )}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center text-xs">
                             {index + 1}
                           </TableCell>
-                          <TableCell className="font-mono text-sm text-center">
+                          <TableCell className="font-mono text-xs text-center">
                             {entry.code}
                           </TableCell>
-                          <TableCell className="font-medium text-center">
+                          <TableCell className="font-medium text-center text-xs">
                             {entry.measurement_year}
                           </TableCell>
-                          <TableCell className="text-center">{entry.measurement_period}</TableCell>
-                          <TableCell className="text-center">{entry.designated_office}</TableCell>
-                          <TableCell className="font-medium truncate max-w-[200px]" title={entry.business_name}>
+                          <TableCell className="text-center text-xs">{entry.measurement_period}</TableCell>
+                          <TableCell className="text-center text-xs">{entry.designated_office}</TableCell>
+                          <TableCell className="font-medium truncate max-w-[180px] text-xs" title={entry.business_name}>
                             {entry.business_name}
                           </TableCell>
-                          <TableCell className="text-text-600 max-w-[260px] text-xs leading-tight break-keep" title={entry.address}>
+                          <TableCell className="text-text-600 max-w-[300px] text-xs leading-tight break-keep" title={entry.address}>
                             <div className="line-clamp-2">
                               {entry.address || "-"}
                             </div>
                           </TableCell>
-                          <TableCell className="bg-surface-50 text-center">
+                          <TableCell className="bg-surface-50 text-center text-xs">
                             {entry.document_number || "-"}
                           </TableCell>
-                          <TableCell className="bg-surface-50 text-center">
+                          <TableCell className="bg-surface-50 text-center text-xs">
                             {entry.sequence_number || "-"}
                           </TableCell>
-                          <TableCell className="bg-surface-50 text-center">
+                          <TableCell className="bg-surface-50 text-center text-xs">
                             {entry.five_plus_sequence || "-"}
                           </TableCell>
-                          <TableCell className={`text-center ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : 'bg-surface-50'}`}>
+                          <TableCell className={`text-center text-xs ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : 'bg-surface-50'}`}>
                             {entry.total_employees || "-"}
                           </TableCell>
-                          <TableCell className="text-center">{formatDate(entry.measurement_start_date)}</TableCell>
-                          <TableCell className="text-center">{entry.manager_name || "-"}</TableCell>
-                          <TableCell className="text-center">{entry.manager_mobile || "-"}</TableCell>
-                          <TableCell className="text-text-600 text-center">
+                          <TableCell className="text-center text-xs">{formatDate(entry.measurement_start_date)}</TableCell>
+                          <TableCell className="text-center text-xs">{entry.manager_name || "-"}</TableCell>
+                          <TableCell className="text-center text-xs">{entry.manager_mobile || "-"}</TableCell>
+                          <TableCell className="text-text-600 text-center text-xs">
                             {entry.measurer || "-"}
                           </TableCell>
                           <TableCell>
                             <span
-                              className={`px-2 py-1 rounded text-xs font-medium ${entry.completion_status === "완료"
+                              className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${entry.completion_status === "완료"
                                 ? "bg-green-100 text-green-800"
                                 : "bg-yellow-100 text-yellow-800"
                                 }`}
@@ -1320,7 +1358,7 @@ export const JournalSearch: React.FC = () => {
                               variant="secondary"
                               size="sm"
                               onClick={() => handleSelectJournal(entry)}
-                              className="shadow-sm"
+                              className="shadow-sm h-7 px-1.5 text-xs"
                             >
                               선택
                             </Button>
