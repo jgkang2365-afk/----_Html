@@ -561,7 +561,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             value={editForm.is_registered_text || "미실시"}
                             onChange={(e) => setEditForm(prev => ({ ...prev, is_registered_text: e.target.value }))}
                         />
-                        <p className="text-xs text-text-500 mt-1">* '거래종료' 선택 시 자동 계산(예비조사 연동)보다 우선 적용됩니다.</p>
+                        <p className="text-xs text-text-500 mt-1">* &apos;거래종료&apos; 선택 시 자동 계산(예비조사 연동)보다 우선 적용됩니다.</p>
                     </div>
                     <div className="flex justify-end gap-2 mt-6">
                         <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>취소</Button>
