@@ -681,7 +681,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         <option value="거래종료" className="bg-white text-black">거래종료</option>
                                     </select>
                                 </div>
-                                <p className="text-xs text-slate-500 mt-1">* '거래종료' 선택 시 자동 계산보다 우선 적용됩니다.</p>
+                                <p className="text-xs text-slate-500 mt-1">* &apos;거래종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
