@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
                         manager_mobile: getValue(row, ["manager_mobile", "연락처", "휴대폰"]),
                         phone: getValue(row, ["phone", "전화번호", "회사전화"]),
                         notes: getValue(row, ["notes", "비고", "특이사항"]),
-                        is_registered: getValue(row, ["is_registered", "실시여부", "상태"]) || "미실시",
+                        is_registered: getValue(row, ["is_registered", "계획진행", "실시여부", "상태"]) || "미확정",
                         office_jurisdiction: getValue(row, ["office_jurisdiction", "관할청", "소재지관할청"]),
                         measurement_month: getValue(row, ["measurement_month", "측정예정월", "예정월"]),
                         measurement_date: getValue(row, ["measurement_date", "측정확정일", "확정일"]),

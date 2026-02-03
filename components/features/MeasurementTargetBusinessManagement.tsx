@@ -61,11 +61,12 @@ const OFFICE_OPTIONS = [
     { value: "경기", label: "경기" }
 ];
 
+// Status Options Update
 const STATUS_OPTIONS = [
     { value: "전체", label: "전체" },
-    { value: "실시", label: "실시" },
-    { value: "미실시", label: "미실시" },
-    { value: "거래종료", label: "거래종료" }
+    { value: "확정", label: "확정" }, // 실시 -> 확정
+    { value: "미확정", label: "미확정" }, // 미실시 -> 미확정
+    { value: "종료", label: "종료" } // 거래종료 -> 종료
 ];
 
 const MANAGER_OPTIONS = [
@@ -115,6 +116,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         businessName: "",
         isRegistered: "전체",
         planManager: "",
+        confirmedDate: "",
     });
 
     // Load Filters
@@ -224,6 +226,30 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             result = result.filter(item => item.plan_manager === filters.planManager);
         }
 
+        if (filters.confirmedDate) {
+            result = result.filter(item => item.measurement_date === filters.confirmedDate);
+        }
+
+        // Custom Sort: 1. Status (Unconfirmed > Confirmed > Terminated), 2. Month (Asc)
+        result.sort((a, b) => {
+            const getStatusPriority = (status: string | null) => {
+                if (status === '미확정' || status === '미실시' || !status) return 1;
+                if (status === '확정' || status === '실시') return 2;
+                if (status === '종료' || status === '거래종료') return 3;
+                return 4;
+            };
+
+            const priorityA = getStatusPriority(a.is_registered_text);
+            const priorityB = getStatusPriority(b.is_registered_text);
+
+            if (priorityA !== priorityB) return priorityA - priorityB;
+
+            // Secondary: Month Ascending
+            const monthA = a.measurement_month ? parseInt(String(a.measurement_month)) : 99;
+            const monthB = b.measurement_month ? parseInt(String(b.measurement_month)) : 99;
+            return monthA - monthB;
+        });
+
         setFilteredData(result);
     }, [data, filters]);
 
@@ -275,12 +301,24 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
                 if (raw.manager_phone !== undefined) sanitized.phone = raw.manager_phone; // UI manager_phone -> DB phone
 
+                // 빈 문자열인 날짜 필드는 null로변환
+                if (raw.measurement_date === "") sanitized.measurement_date = null;
+                if (raw.future_measurement_date === "") sanitized.future_measurement_date = null;
+
                 // 직접 매핑된 필드 및 기타 허용 필드 복사
                 Object.keys(raw).forEach(key => {
                     if (validColumns.includes(key) && sanitized[key] === undefined) {
+                        // 날짜 필드가 아니고 빈 문자열이 아니거나, 이미 처리된 필드가 아닐 경우값 복사
+                        // 위에서 처리한 날짜 필드는 건너뜀 (이미 sanitized에 들어갔으므로 undefined check로 걸러짐)
                         sanitized[key] = (raw as any)[key];
                     }
                 });
+
+                // 날짜 필드들이 빈 문자열로 넘어왔을 경우 null로 처리되었는지 확인 및 원래 로직 보강
+                // 위 로직에서 이미 sanitized[key]가 설정되면 아래 loop에서 덮어쓰지 않으므로 안전함.
+                // 다만, raw[key]가 ""일 때 loop에서 sanitized[key]에 ""가 들어가는 것을 방지해야 함.
+                if (sanitized.measurement_date === "") sanitized.measurement_date = null;
+                if (sanitized.future_measurement_date === "") sanitized.future_measurement_date = null;
 
                 return sanitized;
             };
@@ -298,7 +336,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 })
             });
 
-            if (!response.ok) throw new Error("Failed to update");
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.details || errData.error || "Failed to update");
+            }
 
             // Optimistic Update
             // UI 반영을 위해 매핑된 필드도 로컬 상태에는 반영해야 함
@@ -315,7 +356,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             setData(prev => prev.map(item => item.code === code ? { ...item, ...optimisticUpdates } : item));
         } catch (error) {
             console.error("Update error:", error);
-            alert("수정 중 오류가 발생했습니다.");
+            alert(`수정 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
             fetchData(); // Revert on error
         }
     };
@@ -326,7 +367,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
-        saveChanges(item.code, { measurement_date: newDate });
+        const updates: Partial<BusinessEntry> = { measurement_date: newDate || null };
+        if (newDate) {
+            updates.is_registered = "확정";
+            updates.is_registered_text = "확정";
+        }
+        saveChanges(item.code, updates);
     };
 
     const handleNotesChange = (item: BusinessEntry, newNotes: string) => {
@@ -344,7 +390,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "지정지청": item.designated_office,
             "사업장명": item.business_name,
             "소재지": item.address,
-            "실시여부": item.is_registered_text,
+            "계획진행": item.is_registered_text === '실시' ? '확정' : item.is_registered_text === '미실시' ? '미확정' : item.is_registered_text,
             "국고결과": item.national_support_status,
             "계획담당": item.plan_manager,
             "측정자": item.measurer_id ? measurerMap.get(item.measurer_id) || "" : "",
@@ -425,12 +471,21 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 />
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">실시여부</span>
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">계획진행</span>
                                 <Select
                                     options={STATUS_OPTIONS}
                                     value={filters.isRegistered}
                                     onChange={(e) => setFilters(prev => ({ ...prev, isRegistered: e.target.value }))}
                                     className="w-[110px] h-9 py-1 text-sm text-center"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">확정일</span>
+                                <Input
+                                    type="date"
+                                    value={filters.confirmedDate || ""}
+                                    onChange={(e) => setFilters(prev => ({ ...prev, confirmedDate: e.target.value }))}
+                                    className="w-[130px] h-9 py-1 text-sm text-center"
                                 />
                             </div>
                         </div>
@@ -481,7 +536,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     {/* Grid Header Row */}
                     <div className="bg-surface-50 font-medium text-sm text-slate-600 grid items-center text-center border border-slate-200" style={{ gridTemplateColumns: gridTemplateCols }}>
                         <div className="py-3">No</div>
-                        <div className="py-3">실시여부</div>
+                        <div className="py-3">계획진행</div>
                         <div className="py-3">국고</div>
                         <div className="py-3">계획담당</div>
                         <div className="py-3 px-2 text-left">사업장명</div>
@@ -513,12 +568,32 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             <div key={`${item.code}-${index}`} className="group hover:bg-surface-50 grid items-center text-sm text-slate-700 py-1" style={{ gridTemplateColumns: gridTemplateCols }}>
                                 <div className="text-center">{index + 1}</div>
                                 <div className="text-center">
-                                    <span className={`px-2 py-0.5 rounded text-xs ${item.is_registered_text === '실시' ? 'bg-green-100 text-green-700' :
-                                        item.is_registered_text === '미실시' ? 'bg-yellow-100 text-yellow-700' :
-                                            item.is_registered_text === '거래종료' ? 'bg-red-100 text-red-700' :
-                                                'bg-gray-100'}`}>
-                                        {item.is_registered_text}
-                                    </span>
+                                    <select
+                                        className={`w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 text-center cursor-pointer ${(item.is_registered_text === '확정' || item.is_registered_text === '실시') ? 'bg-green-100 text-green-700' :
+                                            (item.is_registered_text === '미확정' || item.is_registered_text === '미실시') ? 'bg-yellow-100 text-yellow-800' :
+                                                item.is_registered_text === '종료' ? 'bg-red-100 text-red-700' :
+                                                    'bg-gray-100'
+                                            }`}
+                                        value={
+                                            item.is_registered_text === '실시' ? '확정' :
+                                                item.is_registered_text === '미실시' ? '미확정' :
+                                                    item.is_registered_text === '거래종료' ? '종료' :
+                                                        item.is_registered_text || '미확정'
+                                        }
+                                        onChange={(e) => {
+                                            const newVal = e.target.value;
+                                            const updates: Partial<BusinessEntry> = {
+                                                is_registered: newVal,
+                                                is_registered_text: newVal
+                                            };
+                                            saveChanges(item.code, updates);
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <option value="미확정" className="bg-white text-black">미확정</option>
+                                        <option value="확정" className="bg-white text-black">확정</option>
+                                        <option value="종료" className="bg-white text-black">종료</option>
+                                    </select>
                                 </div>
                                 <div className="text-center text-xs">{item.national_support_status}</div>
                                 <div className="text-center text-xs">{item.plan_manager}</div>
@@ -597,7 +672,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             </Modal>
 
             <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="사업장 상세 정보 수정" size="lg">
-                <div className="p-6 max-h-[80vh] overflow-y-auto">
+                <div className="p-6">
                     {/* 섹션 1: 기본 정보 */}
                     <div className="mb-6">
                         <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">기본 정보</h4>
@@ -668,22 +743,22 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <h4 className="text-md font-bold text-slate-800 pb-2 mb-3">측정 정보</h4>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="col-span-2">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">실시여부</label>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">계획진행</label>
                                 <div className="flex items-center gap-2">
                                     <select
                                         className={`block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm h-10 px-3
-                                            ${editForm.is_registered_text === '실시' ? 'bg-green-100 text-green-700' :
-                                                editForm.is_registered_text === '미실시' ? 'bg-yellow-100 text-yellow-700' :
-                                                    editForm.is_registered_text === '거래종료' ? 'bg-red-100 text-red-700' : 'bg-white'}`}
-                                        value={editForm.is_registered_text || "미실시"}
+                                            ${editForm.is_registered_text === '확정' ? 'bg-green-100 text-green-700' :
+                                                editForm.is_registered_text === '미확정' ? 'bg-yellow-100 text-yellow-800' :
+                                                    editForm.is_registered_text === '종료' ? 'bg-red-100 text-red-700' : 'bg-white'}`}
+                                        value={editForm.is_registered_text || "미확정"}
                                         onChange={(e) => setEditForm(prev => ({ ...prev, is_registered_text: e.target.value }))}
                                     >
-                                        <option value="실시" className="bg-white text-black">실시</option>
-                                        <option value="미실시" className="bg-white text-black">미실시</option>
-                                        <option value="거래종료" className="bg-white text-black">거래종료</option>
+                                        <option value="확정" className="bg-white text-black">확정</option>
+                                        <option value="미확정" className="bg-white text-black">미확정</option>
+                                        <option value="종료" className="bg-white text-black">종료</option>
                                     </select>
                                 </div>
-                                <p className="text-xs text-slate-500 mt-1">* &apos;거래종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
+                                <p className="text-xs text-slate-500 mt-1">* &apos;종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
@@ -699,7 +774,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">확정일</label>
-                                <Input type="date" value={editForm.measurement_date || ""} onChange={(e) => setEditForm(prev => ({ ...prev, measurement_date: e.target.value }))} />
+                                <Input type="date" value={editForm.measurement_date || ""} onChange={(e) => {
+                                    const val = e.target.value;
+                                    setEditForm(prev => ({
+                                        ...prev,
+                                        measurement_date: val,
+                                        is_registered_text: val ? '확정' : prev.is_registered_text
+                                    }));
+                                }} />
                             </div>
                         </div>
                     </div>

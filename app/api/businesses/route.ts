@@ -245,6 +245,8 @@ export async function PATCH(request: NextRequest) {
 
     const supabase = await createClient();
 
+    console.log("[PATCH] Updates received:", JSON.stringify(updates, null, 2));
+
     let query = supabase.from("measurement_target_business").update({
       ...updates,
       updated_at: new Date().toISOString()
@@ -266,8 +268,13 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ success: true, data });
 
-  } catch (error) {
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  } catch (error: any) {
+    console.error("PATCH API Critical Error:", error);
+    return NextResponse.json({
+      error: "Internal Server Error",
+      details: error?.message || String(error),
+      stack: error?.stack
+    }, { status: 500 });
   }
 }
 
