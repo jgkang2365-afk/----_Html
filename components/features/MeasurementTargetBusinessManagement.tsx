@@ -16,16 +16,22 @@ interface BusinessEntry {
     year: number;
     period: string;
     business_name: string;
+    business_number: string | null; // 사업자등록번호
+    business_category: string | null; // 업종
     address: string | null;
+    total_employees: number | null; // 근로자수
     office_jurisdiction: string | null; // 관할청
     designated_office: string | null; // 지정지청
     isRegistered: boolean;
+    is_registered: string | null; // DB 원본
     is_registered_text: string | null; // '실시', '미실시', '거래종료'
     national_support_status: string | null; // 국고
     plan_manager: string | null; // 계획담당
     manager_name: string | null; // 업체담당
     manager_mobile: string | null;
-    phone: string | null;
+    manager_phone: string | null; // 담당자 직통전화/전화번호
+    management_status: string | null; // 관리상태
+    phone: string | null; // 대표전화? (기존 코드에 있음)
     unpaid_count: number;
     previous_measurement_date: string | null;
     future_measurement_period: number | null; // 향후 측정주기
@@ -241,6 +247,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const handleSaveEdit = async () => {
         if (!editingItem) return;
+        // editForm에서 변경된 내용만 추출하거나 전체를 보내서 sanitize 처리
+        // 여기서는 editForm 전체를 넘겨서 saveChanges 내부에서 filtering 함
         saveChanges(editingItem.code, editForm);
         setIsEditModalOpen(false);
     };
@@ -248,6 +256,35 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const saveChanges = async (code: string, updates: Partial<BusinessEntry>) => {
         try {
             const [year, period] = filters.yearPeriod.split("-");
+
+            // DB 컬럼 매핑 및 클렌징
+            const sanitizeUpdates = (raw: Partial<BusinessEntry>) => {
+                const validColumns = [
+                    'business_name', 'business_number', 'business_category', 'address', 'total_employees',
+                    'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
+                    'manager_name', 'manager_mobile', 'manager_phone',
+                    'management_status', 'notes', 'measurement_date', 'future_measurement_period',
+                    'future_measurement_date', 'measurer_id'
+                ];
+
+                const sanitized: any = {};
+
+                // 매핑 처리
+                if (raw.is_registered_text !== undefined) sanitized.is_registered = raw.is_registered_text;
+                if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
+
+                // 직접 매핑된 필드 및 기타 허용 필드 복사
+                Object.keys(raw).forEach(key => {
+                    if (validColumns.includes(key) && sanitized[key] === undefined) {
+                        sanitized[key] = (raw as any)[key];
+                    }
+                });
+
+                return sanitized;
+            };
+
+            const cleanUpdates = sanitizeUpdates(updates);
+
             const response = await fetch("/api/businesses", {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
@@ -255,14 +292,25 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     code: code,
                     year: parseInt(year),
                     period: period,
-                    updates: updates
+                    updates: cleanUpdates
                 })
             });
 
             if (!response.ok) throw new Error("Failed to update");
 
             // Optimistic Update
-            setData(prev => prev.map(item => item.code === code ? { ...item, ...updates } : item));
+            // UI 반영을 위해 매핑된 필드도 로컬 상태에는 반영해야 함
+            const optimisticUpdates = { ...updates };
+            if (cleanUpdates.is_registered) {
+                optimisticUpdates.is_registered = cleanUpdates.is_registered;
+                optimisticUpdates.is_registered_text = cleanUpdates.is_registered;
+            }
+            if (cleanUpdates.office_jurisdiction) {
+                optimisticUpdates.office_jurisdiction = cleanUpdates.office_jurisdiction;
+                optimisticUpdates.designated_office = cleanUpdates.office_jurisdiction;
+            }
+
+            setData(prev => prev.map(item => item.code === code ? { ...item, ...optimisticUpdates } : item));
         } catch (error) {
             console.error("Update error:", error);
             alert("수정 중 오류가 발생했습니다.");
@@ -484,7 +532,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 </div>
                                 <div className="text-center text-xs">{item.measurement_month ? `${item.measurement_month}` : '-'}</div>
                                 <div className="text-center text-xs text-slate-500">
-                                    {calculateScheduledDate(item.previous_measurement_date, item.future_measurement_period || 6)}
+                                    {item.future_measurement_date || calculateScheduledDate(item.previous_measurement_date, item.future_measurement_period || 6)}
                                 </div>
                                 <div className="px-1">
                                     <select
@@ -546,30 +594,126 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 />
             </Modal>
 
-            <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="사업장 정보 수정">
-                <div className="space-y-4 p-4 min-w-[400px]">
-                    <div>
-                        <label className="block text-sm font-medium mb-1">비고</label>
-                        <Input value={editForm.notes || ""} onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))} />
+            <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="사업장 상세 정보 수정" size="lg">
+                <div className="p-6 max-h-[80vh] overflow-y-auto">
+                    {/* 섹션 1: 기본 정보 */}
+                    <div className="mb-6">
+                        <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">기본 정보</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">사업장명</label>
+                                <Input value={editForm.business_name || ""} onChange={(e) => setEditForm(prev => ({ ...prev, business_name: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">사업자등록번호</label>
+                                <Input value={editForm.business_number || ""} onChange={(e) => setEditForm(prev => ({ ...prev, business_number: e.target.value }))} />
+                            </div>
+                            <div className="col-span-2">
+                                <label className="block text-sm font-medium mb-1 text-slate-700">소재지</label>
+                                <Input value={editForm.address || ""} onChange={(e) => setEditForm(prev => ({ ...prev, address: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">업종</label>
+                                <Input value={editForm.business_category || ""} onChange={(e) => setEditForm(prev => ({ ...prev, business_category: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">근로자수</label>
+                                <Input type="number" value={editForm.total_employees || ""} onChange={(e) => setEditForm(prev => ({ ...prev, total_employees: e.target.value ? parseInt(e.target.value) : null }))} />
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium mb-1">계획담당자</label>
-                        <Select options={PLAN_MANAGER_EDIT_OPTIONS} value={editForm.plan_manager || ""} onChange={(e) => setEditForm(prev => ({ ...prev, plan_manager: e.target.value }))} />
+
+                    {/* 섹션 2: 담당자 정보 */}
+                    <div className="mb-6">
+                        <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">담당자 정보</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">담당자명</label>
+                                <Input value={editForm.manager_name || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_name: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">휴대전화</label>
+                                <Input value={editForm.manager_mobile || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_mobile: e.target.value }))} placeholder="010-0000-0000" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">유선전화</label>
+                                <Input value={editForm.manager_phone || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_phone: e.target.value }))} />
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium mb-1">금회예정일</label>
-                        <Input type="date" value={editForm.future_measurement_date || ""} onChange={(e) => setEditForm(prev => ({ ...prev, future_measurement_date: e.target.value }))} />
+
+                    {/* 섹션 3: 관리 정보 */}
+                    <div className="mb-6">
+                        <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">관리 정보</h4>
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">계획담당</label>
+                                <Select options={PLAN_MANAGER_EDIT_OPTIONS} value={editForm.plan_manager || ""} onChange={(e) => setEditForm(prev => ({ ...prev, plan_manager: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">지정지청</label>
+                                <Select options={OFFICE_OPTIONS} value={editForm.designated_office || ""} onChange={(e) => setEditForm(prev => ({ ...prev, designated_office: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">관리상태</label>
+                                <Input value={editForm.management_status || ""} onChange={(e) => setEditForm(prev => ({ ...prev, management_status: e.target.value }))} />
+                            </div>
+                        </div>
                     </div>
+
+                    {/* 섹션 4: 측정 정보 */}
+                    <div className="mb-6 bg-slate-50 p-4 rounded-lg">
+                        <h4 className="text-md font-bold text-slate-800 pb-2 mb-3">측정 정보</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="col-span-2">
+                                <label className="block text-sm font-medium mb-1 text-slate-700">실시여부</label>
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        className={`block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm h-10 px-3
+                                            ${editForm.is_registered_text === '실시' ? 'bg-green-100 text-green-700' :
+                                                editForm.is_registered_text === '미실시' ? 'bg-yellow-100 text-yellow-700' :
+                                                    editForm.is_registered_text === '거래종료' ? 'bg-red-100 text-red-700' : 'bg-white'}`}
+                                        value={editForm.is_registered_text || "미실시"}
+                                        onChange={(e) => setEditForm(prev => ({ ...prev, is_registered_text: e.target.value }))}
+                                    >
+                                        <option value="실시" className="bg-white text-black">실시</option>
+                                        <option value="미실시" className="bg-white text-black">미실시</option>
+                                        <option value="거래종료" className="bg-white text-black">거래종료</option>
+                                    </select>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-1">* '거래종료' 선택 시 자동 계산보다 우선 적용됩니다.</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
+                                <Input value={editForm.national_support_status || ""} onChange={(e) => setEditForm(prev => ({ ...prev, national_support_status: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">향후 측정주기 (개월)</label>
+                                <Input type="number" value={editForm.future_measurement_period || ""} onChange={(e) => setEditForm(prev => ({ ...prev, future_measurement_period: e.target.value ? parseInt(e.target.value) : null }))} placeholder="예: 6, 12" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">금회예정일</label>
+                                <Input type="date" value={editForm.future_measurement_date || ""} onChange={(e) => setEditForm(prev => ({ ...prev, future_measurement_date: e.target.value }))} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">확정일</label>
+                                <Input type="date" value={editForm.measurement_date || ""} onChange={(e) => setEditForm(prev => ({ ...prev, measurement_date: e.target.value }))} />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 섹션 5: 비고 */}
                     <div>
-                        <label className="block text-sm font-medium mb-1">실시여부</label>
-                        <Select
-                            options={STATUS_OPTIONS}
-                            value={editForm.is_registered_text || "미실시"}
-                            onChange={(e) => setEditForm(prev => ({ ...prev, is_registered_text: e.target.value }))}
+                        <label className="block text-sm font-medium mb-1 text-slate-700">비고</label>
+                        <textarea
+                            className="w-full rounded-md border border-slate-300 p-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                            rows={3}
+                            value={editForm.notes || ""}
+                            onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
                         />
-                        <p className="text-xs text-text-500 mt-1">* &apos;거래종료&apos; 선택 시 자동 계산(예비조사 연동)보다 우선 적용됩니다.</p>
                     </div>
-                    <div className="flex justify-end gap-2 mt-6">
+
+                    <div className="flex justify-end gap-2 mt-8 pt-4 border-t border-slate-200">
                         <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>취소</Button>
                         <Button variant="primary" onClick={handleSaveEdit}>저장</Button>
                     </div>

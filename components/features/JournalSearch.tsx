@@ -936,6 +936,17 @@ export const JournalSearch: React.FC = () => {
                   className="text-center px-1"
                 />
               </div>
+              <div className="w-[120px]">
+                <Select
+                  label="지정지청"
+                  value={searchParams.designatedOffice}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, designatedOffice: e.target.value })
+                  }
+                  options={searchDesignatedOfficeOptions}
+                  className="text-center px-1"
+                />
+              </div>
               <div className="w-[225px]">
                 <Input
                   label="사업장명"
@@ -950,33 +961,6 @@ export const JournalSearch: React.FC = () => {
                     }
                   }}
                   placeholder=""
-                />
-              </div>
-              <div className="w-[120px]">
-                <Select
-                  label="지정지청"
-                  value={searchParams.designatedOffice}
-                  onChange={(e) =>
-                    setSearchParams({ ...searchParams, designatedOffice: e.target.value })
-                  }
-                  options={searchDesignatedOfficeOptions}
-                  className="text-center px-1"
-                />
-              </div>
-              <div className="w-[150px]">
-                <Input
-                  type="date"
-                  label="측정일(예비조사)"
-                  value={searchParams.measurementDate}
-                  onChange={(e) =>
-                    setSearchParams({ ...searchParams, measurementDate: e.target.value })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSearch();
-                    }
-                  }}
                 />
               </div>
               <div className="w-[360px]">
@@ -1096,321 +1080,326 @@ export const JournalSearch: React.FC = () => {
             </div>
           )}
         </>
-      )}
+      )
+      }
 
       {/* 등록 현황 탭 */}
-      {activeTab === "list" && (
-        <>
-          {/* 필터 */}
-          <Card className="p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-text-900">필터</h2>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={handleFilterReset}
-                disabled={listLoading}
-                size="sm"
-              >
-                필터 초기화
-              </Button>
-            </div>
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="flex-1 min-w-[120px]">
-                <Select
-                  label="측정년도"
-                  value={filters.measurementYear}
-                  onChange={(e) => handleFilterChange("measurementYear", e.target.value)}
-                  options={[{ value: "", label: "전체" }, ...yearOptions]}
-                />
-              </div>
-              <div className="flex-1 min-w-[120px]">
-                <Select
-                  label="측정주기"
-                  value={filters.measurementPeriod}
-                  onChange={(e) => handleFilterChange("measurementPeriod", e.target.value)}
-                  options={periodOptions}
-                />
-              </div>
-              <div className="flex-1 min-w-[120px]">
-                <Select
-                  label="지정지청"
-                  value={filters.designatedOffice}
-                  onChange={(e) => handleFilterChange("designatedOffice", e.target.value)}
-                  options={designatedOfficeOptions}
-                />
-              </div>
-              <div className="flex-1 min-w-[120px]">
-                <Select
-                  label="완료여부"
-                  value={filters.completionStatus}
-                  onChange={(e) => handleFilterChange("completionStatus", e.target.value)}
-                  options={[
-                    { value: "", label: "전체" },
-                    { value: "완료", label: "완료" },
-                    { value: "미완료", label: "미완료" },
-                  ]}
-                />
-              </div>
-              <div className="flex-[2] min-w-[200px] flex items-end gap-2">
-                <div className="flex-1">
-                  <Input
-                    label="사업장명"
-                    value={filters.businessName}
-                    onChange={(e) => setFilters({ ...filters, businessName: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        applyFilters(allJournals, filters, sequenceSortOrder);
-                      }
-                    }}
-                    placeholder="사업장명 입력"
-                  />
-                </div>
+      {
+        activeTab === "list" && (
+          <>
+            {/* 필터 */}
+            <Card className="p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-text-900">필터</h2>
                 <Button
                   type="button"
-                  onClick={() => applyFilters(allJournals, filters, sequenceSortOrder)}
-                  className="mb-0.5"
+                  variant="secondary"
+                  onClick={handleFilterReset}
+                  disabled={listLoading}
+                  size="sm"
                 >
-                  검색
+                  필터 초기화
                 </Button>
               </div>
-            </div>
-          </Card>
-
-          {/* 등록 현황 목록 */}
-          {listError && <Alert variant="error">{listError}</Alert>}
-
-          <Card className="p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-text-900">
-                측정일지 등록 현황 ({filteredJournals.length}건 / 전체 {allJournals.length}건)
-              </h2>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={handleExportExcel}>
-                  엑셀 다운로드
-                </Button>
-                <Button onClick={() => setIsRegisterModalOpen(true)}>
-                  등록
-                </Button>
-                {selectedJournalIds.length > 0 && (
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="flex-1 min-w-[120px]">
+                  <Select
+                    label="측정년도"
+                    value={filters.measurementYear}
+                    onChange={(e) => handleFilterChange("measurementYear", e.target.value)}
+                    options={[{ value: "", label: "전체" }, ...yearOptions]}
+                  />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <Select
+                    label="측정주기"
+                    value={filters.measurementPeriod}
+                    onChange={(e) => handleFilterChange("measurementPeriod", e.target.value)}
+                    options={periodOptions}
+                  />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <Select
+                    label="지정지청"
+                    value={filters.designatedOffice}
+                    onChange={(e) => handleFilterChange("designatedOffice", e.target.value)}
+                    options={designatedOfficeOptions}
+                  />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <Select
+                    label="완료여부"
+                    value={filters.completionStatus}
+                    onChange={(e) => handleFilterChange("completionStatus", e.target.value)}
+                    options={[
+                      { value: "", label: "전체" },
+                      { value: "완료", label: "완료" },
+                      { value: "미완료", label: "미완료" },
+                    ]}
+                  />
+                </div>
+                <div className="flex-[2] min-w-[200px] flex items-end gap-2">
+                  <div className="flex-1">
+                    <Input
+                      label="사업장명"
+                      value={filters.businessName}
+                      onChange={(e) => setFilters({ ...filters, businessName: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          applyFilters(allJournals, filters, sequenceSortOrder);
+                        }
+                      }}
+                      placeholder="사업장명 입력"
+                    />
+                  </div>
                   <Button
-                    variant="secondary"
-                    onClick={handleBulkDeleteJournals}
-                    disabled={isDeleting}
+                    type="button"
+                    onClick={() => applyFilters(allJournals, filters, sequenceSortOrder)}
+                    className="mb-0.5"
                   >
-                    {isDeleting ? "삭제 중..." : `선택 삭제 (${selectedJournalIds.length})`}
+                    검색
                   </Button>
-                )}
+                </div>
               </div>
-            </div>
+            </Card>
 
-            {listLoading ? (
-              <div className="flex justify-center py-12">
-                <LoadingSpinner />
+            {/* 등록 현황 목록 */}
+            {listError && <Alert variant="error">{listError}</Alert>}
+
+            <Card className="p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-text-900">
+                  측정일지 등록 현황 ({filteredJournals.length}건 / 전체 {allJournals.length}건)
+                </h2>
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={handleExportExcel}>
+                    엑셀 다운로드
+                  </Button>
+                  <Button onClick={() => setIsRegisterModalOpen(true)}>
+                    등록
+                  </Button>
+                  {selectedJournalIds.length > 0 && (
+                    <Button
+                      variant="secondary"
+                      onClick={handleBulkDeleteJournals}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? "삭제 중..." : `선택 삭제 (${selectedJournalIds.length})`}
+                    </Button>
+                  )}
+                </div>
               </div>
-            ) : filteredJournals.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-text-500 text-lg">
-                  {allJournals.length === 0
-                    ? "등록된 측정일지가 없습니다."
-                    : "필터 조건에 맞는 측정일지가 없습니다."}
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-surface-200">
-                <Table maxHeight="max-h-[calc(100vh-300px)]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="bg-surface-50 w-8">
-                        <Checkbox
-                          checked={
-                            filteredJournals.length > 0 &&
-                            filteredJournals.filter((entry) => entry.id !== null).length > 0 &&
-                            selectedJournalIds.length ===
-                            filteredJournals.filter((entry) => entry.id !== null).length
-                          }
-                          onChange={(e) => handleSelectAllJournals(e.target.checked)}
-                          disabled={filteredJournals.filter((entry) => entry.id !== null).length === 0}
-                        />
-                      </TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs">
-                        <div className="flex items-center justify-center gap-1">
-                          <span>순번</span>
-                          <button
-                            onClick={() => {
-                              const newOrder = sequenceSortOrder === "asc" ? "desc" : "asc";
-                              setSequenceSortOrder(newOrder);
-                              // 현재 필터 상태로 다시 필터링하여 정렬 적용
-                              applyFilters(allJournals, filters, newOrder);
-                            }}
-                            className="p-1 hover:bg-surface-100 rounded transition-colors flex items-center justify-center"
-                            title={sequenceSortOrder === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}
+
+              {listLoading ? (
+                <div className="flex justify-center py-12">
+                  <LoadingSpinner />
+                </div>
+              ) : filteredJournals.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-text-500 text-lg">
+                    {allJournals.length === 0
+                      ? "등록된 측정일지가 없습니다."
+                      : "필터 조건에 맞는 측정일지가 없습니다."}
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-surface-200">
+                  <Table maxHeight="max-h-[calc(100vh-300px)]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="bg-surface-50 w-8">
+                          <Checkbox
+                            checked={
+                              filteredJournals.length > 0 &&
+                              filteredJournals.filter((entry) => entry.id !== null).length > 0 &&
+                              selectedJournalIds.length ===
+                              filteredJournals.filter((entry) => entry.id !== null).length
+                            }
+                            onChange={(e) => handleSelectAllJournals(e.target.checked)}
+                            disabled={filteredJournals.filter((entry) => entry.id !== null).length === 0}
+                          />
+                        </TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">
+                          <div className="flex items-center justify-center gap-1">
+                            <span>순번</span>
+                            <button
+                              onClick={() => {
+                                const newOrder = sequenceSortOrder === "asc" ? "desc" : "asc";
+                                setSequenceSortOrder(newOrder);
+                                // 현재 필터 상태로 다시 필터링하여 정렬 적용
+                                applyFilters(allJournals, filters, newOrder);
+                              }}
+                              className="p-1 hover:bg-surface-100 rounded transition-colors flex items-center justify-center"
+                              title={sequenceSortOrder === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}
+                            >
+                              {sequenceSortOrder === "asc" ? (
+                                // 빨간색 위 삼각형 (오름차순)
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path d="M12 8L8 12H16L12 8Z" fill="#EF4444" />
+                                </svg>
+                              ) : (
+                                // 파란색 아래 삼각형 (내림차순)
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path d="M12 16L16 12H8L12 16Z" fill="#3B82F6" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">코드</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정년도</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정주기</TableHead>
+                        <TableHead className="bg-surface-50 w-14 text-center text-xs">지정지청</TableHead>
+                        <TableHead className="bg-surface-50 w-[180px] text-xs">사업장명</TableHead>
+                        <TableHead className="bg-surface-50 w-[300px] text-xs">주소</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">공문연번</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">연번</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs px-1">5인이상</TableHead>
+                        <TableHead className="bg-surface-50 w-10 text-center text-xs">총인원</TableHead>
+                        <TableHead className="bg-surface-50 w-20 text-center text-xs">측정 시작일</TableHead>
+                        <TableHead className="bg-surface-50 w-14 text-center text-xs">담당자</TableHead>
+                        <TableHead className="bg-surface-50 w-20 text-center text-xs">담당자 휴대폰</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정자</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">완료여부</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">작업</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredJournals.map((entry, index) => {
+                        const isSelected =
+                          entry.id !== null && selectedJournalIds.includes(entry.id);
+                        return (
+                          <TableRow
+                            key={
+                              entry.id ||
+                              `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`
+                            }
+                            className="hover:bg-surface-50"
                           >
-                            {sequenceSortOrder === "asc" ? (
-                              // 빨간색 위 삼각형 (오름차순)
-                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 8L8 12H16L12 8Z" fill="#EF4444" />
-                              </svg>
-                            ) : (
-                              // 파란색 아래 삼각형 (내림차순)
-                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 16L16 12H8L12 16Z" fill="#3B82F6" />
-                              </svg>
-                            )}
-                          </button>
-                        </div>
-                      </TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs">코드</TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs">측정년도</TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs">측정주기</TableHead>
-                      <TableHead className="bg-surface-50 w-14 text-center text-xs">지정지청</TableHead>
-                      <TableHead className="bg-surface-50 w-[180px] text-xs">사업장명</TableHead>
-                      <TableHead className="bg-surface-50 w-[300px] text-xs">주소</TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs">공문연번</TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs">연번</TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs px-1">5인이상</TableHead>
-                      <TableHead className="bg-surface-50 w-10 text-center text-xs">총인원</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center text-xs">측정 시작일</TableHead>
-                      <TableHead className="bg-surface-50 w-14 text-center text-xs">담당자</TableHead>
-                      <TableHead className="bg-surface-50 w-20 text-center text-xs">담당자 휴대폰</TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs">측정자</TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs">완료여부</TableHead>
-                      <TableHead className="bg-surface-50 w-12 text-center text-xs">작업</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredJournals.map((entry, index) => {
-                      const isSelected =
-                        entry.id !== null && selectedJournalIds.includes(entry.id);
-                      return (
-                        <TableRow
-                          key={
-                            entry.id ||
-                            `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`
-                          }
-                          className="hover:bg-surface-50"
-                        >
-                          <TableCell>
-                            {entry.id !== null ? (
-                              <Checkbox
-                                checked={isSelected}
-                                onChange={(e) =>
-                                  handleToggleJournalSelection(
-                                    entry.id as number,
-                                    e.target.checked,
-                                  )
-                                }
-                              />
-                            ) : (
-                              <span className="text-text-400">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-center text-xs">
-                            {index + 1}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-center">
-                            {entry.code}
-                          </TableCell>
-                          <TableCell className="font-medium text-center text-xs">
-                            {entry.measurement_year}
-                          </TableCell>
-                          <TableCell className="text-center text-xs">{entry.measurement_period}</TableCell>
-                          <TableCell className="text-center text-xs">{entry.designated_office}</TableCell>
-                          <TableCell className="font-medium truncate max-w-[180px] text-xs" title={entry.business_name}>
-                            {entry.business_name}
-                          </TableCell>
-                          <TableCell className="text-text-600 max-w-[300px] text-xs leading-tight break-keep" title={entry.address}>
-                            <div className="line-clamp-2">
-                              {entry.address || "-"}
-                            </div>
-                          </TableCell>
-                          <TableCell className="bg-surface-50 text-center text-xs">
-                            {entry.document_number || "-"}
-                          </TableCell>
-                          <TableCell className="bg-surface-50 text-center text-xs">
-                            {entry.sequence_number || "-"}
-                          </TableCell>
-                          <TableCell className="bg-surface-50 text-center text-xs">
-                            {entry.five_plus_sequence || "-"}
-                          </TableCell>
-                          <TableCell className={`text-center text-xs ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : 'bg-surface-50'}`}>
-                            {entry.total_employees || "-"}
-                          </TableCell>
-                          <TableCell className="text-center text-xs">{formatDate(entry.measurement_start_date)}</TableCell>
-                          <TableCell className="text-center text-xs">{entry.manager_name || "-"}</TableCell>
-                          <TableCell className="text-center text-xs">{entry.manager_mobile || "-"}</TableCell>
-                          <TableCell className="text-text-600 text-center text-xs">
-                            {entry.measurer || "-"}
-                          </TableCell>
-                          <TableCell>
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${entry.completion_status === "완료"
-                                ? "bg-green-100 text-green-800"
-                                : "bg-yellow-100 text-yellow-800"
-                                }`}
-                            >
-                              {entry.completion_status}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleSelectJournal(entry)}
-                              className="shadow-sm h-7 px-1.5 text-xs"
-                            >
-                              선택
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </Card>
-        </>
-      )}
+                            <TableCell>
+                              {entry.id !== null ? (
+                                <Checkbox
+                                  checked={isSelected}
+                                  onChange={(e) =>
+                                    handleToggleJournalSelection(
+                                      entry.id as number,
+                                      e.target.checked,
+                                    )
+                                  }
+                                />
+                              ) : (
+                                <span className="text-text-400">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center text-xs">
+                              {index + 1}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-center">
+                              {entry.code}
+                            </TableCell>
+                            <TableCell className="font-medium text-center text-xs">
+                              {entry.measurement_year}
+                            </TableCell>
+                            <TableCell className="text-center text-xs">{entry.measurement_period}</TableCell>
+                            <TableCell className="text-center text-xs">{entry.designated_office}</TableCell>
+                            <TableCell className="font-medium truncate max-w-[180px] text-xs" title={entry.business_name}>
+                              {entry.business_name}
+                            </TableCell>
+                            <TableCell className="text-text-600 max-w-[300px] text-xs leading-tight break-keep" title={entry.address}>
+                              <div className="line-clamp-2">
+                                {entry.address || "-"}
+                              </div>
+                            </TableCell>
+                            <TableCell className="bg-surface-50 text-center text-xs">
+                              {entry.document_number || "-"}
+                            </TableCell>
+                            <TableCell className="bg-surface-50 text-center text-xs">
+                              {entry.sequence_number || "-"}
+                            </TableCell>
+                            <TableCell className="bg-surface-50 text-center text-xs">
+                              {entry.five_plus_sequence || "-"}
+                            </TableCell>
+                            <TableCell className={`text-center text-xs ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : 'bg-surface-50'}`}>
+                              {entry.total_employees || "-"}
+                            </TableCell>
+                            <TableCell className="text-center text-xs">{formatDate(entry.measurement_start_date)}</TableCell>
+                            <TableCell className="text-center text-xs">{entry.manager_name || "-"}</TableCell>
+                            <TableCell className="text-center text-xs">{entry.manager_mobile || "-"}</TableCell>
+                            <TableCell className="text-text-600 text-center text-xs">
+                              {entry.measurer || "-"}
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${entry.completion_status === "완료"
+                                  ? "bg-green-100 text-green-800"
+                                  : "bg-yellow-100 text-yellow-800"
+                                  }`}
+                              >
+                                {entry.completion_status}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleSelectJournal(entry)}
+                                className="shadow-sm h-7 px-1.5 text-xs"
+                              >
+                                선택
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </Card>
+          </>
+        )
+      }
 
       {/* 측정일지 수정 모달 */}
-      {selectedEntry && (
-        <Modal
-          isOpen={isModalOpen}
-          onClose={handleModalClose}
-          title={selectedEntry.id ? "측정일지 수정" : "측정일지 등록"}
-          size="full-75"
-          headerActions={
-            <div className="flex gap-2">
-              <Button
-                type="submit"
-                form="journal-edit-form"
-                disabled={isJournalFormSubmitting}
-                className="min-w-[80px]"
-              >
-                {isJournalFormSubmitting ? <LoadingSpinner size="sm" /> : selectedEntry.id ? "수정" : "등록"}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={handleModalClose}
-                disabled={isJournalFormSubmitting}
-              >
-                취소
-              </Button>
-            </div>
-          }
-        >
-          <JournalEditForm
-            key={selectedEntry.id || `new-${selectedEntry.code}-${selectedEntry.measurement_year}-${selectedEntry.measurement_period}`}
-            entry={selectedEntry}
-            mode="journal"
+      {
+        selectedEntry && (
+          <Modal
+            isOpen={isModalOpen}
             onClose={handleModalClose}
-            onSuccess={handleSaveSuccess}
-            setIsSubmitting={setIsJournalFormSubmitting}
-          />
-        </Modal>
-      )}
+            title={selectedEntry.id ? "측정일지 수정" : "측정일지 등록"}
+            size="full-75"
+            headerActions={
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  form="journal-edit-form"
+                  disabled={isJournalFormSubmitting}
+                  className="min-w-[80px]"
+                >
+                  {isJournalFormSubmitting ? <LoadingSpinner size="sm" /> : selectedEntry.id ? "수정" : "등록"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={handleModalClose}
+                  disabled={isJournalFormSubmitting}
+                >
+                  취소
+                </Button>
+              </div>
+            }
+          >
+            <JournalEditForm
+              key={selectedEntry.id || `new-${selectedEntry.code}-${selectedEntry.measurement_year}-${selectedEntry.measurement_period}`}
+              entry={selectedEntry}
+              mode="journal"
+              onClose={handleModalClose}
+              onSuccess={handleSaveSuccess}
+              setIsSubmitting={setIsJournalFormSubmitting}
+            />
+          </Modal>
+        )
+      }
 
       {/* 측정일지 등록(사업장 선택) 모달 */}
       <JournalRegisterModal
@@ -1484,7 +1473,7 @@ export const JournalSearch: React.FC = () => {
           </div>
         </div>
       </Modal>
-    </div>
+    </div >
   );
 };
 

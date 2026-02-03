@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 3. 추가 데이터 조회 (예비조사 등록 여부 및 향후 측정주기)
+    // 3. 추가 데이터 조회 (예비조사 등록 여부 및 향후 측정주기, 최신 사업장 정보)
     // 예비조사 (Preliminary Survey) 조회 (실시여부 판단용)
     const { data: surveys } = await supabase
       .from("preliminary_survey")
@@ -135,26 +135,22 @@ export async function GET(request: NextRequest) {
 
     const surveyRegisteredCodes = new Set(surveys?.map((s: any) => s.code));
 
-    // 향후 측정주기 (measurement_business 테이블에서 최신값 조회)
-    // 각 코드별로 가장 최신의 future_measurement_period를 가져옴
-    // Note: This requires a customized query or processing in JS. 
-    // Given Supabase limitations on complex DISTINCT ON via JS client, we might fetch all valid entries for these codes.
-    // Optimization: If dataset is huge, this is slow. But for 50-100 items page, it's fine.
-    // Querying measurement_business for these codes.
-    const { data: periodData } = await supabase
+    // 향후 측정주기 및 최신 사업장 정보 (measurement_business 테이블에서 최신값 조회)
+    // 각 코드별로 가장 최신의 데이터를 가져옴
+    const { data: latestBusinessData } = await supabase
       .from("measurement_business")
-      .select("code, year, period, future_measurement_period")
+      .select("code, year, period, future_measurement_period, business_number, total_employees, phone, business_category")
       .in("code", codes)
-      .not("future_measurement_period", "is", null)
       .order("year", { ascending: false })
       .order("period", { ascending: false });
 
-    // Map: Code -> Latest Future Measurement Period
-    const latestPeriodMap = new Map<string, number>();
-    if (periodData) {
-      periodData.forEach((item: any) => {
-        if (!latestPeriodMap.has(item.code)) {
-          latestPeriodMap.set(item.code, item.future_measurement_period);
+    // Map: Code -> Latest Info
+    const latestInfoMap = new Map<string, any>();
+    if (latestBusinessData) {
+      latestBusinessData.forEach((item: any) => {
+        if (!latestInfoMap.has(item.code)) {
+          // 가장 최신의 데이터만 저장 (정렬되어 있으므로 첫번째가 최신)
+          latestInfoMap.set(item.code, item);
         }
       });
     }
@@ -163,6 +159,7 @@ export async function GET(request: NextRequest) {
     const result = businesses.map((item: any) => {
       const unpaidInfo = unpaidMap.get(item.code) || { count: 0, details: [] };
       const isSurveyRegistered = surveyRegisteredCodes.has(item.code);
+      const latestInfo = latestInfoMap.get(item.code);
 
       // 실시여부 로직: 기 입력된 값이 '거래종료'면 유지, 아니면 예비조사 등록 여부에 따라 '실시'/'미실시'
       let isRegisteredText = item.is_registered;
@@ -171,7 +168,7 @@ export async function GET(request: NextRequest) {
       }
 
       // 향후 측정주기 로직: 최신값 우선, 없으면 현재 값
-      const futurePeriod = latestPeriodMap.get(item.code) || item.future_measurement_period;
+      const futurePeriod = latestInfo?.future_measurement_period || item.future_measurement_period;
 
       return {
         ...item,
@@ -182,6 +179,13 @@ export async function GET(request: NextRequest) {
         isRegistered: isRegisteredText === "실시", // Frontend 호환성
         is_registered_text: isRegisteredText, // 텍스트 값 전달
         future_measurement_period: futurePeriod, // 최신 값으로 덮어쓰기
+
+        // [Sync from Latest Measurement Data]
+        // 값이 없거나 최신 데이터가 있으면 최신 데이터로 우선 적용
+        business_number: latestInfo?.business_number || item.business_number,
+        total_employees: latestInfo?.total_employees || item.total_employees,
+        manager_phone: latestInfo?.phone || item.manager_phone, // measurement_business.phone is landline
+        business_category: latestInfo?.business_category || item.business_category,
       };
     });
 
