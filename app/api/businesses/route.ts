@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
       // (amount - deposit > 0)
       const { data: unpaidData } = await supabase
         .from("measurement_journal")
-        .select("code, measurement_year, measurement_period, measurement_fee_total, deposit_total, business_name")
+        .select("code, measurement_year, measurement_period, measurement_fee_total, deposit_total, business_name, electronic_invoice_date, measurement_fee_business, deposit_amount_business")
         .in("code", codes);
 
       if (unpaidData) {
@@ -108,6 +108,11 @@ export async function GET(request: NextRequest) {
           const fee = Number(item.measurement_fee_total || 0);
           const deposit = Number(item.deposit_total || 0);
           const unpaidAmount = fee - deposit;
+
+          // Unpaid Business Amount
+          const feeBusiness = Number(item.measurement_fee_business || 0);
+          const depositBusiness = Number(item.deposit_amount_business || 0);
+          const unpaidBusiness = feeBusiness - depositBusiness;
 
           if (unpaidAmount > 0) {
             const current = unpaidMap.get(item.code) || { count: 0, details: [] };
@@ -117,7 +122,9 @@ export async function GET(request: NextRequest) {
               period: item.measurement_period,
               amount: unpaidAmount,
               total: fee,
-              deposit: deposit
+              deposit: deposit,
+              invoiceDate: item.electronic_invoice_date,
+              unpaidBusiness: unpaidBusiness
             });
             unpaidMap.set(item.code, current);
           }
@@ -260,14 +267,83 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "식별자(id 또는 code/year/period)가 필요합니다." }, { status: 400 });
     }
 
-    const { data, error } = await query.select();
+    const { data: updatedData, error } = await query.select().single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data });
+    // [New Feature] Sync 'Confirmed Date' to 'Preliminary Survey'
+    // If 'measurement_date' is updated
+    if (updates.hasOwnProperty('measurement_date') && code && year && period) {
+      try {
+        if (!updates.measurement_date) {
+          // Case: Date is cleared -> Delete from Preliminary Survey
+          // Only if it exists
+          await supabase
+            .from("preliminary_survey")
+            .delete()
+            .eq("code", code)
+            .eq("year", year)
+            .eq("period", period);
 
+        } else {
+          // Case: Date is set -> Update or Insert
+          const { data: existingSurvey } = await supabase
+            .from("preliminary_survey")
+            .select("id")
+            .eq("code", code)
+            .eq("year", year)
+            .eq("period", period)
+            .maybeSingle();
+
+          if (existingSurvey) {
+            // Update existing survey
+            await supabase
+              .from("preliminary_survey")
+              .update({ measurement_date: updates.measurement_date })
+              .eq("id", existingSurvey.id);
+          } else {
+            // Insert new survey
+            // Need to fetch full business details
+            const { data: businessInfo } = await supabase
+              .from("measurement_target_business")
+              .select("business_name, address, office_jurisdiction")
+              .eq("code", code)
+              .eq("year", year)
+              .eq("period", period)
+              .single();
+
+            if (businessInfo) {
+              // Calculate Next Sequence Number
+              const { data: maxSeq } = await supabase
+                .from("preliminary_survey")
+                .select("sequence_number")
+                .order("sequence_number", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              const nextSeq = (maxSeq?.sequence_number || 0) + 1;
+
+              await supabase.from("preliminary_survey").insert({
+                year: year,
+                period: period,
+                code: code,
+                measurement_date: updates.measurement_date,
+                business_name: businessInfo.business_name,
+                address: businessInfo.address,
+                sequence_number: nextSeq,
+                created_at: new Date().toISOString()
+              });
+            }
+          }
+        }
+      } catch (syncError) {
+        console.error("Preliminary Survey Sync Error:", syncError);
+        // Do not fail the main request, just log error
+      }
+    }
+
+    return NextResponse.json({ success: true, data: updatedData });
   } catch (error: any) {
     console.error("PATCH API Critical Error:", error);
     return NextResponse.json({

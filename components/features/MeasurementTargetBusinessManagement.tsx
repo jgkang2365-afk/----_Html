@@ -33,6 +33,7 @@ interface BusinessEntry {
     management_status: string | null; // 관리상태
     phone: string | null; // 대표전화? (기존 코드에 있음)
     unpaid_count: number;
+    unpaid_details: any[];
     previous_measurement_date: string | null;
     future_measurement_period: number | null; // 향후 측정주기
     future_measurement_date: string | null;
@@ -161,6 +162,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+    // Unpaid Details Modal State
+    const [isUnpaidModalOpen, setIsUnpaidModalOpen] = useState(false);
+    const [selectedUnpaidDetails, setSelectedUnpaidDetails] = useState<any[]>([]);
+    const [selectedUnpaidBusinessName, setSelectedUnpaidBusinessName] = useState("");
+
     const [editingItem, setEditingItem] = useState<BusinessEntry | null>(null);
     const [editForm, setEditForm] = useState<Partial<BusinessEntry>>({});
 
@@ -601,7 +608,19 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <div className="px-2 break-words text-xs leading-tight">{item.address}</div>
                                 <div className="text-center text-xs">{toShortName(item.office_jurisdiction || "")}</div>
                                 <div className="text-center">
-                                    {item.unpaid_count > 0 && (<span className="text-red-600 font-bold text-xs">{item.unpaid_count}</span>)}
+                                    {item.unpaid_count > 0 && (
+                                        <span
+                                            className="text-red-600 font-bold text-xs cursor-pointer underline"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSelectedUnpaidBusinessName(item.business_name);
+                                                setSelectedUnpaidDetails(item.unpaid_details);
+                                                setIsUnpaidModalOpen(true);
+                                            }}
+                                        >
+                                            {item.unpaid_count}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="text-center text-xs">{item.previous_measurement_date}</div>
                                 <div className="text-center text-xs font-medium text-blue-600">
@@ -630,7 +649,23 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         defaultValue={item.measurement_date || ""}
                                         onBlur={(e) => {
                                             if (e.target.value !== item.measurement_date) {
-                                                handleConfirmedDateChange(item, e.target.value);
+                                                const newVal = e.target.value;
+                                                const newStatus = newVal ? '확정' : '미확정';
+
+                                                // Optimistic Update
+                                                const updatedItem = {
+                                                    ...item,
+                                                    measurement_date: newVal,
+                                                    is_registered: newStatus,
+                                                    is_registered_text: newStatus
+                                                };
+                                                setFilteredData(prev => prev.map(p => p.code === item.code ? updatedItem : p));
+
+                                                saveChanges(item.code, {
+                                                    measurement_date: newVal,
+                                                    is_registered: newStatus,
+                                                    is_registered_text: newStatus
+                                                });
                                             }
                                         }}
                                     />
@@ -779,7 +814,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     setEditForm(prev => ({
                                         ...prev,
                                         measurement_date: val,
-                                        is_registered_text: val ? '확정' : prev.is_registered_text
+                                        is_registered_text: val ? '확정' : '미확정'
                                     }));
                                 }} />
                             </div>
@@ -809,6 +844,47 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     <p className="text-text-500 mb-4">새로운 측정 대상 사업장을 추가하시겠습니까?</p>
                     <p className="text-sm text-yellow-600 mb-4">* 현재는 엑셀 업로드를 권장합니다.</p>
                     <Button onClick={() => setIsAddModalOpen(false)} variant="secondary">닫기</Button>
+                </div>
+            </Modal>
+
+            {/* Unpaid Details Modal */}
+            <Modal
+                isOpen={isUnpaidModalOpen}
+                onClose={() => setIsUnpaidModalOpen(false)}
+                title={`미수 내역 (${selectedUnpaidBusinessName})`}
+            >
+                <div className="bg-white p-4 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+                    <table className="w-full text-sm text-left border-collapse">
+                        <thead className="bg-gray-100 text-gray-700">
+                            <tr>
+                                <th className="p-2 border">년도</th>
+                                <th className="p-2 border">주기</th>
+                                <th className="p-2 border">계산서 발행일</th>
+                                <th className="p-2 border text-right">미수금액(사업장)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {selectedUnpaidDetails.length > 0 ? (
+                                selectedUnpaidDetails.map((detail: any, idx: number) => (
+                                    <tr key={idx} className="border-b hover:bg-gray-50">
+                                        <td className="p-2 border text-center">{detail.year}</td>
+                                        <td className="p-2 border text-center">{detail.period}</td>
+                                        <td className="p-2 border text-center">{detail.invoiceDate || "-"}</td>
+                                        <td className="p-2 border text-right font-medium text-red-600">
+                                            {detail.unpaidBusiness?.toLocaleString()}원
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan={4} className="p-4 text-center text-gray-500">미수 내역이 없습니다.</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="bg-white p-4 rounded-b-lg border-t flex justify-end">
+                    <Button onClick={() => setIsUnpaidModalOpen(false)} variant="secondary">닫기</Button>
                 </div>
             </Modal>
         </div >
