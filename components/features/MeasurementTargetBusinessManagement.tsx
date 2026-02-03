@@ -259,10 +259,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
             // DB 컬럼 매핑 및 클렌징
             const sanitizeUpdates = (raw: Partial<BusinessEntry>) => {
+                // DB에 실제로 존재하는 컬럼만 허용
                 const validColumns = [
-                    'business_name', 'business_number', 'business_category', 'address', 'total_employees',
+                    'business_name', 'business_category', 'address',
                     'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
-                    'manager_name', 'manager_mobile', 'manager_phone',
+                    'manager_name', 'manager_mobile', 'phone', // manager_phone -> phone
                     'management_status', 'notes', 'measurement_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id'
                 ];
@@ -272,6 +273,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 // 매핑 처리
                 if (raw.is_registered_text !== undefined) sanitized.is_registered = raw.is_registered_text;
                 if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
+                if (raw.manager_phone !== undefined) sanitized.phone = raw.manager_phone; // UI manager_phone -> DB phone
 
                 // 직접 매핑된 필드 및 기타 허용 필드 복사
                 Object.keys(raw).forEach(key => {
