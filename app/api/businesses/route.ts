@@ -136,7 +136,7 @@ export async function GET(request: NextRequest) {
     const surveyRegisteredCodes = new Set(surveys?.map((s: any) => s.code));
 
     // 향후 측정주기 및 최신 사업장 정보 (measurement_business 테이블에서 최신값 조회)
-    // 각 코드별로 가장 최신의 데이터를 가져옴
+    // 1순위: measurement_business
     const { data: latestBusinessData } = await supabase
       .from("measurement_business")
       .select("code, year, period, future_measurement_period, business_number, total_employees, phone, business_category")
@@ -144,13 +144,30 @@ export async function GET(request: NextRequest) {
       .order("year", { ascending: false })
       .order("period", { ascending: false });
 
-    // Map: Code -> Latest Info
-    const latestInfoMap = new Map<string, any>();
+    // 2순위: measurement_journal
+    const { data: latestJournalData } = await supabase
+      .from("measurement_journal")
+      .select("code, measurement_year, measurement_period, business_number, total_employees, phone")
+      .in("code", codes)
+      .order("measurement_year", { ascending: false })
+      .order("measurement_period", { ascending: false });
+
+    // Map: Code -> Latest Info (Business)
+    const businessInfoMap = new Map<string, any>();
     if (latestBusinessData) {
       latestBusinessData.forEach((item: any) => {
-        if (!latestInfoMap.has(item.code)) {
-          // 가장 최신의 데이터만 저장 (정렬되어 있으므로 첫번째가 최신)
-          latestInfoMap.set(item.code, item);
+        if (!businessInfoMap.has(item.code)) {
+          businessInfoMap.set(item.code, item);
+        }
+      });
+    }
+
+    // Map: Code -> Latest Info (Journal)
+    const journalInfoMap = new Map<string, any>();
+    if (latestJournalData) {
+      latestJournalData.forEach((item: any) => {
+        if (!journalInfoMap.has(item.code)) {
+          journalInfoMap.set(item.code, item);
         }
       });
     }
@@ -159,7 +176,9 @@ export async function GET(request: NextRequest) {
     const result = businesses.map((item: any) => {
       const unpaidInfo = unpaidMap.get(item.code) || { count: 0, details: [] };
       const isSurveyRegistered = surveyRegisteredCodes.has(item.code);
-      const latestInfo = latestInfoMap.get(item.code);
+
+      const bInfo = businessInfoMap.get(item.code);
+      const jInfo = journalInfoMap.get(item.code);
 
       // 실시여부 로직: 기 입력된 값이 '거래종료'면 유지, 아니면 예비조사 등록 여부에 따라 '실시'/'미실시'
       let isRegisteredText = item.is_registered;
@@ -168,7 +187,19 @@ export async function GET(request: NextRequest) {
       }
 
       // 향후 측정주기 로직: 최신값 우선, 없으면 현재 값
-      const futurePeriod = latestInfo?.future_measurement_period || item.future_measurement_period;
+      const futurePeriod = bInfo?.future_measurement_period || item.future_measurement_period;
+
+      // [Sync Priority]: term (measurement_business) > journal (measurement_journal) > target (original)
+
+      // 사업자등록번호
+      const businessNumber = bInfo?.business_number || jInfo?.business_number || item.business_number;
+      // 근로자수
+      const totalEmployees = bInfo?.total_employees || jInfo?.total_employees || item.total_employees;
+      // 유선전화 (Source 'phone' -> Target 'manager_phone' for UI display)
+      const phone = bInfo?.phone || jInfo?.phone || item.manager_phone;
+      // 업종 (journal에는 없음, business에만 있는 것으로 가정)
+      const businessCategory = bInfo?.business_category || item.business_category;
+
 
       return {
         ...item,
@@ -180,12 +211,11 @@ export async function GET(request: NextRequest) {
         is_registered_text: isRegisteredText, // 텍스트 값 전달
         future_measurement_period: futurePeriod, // 최신 값으로 덮어쓰기
 
-        // [Sync from Latest Measurement Data]
-        // 값이 없거나 최신 데이터가 있으면 최신 데이터로 우선 적용
-        business_number: latestInfo?.business_number || item.business_number,
-        total_employees: latestInfo?.total_employees || item.total_employees,
-        manager_phone: latestInfo?.phone || item.manager_phone, // measurement_business.phone is landline
-        business_category: latestInfo?.business_category || item.business_category,
+        // Sync Applied Fields
+        business_number: businessNumber,
+        total_employees: totalEmployees,
+        manager_phone: phone,
+        business_category: businessCategory,
       };
     });
 
