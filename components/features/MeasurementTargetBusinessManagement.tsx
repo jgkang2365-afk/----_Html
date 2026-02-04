@@ -212,7 +212,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             const terms = filters.businessName.split(",").map(s => s.trim()).filter(Boolean);
             if (terms.length > 0) {
                 result = result.filter(item =>
-                    terms.some(term => (item.business_name || "").toLowerCase().includes(term.toLowerCase()))
+                    terms.some(term => {
+                        // 공백 제거 후 비교 (유연한 검색)
+                        const normalizedTerm = term.replace(/\s+/g, "").toLowerCase();
+                        const normalizedName = (item.business_name || "").replace(/\s+/g, "").toLowerCase();
+                        return normalizedName.includes(normalizedTerm);
+                    })
                 );
             }
         }

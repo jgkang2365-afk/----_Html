@@ -701,8 +701,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           <Input
             label="사업장명"
             value={formData.business_name}
-            readOnly
-            className="bg-surface-50"
+            onChange={(e) => setFormData(prev => ({ ...prev, business_name: e.target.value }))}
+            className=""
           />
           <Input
             label="주소"

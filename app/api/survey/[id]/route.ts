@@ -146,7 +146,8 @@ export async function PUT(
           .from("measurement_target_business")
           .update({
             measurement_date: latestSurvey.measurement_date,
-            notes: latestSurvey.notes
+            notes: latestSurvey.notes,
+            business_name: business_name // [New Feature] Sync Business Name
           })
           .eq("code", code);
 

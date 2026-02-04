@@ -45,9 +45,13 @@ export async function GET(request: NextRequest) {
       query = query.ilike("address", `%${address}%`);
     }
 
-    // 사업장명 (Like 검색)
+    // 사업장명 (Like 검색 - 공백 무시)
     if (businessName) {
-      query = query.ilike("business_name", `%${businessName}%`);
+      // 1. 공백 제거 후 문자 사이사이에 % 삽입하여 유연하게 검색
+      // 예: "삼일공업사" -> "%삼%일%공%업%사%"
+      // 이렇게 하면 "삼일 공업사", "삼 일 공업 사" 모두 매칭됨
+      const searchPattern = businessName.replace(/\s+/g, "").split("").join("%");
+      query = query.ilike("business_name", `%${searchPattern}%`);
     }
 
     // 실시여부 (Exact 검색)
@@ -278,8 +282,7 @@ export async function PATCH(request: NextRequest) {
     if (updates.hasOwnProperty('measurement_date') && code && year && period) {
       try {
         if (!updates.measurement_date) {
-          // Case: Date is cleared -> Delete from Preliminary Survey
-          // Only if it exists
+          // ... (existing logic)
           await supabase
             .from("preliminary_survey")
             .delete()
@@ -288,7 +291,7 @@ export async function PATCH(request: NextRequest) {
             .eq("period", period);
 
         } else {
-          // Case: Date is set -> Update or Insert
+          // ... (existing logic) 
           const { data: existingSurvey } = await supabase
             .from("preliminary_survey")
             .select("id")
@@ -298,14 +301,12 @@ export async function PATCH(request: NextRequest) {
             .maybeSingle();
 
           if (existingSurvey) {
-            // Update existing survey
             await supabase
               .from("preliminary_survey")
               .update({ measurement_date: updates.measurement_date })
               .eq("id", existingSurvey.id);
           } else {
-            // Insert new survey
-            // Need to fetch full business details
+            // ... (existing insert logic)
             const { data: businessInfo } = await supabase
               .from("measurement_target_business")
               .select("business_name, address, office_jurisdiction")
@@ -315,7 +316,7 @@ export async function PATCH(request: NextRequest) {
               .single();
 
             if (businessInfo) {
-              // Calculate Next Sequence Number
+              // ... (existing sequence logic)
               const { data: maxSeq } = await supabase
                 .from("preliminary_survey")
                 .select("sequence_number")
@@ -338,8 +339,28 @@ export async function PATCH(request: NextRequest) {
           }
         }
       } catch (syncError) {
-        console.error("Preliminary Survey Sync Error:", syncError);
-        // Do not fail the main request, just log error
+        console.error("Preliminary Survey Sync Error (Date):", syncError);
+      }
+    }
+
+    // [New Feature] Sync 'Business Name' to 'Preliminary Survey'
+    // 사업장명 변경 시 예비조사 테이블의 사업장명도 자동 업데이트
+    if (updates.business_name && code && year && period) {
+      try {
+        const { error: nameSyncError } = await supabase
+          .from("preliminary_survey")
+          .update({ business_name: updates.business_name })
+          .eq("code", code)
+          .eq("year", year)
+          .eq("period", period);
+
+        if (nameSyncError) {
+          console.error("Preliminary Survey Name Sync Error:", nameSyncError);
+        } else {
+          console.log(`[Sync] Updated preliminary_survey name for ${code} to ${updates.business_name}`);
+        }
+      } catch (e) {
+        console.error("Preliminary Survey Name Sync Exception:", e);
       }
     }
 
