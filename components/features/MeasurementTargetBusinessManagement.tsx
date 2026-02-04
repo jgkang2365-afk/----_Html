@@ -126,7 +126,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                setFilters(prev => ({ ...prev, ...parsed }));
+                // 항상 '계획진행' 필터는 '전체'로 초기화 (사용자 요청)
+                setFilters(prev => ({ ...prev, ...parsed, isRegistered: "전체" }));
             } catch (e) {
                 console.error("Failed to load filters", e);
             }
@@ -226,7 +227,19 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
 
         if (filters.isRegistered !== "전체") {
-            result = result.filter(item => item.is_registered_text === filters.isRegistered);
+            result = result.filter(item => {
+                const status = item.is_registered_text;
+                if (filters.isRegistered === '확정') {
+                    return status === '확정' || status === '실시';
+                }
+                if (filters.isRegistered === '미확정') {
+                    return status === '미확정' || status === '미실시' || !status;
+                }
+                if (filters.isRegistered === '종료') {
+                    return status === '종료' || status === '거래종료';
+                }
+                return status === filters.isRegistered;
+            });
         }
 
         if (filters.planManager) {
