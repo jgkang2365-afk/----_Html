@@ -414,38 +414,96 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-interface BusinessEntryResponse {
-  id: number; // Assuming 'id' is now part of the new table
-  code: string;
-  year: number;
-  period: string;
-  business_name: string;
-  business_number: string | null;
-  total_employees: number | null;
-  address: string | null;
-  office_jurisdiction: string | null;
-  designated_office: string | null; // Mapped from office_jurisdiction for UI compatibility
-  measurement_start_date: string | null;
-  measurement_end_date: string | null;
-  completion_status: string | null;
-  plan_manager: string | null;
-  future_measurement_date: string | null;
-  measurement_date: string | null;
-  previous_measurement_date: string | null;
-  isRegistered: boolean; // Mapped from is_registered for UI compatibility
-  is_registered_text: string; // The raw string value from DB
-  journal_id: number | null; // This might not be directly from measurement_target_business, but kept for compatibility if needed
-  national_support_status: string | null;
-  manager_name: string | null;
-  manager_mobile: string | null;
-  manager_phone: string | null;
-  notes: string | null;
-  business_category: string | null;
-  future_measurement_period: number | null;
-  management_status: string | null;
-  unpaid_count: number;
-  unpaid_details: any[];
-  measurer_id: number | null; // [NEW] Added field
-  created_at: string; // Assuming these are standard fields in the new table
-  updated_at: string;
+export async function POST(request: NextRequest) {
+  try {
+    await checkPermission("journal:write");
+
+    const body = await request.json();
+    const { code, year, period, business_name, address, plan_manager } = body;
+
+    // Validation
+    if (!code || !year || !period || !business_name) {
+      return NextResponse.json(
+        { error: "필수 정보가 누락되었습니다. (코드, 년도, 주기, 사업장명)" },
+        { status: 400 }
+      );
+    }
+
+    const supabase = await createClient();
+
+    // 1. 중복 확인 (measurement_target_business)
+    const { data: existing } = await supabase
+      .from("measurement_target_business")
+      .select("id")
+      .eq("code", code)
+      .eq("year", year)
+      .eq("period", period)
+      .maybeSingle();
+
+    if (existing) {
+      return NextResponse.json(
+        { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
+        { status: 409 }
+      );
+    }
+
+    // 2. Insert into measurement_target_business
+    const { data: newTarget, error: insertError } = await supabase
+      .from("measurement_target_business")
+      .insert({
+        code,
+        year: Number(year),
+        period,
+        business_name,
+        address: address || null,
+        plan_manager: plan_manager || null,
+        is_registered: "미확정", // Default
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      throw new Error(`Target Insert Error: ${insertError.message}`);
+    }
+
+    // 3. Insert into preliminary_survey (Sync)
+    // Check sequence number
+    const { data: maxSeq } = await supabase
+      .from("preliminary_survey")
+      .select("sequence_number")
+      .order("sequence_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const nextSeq = (maxSeq?.sequence_number || 0) + 1;
+
+    const { error: surveyError } = await supabase
+      .from("preliminary_survey")
+      .insert({
+        year: Number(year),
+        period,
+        code,
+        business_name,
+        address: address || null,
+        sequence_number: nextSeq,
+        created_at: new Date().toISOString()
+      });
+
+    if (surveyError) {
+      // Log error but don't fail the whole request (soft sync)
+      console.error("Preliminary Survey Auto-Insert Error:", surveyError);
+    } else {
+      console.log(`[POST] Auto-created preliminary_survey for ${code}`);
+    }
+
+    return NextResponse.json({ success: true, data: newTarget });
+
+  } catch (error: any) {
+    console.error("POST API Critical Error:", error);
+    return NextResponse.json({
+      error: "Internal Server Error",
+      details: error?.message || String(error)
+    }, { status: 500 });
+  }
 }

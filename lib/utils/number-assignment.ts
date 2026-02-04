@@ -20,7 +20,7 @@ export async function assignDocumentNumber(
   measurementPeriod: string
 ): Promise<string> {
   const supabase = await createClient();
-  
+
   // 약칭으로 정규화 (기존 전체명과 호환)
   const normalizedOffice = toShortName(designatedOffice);
   const prefix = getDocumentNumberPrefix(normalizedOffice);
@@ -31,7 +31,7 @@ export async function assignDocumentNumber(
   if (normalizedOffice !== designatedOffice) {
     officesToMatch.push(designatedOffice);
   }
-  
+
   // 디버깅: 조회 조건 로그
   console.log(`[공문연번 부여] 조회 조건:`, {
     designatedOffice: normalizedOffice,
@@ -40,13 +40,13 @@ export async function assignDocumentNumber(
     prefix,
     officesToMatch
   });
-  
+
   const { data: journals, error } = await supabase
     .from("measurement_journal")
     .select("document_number, designated_office, measurement_year, measurement_period")
     .in("designated_office", officesToMatch)
     .eq("measurement_year", measurementYear)
-    .eq("measurement_period", measurementPeriod)
+    // .eq("measurement_period", measurementPeriod) // 주기가 달라도 (예: 상반기 vs 상반기(수시)) 같은 년도/지청이면 연번 공유
     .not("document_number", "is", null)
     .like("document_number", `${prefix}-%`);
 
@@ -83,7 +83,7 @@ export async function assignDocumentNumber(
       })
       .filter(j => !isNaN(j.num) && j.num > 0)
       .sort((a, b) => b.num - a.num); // 내림차순 정렬
-    
+
     if (sorted.length > 0) {
       // 가장 큰 숫자에서 1을 더함
       nextNumber = sorted[0].num + 1;
@@ -100,33 +100,33 @@ export async function assignDocumentNumber(
   // 3자리 숫자로 포맷팅 (001, 002, 003...)
   let formattedNumber = String(nextNumber).padStart(3, "0");
   let documentNumber = `${prefix}-${formattedNumber}`;
-  
+
   // 중복 확인: 공문연번은 지정지청 + 측정년도 + 측정주기 조합 내에서만 고유하면 됨
   // 같은 지정지청 + 측정년도 + 측정주기 조합에서만 중복 확인
   let attempts = 0;
   const maxAttempts = 1000; // 무한 루프 방지
-  
+
   while (attempts < maxAttempts) {
     const { data: existing, error: checkError } = await supabase
       .from("measurement_journal")
       .select("id")
       .in("designated_office", officesToMatch)
       .eq("measurement_year", measurementYear)
-      .eq("measurement_period", measurementPeriod)
-      .eq("document_number", documentNumber) // 같은 지정지청 + 측정년도 + 측정주기 조합에서만 중복 확인
+      // .eq("measurement_period", measurementPeriod) // 주기가 달라도 (예: 상반기 vs 상반기(수시)) 같은 년도/지청이면 중복 체크
+      .eq("document_number", documentNumber) // 같은 지정지청 + 측정년도 조합에서만 중복 확인
       .maybeSingle();
-    
+
     if (checkError && checkError.code !== "PGRST116") {
       console.error("공문연번 중복 확인 오류:", checkError);
       break; // 오류 발생 시 현재 번호 반환
     }
-    
+
     // 번호가 사용 중이 아니면 반환
     if (!existing) {
       console.log(`[공문연번 부여] 최종 부여된 공문연번: ${documentNumber}`);
       return documentNumber;
     }
-    
+
     // 번호가 사용 중이면 다음 번호로 증가
     console.log(`[공문연번 부여] ${documentNumber} 중복 발견 (같은 지정지청(${normalizedOffice}) + 측정년도(${measurementYear}) + 측정주기(${measurementPeriod}) 조합에서 사용 중), 다음 번호 시도...`);
     nextNumber++;
@@ -134,7 +134,7 @@ export async function assignDocumentNumber(
     documentNumber = `${prefix}-${formattedNumber}`;
     attempts++;
   }
-  
+
   // 최대 시도 횟수 초과 시 현재 번호 반환 (드물게 발생)
   console.warn(`[공문연번 부여] 최대 시도 횟수(${maxAttempts}) 초과, 현재 번호 반환: ${documentNumber}`);
   return documentNumber;
@@ -163,7 +163,7 @@ export async function assignSequenceNumber(
   if (normalizedOffice !== designatedOffice) {
     officesToMatch.push(designatedOffice);
   }
-  
+
   // 연번을 숫자로 정렬하기 위해 모든 레코드를 가져와서 클라이언트에서 정렬
   const { data: journals, error } = await supabase
     .from("measurement_journal")
@@ -172,12 +172,12 @@ export async function assignSequenceNumber(
     .eq("measurement_year", measurementYear)
     .eq("measurement_period", measurementPeriod)
     .not("sequence_number", "is", null);
-  
+
   if (error && error.code !== "PGRST116") {
     console.error("연번 조회 오류:", error);
     throw new Error("연번 조회 중 오류가 발생했습니다.");
   }
-  
+
   let lastJournal = null;
   if (!error && journals && journals.length > 0) {
     // 숫자로 변환하여 정렬
@@ -234,7 +234,7 @@ export async function assignFivePlusSequenceNumber(
     if (normalizedOffice !== designatedOffice) {
       officesToMatch.push(designatedOffice);
     }
-    
+
     const { data: lastJournal, error } = await supabase
       .from("measurement_journal")
       .select("five_plus_sequence")
@@ -267,7 +267,7 @@ export async function assignFivePlusSequenceNumber(
   if (normalizedOffice !== designatedOffice) {
     officesToMatch.push(designatedOffice);
   }
-  
+
   // 5인 이상 연번을 숫자로 정렬하기 위해 모든 레코드를 가져와서 클라이언트에서 정렬
   const { data: journals, error } = await supabase
     .from("measurement_journal")
@@ -276,12 +276,12 @@ export async function assignFivePlusSequenceNumber(
     .eq("measurement_year", measurementYear)
     .eq("measurement_period", measurementPeriod)
     .not("five_plus_sequence", "is", null);
-  
+
   if (error && error.code !== "PGRST116") {
     console.error("5인 이상 연번 조회 오류:", error);
     throw new Error("5인 이상 연번 조회 중 오류가 발생했습니다.");
   }
-  
+
   let lastJournal = null;
   if (!error && journals && journals.length > 0) {
     // 숫자로 변환하여 정렬

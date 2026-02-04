@@ -171,6 +171,40 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const [editingItem, setEditingItem] = useState<BusinessEntry | null>(null);
     const [editForm, setEditForm] = useState<Partial<BusinessEntry>>({});
+    const [addForm, setAddForm] = useState<Partial<BusinessEntry>>({
+        year: new Date().getFullYear(),
+        period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기"
+    });
+
+    const handleAddSubmit = async () => {
+        try {
+            const response = await fetch("/api/businesses", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(addForm)
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || "등록에 실패했습니다.");
+            }
+
+            alert("성공적으로 등록되었습니다.");
+            setIsAddModalOpen(false);
+            setAddForm({
+                year: new Date().getFullYear(),
+                period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
+                code: "",
+                business_name: "",
+                address: "",
+                plan_manager: ""
+            });
+            fetchData();
+        } catch (error) {
+            console.error("Registration error:", error);
+            alert(`등록 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
 
     // Fetch Raw Data
     const fetchData = useCallback(async () => {
@@ -527,7 +561,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 엑셀 업로드
                             </Button>
                             <Button onClick={() => setIsAddModalOpen(true)} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap">
-                                + 등록
+                                신규등록
                             </Button>
                             <a href="/templates/measure_target_template.xlsx" download="측정대상사업장_등록양식.xlsx" target="_blank" rel="noopener noreferrer"
                                 className="h-9 px-3 inline-flex items-center justify-center rounded-lg font-medium hover:bg-slate-100 border border-slate-200 text-slate-700 text-sm whitespace-nowrap ml-2" title="양식 다운로드">
@@ -853,12 +887,100 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 </div>
             </Modal>
 
-            <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="업체 추가">
-                <div className="p-4">
-                    <p className="text-text-500 mb-4">새로운 측정 대상 사업장을 추가하시겠습니까?</p>
-                    <p className="text-sm text-yellow-600 mb-4">* 현재는 엑셀 업로드를 권장합니다.</p>
-                    <Button onClick={() => setIsAddModalOpen(false)} variant="secondary">닫기</Button>
-                </div>
+            {/* New Registration Modal */}
+            <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="신규 사업장 등록" size="lg">
+                <form onSubmit={(e) => {
+                    e.preventDefault();
+                    // Basic validation
+                    if (!addForm.code || !addForm.business_name) {
+                        alert("사업장 코드와 사업장명은 필수입니다.");
+                        return;
+                    }
+                    handleAddSubmit();
+                }} className="p-6">
+                    <div className="space-y-6">
+                        {/* 1. Essential Info */}
+                        <div>
+                            <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">필수 정보</h4>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">
+                                        측정 년도 <span className="text-red-500">*</span>
+                                    </label>
+                                    <Input
+                                        type="number"
+                                        value={addForm.year || currentYear}
+                                        onChange={(e) => setAddForm(prev => ({ ...prev, year: parseInt(e.target.value) }))}
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">
+                                        측정 주기 <span className="text-red-500">*</span>
+                                    </label>
+                                    <Select
+                                        options={[
+                                            { value: "상반기", label: "상반기" },
+                                            { value: "하반기", label: "하반기" }
+                                        ]}
+                                        value={addForm.period || initialPeriod}
+                                        onChange={(e) => setAddForm(prev => ({ ...prev, period: e.target.value }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">
+                                        사업장 코드 <span className="text-red-500">*</span>
+                                    </label>
+                                    <Input
+                                        value={addForm.code || ""}
+                                        onChange={(e) => setAddForm(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                                        placeholder="예: H0001 (중복 불가)"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">
+                                        사업장명 <span className="text-red-500">*</span>
+                                    </label>
+                                    <Input
+                                        value={addForm.business_name || ""}
+                                        onChange={(e) => setAddForm(prev => ({ ...prev, business_name: e.target.value }))}
+                                        placeholder="사업장명 입력"
+                                        required
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 2. Optional Info */}
+                        <div>
+                            <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">추가 정보 (선택)</h4>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="col-span-2">
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">소재지</label>
+                                    <Input
+                                        value={addForm.address || ""}
+                                        onChange={(e) => setAddForm(prev => ({ ...prev, address: e.target.value }))}
+                                        placeholder="주소 입력"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">계획담당</label>
+                                    <Select
+                                        options={PLAN_MANAGER_EDIT_OPTIONS}
+                                        value={addForm.plan_manager || ""}
+                                        onChange={(e) => setAddForm(prev => ({ ...prev, plan_manager: e.target.value }))}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
+                            <Button variant="secondary" onClick={() => setIsAddModalOpen(false)} type="button">취소</Button>
+                            <Button variant="primary" type="submit">등록</Button>
+                        </div>
+                    </div>
+                </form>
             </Modal>
 
             {/* Unpaid Details Modal */}
