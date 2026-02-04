@@ -597,6 +597,33 @@ export const SummaryTable: React.FC = () => {
                   </div>
                 </div>
 
+                {/* 측정비 정보 */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정비 정보</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3 md:gap-4">
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정비(사업장)
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-right"
+                        value={formatCurrency(entry.measurement_fee_business)}
+                        disabled
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        국고지원 여부
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        value={entry.national_support_status || ""}
+                        disabled
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* 특이사항 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">특이사항</h4>
@@ -607,10 +634,6 @@ export const SummaryTable: React.FC = () => {
                       disabled
                     />
                   </div>
-                </div>
-
-                <div className="pt-8 text-center text-xs text-gray-400">
-                  - End of Document -
                 </div>
 
               </div>
