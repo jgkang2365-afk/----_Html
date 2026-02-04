@@ -1081,7 +1081,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       const url = entry.id ? `/api/journal/${entry.id}` : "/api/journal";
       const method = entry.id ? "PUT" : "POST";
 
-      const response = await fetch(url, {
+      let response = await fetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
@@ -1089,7 +1089,33 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         body: JSON.stringify(submitData),
       });
 
-      const data = await response.json();
+      let data = await response.json();
+
+      // 중복 번호 발생 시 (409 Conflict)
+      if (response.status === 409) {
+        // 사용자에게 확인 요청
+        if (window.confirm(data.message || "중복된 번호가 감지되었습니다. 계속 진행하시겠습니까?")) {
+          // 승인 시 confirm_duplicate 플래그 추가하여 재전송
+          submitData.confirm_duplicate = true;
+
+          console.log('[JournalEditForm] 중복 승인 후 재전송 시도...');
+
+          response = await fetch(url, {
+            method,
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(submitData),
+          });
+
+          data = await response.json();
+        } else {
+          // 취소 시 중단
+          setLoading(false);
+          if (setIsSubmitting) setIsSubmitting(false);
+          return;
+        }
+      }
 
       if (response.ok) {
         // 저장 성공 메시지 표시

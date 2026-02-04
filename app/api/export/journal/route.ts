@@ -30,7 +30,8 @@ export async function GET(request: NextRequest) {
     }
 
     if (period) {
-      query = query.eq("measurement_period", period);
+      // 상반기 선택 시 상반기(수시)도 포함되도록 like 검색으로 변경
+      query = query.like("measurement_period", `${period}%`);
     }
 
     const { data: journals, error } = await query;

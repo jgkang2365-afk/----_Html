@@ -342,12 +342,95 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 번호 자동 부여
+    // 번호 자동 부여 (수동 입력 값 우선)
+    const manualDocumentNumber = body.document_number || null;
+    const manualSequenceNumber = body.sequence_number || null;
+    const manualFivePlusSequence = body.five_plus_sequence || null;
+    const confirmDuplicate = body.confirm_duplicate === true;
+
+    // 수동 입력된 번호에 대한 중복 체크 (confirmDuplicate가 false일 경우)
+    if (!confirmDuplicate) {
+      // 1. 공문연번 중복 체크 (년도별 유일)
+      if (manualDocumentNumber) {
+        const { data: existingDoc } = await supabase
+          .from("measurement_journal")
+          .select("id")
+          .eq("designated_office", designatedOffice) // 약칭
+          .eq("measurement_year", measurementYear)
+          // .eq("measurement_period", measurementPeriod) // 공문연번은 주기 무관
+          .eq("document_number", manualDocumentNumber)
+          .maybeSingle();
+
+        if (existingDoc) {
+          return NextResponse.json(
+            {
+              error: "Duplicate Number",
+              duplicateField: "공문연번",
+              duplicateValue: manualDocumentNumber,
+              message: `공문연번 "${manualDocumentNumber}"(은)는 이미 사용 중입니다. 중복을 허용하고 저장하시겠습니까?`
+            },
+            { status: 409 }
+          );
+        }
+      }
+
+      // 2. 연번 중복 체크 (년도+주기별 유일)
+      if (manualSequenceNumber) {
+        const { data: existingSeq } = await supabase
+          .from("measurement_journal")
+          .select("id")
+          .eq("designated_office", designatedOffice)
+          .eq("measurement_year", measurementYear)
+          .eq("measurement_period", measurementPeriod)
+          .eq("sequence_number", manualSequenceNumber)
+          .maybeSingle();
+
+        if (existingSeq) {
+          return NextResponse.json(
+            {
+              error: "Duplicate Number",
+              duplicateField: "연번",
+              duplicateValue: manualSequenceNumber,
+              message: `연번 "${manualSequenceNumber}"(은)는 이미 사용 중입니다. 중복을 허용하고 저장하시겠습니까?`
+            },
+            { status: 409 }
+          );
+        }
+      }
+
+      // 3. 5인 이상 연번 중복 체크 (년도+주기별 유일)
+      if (manualFivePlusSequence) {
+        const { data: existingFiveSeq } = await supabase
+          .from("measurement_journal")
+          .select("id")
+          .eq("designated_office", designatedOffice)
+          .eq("measurement_year", measurementYear)
+          .eq("measurement_period", measurementPeriod)
+          .eq("five_plus_sequence", manualFivePlusSequence)
+          .maybeSingle();
+
+        if (existingFiveSeq) {
+          return NextResponse.json(
+            {
+              error: "Duplicate Number",
+              duplicateField: "5인 이상 연번",
+              duplicateValue: manualFivePlusSequence,
+              message: `5인 이상 연번 "${manualFivePlusSequence}"(은)는 이미 사용 중입니다. 중복을 허용하고 저장하시겠습니까?`
+            },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     const assignedNumbers = await assignAllNumbers({
       designated_office: designatedOffice,
       measurement_year: measurementYear,
       measurement_period: measurementPeriod,
       total_employees: total_employees || businessData.total_employees,
+      document_number: manualDocumentNumber,
+      sequence_number: manualSequenceNumber,
+      five_plus_sequence: manualFivePlusSequence,
     });
 
     // 측정일지 데이터 생성 (business_info 및 measurement_business 정보 포함)

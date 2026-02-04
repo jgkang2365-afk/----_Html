@@ -155,72 +155,115 @@ export async function PUT(
     let sequenceNumber = existingJournal.sequence_number;
 
     // 관리자인 경우 요청된 값 사용 (없으면 기존 값)
+    // confirm_duplicate 플래그 확인 (중복 허용 여부)
+    const confirmDuplicate = body.confirm_duplicate === true;
+
+    // 관리자인 경우 요청된 값 사용 (없으면 기존 값)
     if (isAdmin) {
+      // 1. 공문연번 처리 및 중복 확인
       if (requestedDocumentNumber !== undefined && requestedDocumentNumber !== null && requestedDocumentNumber !== "") {
-        // 공문연번이 변경되는 경우에만 중복 확인
-        if (requestedDocumentNumber !== existingJournal.document_number) {
-          console.log(`[측정일지 수정] 관리자가 공문연번 변경 시도: ${existingJournal.document_number} → ${requestedDocumentNumber}`);
+        // 공문연번이 변경되는 경우이거나, 변경되지 않았더라도 중복 확인이 필요한 경우(강제 저장 시도 등)
+        const isChanged = requestedDocumentNumber !== existingJournal.document_number;
 
-          // 공문연번 변경 시 중복 확인 (같은 지정지청+측정년도+측정주기 조합에서만 중복 확인)
-          // body에서 지정지청, 측정년도, 측정주기를 가져오거나 기존 값 사용
-          const designatedOfficeForCheck = body.designated_office
-            ? (toShortName(body.designated_office) || body.designated_office)
-            : existingJournal.designated_office;
-          const measurementYearForCheck = body.measurement_year || existingJournal.measurement_year;
-          const measurementPeriodForCheck = body.measurement_period || existingJournal.measurement_period;
-
-          const officesToMatchForCheck = [designatedOfficeForCheck];
-          const normalizedOfficeForCheck = toShortName(designatedOfficeForCheck);
-          if (normalizedOfficeForCheck !== designatedOfficeForCheck) {
-            officesToMatchForCheck.push(normalizedOfficeForCheck);
-          }
-
-          console.log(`[측정일지 수정] 공문연번 중복 확인 조건:`, {
-            designated_office: officesToMatchForCheck,
-            measurement_year: measurementYearForCheck,
-            measurement_period: measurementPeriodForCheck,
-            document_number: requestedDocumentNumber
-          });
-
-          const { data: existingDocNumber, error: checkError } = await supabase
-            .from("measurement_journal")
-            .select("id")
-            .in("designated_office", officesToMatchForCheck)
-            .eq("measurement_year", measurementYearForCheck)
-            .eq("measurement_period", measurementPeriodForCheck)
-            .eq("document_number", requestedDocumentNumber)
-            .neq("id", journalId) // 현재 측정일지 제외
-            .maybeSingle();
-
-          if (checkError) {
-            console.error("[측정일지 수정] 공문연번 중복 확인 오류:", checkError);
-            return NextResponse.json(
-              {
-                error: "공문연번 확인 중 오류가 발생했습니다.",
-                details: checkError.message
-              },
-              { status: 500 }
-            );
-          }
-
-          if (existingDocNumber) {
-            console.log(`[측정일지 수정] 공문연번 중복 발견: ${requestedDocumentNumber}는 같은 조건(${designatedOfficeForCheck}, ${measurementYearForCheck}, ${measurementPeriodForCheck})에서 이미 사용 중`);
-            return NextResponse.json(
-              {
-                error: "공문연번 중복 오류",
-                details: `공문연번 "${requestedDocumentNumber}"는 같은 지정지청(${designatedOfficeForCheck}) + 측정년도(${measurementYearForCheck}) + 측정주기(${measurementPeriodForCheck}) 조합에서 이미 사용 중입니다. 다른 번호를 선택해주세요.`
-              },
-              { status: 400 }
-            );
-          }
-
+        if (isChanged) {
           documentNumber = requestedDocumentNumber;
-          console.log(`[측정일지 수정] 공문연번 변경 승인: ${documentNumber}`);
+
+          if (!confirmDuplicate) {
+            console.log(`[측정일지 수정] 관리자가 공문연번 변경 시도: ${existingJournal.document_number} → ${requestedDocumentNumber}`);
+
+            // 공문연번 중복 확인 (같은 지정지청+측정년도 조합에서만 중복 확인 - 주기 무관)
+            const designatedOfficeForCheck = body.designated_office
+              ? (toShortName(body.designated_office) || body.designated_office)
+              : existingJournal.designated_office;
+            const measurementYearForCheck = body.measurement_year || existingJournal.measurement_year;
+            // 공문연번은 주기와 상관없이 년도별로 유일해야 함 (lib/utils/number-assignment.ts 로직 기준)
+
+            const officesToMatchForCheck = [designatedOfficeForCheck];
+            const normalizedOfficeForCheck = toShortName(designatedOfficeForCheck);
+            if (normalizedOfficeForCheck !== designatedOfficeForCheck) {
+              officesToMatchForCheck.push(normalizedOfficeForCheck);
+            }
+
+            const { data: existingDocNumber, error: checkError } = await supabase
+              .from("measurement_journal")
+              .select("id")
+              .in("designated_office", officesToMatchForCheck)
+              .eq("measurement_year", measurementYearForCheck)
+              // .eq("measurement_period", measurementPeriodForCheck) // 공문연번은 주기 무관
+              .eq("document_number", requestedDocumentNumber)
+              .neq("id", journalId) // 현재 측정일지 제외
+              .maybeSingle();
+
+            if (checkError) {
+              console.error("[측정일지 수정] 공문연번 중복 확인 오류:", checkError);
+              throw checkError;
+            }
+
+            if (existingDocNumber) {
+              console.log(`[측정일지 수정] 공문연번 중복 발견: ${requestedDocumentNumber}`);
+              return NextResponse.json(
+                {
+                  error: "Duplicate Number",
+                  duplicateField: "공문연번",
+                  duplicateValue: requestedDocumentNumber,
+                  message: `공문연번 "${requestedDocumentNumber}"(은)는 이미 사용 중입니다. 중복을 허용하고 저장하시겠습니까?`
+                },
+                { status: 409 }
+              );
+            }
+          }
         }
       }
+
+      // 2. 연번 처리 및 중복 확인
       if (requestedSequenceNumber !== undefined && requestedSequenceNumber !== null && requestedSequenceNumber !== "") {
-        sequenceNumber = requestedSequenceNumber;
+        const isChanged = requestedSequenceNumber !== existingJournal.sequence_number;
+
+        if (isChanged) {
+          sequenceNumber = requestedSequenceNumber;
+
+          if (!confirmDuplicate) {
+            // 연번 중복 확인 (같은 지정지청+측정년도+측정주기 조합)
+            const designatedOfficeForCheck = body.designated_office
+              ? (toShortName(body.designated_office) || body.designated_office)
+              : existingJournal.designated_office;
+            const measurementYearForCheck = body.measurement_year || existingJournal.measurement_year;
+            const measurementPeriodForCheck = body.measurement_period || existingJournal.measurement_period;
+
+            const officesToMatchForCheck = [designatedOfficeForCheck];
+            const normalizedOfficeForCheck = toShortName(designatedOfficeForCheck);
+            if (normalizedOfficeForCheck !== designatedOfficeForCheck) {
+              officesToMatchForCheck.push(normalizedOfficeForCheck);
+            }
+
+            const { data: existingSeqNumber, error: checkError } = await supabase
+              .from("measurement_journal")
+              .select("id")
+              .in("designated_office", officesToMatchForCheck)
+              .eq("measurement_year", measurementYearForCheck)
+              .eq("measurement_period", measurementPeriodForCheck)
+              .eq("sequence_number", requestedSequenceNumber)
+              .neq("id", journalId)
+              .maybeSingle();
+
+            if (checkError) throw checkError;
+
+            if (existingSeqNumber) {
+              return NextResponse.json(
+                {
+                  error: "Duplicate Number",
+                  duplicateField: "연번",
+                  duplicateValue: requestedSequenceNumber,
+                  message: `연번 "${requestedSequenceNumber}"(은)는 이미 사용 중입니다. 중복을 허용하고 저장하시겠습니까?`
+                },
+                { status: 409 }
+              );
+            }
+          }
+        }
       }
+
+      // 3. 5인 이상 연번 중복 확인은 아래 finalFivePlusSequence 계산 로직에서 처리
     }
 
     // designated_office 정규화 (약칭으로 저장)
@@ -239,6 +282,47 @@ export async function PUT(
     if (isAdmin && requestedFivePlusSequence !== undefined) {
       // 관리자가 직접 지정한 경우
       finalFivePlusSequence = requestedFivePlusSequence;
+
+      // 5인 이상 연번 중복 확인
+      if (!confirmDuplicate && finalFivePlusSequence !== existingJournal.five_plus_sequence) {
+        const designatedOfficeForCheck = body.designated_office
+          ? (toShortName(body.designated_office) || body.designated_office)
+          : existingJournal.designated_office;
+        const measurementYearForCheck = body.measurement_year || existingJournal.measurement_year;
+        const measurementPeriodForCheck = body.measurement_period || existingJournal.measurement_period;
+
+        const officesToMatchForCheck = [designatedOfficeForCheck];
+        const normalizedOfficeForCheck = toShortName(designatedOfficeForCheck);
+        if (normalizedOfficeForCheck !== designatedOfficeForCheck) {
+          officesToMatchForCheck.push(normalizedOfficeForCheck);
+        }
+
+        const { data: existingFiveSeq, error: checkError } = await supabase
+          .from("measurement_journal")
+          .select("id")
+          .in("designated_office", officesToMatchForCheck)
+          .eq("measurement_year", measurementYearForCheck)
+          .eq("measurement_period", measurementPeriodForCheck)
+          .eq("five_plus_sequence", finalFivePlusSequence)
+          .neq("id", journalId)
+          .maybeSingle();
+
+        if (checkError) {
+          console.error("[측정일지 수정] 5인 이상 연번 중복 확인 오류:", checkError);
+        } // 오류는 무시하고 진행하거나 throw 가능 (여기선 로그만)
+
+        if (existingFiveSeq) {
+          return NextResponse.json(
+            {
+              error: "Duplicate Number",
+              duplicateField: "5인 이상 연번",
+              duplicateValue: finalFivePlusSequence,
+              message: `5인 이상 연번 "${finalFivePlusSequence}"(은)는 이미 사용 중입니다. 중복을 허용하고 저장하시겠습니까?`
+            },
+            { status: 409 }
+          );
+        }
+      }
     } else {
       // 자동 재계산 (총인원, 지정지청, 측정년도, 측정주기 변경 시 올바른 값으로 재계산)
       const { assignFivePlusSequenceNumber } = await import("@/lib/utils/number-assignment");

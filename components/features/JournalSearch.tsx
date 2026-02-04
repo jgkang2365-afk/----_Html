@@ -531,24 +531,36 @@ export const JournalSearch: React.FC = () => {
       }
     }
 
-    // 정렬: 측정년도 -> 측정주기 -> 등록일 (기본 내림차순)
+    // 정렬: 공문연번 -> 측정년도 -> 측정주기 -> 등록일 (기본 오름차순)
     filtered = filtered.sort((a, b) => {
       const multiplier = sortOrder === "asc" ? 1 : -1;
 
-      // 1. 측정년도
+      // 1. 공문연번 (문자열 비교)
+      if (a.document_number !== b.document_number) {
+        // 둘 다 값이 있는 경우
+        if (a.document_number && b.document_number) {
+          return a.document_number.localeCompare(b.document_number) * multiplier;
+        }
+        // 둘 중 하나만 값이 있는 경우 (값 있는 것이 위로, 또는 아래로... 요구사항에 따라 다름)
+        // 보통 오름차순일 때 값 있는게 위로 오는게 좋지만, 여기선 "공문연번 순"이므로 값 있는 것 끼리 정렬하고 없는건 뒤로 보냄
+        if (a.document_number) return -1; // a가 값이 있으면 앞으로 (없는건 뒤로)
+        if (b.document_number) return 1;  // b가 값이 있으면 앞으로 (없는건 뒤로)
+      }
+
+      // 2. 측정년도 (내림차순 정렬을 유지하고 싶다면 multiplier 반전 고려, 하지만 보통 오름차순/내림차순 전체 적용)
+      // 공문연번이 같거나 없을 때의 차순 정렬
       if (a.measurement_year !== b.measurement_year) {
         return (a.measurement_year - b.measurement_year) * multiplier;
       }
 
-      // 2. 측정주기 ("하반기" > "상반기" > "수시..." 순서가 되도록 문자열 비교)
-      // "하반기"(D558) > "상반기"(C0C1) 이므로 내림차순시 하반기가 먼저 나옴
+      // 3. 측정주기 ("하반기" > "상반기" > "수시..." 순서가 되도록 문자열 비교)
       if (a.measurement_period !== b.measurement_period) {
         const formA = a.measurement_period || "";
         const formB = b.measurement_period || "";
         return formA.localeCompare(formB) * multiplier;
       }
 
-      // 3. 등록일 (created_at 기준)
+      // 4. 등록일 (created_at 기준)
       const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
       const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
       return (dateA - dateB) * multiplier;
@@ -1238,8 +1250,17 @@ export const JournalSearch: React.FC = () => {
                           />
                         </TableHead>
                         <TableHead className="bg-surface-50 w-12 text-center text-xs">
+                          순번
+                        </TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">코드</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정년도</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정주기</TableHead>
+                        <TableHead className="bg-surface-50 w-14 text-center text-xs">지정지청</TableHead>
+                        <TableHead className="bg-surface-50 w-[180px] text-xs">사업장명</TableHead>
+                        <TableHead className="bg-surface-50 w-[300px] text-xs">주소</TableHead>
+                        <TableHead className="bg-surface-50 w-12 text-center text-xs">
                           <div className="flex items-center justify-center gap-1">
-                            <span>순번</span>
+                            <span>공문연번</span>
                             <button
                               onClick={() => {
                                 const newOrder = sequenceSortOrder === "asc" ? "desc" : "asc";
@@ -1264,13 +1285,6 @@ export const JournalSearch: React.FC = () => {
                             </button>
                           </div>
                         </TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">코드</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정년도</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정주기</TableHead>
-                        <TableHead className="bg-surface-50 w-14 text-center text-xs">지정지청</TableHead>
-                        <TableHead className="bg-surface-50 w-[180px] text-xs">사업장명</TableHead>
-                        <TableHead className="bg-surface-50 w-[300px] text-xs">주소</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">공문연번</TableHead>
                         <TableHead className="bg-surface-50 w-12 text-center text-xs">연번</TableHead>
                         <TableHead className="bg-surface-50 w-12 text-center text-xs px-1">5인이상</TableHead>
                         <TableHead className="bg-surface-50 w-10 text-center text-xs">총인원</TableHead>
