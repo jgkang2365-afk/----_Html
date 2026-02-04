@@ -49,7 +49,6 @@ async function syncTargetBusiness() {
         designated_office: row.designated_office,
         measurement_start_date: row.measurement_start_date,
         measurement_end_date: row.measurement_end_date,
-        completion_status: row.completion_status,
         measurer: row.measurer,
         future_measurement_date: row.future_measurement_date,
         measurement_date: row.measurement_date,
@@ -58,7 +57,7 @@ async function syncTargetBusiness() {
         manager_mobile: row.manager_mobile,
         manager_phone: row.manager_phone,
         notes: row.notes,
-        is_registered: false, // 기본값
+        is_registered: "미확정", // 기본값
         plan_based_year: row.year,
         plan_based_period: row.period
     }));

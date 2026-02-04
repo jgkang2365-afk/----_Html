@@ -501,11 +501,10 @@ export async function POST(request: NextRequest) {
         .from("measurement_target_business")
         .update({
           journal_id: newJournal.id,
-          is_registered: true,
+          is_registered: "확정",
           registered_at: new Date().toISOString(),
           measurement_start_date: journalData.measurement_start_date,
           measurement_end_date: journalData.measurement_end_date,
-          completion_status: journalData.completion_status,
           measurer: journalData.measurer,
           business_name: journalData.business_name,
           business_number: journalData.business_number,

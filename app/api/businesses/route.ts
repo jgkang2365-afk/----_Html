@@ -191,9 +191,10 @@ export async function GET(request: NextRequest) {
       const bInfo = businessInfoMap.get(item.code);
       const jInfo = journalInfoMap.get(item.code);
 
-      // 실시여부 로직: 기 입력된 값이 '거래종료'면 유지, 아니면 예비조사 등록 여부에 따라 '실시'/'미실시'
+      // 실시여부 로직: 기 입력된 값이 '거래종료', '종료', '확정'이면 유지.
+      // 그 외(미확정, 미실시, null 등)의 경우 예비조사 등록 여부에 따라 판단
       let isRegisteredText = item.is_registered;
-      if (item.is_registered !== "거래종료") {
+      if (item.is_registered !== "거래종료" && item.is_registered !== "종료" && item.is_registered !== "확정") {
         isRegisteredText = isSurveyRegistered ? "실시" : "미실시";
       }
 
@@ -218,7 +219,7 @@ export async function GET(request: NextRequest) {
         unpaid_details: unpaidInfo.details,
         // UI 호환성을 위한 필드 매핑
         designated_office: item.office_jurisdiction, // 임시 매핑
-        isRegistered: isRegisteredText === "실시", // Frontend 호환성
+        isRegistered: isRegisteredText === "실시" || isRegisteredText === "확정", // Frontend 호환성
         is_registered_text: isRegisteredText, // 텍스트 값 전달
         future_measurement_period: futurePeriod, // 최신 값으로 덮어쓰기
 

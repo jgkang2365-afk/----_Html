@@ -201,7 +201,7 @@ export async function POST(request: NextRequest) {
             plan_based_period: prevYearJournal.measurement_period,
             future_measurement_period: futurePeriod,
             last_measurement_date: latestDateStr,
-            is_registered: false,
+            is_registered: "미확정",
           });
           planCount++;
         }
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
       console.error("기존 계획 조회 오류:", existingPlansError);
     }
 
-    const existingPlanMap = new Map<string, { journal_id: number | null; is_registered: boolean }>();
+    const existingPlanMap = new Map<string, { journal_id: number | null; is_registered: string }>();
     if (existingPlans) {
       existingPlans.forEach((plan: any) => {
         existingPlanMap.set(plan.code, {
@@ -264,11 +264,11 @@ export async function POST(request: NextRequest) {
 
       if (journal) {
         plan.journal_id = journal.id;
-        plan.is_registered = true;
+        plan.is_registered = "확정";
         plan.registered_at = new Date().toISOString();
         plan.measurement_start_date = journal.measurement_start_date;
         plan.measurement_end_date = journal.measurement_end_date;
-        plan.completion_status = journal.completion_status || plan.completion_status;
+        // plan.completion_status removed
         // plan.measurer = journal.measurer || plan.measurer; // 원본 계획의 담당자 유지 (측정자 덮어쓰기 방지)
         plan.national_support_status = journal.national_support_status || plan.national_support_status;
         plan.manager_name = journal.manager_name || plan.manager_name;

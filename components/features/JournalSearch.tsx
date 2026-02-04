@@ -109,6 +109,7 @@ export const JournalSearch: React.FC = () => {
     measurementPeriod: currentPeriod,
     designatedOffice: "",
     completionStatus: "",
+    measurementDate: "", // 측정일 필터 추가
     businessName: "",
   });
 
@@ -514,6 +515,12 @@ export const JournalSearch: React.FC = () => {
       );
     }
 
+    if (currentFilters.measurementDate) {
+      filtered = filtered.filter(
+        (entry) => entry.measurement_start_date?.substring(0, 10) === currentFilters.measurementDate
+      );
+    }
+
     if (currentFilters.businessName) {
       const searchTerms = currentFilters.businessName.split(",").map(t => t.trim().toLowerCase()).filter(Boolean);
       if (searchTerms.length > 0) {
@@ -564,6 +571,7 @@ export const JournalSearch: React.FC = () => {
       measurementPeriod: "",
       designatedOffice: "",
       completionStatus: "",
+      measurementDate: "",
       businessName: "",
     };
     setFilters(resetFilters);
@@ -1138,7 +1146,16 @@ export const JournalSearch: React.FC = () => {
                     ]}
                   />
                 </div>
-                <div className="flex-[2] min-w-[200px] flex items-end gap-2">
+                {/* 측정일 필터 추가 */}
+                <div className="flex-1 min-w-[140px]">
+                  <Input
+                    type="date"
+                    label="측정일"
+                    value={filters.measurementDate}
+                    onChange={(e) => handleFilterChange("measurementDate", e.target.value)}
+                  />
+                </div>
+                <div className="flex-[2] min-w-[250px] flex items-end gap-2">
                   <div className="flex-1">
                     <Input
                       label="사업장명"
@@ -1150,7 +1167,7 @@ export const JournalSearch: React.FC = () => {
                           applyFilters(allJournals, filters, sequenceSortOrder);
                         }
                       }}
-                      placeholder="사업장명 입력"
+                      placeholder="콤마(,)로 구분하여 다중 검색"
                     />
                   </div>
                   <Button

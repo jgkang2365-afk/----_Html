@@ -23,6 +23,16 @@ async function inspect() {
     } else {
         console.log('No data found, cannot infer schema easily.');
     }
+
+    console.log('\n--- measurement_business ---');
+    const { data: mbData, error: mbError } = await supabase.from('measurement_business').select('*').limit(1);
+    if (mbError) {
+        console.error(mbError);
+    } else if (mbData && mbData.length > 0) {
+        console.log('Columns:', Object.keys(mbData[0]));
+    } else {
+        console.log('No data found for measurement_business.');
+    }
 }
 
 inspect();

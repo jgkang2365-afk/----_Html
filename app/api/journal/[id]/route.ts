@@ -410,11 +410,10 @@ export async function PUT(
         .from("measurement_target_business")
         .update({
           journal_id: updatedJournal.id,
-          is_registered: true,
+          is_registered: "확정",
           registered_at: new Date().toISOString(),
           measurement_start_date: updatedJournal.measurement_start_date,
           measurement_end_date: updatedJournal.measurement_end_date,
-          completion_status: updatedJournal.completion_status,
           measurer: updatedJournal.measurer,
           business_name: updatedJournal.business_name,
           business_number: updatedJournal.business_number,
