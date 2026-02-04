@@ -95,6 +95,7 @@ export const SummaryTable: React.FC = () => {
     measurementPeriod: currentPeriod,
     businessName: "",
     designatedOffice: "",
+    measurementDate: "",
   });
   const [results, setResults] = useState<SummaryEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -167,6 +168,9 @@ export const SummaryTable: React.FC = () => {
       }
       if (searchParams.designatedOffice) {
         params.append("designatedOffice", searchParams.designatedOffice);
+      }
+      if (searchParams.measurementDate) {
+        params.append("measurementDate", searchParams.measurementDate);
       }
 
       const response = await fetch(`/api/summary?${params.toString()}`);
@@ -621,7 +625,7 @@ export const SummaryTable: React.FC = () => {
         {/* 검색 폼 */}
         <Card className="p-4">
           <h2 className="text-lg font-semibold text-text-900 mb-4 px-1">검색 조건</h2>
-          <div className="flex flex-col md:grid md:grid-cols-5 gap-4">
+          <div className="flex flex-col md:grid md:grid-cols-6 gap-4">
             <div>
               <label className="block text-sm font-medium text-text-700 mb-1">
                 측정년도
@@ -692,6 +696,23 @@ export const SummaryTable: React.FC = () => {
                 }}
                 placeholder="예: 사업장A, 사업장B"
                 autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-700 mb-1">
+                측정일
+              </label>
+              <Input
+                type="date"
+                value={searchParams.measurementDate}
+                onChange={(e) =>
+                  setSearchParams({ ...searchParams, measurementDate: e.target.value })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSearch();
+                  }
+                }}
               />
             </div>
             <div className="flex items-end">

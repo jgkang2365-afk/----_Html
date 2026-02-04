@@ -81,6 +81,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 측정일 (측정시작일 기준)
+    const measurementDate = searchParams.get("measurementDate")?.trim() || null;
+    if (measurementDate) {
+      journalQuery = journalQuery.eq("measurement_start_date", measurementDate);
+    }
+
     const { data: journals, error: journalError } = await journalQuery;
 
     if (journalError) {
