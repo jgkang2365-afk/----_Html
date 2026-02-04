@@ -50,7 +50,27 @@ export const DESIGNATED_OFFICE_SHORT_TO_FULL_NAME: Record<string, string> = {
  * 전체명을 약칭으로 변환
  */
 export function toShortName(fullName: string): string {
-  return DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[fullName] || fullName;
+  // 1. 매핑 테이블 우선 확인
+  if (DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[fullName]) {
+    return DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[fullName];
+  }
+
+  if (!fullName) return "";
+
+  // 2. "XX지청" 패턴 처리 (예: "대전지방고용노동청 청주지청" -> "청주")
+  const jicheongMatch = fullName.match(/\s+(.+)지청$/);
+  if (jicheongMatch && jicheongMatch[1]) {
+    return jicheongMatch[1];
+  }
+
+  // 3. "XX지방고용노동청" 패턴 처리 (예: "대전지방고용노동청" -> "대전")
+  const cheongMatch = fullName.match(/^(.+)지방고용노동청$/);
+  if (cheongMatch && cheongMatch[1]) {
+    return cheongMatch[1];
+  }
+
+  // 4. 원래 값 반환 (변환 불가 시)
+  return fullName;
 }
 
 /**
@@ -105,7 +125,7 @@ export const DOCUMENT_NUMBER_PREFIX_MAP: Record<string, string> = {
 export function getDocumentNumberPrefix(designatedOffice: string): string {
   // 약칭으로 변환
   const shortName = toShortName(designatedOffice);
-  
+
   // 약칭 기준으로 접두사 찾기
   if (DOCUMENT_NUMBER_PREFIX_MAP[shortName]) {
     return DOCUMENT_NUMBER_PREFIX_MAP[shortName];
