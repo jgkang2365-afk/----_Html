@@ -670,18 +670,15 @@ export const SummaryTable: React.FC = () => {
               <label className="block text-sm font-medium text-text-700 mb-1">
                 지정지청
               </label>
-              <Input
+              <Select
+                options={designatedOfficeOptions}
                 value={searchParams.designatedOffice}
-                onChange={(e) =>
-                  setSearchParams({ ...searchParams, designatedOffice: e.target.value })
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleSearch();
-                  }
+                onChange={(e) => {
+                  setSearchParams({ ...searchParams, designatedOffice: e.target.value });
+                  // Select 변경 시 바로 검색 실행하려면 여기에 handleSearch() 추가 가능
+                  // handleSearch(); 
                 }}
-                placeholder="예: 대전, 천안"
-                autoComplete="off"
+              /* Select 컴포넌트에는 onKeyDown prop이 없을 수 있으므로 div로 감싸거나 제거 */
               />
             </div>
             <div>
