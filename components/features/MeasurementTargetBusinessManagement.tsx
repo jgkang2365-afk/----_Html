@@ -418,7 +418,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "계획진행": item.is_registered_text === '실시' ? '확정' : item.is_registered_text === '미실시' ? '미확정' : item.is_registered_text,
             "국고결과": item.national_support_status,
             "계획담당": item.plan_manager,
-            "측정자": item.measurer_id ? measurerMap.get(item.measurer_id) || "" : "",
+            "보고서 담당": item.measurer_id ? measurerMap.get(item.measurer_id) || "" : "",
             "향후측정주기": item.future_measurement_period ? (item.future_measurement_period === 6 ? "6개월" : item.future_measurement_period === 12 ? "1년" : item.future_measurement_period + "개월") : "-",
             "비고": item.notes
         })));
@@ -446,7 +446,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     // Grid Column Template
-    // 16 Columns: No(50), 실시여부(80), 국고(60), 계획담당(70), 사업장명(minmax(180,1fr)), 소재지(minmax(250,2fr)), 관할(70), 미수(50), 전회측정(90), 향후측정주기(100), 예정월(60), 예정일(90), 측정자(100), 확정일(90), 비고(100), 관리(50)
+    // 16 Columns: No(50), 실시여부(80), 국고(60), 계획담당(70), 사업장명(minmax(180,1fr)), 소재지(minmax(250,2fr)), 관할(70), 미수(50), 전회측정(90), 향후측정주기(100), 예정월(60), 예정일(90), 보고서 담당(100), 확정일(90), 비고(100), 관리(50)
     const gridTemplateCols = "50px 80px 60px 70px minmax(180px, 1fr) minmax(250px, 2fr) 70px 50px 90px 100px 60px 90px 100px 90px 100px 50px";
 
     return (
@@ -572,7 +572,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="py-3">향후측정주기</div>
                         <div className="py-3">예정월</div>
                         <div className="py-3">예정일</div>
-                        <div className="py-3">측정자</div>
+                        <div className="py-3">보고서 담당</div>
                         <div className="py-3">확정일</div>
                         <div className="py-3">비고</div>
                         <div className="py-3">관리</div>
@@ -783,10 +783,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">지정지청</label>
                                 <Select options={OFFICE_OPTIONS} value={editForm.designated_office || ""} onChange={(e) => setEditForm(prev => ({ ...prev, designated_office: e.target.value }))} />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">관리상태</label>
-                                <Input value={editForm.management_status || ""} onChange={(e) => setEditForm(prev => ({ ...prev, management_status: e.target.value }))} />
                             </div>
                         </div>
                     </div>

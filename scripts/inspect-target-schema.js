@@ -24,14 +24,14 @@ async function inspect() {
         console.log('No data found, cannot infer schema easily.');
     }
 
-    console.log('\n--- measurement_business ---');
-    const { data: mbData, error: mbError } = await supabase.from('measurement_business').select('*').limit(1);
-    if (mbError) {
-        console.error(mbError);
-    } else if (mbData && mbData.length > 0) {
-        console.log('Columns:', Object.keys(mbData[0]));
+    console.log('\n--- preliminary_survey ---');
+    const { data: psData, error: psError } = await supabase.from('preliminary_survey').select('*').limit(1);
+    if (psError) {
+        console.error(psError);
+    } else if (psData && psData.length > 0) {
+        console.log('preliminary_survey columns:', JSON.stringify(Object.keys(psData[0])));
     } else {
-        console.log('No data found for measurement_business.');
+        console.log('No data found for preliminary_survey.');
     }
 }
 

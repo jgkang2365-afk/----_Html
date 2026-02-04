@@ -365,6 +365,44 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // [New Feature] Sync 'Report Writer' to 'Preliminary Survey'
+    // 측정자(보고서 담당) 변경 시 예비조사 테이블의 작석자(report_writer)도 자동 업데이트
+    // update.measurer_id가 변경된 경우에만 실행
+    if (updates.hasOwnProperty('measurer_id') && code && year && period) {
+      try {
+        let reportWriterName = null;
+        if (updates.measurer_id) {
+          // Fetch User Name
+          const { data: userData } = await supabase
+            .from("users")
+            .select("name")
+            .eq("id", updates.measurer_id)
+            .single();
+
+          if (userData) {
+            reportWriterName = userData.name;
+          }
+        }
+
+        // Update preliminary_survey
+        const { error: rwSyncError } = await supabase
+          .from("preliminary_survey")
+          .update({ report_writer: reportWriterName })
+          .eq("code", code)
+          .eq("year", year)
+          .eq("period", period);
+
+        if (rwSyncError) {
+          console.error("Preliminary Survey Report Writer Sync Error:", rwSyncError);
+        } else {
+          console.log(`[Sync] Updated preliminary_survey report_writer for ${code} to ${reportWriterName}`);
+        }
+
+      } catch (e) {
+        console.error("Preliminary Survey Report Writer Sync Exception:", e);
+      }
+    }
+
     return NextResponse.json({ success: true, data: updatedData });
   } catch (error: any) {
     console.error("PATCH API Critical Error:", error);
