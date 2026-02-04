@@ -15,6 +15,7 @@ export interface SyncResult {
   records_inserted: number;
   records_updated: number;
   error_message?: string;
+  change_log?: string[]; // 변경 내역 로그 추가
 }
 
 export interface SyncLog {
@@ -223,7 +224,7 @@ async function getLatestFileFromStorage(fileType: "business-info" | "measurement
  * 실제 Excel 파일의 컬럼명에 맞게 매핑을 조정해야 합니다.
  */
 function parseBusinessInfo(data: any[]): any[] {
-  return data.map((row: any) => {
+  const mappedData = data.map((row: any) => {
     // 실제 Excel 파일의 컬럼명에 맞게 매핑
     // 사업장정보.xlsx의 모든 컬럼 반영
     const baseData: any = {
@@ -348,6 +349,27 @@ function parseBusinessInfo(data: any[]): any[] {
 
     return { ...baseData, ...optionalFields };
   }).filter((row) => row.code && row.business_name); // 필수 필드 체크
+
+  // [Deduplication] 코드 중복 시 '년도'가 가장 최신인 데이터만 남김
+  const latestByCode = new Map();
+  for (const row of mappedData) {
+    if (!latestByCode.has(row.code)) {
+      latestByCode.set(row.code, row);
+    } else {
+      const existing = latestByCode.get(row.code);
+      const existingYear = existing.year || 0;
+      const newYear = row.year || 0;
+
+      // 최신 년도 우선, 년도가 같으면 파일 뒷부분(나중에 나온) 데이터 우선
+      if (newYear > existingYear) {
+        latestByCode.set(row.code, row);
+      } else if (newYear === existingYear) {
+        latestByCode.set(row.code, row);
+      }
+    }
+  }
+
+  return Array.from(latestByCode.values());
 }
 
 /**
@@ -801,6 +823,7 @@ export async function syncBusinessInfo(
   const syncStartTime = new Date();
   let logId: number | null = null;
   let fileName = specificStorageFileName || fileNameXlsx; // 파일명 초기화
+  const changeLog: string[] = []; // 변경 로그 배열
 
   try {
     const supabase = externalSupabaseClient || await createClient();
@@ -951,6 +974,7 @@ export async function syncBusinessInfo(
 
     // 성능 최적화: 모든 code를 한 번에 조회하여 기존 데이터 맵 생성
     const codes = parsedData.map(row => row.code).filter(Boolean);
+    const existingDataMap = new Map<string, any>(); // 기존 데이터를 저장할 Map (변경 감지용)
     const existingCodesSet = new Set<string>();
 
     if (codes.length > 0) {
@@ -960,7 +984,7 @@ export async function syncBusinessInfo(
         const codeBatch = codes.slice(i, i + batchSize);
         const { data: existingCodes, error: selectError } = await supabase
           .from("business_info")
-          .select("code")
+          .select("*") // 변경 감지를 위해 모든 필드 조회
           .in("code", codeBatch);
 
         if (selectError) {
@@ -969,6 +993,7 @@ export async function syncBusinessInfo(
           existingCodes.forEach(item => {
             if (item.code) {
               existingCodesSet.add(item.code);
+              existingDataMap.set(item.code, item); // 전체 데이터 저장
             }
           });
         }
@@ -982,6 +1007,68 @@ export async function syncBusinessInfo(
     if (h0437) {
       console.log(`[Sync Debug] H0437 Details:`, JSON.stringify(h0437));
       console.log(`[Sync Debug] Is H0437 in existingCodesSet?`, existingCodesSet.has('H0437') ? 'Yes' : 'No');
+    }
+
+    // [Cross-Verification] 측정사업장(measurement_business) 최신 데이터와 사업장명 비교
+    if (codes.length > 0) {
+      try {
+        const batchSize = 1000;
+        const measurementMap = new Map<string, any>();
+
+        for (let i = 0; i < codes.length; i += batchSize) {
+          const codeBatch = codes.slice(i, i + batchSize);
+          // 필요한 필드만 조회
+          const { data: measurements, error: mError } = await supabase
+            .from("measurement_business")
+            .select("code, business_name, year, period")
+            .in("code", codeBatch)
+            .gte("year", 2026); // 2026년 이후 데이터만 비교
+
+          if (!mError && measurements) {
+            // 각 코드별 최신 측정 내역 선별
+            for (const m of measurements) {
+              if (!measurementMap.has(m.code)) {
+                measurementMap.set(m.code, m);
+              } else {
+                const existing = measurementMap.get(m.code);
+                const existingYear = existing.year || 0;
+                const newYear = m.year || 0;
+
+                // Period Score: 하반기(2) > 상반기(1) > 기타(0)
+                const getPeriodScore = (p: string) => {
+                  if (!p) return 0;
+                  return (p.includes("하반기") || p.includes("4분기") || p.includes("3분기")) ? 2 : 1;
+                };
+
+                const existingScore = getPeriodScore(existing.period);
+                const newScore = getPeriodScore(m.period);
+
+                if (newYear > existingYear) {
+                  measurementMap.set(m.code, m);
+                } else if (newYear === existingYear) {
+                  if (newScore > existingScore) {
+                    measurementMap.set(m.code, m);
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // 비교 및 로깅
+        parsedData.forEach(row => {
+          const latestMeasurement = measurementMap.get(row.code);
+          if (latestMeasurement) {
+            // 공백 제거 후 비교 (단순 띄어쓰기 차이 무시 옵션이 필요할 수도 있으나, 여기선 엄격 비교 후 로깅)
+            if (row.business_name !== latestMeasurement.business_name) {
+              changeLog.push(`[데이터 불일치] 코드 ${row.code}: (정보테이블) ${row.business_name} vs (측정테이블 최신) ${latestMeasurement.business_name}`);
+            }
+          }
+        });
+
+      } catch (verificationError) {
+        console.error("측정사업장 교차 검증 중 오류:", verificationError);
+      }
     }
 
     // 데이터를 삽입/업데이트로 분류
@@ -999,8 +1086,36 @@ export async function syncBusinessInfo(
 
       if (existingCodesSet.has(row.code)) {
         toUpdate.push(rowWithTimestamp);
+
+        // [LOGGING] 변경 사항 비교
+        const existing = existingDataMap.get(row.code);
+        if (existing) {
+          const changes: string[] = [];
+
+          // 대표자명 변경 감지
+          if (row.representative_name && existing.representative_name !== row.representative_name) {
+            changes.push(`대표자: (기존)${existing.representative_name || '(없음)'} -> (변경)${row.representative_name}`);
+          }
+
+          // 계산서 이메일 변경 감지
+          if (row.invoice_email && existing.invoice_email !== row.invoice_email) {
+            changes.push(`계산서메일: (기존)${existing.invoice_email || '(없음)'} -> (변경)${row.invoice_email}`);
+          }
+
+          // 사업장명 변경 감지
+          if (row.business_name && existing.business_name !== row.business_name) {
+            console.log(`[DEBUG] Name Mismatch: Code=${row.code}, Excel=${row.business_name}, DB=${existing.business_name}`);
+            changes.push(`사업장명: (기존)${existing.business_name} -> (변경)${row.business_name}`);
+          }
+
+          if (changes.length > 0) {
+            changeLog.push(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
+          }
+        }
       } else {
         toInsert.push(row);
+        // [LOGGING] 신규 사업장 추가 로그 w/ 사업장명
+        changeLog.push(`[신규] ${row.business_name} (${row.code}) 사업장이 추가되었습니다.`);
       }
     });
 
@@ -1131,6 +1246,7 @@ export async function syncBusinessInfo(
       records_processed: parsedData.length,
       records_inserted: recordsInserted,
       records_updated: recordsUpdated,
+      change_log: changeLog,
     };
   } catch (error) {
     const syncEndTime = new Date();
@@ -1184,6 +1300,7 @@ export async function syncMeasurementBusiness(
   const syncStartTime = new Date();
   let logId: number | null = null;
   let fileName = specificStorageFileName || fileNameXlsx;
+  const changeLog: string[] = []; // 변경 로그 배열
 
   try {
     const supabase = externalSupabaseClient || await createClient();
@@ -1650,8 +1767,9 @@ export async function syncMeasurementBusiness(
       success: true,
       file_name: fileName,
       records_processed: parsedData.length,
-      records_inserted: recordsProcessed, // UPSERT는 INSERT와 UPDATE를 모두 포함
+      records_inserted: recordsProcessed, // UPSERT라 정확한 구분 어려움
       records_updated: recordsProcessed,
+      change_log: changeLog,
     };
   } catch (error) {
     const syncEndTime = new Date();

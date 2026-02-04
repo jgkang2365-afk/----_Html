@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Dashboard } from "@/components/features/Dashboard";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
-import { SyncStatus } from "@/components/features/SyncStatus";
+
 import { Select } from "@/components/ui/Select";
 import { cn } from "@/lib/utils";
 
@@ -103,7 +103,6 @@ export const DashboardClient = () => {
                 {activeTab === 'data-upload' && (
                     <div className="animate-in fade-in zoom-in-95 duration-300 space-y-6">
                         <ExcelUpload />
-                        <SyncStatus />
                     </div>
                 )}
             </div>

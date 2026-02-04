@@ -140,6 +140,10 @@ export async function POST(request: NextRequest) {
         if (syncResult.success) {
           response.syncSuccess = true;
           response.syncMessage = `동기화 완료: ${syncResult.records_processed}건 처리 (신규: ${syncResult.records_inserted}건, 수정: ${syncResult.records_updated}건)`;
+          // @ts-ignore - SyncResult에 change_log가 추가되었으나 import 타입에 반영되지 않았을 수 있음
+          if (syncResult.change_log && syncResult.change_log.length > 0) {
+            response.syncChangeLog = syncResult.change_log;
+          }
         } else {
           response.syncSuccess = false;
           response.syncWarning = `파일은 업로드되었지만 동기화에 실패했습니다: ${syncResult.error_message || "알 수 없는 오류"}`;
