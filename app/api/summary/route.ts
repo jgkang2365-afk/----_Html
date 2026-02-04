@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
       .from("measurement_journal")
       .select("*")
       .not("business_name", "ilike", "%번외%")
+      .order("document_number", { ascending: false })
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false })
       .order("created_at", { ascending: false });
