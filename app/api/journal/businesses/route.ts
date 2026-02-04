@@ -45,8 +45,10 @@ export async function GET(request: Request) {
       // 요청한 연도/주기에 해당하는 데이터 찾기 (Base Data)
       let baseBusinessData = null;
       if (year && period && allBusinessHistory) {
+        const targetYear = parseInt(year);
+        const targetPeriod = period.trim();
         baseBusinessData = allBusinessHistory.find(
-          (b: any) => b.year === parseInt(year) && b.period === period
+          (b: any) => b.year === targetYear && b.period?.trim() === targetPeriod
         );
       }
 
