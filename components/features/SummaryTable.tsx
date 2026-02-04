@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { DESIGNATED_OFFICE_OPTIONS } from "@/lib/constants/designated-offices";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -285,12 +286,14 @@ export const SummaryTable: React.FC = () => {
     }
   };
 
-  // 일괄 인쇄 모드일 경우 미리보기 화면 렌더링
-  if (isBulkPrintMode) {
+  // 인쇄 미리보기 포탈 (모달과 유사하게 동작하여 인쇄 CSS 호환성 확보)
+  const PrintPreviewPortal = () => {
+    if (typeof window === "undefined") return null;
+
     const selectedEntries = results.filter(r => selectedIds.has(r.id));
 
-    return (
-      <div className="bg-white min-h-screen">
+    return createPortal(
+      <div className="fixed inset-0 z-[100] bg-white overflow-auto" role="dialog" aria-modal="true">
         {/* 인쇄 미리보기 헤더 (인쇄 시 숨김) */}
         <div className="sticky top-0 z-50 flex items-center justify-between p-4 bg-white border-b shadow-sm print:hidden">
           <div className="flex items-center gap-4">
@@ -324,7 +327,7 @@ export const SummaryTable: React.FC = () => {
         </div>
 
         {/* 인쇄 내용 (화면 및 출력 모두 보임) */}
-        <div className="p-8 print:p-0 space-y-8 print:space-y-0 bg-slate-100 print:bg-white">
+        <div className="p-8 print:p-0 space-y-8 print:space-y-0 bg-slate-100 print:bg-white min-h-screen">
           {selectedEntries.map((entry, index) => (
             <div
               key={entry.id}
@@ -402,7 +405,7 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         type="date"
-                        className="h-11 md:h-10 text-base md:text-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black"
                         value={normalizeDateForInput(entry.measurement_start_date)}
                         disabled
                       />
@@ -413,7 +416,7 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         type="date"
-                        className="h-11 md:h-10 text-base md:text-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black"
                         value={normalizeDateForInput(entry.measurement_end_date)}
                         disabled
                       />
@@ -430,7 +433,7 @@ export const SummaryTable: React.FC = () => {
                         사업장명
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.business_name || ""}
                         disabled
                       />
@@ -440,7 +443,7 @@ export const SummaryTable: React.FC = () => {
                         총인원
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm text-right shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm text-right shadow-sm bg-white font-bold text-black"
                         type="number"
                         value={entry.total_employees || ""}
                         disabled
@@ -451,7 +454,7 @@ export const SummaryTable: React.FC = () => {
                         사업자번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={formatBusinessNumber(entry.business_number)}
                         disabled
                       />
@@ -461,7 +464,7 @@ export const SummaryTable: React.FC = () => {
                         산재관리번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.industrial_accident_number || ""}
                         disabled
                       />
@@ -471,7 +474,7 @@ export const SummaryTable: React.FC = () => {
                         개시번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.commencement_number || ""}
                         disabled
                       />
@@ -481,7 +484,7 @@ export const SummaryTable: React.FC = () => {
                         주소
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.address || ""}
                         disabled
                       />
@@ -491,7 +494,7 @@ export const SummaryTable: React.FC = () => {
                         전화번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.phone || ""}
                         disabled
                       />
@@ -501,7 +504,7 @@ export const SummaryTable: React.FC = () => {
                         팩스
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.fax || ""}
                         disabled
                       />
@@ -518,7 +521,7 @@ export const SummaryTable: React.FC = () => {
                         담당자명
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.manager_name || ""}
                         disabled
                       />
@@ -528,7 +531,7 @@ export const SummaryTable: React.FC = () => {
                         직책
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.manager_position || ""}
                         disabled
                       />
@@ -538,7 +541,7 @@ export const SummaryTable: React.FC = () => {
                         휴대폰
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.manager_mobile || ""}
                         disabled
                       />
@@ -548,7 +551,7 @@ export const SummaryTable: React.FC = () => {
                         이메일
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.manager_email || ""}
                         disabled
                       />
@@ -558,7 +561,7 @@ export const SummaryTable: React.FC = () => {
                         계산서 이메일
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.invoice_email || ""}
                         disabled
                       />
@@ -576,7 +579,7 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         type="date"
-                        className="h-11 md:h-10 text-base md:text-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black"
                         value={normalizeDateForInput(entry.k2b_send_date)}
                         disabled
                       />
@@ -586,7 +589,7 @@ export const SummaryTable: React.FC = () => {
                         발송자
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.k2b_sender || ""}
                         disabled
                       />
@@ -599,7 +602,7 @@ export const SummaryTable: React.FC = () => {
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">특이사항</h4>
                   <div className="p-1">
                     <textarea
-                      className="w-full h-32 p-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none bg-white text-base md:text-sm shadow-sm"
+                      className="w-full h-32 p-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none bg-white text-base md:text-sm shadow-sm font-bold text-black"
                       value={entry.special_notes || ""}
                       disabled
                     />
@@ -614,9 +617,10 @@ export const SummaryTable: React.FC = () => {
             </div>
           ))}
         </div>
-      </div>
+      </div>,
+      document.body
     );
-  }
+  };
 
   return (
     <>
@@ -1338,6 +1342,8 @@ export const SummaryTable: React.FC = () => {
           )}
         </Modal>
       </div>
+      {/* 인쇄 미리보기 포탈 (조건부 렌더링) */}
+      {isBulkPrintMode && <PrintPreviewPortal />}
     </>
   );
 };
