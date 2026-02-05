@@ -598,15 +598,35 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           if (response.ok) {
             const data = await response.json();
             if (data.unpaidCount > 0) {
-              // 특이사항에 미수금 정보 추가
+              // 특이사항에 미수금 정보 추가/업데이트
               setFormData((prev) => {
-                const unpaidNote = `전회 미수 ${data.unpaidCount}회`;
-                const currentNotes = prev.special_notes || "";
-                // 이미 미수금 정보가 있으면 추가하지 않음
-                if (!currentNotes.includes("전회 미수")) {
+                const unpaidNoteRaw = `전회 미수 ${data.unpaidCount}회`;
+                let currentNotes = prev.special_notes || "";
+
+                // 이미 "전회 미수 ...회" 문구가 있는지 확인
+                if (currentNotes.match(/전회 미수 \d+회/)) {
+                  // 있으면 새로운 횟수로 교체
+                  currentNotes = currentNotes.replace(/전회 미수 \d+회/, unpaidNoteRaw);
+                } else {
+                  // 없으면 추가
+                  currentNotes = currentNotes ? `${currentNotes}\n${unpaidNoteRaw}` : unpaidNoteRaw;
+                }
+
+                return {
+                  ...prev,
+                  special_notes: currentNotes,
+                };
+              });
+            } else {
+              // 미수금이 0이면 해당 문구 제거
+              setFormData((prev) => {
+                let currentNotes = prev.special_notes || "";
+                if (currentNotes.match(/전회 미수 \d+회/)) {
+                  // 문구 제거 (줄바꿈 처리 포함)
+                  currentNotes = currentNotes.replace(/\n?전회 미수 \d+회/, "").trim();
                   return {
                     ...prev,
-                    special_notes: currentNotes ? `${currentNotes}\n${unpaidNote}` : unpaidNote,
+                    special_notes: currentNotes,
                   };
                 }
                 return prev;

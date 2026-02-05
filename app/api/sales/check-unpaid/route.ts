@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     // measurement_journal 테이블에서 해당 사업장의 측정비(사업장) 데이터 조회
     const { data: revenueData, error } = await supabase
       .from("measurement_journal")
-      .select("measurement_fee_business, deposit_amount_business")
+      .select("measurement_fee_business, deposit_amount_business, deposit_amount_business_2")
       .eq("business_name", businessName);
 
     if (error) {
@@ -43,8 +43,9 @@ export async function GET(request: NextRequest) {
       revenueData.forEach((item) => {
         const businessFee = item.measurement_fee_business || 0;
         const businessDeposit = item.deposit_amount_business || 0;
-        const businessUnpaid = businessFee - businessDeposit;
-        
+        const businessDeposit2 = item.deposit_amount_business_2 || 0;
+        const businessUnpaid = businessFee - (businessDeposit + businessDeposit2);
+
         if (businessUnpaid > 0) {
           unpaidCount++;
         }
