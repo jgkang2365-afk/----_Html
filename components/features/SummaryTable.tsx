@@ -136,20 +136,27 @@ export const SummaryTable: React.FC = () => {
 
 
   // 측정년도 옵션 생성 (현재 년도 기준 -5년 ~ +1년, 내림차순)
-  const yearOptions = Array.from({ length: 7 }, (_, i) => {
-    const year = currentYear - 5 + i;
-    return { value: year.toString(), label: year.toString() };
-  }).reverse();
+  const yearOptions = [
+    { value: "", label: "전체" },
+    ...Array.from({ length: 7 }, (_, i) => {
+      const year = currentYear - 5 + i;
+      return { value: year.toString(), label: year.toString() };
+    }).reverse()
+  ];
 
   // 측정주기 옵션
   const periodOptions = [
     { value: "", label: "전체" },
     { value: "상반기", label: "상반기" },
     { value: "하반기", label: "하반기" },
+    { value: "상반기(수시)", label: "상반기(수시)" },
+    { value: "하반기(수시)", label: "하반기(수시)" },
   ];
 
   // 지정한계_관할지청 옵션
   const designatedOfficeOptions = DESIGNATED_OFFICE_OPTIONS;
+
+
 
   const [quotas, setQuotas] = useState<any[]>([]);
 
@@ -693,36 +700,26 @@ export const SummaryTable: React.FC = () => {
               <label className="block text-sm font-medium text-text-700 mb-1">
                 측정년도
               </label>
-              <Input
+              <Select
+                options={yearOptions}
                 value={searchParams.measurementYear}
                 onChange={(e) =>
                   setSearchParams({ ...searchParams, measurementYear: e.target.value })
                 }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleSearch();
-                  }
-                }}
-                placeholder="예: 2024, 2025"
-                autoComplete="off"
+                className="h-10 py-2 text-center shadow-sm"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-text-700 mb-1">
                 측정주기
               </label>
-              <Input
+              <Select
+                options={periodOptions}
                 value={searchParams.measurementPeriod}
                 onChange={(e) =>
                   setSearchParams({ ...searchParams, measurementPeriod: e.target.value })
                 }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleSearch();
-                  }
-                }}
-                placeholder="예: 상반기, 하반기"
-                autoComplete="off"
+                className="h-10 py-2 text-center shadow-sm"
               />
             </div>
             <div>
@@ -734,10 +731,8 @@ export const SummaryTable: React.FC = () => {
                 value={searchParams.designatedOffice}
                 onChange={(e) => {
                   setSearchParams({ ...searchParams, designatedOffice: e.target.value });
-                  // Select 변경 시 바로 검색 실행하려면 여기에 handleSearch() 추가 가능
-                  // handleSearch(); 
                 }}
-              /* Select 컴포넌트에는 onKeyDown prop이 없을 수 있으므로 div로 감싸거나 제거 */
+                className="h-10 py-2 text-center shadow-sm"
               />
             </div>
             <div>
@@ -1404,7 +1399,7 @@ export const SummaryTable: React.FC = () => {
                         국고지원 여부
                       </label>
                       <Select
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        className="h-11 md:h-10 py-2 text-base md:text-sm shadow-sm text-center"
                         value={editFormData.national_support_status || ""}
                         onChange={(e) => {
                           const value = e.target.value;
