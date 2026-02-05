@@ -33,6 +33,7 @@ interface BusinessEntry {
     management_status: string | null; // 관리상태
     phone: string | null; // 대표전화? (기존 코드에 있음)
     unpaid_count: number;
+    national_unpaid_count?: number; // 국고 미수
     unpaid_details: any[];
     previous_measurement_date: string | null;
     future_measurement_period: number | null; // 향후 측정주기
@@ -660,19 +661,31 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <div className="px-2 break-words text-xs leading-tight">{item.address}</div>
                                 <div className="text-center text-xs">{toShortName(item.office_jurisdiction || "")}</div>
                                 <div className="text-center">
-                                    {item.unpaid_count > 0 && (
-                                        <span
-                                            className="text-red-600 font-bold text-xs cursor-pointer underline"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setSelectedUnpaidBusinessName(item.business_name);
-                                                setSelectedUnpaidDetails(item.unpaid_details);
-                                                setIsUnpaidModalOpen(true);
-                                            }}
-                                        >
-                                            {item.unpaid_count}
-                                        </span>
-                                    )}
+                                    {(() => {
+                                        const businessCount = item.unpaid_count || 0;
+                                        const nationalCount = item.national_unpaid_count || 0;
+
+                                        if (businessCount === 0 && nationalCount === 0) return null;
+
+                                        let textColor = "text-black";
+                                        if (businessCount > 0) textColor = "text-red-600 font-bold underline";
+                                        else if (nationalCount > 0) textColor = "text-blue-600 font-bold underline";
+
+                                        return (
+                                            <span
+                                                className={`text-xs cursor-pointer ${textColor}`}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedUnpaidBusinessName(item.business_name);
+                                                    setSelectedUnpaidDetails(item.unpaid_details);
+                                                    setIsUnpaidModalOpen(true);
+                                                }}
+                                                title={`사업장 미수: ${businessCount}건 / 국고 미수: ${nationalCount}건`}
+                                            >
+                                                {businessCount > 0 ? `${businessCount}` : `(국)${nationalCount}`}
+                                            </span>
+                                        );
+                                    })()}
                                 </div>
                                 <div className="text-center text-xs">{item.previous_measurement_date}</div>
                                 <div className="text-center text-xs font-medium text-blue-600">
@@ -997,6 +1010,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <th className="p-2 border">주기</th>
                                 <th className="p-2 border">계산서 발행일</th>
                                 <th className="p-2 border text-right">미수금액(사업장)</th>
+                                <th className="p-2 border text-right">미수금액(국고)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1007,13 +1021,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         <td className="p-2 border text-center">{detail.period}</td>
                                         <td className="p-2 border text-center">{detail.invoiceDate || "-"}</td>
                                         <td className="p-2 border text-right font-medium text-red-600">
-                                            {detail.unpaidBusiness?.toLocaleString()}원
+                                            {detail.unpaidBusiness ? detail.unpaidBusiness.toLocaleString() + "원" : "-"}
+                                        </td>
+                                        <td className="p-2 border text-right font-medium text-blue-600">
+                                            {detail.unpaidNational ? detail.unpaidNational.toLocaleString() + "원" : "-"}
                                         </td>
                                     </tr>
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={4} className="p-4 text-center text-gray-500">미수 내역이 없습니다.</td>
+                                    <td colSpan={5} className="p-4 text-center text-gray-500">미수 내역이 없습니다.</td>
                                 </tr>
                             )}
                         </tbody>

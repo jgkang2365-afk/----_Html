@@ -48,7 +48,8 @@ export async function GET(request: NextRequest) {
     let businessInfoQuery = supabase
       .from("business_info")
       .select("code, business_name, business_number, address1, address2, office_jurisdiction")
-      .not("business_name", "ilike", "%번외%"); // "*번외*" 포함 사업장 제외
+      .not("business_name", "ilike", "%번외%") // "*번외*" 포함 사업장 제외
+      .limit(100); // 성능 최적화: 최대 100건만 조회
 
     if (code) {
       businessInfoQuery = businessInfoQuery.ilike("code", `%${code}%`);

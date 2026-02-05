@@ -97,14 +97,14 @@ export async function GET(request: NextRequest) {
     // 2. 미수 내역 집계 (measurement_journal)
     // 조회된 사업장 코드 리스트에 대해 미수금 계산
     const codes = businesses.map((b: any) => b.code);
-    const unpaidMap = new Map<string, { count: number; details: any[] }>();
+    const unpaidMap = new Map<string, { businessCount: number; nationalCount: number; details: any[] }>();
 
     if (codes.length > 0) {
       // 해당 사업장의 모든 측정일지 중 미수금이 있는 것 조회
       // (amount - deposit > 0)
       const { data: unpaidData } = await supabase
         .from("measurement_journal")
-        .select("code, measurement_year, measurement_period, measurement_fee_total, deposit_total, business_name, electronic_invoice_date, measurement_fee_business, deposit_amount_business")
+        .select("code, measurement_year, measurement_period, measurement_fee_total, deposit_total, business_name, electronic_invoice_date, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national")
         .in("code", codes);
 
       if (unpaidData) {
@@ -113,14 +113,23 @@ export async function GET(request: NextRequest) {
           const deposit = Number(item.deposit_total || 0);
           const unpaidAmount = fee - deposit;
 
-          // Unpaid Business Amount
+          // Unpaid Business Amount (Split deposit supported)
           const feeBusiness = Number(item.measurement_fee_business || 0);
           const depositBusiness = Number(item.deposit_amount_business || 0);
-          const unpaidBusiness = feeBusiness - depositBusiness;
+          const depositBusiness2 = Number(item.deposit_amount_business_2 || 0);
+          const unpaidBusiness = feeBusiness - (depositBusiness + depositBusiness2);
 
-          if (unpaidAmount > 0) {
-            const current = unpaidMap.get(item.code) || { count: 0, details: [] };
-            current.count += 1;
+          // Unpaid National Amount
+          const feeNational = Number(item.measurement_fee_national || 0);
+          const depositNational = Number(item.deposit_amount_national || 0);
+          const unpaidNational = feeNational - depositNational;
+
+          if (unpaidBusiness > 0 || unpaidNational > 0) {
+            const current = unpaidMap.get(item.code) || { businessCount: 0, nationalCount: 0, details: [] };
+
+            if (unpaidBusiness > 0) current.businessCount += 1;
+            if (unpaidNational > 0) current.nationalCount += 1;
+
             current.details.push({
               year: item.measurement_year,
               period: item.measurement_period,
@@ -128,7 +137,8 @@ export async function GET(request: NextRequest) {
               total: fee,
               deposit: deposit,
               invoiceDate: item.electronic_invoice_date,
-              unpaidBusiness: unpaidBusiness
+              unpaidBusiness: unpaidBusiness,
+              unpaidNational: unpaidNational
             });
             unpaidMap.set(item.code, current);
           }
@@ -185,7 +195,7 @@ export async function GET(request: NextRequest) {
 
     // 4. 데이터 병합
     const result = businesses.map((item: any) => {
-      const unpaidInfo = unpaidMap.get(item.code) || { count: 0, details: [] };
+      const unpaidInfo = unpaidMap.get(item.code) || { businessCount: 0, nationalCount: 0, details: [] };
       const isSurveyRegistered = surveyRegisteredCodes.has(item.code);
 
       const bInfo = businessInfoMap.get(item.code);
@@ -215,7 +225,8 @@ export async function GET(request: NextRequest) {
 
       return {
         ...item,
-        unpaid_count: unpaidInfo.count,
+        unpaid_count: unpaidInfo.businessCount, // 사업장 미수
+        national_unpaid_count: unpaidInfo.nationalCount, // 국고 미수
         unpaid_details: unpaidInfo.details,
         // UI 호환성을 위한 필드 매핑
         designated_office: item.office_jurisdiction, // 임시 매핑
