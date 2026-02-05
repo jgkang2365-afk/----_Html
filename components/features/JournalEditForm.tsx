@@ -746,6 +746,53 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   }, [entry.id, entry.code, entry.measurement_year, entry.measurement_period]);
 
+  // 인가 갯수(Quota) 상태 추가
+  const [officeQuota, setOfficeQuota] = useState<number | null>(null);
+
+  // 인가 갯수 조회 (년도/주기/지정지청 변경 시)
+  useEffect(() => {
+    const { measurement_year, measurement_period, designated_office } = formData;
+
+    // 필수 조건 체크
+    if (measurement_year && measurement_period && designated_office) {
+      const fetchQuota = async () => {
+        try {
+          const response = await fetch(`/api/admin/quotas?year=${measurement_year}`);
+          if (response.ok) {
+            const result = await response.json();
+            const data = result.data || [];
+
+            // 해당 주기와 지정지청에 맞는 쿼터 찾기
+            let matchingQuota = data.find((q: any) =>
+              q.period === measurement_period && q.office_name === designated_office
+            );
+
+            // '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색 (예: '상반기(수시)' -> '상반기')
+            if (!matchingQuota && measurement_period && measurement_period.includes('(수시)')) {
+              const basePeriod = measurement_period.replace('(수시)', '');
+              matchingQuota = data.find((q: any) =>
+                q.period === basePeriod && q.office_name === designated_office
+              );
+            }
+
+            if (matchingQuota) {
+              setOfficeQuota(matchingQuota.quota);
+            } else {
+              setOfficeQuota(null);
+            }
+          }
+        } catch (err) {
+          console.error("인가 갯수 조회 오류:", err);
+          setOfficeQuota(null);
+        }
+      };
+
+      fetchQuota();
+    } else {
+      setOfficeQuota(null);
+    }
+  }, [formData.measurement_year, formData.measurement_period, formData.designated_office]);
+
   // entry가 변경될 때 formData 업데이트 (entry.id가 변경되면 전체 재초기화)
   useEffect(() => {
     // entry.id가 변경되면 전체 formData 재초기화
@@ -1702,15 +1749,16 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Input
               label="공문연번"
               value={formData.document_number}
-              // 관리자가 아니고 + (이미 값이 있거나 완료 상태인 경우) 비활성화
-              disabled={!isAdmin && (!!entry.document_number || isLockedByCompletion)}
-              onChange={(e) => isAdmin && setFormData({ ...formData, document_number: e.target.value })}
-              className={cn("font-bold", (!isAdmin && (!!entry.document_number || isLockedByCompletion)) ? "bg-surface-50" : "")}
-              placeholder={(!isAdmin && (!!entry.document_number || isLockedByCompletion)) ? "변경 불가" : "자동 부여됩니다"}
+              // 관리자 여부와 상관없이 기존 항목(entry.id 존재)인 경우 수정 불가 (별도 승인 필요)
+              disabled={!!entry.id || isLockedByCompletion}
+              onChange={(e) => setFormData({ ...formData, document_number: e.target.value })}
+              className={cn("font-bold", (!!entry.id || isLockedByCompletion) ? "bg-surface-50" : "")}
+              placeholder={(!!entry.id || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
             />
-            {!isAdmin && (
+            {/* 관리자여도 수정 불가능함을 안내 */}
+            {entry.id && (
               <p className="text-xs text-text-500 mt-1">
-                {entry.document_number ? "관리자만 수정 가능" : "관리자 승인 필요"}
+                관리자 승인 없이 수정 불가
               </p>
             )}
           </div>
@@ -1718,31 +1766,40 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Input
               label="연번"
               value={formData.sequence_number}
-              // 관리자가 아니고 + (이미 값이 있거나 완료 상태인 경우) 비활성화
-              disabled={!isAdmin && (!!entry.sequence_number || isLockedByCompletion)}
-              onChange={(e) => isAdmin && setFormData({ ...formData, sequence_number: e.target.value })}
-              className={cn("font-bold", (!isAdmin && (!!entry.sequence_number || isLockedByCompletion)) ? "bg-surface-50" : "")}
-              placeholder={(!isAdmin && (!!entry.sequence_number || isLockedByCompletion)) ? "변경 불가" : "자동 부여됩니다"}
+              // 관리자 여부와 상관없이 기존 항목(entry.id 존재)인 경우 수정 불가 (별도 승인 필요)
+              disabled={!!entry.id || isLockedByCompletion}
+              onChange={(e) => setFormData({ ...formData, sequence_number: e.target.value })}
+              className={cn("font-bold", (!!entry.id || isLockedByCompletion) ? "bg-surface-50" : "")}
+              placeholder={(!!entry.id || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
             />
-            {!isAdmin && (
+            {entry.id && (
               <p className="text-xs text-text-500 mt-1">
-                {entry.sequence_number ? "관리자만 수정 가능" : "관리자 승인 필요"}
+                관리자 승인 없이 수정 불가
               </p>
             )}
           </div>
           <div>
-            <Input
-              label="5인 이상 연번"
-              value={formData.five_plus_sequence}
-              // 관리자가 아니고 + (이미 값이 있거나 완료 상태인 경우) 비활성화
-              disabled={!isAdmin && (!!entry.five_plus_sequence || isLockedByCompletion)}
-              onChange={(e) => isAdmin && setFormData({ ...formData, five_plus_sequence: e.target.value })}
-              className={cn("font-bold", (!isAdmin && (!!entry.five_plus_sequence || isLockedByCompletion)) ? "bg-surface-50" : "")}
-              placeholder={(!isAdmin && (!!entry.five_plus_sequence || isLockedByCompletion)) ? "변경 불가" : "자동 부여됩니다"}
-            />
-            {!isAdmin && (
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <Input
+                  label="5인 이상 연번"
+                  value={formData.five_plus_sequence}
+                  // 관리자 여부와 상관없이 기존 항목(entry.id 존재)인 경우 수정 불가 (별도 승인 필요)
+                  disabled={!!entry.id || isLockedByCompletion}
+                  onChange={(e) => setFormData({ ...formData, five_plus_sequence: e.target.value })}
+                  className={cn("font-bold", (!!entry.id || isLockedByCompletion) ? "bg-surface-50" : "")}
+                  placeholder={(!!entry.id || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
+                />
+              </div>
+              {officeQuota !== null && (
+                <div className="mt-8 text-sm font-medium text-gray-500 whitespace-nowrap pt-1">
+                  / {officeQuota}
+                </div>
+              )}
+            </div>
+            {entry.id && (
               <p className="text-xs text-text-500 mt-1">
-                {entry.five_plus_sequence ? "관리자만 수정 가능" : "관리자 승인 필요"}
+                관리자 승인 없이 수정 불가
               </p>
             )}
           </div>

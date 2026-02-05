@@ -31,6 +31,7 @@ const navItems: NavItem[] = [
 const adminNavItems: NavItem[] = [
   { href: "/users", label: "사용자 관리", adminOnly: true },
   { href: "/business-categories", label: "업종분류 관리", adminOnly: true },
+  { href: "/admin/quotas", label: "지청별 지정한계", adminOnly: true },
 ];
 
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {

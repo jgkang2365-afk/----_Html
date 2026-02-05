@@ -61,6 +61,7 @@ interface SummaryEntry {
   survey_end_date: string | null;
   survey_measurement_weekdays: string | null;
   office_jurisdiction: string | null;
+  designated_office: string | null; // 지정지청 추가 (약칭)
   business_name: string;
   total_employees: number | null;
   business_number: string | null;
@@ -150,12 +151,25 @@ export const SummaryTable: React.FC = () => {
   // 지정한계_관할지청 옵션
   const designatedOfficeOptions = DESIGNATED_OFFICE_OPTIONS;
 
+  const [quotas, setQuotas] = useState<any[]>([]);
+
   // 검색 실행
   const handleSearch = async () => {
     try {
       setLoading(true);
       setError(null);
       setHasSearched(true);
+
+      // 1. 쿼터 데이터 로드
+      try {
+        const quotasResponse = await fetch(`/api/admin/quotas`);
+        if (quotasResponse.ok) {
+          const quotasData = await quotasResponse.json();
+          setQuotas(quotasData.data || []);
+        }
+      } catch (e) {
+        console.error("쿼터 로드 실패:", e);
+      }
 
       const params = new URLSearchParams();
       if (searchParams.measurementYear) {
@@ -367,6 +381,28 @@ export const SummaryTable: React.FC = () => {
                       <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
                       <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
                         {entry.five_plus_sequence || "-"}
+                        {(() => {
+                          // 1. 정확히 일치하는 주기 검색
+                          let quota = quotas.find(
+                            (q) =>
+                              q.year === entry.measurement_year &&
+                              q.period === entry.measurement_period &&
+                              q.office_name === entry.designated_office
+                          );
+
+                          // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
+                          if (!quota && entry.measurement_period.includes('(수시)')) {
+                            const basePeriod = entry.measurement_period.replace('(수시)', '');
+                            quota = quotas.find(
+                              (q) =>
+                                q.year === entry.measurement_year &&
+                                q.period === basePeriod &&
+                                q.office_name === entry.designated_office
+                            );
+                          }
+
+                          return quota ? <span className="text-gray-500 font-normal ml-1">/ {quota.quota}</span> : null;
+                        })()}
                       </div>
                     </div>
                     <div className="p-1">
@@ -833,6 +869,28 @@ export const SummaryTable: React.FC = () => {
                           </TableCell>
                           <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
                             {entry.five_plus_sequence || "-"}
+                            {(() => {
+                              // 1. 정확히 일치하는 주기 검색
+                              let quota = quotas.find(
+                                (q) =>
+                                  q.year === entry.measurement_year &&
+                                  q.period === entry.measurement_period &&
+                                  q.office_name === entry.designated_office
+                              );
+
+                              // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
+                              if (!quota && entry.measurement_period && entry.measurement_period.includes('(수시)')) {
+                                const basePeriod = entry.measurement_period.replace('(수시)', '');
+                                quota = quotas.find(
+                                  (q) =>
+                                    q.year === entry.measurement_year &&
+                                    q.period === basePeriod &&
+                                    q.office_name === entry.designated_office
+                                );
+                              }
+
+                              return quota ? <span className="text-gray-400 text-[10px] ml-1">/ {quota.quota}</span> : null;
+                            })()}
                           </TableCell>
                           <TableCell className="p-1 text-center text-xs">
                             {entry.measurement_start_date
@@ -1011,6 +1069,28 @@ export const SummaryTable: React.FC = () => {
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
                     <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
                       {selectedEntry.five_plus_sequence || "-"}
+                      {(() => {
+                        // 1. 정확히 일치하는 주기 검색
+                        let quota = quotas.find(
+                          (q) =>
+                            q.year === selectedEntry.measurement_year &&
+                            q.period === selectedEntry.measurement_period &&
+                            q.office_name === selectedEntry.designated_office
+                        );
+
+                        // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
+                        if (!quota && selectedEntry.measurement_period && selectedEntry.measurement_period.includes('(수시)')) {
+                          const basePeriod = selectedEntry.measurement_period.replace('(수시)', '');
+                          quota = quotas.find(
+                            (q) =>
+                              q.year === selectedEntry.measurement_year &&
+                              q.period === basePeriod &&
+                              q.office_name === selectedEntry.designated_office
+                          );
+                        }
+
+                        return quota ? <span className="text-gray-500 font-normal ml-1">/ {quota.quota}</span> : null;
+                      })()}
                     </div>
                   </div>
                   <div className="p-1">

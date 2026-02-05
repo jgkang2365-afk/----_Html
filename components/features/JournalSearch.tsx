@@ -99,6 +99,22 @@ export const JournalSearch: React.FC = () => {
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
+  // 쿼터 데이터 로드
+  useEffect(() => {
+    const fetchQuotas = async () => {
+      try {
+        const response = await fetch('/api/admin/quotas');
+        if (response.ok) {
+          const result = await response.json();
+          // setQuotas(result.data || []); // This line was removed as per instruction
+        }
+      } catch (err) {
+        console.error("쿼터 로드 실패:", err);
+      }
+    };
+    fetchQuotas();
+  }, []);
+
   // 필터 초기값: 현재 년도와 상반기로 설정
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
@@ -452,13 +468,23 @@ export const JournalSearch: React.FC = () => {
     }
   };
 
+  // 쿼터 데이터 상태
+  const [quotas, setQuotas] = useState<any[]>([]);
+
   // 등록 현황 목록 로드 (전체 데이터)
   const loadJournalList = async () => {
     setListLoading(true);
     setListError(null);
 
     try {
-      // 검색 조건 없이 전체 데이터 로드
+      // 1. 쿼터 데이터 로드
+      const quotasResponse = await fetch(`/api/admin/quotas`);
+      const quotasData = await quotasResponse.json();
+      if (quotasResponse.ok) {
+        setQuotas(quotasData.data || []);
+      }
+
+      // 2. 검색 조건 없이 전체 데이터 로드
       const response = await fetch(`/api/journal/search`);
       const data = await response.json();
 
@@ -1056,7 +1082,37 @@ export const JournalSearch: React.FC = () => {
                             </td>
                             <td className="p-1 align-middle text-center text-xs">{entry.document_number || "-"}</td>
                             <td className="p-1 align-middle text-center text-xs">{entry.sequence_number || "-"}</td>
-                            <td className="p-1 align-middle text-center text-xs">{entry.five_plus_sequence || "-"}</td>
+                            <td className="p-1 align-middle text-center text-xs">
+                              {entry.five_plus_sequence ? (
+                                <span>
+                                  {entry.five_plus_sequence}
+                                  {(() => {
+                                    // 1. 정확히 일치하는 주기 검색
+                                    let quota = quotas.find(
+                                      (q) =>
+                                        q.year === entry.measurement_year &&
+                                        q.period === entry.measurement_period &&
+                                        q.office_name === entry.designated_office
+                                    );
+
+                                    // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
+                                    if (!quota && entry.measurement_period && entry.measurement_period.includes('(수시)')) {
+                                      const basePeriod = entry.measurement_period.replace('(수시)', '');
+                                      quota = quotas.find(
+                                        (q) =>
+                                          q.year === entry.measurement_year &&
+                                          q.period === basePeriod &&
+                                          q.office_name === entry.designated_office
+                                      );
+                                    }
+
+                                    return quota ? <span className="text-gray-400 text-[10px] ml-1">/ {quota.quota}</span> : null;
+                                  })()}
+                                </span>
+                              ) : (
+                                "-"
+                              )}
+                            </td>
                             <td className={`p-1 align-middle text-center text-xs ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : ''}`}>
                               {entry.total_employees || "-"}
                             </td>
@@ -1349,7 +1405,35 @@ export const JournalSearch: React.FC = () => {
                               {entry.sequence_number || "-"}
                             </TableCell>
                             <TableCell className="bg-surface-50 text-center text-xs">
-                              {entry.five_plus_sequence || "-"}
+                              {entry.five_plus_sequence ? (
+                                <span>
+                                  {entry.five_plus_sequence}
+                                  {(() => {
+                                    // 1. 정확히 일치하는 주기 검색
+                                    let quota = quotas.find(
+                                      (q) =>
+                                        q.year === entry.measurement_year &&
+                                        q.period === entry.measurement_period &&
+                                        q.office_name === entry.designated_office
+                                    );
+
+                                    // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색 (예: '상반기(수시)' -> '상반기')
+                                    if (!quota && entry.measurement_period.includes('(수시)')) {
+                                      const basePeriod = entry.measurement_period.replace('(수시)', '');
+                                      quota = quotas.find(
+                                        (q) =>
+                                          q.year === entry.measurement_year &&
+                                          q.period === basePeriod &&
+                                          q.office_name === entry.designated_office
+                                      );
+                                    }
+
+                                    return quota ? <span className="text-gray-400 text-[10px] ml-1">/ {quota.quota}</span> : null;
+                                  })()}
+                                </span>
+                              ) : (
+                                "-"
+                              )}
                             </TableCell>
                             <TableCell className={`text-center text-xs ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : 'bg-surface-50'}`}>
                               {entry.total_employees || "-"}

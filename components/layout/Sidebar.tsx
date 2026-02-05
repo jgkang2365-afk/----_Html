@@ -26,6 +26,7 @@ const navItems: NavItem[] = [
 const adminNavItems: NavItem[] = [
   { href: "/users", label: "사용자 관리", icon: "👥", adminOnly: true },
   { href: "/business-categories", label: "업종분류 관리", icon: "🏷️", adminOnly: true },
+  { href: "/admin/quotas", label: "지청별 지정한계", icon: "🔢", adminOnly: true },
 ];
 
 interface SidebarProps {
