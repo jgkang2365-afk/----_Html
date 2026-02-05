@@ -95,7 +95,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const [warning, setWarning] = useState<string | null>(null); // 경고 메시지
   const [loadingBusiness, setLoadingBusiness] = useState(false);
   const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
-  const [unpaidWarningMessage, setUnpaidWarningMessage] = useState<string>("");
+  const [unpaidWarningMessage, setUnpaidWarningMessage] = useState<React.ReactNode>("");
 
   // 사업장 검색 관련 상태
   const [showBusinessSearch, setShowBusinessSearch] = useState(false);
@@ -295,9 +295,46 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       const data = await response.json();
 
       if (response.ok && data.hasWarning) {
-        setUnpaidWarningMessage(
-          `"${businessName}" 업체는 측정비(사업장) 기준으로 미수금이 ${data.unpaidCount}회 있습니다. 등록 시 주의해주세요.`
+        const businessCount = data.businessUnpaidCount || 0;
+        const businessAmount = data.businessUnpaidAmount || 0;
+        const nationalCount = data.nationalUnpaidCount || 0;
+        const nationalAmount = data.nationalUnpaidAmount || 0;
+
+        const businessMsg = businessCount > 0
+          ? `사업장 미수: ${businessCount}건 (${businessAmount.toLocaleString()}원)`
+          : "";
+        const nationalMsg = nationalCount > 0
+          ? `국고 미수: ${nationalCount}건 (${nationalAmount.toLocaleString()}원)`
+          : "";
+
+        let textColorClass = "text-gray-800";
+        let titleColorClass = "text-gray-800";
+
+        if (businessCount > 0) {
+          textColorClass = "text-red-600 font-bold";
+          titleColorClass = "text-red-600";
+        } else if (nationalCount > 0) {
+          textColorClass = "text-blue-600 font-bold";
+          titleColorClass = "text-blue-600";
+        }
+
+        const message = (
+          <div className="text-left">
+            <p className={`text-lg font-bold mb-2 ${titleColorClass}`}>
+              "{businessName}" 업체는 미수금이 있습니다.
+            </p>
+            <div className={`p-3 bg-white rounded border border-gray-200 ${textColorClass}`}>
+              {[businessMsg, nationalMsg].filter(Boolean).map((msg, idx) => (
+                <p key={idx} className="mb-1 last:mb-0">{msg}</p>
+              ))}
+            </div>
+            <p className="mt-2 text-sm text-gray-600">
+              새로운 예비조사 등록 시 주의해주세요.
+            </p>
+          </div>
         );
+
+        setUnpaidWarningMessage(message);
         setIsUnpaidWarningModalOpen(true);
       }
     } catch (err) {
