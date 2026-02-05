@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { reassignSequenceNumbers } from "@/lib/utils/survey-sequence";
 
 /**
  * 예비조사 API
@@ -185,8 +186,8 @@ export async function GET(request: NextRequest) {
         let surveyQuery = supabase
           .from("preliminary_survey")
           .select("*")
-          .order("sequence_number", { ascending: true, nullsFirst: false })
-          .order("created_at", { ascending: false });
+          .order("measurement_date", { ascending: false, nullsFirst: false })
+          .order("sequence_number", { ascending: true, nullsFirst: false });
 
         if (filteredCodes.length > 0) {
           surveyQuery = surveyQuery.in("code", filteredCodes);
@@ -236,8 +237,8 @@ export async function GET(request: NextRequest) {
       let allSurveysQuery = supabase
         .from("preliminary_survey")
         .select("*")
-        .order("sequence_number", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: false });
+        .order("measurement_date", { ascending: false, nullsFirst: false })
+        .order("sequence_number", { ascending: true, nullsFirst: false });
 
       if (measurementDate) {
         allSurveysQuery = allSurveysQuery.eq("measurement_date", measurementDate);
@@ -256,8 +257,8 @@ export async function GET(request: NextRequest) {
         .from("preliminary_survey")
         .select("*")
         .in("code", codes)
-        .order("sequence_number", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: false });
+        .order("measurement_date", { ascending: false, nullsFirst: false })
+        .order("sequence_number", { ascending: true, nullsFirst: false });
 
       if (measurementDate) {
         surveyQuery = surveyQuery.eq("measurement_date", measurementDate);
@@ -563,8 +564,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 순번 재정렬 (측정일 기준)
+    await reassignSequenceNumbers(supabase);
+
+    // 재정렬된 최신 정보 조회 (순번이 변경되었을 수 있으므로)
+    const { data: updatedSurvey } = await supabase
+      .from("preliminary_survey")
+      .select("*")
+      .eq("id", survey.id)
+      .single();
+
     return NextResponse.json({
-      survey,
+      survey: updatedSurvey || survey,
       warning: warningMessage // 경고 메시지 포함 (있을 경우)
     }, { status: 201 });
   } catch (error) {

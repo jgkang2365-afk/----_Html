@@ -20,7 +20,7 @@ import {
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
-import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
+import { formatDateYYYYMMDD, calculateMeasurementWeekdays } from "@/lib/utils/date-utils";
 
 interface Survey {
   id: number;
@@ -84,8 +84,11 @@ export default function SurveyPage() {
   }, [activeTab]);
   const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
   const [pendingBusinessForForm, setPendingBusinessForForm] = useState<BusinessInfo | null>(null); // 경고 모달에서 대기 중인 사업장 정보
-  // 순번 정렬 관련 상태
-  const [sequenceSortOrder, setSequenceSortOrder] = useState<"asc" | "desc">("desc"); // 기본값: 내림차순 (최신 등록 순서)
+  // 정렬 상태
+  const [sortConfig, setSortConfig] = useState<{ key: "sequence_number" | "measurement_date"; direction: "asc" | "desc" }>({
+    key: "measurement_date",
+    direction: "desc",
+  });
   // 년도 필터 관련 상태
   const [selectedYear, setSelectedYear] = useState<string>(""); // 선택된 년도 (빈 문자열이면 전체)
   // 사업장명 검색 상태 (예비조사 목록용)
@@ -749,11 +752,18 @@ export default function SurveyPage() {
             }
 
 
-            // 순번 기준 정렬
+            // 정렬 로직
             const sortedSurveys = [...filteredSurveys].sort((a, b) => {
-              const seqA = a.sequence_number || 999999; // 순번이 없으면 뒤로
-              const seqB = b.sequence_number || 999999;
-              return sequenceSortOrder === "asc" ? seqA - seqB : seqB - seqA;
+              if (sortConfig.key === "sequence_number") {
+                const seqA = a.sequence_number || 999999;
+                const seqB = b.sequence_number || 999999;
+                return sortConfig.direction === "asc" ? seqA - seqB : seqB - seqA;
+              } else {
+                // measurement_date
+                const dateA = new Date(a.measurement_date || "1900-01-01").getTime();
+                const dateB = new Date(b.measurement_date || "1900-01-01").getTime();
+                return sortConfig.direction === "asc" ? dateA - dateB : dateB - dateA;
+              }
             });
 
             return sortedSurveys.length === 0 ? (
@@ -770,16 +780,32 @@ export default function SurveyPage() {
                           <div className="flex items-center justify-center gap-1">
                             <span>순번</span>
                             <button
-                              onClick={() => setSequenceSortOrder(sequenceSortOrder === "asc" ? "desc" : "asc")}
-                              className="hover:bg-slate-200 rounded p-0.5"
+                              onClick={() => setSortConfig(prev => ({
+                                key: "sequence_number",
+                                direction: prev.key === "sequence_number" && prev.direction === "asc" ? "desc" : "asc"
+                              }))}
+                              className={`hover:bg-slate-200 rounded p-0.5 ${sortConfig.key === "sequence_number" ? "text-primary-600" : "text-slate-400"}`}
                             >
-                              {sequenceSortOrder === "asc" ? "▲" : "▼"}
+                              {sortConfig.key === "sequence_number" && sortConfig.direction === "asc" ? "▲" : "▼"}
                             </button>
                           </div>
                         </th>
                         <th className="px-2 py-3 text-center w-[60px]">년도</th>
                         <th className="px-2 py-3 text-center w-[60px]">주기</th>
-                        <th className="px-2 py-3 text-center w-[90px]">측정일</th>
+                        <th className="px-2 py-3 text-center w-[90px]">
+                          <div className="flex items-center justify-center gap-1">
+                            <span>측정일</span>
+                            <button
+                              onClick={() => setSortConfig(prev => ({
+                                key: "measurement_date",
+                                direction: prev.key === "measurement_date" && prev.direction === "desc" ? "asc" : "desc"
+                              }))}
+                              className={`hover:bg-slate-200 rounded p-0.5 ${sortConfig.key === "measurement_date" ? "text-primary-600" : "text-slate-400"}`}
+                            >
+                              {sortConfig.key === "measurement_date" && sortConfig.direction === "asc" ? "▲" : "▼"}
+                            </button>
+                          </div>
+                        </th>
                         <th className="px-2 py-3 text-center w-[90px]">종료일</th>
                         <th className="px-2 py-3 text-center w-[120px]">측정요일</th>
                         <th className="px-2 py-3 text-left">사업장명</th>
@@ -807,7 +833,9 @@ export default function SurveyPage() {
                           <td className="px-2 py-2 text-center">
                             {survey.end_date ? formatDateYYYYMMDD(new Date(survey.end_date)) : "-"}
                           </td>
-                          <td className="px-2 py-2 text-center text-xs">{survey.measurement_weekdays || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs">
+                            {survey.measurement_weekdays || calculateMeasurementWeekdays(survey.measurement_date, survey.end_date) || "-"}
+                          </td>
                           <td className="px-2 py-2 font-medium truncate max-w-[200px]" title={survey.business_name}>{survey.business_name}</td>
                           <td className="px-2 py-2 text-center">{survey.business_number || "-"}</td>
                           <td className="px-2 py-2 text-center text-xs truncate max-w-[80px]" title={survey.measurer || ""}>{survey.measurer || "-"}</td>

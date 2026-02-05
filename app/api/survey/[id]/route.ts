@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { reassignSequenceNumbers } from "@/lib/utils/survey-sequence";
 
 /**
  * 예비조사 수정/삭제 API
@@ -158,7 +159,17 @@ export async function PUT(
       }
     }
 
-    return NextResponse.json({ survey });
+    // 순번 재정렬 (측정일 기준)
+    await reassignSequenceNumbers(supabase);
+
+    // 재정렬된 최신 정보 조회 (순번이 변경되었을 수 있으므로)
+    const { data: updatedSurvey } = await supabase
+      .from("preliminary_survey")
+      .select("*")
+      .eq("id", survey.id)
+      .single();
+
+    return NextResponse.json({ survey: updatedSurvey || survey });
   } catch (error) {
     console.error("예비조사 수정 API 오류:", error);
 
@@ -230,33 +241,9 @@ export async function DELETE(
       );
     }
 
-    // 삭제된 순번보다 큰 순번들을 모두 -1 (재정렬)
-    if (deletedSequenceNumber !== null) {
-      // 삭제된 순번보다 큰 모든 항목 조회
-      const { data: surveysToUpdate, error: fetchError } = await supabase
-        .from("preliminary_survey")
-        .select("id, sequence_number")
-        .gt("sequence_number", deletedSequenceNumber)
-        .order("sequence_number", { ascending: true });
-
-      if (!fetchError && surveysToUpdate) {
-        // 각 항목의 순번을 -1 업데이트
-        for (const survey of surveysToUpdate) {
-          const { error: updateError } = await supabase
-            .from("preliminary_survey")
-            .update({ sequence_number: survey.sequence_number - 1 })
-            .eq("id", survey.id);
-
-          if (updateError) {
-            console.error(`순번 재정렬 오류 (id: ${survey.id}):`, updateError);
-          }
-        }
-      } else if (fetchError) {
-        console.error("순번 재정렬 대상 조회 오류:", fetchError);
-        // 삭제는 성공했으므로 경고만 로그에 남기고 성공 응답 반환
-        console.warn("순번 재정렬 대상 조회 실패:", fetchError.message);
-      }
-    }
+    // 삭제된 순번보다 큰 순번들을 모두 -1 (재정렬) -> 이제 전체 재정렬 로직으로 대체
+    // 순번 재정렬 (측정일 기준)
+    await reassignSequenceNumbers(supabase);
 
     // 예비조사 삭제 후 measurement_target_business 테이블의 measurement_date 업데이트
     if (deletedCode) {

@@ -705,10 +705,37 @@ export async function GET(request: NextRequest) {
       console.log(`[검색 API] 필터링 후 H0432 데이터: ${h0432AfterFilter.length}건`);
     }
 
-    // 최신 자료 우선 정렬 (년도 → 주기 → 생성일)
-    // 주기 비교: "하반기" > "상반기"
+    // 정렬 로직 변경: 공문연번(document_number) 기준
+    // 1. 공문연번이 없는 것(null/empty)이 상단
+    // 2. 공문연번이 있는 것은 내림차순 정렬
+    // 3. 동일 조건일 경우 기존 정렬(년도 → 주기 → 생성일) 따름
     const periodOrder: { [key: string]: number } = { "하반기": 2, "상반기": 1 };
     filteredResults.sort((a, b) => {
+      const docA = a.document_number;
+      const docB = b.document_number;
+      const hasDocA = !!docA;
+      const hasDocB = !!docB;
+
+      // 1. 공문연번 유무 비교 (없는 것이 상단)
+      if (hasDocA !== hasDocB) {
+        return hasDocA ? 1 : -1;
+      }
+
+      // 2. 둘 다 공문연번이 있는 경우: 내림차순 정렬
+      if (hasDocA && hasDocB) {
+        if (docA !== docB) {
+          // 숫자로 변환 가능한 경우 숫자 크기로 비교 (예: "2" vs "10")
+          const numA = Number(docA);
+          const numB = Number(docB);
+          if (!isNaN(numA) && !isNaN(numB)) {
+            return numB - numA;
+          }
+          // 문자열인 경우 사전순 역순
+          return docA > docB ? -1 : 1;
+        }
+      }
+
+      // 3. 기존 정렬 (년도 → 주기 → 생성일)
       if (a.measurement_year !== b.measurement_year) {
         return b.measurement_year - a.measurement_year; // 년도 내림차순
       }
