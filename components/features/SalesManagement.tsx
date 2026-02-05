@@ -2348,8 +2348,8 @@ export const SalesManagement: React.FC = () => {
                                     <div className="flex flex-col gap-1 items-end">
                                       {item.deposit_date_business ? (
                                         <div className="whitespace-nowrap">
-                                          <span className="text-[10px] text-gray-400 mr-1">사:</span>
-                                          <span className="text-gray-600">{item.deposit_date_business}</span>
+                                          <span className="text-[10px] text-emerald-400 mr-1">사:</span>
+                                          <span className="text-emerald-600">{item.deposit_date_business}</span>
                                         </div>
                                       ) : (!item.deposit_date_business_2 && !item.deposit_date_national ? <span className="text-gray-400">-</span> : null)}
 
@@ -2362,8 +2362,8 @@ export const SalesManagement: React.FC = () => {
 
                                       {item.deposit_date_national && (
                                         <div className="whitespace-nowrap">
-                                          <span className="text-[10px] text-emerald-400 mr-1">국:</span>
-                                          <span className="text-emerald-600">{item.deposit_date_national}</span>
+                                          <span className="text-[10px] text-gray-400 mr-1">국:</span>
+                                          <span className="text-gray-600">{item.deposit_date_national}</span>
                                         </div>
                                       )}
                                     </div>
@@ -2391,9 +2391,9 @@ export const SalesManagement: React.FC = () => {
 
                                       {/* 상세 내역 표시 */}
                                       {((item.deposit_amount_business || 0) > 0) && (
-                                        <div className="text-[11px] text-gray-500 whitespace-nowrap">
+                                        <div className="text-[11px] text-emerald-600 whitespace-nowrap">
                                           사: {formatCurrency(item.deposit_amount_business)}
-                                          {item.deposit_date_business && <span className="text-[10px] ml-1 text-gray-400">({item.deposit_date_business.substring(5)})</span>}
+                                          {item.deposit_date_business && <span className="text-[10px] ml-1 text-emerald-400">({item.deposit_date_business.substring(5)})</span>}
                                         </div>
                                       )}
                                       {((item.deposit_amount_business_2 || 0) > 0) && (
@@ -2403,9 +2403,9 @@ export const SalesManagement: React.FC = () => {
                                         </div>
                                       )}
                                       {((item.deposit_amount_national || 0) > 0) && (
-                                        <div className="text-[11px] text-emerald-600 whitespace-nowrap">
+                                        <div className="text-[11px] text-gray-500 whitespace-nowrap">
                                           국: {formatCurrency(item.deposit_amount_national)}
-                                          {item.deposit_date_national && <span className="text-[10px] ml-1 text-emerald-400">({item.deposit_date_national.substring(5)})</span>}
+                                          {item.deposit_date_national && <span className="text-[10px] ml-1 text-gray-400">({item.deposit_date_national.substring(5)})</span>}
                                         </div>
                                       )}
                                     </div>
