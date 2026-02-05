@@ -53,6 +53,7 @@ interface BusinessInfo {
   address2?: string;
   office_jurisdiction: string;
   unpaid_count?: number;
+  national_unpaid_count?: number; // 국고 미수 횟수 추가
 }
 
 export default function SurveyPage() {
@@ -556,8 +557,21 @@ export default function SurveyPage() {
                           [business.address1, business.address2].filter(Boolean).join(" ") ||
                           "-"}
                       </TableCell>
-                      <TableCell className={`text-center font-semibold ${(business.unpaid_count || 0) >= 1 ? 'text-red-600' : 'text-black'}`}>
-                        {(business.unpaid_count || 0)}회
+                      <TableCell className="text-center">
+                        {(() => {
+                          const businessCount = business.unpaid_count || 0;
+                          const nationalCount = business.national_unpaid_count || 0;
+
+                          let textColor = "text-black";
+                          if (businessCount > 0) textColor = "text-red-600 font-bold";
+                          else if (nationalCount > 0) textColor = "text-blue-600 font-bold";
+
+                          return (
+                            <div className={textColor} title={`사업장 미수: ${businessCount}회 / 국고 미수: ${nationalCount}회`}>
+                              {businessCount > 0 ? `${businessCount}회` : (nationalCount > 0 ? `(국)${nationalCount}회` : "-")}
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2 justify-center">
@@ -566,8 +580,8 @@ export default function SurveyPage() {
                             size="sm"
                             onClick={() => {
                               setEditingSurvey(null);
-                              // 미수금이 1회 이상인 경우 경고 모달 표시
-                              if ((business.unpaid_count || 0) >= 1) {
+                              // 미수금이 1회 이상인 경우 경고 모달 표시 (사업장 또는 국고)
+                              if ((business.unpaid_count || 0) >= 1 || (business.national_unpaid_count || 0) >= 1) {
                                 setPendingBusinessForForm(business);
                                 setIsUnpaidWarningModalOpen(true);
                               } else {

@@ -301,14 +301,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 3. 각 사업장명별 미수금 횟수 계산 (측정비(사업장) - 입금액(사업장) > 0 인 건수)
+    // 3. 각 사업장명별 미수금 횟수 계산
     const businessNames = businessInfoList?.map((b: any) => b.business_name).filter((name: string) => name && name.trim()) || [];
-    const unpaidCountMap = new Map<string, number>();
+    const businessUnpaidCountMap = new Map<string, number>();
+    const nationalUnpaidCountMap = new Map<string, number>();
 
     if (businessNames.length > 0) {
       const { data: revenueData, error: revenueError } = await supabase
         .from("measurement_journal")
-        .select("business_name, measurement_fee_business, deposit_amount_business")
+        .select("business_name, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national")
         .not("business_name", "ilike", "%번외%")
         .in("business_name", businessNames);
 
@@ -318,13 +319,25 @@ export async function GET(request: NextRequest) {
 
       if (revenueData) {
         revenueData.forEach((item) => {
+          // 사업장 미수
           const businessFee = Number(item.measurement_fee_business) || 0;
           const businessDeposit = Number(item.deposit_amount_business) || 0;
-          const businessUnpaid = businessFee - businessDeposit;
+          const businessDeposit2 = Number(item.deposit_amount_business_2) || 0;
+          const businessUnpaid = businessFee - (businessDeposit + businessDeposit2);
 
           if (businessUnpaid > 0) {
-            const count = unpaidCountMap.get(item.business_name) || 0;
-            unpaidCountMap.set(item.business_name, count + 1);
+            const count = businessUnpaidCountMap.get(item.business_name) || 0;
+            businessUnpaidCountMap.set(item.business_name, count + 1);
+          }
+
+          // 국고 미수
+          const nationalFee = Number(item.measurement_fee_national) || 0;
+          const nationalDeposit = Number(item.deposit_amount_national) || 0;
+          const nationalUnpaid = nationalFee - nationalDeposit;
+
+          if (nationalUnpaid > 0) {
+            const count = nationalUnpaidCountMap.get(item.business_name) || 0;
+            nationalUnpaidCountMap.set(item.business_name, count + 1);
           }
         });
       }
@@ -337,7 +350,8 @@ export async function GET(request: NextRequest) {
       business_number: business.business_number || "",
       address: [business.address1, business.address2].filter(Boolean).join(" ").trim() || "",
       office_jurisdiction: business.office_jurisdiction || "",
-      unpaid_count: unpaidCountMap.get(business.business_name) || 0,
+      unpaid_count: businessUnpaidCountMap.get(business.business_name) || 0, // 사업장 미수 횟수
+      national_unpaid_count: nationalUnpaidCountMap.get(business.business_name) || 0, // 국고 미수 횟수
     })) || [];
 
     return NextResponse.json({
