@@ -152,6 +152,7 @@ export async function GET(request: NextRequest) {
       .from("preliminary_survey")
       .select("code")
       .eq("year", targetYear)
+      .eq("period", period) // Add strict period filtering
       .in("code", codes);
 
     const surveyRegisteredCodes = new Set(surveys?.map((s: any) => s.code));
