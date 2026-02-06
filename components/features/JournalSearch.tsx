@@ -173,7 +173,11 @@ export const JournalSearch: React.FC = () => {
   const searchPeriodOptions = [
     { value: "", label: "전체" },
     { value: "상반기", label: "상반기" },
+    { value: "상반기(수시)", label: "상반기(수시)" },
+    { value: "상반기(전체)", label: "상반기(전체)" },
     { value: "하반기", label: "하반기" },
+    { value: "하반기(수시)", label: "하반기(수시)" },
+    { value: "하반기(전체)", label: "하반기(전체)" },
   ];
 
   // 측정주기 옵션 (등록 현황 필터용)
@@ -1072,7 +1076,7 @@ export const JournalSearch: React.FC = () => {
                           <tr key={entry.id || `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`} className="border-b border-slate-100 transition-colors hover:bg-slate-50/50">
                             <td className="p-1 align-middle font-medium text-center text-xs">{entry.code}</td>
                             <td className="p-1 align-middle font-medium text-center text-xs">{entry.measurement_year}</td>
-                            <td className="p-1 align-middle text-center text-xs">{entry.measurement_period}</td>
+                            <td className={`p-1 align-middle text-center text-xs ${entry.measurement_period.includes("(수시)") ? "text-red-500 font-bold" : ""}`}>{entry.measurement_period}</td>
                             <td className="p-1 align-middle text-center text-xs">{entry.designated_office}</td>
                             <td className="p-1 align-middle font-medium truncate max-w-[180px] text-xs" title={entry.business_name}>{entry.business_name}</td>
                             <td className="p-1 align-middle text-text-600 max-w-[300px] text-xs leading-tight break-keep" title={entry.address}>

@@ -155,11 +155,15 @@ export async function GET(request: NextRequest) {
       if (measurementPeriod.includes(",")) {
         const periods = measurementPeriod.split(",").map(p => p.trim()).filter(Boolean);
         if (periods.length > 0) {
-          const orFilter = periods.map(p => `period.ilike.%${p}%`).join(",");
-          businessQuery = businessQuery.or(orFilter);
+          businessQuery = businessQuery.in("period", periods);
         }
+      } else if (measurementPeriod.endsWith("(전체)")) {
+        // "상반기(전체)" -> "상반기%" 와 같이 처리
+        const basePeriod = measurementPeriod.replace("(전체)", "");
+        businessQuery = businessQuery.ilike("period", `${basePeriod}%`);
       } else {
-        businessQuery = businessQuery.ilike("period", `%${measurementPeriod}%`);
+        // 정확한 매칭 사용 (ilike -> eq)
+        businessQuery = businessQuery.eq("period", measurementPeriod);
       }
     }
 
@@ -276,11 +280,15 @@ export async function GET(request: NextRequest) {
       if (measurementPeriod.includes(",")) {
         const periods = measurementPeriod.split(",").map(p => p.trim()).filter(Boolean);
         if (periods.length > 0) {
-          const orFilter = periods.map(p => `measurement_period.ilike.%${p}%`).join(",");
-          journalQuery = journalQuery.or(orFilter);
+          journalQuery = journalQuery.in("measurement_period", periods);
         }
+      } else if (measurementPeriod.endsWith("(전체)")) {
+        // "상반기(전체)" -> "상반기%" 와 같이 처리
+        const basePeriod = measurementPeriod.replace("(전체)", "");
+        journalQuery = journalQuery.ilike("measurement_period", `${basePeriod}%`);
       } else {
-        journalQuery = journalQuery.ilike("measurement_period", `%${measurementPeriod}%`);
+        // 정확한 매칭 사용 (ilike -> eq)
+        journalQuery = journalQuery.eq("measurement_period", measurementPeriod);
       }
     }
 

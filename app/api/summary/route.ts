@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
@@ -142,6 +143,21 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    // 2026-02-06 Fix: Fetch measurement_target_business for national_support_status
+    let targets: any[] = [];
+    if (codes.length > 0) {
+      const { data: targetData, error: targetError } = await supabase
+        .from("measurement_target_business")
+        .select("code, year, period, national_support_status")
+        .in("code", codes);
+
+      if (targetError) {
+        console.warn("대상 사업장 조회 오류 (국고지원여부):", targetError);
+      } else {
+        targets = targetData || [];
+      }
+    }
+
     // 예비조사 정보를 조인하여 요약 데이터 생성
     const summaryData = (journals || []).map((journal: any) => {
       // 해당 측정일지의 년도와 주기에 맞는 예비조사 찾기
@@ -171,6 +187,23 @@ export async function GET(request: NextRequest) {
 
       const mb = journal.code ? mbMap.get(journal.code) : null;
 
+      // Find target for National Support Status fallback
+      // Strict match on code, year, period
+      const target = targets.find(t =>
+        t.code === journal.code &&
+        t.year === journal.measurement_year &&
+        t.period === journal.measurement_period
+      );
+
+      // If not strict match, try loose match for Ad-hoc periods? 
+      // User requested Ad-hoc logic earlier.
+      // But typically exact match is best. If target is "First Half (Ad-hoc)" and journal is "First Half", they usually differ.
+      // But "Journal" period typically matches "Target" period if created from it.
+      // Let's stick to exact match first.
+
+      // Priority: Journal > Target
+      const nationalSupportStatus = journal.national_support_status || target?.national_support_status || null;
+
       return {
         id: journal.id,
         journal_id: journal.id,
@@ -199,7 +232,7 @@ export async function GET(request: NextRequest) {
         business_number: journal.business_number,
         industrial_accident_number: journal.industrial_accident_number,
         commencement_number: mb?.commencement_number || null, // 개시번호 추가
-        national_support_status: journal.national_support_status,
+        national_support_status: nationalSupportStatus,
         manager_name: journal.manager_name,
         manager_position: journal.manager_position,
         manager_mobile: journal.manager_mobile,

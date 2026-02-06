@@ -92,7 +92,9 @@ const generateYearPeriodOptions = () => {
     const endYear = 2030;
     for (let y = startYear; y <= endYear; y++) {
         options.push({ value: `${y}-상반기`, label: `${y}년 상반기` });
+        options.push({ value: `${y}-상반기(수시)`, label: `${y}년 상반기(수시)` });
         options.push({ value: `${y}-하반기`, label: `${y}년 하반기` });
+        options.push({ value: `${y}-하반기(수시)`, label: `${y}년 하반기(수시)` });
     }
     return options;
 };
@@ -351,7 +353,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
                     'manager_name', 'manager_mobile', 'phone', // manager_phone -> phone
                     'management_status', 'notes', 'measurement_date', 'future_measurement_period',
-                    'future_measurement_date', 'measurer_id'
+                    'future_measurement_date', 'measurer_id', 'period' // Added period
                 ];
 
                 const sanitized: any = {};
@@ -480,9 +482,36 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         return `${months}개월`;
     };
 
+    const handleDelete = async () => {
+        const targetId = (editForm as any).id;
+        if (!targetId) return;
+
+        if (!window.confirm("정말로 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.")) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/businesses?id=${targetId}`, {
+                method: "DELETE"
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error || "삭제에 실패했습니다.");
+            }
+
+            alert("삭제되었습니다.");
+            setIsEditModalOpen(false);
+            fetchData(); // Refresh list
+        } catch (e: any) {
+            console.error("Delete Error:", e);
+            alert(`오류 발생: ${e.message}`);
+        }
+    };
+
     // Grid Column Template
-    // 16 Columns: No(50), 실시여부(80), 국고(60), 계획담당(70), 사업장명(minmax(180,1fr)), 소재지(minmax(250,2fr)), 관할(70), 미수(50), 전회측정(90), 향후측정주기(100), 예정월(60), 예정일(90), 보고서 담당(100), 확정일(90), 비고(100), 관리(50)
-    const gridTemplateCols = "50px 80px 60px 70px minmax(180px, 1fr) minmax(250px, 2fr) 70px 50px 90px 100px 60px 90px 100px 90px 100px 50px";
+    // 17 Columns: No(50), 주기(80), 실시여부(80), 국고(60), 계획담당(70), 사업장명(minmax(180,1fr)), 소재지(minmax(250,2fr)), 관할(70), 미수(50), 전회측정(90), 향후측정주기(100), 예정월(60), 예정일(90), 보고서 담당(100), 확정일(90), 비고(100), 관리(50)
+    const gridTemplateCols = "50px 80px 80px 60px 70px minmax(180px, 1fr) minmax(250px, 2fr) 70px 50px 90px 100px 60px 90px 100px 90px 100px 50px";
 
     return (
         <div className="p-4 min-w-[1600px]">
@@ -596,6 +625,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     {/* Grid Header Row */}
                     <div className="bg-surface-50 font-medium text-sm text-slate-600 grid items-center text-center border border-slate-200" style={{ gridTemplateColumns: gridTemplateCols }}>
                         <div className="py-3">No</div>
+                        <div className="py-3">주기</div>
                         <div className="py-3">계획진행</div>
                         <div className="py-3">국고</div>
                         <div className="py-3">계획담당</div>
@@ -627,6 +657,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         filteredData.map((item, index) => (
                             <div key={`${item.code}-${index}`} className="group hover:bg-surface-50 grid items-center text-sm text-slate-700 py-1" style={{ gridTemplateColumns: gridTemplateCols }}>
                                 <div className="text-center">{index + 1}</div>
+                                <div className={`text-center text-xs ${item.period.includes("(수시)") ? "text-red-600 font-bold" : ""}`}>
+                                    {item.period}
+                                </div>
                                 <div className="text-center">
                                     <select
                                         className={`w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 text-center cursor-pointer ${(item.is_registered_text === '확정' || item.is_registered_text === '실시') ? 'bg-green-100 text-green-700' :
@@ -778,6 +811,24 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">기본 정보</h4>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">측정년도</label>
+                                <Input value={editForm.year || ""} disabled className="bg-slate-100 text-slate-500" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">측정주기</label>
+                                <Select
+                                    options={[
+                                        { value: "상반기", label: "상반기" },
+                                        { value: "상반기(수시)", label: "상반기(수시)" },
+                                        { value: "하반기", label: "하반기" },
+                                        { value: "하반기(수시)", label: "하반기(수시)" }
+                                    ]}
+                                    value={editForm.period || ""}
+                                    onChange={(e) => setEditForm(prev => ({ ...prev, period: e.target.value }))}
+                                    className={`w-full ${editForm.period?.includes("(수시)") ? "text-red-500 font-bold" : ""}`}
+                                />
+                            </div>
+                            <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">사업장명</label>
                                 <Input value={editForm.business_name || ""} onChange={(e) => setEditForm(prev => ({ ...prev, business_name: e.target.value }))} />
                             </div>
@@ -893,9 +944,17 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         />
                     </div>
 
-                    <div className="flex justify-end gap-2 mt-8 pt-4 border-t border-slate-200">
-                        <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>취소</Button>
-                        <Button variant="primary" onClick={handleSaveEdit}>저장</Button>
+                    <div className="flex justify-between items-center mt-8 pt-4 border-t border-slate-200">
+                        <Button
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            onClick={handleDelete}
+                        >
+                            삭제
+                        </Button>
+                        <div className="flex gap-2">
+                            <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>취소</Button>
+                            <Button variant="primary" onClick={handleSaveEdit}>저장</Button>
+                        </div>
                     </div>
                 </div>
             </Modal>
@@ -934,7 +993,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     <Select
                                         options={[
                                             { value: "상반기", label: "상반기" },
-                                            { value: "하반기", label: "하반기" }
+                                            { value: "상반기(수시)", label: "상반기(수시)" },
+                                            { value: "하반기", label: "하반기" },
+                                            { value: "하반기(수시)", label: "하반기(수시)" }
                                         ]}
                                         value={addForm.period || initialPeriod}
                                         onChange={(e) => setAddForm(prev => ({ ...prev, period: e.target.value }))}

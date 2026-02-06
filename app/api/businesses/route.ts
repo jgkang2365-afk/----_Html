@@ -196,7 +196,20 @@ export async function GET(request: NextRequest) {
 
     // 4. 데이터 병합
     const result = businesses.map((item: any) => {
-      const unpaidInfo = unpaidMap.get(item.code) || { businessCount: 0, nationalCount: 0, details: [] };
+      // Unpaid Logic Separation (Regular v.s. Ad-hoc)
+      const rawUnpaidInfo = unpaidMap.get(item.code) || { businessCount: 0, nationalCount: 0, details: [] };
+      const isAdHocItem = item.period && item.period.includes("(수시)");
+
+      // Filter details based on period type
+      const filteredDetails = rawUnpaidInfo.details.filter((d: any) => {
+        const isAdHocDetail = d.period && d.period.includes("(수시)");
+        return isAdHocItem ? isAdHocDetail : !isAdHocDetail;
+      });
+
+      // Recalculate counts based on filtered details
+      const businessCount = filteredDetails.reduce((sum: number, d: any) => sum + (d.unpaidBusiness > 0 ? 1 : 0), 0);
+      const nationalCount = filteredDetails.reduce((sum: number, d: any) => sum + (d.unpaidNational > 0 ? 1 : 0), 0);
+
       const isSurveyRegistered = surveyRegisteredCodes.has(item.code);
 
       const bInfo = businessInfoMap.get(item.code);
@@ -226,9 +239,9 @@ export async function GET(request: NextRequest) {
 
       return {
         ...item,
-        unpaid_count: unpaidInfo.businessCount, // 사업장 미수
-        national_unpaid_count: unpaidInfo.nationalCount, // 국고 미수
-        unpaid_details: unpaidInfo.details,
+        unpaid_count: businessCount, // 사업장 미수 (Calculated)
+        national_unpaid_count: nationalCount, // 국고 미수 (Calculated)
+        unpaid_details: filteredDetails, // Filtered details
         // UI 호환성을 위한 필드 매핑
         designated_office: item.office_jurisdiction, // 임시 매핑
         isRegistered: isRegisteredText === "실시" || isRegisteredText === "확정", // Frontend 호환성
@@ -444,19 +457,22 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     // 1. 중복 확인 (measurement_target_business)
-    const { data: existing } = await supabase
-      .from("measurement_target_business")
-      .select("id")
-      .eq("code", code)
-      .eq("year", year)
-      .eq("period", period)
-      .maybeSingle();
+    // 단, 주기에 '(수시)'가 포함된 경우 중복 허용 (여러 번 수시 측정 가능)
+    if (!period.includes("(수시)")) {
+      const { data: existing } = await supabase
+        .from("measurement_target_business")
+        .select("id")
+        .eq("code", code)
+        .eq("year", year)
+        .eq("period", period)
+        .maybeSingle();
 
-    if (existing) {
-      return NextResponse.json(
-        { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
-        { status: 409 }
-      );
+      if (existing) {
+        return NextResponse.json(
+          { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
+          { status: 409 }
+        );
+      }
     }
 
     // 2. Insert into measurement_target_business
@@ -513,6 +529,47 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error("POST API Critical Error:", error);
+    return NextResponse.json({
+      error: "Internal Server Error",
+      details: error?.message || String(error)
+    }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    await checkPermission("journal:write");
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "삭제할 ID가 제공되지 않았습니다." },
+        { status: 400 }
+      );
+    }
+
+    const supabase = await createClient();
+
+    // Delete from measurement_target_business
+    const { error } = await supabase
+      .from("measurement_target_business")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Delete Target Error:", error);
+      return NextResponse.json(
+        { error: "삭제 중 오류가 발생했습니다.", details: error.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true, message: "삭제되었습니다." });
+
+  } catch (error: any) {
+    console.error("DELETE API Critical Error:", error);
     return NextResponse.json({
       error: "Internal Server Error",
       details: error?.message || String(error)
