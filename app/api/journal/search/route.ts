@@ -120,7 +120,8 @@ export async function GET(request: NextRequest) {
       .not("business_name", "ilike", "%번외%")
       .order("year", { ascending: false })
       .order("period", { ascending: false })
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .in("is_registered", ["확정", "실시"]); // 확정된 사업장만 조회
 
     // 측정일 필터 적용 (코드 기준 1차 필터링)
     if (dateFilteredCodes !== null) {
