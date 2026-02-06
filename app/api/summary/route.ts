@@ -189,17 +189,21 @@ export async function GET(request: NextRequest) {
 
       // Find target for National Support Status fallback
       // Strict match on code, year, period
-      const target = targets.find(t =>
+      // 1. Strict match on code, year, period
+      let target = targets.find(t =>
         t.code === journal.code &&
         t.year === journal.measurement_year &&
         t.period === journal.measurement_period
       );
 
-      // If not strict match, try loose match for Ad-hoc periods? 
-      // User requested Ad-hoc logic earlier.
-      // But typically exact match is best. If target is "First Half (Ad-hoc)" and journal is "First Half", they usually differ.
-      // But "Journal" period typically matches "Target" period if created from it.
-      // Let's stick to exact match first.
+      // 2. Loose match (if strictly not found) - handle "(수시)" etc.
+      if (!target) {
+        target = targets.find(t =>
+          t.code === journal.code &&
+          t.year === journal.measurement_year &&
+          (t.period.includes(journal.measurement_period) || journal.measurement_period.includes(t.period))
+        );
+      }
 
       // Priority: Journal > Target
       const nationalSupportStatus = journal.national_support_status || target?.national_support_status || null;
