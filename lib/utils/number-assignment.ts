@@ -3,6 +3,7 @@
  * 공문연번, 연번, 5인 이상 연번을 자동으로 부여합니다.
  */
 
+// Force Rebuild 2
 import { createClient } from "@/lib/supabase/server";
 import { getDocumentNumberPrefix, toShortName } from "@/lib/constants/designated-offices";
 
