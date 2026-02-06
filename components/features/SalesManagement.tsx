@@ -1557,8 +1557,8 @@ export const SalesManagement: React.FC = () => {
               <TableRow className="bg-sky-100 border-b border-surface-200">
                 <TableHead rowSpan={2} className="text-center font-bold py-3 px-3 text-black align-middle border-r border-surface-200">구분</TableHead>
                 <TableHead colSpan={4} className="text-center font-black py-3 px-4 text-slate-800 bg-slate-100/80 border-r-2 border-slate-300">합계</TableHead>
-                <TableHead colSpan={3} className="text-center font-black py-3 px-4 text-blue-800 bg-blue-50 border-r-2 border-blue-200">측정비(사업장)</TableHead>
-                <TableHead colSpan={3} className="text-center font-black py-3 px-4 text-emerald-800 bg-emerald-50">측정비(국고)</TableHead>
+                <TableHead colSpan={4} className="text-center font-black py-3 px-4 text-blue-800 bg-blue-50 border-r-2 border-blue-200">측정비(사업장)</TableHead>
+                <TableHead colSpan={4} className="text-center font-black py-3 px-4 text-emerald-800 bg-emerald-50">측정비(국고)</TableHead>
               </TableRow>
               <TableRow className="bg-sky-50">
                 <TableHead className="text-center font-bold py-2 px-4 text-slate-700 bg-slate-50/50">사업장 수</TableHead>
@@ -1566,9 +1566,11 @@ export const SalesManagement: React.FC = () => {
                 <TableHead className="text-center font-bold py-2 px-4 text-slate-700 bg-slate-50/50">입금액</TableHead>
                 <TableHead className="text-center font-bold py-2 px-4 text-slate-700 bg-slate-50/50 border-r-2 border-slate-300">미수금액</TableHead>
                 <TableHead className="text-center font-bold py-2 px-4 text-blue-700 bg-blue-50/30">사업장 수</TableHead>
+                <TableHead className="text-center font-bold py-2 px-4 text-blue-700 bg-blue-50/30">소계(입금+미수)</TableHead>
                 <TableHead className="text-center font-bold py-2 px-4 text-blue-700 bg-blue-50/30">입금액</TableHead>
                 <TableHead className="text-center font-bold py-2 px-4 text-blue-700 bg-blue-50/30 border-r-2 border-blue-200">미수금액</TableHead>
                 <TableHead className="text-center font-bold py-2 px-4 text-emerald-700 bg-emerald-50/30">사업장 수</TableHead>
+                <TableHead className="text-center font-bold py-2 px-4 text-emerald-700 bg-emerald-50/30">소계(입금+미수)</TableHead>
                 <TableHead className="text-center font-bold py-2 px-4 text-emerald-700 bg-emerald-50/30">입금액</TableHead>
                 <TableHead className="text-center font-bold py-2 px-4 text-emerald-700 bg-emerald-50/30">미수금액</TableHead>
               </TableRow>
@@ -1862,6 +1864,9 @@ export const SalesManagement: React.FC = () => {
                         {totalRow.businessCount}
                       </TableCell>
                       <TableCell className="text-right font-black text-slate-900 py-3 px-4">
+                        {formatCurrency(totalRow.businessDeposit + totalRow.businessUnpaid)}
+                      </TableCell>
+                      <TableCell className="text-right font-black text-slate-900 py-3 px-4">
                         {formatCurrency(totalRow.businessDeposit)}
                       </TableCell>
                       <TableCell className="text-right font-black text-red-600 py-3 px-4 border-r-2 border-blue-200">
@@ -1873,6 +1878,9 @@ export const SalesManagement: React.FC = () => {
                         title="클릭하여 사업장 목록 보기"
                       >
                         {totalRow.nationalCount}
+                      </TableCell>
+                      <TableCell className="text-right font-black text-slate-900 py-3 px-4">
+                        {formatCurrency(totalRow.nationalDeposit + totalRow.nationalUnpaid)}
                       </TableCell>
                       <TableCell className="text-right font-black text-slate-900 py-3 px-4">
                         {formatCurrency(totalRow.nationalDeposit)}
@@ -1912,6 +1920,9 @@ export const SalesManagement: React.FC = () => {
                           {data.business.count}
                         </TableCell>
                         <TableCell className="text-right text-slate-600 py-2.5 px-4">
+                          {formatCurrency(data.business.deposit + data.business.unpaid)}
+                        </TableCell>
+                        <TableCell className="text-right text-slate-600 py-2.5 px-4">
                           {formatCurrency(data.business.deposit)}
                         </TableCell>
                         <TableCell className="text-right text-red-600 font-semibold py-2.5 px-4 border-r-2 border-blue-200">
@@ -1923,6 +1934,9 @@ export const SalesManagement: React.FC = () => {
                           title="클릭하여 사업장 목록 보기"
                         >
                           {data.national.count}
+                        </TableCell>
+                        <TableCell className="text-right text-slate-600 py-2.5 px-4">
+                          {formatCurrency(data.national.deposit + data.national.unpaid)}
                         </TableCell>
                         <TableCell className="text-right text-slate-600 py-2.5 px-4">
                           {formatCurrency(data.national.deposit)}
