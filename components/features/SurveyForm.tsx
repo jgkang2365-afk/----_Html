@@ -321,7 +321,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         const message = (
           <div className="text-left">
             <p className={`text-lg font-bold mb-2 ${titleColorClass}`}>
-              "{businessName}" 업체는 미수금이 있습니다.
+              &quot;{businessName}&quot; 업체는 미수금이 있습니다.
             </p>
             <div className={`p-3 bg-white rounded border border-gray-200 ${textColorClass}`}>
               {[businessMsg, nationalMsg].filter(Boolean).map((msg, idx) => (
