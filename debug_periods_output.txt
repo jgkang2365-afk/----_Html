@@ -1,0 +1,67 @@
+[dotenv@17.2.3] injecting env (5) from .env.local -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[
+  {
+    code: 'H0438',
+    business_name: '삼일공업사',
+    measurement_period: '상반기',
+    five_plus_sequence: '8',
+    total_employees: 2,
+    created_at: '2026-02-04T04:21:42.549552+00:00'
+  },
+  {
+    code: 'H0437',
+    business_name: '신세계모터스',
+    measurement_period: '상반기',
+    five_plus_sequence: '9',
+    total_employees: 5,
+    created_at: '2026-02-04T04:27:52.773133+00:00'
+  },
+  {
+    code: 'H0123',
+    business_name: '한솔지에스',
+    measurement_period: '상반기',
+    five_plus_sequence: '9',
+    total_employees: 4,
+    created_at: '2026-02-06T03:43:15.573496+00:00'
+  },
+  {
+    code: 'H0239',
+    business_name: '아산모터스',
+    measurement_period: '상반기',
+    five_plus_sequence: '10',
+    total_employees: 11,
+    created_at: '2026-02-04T01:55:45.44648+00:00'
+  },
+  {
+    code: 'H0239',
+    business_name: '아산모터스',
+    measurement_period: '하반기',
+    five_plus_sequence: '8',
+    total_employees: 11,
+    created_at: '2026-01-11T04:15:51.818022+00:00'
+  },
+  {
+    code: 'H0123',
+    business_name: '한솔지에스',
+    measurement_period: '하반기',
+    five_plus_sequence: '7',
+    total_employees: 4,
+    created_at: '2026-01-11T04:15:51.818022+00:00'
+  },
+  {
+    code: 'H0123',
+    business_name: '한솔지에스',
+    measurement_period: '상반기',
+    five_plus_sequence: '25',
+    total_employees: 4,
+    created_at: '2026-01-11T04:15:51.818022+00:00'
+  },
+  {
+    code: 'H0239',
+    business_name: '아산모터스',
+    measurement_period: '상반기',
+    five_plus_sequence: '4',
+    total_employees: 6,
+    created_at: '2026-01-11T04:15:51.818022+00:00'
+  }
+]

@@ -21,8 +21,8 @@ export async function assignDocumentNumber(
 ): Promise<string> {
   const supabase = await createClient();
 
-  // 약칭으로 정규화 (기존 전체명과 호환)
-  const normalizedOffice = toShortName(designatedOffice);
+  // 약칭으로 정규화 (기존 전체명과 호환) - Trim input
+  const normalizedOffice = toShortName(String(designatedOffice).trim());
   const prefix = getDocumentNumberPrefix(normalizedOffice);
 
   // 해당 지정한계_관할지청 + 측정년도 + 측정주기의 마지막 공문연번 조회
@@ -36,7 +36,7 @@ export async function assignDocumentNumber(
   console.log(`[공문연번 부여] 조회 조건:`, {
     designatedOffice: normalizedOffice,
     measurementYear,
-    measurementPeriod,
+    measurementPeriod: String(measurementPeriod).trim(),
     prefix,
     officesToMatch
   });
@@ -155,8 +155,8 @@ export async function assignSequenceNumber(
 ): Promise<string> {
   const supabase = await createClient();
 
-  // 약칭으로 정규화 (기존 전체명과 호환)
-  const normalizedOffice = toShortName(designatedOffice);
+  // 약칭으로 정규화 (기존 전체명과 호환) - Trim Input
+  const normalizedOffice = toShortName(String(designatedOffice).trim());
 
   // 해당 지정한계_관할지청 + 측정년도 + 측정주기의 마지막 연번 조회
   const officesToMatch = [normalizedOffice];
@@ -170,7 +170,7 @@ export async function assignSequenceNumber(
     .select("sequence_number")
     .in("designated_office", officesToMatch)
     .eq("measurement_year", measurementYear)
-    .eq("measurement_period", measurementPeriod)
+    .eq("measurement_period", String(measurementPeriod).trim()) // Trim Input
     .not("sequence_number", "is", null);
 
   if (error && error.code !== "PGRST116") {
@@ -223,10 +223,10 @@ export async function assignFivePlusSequenceNumber(
 ): Promise<string> {
   const supabase = await createClient();
 
-  // 약칭으로 정규화 (기존 전체명과 호환)
-  const normalizedOffice = toShortName(designatedOffice);
+  // 약칭으로 정규화 (기존 전체명과 호환) - Trim Input
+  const normalizedOffice = toShortName(String(designatedOffice).trim());
 
-  // 총인원이 5인 미만인 경우
+  // 총인원이 5인 미만인 경우: 마지막 5인 이상 연번 재사용(최대값 조회)
   if (!totalEmployees || totalEmployees < 5) {
     // 직전 5인 이상 연번 조회 (중복 허용, 기존 전체명과 약칭 모두 매칭)
     // 년도별, 지정지청별, 측정주기별로 구분하여 조회
@@ -235,25 +235,35 @@ export async function assignFivePlusSequenceNumber(
       officesToMatch.push(designatedOffice);
     }
 
-    const { data: lastJournal, error } = await supabase
+    // Created_at 기준이 아니라 번호 기준 최대값 조회를 위해 모든 레코드 가져옴
+    const { data: journals, error } = await supabase
       .from("measurement_journal")
       .select("five_plus_sequence")
       .in("designated_office", officesToMatch)
       .eq("measurement_year", measurementYear)
-      .eq("measurement_period", measurementPeriod)
-      .not("five_plus_sequence", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .eq("measurement_period", String(measurementPeriod).trim()) // Trim Input
+      .not("five_plus_sequence", "is", null);
 
     if (error && error.code !== "PGRST116") {
       console.error("5인 이상 연번 조회 오류:", error);
-      // 오류가 발생해도 기본값 반환
       return "0";
     }
 
+    let lastJournal = null;
+    if (!error && journals && journals.length > 0) {
+      // 숫자로 변환하여 정렬 (내림차순)
+      const sorted = journals
+        .map(j => ({ ...j, num: parseInt(j.five_plus_sequence, 10) }))
+        .filter(j => !isNaN(j.num))
+        .sort((a, b) => b.num - a.num);
+
+      if (sorted.length > 0) {
+        lastJournal = sorted[0];
+      }
+    }
+
     if (lastJournal && lastJournal.five_plus_sequence) {
-      // 직전 번호 재사용
+      // 직전 번호(최대값) 재사용
       return lastJournal.five_plus_sequence;
     }
 
@@ -274,7 +284,7 @@ export async function assignFivePlusSequenceNumber(
     .select("five_plus_sequence")
     .in("designated_office", officesToMatch)
     .eq("measurement_year", measurementYear)
-    .eq("measurement_period", measurementPeriod)
+    .eq("measurement_period", String(measurementPeriod).trim()) // Trim Input
     .not("five_plus_sequence", "is", null);
 
   if (error && error.code !== "PGRST116") {
@@ -325,8 +335,8 @@ export async function assignAllNumbers(journalData: {
   sequence_number: string;
   five_plus_sequence: string;
 }> {
-  // 약칭으로 정규화 (기존 전체명과 호환)
-  const normalizedOffice = toShortName(journalData.designated_office);
+  // 약칭으로 정규화 (기존 전체명과 호환) - Trim Input
+  const normalizedOffice = toShortName(String(journalData.designated_office).trim());
 
   // 공문연번이 없으면 자동 부여
   let documentNumber = journalData.document_number;
@@ -334,7 +344,7 @@ export async function assignAllNumbers(journalData: {
     documentNumber = await assignDocumentNumber(
       normalizedOffice,
       journalData.measurement_year,
-      journalData.measurement_period
+      journalData.measurement_period // Trimmed inside the function
     );
   }
 
@@ -344,7 +354,7 @@ export async function assignAllNumbers(journalData: {
     sequenceNumber = await assignSequenceNumber(
       normalizedOffice,
       journalData.measurement_year,
-      journalData.measurement_period
+      journalData.measurement_period // Trimmed inside the function
     );
   }
 
@@ -354,7 +364,7 @@ export async function assignAllNumbers(journalData: {
     fivePlusSequence = await assignFivePlusSequenceNumber(
       normalizedOffice,
       journalData.measurement_year,
-      journalData.measurement_period,
+      journalData.measurement_period, // Trimmed inside the function
       journalData.total_employees || null
     );
   }

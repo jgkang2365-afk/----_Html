@@ -1,0 +1,49 @@
+[dotenv@17.2.3] injecting env (5) from .env.local -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+Checking Daejeon 2026 data...
+1. Code=H0020, Name=대성공업사, Period=상반기, Seq=1, Emp=8, Office=대전
+2. Code=H0021, Name=대성모터스, Period=상반기, Seq=1, Emp=3, Office=대전
+3. Code=H0258, Name=시온모터스, Period=상반기, Seq=30, Emp=3, Office=대전
+4. Code=H0018, Name=우정공업사, Period=상반기, Seq=2, Emp=5, Office=대전
+5. Code=H0340, Name=동아자동차기업 주식회사, Period=상반기, Seq=3, Emp=16, Office=대전
+6. Code=H0112, Name=삼우자동차정비(자), Period=상반기, Seq=4, Emp=12, Office=대전
+7. Code=H0015, Name=한반도1급자동차공업사, Period=상반기, Seq=4, Emp=1, Office=대전
+8. Code=H0014, Name=대화자동차공업사, Period=상반기, Seq=5, Emp=9, Office=대전
+9. Code=H0017, Name=선우기업동부사업소, Period=상반기, Seq=5, Emp=3, Office=대전
+10. Code=H0191, Name=주식회사현대카독크, Period=상반기, Seq=6, Emp=9, Office=대전
+11. Code=H0204, Name=티에스모터스 주식회사, Period=상반기, Seq=7, Emp=6, Office=대전
+12. Code=H0023, Name=(주)대전공업사, Period=상반기, Seq=8, Emp=12, Office=대전
+13. Code=H0135, Name=광림자동차공업사, Period=상반기, Seq=9, Emp=5, Office=대전
+14. Code=H0115, Name=제이에스모터스, Period=상반기, Seq=9, Emp=4, Office=대전
+15. Code=H0113, Name=주식회사 대전종합모터스, Period=상반기, Seq=10, Emp=9, Office=대전
+16. Code=H0055, Name=남대전서비스기아오토큐 주식회사, Period=상반기, Seq=11, Emp=22, Office=대전
+17. Code=H0054, Name=한솔자동차공업사, Period=상반기, Seq=11, Emp=3, Office=대전
+18. Code=H0053, Name=주식회사현우모터스, Period=상반기, Seq=12, Emp=9, Office=대전
+19. Code=H0122, Name=노랑자동차공업사, Period=상반기, Seq=13, Emp=9, Office=대전
+20. Code=H0051, Name=이안현대모터스, Period=상반기, Seq=14, Emp=6, Office=대전
+21. Code=H0057, Name=우리모터스주식회사, Period=상반기, Seq=14, Emp=3, Office=대전
+22. Code=H0016, Name=중문공업사, Period=상반기, Seq=15, Emp=9, Office=대전
+23. Code=H0011, Name=주식회사 정일모터스, Period=상반기, Seq=16, Emp=11, Office=대전
+24. Code=H0012, Name=안전자동차정비공업사, Period=상반기, Seq=17, Emp=12, Office=대전
+25. Code=H0089, Name=유화자동차공업사, Period=상반기, Seq=18, Emp=22, Office=대전
+26. Code=H0090, Name=주식회사 관저자동차공업, Period=상반기, Seq=33, Emp=16, Office=대전
+27. Code=H0091, Name=주식회사 서대전공업사, Period=상반기, Seq=31, Emp=19, Office=대전
+28. Code=H0061, Name=삼보자동차공업사, Period=상반기, Seq=21, Emp=7, Office=대전
+29. Code=H0245, Name=에이치에스(HS)모터스, Period=상반기, Seq=22, Emp=8, Office=대전
+30. Code=H0133, Name=태전자동차공업사, Period=상반기, Seq=22, Emp=2, Office=대전
+31. Code=H0060, Name=하늘자동차공업사, Period=상반기, Seq=22, Emp=3, Office=대전
+32. Code=H0066, Name=동명자동차공업사, Period=상반기, Seq=22, Emp=3, Office=대전
+33. Code=H0431, Name=천명자동차공업사, Period=상반기, Seq=23, Emp=6, Office=대전
+34. Code=H0196, Name=두리모터스, Period=상반기, Seq=23, Emp=2, Office=대전
+35. Code=H0031, Name=덕승1급자동차공업사, Period=상반기, Seq=23, Emp=3, Office=대전
+36. Code=H0032, Name=갑천공업사, Period=상반기, Seq=23, Emp=3, Office=대전
+37. Code=H0030, Name=르노코리아자동차지정정비센터대덕정비(주), Period=상반기, Seq=24, Emp=14, Office=대전
+38. Code=H0119, Name=주식회사 대우대덕정비사업소, Period=상반기, Seq=25, Emp=9, Office=대전
+39. Code=H0120, Name=대청모터스, Period=상반기, Seq=25, Emp=1, Office=대전
+40. Code=H0257, Name=신유승자동차공업사, Period=상반기, Seq=26, Emp=15, Office=대전
+41. Code=H0182, Name=대전특장공업, Period=상반기, Seq=27, Emp=5, Office=대전
+42. Code=H0037, Name=(주) 1급금호자동차정비, Period=상반기, Seq=28, Emp=9, Office=대전
+43. Code=H0038, Name=마이더스모터스, Period=상반기, Seq=28, Emp=2, Office=대전
+44. Code=H0028, Name=뉴 서울모터스, Period=상반기, Seq=29, Emp=11, Office=대전
+45. Code=H0029, Name=믿음정비공업사, Period=상반기, Seq=30, Emp=5, Office=대전
+46. Code=H0067, Name=중부모터스(주)렉서스서대전서비스센터, Period=상반기, Seq=34, Emp=9, Office=대전
+47. Code=H0068, Name=중부모터스(주)토요타대전, Period=상반기, Seq=35, Emp=29, Office=대전

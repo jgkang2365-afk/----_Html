@@ -266,14 +266,20 @@ export async function PUT(
       // 3. 5인 이상 연번 중복 확인은 아래 finalFivePlusSequence 계산 로직에서 처리
     }
 
-    // designated_office 정규화 (약칭으로 저장)
-    const normalizedDesignatedOffice = body.designated_office
-      ? toShortName(body.designated_office) || body.designated_office
+    // designated_office 정규화 (약칭으로 저장) - Update: Trim input
+    const designatedOfficeRaw = body.designated_office;
+    const normalizedDesignatedOffice = designatedOfficeRaw
+      ? toShortName(String(designatedOfficeRaw).trim())
       : existingJournal.designated_office;
 
     const finalDesignatedOffice = normalizedDesignatedOffice || existingJournal.designated_office;
     const finalMeasurementYear = body.measurement_year || existingJournal.measurement_year;
-    const finalMeasurementPeriod = body.measurement_period || existingJournal.measurement_period;
+
+    // measurement_period - Update: Trim input
+    const measurementPeriodRaw = body.measurement_period;
+    const finalMeasurementPeriod = measurementPeriodRaw
+      ? String(measurementPeriodRaw).trim()
+      : existingJournal.measurement_period;
     const finalTotalEmployees = body.total_employees !== undefined ? body.total_employees : existingJournal.total_employees;
 
     // 5인 이상 연번 처리

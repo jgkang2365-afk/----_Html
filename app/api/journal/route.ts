@@ -43,7 +43,10 @@ export async function POST(request: NextRequest) {
     // 필드명 변환 (snake_case와 camelCase 모두 지원)
     const code = body.code;
     const measurementYear = body.measurement_year || body.measurementYear;
-    const measurementPeriod = body.measurement_period || body.measurementPeriod;
+    // Trim measurementPeriod
+    const measurementPeriodRaw = body.measurement_period || body.measurementPeriod;
+    const measurementPeriod = measurementPeriodRaw ? String(measurementPeriodRaw).trim() : measurementPeriodRaw;
+
     // note 필드 처리: 배열이면 콤마로 구분된 문자열로 변환, 문자열이면 그대로, 최대 50자로 제한
     let note: string | null = null;
     if (body.note) {
@@ -56,14 +59,15 @@ export async function POST(request: NextRequest) {
       if (note === '') note = null;
     }
     const designatedOfficeRaw = body.designated_office || body.designatedOffice;
-    // 약칭으로 정규화하여 저장
-    const designatedOffice = toShortName(designatedOfficeRaw);
+    // 약칭으로 정규화하여 저장 (Trim 적용)
+    const designatedOfficeTrimmed = designatedOfficeRaw ? String(designatedOfficeRaw).trim() : designatedOfficeRaw;
+    const designatedOffice = toShortName(designatedOfficeTrimmed);
     const business_name = body.business_name;
     const address = body.address;
     const total_employees = body.total_employees;
-    // office_jurisdiction은 약칭으로 저장
+    // office_jurisdiction은 약칭으로 저장 (Trim 적용)
     const office_jurisdictionRaw = body.office_jurisdiction;
-    const office_jurisdiction = office_jurisdictionRaw ? fullNameToShortName(office_jurisdictionRaw) : null;
+    const office_jurisdiction = office_jurisdictionRaw ? fullNameToShortName(String(office_jurisdictionRaw).trim()) : null;
     const measurement_start_date = body.measurement_start_date;
     const measurement_end_date = body.measurement_end_date;
     const measurer = body.measurer;
