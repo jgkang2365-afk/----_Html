@@ -694,9 +694,9 @@ export const SummaryTable: React.FC = () => {
 
         {/* 검색 폼 */}
         <Card className="p-4">
-          <h2 className="text-lg font-semibold text-text-900 mb-4 px-1">검색 조건</h2>
-          <div className="flex flex-col md:grid md:grid-cols-6 gap-4">
-            <div>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-[120px]">
               <label className="block text-sm font-medium text-text-700 mb-1">
                 측정년도
               </label>
@@ -709,7 +709,7 @@ export const SummaryTable: React.FC = () => {
                 className="h-10 py-2 text-center shadow-sm"
               />
             </div>
-            <div>
+            <div className="w-[150px]">
               <label className="block text-sm font-medium text-text-700 mb-1">
                 측정주기
               </label>
@@ -722,7 +722,7 @@ export const SummaryTable: React.FC = () => {
                 className="h-10 py-2 text-center shadow-sm"
               />
             </div>
-            <div>
+            <div className="w-[120px]">
               <label className="block text-sm font-medium text-text-700 mb-1">
                 지정지청
               </label>
@@ -735,7 +735,7 @@ export const SummaryTable: React.FC = () => {
                 className="h-10 py-2 text-center shadow-sm"
               />
             </div>
-            <div>
+            <div className="w-[260px]">
               <label className="block text-sm font-medium text-text-700 mb-1">
                 사업장명
               </label>
@@ -751,27 +751,42 @@ export const SummaryTable: React.FC = () => {
                 }}
                 placeholder="예: 사업장A, 사업장B"
                 autoComplete="off"
+                className="h-10"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-text-700 mb-1">
-                측정일
-              </label>
-              <Input
-                type="date"
-                value={searchParams.measurementDate}
-                onChange={(e) =>
-                  setSearchParams({ ...searchParams, measurementDate: e.target.value })
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleSearch();
+            <div className="flex items-end gap-1">
+              <div className="w-[210px]">
+                <label className="block text-sm font-medium text-text-700 mb-1">
+                  측정일
+                </label>
+                <Input
+                  type="date"
+                  value={searchParams.measurementDate}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, measurementDate: e.target.value })
                   }
-                }}
-              />
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleSearch();
+                    }
+                  }}
+                  className="text-center px-1 h-10"
+                />
+              </div>
+              {searchParams.measurementDate && (
+                <button
+                  onClick={() => setSearchParams({ ...searchParams, measurementDate: "" })}
+                  className="text-blue-400 hover:text-blue-600 focus:outline-none mb-2.5"
+                  title="날짜 초기화"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
             </div>
-            <div className="flex items-end">
-              <Button variant="primary" onClick={handleSearch} disabled={loading} className="w-full">
+            <div className="flex items-end ml-auto">
+              <Button variant="primary" onClick={handleSearch} disabled={loading} className="whitespace-nowrap">
                 {loading ? "검색 중..." : "검색"}
               </Button>
             </div>
