@@ -94,11 +94,6 @@ export const JournalSearch: React.FC = () => {
 
 
 
-  // ... (rest of the state and handlers) 
-
-  // (In the render method - replace the form layout block)
-  // Need to use multi_replace because the render logic is far down.
-  // I will just add the useEffects here for now.
 
   const [results, setResults] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -190,7 +185,6 @@ export const JournalSearch: React.FC = () => {
       handleSearch();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
 
 
   // 검색 조건 변경시 로컬 스토리지에 저장 (hasSearched 체크 없이 항상 저장하여 입력 중 상태 유지)
@@ -1213,44 +1207,35 @@ export const JournalSearch: React.FC = () => {
           <>
             {/* 필터 */}
             <Card className="p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-text-900">필터</h2>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={handleFilterReset}
-                  disabled={listLoading}
-                  size="sm"
-                >
-                  필터 초기화
-                </Button>
-              </div>
-              <div className="flex flex-wrap items-end gap-4">
-                <div className="flex-1 min-w-[120px]">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="w-[80px]">
                   <Select
                     label="측정년도"
                     value={filters.measurementYear}
                     onChange={(e) => handleFilterChange("measurementYear", e.target.value)}
                     options={[{ value: "", label: "전체" }, ...yearOptions]}
+                    className="text-center px-1"
                   />
                 </div>
-                <div className="flex-1 min-w-[120px]">
+                <div className="w-[100px]">
                   <Select
                     label="측정주기"
                     value={filters.measurementPeriod}
                     onChange={(e) => handleFilterChange("measurementPeriod", e.target.value)}
                     options={periodOptions}
+                    className="text-center px-1"
                   />
                 </div>
-                <div className="flex-1 min-w-[120px]">
+                <div className="w-[80px]">
                   <Select
                     label="지정지청"
                     value={filters.designatedOffice}
                     onChange={(e) => handleFilterChange("designatedOffice", e.target.value)}
                     options={designatedOfficeOptions}
+                    className="text-center px-1"
                   />
                 </div>
-                <div className="flex-1 min-w-[120px]">
+                <div className="w-[80px]">
                   <Select
                     label="완료여부"
                     value={filters.completionStatus}
@@ -1260,38 +1245,63 @@ export const JournalSearch: React.FC = () => {
                       { value: "완료", label: "완료" },
                       { value: "미완료", label: "미완료" },
                     ]}
+                    className="text-center px-1"
                   />
                 </div>
-                {/* 측정일 필터 추가 */}
-                <div className="flex-1 min-w-[140px]">
-                  <Input
-                    type="date"
-                    label="측정일"
-                    value={filters.measurementDate}
-                    onChange={(e) => handleFilterChange("measurementDate", e.target.value)}
-                  />
-                </div>
-                <div className="flex-[2] min-w-[250px] flex items-end gap-2">
-                  <div className="flex-1">
+                {/* 측정일 필터 추가 (초기화 버튼 포함 - 입력창 밖으로 이동) */}
+                <div className="flex items-end gap-1">
+                  <div className="w-[140px]">
                     <Input
-                      label="사업장명"
-                      value={filters.businessName}
-                      onChange={(e) => setFilters({ ...filters, businessName: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          applyFilters(allJournals, filters, sequenceSortOrder);
-                        }
-                      }}
-                      placeholder="콤마(,)로 구분하여 다중 검색"
+                      type="date"
+                      label="측정일"
+                      value={filters.measurementDate}
+                      onChange={(e) => handleFilterChange("measurementDate", e.target.value)}
+                      className="text-center px-1"
                     />
                   </div>
+                  {filters.measurementDate && (
+                    <button
+                      onClick={() => handleFilterChange("measurementDate", "")}
+                      className="text-blue-400 hover:text-blue-600 focus:outline-none mb-3.5"
+                      title="날짜 초기화"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                <div className="w-[220px]">
+                  <Input
+                    label="사업장명"
+                    value={filters.businessName}
+                    onChange={(e) => setFilters({ ...filters, businessName: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        applyFilters(allJournals, filters, sequenceSortOrder);
+                      }
+                    }}
+                    placeholder="콤마(,) 구문 검색"
+                  />
+                </div>
+                <div className="flex items-end gap-2 ml-auto">
                   <Button
                     type="button"
                     onClick={() => applyFilters(allJournals, filters, sequenceSortOrder)}
-                    className="mb-0.5"
+                    className="mb-0.5 whitespace-nowrap"
                   >
                     검색
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleFilterReset}
+                    disabled={listLoading}
+                    className="mb-0.5 whitespace-nowrap"
+                  >
+                    필터 초기화
                   </Button>
                 </div>
               </div>

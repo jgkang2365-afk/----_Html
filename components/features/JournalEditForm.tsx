@@ -1622,7 +1622,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
         K2B 정보
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Input
           label="K2B 전송일"
           type="date"
@@ -1630,7 +1630,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           onChange={(e) =>
             setFormData({ ...formData, k2b_send_date: e.target.value })
           }
-          className="max-w-[200px]"
         />
         <Input
           label="K2B 전송자"
@@ -1641,20 +1640,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           disabled={isLockedByCompletion}
           className={isLockedByCompletion ? "bg-surface-50" : ""}
         />
+        {/* 추후 추가될 자료를 위한 공백(3열) */}
+        <div></div>
         <Input
           label="계산서 메일"
           value={formData.invoice_email}
           onChange={(e) => setFormData({ ...formData, invoice_email: e.target.value })}
           placeholder="이메일 입력"
-        />
-        <Input
-          label="전자계산서 발행일"
-          type="date"
-          value={normalizeDateForInput(formData.electronic_invoice_date)}
-          onChange={(e) =>
-            setFormData({ ...formData, electronic_invoice_date: e.target.value })
-          }
-          className="max-w-[200px]"
         />
       </div>
     </div>

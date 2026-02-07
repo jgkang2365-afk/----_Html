@@ -129,8 +129,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                // 항상 '계획진행' 필터는 '전체'로 초기화 (사용자 요청)
-                setFilters(prev => ({ ...prev, ...parsed, isRegistered: "전체" }));
+                // 모든 필터 상태 복원 (사용자 요청: 최종 선택 값 유지)
+                setFilters(prev => ({ ...prev, ...parsed }));
             } catch (e) {
                 console.error("Failed to load filters", e);
             }
@@ -527,7 +527,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     options={YEAR_PERIOD_OPTIONS}
                                     value={filters.yearPeriod}
                                     onChange={(e) => setFilters(prev => ({ ...prev, yearPeriod: e.target.value }))}
-                                    className="w-[140px] h-9 py-1 text-sm text-center"
+                                    className="w-[160px] h-9 py-1 text-sm text-center"
                                 />
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
@@ -576,6 +576,17 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     onChange={(e) => setFilters(prev => ({ ...prev, confirmedDate: e.target.value }))}
                                     className="w-[130px] h-9 py-1 text-sm text-center"
                                 />
+                                {filters.confirmedDate && (
+                                    <button
+                                        onClick={() => setFilters(prev => ({ ...prev, confirmedDate: "" }))}
+                                        className="text-blue-400 hover:text-blue-600 focus:outline-none -ml-1"
+                                        title="날짜 초기화"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                )}
                             </div>
                         </div>
 
