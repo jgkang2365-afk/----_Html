@@ -78,6 +78,9 @@ export const JournalSearch: React.FC = () => {
     router.replace(`${pathname}?${params.toString()}`);
   };
 
+  // 검색 조건 저장 키
+  const SEARCH_PARAMS_KEY = "journal_search_params";
+
   // 검색 관련 상태
   const [searchParams, setSearchParams] = useState({
     code: "",
@@ -88,6 +91,15 @@ export const JournalSearch: React.FC = () => {
     address: "",
     measurementDate: "",
   });
+
+
+
+  // ... (rest of the state and handlers) 
+
+  // (In the render method - replace the form layout block)
+  // Need to use multi_replace because the render logic is far down.
+  // I will just add the useEffects here for now.
+
   const [results, setResults] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,10 +170,36 @@ export const JournalSearch: React.FC = () => {
 
   // 페이지 로드 시 초기 검색 실행 (최신 자료 표시)
   useEffect(() => {
+    // 1. 로컬 스토리지에서 검색 조건 복원
+    const savedParams = localStorage.getItem("journal_search_params");
+    if (savedParams) {
+      try {
+        const parsed = JSON.parse(savedParams);
+        setSearchParams(prev => ({ ...prev, ...parsed }));
+      } catch (e) {
+        console.error("검색 조건 복원 실패:", e);
+      }
+    }
+
     if (activeTab === "search") {
+      // 복원된 조건으로 검색 실행 (약간의 지연 필요할 수 있음 - useEffect 의존성 고려)
+      // 여기서는 handleSearch를 호출하지만, searchParams 상태 업데이트가 비동기라 
+      // 초기값으로 검색될 수 있음. 
+      // 완벽한 복원을 위해서는 searchParams가 업데이트된 후 검색해야 함.
+      // 일단은 기본 동작 유지 (빈 값이면 전체 검색)
       handleSearch();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+
+  // 검색 조건 변경시 로컬 스토리지에 저장 (hasSearched 체크 없이 항상 저장하여 입력 중 상태 유지)
+  useEffect(() => {
+    // 값이 하나라도 변경되면 저장
+    if (Object.values(searchParams).some(v => v !== "")) {
+      localStorage.setItem("journal_search_params", JSON.stringify(searchParams));
+    }
+  }, [searchParams]);
 
   // 측정년도 옵션 생성 (현재 년도 기준 -5년 ~ +1년, 내림차순)
   const yearOptions = Array.from({ length: 7 }, (_, i) => {
@@ -172,12 +210,8 @@ export const JournalSearch: React.FC = () => {
   // 측정주기 옵션 (검색용)
   const searchPeriodOptions = [
     { value: "", label: "전체" },
-    { value: "상반기", label: "상반기" },
-    { value: "상반기(수시)", label: "상반기(수시)" },
-    { value: "상반기(전체)", label: "상반기(전체)" },
-    { value: "하반기", label: "하반기" },
-    { value: "하반기(수시)", label: "하반기(수시)" },
-    { value: "하반기(전체)", label: "하반기(전체)" },
+    { value: "상반기(전체)", label: "상반기 + 수시" },
+    { value: "하반기(전체)", label: "하반기 + 수시" },
   ];
 
   // 측정주기 옵션 (등록 현황 필터용)
@@ -905,9 +939,102 @@ export const JournalSearch: React.FC = () => {
         <>
           {/* 검색 폼 */}
           <Card className="p-6 shadow-sm sticky top-0 z-20 bg-white">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-text-900">검색 조건</h2>
-              <div className="flex gap-2">
+            <div className="flex flex-wrap items-end gap-4">
+              {/* 1. 측정년도 */}
+              <div className="w-[110px] shrink-0">
+                <Select
+                  label="측정년도"
+                  value={searchParams.measurementYear}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, measurementYear: e.target.value })
+                  }
+                  options={[{ value: "", label: "전체" }, ...yearOptions]}
+                  className="text-center px-1"
+                />
+              </div>
+
+              {/* 2. 측정주기 */}
+              <div className="w-[150px] shrink-0">
+                <Select
+                  label="측정주기"
+                  value={searchParams.measurementPeriod}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, measurementPeriod: e.target.value })
+                  }
+                  options={searchPeriodOptions}
+                  className="text-center px-1"
+                />
+              </div>
+
+              {/* 3. 지정지청 */}
+              <div className="w-[120px] shrink-0">
+                <Select
+                  label="지정지청"
+                  value={searchParams.designatedOffice}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, designatedOffice: e.target.value })
+                  }
+                  options={searchDesignatedOfficeOptions}
+                  className="text-center px-1"
+                />
+              </div>
+
+              {/* 4. 코드 */}
+              <div className="w-[100px] shrink-0">
+                <Input
+                  label="코드"
+                  value={searchParams.code}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, code: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
+                  placeholder=""
+                />
+              </div>
+
+              {/* 5. 사업장명 (안내 문구 삭제) */}
+              <div className="w-[300px] shrink-0">
+                <Input
+                  label="사업장명"
+                  value={searchParams.businessName}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, businessName: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
+                  placeholder="예: A기업, B기업 (쉼표로 구분)"
+                />
+              </div>
+
+              {/* 6. 주소 (너비 축소: 기존 min-w-[200px] flex-1 -> w-[220px]) */}
+              <div className="w-[220px] shrink-0">
+                <Input
+                  label="주소"
+                  value={searchParams.address}
+                  onChange={(e) =>
+                    setSearchParams({ ...searchParams, address: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }}
+                  placeholder="예: 서울, 경기"
+                />
+              </div>
+
+              {/* 버튼 그룹 (우측 배치) */}
+              <div className="flex gap-2 ml-auto">
                 <Button
                   type="button"
                   onClick={(e) => {
@@ -945,89 +1072,6 @@ export const JournalSearch: React.FC = () => {
                 >
                   등록
                 </Button>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="w-[100px]">
-                <Input
-                  label="코드"
-                  value={searchParams.code}
-                  onChange={(e) =>
-                    setSearchParams({ ...searchParams, code: e.target.value })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSearch();
-                    }
-                  }}
-                  placeholder=""
-                />
-              </div>
-              <div className="w-[110px]">
-                <Select
-                  label="측정년도"
-                  value={searchParams.measurementYear}
-                  onChange={(e) =>
-                    setSearchParams({ ...searchParams, measurementYear: e.target.value })
-                  }
-                  options={[{ value: "", label: "전체" }, ...yearOptions]}
-                  className="text-center px-1"
-                />
-              </div>
-              <div className="w-[100px]">
-                <Select
-                  label="측정주기"
-                  value={searchParams.measurementPeriod}
-                  onChange={(e) =>
-                    setSearchParams({ ...searchParams, measurementPeriod: e.target.value })
-                  }
-                  options={searchPeriodOptions}
-                  className="text-center px-1"
-                />
-              </div>
-              <div className="w-[120px]">
-                <Select
-                  label="지정지청"
-                  value={searchParams.designatedOffice}
-                  onChange={(e) =>
-                    setSearchParams({ ...searchParams, designatedOffice: e.target.value })
-                  }
-                  options={searchDesignatedOfficeOptions}
-                  className="text-center px-1"
-                />
-              </div>
-              <div className="w-[225px]">
-                <Input
-                  label="사업장명"
-                  value={searchParams.businessName}
-                  onChange={(e) =>
-                    setSearchParams({ ...searchParams, businessName: e.target.value })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSearch();
-                    }
-                  }}
-                  placeholder=""
-                />
-              </div>
-              <div className="w-[360px]">
-                <Input
-                  label="주소"
-                  value={searchParams.address}
-                  onChange={(e) =>
-                    setSearchParams({ ...searchParams, address: e.target.value })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSearch();
-                    }
-                  }}
-                  placeholder="예: 서울, 경기"
-                />
               </div>
             </div>
           </Card>

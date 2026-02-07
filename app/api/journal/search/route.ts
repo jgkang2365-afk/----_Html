@@ -113,15 +113,16 @@ export async function GET(request: NextRequest) {
       console.log("[DEBUG] Date Filter Keys:", Array.from(dateFilteredKeys));
     }
 
-    // 1. measurement_business에서 검색 (직전 최신 자료)
+    // 1. measurement_target_business에서 검색 (확정된 사업장만)
+    // 기존 measurement_business 대신 최신 테이블 사용
     let businessQuery = supabase
-      .from("measurement_business")
+      .from("measurement_target_business")
       .select("*")
       .not("business_name", "ilike", "%번외%")
+      .in("is_registered", ["확정", "실시"]) // 확정된 사업장만 조회
       .order("year", { ascending: false })
       .order("period", { ascending: false })
-      .order("created_at", { ascending: false })
-      .in("is_registered", ["확정", "실시"]); // 확정된 사업장만 조회
+      .order("created_at", { ascending: false });
 
     // 측정일 필터 적용 (코드 기준 1차 필터링)
     if (dateFilteredCodes !== null) {
@@ -192,9 +193,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // designatedOffice는 measurement_business에 없으므로 나중에 필터링
-    // (office_jurisdiction으로는 정확한 매칭이 어려움)
-
     const { data: businessDataRaw, error: businessError } = await businessQuery;
 
     if (businessError) {
@@ -205,8 +203,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 측정일 필터 적용 (Year/Period 정밀 필터링)
+    // Direct use of result
     let businessData = businessDataRaw || [];
+
     if (dateFilteredKeys !== null) {
       console.log("[DEBUG] Business Data before key filter:", businessData.length);
       if (businessData.length > 0) {
