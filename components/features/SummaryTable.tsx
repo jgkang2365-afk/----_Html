@@ -147,10 +147,8 @@ export const SummaryTable: React.FC = () => {
   // 측정주기 옵션
   const periodOptions = [
     { value: "", label: "전체" },
-    { value: "상반기", label: "상반기" },
-    { value: "하반기", label: "하반기" },
-    { value: "상반기(수시)", label: "상반기(수시)" },
-    { value: "하반기(수시)", label: "하반기(수시)" },
+    { value: "상반기", label: "상반기 + 수시" },
+    { value: "하반기", label: "하반기 + 수시" },
   ];
 
   // 지정한계_관할지청 옵션

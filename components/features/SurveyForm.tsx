@@ -21,8 +21,8 @@ import { MEASURER_LIST, getSurveyCode } from "@/lib/utils/survey-code";
 const PRELIMINARY_SURVEYOR_OPTIONS = [
   "이태환",
   "한기문",
-  "이주형",
   "이태환, 강종구",
+  "이주형",
   "한기문, 배윤민",
   "이주형, 고유빈",
 ];
@@ -238,14 +238,25 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           setPreliminarySurveyors([]);
         }
       }
+      // 실측정자 및 보고서 담당 처리
+      let initialActualMeasurers: string[] = [];
       if (initialData.actual_measurer) {
-        setActualMeasurers(initialData.actual_measurer.split(",").map((m) => m.trim()));
+        initialActualMeasurers = initialData.actual_measurer.split(",").map((m) => m.trim());
       }
+
       if (initialData.report_writer) {
         // 보고서 담당은 단수이므로 첫 번째 값만 사용
         const writers = initialData.report_writer.split(",").map((m) => m.trim());
-        setReportWriter(writers[0] || "");
+        const writer = writers[0] || "";
+        setReportWriter(writer);
+
+        // 보고서 담당자가 실측정자 목록에 없으면 추가
+        if (writer && !initialActualMeasurers.includes(writer)) {
+          initialActualMeasurers.push(writer);
+        }
       }
+
+      setActualMeasurers(initialActualMeasurers);
 
       // 사업장 정보는 초기 데이터에서 자동으로 채워지므로 별도 처리 불필요
     }
@@ -758,7 +769,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             <label className="block text-sm font-medium text-text-700 mb-2">
               측정자 (복수 선택 가능)
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {MEASURER_LIST.map((measurer) => (
                 <Checkbox
                   key={measurer}
@@ -787,7 +798,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             <label className="block text-sm font-semibold text-blue-900 mb-3">
               예비조사자 (복수 선택 가능)
             </label>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {PRELIMINARY_SURVEYOR_OPTIONS.map((option) => (
                 <div
                   key={option}
@@ -812,7 +823,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             <label className="block text-sm font-semibold text-green-900 mb-3">
               실측정자 (복수 선택 가능)
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {MEASURER_LIST.map((measurer) => (
                 <div
                   key={measurer}
@@ -837,7 +848,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             <label className="block text-sm font-semibold text-purple-900 mb-3">
               보고서 담당 (단수 선택)
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {MEASURER_LIST.map((measurer) => (
                 <div
                   key={measurer}
