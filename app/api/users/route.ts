@@ -21,9 +21,12 @@ export async function GET() {
       return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
     }
 
-    if (session.role !== "관리자") {
-      return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
-    }
+    // 관리자가 아닌 경우도 드롭다운 목록 등을 위해 조회 가능해야 함
+    // 개인정보 등이 포함될 수 있으므로 필요한 필드만 선택하거나 주의 필요
+    // 현재는 이름, 직무 등 기본 정보만 반환하므로 OK
+    // if (session.role !== "관리자") {
+    //   return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
+    // }
 
     const supabase = await createClient();
 

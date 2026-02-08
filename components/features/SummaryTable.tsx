@@ -98,7 +98,9 @@ export const SummaryTable: React.FC = () => {
     businessName: "",
     designatedOffice: "",
     measurementDate: "",
+    reportWriter: "",
   });
+  const [measurementUsers, setMeasurementUsers] = useState<{ label: string; value: string }[]>([]);
   const [results, setResults] = useState<SummaryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,6 +156,26 @@ export const SummaryTable: React.FC = () => {
   // 지정한계_관할지청 옵션
   const designatedOfficeOptions = DESIGNATED_OFFICE_OPTIONS;
 
+  // 사용자 목록 로드 (측정 작무)
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const res = await fetch("/api/users");
+        if (res.ok) {
+          const data = await res.json();
+          const users = data.users || [];
+          const filtered = users
+            .filter((u: any) => u.job === "측정")
+            .map((u: any) => ({ label: u.name, value: u.name }));
+          setMeasurementUsers([{ value: "", label: "전체" }, ...filtered]);
+        }
+      } catch (e) {
+        console.error("사용자 목록 로드 실패:", e);
+      }
+    };
+    fetchUsers();
+  }, []);
+
 
 
   const [quotas, setQuotas] = useState<any[]>([]);
@@ -191,6 +213,9 @@ export const SummaryTable: React.FC = () => {
       }
       if (searchParams.measurementDate) {
         params.append("measurementDate", searchParams.measurementDate);
+      }
+      if (searchParams.reportWriter) {
+        params.append("reportWriter", searchParams.reportWriter);
       }
 
       const response = await fetch(`/api/summary?${params.toString()}`);
@@ -782,6 +807,19 @@ export const SummaryTable: React.FC = () => {
                   </svg>
                 </button>
               )}
+            </div>
+            <div className="w-[150px]">
+              <label className="block text-sm font-medium text-text-700 mb-1">
+                보고서 담당자
+              </label>
+              <Select
+                options={measurementUsers}
+                value={searchParams.reportWriter}
+                onChange={(e) =>
+                  setSearchParams({ ...searchParams, reportWriter: e.target.value })
+                }
+                className="h-10 py-2 text-center shadow-sm"
+              />
             </div>
             <div className="flex items-end ml-auto">
               <Button variant="primary" onClick={handleSearch} disabled={loading} className="whitespace-nowrap">

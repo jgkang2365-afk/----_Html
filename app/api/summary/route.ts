@@ -255,10 +255,18 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // 보고서 담당자 필터링 (메모리 상에서 처리)
+    const reportWriter = searchParams.get("reportWriter")?.trim() || null;
+    let finalData = summaryData;
+
+    if (reportWriter) {
+      finalData = finalData.filter((item: any) => item.report_writer === reportWriter);
+    }
+
     return NextResponse.json({
       success: true,
-      data: summaryData,
-      count: summaryData.length,
+      data: finalData,
+      count: finalData.length,
     });
   } catch (error: any) {
     console.error("측정정보 요약 조회 오류:", error);
