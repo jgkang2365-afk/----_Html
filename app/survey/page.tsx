@@ -86,7 +86,7 @@ export default function SurveyPage() {
   const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
   const [pendingBusinessForForm, setPendingBusinessForForm] = useState<BusinessInfo | null>(null); // 경고 모달에서 대기 중인 사업장 정보
   // 정렬 상태
-  const [sortConfig, setSortConfig] = useState<{ key: "sequence_number" | "measurement_date"; direction: "asc" | "desc" }>({
+  const [sortConfig, setSortConfig] = useState<{ key: "sequence_number" | "measurement_date" | "report_writer"; direction: "asc" | "desc" }>({
     key: "measurement_date",
     direction: "desc",
   });
@@ -796,6 +796,12 @@ export default function SurveyPage() {
                 const seqA = a.sequence_number || 999999;
                 const seqB = b.sequence_number || 999999;
                 return sortConfig.direction === "asc" ? seqA - seqB : seqB - seqA;
+              } else if (sortConfig.key === "report_writer") {
+                const writerA = a.report_writer || "";
+                const writerB = b.report_writer || "";
+                return sortConfig.direction === "asc"
+                  ? writerA.localeCompare(writerB, 'ko')
+                  : writerB.localeCompare(writerA, 'ko');
               } else {
                 // measurement_date
                 const dateA = new Date(a.measurement_date || "1900-01-01").getTime();
@@ -852,7 +858,20 @@ export default function SurveyPage() {
                         <th className="px-2 py-3 text-center w-[90px]">공시료코드</th>
                         <th className="px-2 py-3 text-center w-[100px]">예비조사자</th>
                         <th className="px-2 py-3 text-center w-[80px]">실측정자</th>
-                        <th className="px-2 py-3 text-center w-[80px]">보고서</th>
+                        <th className="px-2 py-3 text-center w-[120px]">
+                          <div className="flex items-center justify-center gap-1">
+                            <span>보고서</span>
+                            <button
+                              onClick={() => setSortConfig(prev => ({
+                                key: "report_writer",
+                                direction: prev.key === "report_writer" && prev.direction === "desc" ? "asc" : "desc"
+                              }))}
+                              className={`hover:bg-slate-200 rounded p-0.5 ${sortConfig.key === "report_writer" ? "text-primary-600" : "text-slate-400"}`}
+                            >
+                              {sortConfig.key === "report_writer" && sortConfig.direction === "asc" ? "▲" : "▼"}
+                            </button>
+                          </div>
+                        </th>
                         <th className="px-2 py-3 text-left w-[200px]">비고</th>
                         <th className="px-2 py-3 text-center w-[120px]">작업</th>
                       </tr>
