@@ -72,6 +72,8 @@ interface SummaryEntry {
   manager_mobile: string | null;
   manager_email: string | null;
   invoice_email: string | null;
+  invoice_email_2: string | null;
+  electronic_invoice_date: string | null;
   address: string | null;
   phone: string | null;
   fax: string | null;
@@ -260,6 +262,8 @@ export const SummaryTable: React.FC = () => {
       manager_mobile: entry.manager_mobile || "",
       manager_email: entry.manager_email || "",
       invoice_email: entry.invoice_email || "",
+      invoice_email_2: entry.invoice_email_2 || "",
+      electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
       commencement_number: entry.commencement_number || "",
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
       k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
@@ -1376,7 +1380,7 @@ export const SummaryTable: React.FC = () => {
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        계산서 메일(주가)
+                        계산서 메일(1)
                       </label>
                       <Input
                         className="h-11 md:h-10 text-base md:text-sm shadow-sm"
@@ -1384,6 +1388,19 @@ export const SummaryTable: React.FC = () => {
                         value={editFormData.invoice_email || ""}
                         onChange={(e) =>
                           setEditFormData({ ...editFormData, invoice_email: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        계산서 메일(2)
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        type="email"
+                        value={editFormData.invoice_email_2 || ""}
+                        onChange={(e) =>
+                          setEditFormData({ ...editFormData, invoice_email_2: e.target.value })
                         }
                       />
                     </div>
@@ -1426,7 +1443,20 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정비 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정비 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        전자계산서 발행일
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        type="date"
+                        value={normalizeDateForInput(editFormData.electronic_invoice_date)}
+                        onChange={(e) =>
+                          setEditFormData({ ...editFormData, electronic_invoice_date: e.target.value })
+                        }
+                      />
+                    </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정비(사업장)
@@ -1484,10 +1514,10 @@ export const SummaryTable: React.FC = () => {
                 </div>
               </div>
 
-            </div>
+            </div >
           )}
-        </Modal>
-      </div>
+        </Modal >
+      </div >
       {/* 인쇄 미리보기 포탈 (조건부 렌더링) */}
       {isBulkPrintMode && <PrintPreviewPortal />}
     </>

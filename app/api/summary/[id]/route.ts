@@ -160,6 +160,7 @@ export async function PATCH(
       'k2b_send_date',
       'k2b_sender',
       'invoice_email',
+      'invoice_email_2',
       'electronic_invoice_date',
       'commencement_number',
       'measurement_fee_total',
