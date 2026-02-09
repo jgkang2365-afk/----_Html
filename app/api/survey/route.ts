@@ -222,56 +222,76 @@ export async function GET(request: NextRequest) {
     // 검색 조건에 맞는 코드 목록
     const codes = businessInfoList?.map((b: any) => b.code) || [];
 
-    // 검색 조건이 있지만 매칭되는 코드가 없는 경우 빈 배열 반환 (단, measurementDate만 있는 경우는 제외)
-    if (codes.length === 0 && (code || businessNumber || businessName || address || officeJurisdiction) && !measurementDate) {
-      return NextResponse.json({
-        businesses: [],
-        surveys: []
-      });
+    // 2. 예비조사 테이블 조회
+    // 기존 로직: business_info에서 찾은 code로만 조회 -> 문제: business_info에 없거나 매칭 안되면 예비조사 누락
+    // 개선 로직: business_info에서 찾은 code + 예비조사 테이블의 직접 검색 조건(사업장명 등)을 OR로 연결
+
+    let surveys: any[] = [];
+    let surveyQuery = supabase
+      .from("preliminary_survey")
+      .select("*")
+      .order("measurement_date", { ascending: false, nullsFirst: false })
+      .order("sequence_number", { ascending: true, nullsFirst: false })
+      .range(0, 4999); // 최대 5000건까지 조회 (목록 짤림 방지)
+
+    // 측정일 필터 (있으면 항상 적용)
+    if (measurementDate) {
+      surveyQuery = surveyQuery.eq("measurement_date", measurementDate);
     }
 
-    // 2. 예비조사 테이블에서 해당 코드들로 검색
-    let surveys: any[] = [];
+    const hasSearchParams = code || businessNumber || businessName || address || officeJurisdiction;
 
-    // 검색 조건이 없으면 전체 예비조사 목록 반환 (단, measurementDate가 있으면 필터링)
-    if (codes.length === 0 && !code && !businessNumber && !businessName && !address && !officeJurisdiction) {
-      let allSurveysQuery = supabase
-        .from("preliminary_survey")
-        .select("*")
-        .order("measurement_date", { ascending: false, nullsFirst: false })
-        .order("sequence_number", { ascending: true, nullsFirst: false });
+    if (hasSearchParams) {
+      const orConditions: string[] = [];
 
-      if (measurementDate) {
-        allSurveysQuery = allSurveysQuery.eq("measurement_date", measurementDate);
+      // 1. business_info에서 찾은 코드들 (가장 정확한 매칭)
+      if (codes.length > 0) {
+        // 코드가 너무 많으면 URL 길이 제한에 걸릴 수 있으므로, 적절히 처리 필요하지만
+        // 여기서는 상위 limit(100)이 걸려있으므로 안전하다고 가정
+        // Supabase .in() filters are better handled directly than inside .or() for large lists,
+        // but to mix with other conditions we might need .or()
+
+        // OR 조건 생성을 위해 "code.in.(...)" 형식 사용
+        orConditions.push(`code.in.(${codes.map(c => `"${c}"`).join(',')})`);
       }
 
-      const { data: allSurveys, error: allSurveysError } = await allSurveysQuery;
+      // 2. 예비조사 테이블 직접 검색 (business_info에 없는 경우 대비)
+      if (businessName) {
+        // 콤마로 구분된 여러 검색어 지원
+        const terms = businessName.split(",").map(t => t.trim()).filter(Boolean);
+        terms.forEach(term => {
+          orConditions.push(`business_name.ilike.%${term}%`);
+        });
+      }
 
-      if (allSurveysError) {
-        console.error("예비조사 전체 목록 조회 오류:", allSurveysError);
+      if (code) {
+        orConditions.push(`code.ilike.%${code}%`);
+      }
+
+      if (address) {
+        // 콤마로 구분된 여러 주소 지원
+        const terms = address.split(",").map(t => t.trim()).filter(Boolean);
+        terms.forEach(term => {
+          orConditions.push(`address.ilike.%${term}%`);
+        });
+      }
+
+      // 조건 적용
+      if (orConditions.length > 0) {
+        surveyQuery = surveyQuery.or(orConditions.join(','));
       } else {
-        surveys = allSurveys || [];
+        // 검색 조건은 있지만(예: officeJurisdiction, businessNumber) 
+        // codes도 없고 다른 직접 검색 조건도 없는 경우 (매칭되는 데이터 없음)
+        surveyQuery = surveyQuery.eq("id", -1); // 결과 없게 만듦
       }
-    } else if (codes.length > 0) {
-      // 검색 조건이 있으면 해당 코드들로 검색
-      let surveyQuery = supabase
-        .from("preliminary_survey")
-        .select("*")
-        .in("code", codes)
-        .order("measurement_date", { ascending: false, nullsFirst: false })
-        .order("sequence_number", { ascending: true, nullsFirst: false });
+    }
 
-      if (measurementDate) {
-        surveyQuery = surveyQuery.eq("measurement_date", measurementDate);
-      }
+    const { data: surveyData, error: surveyError } = await surveyQuery;
 
-      const { data: surveyData, error: surveyError } = await surveyQuery;
-
-      if (surveyError) {
-        console.error("예비조사 조회 오류:", surveyError);
-      } else {
-        surveys = surveyData || [];
-      }
+    if (surveyError) {
+      console.error("예비조사 조회 오류:", surveyError);
+    } else {
+      surveys = surveyData || [];
     }
 
     // 사업자번호 연동: 조회된 예비조사 목록의 코드를 이용해 business_info에서 사업자번호 조회
