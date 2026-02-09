@@ -188,17 +188,27 @@ export default function SurveyPage() {
   };
 
   // 예비조사 목록 조회
-  const loadSurveys = async () => {
+  const loadSurveys = async (options?: any) => {
     setLoading(true);
     setError(null);
 
     try {
       const params = new URLSearchParams();
-      if (listSearchParams.measurementDate) {
-        params.append("measurementDate", listSearchParams.measurementDate);
+
+      let mDate = listSearchParams.measurementDate;
+      let bName = listSearchParams.businessName;
+
+      // 오버라이드 파라미터 확인 (이벤트 객체가 아닌 경우)
+      if (options && typeof options === 'object' && !options.type) {
+        if (options.measurementDate !== undefined) mDate = options.measurementDate;
+        if (options.businessName !== undefined) bName = options.businessName;
       }
-      if (listSearchParams.businessName) {
-        params.append("businessName", listSearchParams.businessName);
+
+      if (mDate) {
+        params.append("measurementDate", mDate);
+      }
+      if (bName) {
+        params.append("businessName", bName);
       }
 
       const url = params.toString() ? `/api/survey?${params.toString()}` : "/api/survey";
@@ -729,6 +739,20 @@ export default function SurveyPage() {
                 {/* 검색 버튼 */}
                 <Button onClick={loadSurveys} size="sm" className="h-8 px-4 ml-1 whitespace-nowrap">
                   검색
+                </Button>
+                {/* 일자 초기화 버튼 */}
+                <Button
+                  onClick={() => {
+                    setListSearchParams((prev) => ({ ...prev, measurementDate: "" }));
+                    // 즉시 검색 실행 (빈 날짜로)
+                    loadSurveys({ measurementDate: "" });
+                  }}
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 px-2 ml-1 whitespace-nowrap"
+                  title="측정일자 초기화"
+                >
+                  일자 초기화
                 </Button>
               </div>
 
