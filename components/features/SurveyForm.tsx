@@ -164,6 +164,27 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       const normalizedMeasurementDate = normalizeForDateInput(initialData.measurement_date);
       const normalizedEndDate = normalizeForDateInput(initialData.end_date);
 
+      // 실측정자 및 보고서 담당 처리 (formData 설정보다 먼저 계산)
+      let initialActualMeasurers: string[] = [];
+      if (initialData.actual_measurer) {
+        initialActualMeasurers = initialData.actual_measurer.split(",").map((m) => m.trim());
+      }
+
+      let initialReportWriter = "";
+      if (initialData.report_writer) {
+        // 보고서 담당은 단수이므로 첫 번째 값만 사용
+        const writers = initialData.report_writer.split(",").map((m) => m.trim());
+        initialReportWriter = writers[0] || "";
+
+        // 보고서 담당자가 실측정자 목록에 없으면 추가
+        if (initialReportWriter && !initialActualMeasurers.includes(initialReportWriter)) {
+          initialActualMeasurers.push(initialReportWriter);
+        }
+      }
+
+      setActualMeasurers(initialActualMeasurers);
+      setReportWriter(initialReportWriter);
+
       // 정규화된 날짜를 포함한 초기 데이터 설정
       setFormData({
         year: initialData.year ? String(initialData.year) : "2026",
@@ -178,8 +199,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         survey_code: initialData.survey_code || "",
         address: initialData.address || "",
         preliminary_surveyor: initialData.preliminary_surveyor || "",
-        actual_measurer: initialData.actual_measurer || "",
-        report_writer: initialData.report_writer || "",
+        actual_measurer: initialActualMeasurers.join(", "), // 계산된 값 사용 (중요: 보고서 담당자 포함된 값)
+        report_writer: initialReportWriter,
         notes: initialData.notes || "",
       });
 
@@ -238,25 +259,6 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           setPreliminarySurveyors([]);
         }
       }
-      // 실측정자 및 보고서 담당 처리
-      let initialActualMeasurers: string[] = [];
-      if (initialData.actual_measurer) {
-        initialActualMeasurers = initialData.actual_measurer.split(",").map((m) => m.trim());
-      }
-
-      if (initialData.report_writer) {
-        // 보고서 담당은 단수이므로 첫 번째 값만 사용
-        const writers = initialData.report_writer.split(",").map((m) => m.trim());
-        const writer = writers[0] || "";
-        setReportWriter(writer);
-
-        // 보고서 담당자가 실측정자 목록에 없으면 추가
-        if (writer && !initialActualMeasurers.includes(writer)) {
-          initialActualMeasurers.push(writer);
-        }
-      }
-
-      setActualMeasurers(initialActualMeasurers);
 
       // 사업장 정보는 초기 데이터에서 자동으로 채워지므로 별도 처리 불필요
     }
