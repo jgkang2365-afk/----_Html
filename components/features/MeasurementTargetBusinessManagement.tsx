@@ -920,7 +920,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
-                                <Input value={editForm.national_support_status || ""} onChange={(e) => setEditForm(prev => ({ ...prev, national_support_status: e.target.value }))} />
+                                <Select
+                                    options={[
+                                        { value: "", label: "선택" },
+                                        { value: "대상", label: "대상" },
+                                        { value: "비대상", label: "비대상" }
+                                    ]}
+                                    value={editForm.national_support_status || ""}
+                                    onChange={(e) => setEditForm(prev => ({ ...prev, national_support_status: e.target.value }))}
+                                    className="w-full text-center"
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">향후 측정주기 (개월)</label>
