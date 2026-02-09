@@ -328,18 +328,37 @@ export async function GET(request: NextRequest) {
     const nationalUnpaidCountMap = new Map<string, number>();
 
     if (businessNames.length > 0) {
-      const { data: revenueData, error: revenueError } = await supabase
-        .from("measurement_journal")
-        .select("business_name, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national")
-        .not("business_name", "ilike", "%번외%")
-        .in("business_name", businessNames);
-
-      if (revenueError) {
-        console.error("[ERROR] 미수횟수 조회 오류:", revenueError);
+      // 청크 단위로 나누어 조회 (한 번에 20개씩)
+      const chunkSize = 20;
+      const chunks = [];
+      for (let i = 0; i < businessNames.length; i += chunkSize) {
+        chunks.push(businessNames.slice(i, i + chunkSize));
       }
 
-      if (revenueData) {
-        revenueData.forEach((item) => {
+      console.log(`[API] 미수금 조회 시작: 총 ${businessNames.length}개 사업장, ${chunks.length}개 청크로 분할 조회`);
+
+      let allRevenueData: any[] = [];
+
+      // 병렬 처리로 모든 청크 조회
+      const promises = chunks.map(async (chunk) => {
+        const { data: revenueData, error: revenueError } = await supabase
+          .from("measurement_journal")
+          .select("business_name, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national")
+          .not("business_name", "ilike", "%번외%")
+          .in("business_name", chunk);
+
+        if (revenueError) {
+          console.error("[ERROR] 미수횟수 조회 오류 (청크):", revenueError);
+          return [];
+        }
+        return revenueData || [];
+      });
+
+      const results = await Promise.all(promises);
+      allRevenueData = results.flat();
+
+      if (allRevenueData.length > 0) {
+        allRevenueData.forEach((item) => {
           // 사업장 미수
           const businessFee = Number(item.measurement_fee_business) || 0;
           const businessDeposit = Number(item.deposit_amount_business) || 0;

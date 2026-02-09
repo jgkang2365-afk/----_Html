@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
       // office_jurisdiction 컬럼이 없는 경우 fallback 처리
       if (infoError.message?.includes("office_jurisdiction") || infoError.code === "PGRST204") {
         console.warn("office_jurisdiction 컬럼이 없습니다. 기본 필드만 조회합니다.");
-        
+
         // 기본 쿼리 재실행 (office_jurisdiction 제외)
         let fallbackQuery = supabase
           .from("business_info")
@@ -107,14 +107,14 @@ export async function GET(request: NextRequest) {
 
         // 각 사업장명별 미수금 횟수 계산
         const businessNames = filteredList.map((b: any) => b.business_name);
-        
+
         // 모든 년도 데이터 조회 (매출관리에서 년도 필터가 없을 때와 동일)
         const { data: revenueData } = await supabase
           .from("measurement_journal")
           .select("business_name, measurement_fee_business, deposit_amount_business")
           .not("business_name", "ilike", "%번외%")
           .in("business_name", businessNames.length > 0 ? businessNames : [""]);
-        
+
         const unpaidCountMap = new Map<string, number>();
         if (revenueData) {
           const businessUnpaidMap = new Map<string, number>();
@@ -122,13 +122,13 @@ export async function GET(request: NextRequest) {
             const businessFee = Number(item.measurement_fee_business) || 0;
             const businessDeposit = Number(item.deposit_amount_business) || 0;
             const businessUnpaid = businessFee - businessDeposit;
-            
+
             if (businessUnpaid > 0) {
               const count = businessUnpaidMap.get(item.business_name) || 0;
               businessUnpaidMap.set(item.business_name, count + 1);
             }
           });
-          
+
           businessUnpaidMap.forEach((count, businessName) => {
             unpaidCountMap.set(businessName, count);
           });
@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
           }
         );
       }
-      
+
       return NextResponse.json(
         { error: "사업장정보 검색 중 오류가 발생했습니다." },
         { status: 500 }
@@ -196,59 +196,65 @@ export async function GET(request: NextRequest) {
     // 주소 병합 및 결과 구성
     // business_info의 office_jurisdiction을 우선 사용, 없으면 measurement_business의 값 사용
     const businessNames = filteredBusinessInfo.map((b: any) => b.business_name).filter((name: string) => name && name.trim());
-    
+
     // 각 사업장명별 미수금 횟수 계산
     // measurement_journal 테이블에서 해당 사업장명의 모든 데이터 조회
     // 매출관리와 동일한 방식으로 계산 (모든 년도 데이터 사용)
-    
+
     const unpaidCountMap = new Map<string, number>();
-    
+    const nationalUnpaidCountMap = new Map<string, number>();
+
     // 사업장명이 있는 경우에만 조회
     if (businessNames.length > 0) {
-      // 모든 년도 데이터 조회 (매출관리에서 년도 필터가 없을 때와 동일)
-      // .in()은 정확한 일치를 보장합니다
-      const { data: revenueData, error: revenueError } = await supabase
-        .from("measurement_journal")
-        .select("business_name, measurement_fee_business, deposit_amount_business")
-        .not("business_name", "ilike", "%번외%")
-        .in("business_name", businessNames);
-      
-      // 디버깅: revenueData 확인
-      if (businessNames.length > 0 && businessNames.includes("태양아트")) {
-        console.log("[DEBUG] businessNames:", businessNames);
-        console.log("[DEBUG] revenueData count:", revenueData?.length || 0);
-        if (revenueData && revenueData.length > 0) {
-          console.log("[DEBUG] revenueData sample:", revenueData[0]);
+      // 청크 단위로 나누어 조회 (한 번에 20개씩)
+      const chunkSize = 20;
+      const chunks = [];
+      for (let i = 0; i < businessNames.length; i += chunkSize) {
+        chunks.push(businessNames.slice(i, i + chunkSize));
+      }
+
+      let allRevenueData: any[] = [];
+
+      const promises = chunks.map(async (chunk) => {
+        const { data: revenueData, error: revenueError } = await supabase
+          .from("measurement_journal")
+          .select("business_name, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national")
+          .not("business_name", "ilike", "%번외%")
+          .in("business_name", chunk);
+
+        if (revenueError) {
+          console.error("[ERROR] 미수금 조회 오류 (청크):", revenueError);
+          return [];
         }
-      }
-      
-      if (revenueError) {
-        console.error("[ERROR] revenueData 조회 오류:", revenueError);
-        // 오류가 발생해도 빈 맵으로 계속 진행
-      }
-      
-      if (revenueData) {
-        const businessUnpaidMap = new Map<string, number>();
-        revenueData.forEach((item) => {
+        return revenueData || [];
+      });
+
+      const results = await Promise.all(promises);
+      allRevenueData = results.flat();
+
+      if (allRevenueData.length > 0) {
+        allRevenueData.forEach((item) => {
+          // 사업장 미수
           const businessFee = Number(item.measurement_fee_business) || 0;
           const businessDeposit = Number(item.deposit_amount_business) || 0;
-          const businessUnpaid = businessFee - businessDeposit;
-          
+          const businessDeposit2 = Number(item.deposit_amount_business_2) || 0;
+          const businessUnpaid = businessFee - (businessDeposit + businessDeposit2);
+
           if (businessUnpaid > 0) {
-            const count = businessUnpaidMap.get(item.business_name) || 0;
-            businessUnpaidMap.set(item.business_name, count + 1);
+            const count = unpaidCountMap.get(item.business_name) || 0;
+            unpaidCountMap.set(item.business_name, count + 1);
+          }
+
+          // 국고 미수
+          const nationalFee = Number(item.measurement_fee_national) || 0;
+          const nationalDeposit = Number(item.deposit_amount_national) || 0;
+          const nationalUnpaid = nationalFee - nationalDeposit;
+
+          if (nationalUnpaid > 0) {
+            const count = nationalUnpaidCountMap.get(item.business_name) || 0;
+            nationalUnpaidCountMap.set(item.business_name, count + 1);
           }
         });
-        
-        // 각 사업장명별 총 미수금 횟수 저장
-        businessUnpaidMap.forEach((count, businessName) => {
-          unpaidCountMap.set(businessName, count);
-        });
-        
-        // 디버깅: unpaidCountMap 확인
-        if (businessNames.includes("태양아트")) {
-          console.log("[DEBUG] unpaidCountMap:", Array.from(unpaidCountMap.entries()));
-        }
       }
     }
 
@@ -259,6 +265,7 @@ export async function GET(request: NextRequest) {
       address: [business.address1, business.address2].filter(Boolean).join(" ").trim() || "",
       office_jurisdiction: business.office_jurisdiction || officeJurisdictionMap.get(business.code) || "",
       unpaid_count: unpaidCountMap.get(business.business_name) || 0,
+      national_unpaid_count: nationalUnpaidCountMap.get(business.business_name) || 0,
     }));
 
     return NextResponse.json({ businesses });

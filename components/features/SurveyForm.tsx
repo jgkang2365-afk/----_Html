@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -581,6 +581,9 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     }));
   };
 
+  // 스크롤 처리를 위한 Ref
+  const topRef = useRef<HTMLDivElement>(null);
+
   // 폼 제출
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -588,17 +591,32 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     setError(null);
     setWarning(null);
 
+    // 에러 발생 시 최상단으로 스크롤하는 함수
+    const scrollToTop = () => {
+      setTimeout(() => {
+        if (topRef.current) {
+          topRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 100);
+    };
+
     // 필수 필드 검증
     if (!formData.measurement_date) {
-      setError("측정일을 입력해주세요.");
+      const msg = "측정일을 입력해주세요.";
+      setError(msg);
+      scrollToTop();
       return;
     }
     if (!formData.business_name) {
-      setError("사업장명을 입력해주세요.");
+      const msg = "사업장명을 입력해주세요.";
+      setError(msg);
+      scrollToTop();
       return;
     }
     if (!formData.measurer) {
-      setError("측정자를 선택해주세요.");
+      const msg = "측정자를 선택해주세요.";
+      setError(msg);
+      scrollToTop();
       return;
     }
 
@@ -626,6 +644,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         // 경고 메시지가 있으면 표시하되 등록은 성공
         if (data.warning) {
           setWarning(data.warning);
+          scrollToTop(); // 경고 메시지도 보이도록 스크롤
         }
         // 경고가 있어도 성공 콜백 실행 (등록은 이미 완료됨)
         if (data.warning) {
@@ -638,10 +657,12 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         }
       } else {
         setError(data.error || "저장 중 오류가 발생했습니다.");
+        scrollToTop();
       }
     } catch (err: any) {
       console.error("저장 오류:", err);
       setError(err.message || "저장 중 오류가 발생했습니다.");
+      scrollToTop();
     } finally {
       setLoading(false);
     }
@@ -649,6 +670,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <div ref={topRef} /> {/* 스크롤 타겟 */}
       {error && <Alert variant="error">{error}</Alert>}
       {warning && <Alert variant="warning">{warning}</Alert>}
 
@@ -718,7 +740,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           <Input
             label="측정종료일"
             type="date"
-            value={formData.end_date || formData.measurement_date || ""}
+            value={formData.end_date || ""}
             onChange={(e) => handleEndDateChange(e.target.value)}
           />
           <Input
