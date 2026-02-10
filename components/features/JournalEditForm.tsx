@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { DESIGNATED_OFFICE_OPTIONS_WITHOUT_ALL } from "@/lib/constants/designated-offices";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -71,6 +71,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const isLockedByCompletion = (entry.id && !isAdmin) ? entry.completion_status === "완료" : false;
   // 기존의 isCompleted 변수 (일부 버튼 비활성화 등에 사용됨)
   const isCompleted = isLockedByCompletion;
+
+  // 측정 시작일 변경 감지를 위한 ref
+  const prevStartDateRef = useRef<string | null>(normalizeDateForInput(entry.measurement_start_date));
+
   const [formData, setFormData] = useState({
     // 기본 정보
     code: entry.code,
@@ -935,7 +939,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // originalYear, originalPeriod도 업데이트
     setOriginalYear(entry.measurement_year);
     setOriginalPeriod(entry.measurement_period);
-  }, [entry.id, entry.note, entry.code, entry.measurement_year, entry.measurement_period]); // entry의 주요 필드가 변경될 때 전체 재초기화
+
+    // entry 변경 시 ref도 업데이트
+    prevStartDateRef.current = normalizeDateForInput(entry.measurement_start_date);
+  }, [entry.id, entry.note, entry.code, entry.measurement_year, entry.measurement_period, entry.measurement_start_date]); // entry의 주요 필드가 변경될 때 전체 재초기화
 
   // 주소 변경 시 자동으로 소재지 관할청과 지정한계_관할지청 업데이트
   const handleAddressChange = async (newAddress: string) => {
@@ -1003,6 +1010,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 업종분류가 '공업사'일 때 자동화 로직
   useEffect(() => {
     if (formData.business_category === "공업사") {
+      // ref 업데이트 전 변경 여부 확인 (setFormData 내부가 아닌 여기서 캡처)
+      const isStartDateChanged = prevStartDateRef.current !== formData.measurement_start_date;
+
       setFormData(prev => {
         const updates: any = {};
         let hasUpdates = false;
@@ -1018,8 +1028,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         }
 
         // 2. 전자계산서 발행일: 측정 시작일 + 1일 (워킹데이 기준)
-        if (prev.measurement_start_date) {
-          const startDate = new Date(prev.measurement_start_date);
+        // 측정 시작일이 변경되었거나, 전자계산서 발행일이 비어있는 경우에만 자동 계산
+        const currentStartDate = prev.measurement_start_date;
+
+        // 시작일이 변경되었거나(캡처된 값 사용), 전자계산서 발행일이 비어있는 경우에만 자동 계산
+        const shouldUpdateDate = isStartDateChanged || !prev.electronic_invoice_date;
+
+        if (currentStartDate && shouldUpdateDate) {
+          const startDate = new Date(currentStartDate);
           const nextDate = new Date(startDate);
           nextDate.setDate(startDate.getDate() + 1);
 
@@ -1032,12 +1048,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
           const nextWorkingDay = normalizeDateForInput(nextDate.toISOString()); // YYYY-MM-DD 변환
 
-          // 기존 값과 다르면 업데이트 (사용자가 수정한 경우 덮어쓰게 되지만, '기본값' 요구사항에 따라 반영)
+          // 기존 값과 다르면 업데이트
           if (prev.electronic_invoice_date !== nextWorkingDay) {
             updates.electronic_invoice_date = nextWorkingDay;
             hasUpdates = true;
+            console.log('[JournalEditForm] 전자계산서 발행일 자동 계산:', {
+              측정시작일: currentStartDate,
+              발행일: nextWorkingDay,
+              자동계산사유: isStartDateChanged ? '시작일변경' : '현재값없음'
+            });
           }
         }
+
+        // ref 업데이트 (side effect이지만 setFormData 내부에서 안전하게 처리하기 위해 여기서 수행하지 않고 useEffect 외부에서 처리하거나, 
+        // 여기서는 값을 계산하고 밖에서 업데이트해야 함. 하지만 batching 고려하면 useEffect 끝에서 처리하는 게 맞음)
 
         if (hasUpdates) {
           return { ...prev, ...updates };
@@ -1045,6 +1069,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         return prev;
       });
     }
+
+    // ref 업데이트
+    prevStartDateRef.current = formData.measurement_start_date;
+
   }, [formData.business_category, formData.measurement_start_date]);
 
   // 측정년도/측정주기 변경 검증 (수정 모드에서만)
