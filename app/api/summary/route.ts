@@ -120,16 +120,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 측정사업장 정보 조회 (개시번호 가져오기)
+    // 측정사업장 정보 조회 (개시번호, 담당자 정보, 계산서 이메일 가져오기)
     let measurementBusinesses: any[] = [];
     if (codes.length > 0) {
       const { data: mbData, error: mbError } = await supabase
         .from("measurement_business")
-        .select("code, commencement_number")
+        .select("code, commencement_number, manager_name, manager_position, manager_mobile, manager_email, invoice_email")
         .in("code", codes);
 
       if (mbError) {
-        console.warn("측정사업장 조회 오류 (개시번호):", mbError);
+        console.warn("측정사업장 조회 오류 (개시번호 및 담당자):", mbError);
       } else {
         measurementBusinesses = mbData || [];
       }
@@ -237,11 +237,11 @@ export async function GET(request: NextRequest) {
         industrial_accident_number: journal.industrial_accident_number,
         commencement_number: mb?.commencement_number || null, // 개시번호 추가
         national_support_status: nationalSupportStatus,
-        manager_name: journal.manager_name,
-        manager_position: journal.manager_position,
-        manager_mobile: journal.manager_mobile,
-        manager_email: journal.manager_email,
-        invoice_email: journal.invoice_email,
+        manager_name: journal.manager_name || mb?.manager_name || null, // 담당자명 fallback
+        manager_position: journal.manager_position || mb?.manager_position || null, // 직위 fallback
+        manager_mobile: journal.manager_mobile || mb?.manager_mobile || null, // 휴대폰 fallback
+        manager_email: journal.manager_email || mb?.manager_email || null, // 이메일 fallback
+        invoice_email: journal.invoice_email || mb?.invoice_email || null, // 계산서 이메일 fallback
         invoice_email_2: journal.invoice_email_2,
         address: journal.address,
         phone: journal.phone,
