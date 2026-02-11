@@ -20,8 +20,18 @@ interface SyncLog {
   created_at: string;
 }
 
+interface VerificationIssue {
+  id: number;
+  code: string;
+  business_name: string;
+  issue_type: 'MISMATCH_NAME' | 'MISMATCH_REPRESENTATIVE' | 'MISSING_IN_BUSINESS_INFO' | 'MISSING_IN_MEASUREMENT';
+  description: string;
+  created_at: string;
+}
+
 export function SyncStatus() {
   const [logs, setLogs] = useState<SyncLog[]>([]);
+  const [issues, setIssues] = useState<VerificationIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +48,7 @@ export function SyncStatus() {
       if (response.ok) {
         const data = await response.json();
         setLogs(data.logs || []);
+        setIssues(data.verification_issues || []);
       } else {
         setError("동기화 로그를 불러오는 중 오류가 발생했습니다.");
       }
@@ -102,6 +113,7 @@ export function SyncStatus() {
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
+      second: "2-digit"
     }).format(date);
   };
 
@@ -125,89 +137,120 @@ export function SyncStatus() {
   }
 
   return (
-    <Card>
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-text-900">Excel 파일 동기화 상태</h2>
-          <Button
-            variant="primary"
-            onClick={handleSync}
-            disabled={syncing}
-            className="text-sm"
-          >
-            {syncing ? "동기화 중..." : "수동 동기화"}
-          </Button>
-        </div>
+    <div className="space-y-4">
+      <Card>
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-text-900">Excel 파일 동기화 상태</h2>
+            <Button
+              variant="primary"
+              onClick={handleSync}
+              disabled={syncing}
+              className="text-sm"
+            >
+              {syncing ? "동기화 중..." : "수동 동기화"}
+            </Button>
+          </div>
 
-        {error && (
-          <Alert variant="error" className="mb-3 text-sm">
-            {error}
-          </Alert>
-        )}
+          {error && (
+            <Alert variant="error" className="mb-3 text-sm">
+              {error}
+            </Alert>
+          )}
 
-        {success && (
-          <Alert variant="success" className="mb-3 text-sm">
-            {success}
-          </Alert>
-        )}
+          {success && (
+            <Alert variant="success" className="mb-3 text-sm">
+              {success}
+            </Alert>
+          )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* 사업장정보 동기화 상태 */}
-          <div className="border border-surface-200 rounded p-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-text-900">사업장정보.xlsx</span>
-              {businessInfoLog && (
-                <span
-                  className={`px-2 py-0.5 rounded text-xs ${
-                    businessInfoLog.status === "성공"
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* 사업장정보 동기화 상태 */}
+            <div className="border border-surface-200 rounded p-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-text-900">사업장정보.xlsx</span>
+                {businessInfoLog && (
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs ${businessInfoLog.status === "성공"
                       ? "bg-success-100 text-success-700"
                       : businessInfoLog.status === "실패"
-                      ? "bg-error-100 text-error-700"
-                      : "bg-warning-100 text-warning-700"
-                  }`}
-                >
-                  {businessInfoLog.status}
-                </span>
+                        ? "bg-error-100 text-error-700"
+                        : "bg-warning-100 text-warning-700"
+                      }`}
+                  >
+                    {businessInfoLog.status}
+                  </span>
+                )}
+              </div>
+              {businessInfoLog ? (
+                <div className="text-xs text-text-600">
+                  {formatDate(businessInfoLog.sync_end_time || businessInfoLog.sync_start_time)} · {businessInfoLog.records_processed}건
+                </div>
+              ) : (
+                <div className="text-xs text-text-400">동기화 기록 없음</div>
               )}
             </div>
-            {businessInfoLog ? (
-              <div className="text-xs text-text-600">
-                {formatDate(businessInfoLog.sync_end_time || businessInfoLog.sync_start_time)} · {businessInfoLog.records_processed}건
-              </div>
-            ) : (
-              <div className="text-xs text-text-400">동기화 기록 없음</div>
-            )}
-          </div>
 
-          {/* 측정사업장 동기화 상태 */}
-          <div className="border border-surface-200 rounded p-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-text-900">측정사업장.xlsx</span>
-              {measurementBusinessLog && (
-                <span
-                  className={`px-2 py-0.5 rounded text-xs ${
-                    measurementBusinessLog.status === "성공"
+            {/* 측정사업장 동기화 상태 */}
+            <div className="border border-surface-200 rounded p-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-text-900">측정사업장.xlsx</span>
+                {measurementBusinessLog && (
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs ${measurementBusinessLog.status === "성공"
                       ? "bg-success-100 text-success-700"
                       : measurementBusinessLog.status === "실패"
-                      ? "bg-error-100 text-error-700"
-                      : "bg-warning-100 text-warning-700"
-                  }`}
-                >
-                  {measurementBusinessLog.status}
-                </span>
+                        ? "bg-error-100 text-error-700"
+                        : "bg-warning-100 text-warning-700"
+                      }`}
+                  >
+                    {measurementBusinessLog.status}
+                  </span>
+                )}
+              </div>
+              {measurementBusinessLog ? (
+                <div className="text-xs text-text-600">
+                  {formatDate(measurementBusinessLog.sync_end_time || measurementBusinessLog.sync_start_time)} · {measurementBusinessLog.records_processed}건
+                </div>
+              ) : (
+                <div className="text-xs text-text-400">동기화 기록 없음</div>
               )}
             </div>
-            {measurementBusinessLog ? (
-              <div className="text-xs text-text-600">
-                {formatDate(measurementBusinessLog.sync_end_time || measurementBusinessLog.sync_start_time)} · {measurementBusinessLog.records_processed}건
-              </div>
-            ) : (
-              <div className="text-xs text-text-400">동기화 기록 없음</div>
-            )}
           </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+
+      {/* 데이터 정합성 검사 결과 */}
+      {issues.length > 0 && (
+        <Card className="border-error-200 bg-error-50">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-error-900 flex items-center gap-2">
+                ⚠️ 데이터 불일치 알림 ({issues.length}건)
+              </h3>
+              <span className="text-xs text-error-700">
+                * 해결 시(재동기화) 자동 삭제
+              </span>
+            </div>
+            <p className="text-sm text-text-700 mb-4">
+              아래 항목들은 <span className="font-bold text-error-600">기준(MES DB)</span>과 <span className="font-bold text-indigo-600">측정일지 관리 웹 정보</span>가 일치하지 않습니다. 확인해 주세요.
+            </p>
+            <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1">
+              {issues.map(issue => (
+                <div key={issue.id} className="bg-white border border-error-100 rounded p-2 text-sm shadow-sm">
+                  <div className="font-medium text-error-800 flex justify-between">
+                    <span>[{issue.code}] {issue.business_name}</span>
+                    <span className="text-xs text-gray-500 font-normal">{formatDate(issue.created_at)}</span>
+                  </div>
+                  <div className="text-gray-700 mt-1 text-xs">
+                    {issue.description}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }
-

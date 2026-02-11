@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { syncBusinessInfo, syncMeasurementBusiness, syncAllFiles } from "@/lib/sync/excel-sync";
+import { verifyDataConsistency } from "@/lib/sync/verification";
 
 /**
  * POST /api/sync
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
     }
 
     const hasError = results.some((r) => !r.success);
-    
+
     // 디버깅: 결과 상세 로깅
     console.log("[동기화 API] 동기화 결과:", {
       results,
@@ -45,6 +46,16 @@ export async function POST(request: Request) {
       successCount: results.filter(r => r.success).length,
       errorCount: results.filter(r => !r.success).length
     });
+
+    // [ADD] 데이터 정합성 검증 실행
+    // 동기화 후 반드시 실행하여 최신 상태 검증
+    try {
+      await verifyDataConsistency();
+      console.log("[동기화 API] 데이터 정합성 검증 완료");
+    } catch (verError) {
+      console.error("[동기화 API] 데이터 정합성 검증 실패:", verError);
+      // 검증 실패는 전체 동기화 실패로 간주하지 않음 (로그만 남김)
+    }
 
     return NextResponse.json(
       {
@@ -87,7 +98,7 @@ export async function POST(request: Request) {
 
 /**
  * GET /api/sync
- * 최근 동기화 로그 조회
+ * 최근 동기화 로그 및 데이터 정합성 이슈 조회
  */
 export async function GET() {
   try {
@@ -97,21 +108,36 @@ export async function GET() {
     const { createClient } = await import("@/lib/supabase/server");
     const supabase = await createClient();
 
-    const { data: logs, error } = await supabase
+    // 1. 동기화 로그 조회
+    const { data: logs, error: logError } = await supabase
       .from("sync_log")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(20);
 
-    if (error) {
-      console.error("동기화 로그 조회 실패:", error);
+    if (logError) {
+      console.error("동기화 로그 조회 실패:", logError);
       return NextResponse.json(
         { error: "동기화 로그를 불러오는 중 오류가 발생했습니다." },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ logs: logs || [] });
+    // 2. 데이터 정합성 이슈 조회
+    const { data: issues, error: issueError } = await supabase
+      .from("data_verification_issues")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (issueError) {
+      console.warn("데이터 정합성 이슈 조회 실패 (테이블이 없을 수 있음):", issueError);
+    }
+
+    return NextResponse.json({
+      logs: logs || [],
+      verification_issues: issues || []
+    });
+
   } catch (error) {
     console.error("동기화 로그 API 오류:", error);
 
@@ -127,4 +153,3 @@ export async function GET() {
     );
   }
 }
-
