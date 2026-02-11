@@ -660,7 +660,7 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
-                        value={entry.k2b_sender || ""}
+                        value={entry.report_writer ? entry.report_writer.split(',')[0].trim() : (entry.k2b_sender || "")}
                         disabled
                       />
                     </div>
