@@ -144,6 +144,16 @@ export async function POST(request: NextRequest) {
           if (syncResult.change_log && syncResult.change_log.length > 0) {
             response.syncChangeLog = syncResult.change_log;
           }
+
+          // [ADD] 동기화 성공 후 데이터 정합성 검증 자동 실행
+          try {
+            const { verifyDataConsistency } = await import("@/lib/sync/verification");
+            await verifyDataConsistency();
+            console.log("[업로드 API] 데이터 정합성 검증 완료");
+          } catch (verError) {
+            console.error("[업로드 API] 데이터 정합성 검증 실패:", verError);
+            // 검증 실패는 전체 업로드 실패로 간주하지 않음
+          }
         } else {
           response.syncSuccess = false;
           response.syncWarning = `파일은 업로드되었지만 동기화에 실패했습니다: ${syncResult.error_message || "알 수 없는 오류"}`;
