@@ -1,5 +1,5 @@
 
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { VerificationIssue } from "./excel-sync";
 
@@ -77,7 +77,7 @@ function highlightDiff(str1: string, str2: string): [string, string] {
 }
 
 export async function verifyDataConsistency(externalSupabaseClient?: SupabaseClient<any, "public", any>) {
-    const supabase = externalSupabaseClient || await createClient();
+    const supabase = externalSupabaseClient || createAdminClient();
     const issues: VerificationIssue[] = [];
 
     try {

@@ -105,8 +105,8 @@ export async function GET() {
     // 권한 체크 (대시보드 읽기 권한 필요)
     await checkPermission("dashboard:read");
 
-    const { createClient } = await import("@/lib/supabase/server");
-    const supabase = await createClient();
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const supabase = createAdminClient();
 
     // 1. 동기화 로그 조회
     const { data: logs, error: logError } = await supabase
