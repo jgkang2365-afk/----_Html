@@ -31,6 +31,13 @@ export interface SyncLog {
   error_message?: string;
 }
 
+export interface VerificationIssue {
+  code: string;
+  business_name: string;
+  issue_type: 'MISMATCH_NAME' | 'MISMATCH_REPRESENTATIVE' | 'MISSING_IN_BUSINESS_INFO' | 'MISSING_IN_MEASUREMENT';
+  description: string;
+}
+
 /**
  * Excel 파일을 읽어서 JSON 배열로 변환
  * 측정사업장.xlsx 파일은 첫 번째 행이 비어있고 두 번째 행이 헤더입니다.

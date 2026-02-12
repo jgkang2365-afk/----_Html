@@ -1,13 +1,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
-
-export interface VerificationIssue {
-    code: string;
-    business_name: string;
-    issue_type: 'MISMATCH_NAME' | 'MISMATCH_REPRESENTATIVE' | 'MISSING_IN_BUSINESS_INFO' | 'MISSING_IN_MEASUREMENT';
-    description: string;
-}
+import { VerificationIssue } from "./excel-sync";
 
 /**
  * 데이터 정합성 검증 함수
