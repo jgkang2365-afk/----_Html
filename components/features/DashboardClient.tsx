@@ -4,8 +4,7 @@ import React, { useState } from "react";
 import { Dashboard } from "@/components/features/Dashboard";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
 import { SyncStatus } from "@/components/features/SyncStatus";
-
-
+import { InconsistencyAlert } from "@/components/features/InconsistencyAlert";
 import { Select } from "@/components/ui/Select";
 import { cn } from "@/lib/utils";
 
@@ -95,6 +94,9 @@ export const DashboardClient = () => {
                     </div>
                 </div>
             </div>
+
+            {/* 데이터 불일치 알림 (항상 표시 또는 일반 탭에서만 표시 등 정책에 따라 조정 가능) */}
+            <InconsistencyAlert onNavigate={() => setActiveTab('data-upload')} />
 
             <div className="mt-4">
                 {activeTab === 'general' && (
