@@ -569,8 +569,14 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     if ((!period || period === defaultPeriod) && rowValues[4]) period = rowValues[4];
 
     const periodStr = String(period || "").trim();
-    const isSecondHalf = periodStr.includes("하반기") || periodStr.includes("하") || periodStr === "2" || periodStr === "2분기" || periodStr === "4분기";
+    // "하" 단독 포함 체크를 제거 - 너무 광범위하여 오분류 발생 (예: "대한상용자동차" 등 "하" 포함 값)
+    const isSecondHalf = periodStr === "하반기" || periodStr === "하" || periodStr === "2" || periodStr === "2분기" || periodStr === "4분기";
     const normalizedPeriod = isSecondHalf ? "하반기" : "상반기";
+
+    // 디버깅: 주기 파싱 확인 (첫 10행 + 의심 케이스)
+    if (dataIndex < 10 || (normalizedPeriod === "하반기" && periodStr !== "하반기")) {
+      console.log(`[주기 디버깅] 행 ${dataIndex + 1}: row["구분"]="${row["구분"]}", row["측정주기"]="${row["측정주기"]}", rowValues[4]="${rowValues[4]}", periodStr="${periodStr}", 최종="${normalizedPeriod}"`);
+    }
 
     const completionStatus = row["완료여부"] || "미완료";
     const normalizedStatus = completionStatus.toString().includes("완료") && !completionStatus.toString().includes("미완료") ? "완료" : "미완료";
