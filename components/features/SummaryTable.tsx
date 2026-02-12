@@ -698,11 +698,22 @@ export const SummaryTable: React.FC = () => {
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">특이사항</h4>
                   <div className="p-1">
-                    <textarea
-                      className="w-full h-32 p-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none bg-white text-base md:text-sm shadow-sm font-bold text-black"
-                      value={entry.special_notes || ""}
-                      disabled
-                    />
+                    <div className="w-full h-32 p-3 border rounded-lg bg-white text-base md:text-sm shadow-sm font-bold text-black overflow-y-auto whitespace-pre-wrap">
+                      {(entry.special_notes || "").split('\n').map((line, i) => (
+                        <div key={i} className={line.trim().startsWith('[데이터 불일치]') ? "text-red-600 font-bold" : ""}>
+                          {line.split(/(\[\[.*?\]\])/).map((part, index) => {
+                            if (part.startsWith('[[') && part.endsWith(']]')) {
+                              return (
+                                <span key={index} className="bg-yellow-300 text-black font-extrabold px-0.5 rounded-sm mx-0.5 print:bg-yellow-300 print:text-black">
+                                  {part.slice(2, -2)}
+                                </span>
+                              );
+                            }
+                            return <span key={index}>{part}</span>;
+                          })}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
 

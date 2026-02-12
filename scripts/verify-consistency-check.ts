@@ -25,6 +25,18 @@ async function main() {
         console.log("measurement_business sample:", mData[0]);
     }
 
+    const { data: jData } = await supabase.from("measurement_journal").select("*").limit(1);
+    if (jData && jData.length > 0) {
+        console.log("measurement_journal keys:", Object.keys(jData[0]));
+        console.log("measurement_journal sample:", jData[0]);
+    }
+
+    const { data: tData } = await supabase.from("measurement_target_business").select("*").limit(1);
+    if (tData && tData.length > 0) {
+        console.log("measurement_target_business keys:", Object.keys(tData[0]));
+        console.log("measurement_target_business sample:", tData[0]);
+    }
+
     // process.exit(0); removed
 
     console.log("Running verification check...");
