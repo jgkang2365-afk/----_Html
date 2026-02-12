@@ -293,10 +293,8 @@ export const SalesManagement: React.FC = () => {
     direction: "asc" | "desc";
   }>({ column: "measurement_fee_total", direction: "desc" });
 
-  // 디바운싱된 필터 상태 추가
-  const [debouncedUnpaidFilters, setDebouncedUnpaidFilters] = useState(unpaidFilters);
+  // 디바운싱된 필터 상태 - 기타 매출만 유지 (나머지는 Enter/Blur 시 즉시 반영)
   const [debouncedOtherFilters, setDebouncedOtherFilters] = useState(otherFilters);
-  const [debouncedMeasurementFilters, setDebouncedMeasurementFilters] = useState(measurementFilters);
 
   // 기간별 입금 현황 필터 상태
   const [depositStartDate, setDepositStartDate] = useState<string>(() => {
@@ -314,19 +312,18 @@ export const SalesManagement: React.FC = () => {
   const [depositPeriod, setDepositPeriod] = useState("");
   const [depositCategory, setDepositCategory] = useState("");
   const [depositBusinessName, setDepositBusinessName] = useState("");
-  const [debouncedDepositBusinessName, setDebouncedDepositBusinessName] = useState("");
+  // const [debouncedDepositBusinessName, setDebouncedDepositBusinessName] = useState("");
   const [activeQuickDate, setActiveQuickDate] = useState<string | null>("month");
 
   // 로컬 검색어 상태 (입력 시 흔들림 방지용, Enter키로 검색)
   const [localBusinessName, setLocalBusinessName] = useState("");
   const [localRepresentativeName, setLocalRepresentativeName] = useState("");
+  const [localUnpaidName, setLocalUnpaidName] = useState("");
+  const [localDepositBusinessName, setLocalDepositBusinessName] = useState("");
 
-  // 입금 현황 디바운싱 효과
+  // 입금 현황 필터 동기화 (Blur/Enter 시 업데이트되므로 디바운싱 제거)
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedDepositBusinessName(depositBusinessName);
-    }, 400);
-    return () => clearTimeout(timer);
+    if (depositBusinessName === "") setLocalDepositBusinessName("");
   }, [depositBusinessName]);
 
   // 필터 업데이트 감지 여부 (로딩 표시용)
@@ -334,17 +331,12 @@ export const SalesManagement: React.FC = () => {
   const [isOtherFiltering, setIsOtherFiltering] = useState(false);
   const [isUnpaidFiltering, setIsUnpaidFiltering] = useState(false);
 
-  // 미수관리 디바운싱 효과
+  // 미수관리 필터 동기화
   useEffect(() => {
-    setIsUnpaidFiltering(true);
-    const timer = setTimeout(() => {
-      setDebouncedUnpaidFilters(unpaidFilters);
-      setIsUnpaidFiltering(false);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [unpaidFilters]);
+    if (unpaidFilters.name === "") setLocalUnpaidName("");
+  }, [unpaidFilters.name]);
 
-  // 기타 매출 디바운싱 효과
+  // 기타 매출 디바운싱 효과 (유지)
   useEffect(() => {
     setIsOtherFiltering(true);
     const timer = setTimeout(() => {
@@ -353,16 +345,6 @@ export const SalesManagement: React.FC = () => {
     }, 400);
     return () => clearTimeout(timer);
   }, [otherFilters]);
-
-  // 측정비 디바운싱 효과
-  useEffect(() => {
-    setIsMeasurementFiltering(true);
-    const timer = setTimeout(() => {
-      setDebouncedMeasurementFilters(measurementFilters);
-      setIsMeasurementFiltering(false);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [measurementFilters]);
 
   // 필터 초기화 시 로컬 상태 동기화
   useEffect(() => {
@@ -2021,13 +2003,13 @@ export const SalesManagement: React.FC = () => {
               content: (() => {
                 // 필터링 적용
                 let filteredMeasurement = measurementRevenue.filter((item) => {
-                  if (debouncedMeasurementFilters.businessName && !checkSearchMatch(item.business_name, debouncedMeasurementFilters.businessName)) return false;
-                  if (debouncedMeasurementFilters.representativeName && !checkSearchMatch(item.representative_name, debouncedMeasurementFilters.representativeName)) return false;
-                  if (debouncedMeasurementFilters.year && !checkExactMatch(item.measurement_year, debouncedMeasurementFilters.year)) return false;
-                  if (debouncedMeasurementFilters.period && !isMatchSelection(item.measurement_period, debouncedMeasurementFilters.period)) return false;
-                  if (debouncedMeasurementFilters.designatedOffice && !checkExactMatch(item.designated_office, debouncedMeasurementFilters.designatedOffice)) return false;
-                  if (debouncedMeasurementFilters.hasInvoiceDate === "yes" && !item.electronic_invoice_date) return false;
-                  if (debouncedMeasurementFilters.hasInvoiceDate === "no" && item.electronic_invoice_date) return false;
+                  if (measurementFilters.businessName && !checkSearchMatch(item.business_name, measurementFilters.businessName)) return false;
+                  if (measurementFilters.representativeName && !checkSearchMatch(item.representative_name, measurementFilters.representativeName)) return false;
+                  if (measurementFilters.year && !checkExactMatch(item.measurement_year, measurementFilters.year)) return false;
+                  if (measurementFilters.period && !isMatchSelection(item.measurement_period, measurementFilters.period)) return false;
+                  if (measurementFilters.designatedOffice && !checkExactMatch(item.designated_office, measurementFilters.designatedOffice)) return false;
+                  if (measurementFilters.hasInvoiceDate === "yes" && !item.electronic_invoice_date) return false;
+                  if (measurementFilters.hasInvoiceDate === "no" && item.electronic_invoice_date) return false;
                   return true;
                 });
 
@@ -2187,8 +2169,7 @@ export const SalesManagement: React.FC = () => {
                                     }
                                   }}
                                   onBlur={() => {
-                                    // 선택적: 포커스 잃을 때 검색하려면 아래 주석 해제 (사용자 요청은 Enter키 기준)
-                                    // setMeasurementFilters({ ...measurementFilters, businessName: localBusinessName });
+                                    setMeasurementFilters({ ...measurementFilters, businessName: localBusinessName });
                                   }}
                                   placeholder="입력 후 Enter"
                                   className="text-xs h-8"
@@ -2211,6 +2192,9 @@ export const SalesManagement: React.FC = () => {
                                     if (e.key === "Enter") {
                                       setMeasurementFilters({ ...measurementFilters, representativeName: localRepresentativeName });
                                     }
+                                  }}
+                                  onBlur={() => {
+                                    setMeasurementFilters({ ...measurementFilters, representativeName: localRepresentativeName });
                                   }}
                                   placeholder="입력 후 Enter"
                                   className="text-xs h-8"
@@ -2918,13 +2902,13 @@ export const SalesManagement: React.FC = () => {
 
                 // 필터링 적용
                 let filteredItems = unpaidItems.filter((item) => {
-                  if (debouncedUnpaidFilters.type && item.type !== debouncedUnpaidFilters.type) return false;
-                  if (debouncedUnpaidFilters.name && !checkSearchMatch(item.name, debouncedUnpaidFilters.name)) return false;
-                  if (debouncedUnpaidFilters.year && !checkExactMatch(item.year, debouncedUnpaidFilters.year)) return false;
-                  if (debouncedUnpaidFilters.period && !isMatchSelection(item.period, debouncedUnpaidFilters.period)) return false;
-                  if (debouncedUnpaidFilters.designatedOffice && !checkExactMatch(item.designatedOffice, debouncedUnpaidFilters.designatedOffice)) return false;
-                  if (debouncedUnpaidFilters.hasDepositDate === "yes" && !item.depositDate) return false;
-                  if (debouncedUnpaidFilters.hasDepositDate === "no" && item.depositDate) return false;
+                  if (unpaidFilters.type && item.type !== unpaidFilters.type) return false;
+                  if (unpaidFilters.name && !checkSearchMatch(item.name, unpaidFilters.name)) return false;
+                  if (unpaidFilters.year && !checkExactMatch(item.year, unpaidFilters.year)) return false;
+                  if (unpaidFilters.period && !isMatchSelection(item.period, unpaidFilters.period)) return false;
+                  if (unpaidFilters.designatedOffice && !checkExactMatch(item.designatedOffice, unpaidFilters.designatedOffice)) return false;
+                  if (unpaidFilters.hasDepositDate === "yes" && !item.depositDate) return false;
+                  if (unpaidFilters.hasDepositDate === "no" && item.depositDate) return false;
                   return true;
                 });
 
@@ -3068,10 +3052,16 @@ export const SalesManagement: React.FC = () => {
                                   <SortIcon column="name" />
                                 </div>
                                 <Input
-                                  value={unpaidFilters.name}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, name: e.target.value })
-                                  }
+                                  value={localUnpaidName}
+                                  onChange={(e) => setLocalUnpaidName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      setUnpaidFilters({ ...unpaidFilters, name: localUnpaidName });
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    setUnpaidFilters({ ...unpaidFilters, name: localUnpaidName });
+                                  }}
                                   placeholder="검색..."
                                   className="text-xs h-7"
                                 />
@@ -3378,7 +3368,7 @@ export const SalesManagement: React.FC = () => {
                   const yearMatch = checkExactMatch(item.year, depositYear);
                   const periodMatch = isMatchSelection(item.period || null, depositPeriod);
                   const categoryMatch = !depositCategory || item.category === depositCategory;
-                  const businessNameMatch = checkSearchMatch(item.name, debouncedDepositBusinessName);
+                  const businessNameMatch = checkSearchMatch(item.name, depositBusinessName);
 
                   return dateMatch && officeMatch && yearMatch && periodMatch && categoryMatch && businessNameMatch;
                 });
@@ -3528,8 +3518,16 @@ export const SalesManagement: React.FC = () => {
                           <label className="text-sm font-bold text-text-800 ml-1">검색</label>
                           <Input
                             placeholder="사업장명/품명..."
-                            value={depositBusinessName}
-                            onChange={(e) => setDepositBusinessName(e.target.value)}
+                            value={localDepositBusinessName}
+                            onChange={(e) => setLocalDepositBusinessName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                setDepositBusinessName(localDepositBusinessName);
+                              }
+                            }}
+                            onBlur={() => {
+                              setDepositBusinessName(localDepositBusinessName);
+                            }}
                             className="h-10 text-sm font-medium px-3"
                           />
                         </div>
