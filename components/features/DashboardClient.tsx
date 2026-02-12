@@ -16,6 +16,7 @@ export const DashboardClient = () => {
     };
 
     const [activeTab, setActiveTab] = useState("general");
+    const [syncRefreshKey, setSyncRefreshKey] = useState(0);
 
     // 필터 상태 (Dashboard로 전달)
     const [selectedYear, setSelectedYear] = useState<string>(getCurrentYear().toString());
@@ -106,8 +107,8 @@ export const DashboardClient = () => {
                 )}
                 {activeTab === 'data-upload' && (
                     <div className="animate-in fade-in zoom-in-95 duration-300 space-y-6">
-                        <ExcelUpload />
-                        <SyncStatus />
+                        <ExcelUpload onSuccess={() => setSyncRefreshKey(prev => prev + 1)} />
+                        <SyncStatus key={syncRefreshKey} />
                     </div>
                 )}
             </div>
