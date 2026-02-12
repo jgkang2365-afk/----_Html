@@ -1,7 +1,9 @@
-
 /**
  * 불일치 내역을 measurement_journal의 special_notes에 반영하는 함수
  */
+import { SupabaseClient } from '@supabase/supabase-js';
+import { VerificationIssue } from './excel-sync';
+
 async function syncIssuesToJournalRemarks(supabase: SupabaseClient, issues: VerificationIssue[]) {
     try {
         console.log("[Verification] 측정일지 특이사항 동기화 시작...");

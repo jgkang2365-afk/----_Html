@@ -2102,7 +2102,7 @@ export const SalesManagement: React.FC = () => {
                           };
                           setMeasurementFilters(initial);
                           // 로컬 상태 동기화는 useEffect에서 처리됨
-                          setDebouncedMeasurementFilters(initial);
+                          // setDebouncedMeasurementFilters(initial); // Removed as debounce logic was removed
                           setMeasurementSort({ column: "measurement_fee_total", direction: "desc" });
                         }}
                       >
@@ -2989,7 +2989,7 @@ export const SalesManagement: React.FC = () => {
                             hasDepositDate: "",
                           };
                           setUnpaidFilters(initial);
-                          setDebouncedUnpaidFilters(initial);
+                          // setDebouncedUnpaidFilters(initial); // Removed as debounce logic was removed
                           setUnpaidSort({ column: "unpaid", direction: "desc" });
                         }}
                       >
