@@ -1249,6 +1249,7 @@ export async function syncBusinessInfo(
           records_processed: parsedData.length,
           records_updated: recordsUpdated,
           records_inserted: recordsInserted,
+          change_details: changeLog.length > 0 ? changeLog : null // JSONB로 저장 (Supabase가 자동 변환)
         })
         .eq("id", logId);
     }
@@ -1865,6 +1866,7 @@ export async function syncMeasurementBusiness(
           records_processed: parsedData.length,
           records_updated: recordsProcessed, // UPSERT는 INSERT와 UPDATE를 모두 포함
           records_inserted: recordsProcessed,
+          change_details: changeLog.length > 0 ? changeLog : null // JSONB로 저장
         })
         .eq("id", logId);
     }
@@ -1923,13 +1925,13 @@ export async function syncMeasurementBusiness(
 /**
  * measurement_journal 테이블의 빈 필드를 business_info 및 measurement_business 데이터로 채움
  */
-export async function updateJournalFromReferenceData(): Promise<SyncResult> {
+export async function updateJournalFromReferenceData(externalSupabaseClient?: SupabaseClient): Promise<SyncResult> {
   const syncStartTime = new Date();
   let logId: number | null = null;
   const fileName = "JOURNAL_UPDATE";
 
   try {
-    const supabase = await createClient();
+    const supabase = externalSupabaseClient || await createClient();
 
     // 동기화 로그 생성
     const { data: logData, error: logError } = await supabase
@@ -2181,19 +2183,19 @@ export async function updateJournalFromReferenceData(): Promise<SyncResult> {
   }
 }
 
-export async function syncAllFiles(): Promise<SyncResult[]> {
+export async function syncAllFiles(externalSupabaseClient?: SupabaseClient): Promise<SyncResult[]> {
   const results: SyncResult[] = [];
 
   // 사업장정보.xls 동기화
-  const businessInfoResult = await syncBusinessInfo();
+  const businessInfoResult = await syncBusinessInfo(undefined, undefined, externalSupabaseClient);
   results.push(businessInfoResult);
 
   // 측정사업장.xls 동기화
-  const measurementBusinessResult = await syncMeasurementBusiness();
+  const measurementBusinessResult = await syncMeasurementBusiness(undefined, undefined, externalSupabaseClient);
   results.push(measurementBusinessResult);
 
   // 일지 데이터 보정 (빈 필드 채우기)
-  const journalUpdateResult = await updateJournalFromReferenceData();
+  const journalUpdateResult = await updateJournalFromReferenceData(externalSupabaseClient);
   results.push(journalUpdateResult);
 
   return results;

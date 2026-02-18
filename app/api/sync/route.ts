@@ -24,17 +24,21 @@ export async function POST(request: Request) {
 
     let results;
 
+    // 서비스 롤 키를 사용한 Admin 클라이언트 생성 (수동 동기화도 권한 제약 없이 실행)
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const supabase = createAdminClient();
+
     if (fileType === "business-info") {
       // 사업장정보.xls만 동기화
-      const result = await syncBusinessInfo();
+      const result = await syncBusinessInfo(undefined, undefined, supabase);
       results = [result];
     } else if (fileType === "measurement-business") {
       // 측정사업장.xls만 동기화
-      const result = await syncMeasurementBusiness();
+      const result = await syncMeasurementBusiness(undefined, undefined, supabase);
       results = [result];
     } else {
       // 모든 파일 동기화
-      results = await syncAllFiles();
+      results = await syncAllFiles(supabase);
     }
 
     const hasError = results.some((r) => !r.success);

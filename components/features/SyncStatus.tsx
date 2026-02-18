@@ -19,6 +19,7 @@ interface SyncLog {
   records_updated: number;
   records_inserted: number;
   error_message?: string;
+  change_details?: string[] | null; // JSONB로 저장되지만 클라이언트에서는 파싱된 배열로 받음
   created_at: string;
 }
 
@@ -260,6 +261,42 @@ export function SyncStatus() {
           </div>
         </div>
       </Card>
+
+      {/* 최신 변경 내역 표시 (사업장정보) */}
+      {businessInfoLog?.change_details && businessInfoLog.change_details.length > 0 && (
+        <Card className="bg-surface-50 border-surface-200">
+          <div className="p-4">
+            <h3 className="text-sm font-semibold text-text-900 mb-2 flex items-center gap-2">
+              📋 [사업장정보] 최신 변경 내역 ({formatDate(businessInfoLog.created_at)})
+            </h3>
+            <div className="bg-white border border-surface-200 rounded p-3 max-h-[200px] overflow-y-auto text-xs text-text-700 leading-relaxed">
+              <ul className="list-disc pl-4 space-y-1">
+                {businessInfoLog.change_details.map((detail, idx) => (
+                  <li key={idx} className="break-all">{detail}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* 최신 변경 내역 표시 (측정사업장) */}
+      {measurementBusinessLog?.change_details && measurementBusinessLog.change_details.length > 0 && (
+        <Card className="bg-surface-50 border-surface-200">
+          <div className="p-4">
+            <h3 className="text-sm font-semibold text-text-900 mb-2 flex items-center gap-2">
+              📋 [측정사업장] 최신 변경 내역 ({formatDate(measurementBusinessLog.created_at)})
+            </h3>
+            <div className="bg-white border border-surface-200 rounded p-3 max-h-[200px] overflow-y-auto text-xs text-text-700 leading-relaxed">
+              <ul className="list-disc pl-4 space-y-1">
+                {measurementBusinessLog.change_details.map((detail, idx) => (
+                  <li key={idx} className="break-all">{detail}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* 데이터 정합성 검사 결과 */}
       {issues.length > 0 && (
