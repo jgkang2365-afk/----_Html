@@ -1678,8 +1678,8 @@ export async function syncMeasurementBusiness(
         const changes: string[] = [];
 
         // 1. 산재관리번호
-        if (row.management_number && latestMeasurement.management_number !== row.management_number) {
-          changes.push(`산재관리번호: ${latestMeasurement.management_number || '(없음)'} -> ${row.management_number}`);
+        if (row.industrial_accident_number && latestMeasurement.industrial_accident_number !== row.industrial_accident_number) {
+          changes.push(`산재관리번호: ${latestMeasurement.industrial_accident_number || '(없음)'} -> ${row.industrial_accident_number}`);
         }
         // 2. 사업장개시번호
         if (row.commencement_number && latestMeasurement.commencement_number !== row.commencement_number) {
