@@ -462,6 +462,66 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 }
               }
 
+              // [NEW] Best Reference Data 활용 (previousData가 없거나 비어있는 필드 채우기)
+              if (data.referenceData && data.referenceData.source_type !== 'none') {
+                const ref = data.referenceData;
+                console.log('[JournalEditForm] Reference Data 활용:', ref);
+
+                // manager_name
+                if (!updated.manager_name && ref.manager_name) {
+                  updated.manager_name = ref.manager_name;
+                }
+                // manager_mobile
+                if (!updated.manager_mobile && ref.manager_mobile) {
+                  updated.manager_mobile = ref.manager_mobile;
+                }
+                // manager_email
+                if (!updated.manager_email && ref.manager_email) {
+                  updated.manager_email = ref.manager_email;
+                }
+                // address
+                if (!updated.address && ref.address) {
+                  updated.address = ref.address;
+                }
+                // business_number
+                if (!updated.business_number && ref.business_number) {
+                  updated.business_number = ref.business_number;
+                }
+                // total_employees
+                if (!updated.total_employees && ref.total_employees) {
+                  updated.total_employees = String(ref.total_employees);
+                }
+                // business_category
+                if (!updated.business_category && ref.business_category) {
+                  updated.business_category = ref.business_category;
+                }
+                // invoice_email
+                if (!updated.invoice_email && ref.invoice_email) {
+                  updated.invoice_email = ref.invoice_email;
+                }
+                // representative_name
+                if (!updated.representative_name && ref.representative_name) {
+                  updated.representative_name = ref.representative_name;
+                }
+                // phone (참고: business_info fallback)
+                if (!updated.phone && ref.phone) {
+                  updated.phone = ref.phone;
+                }
+                // fax
+                if (!updated.fax && ref.fax) {
+                  updated.fax = ref.fax;
+                }
+
+                // 산재관리번호 (비어있을 때만)
+                if (!updated.industrial_accident_number && ref.industrial_accident_number) {
+                  updated.industrial_accident_number = ref.industrial_accident_number;
+                }
+                // 개시번호 (비어있을 때만)
+                if (!updated.commencement_number && ref.commencement_number) {
+                  updated.commencement_number = ref.commencement_number;
+                }
+              }
+
               // 요약 정보 (직전 데이터가 없거나 비어있을 때)
               if (data.summaryInfo) {
                 let sName = data.summaryInfo.manager_name || "";

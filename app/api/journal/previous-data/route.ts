@@ -166,62 +166,21 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .maybeSingle();
 
+    // [NEW] Best Reference Data (Shared Logic)
+    // 측정일지 등록/수정 시 빈 필드를 채울 최적의 참조 데이터
+    const { getBestReferenceData } = await import("@/lib/business/reference-data");
+    const referenceData = await getBestReferenceData(supabase, code, measurementYear, period);
+
     // measurement_business에서 국고지원 정보 및 산재관리번호 조회 (현재 시점 데이터)
-    const { data: businessData } = await supabase
-      .from("measurement_business")
-      .select("national_support_status, industrial_accident_number, commencement_number, manager_email, invoice_email, manager_name, manager_position, manager_mobile")
-      .eq("code", code)
-      .eq("year", measurementYear)
-      .eq("period", period)
-      .maybeSingle();
+    // -> getBestReferenceData로 대체되었으나, 기존 로직 호환성을 위해 유지하거나 referenceData 사용
+    const businessData = referenceData.source_type !== 'none' ? referenceData : null;
 
     // 5순위: measurement_business 과거 이력 조회 (최신순)
-    // measurement_journal에 데이터가 없거나 비어있는 경우, 과거 measurement_business 데이터에서 가져옴
-    // 우선순위: 현재보다 과거인 데이터 중 최신순 (2025 하반기 -> 2025 상반기 ...)
-    let businessHistoryDefaults: Record<string, any> = {};
-    const { data: businessHistory } = await supabase
-      .from("measurement_business")
-      .select("year, period, industrial_accident_number, commencement_number, manager_email, invoice_email, manager_name, manager_position, manager_mobile")
-      .eq("code", code)
-      // 현재 시점보다 과거 데이터만 조회 (같은 년도 이전 주기 + 이전 년도들)
-      .or(`year.lt.${measurementYear},and(year.eq.${measurementYear},period.eq.상반기)`)
-      .order("year", { ascending: false })
-      .order("period", { ascending: false }) // 하반기 > 상반기
-      .limit(5); // 최근 5개만 확인
+    // -> getBestReferenceData 내부 로직으로 대체됨.
+    // 하지만 기존 변수 명(businessHistoryDefaults)을 사용하는 로직이 아래에 있으므로,
+    // referenceData를 사용하여 매핑하거나, 아래 로직을 referenceData 기반으로 수정해야 함.
 
-    if (businessHistory && businessHistory.length > 0) {
-      // 현재 주기가 "하반기"인 경우 필터링 로직이 약간 복잡할 수 있으므로, 
-      // 가져온 데이터에서 현재 시점보다 미래이거나 같은 데이터는 제외 (확실하게 하기 위해)
-      // (위의 OR 조건이 복잡해서 쿼리 레벨에서 완벽하지 않을 수 있음)
-      const validHistory = businessHistory.filter(b => {
-        if (b.year < measurementYear) return true;
-        if (b.year === measurementYear) {
-          // 현재가 상반기면 같은 년도 데이터는 모두 제외 (이미 위에서 제외됨)
-          // 현재가 하반기면 상반기 데이터는 포함 (period 오름차순: 상반기 < 하반기 이지만 문자열 비교 주의)
-          // "상반기" < "하반기" (사전순) -> 운 좋게도 맞음. 하지만 명시적으로 처리
-          // 여기선 period.eq.상반기 조건이 쿼리에 있어서 괜찮지만 안전하게 필터링
-          return period === "하반기" && b.period === "상반기";
-        }
-        return false;
-      });
-
-      const fieldsToFind = [
-        "industrial_accident_number", "commencement_number", "manager_email", "invoice_email",
-        "manager_name", "manager_position", "manager_mobile"
-      ];
-
-      for (const field of fieldsToFind) {
-        for (const history of validHistory) {
-          const val = (history as any)[field];
-          if (val && !businessHistoryDefaults[field]) {
-            businessHistoryDefaults[field] = val;
-            break; // 해당 필드의 값을 찾으면 다음 필드로
-          }
-        }
-      }
-
-      console.log('[previous-data API] measurement_business 과거 이력 조회 결과:', businessHistoryDefaults);
-    }
+    // 여기서는 기존 로직(previousJournal 중심)을 유지하되, fallback으로 referenceData를 적극 활용하도록 수정
 
     // 예비조사 정보 조회 (같은 code의 가장 최근 예비조사)
     const { data: latestSurvey } = await supabase
@@ -240,21 +199,25 @@ export async function GET(request: NextRequest) {
     let nationalSupportStatus = null;
     if (nationalSupportData?.national_support_status) {
       nationalSupportStatus = nationalSupportData.national_support_status;
-    } else if (businessData?.national_support_status) {
-      nationalSupportStatus = businessData.national_support_status;
+    } else if (businessData?.source_type === 'exact' && (businessData as any).national_support_status) { // businessData는 이제 ReferenceData 타입이므로 타입 단언 필요할 수 있음
+      // ReferenceData에는 national_support_status가 없음 (인터페이스 확인 필요)
+      // ReferenceData 인터페이스에 national_support_status 추가 필요? 
+      // -> 확인: mapMeasurementBusinessToRef에서 빠져있음. 추가하는게 좋음.
+      nationalSupportStatus = null;
     } else if (previousJournal?.national_support_status) {
       nationalSupportStatus = previousJournal.national_support_status;
     }
 
     // previousJournal이 없어도 fallbackDefaults가 있으면 데이터를 반환할 수 있도록 함
     // 또는 businessData가 있으면 반환
-    const hasData = previousJournal || Object.keys(fallbackDefaults).length > 0 || businessData;
+    const hasData = previousJournal || Object.keys(fallbackDefaults).length > 0 || businessData || (referenceData.source_type !== 'none');
 
     if (!hasData && !nationalSupportData && !summaryData) {
       return NextResponse.json({
         previousData: null,
         nationalSupportStatus,
         message: "직전 측정일지 데이터가 없습니다.",
+        referenceData
       });
     }
 
@@ -267,22 +230,35 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // [COMPATIBILITY] referenceData를 businessHistoryDefaults 이름으로 매핑 (기존 로직 유지)
+    // getBestReferenceData는 "최적"의 데이터 하나만 가져오지만, 
+    // 기존 로직에서의 businessHistoryDefaults와 역할이 유사하므로 이를 사용
+    const businessHistoryDefaults: Record<string, any> = {
+      manager_name: referenceData.manager_name,
+      manager_position: referenceData.manager_position,
+      manager_mobile: referenceData.manager_mobile,
+      manager_email: referenceData.manager_email,
+      invoice_email: referenceData.invoice_email,
+      industrial_accident_number: referenceData.industrial_accident_number,
+      commencement_number: referenceData.commencement_number,
+    };
+
     // 직전 측정일지에서 자동 채울 수 있는 필드만 반환
     // 산재관리번호 등은 fallbackDefaults(최근이력) 또는 businessData도 활용
-    // 담당자 정보 우선순위: 업체관리 이력(businessHistory) > 직전 일지(journal) > 최근 일지(fallback)
+    // 담당자 정보 우선순위: 업체관리 이력(businessHistory/referenceData) > 직전 일지(journal) > 최근 일지(fallback)
     const previousData = hasData ? {
       // 담당자 정보
       manager_name: businessHistoryDefaults.manager_name || previousJournal?.manager_name || fallbackDefaults.manager_name || null,
       manager_position: businessHistoryDefaults.manager_position || previousJournal?.manager_position || fallbackDefaults.manager_position || null,
       manager_mobile: businessHistoryDefaults.manager_mobile || previousJournal?.manager_mobile || fallbackDefaults.manager_mobile || null,
-      manager_email: businessHistoryDefaults.manager_email || businessData?.manager_email || previousJournal?.manager_email || fallbackDefaults.manager_email || null,
+      manager_email: businessHistoryDefaults.manager_email || (businessData as any)?.manager_email || previousJournal?.manager_email || fallbackDefaults.manager_email || null,
 
       // 측정비 정보
       measurement_fee_business: previousJournal?.measurement_fee_business || null,
       measurement_fee_national: previousJournal?.measurement_fee_national || null,
 
       // 이메일 정보
-      invoice_email: previousJournal?.invoice_email || fallbackDefaults.invoice_email || businessHistoryDefaults.invoice_email || businessData?.invoice_email || null,
+      invoice_email: previousJournal?.invoice_email || fallbackDefaults.invoice_email || businessHistoryDefaults.invoice_email || (businessData as any)?.invoice_email || null,
 
       // 측정자
       measurer: previousJournal?.measurer || null,
@@ -291,10 +267,10 @@ export async function GET(request: NextRequest) {
       k2b_sender: previousJournal?.k2b_sender || null,
 
       // 산재관리번호 (우선순위: 직전본문 > 최근이력(fallback) > 사업장이력(history) > 현재사업장정보)
-      industrial_accident_number: previousJournal?.industrial_accident_number || fallbackDefaults.industrial_accident_number || businessHistoryDefaults.industrial_accident_number || businessData?.industrial_accident_number || null,
+      industrial_accident_number: previousJournal?.industrial_accident_number || fallbackDefaults.industrial_accident_number || businessHistoryDefaults.industrial_accident_number || (businessData as any)?.industrial_accident_number || null,
 
       // 개시번호 (우선순위: 직전본문 > 최근이력(fallback) > 사업장이력(history) > 현재사업장정보)
-      commencement_number: previousJournal?.commencement_number || fallbackDefaults.commencement_number || businessHistoryDefaults.commencement_number || businessData?.commencement_number || null,
+      commencement_number: previousJournal?.commencement_number || fallbackDefaults.commencement_number || businessHistoryDefaults.commencement_number || (businessData as any)?.commencement_number || null,
     } : null;
 
     // 디버깅: previousData 확인

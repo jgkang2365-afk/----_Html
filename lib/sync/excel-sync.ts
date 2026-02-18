@@ -2052,16 +2052,23 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
     // 1-2. measurement_business로 업데이트 (코드+년도+주기 기준)
     const { data: mbData, error: mbError } = await supabase
       .from("measurement_business")
-      .select("code, year, period, business_name, business_number, address, manager_name, manager_mobile, total_employees, business_category, industrial_accident_number");
+      .select("code, year, period, business_name, business_number, address, manager_name, manager_mobile, total_employees, business_category, industrial_accident_number")
+      // 필요한 필드만 조회하되, 정렬은 메모리에서 하거나 쿼리에서 미리 정렬
+      .order("year", { ascending: false })
+      .order("period", { ascending: false });
 
     if (mbError) throw new Error(`measurement_business 조회 실패: ${mbError.message}`);
 
-    const mbMap = new Map();
+    // Grouping by Code for fallback logic
+    const mbGroupedMap = new Map<string, any[]>();
+
     if (mbData) {
       mbData.forEach((row: any) => {
-        if (row.code && row.year && row.period) {
-          const key = `${row.code}-${row.year}-${row.period}`;
-          mbMap.set(key, row);
+        if (row.code) {
+          if (!mbGroupedMap.has(row.code)) {
+            mbGroupedMap.set(row.code, []);
+          }
+          mbGroupedMap.get(row.code)?.push(row);
         }
       });
     }
@@ -2082,9 +2089,21 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       for (const journal of journals) {
         let needsUpdate = false;
         const updateData: any = {};
-        const key = `${journal.code}-${journal.measurement_year}-${journal.measurement_period}`;
+        // const key = `${journal.code}-${journal.measurement_year}-${journal.measurement_period}`;
 
-        const mbRow = mbMap.get(key);
+        // [IMPROVED LOGIC] Find Best Match from measurement_business
+        let mbRow: any = null;
+        const mbList = mbGroupedMap.get(journal.code) || [];
+
+        // 1. Exact Match
+        mbRow = mbList.find((row: any) => row.year === journal.measurement_year && row.period === journal.measurement_period);
+
+        // 2. Fallback: Latest Available (Sorted by year desc, period desc)
+        if (!mbRow && mbList.length > 0) {
+          mbRow = mbList[0];
+          // console.log(`[Fallback] Journal ${journal.id} (${journal.code}): Using latest data (${mbRow.year} ${mbRow.period}) instead of (${journal.measurement_year} ${journal.measurement_period})`);
+        }
+
         const bRow = bMap.get(journal.code);
 
         // 우선순위: measurement_business -> business_info
