@@ -1109,20 +1109,24 @@ export async function syncBusinessInfo(
         if (existing) {
           const changes: string[] = [];
 
+          // 사업장명 변경 감지
+          if (row.business_name && existing.business_name !== row.business_name) {
+            changes.push(`사업장명: (기존)${existing.business_name} -> (변경)${row.business_name}`);
+          }
+
+          // 사업자번호 변경 감지
+          if (row.business_number && existing.business_number !== row.business_number) {
+            changes.push(`사업자번호: (기존)${existing.business_number || '(없음)'} -> (변경)${row.business_number}`);
+          }
+
           // 대표자명 변경 감지
           if (row.representative_name && existing.representative_name !== row.representative_name) {
             changes.push(`대표자: (기존)${existing.representative_name || '(없음)'} -> (변경)${row.representative_name}`);
           }
 
-          // 계산서 이메일 변경 감지
-          if (row.invoice_email && existing.invoice_email !== row.invoice_email) {
-            changes.push(`계산서메일: (기존)${existing.invoice_email || '(없음)'} -> (변경)${row.invoice_email}`);
-          }
-
-          // 사업장명 변경 감지
-          if (row.business_name && existing.business_name !== row.business_name) {
-            console.log(`[DEBUG] Name Mismatch: Code=${row.code}, Excel=${row.business_name}, DB=${existing.business_name}`);
-            changes.push(`사업장명: (기존)${existing.business_name} -> (변경)${row.business_name}`);
+          // 주소 변경 감지
+          if (row.address && existing.address !== row.address) {
+            changes.push(`주소: (기존)${existing.address || '(없음)'} -> (변경)${row.address}`);
           }
 
           if (changes.length > 0) {
@@ -1562,6 +1566,22 @@ export async function syncMeasurementBusiness(
 
     const parsedData = parseMeasurementBusiness(excelData, worksheet, headerRowIndex, storageFileName || fileName, rawArrayData);
 
+    // [NEW] 변경 내역 비교를 위한 최신 측정사업장 데이터 조회 (올바른 위치로 이동)
+    // parsedData가 준비된 후, allRows 생성 및 비교 직전 수행
+    console.log("[측정사업장 동기화] 변경 내역 비교를 위한 기존 데이터 조회 중...");
+    const { data: latestMeasurementsData, error: fetchError } = await supabase
+      .from("measurement_business")
+      .select("*");
+
+    // 이 변수는 아래 allRows.forEach에서 사용됩니다.
+    const latestMeasurements = latestMeasurementsData || [];
+
+    if (fetchError) {
+      console.warn("[측정사업장 동기화] 기존 데이터 조회 실패 (변경 내역 비교 불가):", fetchError);
+    } else {
+      console.log(`[측정사업장 동기화] 기존 데이터 ${latestMeasurements.length}건 조회 완료`);
+    }
+
     // 디버깅: H0432 데이터가 파싱되었는지 확인
     const h0432Parsed = parsedData.filter((row: any) => row.code && (row.code.toUpperCase().includes("H0432") || row.code.toUpperCase().includes("H432")));
     console.log(`[측정사업장 동기화] 파싱된 데이터 중 H0432 포함: ${h0432Parsed.length}건`);
@@ -1649,6 +1669,56 @@ export async function syncMeasurementBusiness(
 
         return fullRow;
       });
+
+    // [NEW] 변경 사항 로깅 (메모리상의 최신 데이터와 비교)
+    // allRows는 엑셀에서 파싱한 전체 데이터 (Unique Key 중복 제거됨)
+    allRows.forEach(row => {
+      const latestMeasurement = latestMeasurements.find(lm => lm.code === row.code && lm.year === row.year && lm.period === row.period);
+      if (latestMeasurement) {
+        const changes: string[] = [];
+
+        // 1. 산재관리번호
+        if (row.management_number && latestMeasurement.management_number !== row.management_number) {
+          changes.push(`산재관리번호: ${latestMeasurement.management_number || '(없음)'} -> ${row.management_number}`);
+        }
+        // 2. 사업장개시번호
+        if (row.commencement_number && latestMeasurement.commencement_number !== row.commencement_number) {
+          changes.push(`개시번호: ${latestMeasurement.commencement_number || '(없음)'} -> ${row.commencement_number}`);
+        }
+        // 3. 담당자
+        if (row.manager_name && latestMeasurement.manager_name !== row.manager_name) {
+          changes.push(`담당자: ${latestMeasurement.manager_name || '(없음)'} -> ${row.manager_name}`);
+        }
+        // 4. 직위 (manager_position)
+        if (row.manager_position && latestMeasurement.manager_position !== row.manager_position) {
+          changes.push(`직위: ${latestMeasurement.manager_position || '(없음)'} -> ${row.manager_position}`);
+        }
+        // 5. 휴대전화
+        if (row.manager_mobile && latestMeasurement.manager_mobile !== row.manager_mobile) {
+          changes.push(`휴대전화: ${latestMeasurement.manager_mobile || '(없음)'} -> ${row.manager_mobile}`);
+        }
+        // 6. 이메일
+        if (row.manager_email && latestMeasurement.manager_email !== row.manager_email) {
+          changes.push(`이메일: ${latestMeasurement.manager_email || '(없음)'} -> ${row.manager_email}`);
+        }
+
+        // 기존 유지: 측정일
+        if (row.measurement_date && latestMeasurement.measurement_date !== row.measurement_date) {
+          changes.push(`측정일: ${latestMeasurement.measurement_date || '(없음)'} -> ${row.measurement_date}`);
+        }
+        // 기존 유지: 비고
+        if (row.notes && latestMeasurement.notes !== row.notes) {
+          changes.push(`비고: ${latestMeasurement.notes || '(없음)'} -> ${row.notes}`);
+        }
+
+        if (changes.length > 0) {
+          changeLog.push(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
+        }
+      } else {
+        // 신규 데이터인 경우
+        changeLog.push(`[신규] ${row.business_name} (${row.code}) 측정 정보가 추가되었습니다.`);
+      }
+    });
 
     // UPSERT 배치 처리 (1000개씩)
     if (allRows.length > 0) {
