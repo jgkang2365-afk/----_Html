@@ -125,9 +125,12 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
  * @param fileType - "business-info" 또는 "measurement-business"
  * @returns 파일 버퍼와 파일명, 또는 null (파일이 없을 경우)
  */
-async function getLatestFileFromStorage(fileType: "business-info" | "measurement-business"): Promise<{ buffer: Buffer; fileName: string } | null> {
+async function getLatestFileFromStorage(
+  fileType: "business-info" | "measurement-business",
+  externalSupabaseClient?: SupabaseClient
+): Promise<{ buffer: Buffer; fileName: string } | null> {
   try {
-    const supabase = await createClient();
+    const supabase = externalSupabaseClient || await createClient();
 
     console.log(`[Storage] getLatestFileFromStorage 호출: fileType=${fileType}`);
 
@@ -872,7 +875,8 @@ export async function syncBusinessInfo(
         // 안전하게 externalClient가 있으면 직접 list/download 하는게 좋지만, 
         // 코드가 복잡해지므로 일단 specificStorageFileName이 주어지는 케이스(업로드 직후)에 집중.
 
-        const storageFile = await getLatestFileFromStorage("business-info");
+        // externalSupabaseClient가 있으면 그것을 전달하여 검색 (관리자 권한으로 읽기)
+        const storageFile = await getLatestFileFromStorage("business-info", supabase);
         if (storageFile) {
           fileBuffer = storageFile.buffer;
           storageFileName = storageFile.fileName;
@@ -1347,7 +1351,8 @@ export async function syncMeasurementBusiness(
       }
       // 2. 최신 파일 검색
       else {
-        const storageFile = await getLatestFileFromStorage("measurement-business");
+        // externalSupabaseClient(supabase)를 전달하여 관리자 권한으로 최신 파일 검색
+        const storageFile = await getLatestFileFromStorage("measurement-business", supabase);
         if (storageFile) {
           fileBuffer = storageFile.buffer;
           storageFileName = storageFile.fileName;
