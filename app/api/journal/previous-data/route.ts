@@ -131,7 +131,8 @@ export async function GET(request: NextRequest) {
       const fieldsToFind = [
         "manager_name", "manager_mobile", "manager_email",
         "manager_position", "phone", "fax",
-        "invoice_email", "industrial_accident_number", "commencement_number"
+        "invoice_email", "industrial_accident_number", "commencement_number",
+        "representative_name"
       ];
 
       for (const field of fieldsToFind) {
@@ -241,6 +242,7 @@ export async function GET(request: NextRequest) {
       invoice_email: referenceData.invoice_email,
       industrial_accident_number: referenceData.industrial_accident_number,
       commencement_number: referenceData.commencement_number,
+      representative_name: referenceData.representative_name,
     };
 
     // 직전 측정일지에서 자동 채울 수 있는 필드만 반환
@@ -271,6 +273,9 @@ export async function GET(request: NextRequest) {
 
       // 개시번호 (우선순위: 직전본문 > 최근이력(fallback) > 사업장이력(history) > 현재사업장정보)
       commencement_number: previousJournal?.commencement_number || fallbackDefaults.commencement_number || businessHistoryDefaults.commencement_number || (businessData as any)?.commencement_number || null,
+
+      // 대표자명
+      representative_name: previousJournal?.representative_name || fallbackDefaults.representative_name || businessHistoryDefaults.representative_name || (businessData as any)?.representative_name || null,
     } : null;
 
     // 디버깅: previousData 확인

@@ -245,7 +245,7 @@ function parseBusinessInfo(data: any[]): any[] {
       address2: row["주소2"] || null,
       phone: row["전화번호"] || null,
       fax: row["팩스번호"] || null,
-      representative_name: row["대표자명"] || null,
+      representative_name: findColumnValue(row, ["대표자명", "대표자", "대표", "대표이사", "사장님"]) || null,
     };
 
     // 추가 필드들 (마이그레이션 후에만 저장됨)
@@ -765,7 +765,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
 
     const finalSanjae = normalizeDigits(industrialAccidentNumber, 11);
     const finalCommencement = normalizeDigits(commencementNumber, 11);
-    const representativeName = row["대표자명"] || row["대표자"] || null;
+    const representativeName = findColumnValue(row, ["대표자명", "대표자", "대표", "대표이사", "사장님"]) || null;
 
     if (managerName) optionalFields.manager_name = managerName;
     if (managerPosition) optionalFields.manager_position = managerPosition;

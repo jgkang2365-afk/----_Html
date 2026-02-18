@@ -443,6 +443,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   console.log('[JournalEditForm] 개시번호 자동 채움:', previousCommencementNumber);
                 }
 
+                // 대표자명 (비어있을 때만 자동 채우기)
+                const currentRepresentativeName = prev.representative_name || "";
+                const previousRepresentativeName = data.previousData.representative_name || null;
+                if (!currentRepresentativeName && previousRepresentativeName) {
+                  updated.representative_name = previousRepresentativeName;
+                }
+
                 // 전회 측정비 정보 저장 (참고용)
                 const previousBusinessFee = data.previousData.measurement_fee_business || null;
                 const previousNationalFee = data.previousData.measurement_fee_national || null;
