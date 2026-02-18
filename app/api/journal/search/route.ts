@@ -391,6 +391,28 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 3.6 preliminary_survey 조회 (정렬을 위해 created_at 가져오기)
+    const surveyCreatedAtMap = new Map<string, string>();
+    if (allCodes.size > 0) {
+      const { data: surveyData, error: surveyError } = await supabase
+        .from("preliminary_survey")
+        .select("code, year, period, created_at")
+        .in("code", Array.from(allCodes));
+
+      if (!surveyError && surveyData) {
+        surveyData.forEach((survey: any) => {
+          const key = `${survey.code}-${survey.year}-${survey.period}`;
+          // 같은 키에 여러 개가 있을 경우 가장 먼저 생성된 것(min)을 사용하는 것이 일반적이나,
+          // 예비조사는 보통 고유하므로 덮어써도 무방함. 하지만 "등록 순서"라면 최초 등록 시간을 의미할 가능성이 높으므로
+          // 기존 값이 있으면 더 오래된 것을 유지하는 식으로 처리
+          const existing = surveyCreatedAtMap.get(key);
+          if (!existing || new Date(survey.created_at) < new Date(existing)) {
+            surveyCreatedAtMap.set(key, survey.created_at);
+          }
+        });
+      }
+    }
+
     // 4. measurement_journal이 있으면 우선 사용, 없으면 measurement_business 데이터를 변환
     // 중복 제거: 같은 code-year-period 조합 중 가장 최신 것만 사용
     const journalMap = new Map<string, any>();
@@ -713,49 +735,58 @@ export async function GET(request: NextRequest) {
       console.log(`[검색 API] 필터링 후 H0432 데이터: ${h0432AfterFilter.length}건`);
     }
 
-    // 정렬 로직 변경: 공문연번(document_number) 기준
-    // 1. 공문연번이 없는 것(null/empty)이 상단
-    // 2. 공문연번이 있는 것은 내림차순 정렬
-    // 3. 동일 조건일 경우 기존 정렬(년도 → 주기 → 생성일) 따름
+    // 정렬 로직 변경: 예비조사 등록 순서 (created_at 오름차순) 기준
+    // 1. 예비조사 등록 시간 (preliminary_survey.created_at) -> 없으면 본인 created_at 사용
+    // 2. 오름차순 (먼저 등록된 순서)
+    // 3. 동일할 경우 공문연번 등 기존 로직 참고
     const periodOrder: { [key: string]: number } = { "하반기": 2, "상반기": 1 };
     filteredResults.sort((a, b) => {
+      // 1. 예비조사 등록 시간 비교 (없으면 항목 자체의 생성 시간 사용)
+      const keyA = `${a.code}-${a.measurement_year}-${a.measurement_period}`;
+      const keyB = `${b.code}-${b.measurement_year}-${b.measurement_period}`;
+
+      const createdAtA = surveyCreatedAtMap.get(keyA) || a.created_at || "";
+      const createdAtB = surveyCreatedAtMap.get(keyB) || b.created_at || "";
+
+      const timeA = new Date(createdAtA).getTime();
+      const timeB = new Date(createdAtB).getTime();
+
+      if (timeA !== timeB) {
+        return timeA - timeB; // 오름차순 (오래된 것부터)
+      }
+
+      // 2. 등록 시간이 같을 경우 (거의 없겠지만): 기존 정렬 로직 (공문연번 우선)
       const docA = a.document_number;
       const docB = b.document_number;
       const hasDocA = !!docA;
       const hasDocB = !!docB;
 
-      // 1. 공문연번 유무 비교 (없는 것이 상단)
+      // 공문연번 유무 비교 (없는 것이 상단 -> 여기서는 후순위로 미룸, 데이터 특성상 뒤에 나오는게 나을 수도 있음)
       if (hasDocA !== hasDocB) {
         return hasDocA ? 1 : -1;
       }
 
-      // 2. 둘 다 공문연번이 있는 경우: 내림차순 정렬
+      // 둘 다 공문연번이 있는 경우: 내림차순 정렬
       if (hasDocA && hasDocB) {
         if (docA !== docB) {
-          // 숫자로 변환 가능한 경우 숫자 크기로 비교 (예: "2" vs "10")
           const numA = Number(docA);
           const numB = Number(docB);
           if (!isNaN(numA) && !isNaN(numB)) {
             return numB - numA;
           }
-          // 문자열인 경우 사전순 역순
           return docA > docB ? -1 : 1;
         }
       }
 
-      // 3. 기존 정렬 (년도 → 주기 → 생성일)
-      if (a.measurement_year !== b.measurement_year) {
-        return b.measurement_year - a.measurement_year; // 년도 내림차순
-      }
-      if (a.measurement_period !== b.measurement_period) {
-        // 주기 내림차순 (하반기 > 상반기)
-        const periodA = periodOrder[a.measurement_period] || 0;
-        const periodB = periodOrder[b.measurement_period] || 0;
-        return periodB - periodA;
-      }
-      const dateA = new Date(a.created_at || 0).getTime();
-      const dateB = new Date(b.created_at || 0).getTime();
-      return dateB - dateA; // 생성일 내림차순
+      return 0;
+    });
+
+    // sort_date 필드 추가 (프론트엔드 정렬용)
+    filteredResults.forEach((entry: any) => {
+      const key = `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`;
+      const surveyCreatedAt = surveyCreatedAtMap.get(key);
+      // 예비조사 등록일이 있으면 사용, 없으면 본인의 created_at 사용
+      entry.sort_date = surveyCreatedAt || entry.created_at;
     });
 
     // 같은 code-year-period 조합에 대해 가장 최신 항목만 유지 (정렬 후 첫 번째 항목이 가장 최신)

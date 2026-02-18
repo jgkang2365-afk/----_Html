@@ -53,6 +53,7 @@ interface JournalEntry {
   created_at: string;
   updated_at: string;
   _isFromBusiness?: boolean; // measurement_business에서 온 데이터인지 표시
+  sort_date?: string; // 정렬용 날짜 (예비조사 등록일 or created_at)
 }
 
 export const JournalSearch: React.FC = () => {
@@ -589,9 +590,19 @@ export const JournalSearch: React.FC = () => {
       }
     }
 
-    // 정렬: 공문연번 -> 측정년도 -> 측정주기 -> 등록일 (기본 오름차순)
+    // 정렬: 예비조사 등록일(sort_date) -> 공문연번 -> 측정년도 -> 측정주기 -> 등록일 (기본 오름차순)
     filtered = filtered.sort((a, b) => {
       const multiplier = sortOrder === "asc" ? 1 : -1;
+
+      // 0. 예비조사 등록일 (sort_date) 우선 정렬
+      // sort_date는 API에서 예비조사 등록일 또는 created_at으로 설정되어 옴
+      if (a.sort_date && b.sort_date) {
+        const dateA = new Date(a.sort_date).getTime();
+        const dateB = new Date(b.sort_date).getTime();
+        if (dateA !== dateB) {
+          return (dateA - dateB) * multiplier;
+        }
+      }
 
       // 1. 공문연번 (문자열 비교)
       if (a.document_number !== b.document_number) {
@@ -601,8 +612,8 @@ export const JournalSearch: React.FC = () => {
         }
         // 둘 중 하나만 값이 있는 경우 (값 있는 것이 위로, 또는 아래로... 요구사항에 따라 다름)
         // 보통 오름차순일 때 값 있는게 위로 오는게 좋지만, 여기선 "공문연번 순"이므로 값 있는 것 끼리 정렬하고 없는건 뒤로 보냄
-        if (a.document_number) return -1; // a가 값이 있으면 앞으로 (없는건 뒤로)
-        if (b.document_number) return 1;  // b가 값이 있으면 앞으로 (없는건 뒤로)
+        if (a.document_number) return -1 * multiplier; // a가 값이 있으면 앞으로 (없는건 뒤로) -- multiplier 적용으로 정렬 방향에 따름
+        if (b.document_number) return 1 * multiplier;  // b가 값이 있으면 앞으로 (없는건 뒤로)
       }
 
       // 2. 측정년도 (내림차순 정렬을 유지하고 싶다면 multiplier 반전 고려, 하지만 보통 오름차순/내림차순 전체 적용)
@@ -618,7 +629,7 @@ export const JournalSearch: React.FC = () => {
         return formA.localeCompare(formB) * multiplier;
       }
 
-      // 4. 등록일 (created_at 기준)
+      // 4. 등록일 (created_at 기준) - sort_date가 없을 경우를 대비해 유지
       const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
       const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
       return (dateA - dateB) * multiplier;
