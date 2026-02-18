@@ -124,7 +124,7 @@ function mapBusinessInfoToRef(data: any): ReferenceData {
         address: address,
         manager_name: data.manager_name,
         manager_position: data.manager_position,
-        manager_mobile: null, // business_info에는 mobile 필드가 명확치 않음 (manager_contact가 있긴 함)
+        manager_mobile: undefined, // business_info에는 mobile 필드가 명확치 않음 (manager_contact가 있긴 함)
         // manager_contact를 mobile로 매핑 시도
         phone: data.phone,
         fax: data.fax,
