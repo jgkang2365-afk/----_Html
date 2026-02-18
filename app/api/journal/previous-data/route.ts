@@ -260,7 +260,7 @@ export async function GET(request: NextRequest) {
       measurement_fee_national: previousJournal?.measurement_fee_national || null,
 
       // 이메일 정보
-      invoice_email: previousJournal?.invoice_email || fallbackDefaults.invoice_email || businessHistoryDefaults.invoice_email || (businessData as any)?.invoice_email || null,
+      invoice_email: businessHistoryDefaults.invoice_email || (businessData as any)?.invoice_email || previousJournal?.invoice_email || fallbackDefaults.invoice_email || null,
 
       // 측정자
       measurer: previousJournal?.measurer || null,
@@ -268,14 +268,14 @@ export async function GET(request: NextRequest) {
       // K2B 전송자
       k2b_sender: previousJournal?.k2b_sender || null,
 
-      // 산재관리번호 (우선순위: 직전본문 > 최근이력(fallback) > 사업장이력(history) > 현재사업장정보)
-      industrial_accident_number: previousJournal?.industrial_accident_number || fallbackDefaults.industrial_accident_number || businessHistoryDefaults.industrial_accident_number || (businessData as any)?.industrial_accident_number || null,
+      // 산재관리번호 (우선순위: 현재사업장정보(Master) > 직전본문 > 최근이력(fallback))
+      industrial_accident_number: businessHistoryDefaults.industrial_accident_number || (businessData as any)?.industrial_accident_number || previousJournal?.industrial_accident_number || fallbackDefaults.industrial_accident_number || null,
 
-      // 개시번호 (우선순위: 직전본문 > 최근이력(fallback) > 사업장이력(history) > 현재사업장정보)
-      commencement_number: previousJournal?.commencement_number || fallbackDefaults.commencement_number || businessHistoryDefaults.commencement_number || (businessData as any)?.commencement_number || null,
+      // 개시번호 (우선순위: 현재사업장정보(Master) > 직전본문 > 최근이력(fallback))
+      commencement_number: businessHistoryDefaults.commencement_number || (businessData as any)?.commencement_number || previousJournal?.commencement_number || fallbackDefaults.commencement_number || null,
 
-      // 대표자명
-      representative_name: previousJournal?.representative_name || fallbackDefaults.representative_name || businessHistoryDefaults.representative_name || (businessData as any)?.representative_name || null,
+      // 대표자명 (우선순위: 현재사업장정보(Master) > 직전본문 > 최근이력(fallback))
+      representative_name: businessHistoryDefaults.representative_name || (businessData as any)?.representative_name || previousJournal?.representative_name || fallbackDefaults.representative_name || null,
     } : null;
 
     // 디버깅: previousData 확인
