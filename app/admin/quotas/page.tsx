@@ -46,7 +46,7 @@ export default function AdminQuotasPage() {
     });
 
     // 데이터 조회
-    const fetchQuotas = async (year: string) => {
+    const fetchQuotas = React.useCallback(async (year: string) => {
         try {
             setLoading(true);
             setError(null);
@@ -67,7 +67,7 @@ export default function AdminQuotasPage() {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
     const initializeData = (year: number, currentData: QuotaData[]): QuotaData[] => {
         const periods = ["상반기", "하반기"];
@@ -94,7 +94,7 @@ export default function AdminQuotasPage() {
 
     useEffect(() => {
         fetchQuotas(selectedYear);
-    }, [selectedYear]);
+    }, [selectedYear, fetchQuotas]);
 
     // 값 클릭 시 수정 모드 진입 (여기서는 값 수정을 팝업으로 하지 않고, 값 수정 후 저장 시 사유를 묻는 방식 아님.
     // 사용성은 "수정 -> 포커스 아웃 또는 엔터 -> 저장하시겠습니까?(사유입력)" 흐름이 좋음.

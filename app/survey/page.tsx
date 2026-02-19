@@ -119,12 +119,53 @@ export default function SurveyPage() {
   const [selectedBusinessCodes, setSelectedBusinessCodes] = useState<Set<string>>(new Set());
   const [isBulkRegisterModalOpen, setIsBulkRegisterModalOpen] = useState(false);
 
+  // 예비조사 목록 조회
+  const loadSurveys = React.useCallback(async (options?: any) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams();
+
+      let mDate = listSearchParams.measurementDate;
+      let bName = listSearchParams.businessName;
+
+      // 오버라이드 파라미터 확인 (이벤트 객체가 아닌 경우)
+      if (options && typeof options === 'object' && !options.type) {
+        if (options.measurementDate !== undefined) mDate = options.measurementDate;
+        if (options.businessName !== undefined) bName = options.businessName;
+      }
+
+      if (mDate) {
+        params.append("measurementDate", mDate);
+      }
+      if (bName) {
+        params.append("businessName", bName);
+      }
+
+      const url = params.toString() ? `/api/survey?${params.toString()}` : "/api/survey";
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (response.ok) {
+        setSurveys(data.surveys || []);
+      } else {
+        setError(data.error || "예비조사 목록을 불러오는 중 오류가 발생했습니다.");
+      }
+    } catch (err: any) {
+      console.error("예비조사 목록 로드 오류:", err);
+      setError(err.message || "예비조사 목록을 불러오는 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }, [listSearchParams]);
+
   useEffect(() => {
     if (activeTab === "list") {
       loadSurveys();
     }
     loadOfficeOptions();
-  }, [activeTab]);
+  }, [activeTab, loadSurveys]);
 
   const loadOfficeOptions = async () => {
     try {
@@ -187,54 +228,7 @@ export default function SurveyPage() {
     }
   };
 
-  // 예비조사 목록 조회
-  const loadSurveys = async (options?: any) => {
-    setLoading(true);
-    setError(null);
 
-    try {
-      const params = new URLSearchParams();
-
-      let mDate = listSearchParams.measurementDate;
-      let bName = listSearchParams.businessName;
-
-      // 오버라이드 파라미터 확인 (이벤트 객체가 아닌 경우)
-      if (options && typeof options === 'object' && !options.type) {
-        if (options.measurementDate !== undefined) mDate = options.measurementDate;
-        if (options.businessName !== undefined) bName = options.businessName;
-      }
-
-      if (mDate) {
-        params.append("measurementDate", mDate);
-      }
-      if (bName) {
-        params.append("businessName", bName);
-      }
-
-      const url = params.toString() ? `/api/survey?${params.toString()}` : "/api/survey";
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (response.ok) {
-        setSurveys(data.surveys || []);
-      } else {
-        setError(data.error || "예비조사 목록을 불러오는 중 오류가 발생했습니다.");
-      }
-    } catch (err: any) {
-      console.error("예비조사 목록 로드 오류:", err);
-      setError(err.message || "예비조사 목록을 불러오는 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSearch = () => {
-    if (activeTab === "search") {
-      searchBusinesses();
-    } else {
-      loadSurveys();
-    }
-  };
 
   const handleReset = () => {
     setSearchParams({

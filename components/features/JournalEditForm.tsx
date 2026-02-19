@@ -833,9 +833,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [officeQuota, setOfficeQuota] = useState<number | null>(null);
 
   // 인가 갯수 조회 (년도/주기/지정지청 변경 시)
+  // 인가 갯수 조회 (년도/주기/지정지청 변경 시)
+  const { measurement_year, measurement_period, designated_office } = formData;
   useEffect(() => {
-    const { measurement_year, measurement_period, designated_office } = formData;
-
     // 필수 조건 체크
     if (measurement_year && measurement_period && designated_office) {
       const fetchQuota = async () => {
@@ -874,7 +874,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     } else {
       setOfficeQuota(null);
     }
-  }, [formData.measurement_year, formData.measurement_period, formData.designated_office]);
+  }, [measurement_year, measurement_period, designated_office]);
 
   // entry가 변경될 때 formData 업데이트 (entry.id가 변경되면 전체 재초기화)
   useEffect(() => {
@@ -1001,6 +1001,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
     // entry 변경 시 ref도 업데이트
     prevStartDateRef.current = normalizeDateForInput(entry.measurement_start_date);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry.id, entry.note, entry.code, entry.measurement_year, entry.measurement_period, entry.measurement_start_date]); // entry의 주요 필드가 변경될 때 전체 재초기화
 
   // 주소 변경 시 자동으로 소재지 관할청과 지정한계_관할지청 업데이트
