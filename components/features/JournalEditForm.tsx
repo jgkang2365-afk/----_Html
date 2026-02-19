@@ -768,15 +768,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     fetchBusinessCategories();
   }, []);
 
-  // 지정지청이 "대전"으로 변경되면 업종분류 기본값을 "공업사"로 설정
-  useEffect(() => {
-    if (formData.designated_office === "대전" && !formData.business_category) {
-      setFormData((prev) => ({
-        ...prev,
-        business_category: "공업사",
-      }));
-    }
-  }, [formData.designated_office, formData.business_category]);
+
 
   // 등록 모드일 때 로그인 사용자 정보로 기본값 설정 (Fallback)
   useEffect(() => {
@@ -1832,9 +1824,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Select
               label="지정지청 *"
               value={formData.designated_office}
-              onChange={(e) =>
-                setFormData({ ...formData, designated_office: e.target.value })
-              }
+              onChange={(e) => {
+                const newOffice = e.target.value;
+                setFormData((prev) => ({
+                  ...prev,
+                  designated_office: newOffice,
+                  business_category: (newOffice === "대전" && !prev.business_category) ? "공업사" : prev.business_category
+                }));
+              }}
               options={designatedOfficeOptions}
               required
               disabled={autoFilling}
