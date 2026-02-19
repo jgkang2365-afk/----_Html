@@ -216,10 +216,10 @@ export async function GET(request: NextRequest) {
       const bInfo = businessInfoMap.get(item.code);
       const jInfo = journalInfoMap.get(item.code);
 
-      // 실시여부 로직: 기 입력된 값이 '거래종료', '종료', '확정'이면 유지.
-      // 그 외(미확정, 미실시, null 등)의 경우 예비조사 등록 여부에 따라 판단
+      // 실시여부 로직: 기 입력된 값이 '거래종료', '종료', '확정', '미확정'이면 유지.
+      // 그 외(미실시, null 등)의 경우 예비조사 등록 여부에 따라 판단
       let isRegisteredText = item.is_registered;
-      if (item.is_registered !== "거래종료" && item.is_registered !== "종료" && item.is_registered !== "확정") {
+      if (item.is_registered !== "거래종료" && item.is_registered !== "종료" && item.is_registered !== "확정" && item.is_registered !== "미확정") {
         isRegisteredText = isSurveyRegistered ? "실시" : "미실시";
       }
 
@@ -531,6 +531,21 @@ export async function PATCH(request: NextRequest) {
                   .eq("code", code)
                   .eq("year", year)
                   .eq("period", period);
+              }
+            }
+
+            // [New Feature] If status changed to '미확정', also delete Preliminary Survey
+            if (updates.is_registered === "미확정") {
+              try {
+                console.log(`[Sync] Status set to Unconfirmed. Deleting Preliminary Survey for ${code}`);
+                await supabase
+                  .from("preliminary_survey")
+                  .delete()
+                  .eq("code", code)
+                  .eq("year", year)
+                  .eq("period", period);
+              } catch (delError) {
+                console.error("Preliminary Survey Delete Error:", delError);
               }
             }
           }
