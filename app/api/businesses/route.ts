@@ -4,6 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+
+export const dynamic = 'force-dynamic'; // Force dynamic rendering
+
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { toShortName } from "@/lib/constants/designated-offices";

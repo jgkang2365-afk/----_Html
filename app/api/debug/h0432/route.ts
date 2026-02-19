@@ -4,7 +4,8 @@
  * 데이터베이스에 H0432 데이터가 실제로 있는지 확인
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+export const dynamic = 'force-dynamic';
 import { checkPermission } from "@/lib/auth/check-permission";
 import { createClient } from "@/lib/supabase/server";
 

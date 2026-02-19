@@ -4,7 +4,8 @@
  * Storage에 업로드된 Excel 파일의 실제 컬럼명을 확인하여 매핑 문제를 진단합니다.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+export const dynamic = 'force-dynamic';
 import { checkPermission } from "@/lib/auth/check-permission";
 import { createAdminClient } from "@/lib/supabase/admin";
 import * as XLSX from "xlsx";
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const fileType = searchParams.get("file") || "measurement-business";
-    
+
     if (fileType !== "measurement-business" && fileType !== "business-info") {
       return NextResponse.json(
         { error: "file 파라미터는 'measurement-business' 또는 'business-info'여야 합니다." },
@@ -65,7 +66,7 @@ export async function GET(request: Request) {
       // xlsx 라이브러리로 읽기 시도 (여러 옵션 시도)
       let workbook;
       let parseError = null;
-      
+
       // 방법 1: 기본 옵션
       try {
         workbook = XLSX.read(buffer, {
@@ -76,7 +77,7 @@ export async function GET(request: Request) {
         });
       } catch (err1) {
         parseError = err1;
-        
+
         // 방법 2: cellText를 true로 시도
         try {
           workbook = XLSX.read(buffer, {
@@ -90,7 +91,7 @@ export async function GET(request: Request) {
           parseError = err2;
         }
       }
-      
+
       if (!workbook || parseError) {
         return NextResponse.json(
           {
@@ -105,7 +106,7 @@ export async function GET(request: Request) {
 
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
-      
+
       const range = worksheet["!ref"];
       if (!range) {
         return NextResponse.json({
@@ -115,18 +116,18 @@ export async function GET(request: Request) {
       }
 
       const decodedRange = XLSX.utils.decode_range(range);
-      
+
       // 첫 번째 행이 비어있는지 확인 (측정사업장 파일의 경우)
       // 파일명에 "측정사업장"이 포함되어 있으면 확인
       const firstRowCell = XLSX.utils.encode_cell({ r: 0, c: 0 });
       const firstRowHasData = worksheet[firstRowCell] && String(worksheet[firstRowCell].v || "").trim();
-      
+
       let headerRowIndex = 0;
       if (!firstRowHasData && fileType === "measurement-business") {
         // 첫 번째 행이 비어있으면 두 번째 행을 헤더로 사용
         headerRowIndex = 1;
       }
-      
+
       // 헤더 읽기
       const headers: string[] = [];
       for (let col = decodedRange.s.c; col <= decodedRange.e.c; col++) {
@@ -184,7 +185,7 @@ export async function GET(request: Request) {
     }
   } catch (error) {
     console.error("Storage Excel 컬럼 확인 API 오류:", error);
-    
+
     if (error instanceof Error) {
       if (error.message.includes("Unauthorized")) {
         return NextResponse.json(

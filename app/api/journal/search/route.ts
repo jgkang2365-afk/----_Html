@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { classifyDesignatedOffice, shortNameToFullName, findOfficeByAddress, getDesignatedOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";

@@ -1,11 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 
 export async function GET() {
   try {
     console.log("[API /api/dashboard/sample] 샘플 대시보드 데이터 조회 시작");
-    
+
     // 환경 변수 확인
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       console.error("[API /api/dashboard/sample] Supabase 환경 변수가 설정되지 않았습니다.");
@@ -27,7 +28,7 @@ export async function GET() {
       console.error("[API /api/dashboard/sample] 권한 오류 타입:", typeof permissionError);
       console.error("[API /api/dashboard/sample] 권한 오류 메시지:", permissionError?.message);
       console.error("[API /api/dashboard/sample] 권한 오류 스택:", permissionError?.stack);
-      
+
       if (permissionError?.message === "Unauthorized") {
         return NextResponse.json(
           { error: "로그인이 필요합니다.", details: permissionError.message },
@@ -325,7 +326,7 @@ export async function GET() {
     }
 
     const officeRevenueMap: Record<string, number> = {};
-    
+
     officeRevenueData?.forEach((item) => {
       const office = item.designated_office || "미지정";
       const fee = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
@@ -431,7 +432,7 @@ export async function GET() {
     console.error("[API /api/dashboard/sample] 오류 이름:", error?.name);
     console.error("[API /api/dashboard/sample] 오류 메시지:", error?.message);
     console.error("[API /api/dashboard/sample] 오류 스택:", error?.stack);
-    
+
     // Supabase 에러인 경우
     if (error?.code || error?.hint || error?.details) {
       console.error("[API /api/dashboard/sample] Supabase 에러 상세:", {
@@ -441,10 +442,10 @@ export async function GET() {
         details: error.details,
       });
     }
-    
+
     const errorMessage = error?.message || "알 수 없는 오류";
     const errorDetails = error?.details || error?.hint || errorMessage;
-    
+
     // 권한 관련 에러인 경우
     if (error?.message === "Unauthorized") {
       return NextResponse.json(
@@ -455,7 +456,7 @@ export async function GET() {
         { status: 401 }
       );
     }
-    
+
     if (error?.message === "Forbidden") {
       return NextResponse.json(
         {
@@ -465,7 +466,7 @@ export async function GET() {
         { status: 403 }
       );
     }
-    
+
     // 일반적인 에러 응답
     return NextResponse.json(
       {

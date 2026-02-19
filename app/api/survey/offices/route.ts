@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+export const dynamic = 'force-dynamic';
 import { checkPermission } from "@/lib/auth/check-permission";
 import { readFileSync } from "fs";
 import { join } from "path";

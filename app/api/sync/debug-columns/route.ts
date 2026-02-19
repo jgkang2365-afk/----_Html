@@ -4,7 +4,8 @@
  * 실제 동기화가 성공한 경우, 동기화 로그나 데이터베이스에서 컬럼 매핑 정보를 확인합니다.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+export const dynamic = 'force-dynamic';
 import { checkPermission } from "@/lib/auth/check-permission";
 import { createClient } from "@/lib/supabase/server";
 
