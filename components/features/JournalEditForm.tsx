@@ -776,7 +776,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         business_category: "공업사",
       }));
     }
-  }, [formData.designated_office]);
+  }, [formData.designated_office, formData.business_category]);
 
   // 등록 모드일 때 로그인 사용자 정보로 기본값 설정 (Fallback)
   useEffect(() => {

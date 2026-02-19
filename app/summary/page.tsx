@@ -1,4 +1,5 @@
 import { requireAuth } from "@/lib/auth/require-auth";
+export const dynamic = 'force-dynamic';
 import { SummaryTable } from "@/components/features/SummaryTable";
 
 export default async function SummaryPage() {

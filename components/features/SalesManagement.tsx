@@ -397,11 +397,7 @@ export const SalesManagement: React.FC = () => {
   // 지정한계_관할지청 옵션
   const officeOptions = DESIGNATED_OFFICE_OPTIONS;
 
-  useEffect(() => {
-    loadSalesData();
-  }, []);
-
-  const loadSalesData = async () => {
+  const loadSalesData = React.useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -446,7 +442,13 @@ export const SalesManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [deletedOtherIds]);
+
+  useEffect(() => {
+    loadSalesData();
+  }, [loadSalesData]);
+
+
 
   const formatCurrency = (amount: number | null | undefined): string => {
     if (amount === null || amount === undefined) return "0";

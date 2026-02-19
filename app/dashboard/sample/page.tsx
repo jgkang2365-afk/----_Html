@@ -1,4 +1,5 @@
 import { requireAuth } from "@/lib/auth/require-auth";
+export const dynamic = 'force-dynamic';
 import { DashboardSample } from "@/components/features/DashboardSample";
 import { redirect } from "next/navigation";
 

@@ -71,7 +71,7 @@ export const NationalSupportManagement: React.FC = () => {
   ];
 
   // 건강디딤돌 신청결과 목록 로드
-  const loadEntries = async () => {
+  const loadEntries = React.useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -111,11 +111,11 @@ export const NationalSupportManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedYear, selectedPeriod, searchCode, searchResult]);
 
   useEffect(() => {
     loadEntries();
-  }, [selectedYear, selectedPeriod]);
+  }, [loadEntries]);
 
   // 검색어 변경 시 필터링 (클라이언트 사이드 보조)
   useEffect(() => {

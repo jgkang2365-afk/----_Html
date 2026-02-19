@@ -1,4 +1,5 @@
 import { requireAuth } from "@/lib/auth/require-auth";
+export const dynamic = 'force-dynamic';
 import { NationalSupportManagement } from "@/components/features/NationalSupportManagement";
 
 export default async function NationalSupportPage() {

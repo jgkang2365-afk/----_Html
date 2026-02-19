@@ -504,50 +504,8 @@ export const JournalSearch: React.FC = () => {
   // 쿼터 데이터 상태
   const [quotas, setQuotas] = useState<any[]>([]);
 
-  // 등록 현황 목록 로드 (전체 데이터)
-  const loadJournalList = async () => {
-    setListLoading(true);
-    setListError(null);
-
-    try {
-      // 1. 쿼터 데이터 로드
-      const quotasResponse = await fetch(`/api/admin/quotas`);
-      const quotasData = await quotasResponse.json();
-      if (quotasResponse.ok) {
-        setQuotas(quotasData.data || []);
-      }
-
-      // 2. 검색 조건 없이 전체 데이터 로드
-      const response = await fetch(`/api/journal/search`);
-      const data = await response.json();
-
-      if (response.ok) {
-        // measurement_journal에 실제 등록된 항목만 필터링 (id가 null이 아닌 것)
-        // 삭제된 항목도 제외
-        const registeredJournals = (data.results || []).filter(
-          (entry: JournalEntry) =>
-            entry.id !== null &&
-            !entry._isFromBusiness &&
-            !deletedJournalIds.has(entry.id)
-        );
-        setAllJournals(registeredJournals);
-        // 초기 필터링 적용
-        applyFilters(registeredJournals, filters, sequenceSortOrder);
-        // 데이터 로드 시 선택 초기화
-        setSelectedJournalIds([]);
-      } else {
-        setListError(data.error || "등록 현황을 불러오는 중 오류가 발생했습니다.");
-      }
-    } catch (err: any) {
-      console.error("등록 현황 로드 오류:", err);
-      setListError(err.message || "등록 현황을 불러오는 중 오류가 발생했습니다.");
-    } finally {
-      setListLoading(false);
-    }
-  };
-
   // 필터 적용 함수
-  const applyFilters = (journals: JournalEntry[], currentFilters: typeof filters, sortOrder: "asc" | "desc" = sequenceSortOrder) => {
+  const applyFilters = React.useCallback((journals: JournalEntry[], currentFilters: typeof filters, sortOrder: "asc" | "desc" = sequenceSortOrder) => {
     let filtered = [...journals];
 
     if (currentFilters.measurementYear) {
@@ -636,7 +594,51 @@ export const JournalSearch: React.FC = () => {
     });
 
     setFilteredJournals(filtered);
-  };
+  }, [sequenceSortOrder]);
+
+  // 등록 현황 목록 로드 (전체 데이터)
+  const loadJournalList = React.useCallback(async () => {
+    setListLoading(true);
+    setListError(null);
+
+    try {
+      // 1. 쿼터 데이터 로드
+      const quotasResponse = await fetch(`/api/admin/quotas`);
+      const quotasData = await quotasResponse.json();
+      if (quotasResponse.ok) {
+        setQuotas(quotasData.data || []);
+      }
+
+      // 2. 검색 조건 없이 전체 데이터 로드
+      const response = await fetch(`/api/journal/search`);
+      const data = await response.json();
+
+      if (response.ok) {
+        // measurement_journal에 실제 등록된 항목만 필터링 (id가 null이 아닌 것)
+        // 삭제된 항목도 제외
+        const registeredJournals = (data.results || []).filter(
+          (entry: JournalEntry) =>
+            entry.id !== null &&
+            !entry._isFromBusiness &&
+            !deletedJournalIds.has(entry.id)
+        );
+        setAllJournals(registeredJournals);
+        // 초기 필터링 적용
+        applyFilters(registeredJournals, filters, sequenceSortOrder);
+        // 데이터 로드 시 선택 초기화
+        setSelectedJournalIds([]);
+      } else {
+        setListError(data.error || "등록 현황을 불러오는 중 오류가 발생했습니다.");
+      }
+    } catch (err: any) {
+      console.error("등록 현황 로드 오류:", err);
+      setListError(err.message || "등록 현황을 불러오는 중 오류가 발생했습니다.");
+    } finally {
+      setListLoading(false);
+    }
+  }, [deletedJournalIds, filters, sequenceSortOrder, applyFilters]);
+
+
 
   // 필터 변경 핸들러
   const handleFilterChange = (key: keyof typeof filters, value: string) => {

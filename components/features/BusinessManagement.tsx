@@ -125,145 +125,6 @@ export const BusinessManagement: React.FC = () => {
 
 
 
-  // 측정 대상 사업장 목록 로드
-  const loadBusinesses = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const params = new URLSearchParams();
-      params.append("year", selectedYear);
-      params.append("period", selectedPeriod);
-      if (filters.designatedOffice) {
-        params.append("designatedOffice", filters.designatedOffice);
-      }
-      if (filters.address) {
-        params.append("address", filters.address);
-      }
-      if (filters.businessName) {
-        params.append("businessName", filters.businessName);
-      }
-      if (filters.isRegistered) {
-        params.append("isRegistered", filters.isRegistered);
-      }
-
-      const url = `/api/businesses?${params.toString()}`;
-      console.log("[측정 대상 사업장] API 호출:", url);
-      const response = await fetch(url);
-      console.log("[측정 대상 사업장] API 응답 상태:", response.status);
-
-      const contentType = response.headers.get("content-type");
-      let data;
-      if (contentType && contentType.includes("application/json")) {
-        data = await response.json();
-      } else {
-        const text = await response.text();
-        console.error("[측정 대상 사업장] API 응답이 JSON이 아닙니다:", text.substring(0, 200));
-        throw new Error(`서버 응답 오류 (${response.status}): ${text.substring(0, 100)}...`);
-      }
-
-      console.log("[측정 대상 사업장] API 응답 데이터:", data);
-
-      if (response.ok) {
-        setBusinesses(data.businesses || []);
-        applyFilters(data.businesses || [], filters);
-      } else {
-        setError(data.error || "측정 대상 사업장 목록을 불러오는 중 오류가 발생했습니다.");
-      }
-    } catch (err: any) {
-      console.error("측정 대상 사업장 로드 오류:", err);
-      setError(err.message || "측정 대상 사업장 목록을 불러오는 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 계획 생성
-  const generatePlan = async () => {
-    if (!selectedYear || !selectedPeriod) {
-      setPlanGenerateError("측정년도와 측정주기를 선택해주세요.");
-      return;
-    }
-
-    setGeneratingPlan(true);
-    setPlanGenerateError(null);
-    setPlanGenerateSuccess(null);
-
-    try {
-      const response = await fetch("/api/businesses/generate-plan", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          year: parseInt(selectedYear),
-          period: selectedPeriod,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setPlanGenerateSuccess(`${data.count || 0}개의 측정 대상 사업장 계획이 생성되었습니다.`);
-        // 계획 생성 후 목록 새로고침
-        setTimeout(async () => {
-          await loadBusinesses();
-        }, 500);
-      } else {
-        setPlanGenerateError(data.error || "계획 생성 중 오류가 발생했습니다.");
-      }
-    } catch (err: any) {
-      console.error("계획 생성 오류:", err);
-      setPlanGenerateError(err.message || "계획 생성 중 오류가 발생했습니다.");
-    } finally {
-      setGeneratingPlan(false);
-    }
-  };
-
-  // 업체 직접 추가
-  const handleAddBusiness = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch("/api/businesses/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...newBusiness,
-          year: parseInt(newBusiness.year),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        alert("업체가 성공적으로 추가되었습니다.");
-        setIsAddModalOpen(false);
-        setNewBusiness({
-          year: selectedYear,
-          period: selectedPeriod,
-          code: "",
-          business_name: "",
-          address: "",
-          manager_name: "",
-          manager_mobile: "",
-          plan_manager: "",
-          business_category: "",
-          future_measurement_date: "",
-          measurement_date: "",
-          notes: ""
-        });
-        loadBusinesses();
-      } else {
-        alert(data.error || "업체 추가 중 오류가 발생했습니다.");
-      }
-    } catch (err: any) {
-      console.error(err);
-      alert("업체 추가 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // 필터 적용
   const applyFilters = useCallback((data: BusinessEntry[], currentFilters: typeof filters, sortOrder?: "asc" | "desc" | null) => {
     let filtered = [...data];
@@ -365,6 +226,147 @@ export const BusinessManagement: React.FC = () => {
 
     setFilteredBusinesses(filtered);
   }, [addressSortOrder]);
+
+  // 측정 대상 사업장 목록 로드
+  const loadBusinesses = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams();
+      params.append("year", selectedYear);
+      params.append("period", selectedPeriod);
+      if (filters.designatedOffice) {
+        params.append("designatedOffice", filters.designatedOffice);
+      }
+      if (filters.address) {
+        params.append("address", filters.address);
+      }
+      if (filters.businessName) {
+        params.append("businessName", filters.businessName);
+      }
+      if (filters.isRegistered) {
+        params.append("isRegistered", filters.isRegistered);
+      }
+
+      const url = `/api/businesses?${params.toString()}`;
+      console.log("[측정 대상 사업장] API 호출:", url);
+      const response = await fetch(url);
+      console.log("[측정 대상 사업장] API 응답 상태:", response.status);
+
+      const contentType = response.headers.get("content-type");
+      let data;
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.error("[측정 대상 사업장] API 응답이 JSON이 아닙니다:", text.substring(0, 200));
+        throw new Error(`서버 응답 오류 (${response.status}): ${text.substring(0, 100)}...`);
+      }
+
+      console.log("[측정 대상 사업장] API 응답 데이터:", data);
+
+      if (response.ok) {
+        setBusinesses(data.businesses || []);
+        applyFilters(data.businesses || [], filters);
+      } else {
+        setError(data.error || "측정 대상 사업장 목록을 불러오는 중 오류가 발생했습니다.");
+      }
+    } catch (err: any) {
+      console.error("측정 대상 사업장 로드 오류:", err);
+      setError(err.message || "측정 대상 사업장 목록을 불러오는 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedYear, selectedPeriod, filters, applyFilters]);
+
+  // 계획 생성
+  const generatePlan = async () => {
+    if (!selectedYear || !selectedPeriod) {
+      setPlanGenerateError("측정년도와 측정주기를 선택해주세요.");
+      return;
+    }
+
+    setGeneratingPlan(true);
+    setPlanGenerateError(null);
+    setPlanGenerateSuccess(null);
+
+    try {
+      const response = await fetch("/api/businesses/generate-plan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          year: parseInt(selectedYear),
+          period: selectedPeriod,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setPlanGenerateSuccess(`${data.count || 0}개의 측정 대상 사업장 계획이 생성되었습니다.`);
+        // 계획 생성 후 목록 새로고침
+        setTimeout(async () => {
+          await loadBusinesses();
+        }, 500);
+      } else {
+        setPlanGenerateError(data.error || "계획 생성 중 오류가 발생했습니다.");
+      }
+    } catch (err: any) {
+      console.error("계획 생성 오류:", err);
+      setPlanGenerateError(err.message || "계획 생성 중 오류가 발생했습니다.");
+    } finally {
+      setGeneratingPlan(false);
+    }
+  };
+
+  // 업체 직접 추가
+  const handleAddBusiness = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/businesses/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newBusiness,
+          year: parseInt(newBusiness.year),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert("업체가 성공적으로 추가되었습니다.");
+        setIsAddModalOpen(false);
+        setNewBusiness({
+          year: selectedYear,
+          period: selectedPeriod,
+          code: "",
+          business_name: "",
+          address: "",
+          manager_name: "",
+          manager_mobile: "",
+          plan_manager: "",
+          business_category: "",
+          future_measurement_date: "",
+          measurement_date: "",
+          notes: ""
+        });
+        loadBusinesses();
+      } else {
+        alert(data.error || "업체 추가 중 오류가 발생했습니다.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("업체 추가 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
 
   // 필드 업데이트 (금회예정일, 확정일, 업종분류, 비고 등)
   const updateBusinessField = async (code: string, year: number, period: string, field: string, value: string | null) => {
@@ -562,7 +564,7 @@ export const BusinessManagement: React.FC = () => {
     if (selectedYear && selectedPeriod) {
       loadBusinesses();
     }
-  }, [selectedYear, selectedPeriod]);
+  }, [selectedYear, selectedPeriod, loadBusinesses]);
 
   // 필터 변경 시 필터링만 적용 (데이터 재로드 없음)
   useEffect(() => {

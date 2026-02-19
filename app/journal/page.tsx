@@ -1,4 +1,5 @@
 import { requireAuth } from "@/lib/auth/require-auth";
+export const dynamic = 'force-dynamic';
 import { JournalSearch } from "@/components/features/JournalSearch";
 
 export default async function JournalPage() {

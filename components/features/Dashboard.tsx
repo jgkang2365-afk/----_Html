@@ -93,44 +93,44 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const loadDashboardData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const params = new URLSearchParams();
+        if (year !== "전체") params.append("year", year);
+        if (period !== "전체") params.append("period", period);
+
+        const response = await fetch(`/api/dashboard?${params.toString()}`, {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          let errorMessage = `서버 오류 (${response.status})`;
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorData.details || errorMessage;
+          } catch (jsonError) {
+            // Ignore
+          }
+          setError(errorMessage);
+          setLoading(false);
+          return;
+        }
+
+        const result = await response.json();
+        setData(result);
+        setLoading(false);
+      } catch (err: any) {
+        console.error("대시보드 데이터 로드 오류:", err);
+        setError(err.message || "대시보드 데이터를 불러오는 중 오류가 발생했습니다.");
+        setLoading(false);
+      }
+    };
+
     loadDashboardData();
   }, [year, period]);
-
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const params = new URLSearchParams();
-      if (year !== "전체") params.append("year", year);
-      if (period !== "전체") params.append("period", period);
-
-      const response = await fetch(`/api/dashboard?${params.toString()}`, {
-        cache: "no-store",
-      });
-
-      if (!response.ok) {
-        let errorMessage = `서버 오류 (${response.status})`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.message || errorData.details || errorMessage;
-        } catch (jsonError) {
-          // Ignore
-        }
-        setError(errorMessage);
-        setLoading(false);
-        return;
-      }
-
-      const result = await response.json();
-      setData(result);
-      setLoading(false);
-    } catch (err: any) {
-      console.error("대시보드 데이터 로드 오류:", err);
-      setError(err.message || "대시보드 데이터를 불러오는 중 오류가 발생했습니다.");
-      setLoading(false);
-    }
-  };
 
   const formatCurrency = (amount: number | null | undefined): string => {
     const numAmount = amount ?? 0;
