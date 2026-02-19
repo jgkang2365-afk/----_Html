@@ -450,10 +450,11 @@ export async function PATCH(request: NextRequest) {
 
         if (currentData) {
           const isConfirmed = currentData.is_registered === "확정";
-          const hasRequiredInfo = !!(currentData.measurement_date && currentData.measurer_id);
+          // Allow sync even if measurer is missing (will default to '미지정')
+          const hasRequiredInfo = !!currentData.measurement_date;
           const eventId = currentData.google_event_id;
 
-          console.log(`[Sync Debug] Status: ${currentData.is_registered}, Confirmed: ${isConfirmed}, HasInfo: ${hasRequiredInfo}, EventID: ${eventId}`);
+          console.log(`[Sync Debug] Status: ${currentData.is_registered}, Confirmed: ${isConfirmed}, HasInfo: ${hasRequiredInfo} (Date: ${currentData.measurement_date}), EventID: ${eventId}`);
 
           // Prepare Event Data
           let reportWriterName = '미지정';
