@@ -434,30 +434,32 @@ export async function PATCH(request: NextRequest) {
 
     // [New Feature] System-as-Master Calendar Sync
     // Trigger conditions: Update to measurement_date, measurer_id, or is_registered
+    // [New Feature] System-as-Master Calendar Sync
+    // Trigger conditions: Update to measurement_date, measurer_id, or is_registered
     if ((updates.hasOwnProperty('measurement_date') ||
       updates.hasOwnProperty('measurer_id') ||
       updates.hasOwnProperty('is_registered')) && code && year && period) {
 
       try {
-        // 1. Fetch current state (including google_event_id)
-        const { data: currentData } = await supabase
-          .from("measurement_target_business")
-          .select("measurement_date, measurer_id, business_name, address, is_registered, google_event_id")
-          .eq("code", code)
-          .eq("year", year)
-          .eq("period", period)
-          .single();
+        // Use updatedData directly instead of re-fetching
+        // updatedData comes from the UPDATE query result
+        const currentData = updatedData;
 
-        console.log(`[Sync Debug] Updates:`, JSON.stringify(updates));
-        console.log(`[Sync Debug] Current Data for ${code}:`, JSON.stringify(currentData));
+        console.log(`[Sync Debug] Updates received:`, JSON.stringify(updates));
+        console.log(`[Sync Debug] Updated Data State:`, JSON.stringify({
+          code: currentData.code,
+          is_registered: currentData.is_registered,
+          measurement_date: currentData.measurement_date,
+          measurer_id: currentData.measurer_id,
+          google_event_id: currentData.google_event_id
+        }));
 
         if (currentData) {
           const isConfirmed = currentData.is_registered === "확정";
-          // Allow sync even if measurer is missing (will default to '미지정')
           const hasRequiredInfo = !!currentData.measurement_date;
           const eventId = currentData.google_event_id;
 
-          console.log(`[Sync Debug] Status: ${currentData.is_registered}, Confirmed: ${isConfirmed}, HasInfo: ${hasRequiredInfo} (Date: ${currentData.measurement_date}), EventID: ${eventId}`);
+          console.log(`[Sync Debug] Sync Conditions - IsConfirmed: ${isConfirmed}, HasDate: ${hasRequiredInfo}, EventID: ${eventId}`);
 
           // Prepare Event Data
           let reportWriterName = '미지정';
@@ -511,6 +513,7 @@ export async function PATCH(request: NextRequest) {
                     .eq("code", code)
                     .eq("year", year)
                     .eq("period", period);
+                  console.log(`[Sync] Re-created event and updated DB with ID: ${newEvent.id}`);
                 }
               }
             } else {
@@ -525,6 +528,9 @@ export async function PATCH(request: NextRequest) {
                   .eq("code", code)
                   .eq("year", year)
                   .eq("period", period);
+                console.log(`[Sync] Created event and saved ID: ${newEvent.id}`);
+              } else {
+                console.error(`[Sync] Failed to create event. Response:`, newEvent);
               }
             }
           } else {
@@ -540,22 +546,29 @@ export async function PATCH(request: NextRequest) {
                   .eq("code", code)
                   .eq("year", year)
                   .eq("period", period);
+                console.log(`[Sync] Deleted event and cleared ID from DB.`);
               }
             }
 
             // [New Feature] If status changed to '미확정', also delete Preliminary Survey
-            if (updates.is_registered === "미확정") {
-              try {
-                console.log(`[Sync] Status set to Unconfirmed. Deleting Preliminary Survey for ${code}`);
-                await supabase
-                  .from("preliminary_survey")
-                  .delete()
-                  .eq("code", code)
-                  .eq("year", year)
-                  .eq("period", period);
-              } catch (delError) {
-                console.error("Preliminary Survey Delete Error:", delError);
-              }
+            if (updates.is_registered === "미확정" || updates.is_registered === "미실시") {
+              // ... existing preliminary delete logic ... gets complicated if I remove the block below.
+              // Let's keep the block below effectively.
+            }
+          }
+
+          // Re-insert Preliminary Survey Delete Logic (it was inside the ELSE block before)
+          if (updates.is_registered === "미확정" || updates.is_registered === "미실시") {
+            try {
+              console.log(`[Sync] Status set to Unconfirmed(${updates.is_registered}). Deleting Preliminary Survey for ${code}`);
+              await supabase
+                .from("preliminary_survey")
+                .delete()
+                .eq("code", code)
+                .eq("year", year)
+                .eq("period", period);
+            } catch (delError) {
+              console.error("Preliminary Survey Delete Error:", delError);
             }
           }
         }
