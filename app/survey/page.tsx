@@ -230,6 +230,14 @@ export default function SurveyPage() {
 
 
 
+  const handleSearch = () => {
+    if (activeTab === "search") {
+      searchBusinesses();
+    } else {
+      loadSurveys();
+    }
+  };
+
   const handleReset = () => {
     setSearchParams({
       code: "",
