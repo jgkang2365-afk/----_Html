@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
+import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent } from "@/lib/google/calendar";
 
 export async function GET(request: NextRequest) {
   try {
@@ -425,6 +426,117 @@ export async function PATCH(request: NextRequest) {
 
       } catch (e) {
         console.error("Preliminary Survey Report Writer Sync Exception:", e);
+      }
+    }
+
+    // [New Feature] System-as-Master Calendar Sync
+    // Trigger conditions: Update to measurement_date, measurer_id, or is_registered
+    if ((updates.hasOwnProperty('measurement_date') ||
+      updates.hasOwnProperty('measurer_id') ||
+      updates.hasOwnProperty('is_registered')) && code && year && period) {
+
+      try {
+        // 1. Fetch current state (including google_event_id)
+        const { data: currentData } = await supabase
+          .from("measurement_target_business")
+          .select("measurement_date, measurer_id, business_name, address, is_registered, google_event_id")
+          .eq("code", code)
+          .eq("year", year)
+          .eq("period", period)
+          .single();
+
+        if (currentData) {
+          const isConfirmed = currentData.is_registered === "확정";
+          const hasRequiredInfo = currentData.measurement_date && currentData.measurer_id;
+          const eventId = currentData.google_event_id;
+
+          // Prepare Event Data
+          let reportWriterName = '미지정';
+          let colorId = undefined;
+
+          if (currentData.measurer_id) {
+            const { data: userData } = await supabase
+              .from("users")
+              .select("name")
+              .eq("id", currentData.measurer_id)
+              .single();
+            if (userData) {
+              reportWriterName = userData.name;
+              // Color Mapping
+              const calendarColorMap: { [key: string]: string } = {
+                '한기문': '10', // Basil
+                '배윤민': '6',  // Tangerine
+                '강종구': '9',  // Blueberry
+                '이주형': '5',  // Banana
+                '고유빈': '7',  // Peacock
+              };
+              colorId = calendarColorMap[reportWriterName];
+            }
+          }
+
+          const eventTitle = `[${reportWriterName}]${currentData.business_name}`;
+          const eventBody = {
+            summary: eventTitle,
+            date: currentData.measurement_date,
+            description: `측정 확정\n- 사업장명: ${currentData.business_name}\n- 측정일: ${currentData.measurement_date}\n- 담당자: ${reportWriterName}`,
+            location: currentData.address || undefined,
+            colorId: colorId,
+          };
+
+          // Logic Branching
+          if (isConfirmed && hasRequiredInfo) {
+            if (eventId) {
+              // UPDATE existing event
+              console.log(`[Sync] Updating Calendar Event: ${eventId}`);
+              const updatedEvent = await updateSurveyEvent(eventId, eventBody);
+
+              // If update failed (e.g., event deleted in Calendar), try Create
+              if (!updatedEvent) {
+                console.log(`[Sync] Update failed/Event not found. Re-creating event.`);
+                const newEvent = await createSurveyEvent(eventBody);
+                if (newEvent && newEvent.id) {
+                  // Update DB with NEW Google Event ID
+                  await supabase
+                    .from("measurement_target_business")
+                    .update({ google_event_id: newEvent.id })
+                    .eq("code", code)
+                    .eq("year", year)
+                    .eq("period", period);
+                }
+              }
+            } else {
+              // CREATE new event
+              console.log(`[Sync] Creating Calendar Event for ${code}`);
+              const newEvent = await createSurveyEvent(eventBody);
+              if (newEvent && newEvent.id) {
+                // Save Google Event ID to DB
+                await supabase
+                  .from("measurement_target_business")
+                  .update({ google_event_id: newEvent.id })
+                  .eq("code", code)
+                  .eq("year", year)
+                  .eq("period", period);
+              }
+            }
+          } else {
+            // NOT Confirmed (or missing info) -> DELETE if exists
+            if (eventId) {
+              console.log(`[Sync] Deleting Calendar Event: ${eventId}`);
+              const deleted = await deleteSurveyEvent(eventId);
+              if (deleted) {
+                // Remove Google Event ID from DB
+                await supabase
+                  .from("measurement_target_business")
+                  .update({ google_event_id: null })
+                  .eq("code", code)
+                  .eq("year", year)
+                  .eq("period", period);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("System-as-Master Sync Exception:", e);
       }
     }
 

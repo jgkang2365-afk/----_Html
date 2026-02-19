@@ -1,0 +1,6 @@
+Checking accessible calendars...
+Service Account Email: calendar-bot@measure-journal-calendar.iam.gserviceaccount.com
+Found 0 calendars.
+
+Target Calendar ID: da3ea986b1499a0c8ebc5ca70107b4a7def28839565017ac8557017b484dc93e@group.calendar.google.com
+FAILURE: Target calendar NOT found in the list. Please check permissions.
