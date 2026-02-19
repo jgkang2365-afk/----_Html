@@ -35,7 +35,7 @@ async function listCalendars() {
             scopes: SCOPES,
         });
         const authClient = await auth.getClient();
-        const calendar = google.calendar({ version: 'v3', auth: authClient });
+        const calendar = google.calendar({ version: 'v3', auth: authClient as any });
 
         // Get service account email
         const credentials = JSON.parse(fs.readFileSync(KEY_FILE_PATH, 'utf-8'));
