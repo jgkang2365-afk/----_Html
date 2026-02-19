@@ -445,10 +445,15 @@ export async function PATCH(request: NextRequest) {
           .eq("period", period)
           .single();
 
+        console.log(`[Sync Debug] Updates:`, JSON.stringify(updates));
+        console.log(`[Sync Debug] Current Data for ${code}:`, JSON.stringify(currentData));
+
         if (currentData) {
           const isConfirmed = currentData.is_registered === "확정";
-          const hasRequiredInfo = currentData.measurement_date && currentData.measurer_id;
+          const hasRequiredInfo = !!(currentData.measurement_date && currentData.measurer_id);
           const eventId = currentData.google_event_id;
+
+          console.log(`[Sync Debug] Status: ${currentData.is_registered}, Confirmed: ${isConfirmed}, HasInfo: ${hasRequiredInfo}, EventID: ${eventId}`);
 
           // Prepare Event Data
           let reportWriterName = '미지정';
