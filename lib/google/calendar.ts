@@ -159,6 +159,31 @@ export async function updateSurveyEvent(eventId: string, eventData: {
 }
 
 /**
+ * 구글 캘린더 일정 조회 (사용자 수동 변경 내역 보존용)
+ * @param eventId 이벤트 ID
+ * @returns 이벤트 데이터
+ */
+export async function getSurveyEvent(eventId: string) {
+    const calendarId = process.env.GOOGLE_CALENDAR_ID;
+    if (!calendarId) return null;
+
+    try {
+        const authClient = await getAuthClient();
+        const calendar = google.calendar({ version: 'v3', auth: authClient as any });
+
+        const response = await calendar.events.get({
+            calendarId,
+            eventId,
+        });
+
+        return response.data;
+    } catch (error: any) {
+        logDebug('Error getting Google Calendar event:', error);
+        return null;
+    }
+}
+
+/**
  * 구글 캘린더 일정 삭제 (System-as-Master)
  */
 export async function deleteSurveyEvent(eventId: string) {
