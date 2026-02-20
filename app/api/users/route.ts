@@ -5,6 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+export const dynamic = 'force-dynamic';
+
 import { createClient } from "@/lib/supabase/server";
 import { hashPassword } from "@/lib/utils/password";
 import { getSession } from "@/lib/auth/session";
@@ -13,7 +15,7 @@ import { getSession } from "@/lib/auth/session";
  * 사용자 목록 조회
  * GET /api/users
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await getSession();
 
