@@ -275,6 +275,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    // console.log(`[PATCH] Request received`); // Optional: keep or remove
     await checkPermission("journal:write");
 
     const body = await request.json();
@@ -434,156 +435,128 @@ export async function PATCH(request: NextRequest) {
 
     // [New Feature] System-as-Master Calendar Sync
     // Trigger conditions: Update to measurement_date, measurer_id, or is_registered
-    // [New Feature] System-as-Master Calendar Sync
-    // Trigger conditions: Update to measurement_date, measurer_id, or is_registered
     if ((updates.hasOwnProperty('measurement_date') ||
       updates.hasOwnProperty('measurer_id') ||
       updates.hasOwnProperty('is_registered')) && code && year && period) {
 
       try {
         // Use updatedData directly instead of re-fetching
-        // updatedData comes from the UPDATE query result
         const currentData = updatedData;
+        console.log(`[Sync Start] Status=${currentData.is_registered}, Date=${currentData.measurement_date}, EventID=${currentData.google_event_id}`);
 
-        console.log(`[Sync Debug] Updates received:`, JSON.stringify(updates));
-        console.log(`[Sync Debug] Updated Data State:`, JSON.stringify({
-          code: currentData.code,
-          is_registered: currentData.is_registered,
-          measurement_date: currentData.measurement_date,
-          measurer_id: currentData.measurer_id,
-          google_event_id: currentData.google_event_id
-        }));
+        const isConfirmed = currentData.is_registered === "확정";
+        const hasRequiredInfo = !!currentData.measurement_date;
+        const eventId = currentData.google_event_id;
 
-        if (currentData) {
-          const isConfirmed = currentData.is_registered === "확정";
-          const hasRequiredInfo = !!currentData.measurement_date;
-          const eventId = currentData.google_event_id;
+        // 3-1. 확정 상태이고 필수 정보(날짜)가 있는 경우 -> 생성 또는 수정
+        if (isConfirmed && hasRequiredInfo) {
 
-          console.log(`[Sync Debug] Sync Conditions - IsConfirmed: ${isConfirmed}, HasDate: ${hasRequiredInfo}, EventID: ${eventId}`);
-
-          // Prepare Event Data
-          let reportWriterName = '미지정';
-          let colorId = undefined;
-
+          let measurerName = "미지정";
           if (currentData.measurer_id) {
             const { data: userData } = await supabase
               .from("users")
               .select("name")
               .eq("id", currentData.measurer_id)
               .single();
-            if (userData) {
-              reportWriterName = userData.name;
-              // Color Mapping
-              const calendarColorMap: { [key: string]: string } = {
-                '한기문': '10', // Basil
-                '배윤민': '6',  // Tangerine
-                '강종구': '9',  // Blueberry
-                '이주형': '5',  // Banana
-                '고유빈': '7',  // Peacock
-              };
-              colorId = calendarColorMap[reportWriterName];
-            }
+            if (userData) measurerName = userData.name;
           }
 
-          const eventTitle = `[${reportWriterName}]${currentData.business_name}`;
-          const eventBody = {
-            summary: eventTitle,
-            date: currentData.measurement_date,
-            description: `측정 확정\n- 사업장명: ${currentData.business_name}\n- 측정일: ${currentData.measurement_date}\n- 담당자: ${reportWriterName}`,
-            location: currentData.address || undefined,
-            colorId: colorId,
+          const businessName = currentData.business_name;
+          const shortOffice = currentData.designated_office ? toShortName(currentData.designated_office) : "천안";
+
+          const summary = `[${shortOffice}]${businessName}-${measurerName}`;
+
+          const description = `
+            사업장: ${businessName}
+            주소: ${currentData.address || "주소 미입력"}
+            담당자: ${measurerName}
+            연락처: ${currentData.manager_mobile || currentData.phone || "없음"}
+            비고: ${currentData.notes || ""}
+          `.trim();
+
+          // Color Mapping
+          const calendarColorMap: { [key: string]: string } = {
+            '한기문': '10', // Basil
+            '배윤민': '6',  // Tangerine
+            '강종구': '9',  // Blueberry
+            '이주형': '5',  // Banana
+            '고유빈': '7',  // Peacock
+          };
+          const colorId = calendarColorMap[measurerName];
+
+          const eventData = {
+            summary,
+            description,
+            date: currentData.measurement_date, // YYYY-MM-DD
+            location: currentData.address || "",
+            colorId
           };
 
-          // Logic Branching
-          if (isConfirmed && hasRequiredInfo) {
-            if (eventId) {
-              // UPDATE existing event
-              console.log(`[Sync] Updating Calendar Event: ${eventId}`);
-              const updatedEvent = await updateSurveyEvent(eventId, eventBody);
-
-              // If update failed (e.g., event deleted in Calendar), try Create
-              if (!updatedEvent) {
-                console.log(`[Sync] Update failed/Event not found. Re-creating event.`);
-                const newEvent = await createSurveyEvent(eventBody);
-                if (newEvent && newEvent.id) {
-                  // Update DB with NEW Google Event ID
-                  await supabase
-                    .from("measurement_target_business")
-                    .update({ google_event_id: newEvent.id })
-                    .eq("code", code)
-                    .eq("year", year)
-                    .eq("period", period);
-                  console.log(`[Sync] Re-created event and updated DB with ID: ${newEvent.id}`);
-                }
-              }
+          if (eventId) {
+            // UPDATE existing event
+            console.log(`[Sync] Updating event ${eventId}...`);
+            const updatedEvent = await updateSurveyEvent(eventId, eventData);
+            if (updatedEvent) {
+              console.log("Event updated successfully");
             } else {
-              // CREATE new event
-              console.log(`[Sync] Creating Calendar Event for ${code}`);
-              const newEvent = await createSurveyEvent(eventBody);
+              console.log("Update failed (404?), trying to create new event...");
+              const newEvent = await createSurveyEvent(eventData);
               if (newEvent && newEvent.id) {
-                // Save Google Event ID to DB
                 await supabase
                   .from("measurement_target_business")
                   .update({ google_event_id: newEvent.id })
                   .eq("code", code)
                   .eq("year", year)
                   .eq("period", period);
-                console.log(`[Sync] Created event and saved ID: ${newEvent.id}`);
-              } else {
-                console.error(`[Sync] Failed to create event. Response:`, newEvent);
+                console.log(`Re-created event: ${newEvent.id}`);
               }
             }
           } else {
-            // NOT Confirmed (or missing info) -> DELETE if exists
-            if (eventId) {
-              console.log(`[Sync] Deleting Calendar Event: ${eventId}`);
-              const deleted = await deleteSurveyEvent(eventId);
-              if (deleted) {
-                // Remove Google Event ID from DB
-                await supabase
-                  .from("measurement_target_business")
-                  .update({ google_event_id: null })
-                  .eq("code", code)
-                  .eq("year", year)
-                  .eq("period", period);
-                console.log(`[Sync] Deleted event and cleared ID from DB.`);
-              }
-            }
-
-            // [New Feature] If status changed to '미확정', also delete Preliminary Survey
-            if (updates.is_registered === "미확정" || updates.is_registered === "미실시") {
-              // ... existing preliminary delete logic ... gets complicated if I remove the block below.
-              // Let's keep the block below effectively.
-            }
-          }
-
-          // Re-insert Preliminary Survey Delete Logic (it was inside the ELSE block before)
-          if (updates.is_registered === "미확정" || updates.is_registered === "미실시") {
-            try {
-              console.log(`[Sync] Status set to Unconfirmed(${updates.is_registered}). Deleting Preliminary Survey for ${code}`);
+            // CREATE new event
+            console.log(`[Sync] Creating new event...`);
+            const newEvent = await createSurveyEvent(eventData);
+            if (newEvent && newEvent.id) {
               await supabase
-                .from("preliminary_survey")
-                .delete()
+                .from("measurement_target_business")
+                .update({ google_event_id: newEvent.id })
                 .eq("code", code)
                 .eq("year", year)
                 .eq("period", period);
-            } catch (delError) {
-              console.error("Preliminary Survey Delete Error:", delError);
+              console.log(`Created event: ${newEvent.id}`);
+            } else {
+              console.log(`Failed to create event.`);
             }
           }
+
         }
-      } catch (e) {
+        // 3-2. 확정이 아니거나 날짜가 없는데, 기존 이벤트가 있는 경우 -> 삭제
+        else if ((!isConfirmed || !hasRequiredInfo) && eventId) {
+          console.log(`[Sync] Condition not met. Deleting event ${eventId}...`);
+          await deleteSurveyEvent(eventId);
+          await supabase
+            .from("measurement_target_business")
+            .update({ google_event_id: null })
+            .eq("code", code)
+            .eq("year", year)
+            .eq("period", period);
+          console.log(`Event deleted.`);
+        } else {
+          console.log(`[Sync] No action required.`);
+        }
+
+      } catch (e: any) {
+        console.error(`System-as-Master Sync Exception: ${e.message}`);
         console.error("System-as-Master Sync Exception:", e);
       }
     }
 
     return NextResponse.json({ success: true, data: updatedData });
+
   } catch (error: any) {
     console.error("PATCH API Critical Error:", error);
     return NextResponse.json({
       error: "Internal Server Error",
-      details: error?.message || String(error),
-      stack: error?.stack
+      details: error?.message || String(error)
     }, { status: 500 });
   }
 }
