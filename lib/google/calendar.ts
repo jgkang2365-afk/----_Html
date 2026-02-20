@@ -71,6 +71,7 @@ export async function createSurveyEvent(eventData: {
             description: eventData.description,
             location: eventData.location,
             colorId: eventData.colorId,
+            status: 'confirmed', // Ensure deleted events are restored
             start: {
                 date: eventData.date,
                 timeZone: 'Asia/Seoul',
@@ -124,6 +125,7 @@ export async function updateSurveyEvent(eventId: string, eventData: {
             description: eventData.description,
             location: eventData.location,
             colorId: eventData.colorId,
+            status: 'confirmed', // Ensure deleted events are restored
             start: {
                 date: eventData.date,
                 timeZone: 'Asia/Seoul',
