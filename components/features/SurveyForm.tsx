@@ -50,7 +50,6 @@ interface SurveyFormData {
   preliminary_surveyor: string; // 콤마 구분
   actual_measurer: string; // 콤마 구분
   report_writer: string; // 콤마 구분
-  notes: string;
 }
 
 interface SurveyFormProps {
@@ -79,7 +78,6 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     preliminary_surveyor: "",
     actual_measurer: "",
     report_writer: "",
-    notes: "",
   });
 
   const [endDateManuallyModified, setEndDateManuallyModified] = useState(false); // 종료일이 수동으로 수정되었는지 추적
@@ -201,7 +199,6 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         preliminary_surveyor: initialData.preliminary_surveyor || "",
         actual_measurer: initialActualMeasurers.join(", "), // 계산된 값 사용 (중요: 보고서 담당자 포함된 값)
         report_writer: initialReportWriter,
-        notes: initialData.notes || "",
       });
 
       // 종료일이 없고 측정일만 있으면 종료일을 측정일과 동일하게 설정

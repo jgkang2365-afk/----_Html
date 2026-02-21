@@ -36,7 +36,6 @@ export async function PUT(
       preliminary_surveyor,
       actual_measurer,
       report_writer,
-      notes,
     } = body;
 
     // 필수 필드 검증
@@ -113,7 +112,6 @@ export async function PUT(
         preliminary_surveyor: preliminary_surveyor || null,
         actual_measurer: actual_measurer || null,
         report_writer: report_writer || null,
-        notes: notes || null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", parseInt(id))
