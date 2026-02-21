@@ -434,10 +434,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     // [New Feature] System-as-Master Calendar Sync
-    // Trigger conditions: Update to measurement_date, measurer_id, or is_registered
+    // Trigger conditions: Update to measurement_date, measurer_id, is_registered, or notes
     if ((updates.hasOwnProperty('measurement_date') ||
       updates.hasOwnProperty('measurer_id') ||
-      updates.hasOwnProperty('is_registered')) && code && year && period) {
+      updates.hasOwnProperty('is_registered') ||
+      updates.hasOwnProperty('notes')) && code && year && period) {
 
       try {
         // Use updatedData directly instead of re-fetching
@@ -462,66 +463,45 @@ export async function PATCH(request: NextRequest) {
           }
 
           const businessName = currentData.business_name;
-          // 지청 정보는 새 형식에서 제외하므로 주석 처리 또는 유지.
-          // const shortOffice = currentData.designated_office ? toShortName(currentData.designated_office) : "천안";
 
-          // 새로운 기본 형식: `[보고서 담당자]사업장명`
-          let baseSummary = `[${measurerName}]${businessName}`;
-          let manualSuffix = "";
+          // === 미수 정보 조회 ===
+          let unpaidText = "";
+          try {
+            const { data: journalData } = await supabase
+              .from("measurement_journal")
+              .select("measurement_year, measurement_period, measurement_fee_business, deposit_amount_business, deposit_amount_business_2")
+              .eq("code", code);
 
-          // 기존 일정이 있다면 수동 입력(예: P15, N5) 부분을 추출하여 보존 시도
-          if (eventId) {
-            const existingEvent = await getSurveyEvent(eventId);
-            if (existingEvent && existingEvent.summary) {
-              const oldSummary = existingEvent.summary;
-              // 이전 제목 형식: `[지청]사업장명-담당자`
-              // 하지만 이전 담당자나 사업장명이 현재와 다를 수 있으므로, 
-              // 단순히 "이전 사업장명" 바로 뒤부터 끝까지를 확인하거나,
-              // "]" 문자 뒤부터 문자열을 분석하여 사용자가 수동으로 덧붙인 부분을 찾습니다.
-              // 가장 안전한 방법은 정규식으로 원래 우리가 만들었던 템플릿 부분 
-              // ( `[담당자]사업장명` 또는 구버전 `[지청]사업장명-담당자` ) 이후의 텍스트를 추출하는 것입니다.
-
-              // 구버전/신버전 모두 지원할 수 있는 로직
-              // 1. `]사업장명-담당자` 이후의 문자열 찾기 
-              // 2. `]사업장명` 이후의 문자열 찾기
-
-              // 임의로 붙은 접미사 찾기
-              // 기존에 저장된(업데이트 전) DB 데이터를 활용합니다.
-              // updatedData를 가져오기 전의 이전 데이터가 필요하지만, 현재는 updatedData를 사용합니다.
-              // 차선책으로, 변경 전 데이터를 알 수 없으므로, 현재 구글 캘린더 summary 문자열 중
-              // '-' 대시 이후에 사용자가 추가로 괄호 ( ) 나 기타 문자를 이어붙인 부분을 정규식으로 매칭합니다.
-              // 예: "[천안](주)유성현대서비스-고유빈(P15, N5)" -> "(P15, N5)" 추출
-              // 보통 담당자 이름 뒤에 붙이므로 정규식 활용
-              const match = oldSummary.match(/.*\][^-]+-\S+(.+)$/);
-              if (match && match[1]) {
-                manualSuffix = match[1].trim(); // 수동으로 붙인 텍스트가 있으면 저장
-              } else {
-                // 만약 신규 포맷( `[담당자]사업장명` )인 경우
-                const newFormatMatch = oldSummary.match(/.*\][^\s(]+(.+)$/); // "]" 뒤에 사업장명이 오고 그 뒤에 ( ) 등이 오는 형태
-                if (newFormatMatch && newFormatMatch[1]) {
-                  // 하지만 첫 번째 정규식이 더 확률이 높음(기존 데이터)
+            if (journalData && journalData.length > 0) {
+              const unpaidPeriods: string[] = [];
+              journalData.forEach((j: any) => {
+                const feeBiz = Number(j.measurement_fee_business || 0);
+                const depBiz = Number(j.deposit_amount_business || 0);
+                const depBiz2 = Number(j.deposit_amount_business_2 || 0);
+                const unpaidBiz = feeBiz - (depBiz + depBiz2);
+                if (unpaidBiz > 0) {
+                  const yr = String(j.measurement_year).slice(-2); // 2025 -> "25"
+                  const pd = j.measurement_period === "상반기" ? "상" : j.measurement_period === "하반기" ? "하" : j.measurement_period;
+                  unpaidPeriods.push(`${yr}${pd}`);
                 }
-              }
-
-              // 더 간단하고 확실한 방법 (권장):
-              // 기존 코드에서는 updatedData 전의 상태를 기억하지 않기 때문에, 
-              // 단순히 구글 일정 제목에서 "(" 문자가 포함되어 있다면 그 위치부터 끝까지 가져옵니다.
-              // (업무 규칙상 수동 입력은 "(P15, N5)" 형태로 괄호를 사용하여 뒤에 붙인다고 가정)
-              if (!manualSuffix) {
-                const suffixMatch = oldSummary.match(/(\([^)]+\))\s*$/);
-                if (suffixMatch && suffixMatch[1]) {
-                  // 추출된 괄호가 회사명에 포함된 경우(예: (주)유성현대서비스)를 방지하기 위해
-                  // 해당 문자열이 사업장명 자체에서 끝나는지 확인합니다.
-                  if (!businessName.endsWith(suffixMatch[1])) {
-                    manualSuffix = suffixMatch[1];
-                  }
-                }
+              });
+              if (unpaidPeriods.length > 0) {
+                unpaidText = `${unpaidPeriods.join("/")} 미수`;
               }
             }
+          } catch (e) {
+            console.error("[Calendar Sync] Unpaid query error:", e);
           }
 
-          // 최종 제목 설정 (수동 접미사가 있으면 이어 붙임)
-          const summary = baseSummary + manualSuffix;
+          // === 비고(notes) 값 ===
+          const notesText = currentData.notes || "";
+
+          // === 최종 제목 조합 ===
+          // 형식: [담당자]사업장명 - 미수정보, 비고
+          const baseSummary = `[${measurerName}]${businessName}`;
+          const suffixParts = [unpaidText, notesText].filter(Boolean);
+          const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(", ")}` : "";
+          const summary = baseSummary + suffix;
 
           const description = `
             사업장: ${businessName}

@@ -48,3 +48,51 @@
 [2026-02-20T11:06:37.223Z] Event created successfully: n1nsnpei3agjc3hm6adtd9j594 
 [2026-02-20T12:16:54.007Z] Creating Calendar Event {"summary":"[고유빈]케이지모빌리티유성서비스센터 주식회사","description":"사업장: 케이지모빌리티유성서비스센터 주식회사\n            주소: 대전광역시 유성구 월드컵대로 67-6 (장대동)\n            담당자: 고유빈\n            연락처: 010-2530-2094\n            비고:","date":"2026-03-04","location":"대전광역시 유성구 월드컵대로 67-6 (장대동)","colorId":"7"}
 [2026-02-20T12:16:56.544Z] Event created successfully: av2l6d2b4l5ue40jaecongugt4 
+[2026-02-20T23:33:18.519Z] Creating Calendar Event {"summary":"[고유빈]케이지모빌리티유성서비스센터 주식회사","description":"사업장: 케이지모빌리티유성서비스센터 주식회사\n            주소: 대전광역시 유성구 월드컵대로 67-6 (장대동)\n            담당자: 고유빈\n            연락처: 010-2530-2094\n            비고:","date":"2026-03-04","location":"대전광역시 유성구 월드컵대로 67-6 (장대동)","colorId":"7"}
+[2026-02-20T23:33:32.962Z] Event created successfully: fpsk4jdjvt8j682e37ptsn1c9k 
+[2026-02-20T23:33:33.462Z] Creating Calendar Event {"summary":"[고유빈](주)유성현대서비스","description":"사업장: (주)유성현대서비스\n            주소: 대전광역시 유성구 한밭대로 398 (궁동)\n            담당자: 고유빈\n            연락처: 010-8914-5794\n            비고:","date":"2026-03-04","location":"대전광역시 유성구 한밭대로 398 (궁동)","colorId":"7"}
+[2026-02-20T23:33:33.505Z] Creating Calendar Event {"summary":"[고유빈]1급뉴계룡모터스","description":"사업장: 1급뉴계룡모터스\n            주소: 대전광역시 서구 월드컵대로484번길 82-14 (월평동)\n            담당자: 고유빈\n            연락처: 010-2494-5333\n            비고:","date":"2026-03-04","location":"대전광역시 서구 월드컵대로484번길 82-14 (월평동)","colorId":"7"}
+[2026-02-20T23:33:34.572Z] Event created successfully: qm604pkbn802hdoao5k3a673gc 
+[2026-02-20T23:33:35.990Z] Event created successfully: jvjtqqb1l5f812klbtgkq4mclg 
+[2026-02-20T23:34:38.858Z] Deleting Calendar Event: fpsk4jdjvt8j682e37ptsn1c9k 
+[2026-02-20T23:34:38.865Z] Deleting Calendar Event: jvjtqqb1l5f812klbtgkq4mclg 
+[2026-02-20T23:34:38.872Z] Deleting Calendar Event: qm604pkbn802hdoao5k3a673gc 
+[2026-02-20T23:34:39.947Z] Event deleted: qm604pkbn802hdoao5k3a673gc 
+[2026-02-20T23:34:39.984Z] Event deleted: fpsk4jdjvt8j682e37ptsn1c9k 
+[2026-02-20T23:34:40.022Z] Event deleted: jvjtqqb1l5f812klbtgkq4mclg 
+[2026-02-20T23:36:05.875Z] Creating Calendar Event {"summary":"[고유빈]케이지모빌리티유성서비스센터 주식회사","description":"사업장: 케이지모빌리티유성서비스센터 주식회사\n            주소: 대전광역시 유성구 월드컵대로 67-6 (장대동)\n            담당자: 고유빈\n            연락처: 010-2530-2094\n            비고:","date":"2026-03-04","location":"대전광역시 유성구 월드컵대로 67-6 (장대동)","colorId":"7"}
+[2026-02-20T23:36:06.773Z] Creating Calendar Event {"summary":"[배윤민](주)유성현대서비스","description":"사업장: (주)유성현대서비스\n            주소: 대전광역시 유성구 한밭대로 398 (궁동)\n            담당자: 배윤민\n            연락처: 010-8914-5794\n            비고:","date":"2026-03-04","location":"대전광역시 유성구 한밭대로 398 (궁동)","colorId":"6"}
+[2026-02-20T23:36:12.750Z] Creating Calendar Event {"summary":"[한기문]1급뉴계룡모터스","description":"사업장: 1급뉴계룡모터스\n            주소: 대전광역시 서구 월드컵대로484번길 82-14 (월평동)\n            담당자: 한기문\n            연락처: 010-2494-5333\n            비고:","date":"2026-03-04","location":"대전광역시 서구 월드컵대로484번길 82-14 (월평동)","colorId":"10"}
+[2026-02-20T23:36:14.326Z] Event created successfully: ves0spu462r7qm05em6ul9tdkk 
+[2026-02-20T23:36:14.908Z] Event created successfully: irg97fqgemq70nakl1e9v8k79g 
+[2026-02-20T23:36:15.064Z] Event created successfully: nqh262mqj2c7dltp5hpbd5beh8 
+[2026-02-20T23:37:02.340Z] Updating Calendar Event: irg97fqgemq70nakl1e9v8k79g {"summary":"[고유빈](주)유성현대서비스","description":"사업장: (주)유성현대서비스\n            주소: 대전광역시 유성구 한밭대로 398 (궁동)\n            담당자: 고유빈\n            연락처: 010-8914-5794\n            비고:","date":"2026-03-04","location":"대전광역시 유성구 한밭대로 398 (궁동)","colorId":"7"}
+[2026-02-20T23:37:06.783Z] Updating Calendar Event: nqh262mqj2c7dltp5hpbd5beh8 {"summary":"[고유빈]1급뉴계룡모터스","description":"사업장: 1급뉴계룡모터스\n            주소: 대전광역시 서구 월드컵대로484번길 82-14 (월평동)\n            담당자: 고유빈\n            연락처: 010-2494-5333\n            비고:","date":"2026-03-04","location":"대전광역시 서구 월드컵대로484번길 82-14 (월평동)","colorId":"7"}
+[2026-02-20T23:37:15.572Z] Event updated successfully: irg97fqgemq70nakl1e9v8k79g 
+[2026-02-20T23:37:18.239Z] Event updated successfully: nqh262mqj2c7dltp5hpbd5beh8 
+[2026-02-21T00:11:46.973Z] Creating Calendar Event {"summary":"[강종구](주)에스에프에이 (주)아성다이소 세종허브센터 물류자동화 구축","description":"사업장: (주)에스에프에이 (주)아성다이소 세종허브센터 물류자동화 구축\n            주소: 세종특별자치시 소정면 고등리 349\n            담당자: 강종구\n            연락처: 010-7647-2499\n            비고: P20, N20","date":"2026-02-26","location":"세종특별자치시 소정면 고등리 349","colorId":"9"}
+[2026-02-21T00:11:48.570Z] Event created successfully: tunecal91guc34he9cq8nh50qo 
+[2026-02-21T00:23:15.056Z] Updating Calendar Event: s4dnipubami8jbvrkf5ufd6c7g {"summary":"[배윤민]뉴월드마스터","description":"사업장: 뉴월드마스터\n            주소: 대전광역시 유성구 원내로 69-8 (원내동)\n            담당자: 배윤민\n            연락처: 010-6347-5545\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 원내로 69-8 (원내동)","colorId":"6"}
+[2026-02-21T00:23:15.429Z] Updating Calendar Event: f5cq1s5hfkatcfvkvlecis42m4 {"summary":"[배윤민]주식회사 서일모터스","description":"사업장: 주식회사 서일모터스\n            주소: 대전광역시 유성구 유성대로 26-26 (원내동)\n            담당자: 배윤민\n            연락처: 010-6335-1488\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 유성대로 26-26 (원내동)","colorId":"6"}
+[2026-02-21T00:23:15.706Z] Updating Calendar Event: ct59ot99ov8h87olr54d6oo9ls {"summary":"[배윤민]신대광주식회사","description":"사업장: 신대광주식회사\n            주소: 대전광역시 유성구 진잠로 67 (원내동)\n            담당자: 배윤민\n            연락처: 010-9760-9760\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 진잠로 67 (원내동)","colorId":"6"}
+[2026-02-21T00:23:15.721Z] Updating Calendar Event: ct59ot99ov8h87olr54d6oo9ls {"summary":"[배윤민]신대광주식회사","description":"사업장: 신대광주식회사\n            주소: 대전광역시 유성구 진잠로 67 (원내동)\n            담당자: 배윤민\n            연락처: 010-9760-9760\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 진잠로 67 (원내동)","colorId":"6"}
+[2026-02-21T00:23:28.573Z] Event updated successfully: s4dnipubami8jbvrkf5ufd6c7g 
+[2026-02-21T00:23:29.336Z] Event updated successfully: f5cq1s5hfkatcfvkvlecis42m4 
+[2026-02-21T00:23:30.665Z] Event updated successfully: ct59ot99ov8h87olr54d6oo9ls 
+[2026-02-21T00:23:31.007Z] Event updated successfully: ct59ot99ov8h87olr54d6oo9ls 
+[2026-02-21T00:24:19.717Z] Updating Calendar Event: ct59ot99ov8h87olr54d6oo9ls {"summary":"[미지정]신대광주식회사","description":"사업장: 신대광주식회사\n            주소: 대전광역시 유성구 진잠로 67 (원내동)\n            담당자: 미지정\n            연락처: 010-9760-9760\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 진잠로 67 (원내동)"}
+[2026-02-21T00:24:19.759Z] Updating Calendar Event: s4dnipubami8jbvrkf5ufd6c7g {"summary":"[미지정]뉴월드마스터","description":"사업장: 뉴월드마스터\n            주소: 대전광역시 유성구 원내로 69-8 (원내동)\n            담당자: 미지정\n            연락처: 010-6347-5545\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 원내로 69-8 (원내동)"}
+[2026-02-21T00:24:19.996Z] Updating Calendar Event: f5cq1s5hfkatcfvkvlecis42m4 {"summary":"[미지정]주식회사 서일모터스","description":"사업장: 주식회사 서일모터스\n            주소: 대전광역시 유성구 유성대로 26-26 (원내동)\n            담당자: 미지정\n            연락처: 010-6335-1488\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 유성대로 26-26 (원내동)"}
+[2026-02-21T00:24:25.245Z] Event updated successfully: ct59ot99ov8h87olr54d6oo9ls 
+[2026-02-21T00:24:32.106Z] Event updated successfully: s4dnipubami8jbvrkf5ufd6c7g 
+[2026-02-21T00:24:32.121Z] Event updated successfully: f5cq1s5hfkatcfvkvlecis42m4 
+[2026-02-21T00:24:52.018Z] Updating Calendar Event: ced88hfg119u0a3n80shib8rao {"summary":"[고유빈]카신모터스(CARSIN MOTORS) - P20, N20","description":"사업장: 카신모터스(CARSIN MOTORS)\n            주소: 대전광역시 대덕구 아리랑로55번길 7 (읍내동)\n            담당자: 고유빈\n            연락처: 042-633-4004\n            비고: P20, N20","date":"2026-02-24","location":"대전광역시 대덕구 아리랑로55번길 7 (읍내동)","colorId":"7"}
+[2026-02-21T00:24:58.959Z] Event updated successfully: ced88hfg119u0a3n80shib8rao 
+[2026-02-21T00:25:46.436Z] Updating Calendar Event: ced88hfg119u0a3n80shib8rao {"summary":"[고유빈]카신모터스(CARSIN MOTORS) - 담당자 대표로 변경(회수 시 미팅)","description":"사업장: 카신모터스(CARSIN MOTORS)\n            주소: 대전광역시 대덕구 아리랑로55번길 7 (읍내동)\n            담당자: 고유빈\n            연락처: 042-633-4004\n            비고: 담당자 대표로 변경(회수 시 미팅)","date":"2026-02-24","location":"대전광역시 대덕구 아리랑로55번길 7 (읍내동)","colorId":"7"}
+[2026-02-21T00:26:00.279Z] Event updated successfully: ced88hfg119u0a3n80shib8rao 
+[2026-02-21T00:27:46.018Z] Updating Calendar Event: ct59ot99ov8h87olr54d6oo9ls {"summary":"[배윤민]신대광주식회사","description":"사업장: 신대광주식회사\n            주소: 대전광역시 유성구 진잠로 67 (원내동)\n            담당자: 배윤민\n            연락처: 010-9760-9760\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 진잠로 67 (원내동)","colorId":"6"}
+[2026-02-21T00:27:46.731Z] Updating Calendar Event: s4dnipubami8jbvrkf5ufd6c7g {"summary":"[배윤민]뉴월드마스터","description":"사업장: 뉴월드마스터\n            주소: 대전광역시 유성구 원내로 69-8 (원내동)\n            담당자: 배윤민\n            연락처: 010-6347-5545\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 원내로 69-8 (원내동)","colorId":"6"}
+[2026-02-21T00:27:50.530Z] Updating Calendar Event: f5cq1s5hfkatcfvkvlecis42m4 {"summary":"[배윤민]주식회사 서일모터스","description":"사업장: 주식회사 서일모터스\n            주소: 대전광역시 유성구 유성대로 26-26 (원내동)\n            담당자: 배윤민\n            연락처: 010-6335-1488\n            비고:","date":"2026-02-25","location":"대전광역시 유성구 유성대로 26-26 (원내동)","colorId":"6"}
+[2026-02-21T00:28:01.131Z] Event updated successfully: ct59ot99ov8h87olr54d6oo9ls 
+[2026-02-21T00:28:02.316Z] Event updated successfully: s4dnipubami8jbvrkf5ufd6c7g 
+[2026-02-21T00:28:02.865Z] Event updated successfully: f5cq1s5hfkatcfvkvlecis42m4 
