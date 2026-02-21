@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
     const designatedOffice = searchParams.get("designatedOffice")?.trim() || null;
     const address = searchParams.get("address")?.trim() || null;
     const measurementDate = searchParams.get("measurementDate")?.trim() || null;
+    const menuType = searchParams.get("menuType")?.trim() || null;
 
     let supabase;
     try {
@@ -736,13 +737,33 @@ export async function GET(request: NextRequest) {
       console.log(`[검색 API] 필터링 후 H0432 데이터: ${h0432AfterFilter.length}건`);
     }
 
-    // 정렬 로직 변경: 예비조사 등록 순서 (created_at 오름차순) 기준
-    // 1. 예비조사 등록 시간 (preliminary_survey.created_at) -> 없으면 본인 created_at 사용
-    // 2. 오름차순 (먼저 등록된 순서)
-    // 3. 동일할 경우 공문연번 등 기존 로직 참고
+    // 정렬 로직 (메뉴별 구분)
+    // 1. 측정일지 등록 현황 (menuType === 'registration') -> '공문연번' 오름차순 우선
+    // 2. 그 외 (영업관리 등) -> '예비조사 등록 시간(created_at)' 오름차순 우선
     const periodOrder: { [key: string]: number } = { "하반기": 2, "상반기": 1 };
     filteredResults.sort((a, b) => {
-      // 1. 예비조사 등록 시간 비교 (없으면 항목 자체의 생성 시간 사용)
+      const isRegistrationMenu = menuType === 'registration';
+
+      if (isRegistrationMenu) {
+        // [측정일지 등록 현황] 1. 공문연번 우선 정렬
+        const docA = a.document_number;
+        const docB = b.document_number;
+        const hasDocA = !!docA;
+        const hasDocB = !!docB;
+
+        if (hasDocA !== hasDocB) {
+          return hasDocA ? -1 : 1; // 공문연번 있는 것이 상단
+        }
+
+        if (hasDocA && hasDocB) {
+          if (docA !== docB) {
+            // natural sorting (문자+숫자 조합 정렬, ex: 천-1, 천-2, 천-10)
+            return docA.localeCompare(docB, 'ko-KR', { numeric: true });
+          }
+        }
+      }
+
+      // [공통 및 그 외 메뉴] 등록 시간 (created_at) 오름차순
       const keyA = `${a.code}-${a.measurement_year}-${a.measurement_period}`;
       const keyB = `${b.code}-${b.measurement_year}-${b.measurement_period}`;
 
@@ -756,26 +777,26 @@ export async function GET(request: NextRequest) {
         return timeA - timeB; // 오름차순 (오래된 것부터)
       }
 
-      // 2. 등록 시간이 같을 경우 (거의 없겠지만): 기존 정렬 로직 (공문연번 우선)
-      const docA = a.document_number;
-      const docB = b.document_number;
-      const hasDocA = !!docA;
-      const hasDocB = !!docB;
+      // 만약 영업관리 등에서 시간이 같을 경우 공문 연번 정렬(기존 로직 유지)
+      if (!isRegistrationMenu) {
+        const docA = a.document_number;
+        const docB = b.document_number;
+        const hasDocA = !!docA;
+        const hasDocB = !!docB;
 
-      // 공문연번 유무 비교 (없는 것이 상단 -> 여기서는 후순위로 미룸, 데이터 특성상 뒤에 나오는게 나을 수도 있음)
-      if (hasDocA !== hasDocB) {
-        return hasDocA ? 1 : -1;
-      }
+        if (hasDocA !== hasDocB) {
+          return hasDocA ? 1 : -1;
+        }
 
-      // 둘 다 공문연번이 있는 경우: 내림차순 정렬
-      if (hasDocA && hasDocB) {
-        if (docA !== docB) {
-          const numA = Number(docA);
-          const numB = Number(docB);
-          if (!isNaN(numA) && !isNaN(numB)) {
-            return numB - numA;
+        if (hasDocA && hasDocB) {
+          if (docA !== docB) {
+            const numA = Number(docA);
+            const numB = Number(docB);
+            if (!isNaN(numA) && !isNaN(numB)) {
+              return numB - numA;
+            }
+            return docA > docB ? -1 : 1;
           }
-          return docA > docB ? -1 : 1;
         }
       }
 

@@ -260,6 +260,7 @@ export const JournalSearch: React.FC = () => {
         params.append("measurementDate", searchParams.measurementDate);
       }
 
+      params.append("menuType", "registration"); // 등록 현황 화면임을 API에 전달 (공문연번 정렬용)
       const response = await fetch(`/api/journal/search?${params.toString()}`);
 
       // 응답 파싱 안전 처리 (HTML 에러 페이지 등 JSON 이 아닐 때 대비)
@@ -331,9 +332,9 @@ export const JournalSearch: React.FC = () => {
     // 측정일지 ID가 있으면 최신 데이터를 불러옴 (캐시 무시)
     if (entry.id) {
       try {
-        // 캐시를 무시하고 최신 데이터를 가져오기 위해 timestamp 추가
+        // 캐시를 무시하고 최신 데이터를 가져오기 위해 timestamp 추가 (menuType=registration 추가)
         const timestamp = new Date().getTime();
-        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(entry.code || '')}&measurementYear=${entry.measurement_year}&measurementPeriod=${entry.measurement_period}&_t=${timestamp}`, {
+        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(entry.code || '')}&measurementYear=${entry.measurement_year}&measurementPeriod=${entry.measurement_period}&menuType=registration&_t=${timestamp}`, {
           cache: 'no-store',
         });
         if (response.ok) {
@@ -372,9 +373,9 @@ export const JournalSearch: React.FC = () => {
     // 저장된 측정일지의 최신 데이터를 불러와서 selectedEntry와 검색 결과 업데이트
     if (savedJournalId && selectedEntry) {
       try {
-        // 캐시를 무시하고 최신 데이터를 가져오기 위해 timestamp 추가
+        // 캐시를 무시하고 최신 데이터를 가져오기 위해 timestamp 추가 (menuType=registration 추가)
         const timestamp = new Date().getTime();
-        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(selectedEntry.code || '')}&measurementYear=${selectedEntry.measurement_year}&measurementPeriod=${encodeURIComponent(selectedEntry.measurement_period)}&_t=${timestamp}`, {
+        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(selectedEntry.code || '')}&measurementYear=${selectedEntry.measurement_year}&measurementPeriod=${encodeURIComponent(selectedEntry.measurement_period)}&menuType=registration&_t=${timestamp}`, {
           cache: 'no-store',
         });
         if (response.ok) {
