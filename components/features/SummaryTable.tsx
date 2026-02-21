@@ -270,7 +270,9 @@ export const SummaryTable: React.FC = () => {
       k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
       measurement_fee_business: entry.measurement_fee_business || null,
       national_support_status: entry.national_support_status || "",
+      office_jurisdiction: entry.office_jurisdiction || "",
       special_notes: entry.special_notes || "",
+      representative_name: entry.representative_name || null,
     });
     setIsModalOpen(true);
   };
@@ -653,7 +655,7 @@ export const SummaryTable: React.FC = () => {
                 {/* K2B 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">K2B 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         K2B 발송일
@@ -667,11 +669,21 @@ export const SummaryTable: React.FC = () => {
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        발송자
+                        K2B 발송자
                       </label>
                       <Input
                         className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.report_writer ? entry.report_writer.split(',')[0].trim() : (entry.k2b_sender || "")}
+                        disabled
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        소재지 관할청
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        value={entry.office_jurisdiction || ""}
                         disabled
                       />
                     </div>
@@ -1447,7 +1459,7 @@ export const SummaryTable: React.FC = () => {
                 {/* K2B 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">K2B 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         K2B 발송일
@@ -1472,6 +1484,22 @@ export const SummaryTable: React.FC = () => {
                           setEditFormData({ ...editFormData, k2b_sender: e.target.value })
                         }
                         disabled={selectedEntry.completion_status === "완료"}
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        소재지 관할청
+                      </label>
+                      <Select
+                        className="h-11 md:h-10 py-2 text-center text-base md:text-sm shadow-sm"
+                        value={editFormData.office_jurisdiction || ""}
+                        onChange={(e) =>
+                          setEditFormData({ ...editFormData, office_jurisdiction: e.target.value })
+                        }
+                        options={[
+                          { label: "선택", value: "" },
+                          ...DESIGNATED_OFFICE_OPTIONS
+                        ]}
                       />
                     </div>
                   </div>
