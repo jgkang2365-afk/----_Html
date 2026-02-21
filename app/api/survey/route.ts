@@ -594,7 +594,7 @@ export async function POST(request: NextRequest) {
       // 가장 최근 예비조사의 측정일을 사용
       const { data: latestSurvey, error: latestSurveyError } = await supabase
         .from("preliminary_survey")
-        .select("measurement_date, notes")
+        .select("measurement_date")
         .eq("code", code)
         .not("measurement_date", "is", null)
         .order("measurement_date", { ascending: false })
@@ -606,8 +606,7 @@ export async function POST(request: NextRequest) {
         const { error: updateError } = await supabase
           .from("measurement_target_business")
           .update({
-            measurement_date: latestSurvey.measurement_date,
-            notes: latestSurvey.notes
+            measurement_date: latestSurvey.measurement_date
           })
           .eq("code", code);
 

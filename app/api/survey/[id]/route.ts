@@ -133,7 +133,7 @@ export async function PUT(
       // 해당 코드의 가장 최근 예비조사의 측정일을 사용
       const { data: latestSurvey, error: latestSurveyError } = await supabase
         .from("preliminary_survey")
-        .select("measurement_date, notes")
+        .select("measurement_date")
         .eq("code", code)
         .not("measurement_date", "is", null)
         .order("measurement_date", { ascending: false })
@@ -147,7 +147,6 @@ export async function PUT(
           .from("measurement_target_business")
           .update({
             measurement_date: latestSurvey.measurement_date,
-            notes: latestSurvey.notes,
             business_name: business_name // [New Feature] Sync Business Name
           })
           .eq("code", code);
@@ -338,7 +337,7 @@ export async function DELETE(
       // 해당 코드의 가장 최근 예비조사의 측정일을 사용 (삭제 후 남은 것 중)
       const { data: latestSurvey, error: latestSurveyError } = await supabase
         .from("preliminary_survey")
-        .select("measurement_date, notes")
+        .select("measurement_date")
         .eq("code", deletedCode)
         .not("measurement_date", "is", null)
         .order("measurement_date", { ascending: false })
@@ -351,8 +350,7 @@ export async function DELETE(
         const { error: updateError } = await supabase
           .from("measurement_target_business")
           .update({
-            measurement_date: latestSurvey?.measurement_date || null,
-            notes: latestSurvey?.notes || null
+            measurement_date: latestSurvey?.measurement_date || null
           })
           .eq("code", deletedCode);
 
