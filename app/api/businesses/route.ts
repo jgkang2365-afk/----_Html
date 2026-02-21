@@ -434,11 +434,16 @@ export async function PATCH(request: NextRequest) {
     }
 
     // [New Feature] System-as-Master Calendar Sync
-    // Trigger conditions: Update to measurement_date, measurer_id, is_registered, or notes
-    if ((updates.hasOwnProperty('measurement_date') ||
+    // Trigger conditions:
+    // 1. 특정 필드(measurement_date, measurer_id, is_registered, notes)가 변경될 때
+    // 2. 또는 현재 상태가 "확정"인데 google_event_id가 있을 때 (수동 삭제 후 재생성 대비)
+    const calendarTriggerFields = updates.hasOwnProperty('measurement_date') ||
       updates.hasOwnProperty('measurer_id') ||
       updates.hasOwnProperty('is_registered') ||
-      updates.hasOwnProperty('notes')) && code && year && period) {
+      updates.hasOwnProperty('notes');
+    const isSettingConfirmed = updates.is_registered === "확정";
+
+    if ((calendarTriggerFields || isSettingConfirmed) && code && year && period) {
 
       try {
         // Use updatedData directly instead of re-fetching
