@@ -496,12 +496,13 @@ export async function PATCH(request: NextRequest) {
           // === 비고(notes) 값 ===
           const notesText = currentData.notes || "";
 
-          // === 실측정자 조회 (preliminary_survey) ===
+          // === 실측정자 + 종료일 조회 (preliminary_survey) ===
           let namesDisplay = measurerName;
+          let surveyEndDate: string | undefined;
           try {
             const { data: surveyData } = await supabase
               .from("preliminary_survey")
-              .select("actual_measurer")
+              .select("actual_measurer, end_date")
               .eq("code", code)
               .order("measurement_date", { ascending: false })
               .limit(1)
@@ -509,14 +510,17 @@ export async function PATCH(request: NextRequest) {
 
             if (surveyData?.actual_measurer) {
               const actualMeasurers = surveyData.actual_measurer.split(",").map((m: string) => m.trim());
-              // 보고서 담당자를 제외한 실측정자만 추가 (중복 제거)
               const additionalMeasurers = actualMeasurers.filter((m: string) => m !== measurerName);
               if (additionalMeasurers.length > 0) {
                 namesDisplay = `${measurerName}, ${additionalMeasurers.join(", ")}`;
               }
             }
+            // 종료일이 시작일과 다르면 다일 이벤트
+            if (surveyData?.end_date && surveyData.end_date !== currentData.measurement_date) {
+              surveyEndDate = surveyData.end_date;
+            }
           } catch (e) {
-            console.error("[Calendar Sync] Actual measurer query error:", e);
+            console.error("[Calendar Sync] Survey query error:", e);
           }
 
           // === 최종 제목 조합 ===
@@ -547,7 +551,8 @@ export async function PATCH(request: NextRequest) {
           const eventData = {
             summary,
             description,
-            date: currentData.measurement_date, // YYYY-MM-DD
+            date: currentData.measurement_date, // YYYY-MM-DD (시작일)
+            endDate: surveyEndDate, // YYYY-MM-DD (종료일, 다일 측정 시)
             location: currentData.address || "",
             colorId
           };

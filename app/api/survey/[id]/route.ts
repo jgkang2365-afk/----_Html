@@ -223,6 +223,7 @@ export async function PUT(
               summary: newSummary,
               description: `사업장: ${business_name}\n주소: ${targetBiz.address || "주소 미입력"}\n담당자: ${reportWriterName}\n연락처: ${targetBiz.manager_mobile || targetBiz.phone || "없음"}\n비고: ${notesText}`.trim(),
               date: targetBiz.measurement_date,
+              endDate: (end_date && end_date !== targetBiz.measurement_date) ? end_date : undefined, // 다일 측정 시
               location: targetBiz.address || "",
               colorId,
             };

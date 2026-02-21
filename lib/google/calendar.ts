@@ -50,7 +50,8 @@ const getAuthClient = async () => {
 export async function createSurveyEvent(eventData: {
     summary: string;
     description?: string;
-    date: string; // YYYY-MM-DD
+    date: string; // YYYY-MM-DD (시작일)
+    endDate?: string; // YYYY-MM-DD (종료일, 없으면 시작일과 동일)
     location?: string;
     colorId?: string;
 }) {
@@ -66,28 +67,27 @@ export async function createSurveyEvent(eventData: {
         const authClient = await getAuthClient();
         const calendar = google.calendar({ version: 'v3', auth: authClient as any });
 
+        // Calculate end date: endDate+1 (Google Calendar의 종일 이벤트는 end를 exclusive로 처리)
+        const lastDay = eventData.endDate || eventData.date;
+        const endCalc = new Date(lastDay);
+        endCalc.setDate(endCalc.getDate() + 1);
+        const endDateStr = endCalc.toISOString().split('T')[0];
+
         const event: any = {
             summary: eventData.summary,
             description: eventData.description,
             location: eventData.location,
             colorId: eventData.colorId,
-            status: 'confirmed', // Ensure deleted events are restored
+            status: 'confirmed',
             start: {
                 date: eventData.date,
                 timeZone: 'Asia/Seoul',
             },
             end: {
-                date: eventData.date,
+                date: endDateStr,
                 timeZone: 'Asia/Seoul',
             },
         };
-
-        // Calculate end date (next day) for all-day event
-        const startDate = new Date(eventData.date);
-        const endDate = new Date(startDate);
-        endDate.setDate(startDate.getDate() + 1);
-        const nextDay = endDate.toISOString().split('T')[0];
-        event.end.date = nextDay;
 
         const response = await calendar.events.insert({
             calendarId,
@@ -108,7 +108,8 @@ export async function createSurveyEvent(eventData: {
 export async function updateSurveyEvent(eventId: string, eventData: {
     summary: string;
     description?: string;
-    date: string; // YYYY-MM-DD
+    date: string; // YYYY-MM-DD (시작일)
+    endDate?: string; // YYYY-MM-DD (종료일, 없으면 시작일과 동일)
     location?: string;
     colorId?: string;
 }) {
@@ -120,27 +121,27 @@ export async function updateSurveyEvent(eventId: string, eventData: {
         const authClient = await getAuthClient();
         const calendar = google.calendar({ version: 'v3', auth: authClient as any });
 
+        // Calculate end date: endDate+1
+        const lastDay = eventData.endDate || eventData.date;
+        const endCalc = new Date(lastDay);
+        endCalc.setDate(endCalc.getDate() + 1);
+        const endDateStr = endCalc.toISOString().split('T')[0];
+
         const event: any = {
             summary: eventData.summary,
             description: eventData.description,
             location: eventData.location,
             colorId: eventData.colorId,
-            status: 'confirmed', // Ensure deleted events are restored
+            status: 'confirmed',
             start: {
                 date: eventData.date,
                 timeZone: 'Asia/Seoul',
             },
             end: {
-                date: eventData.date,
+                date: endDateStr,
                 timeZone: 'Asia/Seoul',
             },
         };
-
-        const startDate = new Date(eventData.date);
-        const endDate = new Date(startDate);
-        endDate.setDate(startDate.getDate() + 1);
-        const nextDay = endDate.toISOString().split('T')[0];
-        event.end.date = nextDay;
 
         const response = await calendar.events.patch({
             calendarId,
