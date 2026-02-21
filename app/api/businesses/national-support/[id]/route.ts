@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
+import { syncNationalSupportToBusiness } from "@/lib/sync/national-support";
 
 /**
  * 건강디딤돌 신청결과 수정 API
@@ -129,6 +130,15 @@ export async function PATCH(
         { status: 500 }
       );
     }
+
+    // 측정 대상 사업장(measurement_business) 테이블에 국고지원 상태 동기화
+    await syncNationalSupportToBusiness(
+      supabase,
+      code,
+      parseInt(year),
+      period,
+      calculatedStatus
+    );
 
     return NextResponse.json({
       success: true,

@@ -4,6 +4,7 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import * as XLSX from "xlsx";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { syncNationalSupportToBusiness } from "@/lib/sync/national-support";
 
 /**
  * 건강디딤돌 신청 결과 업로드 API
@@ -161,6 +162,15 @@ export async function POST(request: NextRequest) {
         successCount++;
         updateCount++;
         console.log(`✅ 코드 ${code} (${year} ${period}) 건강디딤돌 신청결과 저장: ${nationalSupportStatus}`);
+
+        // 측정 대상 사업장(measurement_business) 테이블에 국고지원 상태 동기화
+        await syncNationalSupportToBusiness(
+          supabase,
+          code,
+          parseInt(year),
+          period,
+          nationalSupportStatus
+        );
       }
 
       // measurement_journal이 있으면 함께 업데이트 (선택사항)
