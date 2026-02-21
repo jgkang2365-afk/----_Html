@@ -496,9 +496,32 @@ export async function PATCH(request: NextRequest) {
           // === 비고(notes) 값 ===
           const notesText = currentData.notes || "";
 
+          // === 실측정자 조회 (preliminary_survey) ===
+          let namesDisplay = measurerName;
+          try {
+            const { data: surveyData } = await supabase
+              .from("preliminary_survey")
+              .select("actual_measurer")
+              .eq("code", code)
+              .order("measurement_date", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (surveyData?.actual_measurer) {
+              const actualMeasurers = surveyData.actual_measurer.split(",").map((m: string) => m.trim());
+              // 보고서 담당자를 제외한 실측정자만 추가 (중복 제거)
+              const additionalMeasurers = actualMeasurers.filter((m: string) => m !== measurerName);
+              if (additionalMeasurers.length > 0) {
+                namesDisplay = `${measurerName}, ${additionalMeasurers.join(", ")}`;
+              }
+            }
+          } catch (e) {
+            console.error("[Calendar Sync] Actual measurer query error:", e);
+          }
+
           // === 최종 제목 조합 ===
-          // 형식: [담당자]사업장명 - 미수정보, 비고
-          const baseSummary = `[${measurerName}]${businessName}`;
+          // 형식: [보고서담당자, 실측정자]사업장명 - 미수정보, 비고
+          const baseSummary = `[${namesDisplay}]${businessName}`;
           const suffixParts = [unpaidText, notesText].filter(Boolean);
           const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(", ")}` : "";
           const summary = baseSummary + suffix;

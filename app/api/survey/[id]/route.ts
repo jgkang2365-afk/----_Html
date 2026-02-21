@@ -156,6 +156,93 @@ export async function PUT(
           console.error("measurement_target_business 측정일 업데이트 오류:", updateError);
           // 오류가 발생해도 예비조사 수정은 성공한 것으로 처리
         }
+
+        // === [Calendar Sync] 예비조사 수정 시 캘린더 이벤트 자동 업데이트 ===
+        try {
+          const { createSurveyEvent, updateSurveyEvent, getSurveyEvent } = await import("@/lib/google/calendar");
+
+          // 해당 코드의 measurement_target_business 조회
+          const { data: targetBiz } = await supabase
+            .from("measurement_target_business")
+            .select("google_event_id, measurer_id, measurement_date, address, manager_mobile, phone, notes, is_registered")
+            .eq("code", code)
+            .order("year", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (targetBiz && targetBiz.google_event_id && targetBiz.is_registered === "확정" && targetBiz.measurement_date) {
+            // 보고서 담당자 조회
+            let reportWriterName = "미지정";
+            if (targetBiz.measurer_id) {
+              const { data: rwUser } = await supabase.from("users").select("name").eq("id", targetBiz.measurer_id).single();
+              if (rwUser) reportWriterName = rwUser.name;
+            }
+
+            // 실측정자 → 중복 제거하여 표시
+            let namesDisplay = reportWriterName;
+            if (actual_measurer) {
+              const actualList = actual_measurer.split(",").map((m: string) => m.trim());
+              const additional = actualList.filter((m: string) => m !== reportWriterName);
+              if (additional.length > 0) {
+                namesDisplay = `${reportWriterName}, ${additional.join(", ")}`;
+              }
+            }
+
+            // 미수 정보 조회
+            let unpaidText = "";
+            const { data: journalData } = await supabase
+              .from("measurement_journal")
+              .select("measurement_year, measurement_period, measurement_fee_business, deposit_amount_business, deposit_amount_business_2")
+              .eq("code", code);
+            if (journalData && journalData.length > 0) {
+              const unpaidPeriods: string[] = [];
+              journalData.forEach((j: any) => {
+                const feeBiz = Number(j.measurement_fee_business || 0);
+                const depBiz = Number(j.deposit_amount_business || 0);
+                const depBiz2 = Number(j.deposit_amount_business_2 || 0);
+                if (feeBiz - (depBiz + depBiz2) > 0) {
+                  const yr = String(j.measurement_year).slice(-2);
+                  const pd = j.measurement_period === "상반기" ? "상" : j.measurement_period === "하반기" ? "하" : j.measurement_period;
+                  unpaidPeriods.push(`${yr}${pd}`);
+                }
+              });
+              if (unpaidPeriods.length > 0) unpaidText = `${unpaidPeriods.join("/")} 미수`;
+            }
+
+            const notesText = targetBiz.notes || "";
+            const baseSummary = `[${namesDisplay}]${business_name}`;
+            const suffixParts = [unpaidText, notesText].filter(Boolean);
+            const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(", ")}` : "";
+            const newSummary = baseSummary + suffix;
+
+            // Color mapping (보고서 담당자 기준)
+            const colorMap: { [key: string]: string } = { '한기문': '10', '배윤민': '6', '강종구': '9', '이주형': '5', '고유빈': '7' };
+            const colorId = colorMap[reportWriterName];
+
+            const eventData = {
+              summary: newSummary,
+              description: `사업장: ${business_name}\n주소: ${targetBiz.address || "주소 미입력"}\n담당자: ${reportWriterName}\n연락처: ${targetBiz.manager_mobile || targetBiz.phone || "없음"}\n비고: ${notesText}`.trim(),
+              date: targetBiz.measurement_date,
+              location: targetBiz.address || "",
+              colorId,
+            };
+
+            const updated = await updateSurveyEvent(targetBiz.google_event_id, eventData);
+            if (updated) {
+              console.log(`[Survey->Calendar] Updated event for ${code}: ${newSummary}`);
+            } else {
+              console.log(`[Survey->Calendar] Update failed for ${code}, trying to re-create...`);
+              const newEvent = await createSurveyEvent(eventData);
+              if (newEvent && newEvent.id) {
+                await supabase.from("measurement_target_business").update({ google_event_id: newEvent.id }).eq("code", code);
+                console.log(`[Survey->Calendar] Re-created event: ${newEvent.id}`);
+              }
+            }
+          }
+        } catch (calErr) {
+          console.error("[Survey->Calendar] Calendar sync error:", calErr);
+          // 캘린더 오류가 발생해도 예비조사 수정은 성공으로 처리
+        }
       }
     }
 
