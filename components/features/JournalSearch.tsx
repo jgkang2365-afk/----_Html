@@ -277,27 +277,31 @@ export const JournalSearch: React.FC = () => {
       if (response.ok) {
         const results = (data && data.results) || [];
 
-        // 클라이언트 측에서도 중복 제거 (code-year-period 조합 기준)
-        const deduplicatedResults = results.reduce((acc: JournalEntry[], current: JournalEntry) => {
+        // 클라이언트 측 중복 제거 로직 수정 (code-year-period 조합 기준) - 서버에서 정렬해 준 순서를 반드시 보장하기 위함
+        const seenKeys = new Map<string, JournalEntry>();
+
+        // 서버에서 최신 순(또는 연번 우선 순)으로 정렬해서 보냈으므로, 배열을 순서대로 돌면서 첫 등장만 유지하는 것을 원칙으로 함 (다만, 혹시나 뒤에 더 최신 데이터가 있다면 교체)
+        // 하지만 이미 서버 API에서 1차적인 중복 제거를 해서 보내기 때문에, 클라이언트에서는 순서를 해치지 않는 선에서 Set/Map을 사용해 한 번 더 걸러줌
+        results.forEach((current: JournalEntry) => {
           const key = `${current.code}-${current.measurement_year}-${current.measurement_period}`;
-          const existing = acc.find((r) => `${r.code}-${r.measurement_year}-${r.measurement_period}` === key);
+          const existing = seenKeys.get(key);
 
           if (!existing) {
-            acc.push(current);
+            seenKeys.set(key, current);
           } else {
             // 같은 조합이 있으면 더 최신 것(updated_at 또는 id가 더 큰 것) 선택
             const currentDate = new Date(current.updated_at || current.created_at || 0).getTime();
             const existingDate = new Date(existing.updated_at || existing.created_at || 0).getTime();
 
             if (currentDate > existingDate || (current.id && existing.id && current.id > existing.id)) {
-              // 더 최신 항목으로 교체
-              const index = acc.indexOf(existing);
-              acc[index] = current;
+              // 더 최신 항목으로 Map의 값 교체 (키의 순서는 유지됨)
+              seenKeys.set(key, current);
             }
           }
+        });
 
-          return acc;
-        }, []);
+        // Map의 values를 배열로 변환하면 Map에 삽입된 순서대로 추출됨 (서버의 정렬 순서 보존)
+        const deduplicatedResults = Array.from(seenKeys.values());
 
         setResults(deduplicatedResults);
       } else {
@@ -549,12 +553,36 @@ export const JournalSearch: React.FC = () => {
       }
     }
 
-    // 정렬: 예비조사 등록일(sort_date) -> 공문연번 -> 측정년도 -> 측정주기 -> 등록일 (기본 오름차순)
+    // 정렬: 공문연번 -> 연번 -> 예비조사 등록일(sort_date) -> 측정년도 -> 측정주기 -> 등록일 (기본 오름차순)
     filtered = filtered.sort((a, b) => {
       const multiplier = sortOrder === "asc" ? 1 : -1;
 
-      // 0. 예비조사 등록일 (sort_date) 우선 정렬
-      // sort_date는 API에서 예비조사 등록일 또는 created_at으로 설정되어 옴
+      // 1. 공문연번 (Natural sorting: 대-001, 대-002...)
+      const docA = a.document_number || "";
+      const docB = b.document_number || "";
+
+      if (docA !== docB) {
+        // 둘 다 값이 있는 경우 natural sorting 적용
+        if (docA && docB) {
+          return docA.localeCompare(docB, 'ko-KR', { numeric: true }) * multiplier;
+        }
+        // 하나만 값이 있는 경우 값이 있는 것이 위로 (오름차순 기준)
+        if (docA) return -1 * multiplier;
+        if (docB) return 1 * multiplier;
+      }
+
+      // 2. 연번 (숫자 기준 정렬 시도)
+      const seqA = a.sequence_number || "";
+      const seqB = b.sequence_number || "";
+      if (seqA !== seqB) {
+        if (seqA && seqB) {
+          return seqA.localeCompare(seqB, undefined, { numeric: true }) * multiplier;
+        }
+        if (seqA) return -1 * multiplier;
+        if (seqB) return 1 * multiplier;
+      }
+
+      // 3. 예비조사 등록일 (sort_date)
       if (a.sort_date && b.sort_date) {
         const dateA = new Date(a.sort_date).getTime();
         const dateB = new Date(b.sort_date).getTime();
@@ -563,32 +591,19 @@ export const JournalSearch: React.FC = () => {
         }
       }
 
-      // 1. 공문연번 (문자열 비교)
-      if (a.document_number !== b.document_number) {
-        // 둘 다 값이 있는 경우
-        if (a.document_number && b.document_number) {
-          return a.document_number.localeCompare(b.document_number) * multiplier;
-        }
-        // 둘 중 하나만 값이 있는 경우 (값 있는 것이 위로, 또는 아래로... 요구사항에 따라 다름)
-        // 보통 오름차순일 때 값 있는게 위로 오는게 좋지만, 여기선 "공문연번 순"이므로 값 있는 것 끼리 정렬하고 없는건 뒤로 보냄
-        if (a.document_number) return -1 * multiplier; // a가 값이 있으면 앞으로 (없는건 뒤로) -- multiplier 적용으로 정렬 방향에 따름
-        if (b.document_number) return 1 * multiplier;  // b가 값이 있으면 앞으로 (없는건 뒤로)
-      }
-
-      // 2. 측정년도 (내림차순 정렬을 유지하고 싶다면 multiplier 반전 고려, 하지만 보통 오름차순/내림차순 전체 적용)
-      // 공문연번이 같거나 없을 때의 차순 정렬
+      // 4. 측정년도
       if (a.measurement_year !== b.measurement_year) {
         return (a.measurement_year - b.measurement_year) * multiplier;
       }
 
-      // 3. 측정주기 ("하반기" > "상반기" > "수시..." 순서가 되도록 문자열 비교)
+      // 5. 측정주기
       if (a.measurement_period !== b.measurement_period) {
         const formA = a.measurement_period || "";
         const formB = b.measurement_period || "";
         return formA.localeCompare(formB) * multiplier;
       }
 
-      // 4. 등록일 (created_at 기준) - sort_date가 없을 경우를 대비해 유지
+      // 6. 등록일 (created_at 기준)
       const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
       const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
       return (dateA - dateB) * multiplier;
