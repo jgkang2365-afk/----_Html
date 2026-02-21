@@ -167,7 +167,10 @@ export async function PUT(
             .limit(1)
             .maybeSingle();
 
-          if (targetBiz && targetBiz.google_event_id && targetBiz.is_registered === "확정" && targetBiz.measurement_date) {
+          // [수정] 2026년 2월 22일 이전 날짜는 구글 캘린더 연동 안함
+          const isAfterCutoff = targetBiz?.measurement_date ? new Date(targetBiz.measurement_date) >= new Date("2026-02-22") : false;
+
+          if (targetBiz && targetBiz.google_event_id && targetBiz.is_registered === "확정" && targetBiz.measurement_date && isAfterCutoff) {
             // 보고서 담당자 조회
             let reportWriterName = "미지정";
             if (targetBiz.measurer_id) {

@@ -455,7 +455,9 @@ export async function PATCH(request: NextRequest) {
         const eventId = currentData.google_event_id;
 
         // 3-1. 확정 상태이고 필수 정보(날짜)가 있는 경우 -> 생성 또는 수정
-        if (isConfirmed && hasRequiredInfo) {
+        // 2026년 2월 22일 이전 날짜는 구글 캘린더 연동 생략
+        const isAfterCutoff = new Date(currentData.measurement_date) >= new Date("2026-02-22");
+        if (isConfirmed && hasRequiredInfo && isAfterCutoff) {
 
           let measurerName = "미지정";
           if (currentData.measurer_id) {
