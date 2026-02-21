@@ -34,7 +34,7 @@ export async function GET() {
             diagnostics.checks.auth = "✅ Google Auth 성공";
 
             // 3. 캘린더 API 테스트
-            const calendar = google.calendar({ version: "v3", auth: authClient });
+            const calendar = google.calendar({ version: "v3", auth: authClient as any });
             const calendarId = process.env.GOOGLE_CALENDAR_ID;
 
             if (calendarId) {
