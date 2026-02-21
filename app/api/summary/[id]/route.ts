@@ -61,13 +61,13 @@ export async function PATCH(
       updateData.national_support_status = null;
     }
 
-    // 유효한 값만 허용 ('지원', '비대상', null)
+    // 유효한 값만 허용 ('대상', '비대상', null)
     if (updateData.national_support_status &&
-      updateData.national_support_status !== "지원" &&
+      updateData.national_support_status !== "대상" &&
       updateData.national_support_status !== "비대상") {
-      // "대상"을 "지원"으로 변환
-      if (updateData.national_support_status === "대상") {
-        updateData.national_support_status = "지원";
+      // "지원"을 "대상"으로 변환 (과거 데이터 호환성)
+      if (updateData.national_support_status === "지원") {
+        updateData.national_support_status = "대상";
       } else {
         // 유효하지 않은 값은 null로 설정
         updateData.national_support_status = null;

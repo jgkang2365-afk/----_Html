@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
     q6 = applyFilters(q6, 'measurement');
     const { data: nationalSupportData } = await q6;
     const nationalSupportStats = {
-      지원: nationalSupportData?.filter((item) => item.national_support_status === "지원").length || 0,
+      지원: nationalSupportData?.filter((item) => item.national_support_status === "대상" || item.national_support_status === "지원").length || 0,
       비대상: nationalSupportData?.filter((item) => item.national_support_status === "비대상").length || 0,
       전체: nationalSupportData?.length || 0,
     };

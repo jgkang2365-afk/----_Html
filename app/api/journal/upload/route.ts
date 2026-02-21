@@ -47,22 +47,22 @@ export async function POST(request: NextRequest) {
 
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    
+
     // 헤더 포함하여 읽기 (디버깅용)
-    const rawDataWithHeader = XLSX.utils.sheet_to_json(worksheet, { 
+    const rawDataWithHeader = XLSX.utils.sheet_to_json(worksheet, {
       defval: null,
       header: 1, // 배열로 읽기 (첫 번째 행 확인용)
     });
-    
+
     console.log("Excel 파일 읽기 결과:", {
       sheetName,
       totalRows: rawDataWithHeader.length,
       firstRow: rawDataWithHeader[0],
       secondRow: rawDataWithHeader[1],
     });
-    
+
     // 객체 형태로 다시 읽기 (헤더를 키로 사용)
-    const rawData = XLSX.utils.sheet_to_json(worksheet, { 
+    const rawData = XLSX.utils.sheet_to_json(worksheet, {
       defval: null,
       raw: false, // 텍스트로 읽기
     }) as Record<string, any>[];
@@ -84,27 +84,27 @@ export async function POST(request: NextRequest) {
     // 첫 번째 행의 키들을 헤더로 간주
     const headerKeys = rawData.length > 0 ? Object.keys(rawData[0]) : [];
     console.log("감지된 헤더 키들:", headerKeys);
-    
+
     // 헤더 이름이 "코드*" 또는 "코드"일 수 있음
-    const codeKey = headerKeys.find(key => 
+    const codeKey = headerKeys.find(key =>
       key === "코드*" || key === "코드" || key.toLowerCase() === "code"
     ) || "코드";
-    
+
     const dataRows = rawData.filter((row: any) => {
       // 모든 가능한 헤더 이름 조합 확인
       const code = row[codeKey] || row["코드*"] || row["코드"] || row["code"] || "";
       const codeStr = String(code).trim();
-      
+
       // 빈 문자열이 아니고, 헤더로 보이는 값이 아닌 경우만 데이터로 간주
       if (!codeStr || codeStr === "코드" || codeStr === "코드*" || codeStr.toLowerCase() === "code") {
         return false;
       }
-      
+
       // 숫자 값이 있는 경우도 확인 (측정년도 등)
-      const hasValidData = codeStr || 
-        row["측정년도*"] || row["측정년도"] || 
+      const hasValidData = codeStr ||
+        row["측정년도*"] || row["측정년도"] ||
         row["사업장명*"] || row["사업장명"];
-      
+
       return !!hasValidData;
     });
 
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
 
     if (dataRows.length === 0) {
       return NextResponse.json(
-        { 
+        {
           error: "유효한 데이터 행이 없습니다.",
           details: `파일에서 읽은 헤더: ${rawData.length > 0 ? Object.keys(rawData[0] as Record<string, any>).join(", ") : "없음"}. '코드' 또는 '코드*' 컬럼을 확인해주세요.`
         },
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
           row["지정한계_관할지청*"] || row["지정한계_관할지청"] || row["designated_office"] || ""
         ).trim();
         let designatedOffice = toShortName(designatedOfficeRaw);
-        
+
         const businessName = String(
           row["사업장명*"] || row["사업장명"] || row["business_name"] || ""
         ).trim();
@@ -215,10 +215,10 @@ export async function POST(request: NextRequest) {
 
         // 예비조사 측정일 자동 채우기 (measurement_business.measurement_start_date가 비어있거나 불일치할 때)
         let autoFilledMeasurementDate = null;
-        if (businessData && (!businessData.measurement_start_date || 
-            (businessData.measurement_start_date && 
-             parseDate(row["측정 시작일"] || row["measurement_start_date"]) && 
-             parseDate(row["측정 시작일"] || row["measurement_start_date"]) !== businessData.measurement_start_date))) {
+        if (businessData && (!businessData.measurement_start_date ||
+          (businessData.measurement_start_date &&
+            parseDate(row["측정 시작일"] || row["measurement_start_date"]) &&
+            parseDate(row["측정 시작일"] || row["measurement_start_date"]) !== businessData.measurement_start_date))) {
           // 같은 code의 가장 최근 예비조사 조회
           const { data: latestSurvey } = await supabase
             .from("preliminary_survey")
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
-          
+
           if (latestSurvey?.measurement_date) {
             autoFilledMeasurementDate = latestSurvey.measurement_date;
           }
@@ -255,20 +255,20 @@ export async function POST(request: NextRequest) {
         const officeJurisdictionRaw = String(
           row["소재지 관할청"] || row["office_jurisdiction"] || businessData.office_jurisdiction || ""
         ).trim();
-        
+
         // 소재지 관할청을 약칭으로 변환 (전체명이면 약칭으로, 이미 약칭이면 그대로)
-        const officeJurisdiction = officeJurisdictionRaw 
+        const officeJurisdiction = officeJurisdictionRaw
           ? (fullNameToShortName(officeJurisdictionRaw) || officeJurisdictionRaw)
           : (businessData.office_jurisdiction || null);
 
         // 업종분류 처리: 엑셀에서 입력된 값이 있으면 사용, 없으면 지정지청이 "대전"이면 기본값 "공업사"
         let businessCategory = String(row["업종 분류"] || row["업종분류"] || row["business_category"] || "").trim() || null;
-        
+
         // 엑셀에 업종분류가 없고 지정지청이 "대전"이면 기본값 "공업사"
         if (!businessCategory && designatedOffice === "대전") {
           businessCategory = "공업사";
         }
-        
+
         // 지정한계_관할지청이 없으면 소재지 관할청을 기반으로 자동 계산
         if (!designatedOffice && officeJurisdiction) {
           designatedOffice = classifyDesignatedOffice(officeJurisdiction);
@@ -312,7 +312,7 @@ export async function POST(request: NextRequest) {
             .eq("measurement_period", measurementPeriod)
             .eq("document_number", documentNumber)
             .maybeSingle();
-          
+
           if (existingDocNumber) {
             // 같은 지정한계_관할지청 + 측정년도 + 측정주기에서 중복된 공문연번이 있으면 자동 부여
             errors.push(`행 ${i + 2}: 공문연번 중복 (${documentNumber}) - 같은 지정한계_관할지청(${designatedOffice}) + 측정년도(${measurementYear}) + 측정주기(${measurementPeriod}) 조합에서 이미 존재합니다. 자동으로 새 번호를 부여합니다.`);
@@ -330,7 +330,7 @@ export async function POST(request: NextRequest) {
             .eq("measurement_period", measurementPeriod)
             .eq("sequence_number", sequenceNumber)
             .maybeSingle();
-          
+
           if (existingSequenceNumber) {
             // 같은 지정한계_관할지청 + 측정년도 + 측정주기에서 중복된 연번이 있으면 자동 부여
             errors.push(`행 ${i + 2}: 연번 중복 (${sequenceNumber}) - 같은 지정한계_관할지청(${designatedOffice}) + 측정년도(${measurementYear}) + 측정주기(${measurementPeriod}) 조합에서 이미 존재합니다. 자동으로 새 번호를 부여합니다.`);
@@ -350,7 +350,7 @@ export async function POST(request: NextRequest) {
             기존_연번: sequenceNumber || "(없음)",
             기존_5인이상연번: fivePlusSequence || "(없음)",
           });
-          
+
           const assignedNumbers = await assignAllNumbers({
             designated_office: designatedOffice,
             measurement_year: measurementYear,
@@ -360,13 +360,13 @@ export async function POST(request: NextRequest) {
             sequence_number: sequenceNumber || null,
             five_plus_sequence: fivePlusSequence || null,
           });
-          
+
           console.log(`[Excel 업로드] 행 ${i + 2}: 번호 자동 부여 완료`, {
             부여된_공문연번: assignedNumbers.document_number,
             부여된_연번: assignedNumbers.sequence_number,
             부여된_5인이상연번: assignedNumbers.five_plus_sequence,
           });
-          
+
           documentNumber = documentNumber || assignedNumbers.document_number;
           sequenceNumber = sequenceNumber || assignedNumbers.sequence_number;
           fivePlusSequence = fivePlusSequence || assignedNumbers.five_plus_sequence;
@@ -393,10 +393,11 @@ export async function POST(request: NextRequest) {
           business_number: String(row["사업자번호"] || row["business_number"] || businessData.business_number || "").trim() || null,
           industrial_accident_number: String(row["산재관리번호"] || row["industrial_accident_number"] || "").trim() || null,
           representative_name: String(row["대표자명"] || row["representative_name"] || "").trim() || null,
-          // 국고지원여부는 '지원' 또는 '비대상'만 허용, 그 외는 null
+          // 국고지원여부는 '대상' 또는 '비대상'만 허용, 과거 엑셀의 '지원'은 '대상'으로 변환
           national_support_status: (() => {
             const value = String(row["국고지원여부"] || row["national_support_status"] || "").trim();
-            return value === "지원" || value === "비대상" ? value : null;
+            if (value === "지원" || value === "대상") return "대상";
+            return value === "비대상" ? value : null;
           })(),
           address: String(row["주소"] || row["address"] || businessData.address || "").trim() || null,
           phone: String(row["전화번호"] || row["phone"] || "").trim() || null,
@@ -430,27 +431,27 @@ export async function POST(request: NextRequest) {
         if (insertError) {
           // 오류 메시지를 한국어로 명확하게 설명
           let errorMessage = `행 ${i + 2}: 측정일지 생성 오류`;
-          
+
           if (insertError.message.includes("document_number_key")) {
-            errorMessage = 
+            errorMessage =
               `행 ${i + 2}: 공문연번 중복 오류\n` +
               `  - 입력된 공문연번: ${journalData.document_number || "(없음)"}\n` +
               `  - 원인: 동일한 공문연번이 이미 다른 측정일지에서 사용되고 있습니다.\n` +
               `  - 해결방법: Excel 파일의 공문연번을 비워두면 자동으로 새 번호가 부여됩니다.`;
           } else if (insertError.message.includes("national_support_status_check")) {
-            errorMessage = 
+            errorMessage =
               `행 ${i + 2}: 국고지원여부 입력 오류\n` +
-              `  - 원인: 국고지원여부는 "지원" 또는 "비대상"만 입력 가능합니다.\n` +
-              `  - 해결방법: Excel 파일의 국고지원여부 컬럼에 "지원" 또는 "비대상"을 입력하거나 비워두세요.`;
+              `  - 원인: 국고지원여부는 "대상" 또는 "비대상"만 입력 가능합니다.\n` +
+              `  - 해결방법: Excel 파일의 국고지원여부 컬럼에 "대상" 또는 "비대상"을 입력하거나 비워두세요.`;
           } else if (insertError.message.includes("completion_status")) {
-            errorMessage = 
+            errorMessage =
               `행 ${i + 2}: 완료여부 입력 오류\n` +
               `  - 원인: 완료여부는 "완료" 또는 "미완료"만 입력 가능합니다.\n` +
               `  - 해결방법: Excel 파일의 완료여부 컬럼에 "완료" 또는 "미완료"를 입력하세요.`;
           } else {
             errorMessage = `행 ${i + 2}: 측정일지 생성 오류\n  - 오류 내용: ${insertError.message}`;
           }
-          
+
           errors.push(errorMessage);
           errorCount++;
         } else {

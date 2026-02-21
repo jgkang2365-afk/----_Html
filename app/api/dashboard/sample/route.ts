@@ -174,7 +174,7 @@ export async function GET() {
     }
 
     const nationalSupportStats = {
-      지원: nationalSupportData?.filter((item) => item.national_support_status === "지원").length || 0,
+      지원: nationalSupportData?.filter((item) => item.national_support_status === "대상" || item.national_support_status === "지원").length || 0,
       비대상: nationalSupportData?.filter((item) => item.national_support_status === "비대상").length || 0,
       전체: nationalSupportData?.length || 0,
     };

@@ -186,11 +186,16 @@ export async function GET(request: NextRequest) {
     const excelData = (businesses || []).map((business) => {
       // 국고지원 상태 결정 (우선순위: measurement_journal > national_support_application > measurement_target_business)
       const nationalSupportKey = `${business.code}-${business.year}-${business.period}`;
-      const nationalSupportStatus =
+      let nationalSupportStatus =
         journalNationalSupportMap.get(nationalSupportKey) ||
         nationalSupportMap.get(nationalSupportKey) ||
         business.national_support_status ||
         null;
+
+      // '지원' 용어를 '대상'으로 통일
+      if (nationalSupportStatus === "지원") {
+        nationalSupportStatus = "대상";
+      }
 
       // business_category 조회
       const businessCategory = businessCategoryMap.get(nationalSupportKey) || null;

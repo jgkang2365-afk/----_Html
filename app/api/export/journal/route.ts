@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
       사업자번호: journal.business_number || "",
       산재보험번호: journal.industrial_accident_number || "",
       대표자명: journal.representative_name || "",
-      국고지원여부: journal.national_support_status || "",
+      국고지원여부: journal.national_support_status === "지원" ? "대상" : (journal.national_support_status || ""),
       주소: journal.address || "",
       전화번호: journal.phone || "",
       팩스번호: journal.fax || "",

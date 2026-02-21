@@ -25,9 +25,9 @@ export async function syncNationalSupportToBusiness(
             targetStatus = "대상";
         }
 
-        // measurement_business 업데이트
+        // measurement_target_business 업데이트
         const { error: updateError } = await supabase
-            .from("measurement_business")
+            .from("measurement_target_business")
             .update({
                 national_support_status: targetStatus,
                 updated_at: new Date().toISOString(),
