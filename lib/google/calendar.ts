@@ -21,16 +21,27 @@ function logDebug(message: string, data?: any) {
 
 /**
  * Google 인증 클라이언트 생성
+ * - Vercel 배포: GOOGLE_CREDENTIALS_JSON 환경변수 사용
+ * - 로컬 개발: google-credentials.json 파일 사용
  */
 const getAuthClient = async () => {
     try {
-        if (!fs.existsSync(KEY_FILE_PATH)) {
-            logDebug(`Key file not found at: ${KEY_FILE_PATH}`);
-            throw new Error(`Key file not found at: ${KEY_FILE_PATH}`);
-        }
+        let credentials: any;
 
-        const keyFileContent = fs.readFileSync(KEY_FILE_PATH, 'utf-8');
-        const credentials = JSON.parse(keyFileContent);
+        // 1순위: 환경변수 (Vercel 배포 환경)
+        if (process.env.GOOGLE_CREDENTIALS_JSON) {
+            credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+            logDebug("Using credentials from GOOGLE_CREDENTIALS_JSON env var");
+        }
+        // 2순위: 파일 (로컬 개발 환경)
+        else if (fs.existsSync(KEY_FILE_PATH)) {
+            const keyFileContent = fs.readFileSync(KEY_FILE_PATH, 'utf-8');
+            credentials = JSON.parse(keyFileContent);
+            logDebug("Using credentials from file: " + KEY_FILE_PATH);
+        }
+        else {
+            throw new Error(`Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: ${KEY_FILE_PATH}`);
+        }
 
         const auth = new google.auth.GoogleAuth({
             credentials,
