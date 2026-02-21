@@ -209,7 +209,7 @@ export async function PUT(
             const notesText = targetBiz.notes || "";
             const baseSummary = `[${namesDisplay}]${business_name}`;
             const suffixParts = [unpaidText, notesText].filter(Boolean);
-            const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(", ")}` : "";
+            const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(" / ")}` : "";
             const newSummary = baseSummary + suffix;
 
             // Color mapping (보고서 담당자 기준)

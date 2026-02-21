@@ -532,7 +532,7 @@ export async function PATCH(request: NextRequest) {
           // 형식: [보고서담당자, 실측정자]사업장명 - 미수정보, 비고
           const baseSummary = `[${namesDisplay}]${businessName}`;
           const suffixParts = [unpaidText, notesText].filter(Boolean);
-          const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(", ")}` : "";
+          const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(" / ")}` : "";
           const summary = baseSummary + suffix;
 
           const description = `
