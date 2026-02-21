@@ -165,7 +165,8 @@ export default function SurveyPage() {
       loadSurveys();
     }
     loadOfficeOptions();
-  }, [activeTab, loadSurveys]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]); // loadSurveys를 의존성 배열에서 제외하여 렌더링마다 자동 호출 방지
 
   const loadOfficeOptions = async () => {
     try {
