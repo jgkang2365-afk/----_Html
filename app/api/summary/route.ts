@@ -144,6 +144,29 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    // 사업장 정보(business_info) 조회 (대표자명 가져오기)
+    let businessInfos: any[] = [];
+    if (codes.length > 0) {
+      const { data: biData, error: biError } = await supabase
+        .from("business_info")
+        .select("code, representative_name")
+        .in("code", codes);
+
+      if (biError) {
+        console.warn("사업장 정보 조회 오류 (대표자명):", biError);
+      } else {
+        businessInfos = biData || [];
+      }
+    }
+
+    // code를 키로 하는 사업장 정보 맵 생성
+    const biMap = new Map<string, any>();
+    businessInfos.forEach((bi) => {
+      if (bi.code) {
+        biMap.set(bi.code, bi);
+      }
+    });
+
     // 2026-02-06 Fix: Fetch measurement_target_business for national_support_status
     let targets: any[] = [];
     if (codes.length > 0) {
@@ -188,6 +211,7 @@ export async function GET(request: NextRequest) {
       // }
 
       const mb = journal.code ? mbMap.get(journal.code) : null;
+      const bi = journal.code ? biMap.get(journal.code) : null;
 
       // Find target for National Support Status fallback
       // Strict match on code, year, period
@@ -234,6 +258,7 @@ export async function GET(request: NextRequest) {
         office_jurisdiction: journal.office_jurisdiction,
         designated_office: journal.designated_office ? toShortName(journal.designated_office) : null, // 약칭으로 변환
         business_name: journal.business_name,
+        representative_name: bi?.representative_name || null, // 대표자명 추가
         total_employees: journal.total_employees,
         business_number: journal.business_number,
         industrial_accident_number: journal.industrial_accident_number,
