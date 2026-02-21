@@ -179,12 +179,13 @@ export async function GET(request: NextRequest) {
         return sYear === journalYear && (journalPeriod.includes(sPeriod));
       });
 
-      // 만약 기간 일치 항목이 없으면 가장 최근 것 사용 (기존 로직 유지)
-      if (!survey && businessSurveys.length > 0) {
-        survey = businessSurveys.sort((a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )[0];
-      }
+      // 만약 기간 일치 항목이 없으면 가장 최근 것 사용 (기존 로직 주석 처리 또는 제거)
+      // 변경(2025.02.21): 과거 데이터(24년, 25년 초)가 표시되어 혼동을 주는 문제로 인해 일치하는 주기가 없으면 null 처리
+      // if (!survey && businessSurveys.length > 0) {
+      //   survey = businessSurveys.sort((a, b) =>
+      //     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      //   )[0];
+      // }
 
       const mb = journal.code ? mbMap.get(journal.code) : null;
 
