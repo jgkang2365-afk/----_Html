@@ -855,12 +855,12 @@ export default function SurveyPage() {
                         <th className="px-2 py-3 text-center w-[90px]">종료일</th>
                         <th className="px-2 py-3 text-center w-[120px]">측정요일</th>
                         <th className="px-2 py-3 text-left">사업장명</th>
-                        <th className="px-2 py-3 text-center w-[110px]">사업자번호</th>
-                        <th className="px-2 py-3 text-center w-[80px]">측정자</th>
-                        <th className="px-2 py-3 text-center w-[90px]">공시료코드</th>
-                        <th className="px-2 py-3 text-center w-[100px]">예비조사자</th>
-                        <th className="px-2 py-3 text-center w-[80px]">실측정자</th>
-                        <th className="px-2 py-3 text-center w-[120px]">
+                        <th className="px-2 py-3 text-center w-[120px]">사업자번호</th>
+                        <th className="px-2 py-3 text-center w-[100px]">측정자</th>
+                        <th className="px-2 py-3 text-center w-[100px]">공시료코드</th>
+                        <th className="px-2 py-3 text-center w-[130px]">예비조사자</th>
+                        <th className="px-2 py-3 text-center w-[100px]">실측정자</th>
+                        <th className="px-2 py-3 text-center w-[130px]">
                           <div className="flex items-center justify-center gap-1">
                             <span>보고서</span>
                             <button
@@ -874,8 +874,7 @@ export default function SurveyPage() {
                             </button>
                           </div>
                         </th>
-                        <th className="px-2 py-3 text-left w-[200px]">비고</th>
-                        <th className="px-2 py-3 text-center w-[120px]">작업</th>
+                        <th className="px-2 py-3 text-center w-[140px]">작업</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -897,12 +896,11 @@ export default function SurveyPage() {
                           </td>
                           <td className="px-2 py-2 font-medium truncate max-w-[200px]" title={survey.business_name}>{survey.business_name}</td>
                           <td className="px-2 py-2 text-center">{survey.business_number || "-"}</td>
-                          <td className="px-2 py-2 text-center text-xs truncate max-w-[80px]" title={survey.measurer || ""}>{survey.measurer || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs truncate max-w-[100px]" title={survey.measurer || ""}>{survey.measurer || "-"}</td>
                           <td className="px-2 py-2 text-center text-xs">{survey.survey_code || "-"}</td>
-                          <td className="px-2 py-2 text-center text-xs truncate max-w-[100px]" title={survey.preliminary_surveyor || ""}>{survey.preliminary_surveyor || "-"}</td>
-                          <td className="px-2 py-2 text-center text-xs truncate max-w-[80px]" title={survey.actual_measurer || ""}>{survey.actual_measurer || "-"}</td>
-                          <td className="px-2 py-2 text-center text-xs truncate max-w-[80px]" title={survey.report_writer || ""}>{survey.report_writer || "-"}</td>
-                          <td className="px-2 py-2 text-xs truncate max-w-[200px]" title={survey.notes || ""}>{survey.notes || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs truncate max-w-[130px]" title={survey.preliminary_surveyor || ""}>{survey.preliminary_surveyor || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs truncate max-w-[100px]" title={survey.actual_measurer || ""}>{survey.actual_measurer || "-"}</td>
+                          <td className="px-2 py-2 text-center text-xs truncate max-w-[100px]" title={survey.report_writer || ""}>{survey.report_writer || "-"}</td>
                           <td className="px-2 py-2 text-center">
                             <div className="flex gap-1 justify-center whitespace-nowrap">
                               <Button
