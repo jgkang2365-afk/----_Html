@@ -956,8 +956,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     }));
                                 }} />
                             </div>
-                            <div className="col-span-2 flex flex-col items-center mt-4 border-t border-slate-200 pt-4">
-                                <label className="block text-sm font-medium mb-2 text-slate-700">보고서 담당자</label>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">보고서 담당자</label>
                                 <Select
                                     options={[
                                         { value: "", label: "선택" },
@@ -965,7 +965,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     ]}
                                     value={editForm.measurer_id?.toString() || ""}
                                     onChange={(e) => setEditForm(prev => ({ ...prev, measurer_id: e.target.value ? parseInt(e.target.value) : null }))}
-                                    className="w-1/2 text-center"
                                 />
                             </div>
                         </div>
