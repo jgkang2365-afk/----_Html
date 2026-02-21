@@ -783,11 +783,17 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     <input
                                         type="text"
                                         className="w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 px-2"
-                                        defaultValue={item.notes || ""}
+                                        value={item.notes || ""}
+                                        onChange={(e) => {
+                                            const newVal = e.target.value;
+                                            setData(prev => prev.map(p => p.code === item.code ? { ...p, notes: newVal } : p));
+                                        }}
                                         onBlur={(e) => {
-                                            if (e.target.value !== (item.notes || "")) {
-                                                handleNotesChange(item, e.target.value);
-                                            }
+                                            const originalItem = data.find(d => d.code === item.code);
+                                            // The value is already in item.notes, so we just save it.
+                                            // To optimize, if you track original values you could compare,
+                                            // but saving on blur is fine.
+                                            handleNotesChange(item, e.target.value);
                                         }}
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
@@ -949,6 +955,18 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         is_registered_text: val ? '확정' : '미확정'
                                     }));
                                 }} />
+                            </div>
+                            <div className="col-span-2 flex flex-col items-center mt-4 border-t border-slate-200 pt-4">
+                                <label className="block text-sm font-medium mb-2 text-slate-700">보고서 담당자</label>
+                                <Select
+                                    options={[
+                                        { value: "", label: "선택" },
+                                        ...measurers.map(m => ({ value: m.id.toString(), label: m.name }))
+                                    ]}
+                                    value={editForm.measurer_id?.toString() || ""}
+                                    onChange={(e) => setEditForm(prev => ({ ...prev, measurer_id: e.target.value ? parseInt(e.target.value) : null }))}
+                                    className="w-1/2 text-center"
+                                />
                             </div>
                         </div>
                     </div>
