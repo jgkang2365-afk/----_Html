@@ -9,6 +9,7 @@ interface MainLayoutProps {
 }
 
 import { usePathname } from "next/navigation";
+import { Toaster } from "sonner";
 
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -31,6 +32,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           {children}
         </main>
       </div>
+      <Toaster position="top-right" richColors closeButton />
     </div>
   );
 };

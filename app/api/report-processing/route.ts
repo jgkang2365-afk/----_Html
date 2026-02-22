@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
         const codes = data.map(d => d.code);
         const { data: journals, error: jError } = await supabase
             .from('measurement_journal')
-            .select('code, k2b_send_date')
+            .select('code, k2b_send_date, k2b_status')
             .in('code', codes)
             .eq('year', parseInt(year))
             .eq('period', period);
@@ -56,7 +56,8 @@ export async function GET(req: NextRequest) {
             const journal = journals?.find(j => j.code === record.code);
             return {
                 ...record,
-                k2b_send_date: journal?.k2b_send_date || null
+                k2b_send_date: journal?.k2b_send_date || null,
+                k2b_status: journal?.k2b_status || null
             };
         });
 

@@ -25,6 +25,7 @@ interface BusinessRecord {
     is_email_sent: boolean;
     last_email_sent_at: string | null;
     k2b_send_date: string | null;
+    k2b_status: string | null;
 }
 
 export default function ReportProcessingPage() {
@@ -120,34 +121,46 @@ export default function ReportProcessingPage() {
 
     // K2B 업로드 처리
     const handleUploadK2B = async () => {
+        console.log('[K2B Upload] Request started', { selectedCodes });
+
         if (selectedCodes.length === 0) {
             toast.warning('업로드할 업체를 선택해주세요.');
             return;
         }
 
         const targets = records.filter(r => selectedCodes.includes(r.code));
+        console.log('[K2B Upload] Targets filtered', targets);
 
-        if (!confirm(`${targets.length}개 업체의 보고서를 K2B에 자동 업로드하시겠습니까?`)) return;
+        const isConfirmed = confirm(`${targets.length}개 업체의 보고서를 K2B에 자동 업로드하시겠습니까?`);
+        console.log('[K2B Upload] User confirmation:', isConfirmed);
+
+        if (!isConfirmed) return;
 
         setProcessing(true);
         setProcessingMessage('K2B 업로드를 진행하고 있습니다. 브라우저 창을 닫지 마세요...');
+
         try {
+            console.log('[K2B Upload] Calling API /api/report-processing/upload-k2b');
             const res = await fetch('/api/report-processing/upload-k2b', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ targets })
             });
+
+            console.log('[K2B Upload] API Response status:', res.status);
             const data = await res.json();
+            console.log('[K2B Upload] API Response data:', data);
 
             if (res.ok) {
-                toast.success(data.message);
+                toast.success(data.message || 'K2B 업로드 완료');
                 fetchRecords(); // 상태 갱신
                 setSelectedCodes([]);
             } else {
                 toast.error(data.error || 'K2B 업로드 실패');
             }
-        } catch (error) {
-            toast.error('K2B 업로드 중 서버 오류');
+        } catch (error: any) {
+            console.error('[K2B Upload] Critical Error:', error);
+            toast.error('K2B 업로드 중 서버 오류가 발생했습니다.');
         } finally {
             setProcessing(false);
             setProcessingMessage('');
@@ -267,18 +280,19 @@ export default function ReportProcessingPage() {
                             <TableHead>담당자 이메일</TableHead>
                             <TableHead>이메일 발송상태</TableHead>
                             <TableHead>K2B 전송일자</TableHead>
+                            <TableHead>K2B 상태</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {loading && records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="text-center py-10">
+                                <TableCell colSpan={7} className="text-center py-10">
                                     <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
                                 </TableCell>
                             </TableRow>
                         ) : records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                                <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                                     조회된 데이터가 없습니다.
                                 </TableCell>
                             </TableRow>
@@ -307,6 +321,19 @@ export default function ReportProcessingPage() {
                                     </TableCell>
                                     <TableCell className="text-xs">
                                         {record.k2b_send_date || '-'}
+                                    </TableCell>
+                                    <TableCell>
+                                        {record.k2b_status ? (
+                                            <span className={`text-xs font-semibold px-2 py-1 rounded border ${['업로드 완료', '정상처리'].includes(record.k2b_status)
+                                                    ? 'text-green-600 bg-green-50 border-green-200'
+                                                    : 'text-red-600 bg-red-50 border-red-200'
+                                                }`}>
+                                                {['업로드 완료', '정상처리'].includes(record.k2b_status) ? '성공' : '실패'}
+                                                {' '}({record.k2b_status})
+                                            </span>
+                                        ) : (
+                                            <span className="text-muted-foreground text-xs">-</span>
+                                        )}
                                     </TableCell>
                                 </TableRow>
                             ))
