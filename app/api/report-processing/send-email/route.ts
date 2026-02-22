@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
 import { createClient } from '@/lib/supabase/server';
 import { EmailService } from '@/lib/email/email-service';
 import { findReportFiles } from '@/lib/utils/findReportFiles';
