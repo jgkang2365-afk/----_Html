@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/Button";
 import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
 import React from "react";
+import { ProfileModal } from "@/components/features/ProfileModal";
+import { Settings } from "lucide-react";
 
 interface HeaderProps {
   onMenuToggle?: () => void;
@@ -24,6 +26,7 @@ const navItems: NavItem[] = [
   { href: "/survey", label: "예비조사" },
   { href: "/journal", label: "측정일지" },
   { href: "/summary", label: "측정정보 요약" },
+  { href: "/report-processing", label: "보고서 처리", adminOnly: true },
   { href: "/businesses/national-support", label: "건강디딤돌 신청결과" },
   { href: "/sales", label: "매출관리" },
 ];
@@ -37,7 +40,8 @@ const adminNavItems: NavItem[] = [
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, loading, logout } = useUser();
+  const { user, loading, logout, refetch } = useUser();
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const isAdmin = user?.role === "관리자";
 
   // 디버깅: 사용자 정보 확인
@@ -83,11 +87,22 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         <div className="relative">
           {user ? (
             <div className="flex items-center gap-4">
-              <div className="hidden sm:block text-right">
-                <div className="text-sm font-medium text-text-900">{user.name}</div>
-                <div className="text-xs text-text-500">{user.email}</div>
+              <div className="flex items-center gap-3 pr-4 border-r border-surface-100">
+                <div className="hidden sm:block text-right">
+                  <div className="text-sm font-bold text-text-900 leading-tight">{user.name} 님</div>
+                  <div className="text-[11px] text-text-500">{isAdmin ? "관리자" : "사용자"}</div>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-8 px-2"
+                  onClick={() => setShowProfileModal(true)}
+                  title="내 정보 수정"
+                >
+                  <Settings size={16} />
+                </Button>
               </div>
-              <Button variant="secondary" size="sm" onClick={logout}>
+              <Button variant="secondary" size="sm" onClick={logout} className="h-8">
                 로그아웃
               </Button>
             </div>
@@ -105,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
           <div className="flex items-center justify-between py-2">
             {/* 일반 메뉴 */}
             <ul className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-              {navItems.map((item) => {
+              {navItems.filter(item => !item.adminOnly || isAdmin).map((item) => {
                 const isActive =
                   pathname === item.href ||
                   (pathname?.startsWith(item.href + "/") &&
@@ -164,6 +179,16 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
           </div>
         </div>
       </nav>
+
+      {/* 내 정보 수정 모달 */}
+      {user && (
+        <ProfileModal
+          isOpen={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
+          user={user}
+          onUpdate={refetch}
+        />
+      )}
     </header>
   );
 };

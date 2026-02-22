@@ -730,7 +730,25 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       }
     }
 
-    const managerEmail = row["Email"] || row["이메일"] || row["담당자 e-mail"] || row["담당자 email"] || row["담당자이메일"] || null;
+    let managerEmail = row["Email"] || row["이메일"] || row["담당자 e-mail"] || row["담당자 email"] || row["담당자이메일"] || null;
+
+    // [NEW] BL열(64번째, 인덱스 63)에서 이메일 추출 로직 (파이썬 스크립트 로직 이식)
+    if (worksheet) {
+      const excelRowIndex = actualHeaderRowIndex + 1 + dataIndex;
+      const emailCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: 63 }); // BL열 = 64번째 = 인덱스 63
+      const emailCell = worksheet[emailCellAddress];
+      if (emailCell && emailCell.v) {
+        const emailRaw = String(emailCell.v).trim();
+        // 정규식을 사용하여 이메일 패턴 추출 (콤마 분리 지원)
+        const emailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}/g;
+        const matches = emailRaw.match(emailPattern);
+        if (matches && matches.length > 0) {
+          // 다중 이메일일 경우 콤마로 연결 (TRD 요구사항 반영)
+          managerEmail = matches.join(", ");
+          console.log(`[Excel Sync] BL열 이메일 추출 성공 (${baseData.code}): ${managerEmail}`);
+        }
+      }
+    }
     const invoiceEmail = row["세금 Email"] || row["세금이메일"] || row["세금 Email"] || row["계산서 메일"] || row["계산서메일"] || null;
 
     // 산재관리번호 & 개시번호 추출 (사용자 확인: I열-9번째(인덱스 8), J열-10번째(인덱스 9))

@@ -19,6 +19,7 @@ const navItems: NavItem[] = [
   { href: "/survey", label: "예비조사", icon: "🔍" },
   { href: "/journal", label: "측정일지", icon: "📋" },
   { href: "/summary", label: "측정정보 요약", icon: "📄" },
+  { href: "/report-processing", label: "보고서 처리", icon: "📧", adminOnly: true },
   { href: "/businesses/national-support", label: "건강디딤돌 신청결과", icon: "🏥" },
   { href: "/sales", label: "매출관리", icon: "💰" },
 ];
@@ -69,7 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true, onClose }) => {
           {/* 일반 네비게이션 */}
           <nav className="flex-1 overflow-y-auto py-6">
             <ul className="space-y-1 px-3">
-              {navItems.map((item) => {
+              {navItems.filter(item => !item.adminOnly || isAdmin).map((item) => {
                 const isActive =
                   pathname === item.href ||
                   (pathname?.startsWith(item.href + "/") &&

@@ -23,7 +23,7 @@ export async function getUser() {
 
     const { data: userData, error: userError } = await supabase
       .from("users")
-      .select("id, name, role")
+      .select("id, name, role, job, survey_code, k2b_id")
       .eq("id", session.userId)
       .eq("id", session.userId)
       .limit(1)
@@ -45,9 +45,11 @@ export async function getUser() {
 
     return {
       id: userData.id.toString(),
-      email: "", // 더 이상 사용하지 않음
       name: userData.name,
       role: userData.role as "관리자" | "사용자",
+      job: userData.job,
+      survey_code: userData.survey_code,
+      k2b_id: userData.k2b_id,
     };
   } catch (error) {
     console.error("[getUser] 함수 오류:", error);
