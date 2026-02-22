@@ -285,6 +285,24 @@ export const SummaryTable: React.FC = () => {
       setSaving(true);
       setError(null);
 
+      // 자릿수 검증 (간단한 체크)
+      const { business_number, industrial_accident_number, commencement_number } = editFormData;
+      if (business_number && business_number.length > 0 && business_number.length !== 10) {
+        setError("사업자등록번호는 10자리여야 합니다.");
+        setSaving(false);
+        return;
+      }
+      if (industrial_accident_number && industrial_accident_number.length > 0 && industrial_accident_number.length !== 11) {
+        setError("산재관리번호는 11자리여야 합니다.");
+        setSaving(false);
+        return;
+      }
+      if (commencement_number && commencement_number.length > 0 && commencement_number.length !== 11) {
+        setError("개시번호는 11자리여야 합니다.");
+        setSaving(false);
+        return;
+      }
+
       // 저장할 데이터 준비 (빈 문자열을 null로 변환)
       const saveData = { ...editFormData };
 
@@ -1318,9 +1336,11 @@ export const SummaryTable: React.FC = () => {
                       <Input
                         className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                         value={editFormData.industrial_accident_number || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, industrial_accident_number: e.target.value })
-                        }
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/[^\d]/g, "");
+                          setEditFormData({ ...editFormData, industrial_accident_number: digits });
+                        }}
+                        maxLength={11}
                       />
                     </div>
                     <div className="md:col-span-4 print:col-span-4 p-1">
@@ -1330,9 +1350,11 @@ export const SummaryTable: React.FC = () => {
                       <Input
                         className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                         value={editFormData.commencement_number || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, commencement_number: e.target.value })
-                        }
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/[^\d]/g, "");
+                          setEditFormData({ ...editFormData, commencement_number: digits });
+                        }}
+                        maxLength={11}
                       />
                     </div>
                     <div className="md:col-span-12 print:col-span-12 p-1">

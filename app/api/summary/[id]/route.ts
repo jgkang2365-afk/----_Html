@@ -61,15 +61,13 @@ export async function PATCH(
       updateData.national_support_status = null;
     }
 
-    // 유효한 값만 허용 ('대상', '비대상', null)
-    if (updateData.national_support_status &&
-      updateData.national_support_status !== "대상" &&
-      updateData.national_support_status !== "비대상") {
-      // "지원"을 "대상"으로 변환 (과거 데이터 호환성)
-      if (updateData.national_support_status === "지원") {
-        updateData.national_support_status = "대상";
-      } else {
-        // 유효하지 않은 값은 null로 설정
+    // 유효한 값만 허용 ('지원', '비대상', null)
+    if (updateData.national_support_status) {
+      // 프론트엔드에서 '대상'으로 올 수 있으므로 '지원'으로 변환 (제약조건: '지원', '비대상')
+      if (updateData.national_support_status === "대상" || updateData.national_support_status === "지원") {
+        updateData.national_support_status = "지원";
+      } else if (updateData.national_support_status !== "비대상") {
+        // 그 외 유효하지 않은 값은 null로 설정
         updateData.national_support_status = null;
       }
     }
@@ -81,6 +79,14 @@ export async function PATCH(
     if (updateData.electronic_invoice_date === "") updateData.electronic_invoice_date = null;
     if (updateData.deposit_date_business === "") updateData.deposit_date_business = null;
     if (updateData.deposit_date_national === "") updateData.deposit_date_national = null;
+
+    // 번호 필드 정규화 (하이픈 등 특수문자 제거)
+    const digitFields = ['business_number', 'industrial_accident_number', 'commencement_number'];
+    digitFields.forEach(field => {
+      if (updateData[field]) {
+        updateData[field] = String(updateData[field]).replace(/[^\d]/g, "");
+      }
+    });
 
     const supabase = await createClient();
 
