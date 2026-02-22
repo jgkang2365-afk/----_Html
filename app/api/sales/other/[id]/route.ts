@@ -41,20 +41,20 @@ export async function PATCH(
     const supabase = await createClient();
 
     const updateData: any = {
-      updated_by: user.email || user.id,
+      updated_by: user.name || user.id,
       updated_at: new Date().toISOString(),
     };
 
     if (item_name !== undefined) updateData.item_name = item_name;
     if (invoice_date !== undefined) updateData.invoice_date = invoice_date || null;
     if (supply_amount !== undefined) {
-      updateData.supply_amount = supply_amount !== null && supply_amount !== undefined 
-        ? parseFloat(supply_amount.toString()) 
+      updateData.supply_amount = supply_amount !== null && supply_amount !== undefined
+        ? parseFloat(supply_amount.toString())
         : null;
     }
     if (vat_amount !== undefined) {
-      updateData.vat_amount = vat_amount !== null && vat_amount !== undefined 
-        ? parseFloat(vat_amount.toString()) 
+      updateData.vat_amount = vat_amount !== null && vat_amount !== undefined
+        ? parseFloat(vat_amount.toString())
         : null;
     }
     if (total_amount !== undefined) {
@@ -62,14 +62,14 @@ export async function PATCH(
     }
     if (deposit_date !== undefined) updateData.deposit_date = deposit_date || null;
     if (deposit_amount !== undefined) {
-      updateData.deposit_amount = deposit_amount !== null && deposit_amount !== undefined 
-        ? parseFloat(deposit_amount.toString()) 
+      updateData.deposit_amount = deposit_amount !== null && deposit_amount !== undefined
+        ? parseFloat(deposit_amount.toString())
         : null;
     }
     if (notes !== undefined) updateData.notes = notes || null;
     if (revenue_year !== undefined) {
-      updateData.revenue_year = revenue_year !== null && revenue_year !== undefined 
-        ? parseInt(revenue_year.toString()) 
+      updateData.revenue_year = revenue_year !== null && revenue_year !== undefined
+        ? parseInt(revenue_year.toString())
         : null;
     }
     if (revenue_period !== undefined) updateData.revenue_period = revenue_period || null;
@@ -132,10 +132,10 @@ export async function DELETE(
     console.error("기타 매출 삭제 API 오류:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { 
+      {
         error: "기타 매출을 삭제하는 중 오류가 발생했습니다.",
         details: errorMessage,
-        success: false 
+        success: false
       },
       { status: 500 }
     );

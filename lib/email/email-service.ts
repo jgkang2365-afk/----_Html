@@ -21,7 +21,7 @@ const DEFAULT_CONFIG: EmailConfig = {
     port: 465,
     secure: true,
     auth: {
-        user: '5678882', // 고정 ID
+        user: process.env.NAVER_EMAIL_ID || '', // 환경변수에서 관리
         pass: process.env.NAVER_EMAIL_PASSWORD || '', // 환경변수에서 관리
     },
 };
@@ -63,7 +63,7 @@ export class EmailService {
           <hr style="border: none; border-top: 1px solid #cccccc;">
           <p style="font-size: 12px; color: #666666;">
             본 메일 계정은 주식회사 한결작업환경컨설팅의 작업환경측정결과 보고서 발송 전용 계정으로 수신이 불가능합니다.<br>
-            회신이나 문의가 필요할 경우 <a href="mailto:5678882@naver.com" style="color: #0066cc; font-weight: bold; text-decoration: none;">5678882@naver.com</a>을 이용해 주시기 바랍니다.
+            회신이나 문의가 필요할 경우 <a href="mailto:${DEFAULT_CONFIG.auth.user}@naver.com" style="color: #0066cc; font-weight: bold; text-decoration: none;">${DEFAULT_CONFIG.auth.user}@naver.com</a>을 이용해 주시기 바랍니다.
           </p>
         </body>
       </html>

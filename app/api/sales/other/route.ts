@@ -51,24 +51,24 @@ export async function POST(request: NextRequest) {
     const insertData: any = {
       item_name,
       invoice_date: invoice_date || null,
-      supply_amount: supply_amount !== null && supply_amount !== undefined 
-        ? (typeof supply_amount === 'number' ? supply_amount : parseFloat(supply_amount.toString())) 
+      supply_amount: supply_amount !== null && supply_amount !== undefined
+        ? (typeof supply_amount === 'number' ? supply_amount : parseFloat(supply_amount.toString()))
         : null,
-      vat_amount: vat_amount !== null && vat_amount !== undefined 
-        ? (typeof vat_amount === 'number' ? vat_amount : parseFloat(vat_amount.toString())) 
+      vat_amount: vat_amount !== null && vat_amount !== undefined
+        ? (typeof vat_amount === 'number' ? vat_amount : parseFloat(vat_amount.toString()))
         : null,
       total_amount: typeof total_amount === 'number' ? total_amount : parseFloat(total_amount.toString()),
       deposit_date: deposit_date || null,
-      deposit_amount: deposit_amount !== null && deposit_amount !== undefined 
-        ? (typeof deposit_amount === 'number' ? deposit_amount : parseFloat(deposit_amount.toString())) 
+      deposit_amount: deposit_amount !== null && deposit_amount !== undefined
+        ? (typeof deposit_amount === 'number' ? deposit_amount : parseFloat(deposit_amount.toString()))
         : null,
       notes: notes || null,
-      revenue_year: revenue_year !== null && revenue_year !== undefined 
-        ? (typeof revenue_year === 'number' ? revenue_year : parseInt(revenue_year.toString())) 
+      revenue_year: revenue_year !== null && revenue_year !== undefined
+        ? (typeof revenue_year === 'number' ? revenue_year : parseInt(revenue_year.toString()))
         : null,
       revenue_period: revenue_period || null,
-      created_by: user.email || user.id,
-      updated_by: user.email || user.id,
+      created_by: user.name || user.id,
+      updated_by: user.name || user.id,
     };
 
     console.log("기타 매출 등록 데이터:", insertData);
