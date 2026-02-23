@@ -38,4 +38,29 @@ next-env.d.ts
 # Google Calendar Credentials
 google-credentials.json
 
+# Local backups and data
+/backups/
+/2025년 측정일지/
+/작업환경측정 결과 보고서 처리/
+/*.txt
+/*.log
+/*.xlsx
+/cheonan_strict_dump.txt
+/daejeon_output.txt
+/daejeon_renumber_preview.md
+/daejeon_status_dump.txt
+/debug_h0130_output.txt
+/debug_journals.json
+/debug_output.txt
+/debug_periods_output.txt
+/distribution.txt
+/distribution2.txt
+/excel_headers.txt
+/h0231_dump.txt
+/temp-excel-sync-part1.txt
+/validation_output.txt
+/측정 대상 사업장 관리 구현 계획.txt
+/측정일지 구현 정보.txt
+/건강디딤돌 신청 및 결과 조회/
+
 
