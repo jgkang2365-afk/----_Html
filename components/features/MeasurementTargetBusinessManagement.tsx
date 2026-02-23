@@ -342,43 +342,34 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const saveChanges = async (code: string, updates: Partial<BusinessEntry>) => {
-        try {
-            const [year, period] = filters.yearPeriod.split("-");
+        const [year, period] = filters.yearPeriod.split("-");
+        const previousData = [...data]; // For rollback
 
+        try {
             // DB 컬럼 매핑 및 클렌징
             const sanitizeUpdates = (raw: Partial<BusinessEntry>) => {
-                // DB에 실제로 존재하는 컬럼만 허용
                 const validColumns = [
                     'business_name', 'business_category', 'address',
                     'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
-                    'manager_name', 'manager_mobile', 'phone', // manager_phone -> phone
+                    'manager_name', 'manager_mobile', 'phone',
                     'management_status', 'notes', 'measurement_date', 'future_measurement_period',
-                    'future_measurement_date', 'measurer_id', 'period' // Added period
+                    'future_measurement_date', 'measurer_id', 'period'
                 ];
 
                 const sanitized: any = {};
-
-                // 매핑 처리
                 if (raw.is_registered_text !== undefined) sanitized.is_registered = raw.is_registered_text;
                 if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
-                if (raw.manager_phone !== undefined) sanitized.phone = raw.manager_phone; // UI manager_phone -> DB phone
+                if (raw.manager_phone !== undefined) sanitized.phone = raw.manager_phone;
 
-                // 빈 문자열인 날짜 필드는 null로변환
                 if (raw.measurement_date === "") sanitized.measurement_date = null;
                 if (raw.future_measurement_date === "") sanitized.future_measurement_date = null;
 
-                // 직접 매핑된 필드 및 기타 허용 필드 복사
                 Object.keys(raw).forEach(key => {
                     if (validColumns.includes(key) && sanitized[key] === undefined) {
-                        // 날짜 필드가 아니고 빈 문자열이 아니거나, 이미 처리된 필드가 아닐 경우값 복사
-                        // 위에서 처리한 날짜 필드는 건너뜀 (이미 sanitized에 들어갔으므로 undefined check로 걸러짐)
                         sanitized[key] = (raw as any)[key];
                     }
                 });
 
-                // 날짜 필드들이 빈 문자열로 넘어왔을 경우 null로 처리되었는지 확인 및 원래 로직 보강
-                // 위 로직에서 이미 sanitized[key]가 설정되면 아래 loop에서 덮어쓰지 않으므로 안전함.
-                // 다만, raw[key]가 ""일 때 loop에서 sanitized[key]에 ""가 들어가는 것을 방지해야 함.
                 if (sanitized.measurement_date === "") sanitized.measurement_date = null;
                 if (sanitized.future_measurement_date === "") sanitized.future_measurement_date = null;
 
@@ -387,6 +378,20 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
             const cleanUpdates = sanitizeUpdates(updates);
 
+            // 1. Optimistic Update (UI 먼저 반영)
+            const optimisticUpdates = { ...updates };
+            if (cleanUpdates.is_registered) {
+                optimisticUpdates.is_registered = cleanUpdates.is_registered;
+                optimisticUpdates.is_registered_text = cleanUpdates.is_registered;
+            }
+            if (cleanUpdates.office_jurisdiction) {
+                optimisticUpdates.office_jurisdiction = cleanUpdates.office_jurisdiction;
+                optimisticUpdates.designated_office = cleanUpdates.office_jurisdiction;
+            }
+
+            setData(prev => prev.map(item => item.code === code ? { ...item, ...optimisticUpdates } : item));
+
+            // 2. API Call
             const response = await fetch("/api/businesses", {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
@@ -403,23 +408,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 throw new Error(errData.details || errData.error || "Failed to update");
             }
 
-            // Optimistic Update
-            // UI 반영을 위해 매핑된 필드도 로컬 상태에는 반영해야 함
-            const optimisticUpdates = { ...updates };
-            if (cleanUpdates.is_registered) {
-                optimisticUpdates.is_registered = cleanUpdates.is_registered;
-                optimisticUpdates.is_registered_text = cleanUpdates.is_registered;
-            }
-            if (cleanUpdates.office_jurisdiction) {
-                optimisticUpdates.office_jurisdiction = cleanUpdates.office_jurisdiction;
-                optimisticUpdates.designated_office = cleanUpdates.office_jurisdiction;
-            }
-
-            setData(prev => prev.map(item => item.code === code ? { ...item, ...optimisticUpdates } : item));
         } catch (error) {
             console.error("Update error:", error);
             alert(`수정 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
-            fetchData(); // Revert on error
+            setData(previousData); // Rollback to previous data
         }
     };
 
@@ -757,21 +749,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         className="w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 bg-transparent text-center"
                                         defaultValue={item.measurement_date || ""}
                                         onBlur={(e) => {
-                                            if (e.target.value !== item.measurement_date) {
-                                                const newVal = e.target.value;
+                                            const newVal = e.target.value;
+                                            if (newVal !== (item.measurement_date || "")) {
                                                 const newStatus = newVal ? '확정' : '미확정';
-
-                                                // Optimistic Update
-                                                const updatedItem = {
-                                                    ...item,
-                                                    measurement_date: newVal,
-                                                    is_registered: newStatus,
-                                                    is_registered_text: newStatus
-                                                };
-                                                setFilteredData(prev => prev.map(p => p.code === item.code ? updatedItem : p));
-
                                                 saveChanges(item.code, {
-                                                    measurement_date: newVal,
+                                                    measurement_date: newVal || null,
                                                     is_registered: newStatus,
                                                     is_registered_text: newStatus
                                                 });
@@ -786,11 +768,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         defaultValue={item.notes || ""}
                                         onBlur={(e) => {
                                             const newVal = e.target.value;
-                                            if (newVal !== item.notes) {
-                                                // 로컬 상태(data) 반영
-                                                setData(prev => prev.map(p => p.code === item.code ? { ...p, notes: newVal } : p));
-                                                // DB 저장
-                                                handleNotesChange(item, newVal);
+                                            if (newVal !== (item.notes || "")) {
+                                                saveChanges(item.code, { notes: newVal });
                                             }
                                         }}
                                         onKeyDown={(e) => {
