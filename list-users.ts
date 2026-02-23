@@ -1,5 +1,5 @@
 
-import { createClient } from "./lib/supabase/server.ts";
+import { createClient } from "./lib/supabase/server";
 
 async function listUsers() {
     const supabase = await createClient();
