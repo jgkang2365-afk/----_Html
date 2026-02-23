@@ -114,6 +114,8 @@ export const SummaryTable: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<SummaryEntry>>({});
   const [saving, setSaving] = useState(false);
+  const [previousData, setPreviousData] = useState<any>(null);
+  const [loadingPreviousData, setLoadingPreviousData] = useState(false);
 
   // 일괄 인쇄 선택 상태
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -275,6 +277,25 @@ export const SummaryTable: React.FC = () => {
       representative_name: entry.representative_name || null,
     });
     setIsModalOpen(true);
+
+    // 전회 데이터 가져오기
+    const fetchPreviousData = async () => {
+      try {
+        setLoadingPreviousData(true);
+        const response = await fetch(
+          `/api/journal/previous-data?code=${encodeURIComponent(entry.code)}&year=${entry.measurement_year}&period=${encodeURIComponent(entry.measurement_period)}`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setPreviousData(data.previousData || null);
+        }
+      } catch (err) {
+        console.error("전회 데이터 조회 오류:", err);
+      } finally {
+        setLoadingPreviousData(false);
+      }
+    };
+    fetchPreviousData();
   };
 
   // 수정 저장
@@ -1123,6 +1144,7 @@ export const SummaryTable: React.FC = () => {
             setIsModalOpen(false);
             setSelectedEntry(null);
             setEditFormData({});
+            setPreviousData(null);
           }}
           title="측정정보 요약"
           size="xl"
@@ -1145,6 +1167,7 @@ export const SummaryTable: React.FC = () => {
                   setIsModalOpen(false);
                   setSelectedEntry(null);
                   setEditFormData({});
+                  setPreviousData(null);
                 }}
                 className="md:flex-none text-sm px-3 h-9"
               >
@@ -1448,6 +1471,11 @@ export const SummaryTable: React.FC = () => {
                           setEditFormData({ ...editFormData, manager_email: e.target.value })
                         }
                       />
+                      {previousData?.manager_email && (
+                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousData.manager_email}`}>
+                          전회: {previousData.manager_email}
+                        </div>
+                      )}
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
@@ -1461,6 +1489,11 @@ export const SummaryTable: React.FC = () => {
                           setEditFormData({ ...editFormData, invoice_email: e.target.value })
                         }
                       />
+                      {previousData?.invoice_email && (
+                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousData.invoice_email}`}>
+                          전회: {previousData.invoice_email}
+                        </div>
+                      )}
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
@@ -1474,6 +1507,11 @@ export const SummaryTable: React.FC = () => {
                           setEditFormData({ ...editFormData, invoice_email_2: e.target.value })
                         }
                       />
+                      {previousData?.invoice_email_2 && (
+                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousData.invoice_email_2}`}>
+                          전회: {previousData.invoice_email_2}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

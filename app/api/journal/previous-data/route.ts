@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const trimmedCode = code.trim();
     const measurementYear = parseInt(year);
     const supabase = await createClient();
 
@@ -122,8 +123,8 @@ export async function GET(request: NextRequest) {
     let fallbackDefaults: Record<string, any> = {};
     const { data: recentJournals } = await supabase
       .from("measurement_journal")
-      .select("manager_name, manager_mobile, manager_email, manager_position, phone, fax, invoice_email, industrial_accident_number, commencement_number")
-      .eq("code", code)
+      .select("manager_name, manager_mobile, manager_email, manager_position, phone, fax, invoice_email, industrial_accident_number, commencement_number, measurement_year, measurement_period")
+      .eq("code", trimmedCode)
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false })
       .limit(5);
@@ -254,7 +255,7 @@ export async function GET(request: NextRequest) {
       manager_name: businessHistoryDefaults.manager_name || previousJournal?.manager_name || fallbackDefaults.manager_name || null,
       manager_position: businessHistoryDefaults.manager_position || previousJournal?.manager_position || fallbackDefaults.manager_position || null,
       manager_mobile: businessHistoryDefaults.manager_mobile || previousJournal?.manager_mobile || fallbackDefaults.manager_mobile || null,
-      manager_email: businessHistoryDefaults.manager_email || (businessData as any)?.manager_email || previousJournal?.manager_email || fallbackDefaults.manager_email || null,
+      manager_email: previousJournal?.manager_email || businessHistoryDefaults.manager_email || (businessData as any)?.manager_email || fallbackDefaults.manager_email || null,
 
       // 측정비 정보
       measurement_fee_business: previousJournal?.measurement_fee_business || null,

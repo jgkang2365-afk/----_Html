@@ -67,6 +67,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     national: number | null;
   }>({ business: null, national: null });
 
+  // 전회 이메일 정보 (담당자, 계산서1, 계산서2)
+  const [previousEmails, setPreviousEmails] = useState<{
+    manager_email: string | null;
+    invoice_email: string | null;
+    invoice_email_2: string | null;
+  }>({ manager_email: null, invoice_email: null, invoice_email_2: null });
+
   // 완료 상태에 따른 잠금 여부 (관리자나 DB관리는 잠그지 않음)
   const isLockedByCompletion = (entry.id && !isAdmin) ? entry.completion_status === "완료" : false;
   // 기존의 isCompleted 변수 (일부 버튼 비활성화 등에 사용됨)
@@ -467,6 +474,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                     updated.measurement_fee_national = String(previousNationalFee);
                   }
                 }
+
+                // 전회 이메일 정보 저장
+                setPreviousEmails({
+                  manager_email: data.previousData.manager_email || null,
+                  invoice_email: data.previousData.invoice_email || null,
+                  invoice_email_2: data.previousData.invoice_email_2 || null,
+                });
               }
 
               // [NEW] Best Reference Data 활용 (previousData가 없거나 비어있는 필드 채우기)
@@ -1668,14 +1682,21 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           )}
         </div>
         <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-2 pt-4 border-t border-dashed border-gray-300">
-          <Input
-            label="계산서 메일"
-            type="email"
-            value={formData.invoice_email}
-            onChange={(e) =>
-              setFormData({ ...formData, invoice_email: e.target.value })
-            }
-          />
+          <div className="flex flex-col gap-1">
+            <Input
+              label="계산서 메일"
+              type="email"
+              value={formData.invoice_email}
+              onChange={(e) =>
+                setFormData({ ...formData, invoice_email: e.target.value })
+              }
+            />
+            {previousEmails.invoice_email && (
+              <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousEmails.invoice_email}`}>
+                전회: {previousEmails.invoice_email}
+              </div>
+            )}
+          </div>
           <Input
             label="전자계산서 발행일"
             type="date"
@@ -1684,14 +1705,21 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               setFormData({ ...formData, electronic_invoice_date: e.target.value })
             }
           />
-          <Input
-            label="계산서 메일2"
-            type="email"
-            value={formData.invoice_email_2}
-            onChange={(e) =>
-              setFormData({ ...formData, invoice_email_2: e.target.value })
-            }
-          />
+          <div className="flex flex-col gap-1">
+            <Input
+              label="계산서 메일2"
+              type="email"
+              value={formData.invoice_email_2}
+              onChange={(e) =>
+                setFormData({ ...formData, invoice_email_2: e.target.value })
+              }
+            />
+            {previousEmails.invoice_email_2 && (
+              <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousEmails.invoice_email_2}`}>
+                전회: {previousEmails.invoice_email_2}
+              </div>
+            )}
+          </div>
           <Input
             label="전자계산서 발행일2"
             type="date"
@@ -1730,12 +1758,19 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         />
         {/* 추후 추가될 자료를 위한 공백(3열) */}
         <div></div>
-        <Input
-          label="계산서 메일"
-          value={formData.invoice_email}
-          onChange={(e) => setFormData({ ...formData, invoice_email: e.target.value })}
-          placeholder="이메일 입력"
-        />
+        <div className="flex flex-col gap-1">
+          <Input
+            label="계산서 메일"
+            value={formData.invoice_email}
+            onChange={(e) => setFormData({ ...formData, invoice_email: e.target.value })}
+            placeholder="이메일 입력"
+          />
+          {previousEmails.invoice_email && (
+            <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousEmails.invoice_email}`}>
+              전회: {previousEmails.invoice_email}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2060,14 +2095,21 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             setFormData({ ...formData, manager_mobile: e.target.value })
           }
         />
-        <Input
-          label="담당자 e-mail"
-          type="email"
-          value={formData.manager_email}
-          onChange={(e) =>
-            setFormData({ ...formData, manager_email: e.target.value })
-          }
-        />
+        <div className="flex flex-col gap-1">
+          <Input
+            label="담당자 e-mail"
+            type="email"
+            value={formData.manager_email}
+            onChange={(e) =>
+              setFormData({ ...formData, manager_email: e.target.value })
+            }
+          />
+          {previousEmails.manager_email && (
+            <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousEmails.manager_email}`}>
+              전회: {previousEmails.manager_email}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
