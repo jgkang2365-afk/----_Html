@@ -574,10 +574,22 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const handleReportWriterChange = (measurer: string) => {
     const selected = reportWriter === measurer ? "" : measurer;
     setReportWriter(selected);
-    setFormData((prev) => ({
-      ...prev,
-      report_writer: selected,
-    }));
+
+    // 보고서 담당자가 선택되면 실측정자 목록에도 자동으로 추가 (기존 목록 유지)
+    if (selected && !actualMeasurers.includes(selected)) {
+      const updatedActuals = [...actualMeasurers, selected];
+      setActualMeasurers(updatedActuals);
+      setFormData((prev) => ({
+        ...prev,
+        report_writer: selected,
+        actual_measurer: updatedActuals.join(", "),
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        report_writer: selected,
+      }));
+    }
   };
 
   // 스크롤 처리를 위한 Ref

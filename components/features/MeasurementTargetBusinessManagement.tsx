@@ -783,17 +783,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     <input
                                         type="text"
                                         className="w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 px-2"
-                                        value={item.notes || ""}
-                                        onChange={(e) => {
-                                            const newVal = e.target.value;
-                                            setData(prev => prev.map(p => p.code === item.code ? { ...p, notes: newVal } : p));
-                                        }}
+                                        defaultValue={item.notes || ""}
                                         onBlur={(e) => {
-                                            const originalItem = data.find(d => d.code === item.code);
-                                            // The value is already in item.notes, so we just save it.
-                                            // To optimize, if you track original values you could compare,
-                                            // but saving on blur is fine.
-                                            handleNotesChange(item, e.target.value);
+                                            const newVal = e.target.value;
+                                            if (newVal !== item.notes) {
+                                                // 로컬 상태(data) 반영
+                                                setData(prev => prev.map(p => p.code === item.code ? { ...p, notes: newVal } : p));
+                                                // DB 저장
+                                                handleNotesChange(item, newVal);
+                                            }
                                         }}
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') {

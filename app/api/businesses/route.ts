@@ -396,13 +396,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     // [New Feature] Sync 'Report Writer' to 'Preliminary Survey'
-    // 측정자(보고서 담당) 변경 시 예비조사 테이블의 작석자(report_writer)도 자동 업데이트
-    // update.measurer_id가 변경된 경우에만 실행
+    // 측정자(보고서 담당) 변경 시 예비조사 테이블의 작성자(report_writer)와 실측정자(actual_measurer) 자동 업데이트
     if (updates.hasOwnProperty('measurer_id') && code && year && period) {
       try {
         let reportWriterName = null;
         if (updates.measurer_id) {
-          // Fetch User Name
           const { data: userData } = await supabase
             .from("users")
             .select("name")
@@ -414,10 +412,31 @@ export async function PATCH(request: NextRequest) {
           }
         }
 
+        // 예비조사의 기존 실측정자 목록 가져오기
+        const { data: surveyData } = await supabase
+          .from("preliminary_survey")
+          .select("actual_measurer")
+          .eq("code", code)
+          .eq("year", year)
+          .eq("period", period)
+          .maybeSingle();
+
+        let updatedActualMeasurer = surveyData?.actual_measurer || "";
+        if (reportWriterName) {
+          const currentMeasurers = updatedActualMeasurer ? updatedActualMeasurer.split(",").map((m: string) => m.trim()) : [];
+          if (!currentMeasurers.includes(reportWriterName)) {
+            currentMeasurers.push(reportWriterName);
+            updatedActualMeasurer = currentMeasurers.join(", ");
+          }
+        }
+
         // Update preliminary_survey
         const { error: rwSyncError } = await supabase
           .from("preliminary_survey")
-          .update({ report_writer: reportWriterName })
+          .update({
+            report_writer: reportWriterName,
+            actual_measurer: updatedActualMeasurer
+          })
           .eq("code", code)
           .eq("year", year)
           .eq("period", period);
@@ -425,9 +444,8 @@ export async function PATCH(request: NextRequest) {
         if (rwSyncError) {
           console.error("Preliminary Survey Report Writer Sync Error:", rwSyncError);
         } else {
-          console.log(`[Sync] Updated preliminary_survey report_writer for ${code} to ${reportWriterName}`);
+          console.log(`[Sync] Updated preliminary_survey for ${code}: report_writer=${reportWriterName}, actual_measurer=${updatedActualMeasurer}`);
         }
-
       } catch (e) {
         console.error("Preliminary Survey Report Writer Sync Exception:", e);
       }
