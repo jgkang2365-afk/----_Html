@@ -139,6 +139,11 @@ export async function GET(request: NextRequest) {
 
       for (const field of fieldsToFind) {
         for (const journal of recentJournals) {
+          // [PATCH] 현재 수정 중인 연도/주기와 동일한 레코드는 제외
+          if (journal.measurement_year === measurementYear && journal.measurement_period === period) {
+            continue;
+          }
+
           // journal을 safe하게 접근
           const val = (journal as any)[field];
           if (val && !fallbackDefaults[field]) {
@@ -237,14 +242,14 @@ export async function GET(request: NextRequest) {
     // getBestReferenceData는 "최적"의 데이터 하나만 가져오지만, 
     // 기존 로직에서의 businessHistoryDefaults와 역할이 유사하므로 이를 사용
     const businessHistoryDefaults: Record<string, any> = {
-      manager_name: referenceData.manager_name,
-      manager_position: referenceData.manager_position,
-      manager_mobile: referenceData.manager_mobile,
-      manager_email: referenceData.manager_email,
-      invoice_email: referenceData.invoice_email,
-      industrial_accident_number: referenceData.industrial_accident_number,
-      commencement_number: referenceData.commencement_number,
-      representative_name: referenceData.representative_name,
+      manager_name: referenceData.source_type !== 'exact' ? referenceData.manager_name : null,
+      manager_position: referenceData.source_type !== 'exact' ? referenceData.manager_position : null,
+      manager_mobile: referenceData.source_type !== 'exact' ? referenceData.manager_mobile : null,
+      manager_email: referenceData.source_type !== 'exact' ? referenceData.manager_email : null,
+      invoice_email: referenceData.source_type !== 'exact' ? referenceData.invoice_email : null,
+      industrial_accident_number: referenceData.source_type !== 'exact' ? referenceData.industrial_accident_number : null,
+      commencement_number: referenceData.source_type !== 'exact' ? referenceData.commencement_number : null,
+      representative_name: referenceData.source_type !== 'exact' ? referenceData.representative_name : null,
     };
 
     // 직전 측정일지에서 자동 채울 수 있는 필드만 반환
@@ -262,7 +267,7 @@ export async function GET(request: NextRequest) {
       measurement_fee_national: previousJournal?.measurement_fee_national || null,
 
       // 이메일 정보
-      invoice_email: businessHistoryDefaults.invoice_email || (businessData as any)?.invoice_email || previousJournal?.invoice_email || fallbackDefaults.invoice_email || null,
+      invoice_email: previousJournal?.invoice_email || businessHistoryDefaults.invoice_email || (businessData as any)?.invoice_email || fallbackDefaults.invoice_email || null,
 
       // 측정자
       measurer: previousJournal?.measurer || null,
