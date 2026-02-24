@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import {
   Table,
@@ -18,7 +19,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   Line, ComposedChart
 } from "recharts";
-import { Banknote, TrendingUp, ClipboardCheck, Send, AlertTriangle } from "lucide-react";
+import { Banknote, TrendingUp, ClipboardCheck, Send, AlertTriangle, Phone, ExternalLink } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
 
 
 interface DashboardData {
@@ -92,6 +94,15 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 계산서 발행 현황 데이터 상태
+  const [invoiceStatusData, setInvoiceStatusData] = useState<any[]>([]);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+
+  // 모달 상태
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedManagerData, setSelectedManagerData] = useState<any>(null);
+  const [selectedBusinessCode, setSelectedBusinessCode] = useState<string | null>(null);
+
   useEffect(() => {
     const loadDashboardData = async () => {
       try {
@@ -131,6 +142,37 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
 
     loadDashboardData();
   }, [year, period]);
+
+  // 계산서 발행 현황 데이터 로드
+  useEffect(() => {
+    const loadInvoiceStatus = async () => {
+      try {
+        setInvoiceLoading(true);
+        const params = new URLSearchParams();
+        if (year !== "전체") params.append("year", year);
+        if (period !== "전체") params.append("period", period);
+
+        const response = await fetch(`/api/dashboard/invoice-status?${params.toString()}`);
+        if (response.ok) {
+          const result = await response.json();
+          setInvoiceStatusData(result.data || []);
+        }
+      } catch (err) {
+        console.error("계산서 현황 로드 오류:", err);
+      } finally {
+        setInvoiceLoading(false);
+      }
+    };
+
+    loadInvoiceStatus();
+  }, [year, period]);
+
+  const handleBarClick = (entry: any) => {
+    if (entry && entry.unissued_list && entry.unissued_list.length > 0) {
+      setSelectedManagerData(entry);
+      setIsModalOpen(true);
+    }
+  };
 
   const formatCurrency = (amount: number | null | undefined): string => {
     const numAmount = amount ?? 0;
@@ -181,8 +223,9 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
     }
   ];
 
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6">
       {/* 1. 핵심 지표 (KPI) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPIButton
@@ -286,19 +329,66 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
       {/* 3. 하단 차트: 완료 현황 & 테이블 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="p-6 shadow-sm">
-          <h3 className="text-lg font-bold text-gray-800 mb-6">측정주기별 진행 현황</h3>
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-bold text-gray-800">계산서 발행 현황</h3>
+            <span className="text-xs text-text-400">계획담당 3인 기준 (클릭 시 미발행 목록 표시)</span>
+          </div>
           <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={periodBarData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" fontSize={14} width={50} tickLine={false} axisLine={false} />
-                <Tooltip cursor={{ fill: 'transparent' }} />
-                <Legend iconType="circle" />
-                <Bar dataKey="완료" stackId="a" fill={STATUS_COLORS.complete} radius={[0, 4, 4, 0]} barSize={20} />
-                <Bar dataKey="미완료" stackId="a" fill={STATUS_COLORS.incomplete} radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
+            {invoiceLoading ? (
+              <div className="flex justify-center items-center h-full">
+                <LoadingSpinner />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={invoiceStatusData}
+                  layout="vertical"
+                  margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+                  <XAxis type="number" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis dataKey="name" type="category" fontSize={14} width={60} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(0,0,0,0.05)' }}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
+                  <Bar
+                    name="발행 완료"
+                    dataKey="issued"
+                    stackId="a"
+                    fill="#10b981"
+                    radius={[0, 0, 0, 0]}
+                    barSize={30}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) => handleBarClick(data)}
+                    activeBar={{ fillOpacity: 0.8, stroke: '#fff', strokeWidth: 1 }}
+                  />
+                  <Bar
+                    name="미발행 (일지등록)"
+                    dataKey="unissued_registered"
+                    stackId="a"
+                    fill="#f59e0b"
+                    radius={[0, 0, 0, 0]}
+                    barSize={30}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) => handleBarClick(data)}
+                    activeBar={{ fillOpacity: 0.8, stroke: '#fff', strokeWidth: 1 }}
+                  />
+                  <Bar
+                    name="미발행 (일지미등록)"
+                    dataKey="unissued_unregistered"
+                    stackId="a"
+                    fill="#ef4444"
+                    radius={[0, 4, 4, 0]}
+                    barSize={30}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) => handleBarClick(data)}
+                    activeBar={{ fillOpacity: 0.8, stroke: '#fff', strokeWidth: 1 }}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
 
@@ -363,6 +453,98 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
 
         </Card>
       </div >
+
+      {/* 계산서 미발행 업체 목록 모달 */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={`${selectedManagerData?.name || ''} 담당 미발행 업체 목록 (계산서 미발행 ${selectedManagerData?.unissued_registered || 0}건, 일지 미등록 ${selectedManagerData?.unissued_unregistered || 0}건)`}
+        size="2xl"
+        resizable={true}
+      >
+        <div className="space-y-4 pt-4">
+          <div className="border rounded-xl overflow-hidden shadow-sm bg-white">
+            <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
+              <Table>
+                <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                  <TableRow>
+                    <TableHead className="font-bold text-slate-700 h-11 min-w-[250px] pl-6">업체명</TableHead>
+                    <TableHead className="font-bold text-slate-700 text-center h-11 w-[120px]">K2B 전송 여부</TableHead>
+                    <TableHead className="font-bold text-slate-700 text-center h-11 w-[160px]">상태</TableHead>
+                    <TableHead className="font-bold text-slate-700 text-center h-11 w-[100px]">담당자</TableHead>
+                    <TableHead className="font-bold text-slate-700 text-center h-11 w-[150px]">연락처</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {[...(selectedManagerData?.unissued_list || [])]
+                    .sort((a, b) => {
+                      if (a.status === "일지등록/계산서미발행" && b.status !== "일지등록/계산서미발행") return -1;
+                      if (a.status !== "일지등록/계산서미발행" && b.status === "일지등록/계산서미발행") return 1;
+                      return 0;
+                    })
+                    .map((company: any, idx: number) => {
+                      const isSelected = selectedBusinessCode === company.code;
+                      return (
+                        <TableRow
+                          key={idx}
+                          className={cn(
+                            "hover:bg-blue-50/40 transition-colors group relative cursor-pointer",
+                            isSelected && "bg-blue-50/60"
+                          )}
+                          onClick={() => setSelectedBusinessCode(company.code)}
+                        >
+                          <TableCell className="font-medium text-slate-800 py-2.5 pl-6 relative">
+                            {/* 행 강조 인디케이터 (선택 시 고정, 호버 시 가변) */}
+                            <div className={cn(
+                              "absolute left-0 top-0 bottom-0 w-1 bg-primary-500 transition-opacity z-10",
+                              isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                            )} />
+
+                            <div className="flex items-center gap-2.5">
+                              <div className={`w-1.5 h-1.5 rounded-full ${company.status === "일지등록/계산서미발행" ? "bg-amber-400" : "bg-rose-400"}`} />
+                              <span className="group-hover:text-primary-600 transition-colors block truncate max-w-[300px]" title={`${company.business_name} ${company.period ? `(${company.period})` : ''}`}>
+                                {company.business_name}
+                                {company.period && (
+                                  <span className="ml-1 text-[10px] text-slate-400 font-normal">
+                                    ({company.period})
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center py-2.5 w-[120px]">
+                            <span className={cn(
+                              "inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold border",
+                              company.k2b_send_date
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                : "bg-slate-50 text-slate-400 border-slate-100"
+                            )}>
+                              {company.k2b_send_date ? "완료" : "미완료"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center py-2.5 w-[160px]">
+                            <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold ${company.status === "일지등록/계산서미발행"
+                              ? "bg-amber-100 text-amber-700 border border-amber-200"
+                              : "bg-rose-100 text-rose-700 border border-rose-200"
+                              }`}>
+                              {company.status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center text-slate-600 text-sm py-2.5 w-[100px]">{company.manager_name || '-'}</TableCell>
+                          <TableCell className="text-center py-2.5 w-[150px]">
+                            <span className="text-slate-600 text-sm font-medium whitespace-nowrap">
+                              {company.manager_mobile || '-'}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div >
   );
 };
