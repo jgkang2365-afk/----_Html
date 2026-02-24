@@ -55,18 +55,10 @@ export async function getSession(): Promise<SessionData | null> {
       return JSON.parse(sessionCookie.value) as SessionData;
     } catch (parseError) {
       console.error("[getSession] 세션 쿠키 파싱 오류:", parseError);
-      if (parseError instanceof Error) {
-        console.error("[getSession] 파싱 오류 메시지:", parseError.message);
-        console.error("[getSession] 쿠키 값:", sessionCookie.value.substring(0, 100));
-      }
       return null;
     }
   } catch (error) {
     console.error("[getSession] 함수 오류:", error);
-    if (error instanceof Error) {
-      console.error("[getSession] 오류 메시지:", error.message);
-      console.error("[getSession] 오류 스택:", error.stack);
-    }
     return null;
   }
 }

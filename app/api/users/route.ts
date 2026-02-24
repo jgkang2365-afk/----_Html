@@ -23,13 +23,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
     }
 
-    // 관리자가 아닌 경우도 드롭다운 목록 등을 위해 조회 가능해야 함
-    // 개인정보 등이 포함될 수 있으므로 필요한 필드만 선택하거나 주의 필요
-    // 현재는 이름, 직무 등 기본 정보만 반환하므로 OK
-    // if (session.role !== "관리자") {
-    //   return NextResponse.json({ error: "접근 권한이 없습니다." }, { status: 403 });
-    // }
-
     const supabase = await createClient();
 
     const { data: users, error } = await supabase
@@ -102,7 +95,7 @@ export async function POST(request: NextRequest) {
       .from("users")
       .select("id")
       .eq("name", name)
-      .single();
+      .maybeSingle(); // single() 대신 maybeSingle() 사용 (없어도 에러 안나게)
 
     if (existingUser) {
       return NextResponse.json(
@@ -129,10 +122,8 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error("Insert error details:", insertError);
-      // 더 구체적인 에러 메시지 제공
-      const errorMessage = insertError.message || "사용자 생성에 실패했습니다.";
       return NextResponse.json(
-        { error: errorMessage },
+        { error: insertError.message || "사용자 생성에 실패했습니다." },
         { status: 500 }
       );
     }
@@ -144,8 +135,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Create user error:", error);
+    const errorMsg = error instanceof Error ? error.message : "사용자 생성 중 오류가 발생했습니다.";
     return NextResponse.json(
-      { error: "사용자 생성 중 오류가 발생했습니다." },
+      { error: errorMsg },
       { status: 500 }
     );
   }
