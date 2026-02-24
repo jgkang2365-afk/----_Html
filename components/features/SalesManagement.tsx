@@ -2174,7 +2174,7 @@ export const SalesManagement: React.FC = () => {
                                     setMeasurementFilters({ ...measurementFilters, businessName: localBusinessName });
                                   }}
                                   placeholder="입력 후 Enter"
-                                  className="text-xs h-8"
+                                  className="text-xs h-8 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -2199,7 +2199,7 @@ export const SalesManagement: React.FC = () => {
                                     setMeasurementFilters({ ...measurementFilters, representativeName: localRepresentativeName });
                                   }}
                                   placeholder="입력 후 Enter"
-                                  className="text-xs h-8"
+                                  className="text-xs h-8 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -2225,13 +2225,13 @@ export const SalesManagement: React.FC = () => {
                             <TableHead className="text-right w-[110px]">
                               <div className="space-y-1">
                                 <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleMeasurementSort("measurement_fee_business")}
                                 >
                                   측정비(사업장)
                                   <MeasurementSortIcon column="measurement_fee_business" />
                                 </div>
-                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
                             <TableHead className="text-center w-[100px]">
@@ -2249,49 +2249,49 @@ export const SalesManagement: React.FC = () => {
                             <TableHead className="text-right w-[100px]">
                               <div className="space-y-1">
                                 <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleMeasurementSort("measurement_fee_national")}
                                 >
                                   측정비(국고)
                                   <MeasurementSortIcon column="measurement_fee_national" />
                                 </div>
-                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
                             <TableHead className="text-right w-[110px]">
                               <div className="space-y-1">
                                 <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleMeasurementSort("measurement_fee_total")}
                                 >
                                   측정비(합계)
                                   <MeasurementSortIcon column="measurement_fee_total" />
                                 </div>
-                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
                             <TableHead className="text-right w-[110px]">
                               <div className="space-y-1">
                                 <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleMeasurementSort("deposit_total")}
                                 >
                                   입금액
                                   <MeasurementSortIcon column="deposit_total" />
                                 </div>
-                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
                             <TableHead className="text-right w-[100px]">
                               <div className="space-y-1">
                                 <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleMeasurementSort("unpaid")}
                                 >
                                   미수금액
                                   <MeasurementSortIcon column="unpaid" />
                                 </div>
-                                <div className="text-xs text-text-500 h-8 flex items-center justify-end">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
                             <TableHead className="w-[120px]">
@@ -3021,7 +3021,7 @@ export const SalesManagement: React.FC = () => {
                                     { value: "measurement", label: "측정비" },
                                     { value: "other", label: "기타" },
                                   ]}
-                                  className="text-xs"
+                                  className="text-sm h-8 py-1 px-2 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -3040,7 +3040,7 @@ export const SalesManagement: React.FC = () => {
                                     setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
                                   }
                                   options={[{ value: "", label: "전체" }, ...officeOptions]}
-                                  className="text-xs h-7 text-center"
+                                  className="text-sm h-8 py-1 px-2 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -3065,7 +3065,7 @@ export const SalesManagement: React.FC = () => {
                                     setUnpaidFilters({ ...unpaidFilters, name: localUnpaidName });
                                   }}
                                   placeholder="검색..."
-                                  className="text-xs h-7"
+                                  className="text-xs h-8 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -3084,7 +3084,7 @@ export const SalesManagement: React.FC = () => {
                                     setUnpaidFilters({ ...unpaidFilters, year: e.target.value })
                                   }
                                   options={[{ value: "", label: "전체" }, ...yearOptions]}
-                                  className="text-xs h-7 text-center"
+                                  className="text-sm h-8 py-1 px-2 text-center"
                                 />
                               </div>
                             </TableHead>
@@ -3103,32 +3103,32 @@ export const SalesManagement: React.FC = () => {
                                     setUnpaidFilters({ ...unpaidFilters, period: e.target.value })
                                   }
                                   options={periodOptions}
-                                  className="text-xs h-7 text-center"
+                                  className="text-sm h-8 py-1 px-2 text-center"
                                 />
                               </div>
                             </TableHead>
                             <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleSort("revenue")}
                                 >
                                   매출금액
                                   <SortIcon column="revenue" />
                                 </div>
-                                <div className="text-xs text-text-500">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
                             <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleSort("deposit")}
                                 >
                                   입금액
                                   <SortIcon column="deposit" />
                                 </div>
-                                <div className="text-xs text-text-500">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
                             <TableHead className="w-[120px]">
@@ -3150,20 +3150,20 @@ export const SalesManagement: React.FC = () => {
                                     { value: "yes", label: "입금일 있음" },
                                     { value: "no", label: "입금일 없음" },
                                   ]}
-                                  className="text-xs"
+                                  className="text-sm h-8 py-1 px-2 text-center"
                                 />
                               </div>
                             </TableHead>
                             <TableHead className="text-right w-[120px]">
                               <div className="space-y-1">
                                 <div
-                                  className="flex items-center justify-end cursor-pointer hover:text-primary-600"
+                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
                                   onClick={() => handleSort("unpaid")}
                                 >
                                   미수금
                                   <SortIcon column="unpaid" />
                                 </div>
-                                <div className="text-xs text-text-500">-</div>
+                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
                             <TableHead className="w-[80px]">작업</TableHead>
