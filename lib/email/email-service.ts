@@ -67,8 +67,8 @@ export class EmailService {
           <br><br><br>
           <div style="border-top: 3px solid #add8e6; border-bottom: 3px solid #add8e6; padding: 10px 0;">
             <p style="font-size: 12px; color: #666666; margin: 0;">
-              본 메일 계정은 주식회사 한결작업환경컨설팅의 작업환경측정결과 보고서 발송 전용 계정으로 수신이 불가능합니다.<br>
-              회신이나 문의가 필요할 경우 <a href="mailto:${this.config.auth.user}" style="color: #0066cc; font-weight: bold; text-decoration: none;">${this.config.auth.user}</a>을 이용해 주시기 바랍니다.
+              본 메일 계정은 주식회사 한결작업환경컨설팅의 작업환경측정결과 보고서 발송 전용 계정으로 수신이 불가능한 계정입니다.<br>
+              회신이나 문의가 필요할 경우 <a href="mailto:5678882@naver.com" style="color: #0066cc; font-weight: bold; text-decoration: none;">5678882@naver.com</a>을 이용해 주시기 바랍니다.
             </p>
           </div>
         </body>
