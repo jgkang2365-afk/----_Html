@@ -49,8 +49,8 @@ export async function GET(req: NextRequest) {
             .from('measurement_journal')
             .select('code, k2b_send_date, k2b_status')
             .in('code', codes)
-            .eq('year', parseInt(year))
-            .eq('period', period);
+            .eq('measurement_year', parseInt(year))
+            .eq('measurement_period', period);
 
         const mergedData = data.map(record => {
             const journal = journals?.find(j => j.code === record.code);

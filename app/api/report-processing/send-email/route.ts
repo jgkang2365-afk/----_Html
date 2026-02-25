@@ -10,10 +10,9 @@ import { findReportFiles } from '@/lib/utils/findReportFiles';
 export async function POST(req: NextRequest) {
     try {
         const supabase = await createClient();
-        const {
-            targets, // { code, year, period, companyName, managerEmail }[]
-            senderId // 발송자 ID (선택)
-        } = await req.json();
+        const body = await req.json();
+        const targets = body.targets || [];
+        // senderId는 현재 사용하지 않음
 
         if (!targets || !Array.isArray(targets) || targets.length === 0) {
             return NextResponse.json({ error: '발송 대상이 없습니다.' }, { status: 400 });
@@ -23,7 +22,12 @@ export async function POST(req: NextRequest) {
         const results = [];
 
         for (const target of targets) {
-            const { code, year, period, companyName, managerEmail } = target;
+            // target 테이블 필드명에 맞춤 (year / period / business_name / manager_email)
+            const { code, year, period, business_name, manager_email } = target;
+
+            // 변수 이름 변경 대응
+            const companyName = business_name;
+            const managerEmail = manager_email;
 
             try {
                 // 1. 파일 찾기
@@ -60,6 +64,7 @@ export async function POST(req: NextRequest) {
                     .eq('period', period);
 
                 // 4. DB 상태 업데이트 (measurement_journal - 동기화)
+                // journal 테이블에는 컬럼명이 measurement_year, measurement_period 임
                 await supabase
                     .from('measurement_journal')
                     .update({
@@ -67,8 +72,8 @@ export async function POST(req: NextRequest) {
                         last_email_sent_at: new Date().toISOString(),
                     })
                     .eq('code', code)
-                    .eq('year', year)
-                    .eq('period', period);
+                    .eq('measurement_year', year)
+                    .eq('measurement_period', period);
 
                 results.push({ code, companyName, success: true });
             } catch (err) {

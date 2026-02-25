@@ -88,9 +88,16 @@ export async function POST(req: NextRequest) {
                     gr.companyName.includes(t.business_name) || t.business_name.includes(gr.companyName)
                 );
                 if (matchTarget) {
+                    const updateGridData: Record<string, any> = { k2b_status: gr.status };
+
+                    // 그리드에서 확인된 최종 상태가 성공('정상처리' 또는 '업로드 완료')이면 전송일자도 갱신
+                    if (gr.status === '정상처리' || gr.status === '업로드 완료') {
+                        updateGridData.k2b_send_date = new Date().toISOString().split('T')[0];
+                    }
+
                     await supabase
                         .from('measurement_journal')
-                        .update({ k2b_status: gr.status })
+                        .update(updateGridData)
                         .eq('code', matchTarget.code)
                         .eq('measurement_year', matchTarget.year)
                         .eq('measurement_period', matchTarget.period);

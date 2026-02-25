@@ -16,21 +16,24 @@ export interface EmailConfig {
     };
 }
 
-const DEFAULT_CONFIG: EmailConfig = {
+const getEmailConfig = (): EmailConfig => ({
     host: 'smtp.naver.com',
     port: 465,
     secure: true,
     auth: {
         user: process.env.NAVER_EMAIL_ID || '', // 환경변수에서 관리
-        pass: process.env.NAVER_EMAIL_PASSWORD || '', // 환경변수에서 관리
+        pass: process.env.NAVER_EMAIL_PW || '', // 환경변수에서 관리
     },
-};
+});
 
 export class EmailService {
     private transporter: nodemailer.Transporter;
 
-    constructor(config: EmailConfig = DEFAULT_CONFIG) {
-        this.transporter = nodemailer.createTransport(config);
+    private config: EmailConfig;
+
+    constructor(config?: EmailConfig) {
+        this.config = config || getEmailConfig();
+        this.transporter = nodemailer.createTransport(this.config);
     }
 
     /**
@@ -65,7 +68,7 @@ export class EmailService {
           <div style="border-top: 3px solid #add8e6; border-bottom: 3px solid #add8e6; padding: 10px 0;">
             <p style="font-size: 12px; color: #666666; margin: 0;">
               본 메일 계정은 주식회사 한결작업환경컨설팅의 작업환경측정결과 보고서 발송 전용 계정으로 수신이 불가능합니다.<br>
-              회신이나 문의가 필요할 경우 <a href="mailto:${DEFAULT_CONFIG.auth.user}@naver.com" style="color: #0066cc; font-weight: bold; text-decoration: none;">${DEFAULT_CONFIG.auth.user}@naver.com</a>을 이용해 주시기 바랍니다.
+              회신이나 문의가 필요할 경우 <a href="mailto:${this.config.auth.user}" style="color: #0066cc; font-weight: bold; text-decoration: none;">${this.config.auth.user}</a>을 이용해 주시기 바랍니다.
             </p>
           </div>
         </body>
@@ -74,7 +77,7 @@ export class EmailService {
 
         try {
             const info = await this.transporter.sendMail({
-                from: `"한결작업환경컨설팅" <${DEFAULT_CONFIG.auth.user}@naver.com>`,
+                from: `"한결작업환경컨설팅" <${this.config.auth.user}>`,
                 to: toList,
                 subject,
                 html,
