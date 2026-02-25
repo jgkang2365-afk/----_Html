@@ -2174,7 +2174,7 @@ export const SalesManagement: React.FC = () => {
                                     setMeasurementFilters({ ...measurementFilters, businessName: localBusinessName });
                                   }}
                                   placeholder="입력 후 Enter"
-                                  className="text-xs h-8 text-center"
+                                  className="text-xs h-8 text-left"
                                 />
                               </div>
                             </TableHead>
@@ -2199,7 +2199,7 @@ export const SalesManagement: React.FC = () => {
                                     setMeasurementFilters({ ...measurementFilters, representativeName: localRepresentativeName });
                                   }}
                                   placeholder="입력 후 Enter"
-                                  className="text-xs h-8 text-center"
+                                  className="text-xs h-8 text-left"
                                 />
                               </div>
                             </TableHead>
@@ -3457,6 +3457,19 @@ export const SalesManagement: React.FC = () => {
                                 }}
                                 className="w-[135px] h-9 text-sm font-bold"
                               />
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                  setDepositStartDate("");
+                                  setDepositEndDate("");
+                                  setActiveQuickDate(null);
+                                }}
+                                className="h-9 px-2 text-gray-400 hover:text-red-500 bg-transparent border-none shadow-none"
+                                title="기간 초기화"
+                              >
+                                ✕
+                              </Button>
                             </div>
                             <div className="flex items-center gap-1 border-l pl-2">
                               <Button
@@ -3535,6 +3548,25 @@ export const SalesManagement: React.FC = () => {
                         </div>
 
                         <div className="flex items-center gap-3 ml-auto shrink-0">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-10 text-xs font-semibold px-3"
+                            onClick={() => {
+                              setDepositYear("");
+                              setDepositPeriod("");
+                              setDepositOffice("");
+                              setDepositCategory("");
+                              setDepositStartDate("");
+                              setDepositEndDate("");
+                              setDepositBusinessName("");
+                              setLocalDepositBusinessName("");
+                              setActiveQuickDate(null);
+                            }}
+                          >
+                            필터 초기화
+                          </Button>
+
                           {/* 입금 건수 */}
                           <div className="bg-blue-600 px-4 py-2 rounded-xl shadow-lg shadow-blue-100 flex flex-col items-center justify-center min-w-[100px]">
                             <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.1em] mb-0.5">입금 건수</div>
