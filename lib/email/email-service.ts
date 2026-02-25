@@ -56,15 +56,18 @@ export class EmailService {
         const html = `
       <html>
         <body style="font-family: '맑은 고딕', Malgun Gothic, sans-serif; font-size: 14px; line-height: 1.6;">
-          <p>안녕하십니까!</p>
-          <p>${year}년 ${semester} 작업환경측정결과 보고서 첨부와 같이 송부드리며, 서면은 우편으로 발송 예정이오니 참고하시기 바랍니다.</p>
-          <p>감사합니다.</p>
+          <p style="margin: 0;">안녕하십니까!</p>
           <br>
-          <hr style="border: none; border-top: 1px solid #cccccc;">
-          <p style="font-size: 12px; color: #666666;">
-            본 메일 계정은 주식회사 한결작업환경컨설팅의 작업환경측정결과 보고서 발송 전용 계정으로 수신이 불가능합니다.<br>
-            회신이나 문의가 필요할 경우 <a href="mailto:${DEFAULT_CONFIG.auth.user}@naver.com" style="color: #0066cc; font-weight: bold; text-decoration: none;">${DEFAULT_CONFIG.auth.user}@naver.com</a>을 이용해 주시기 바랍니다.
-          </p>
+          <p style="margin: 0;">${year}년 ${semester} 작업환경측정결과 보고서 첨부와 같이 송부드리며, 서면은 우편으로 발송 예정이오니 참고하시기 바랍니다.</p>
+          <br><br>
+          <p style="margin: 0;">감사합니다.</p>
+          <br><br><br>
+          <div style="border-top: 3px solid #add8e6; border-bottom: 3px solid #add8e6; padding: 10px 0;">
+            <p style="font-size: 12px; color: #666666; margin: 0;">
+              본 메일 계정은 주식회사 한결작업환경컨설팅의 작업환경측정결과 보고서 발송 전용 계정으로 수신이 불가능합니다.<br>
+              회신이나 문의가 필요할 경우 <a href="mailto:${DEFAULT_CONFIG.auth.user}@naver.com" style="color: #0066cc; font-weight: bold; text-decoration: none;">${DEFAULT_CONFIG.auth.user}@naver.com</a>을 이용해 주시기 바랍니다.
+            </p>
+          </div>
         </body>
       </html>
     `;
