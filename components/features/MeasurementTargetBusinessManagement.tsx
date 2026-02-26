@@ -956,7 +956,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">향후 측정주기 (개월)</label>
-                                <Input type="number" value={editForm.future_measurement_period || ""} onChange={(e) => setEditForm(prev => ({ ...prev, future_measurement_period: e.target.value ? parseInt(e.target.value) : null }))} placeholder="예: 6, 12" />
+                                <Select
+                                    options={[
+                                        { value: "", label: "선택" },
+                                        { value: "6", label: "6" },
+                                        { value: "12", label: "12" }
+                                    ]}
+                                    value={editForm.future_measurement_period?.toString() || ""}
+                                    onChange={(e) => setEditForm(prev => ({ ...prev, future_measurement_period: e.target.value ? parseInt(e.target.value) : null }))}
+                                    className="w-full text-center"
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">금회예정일</label>
