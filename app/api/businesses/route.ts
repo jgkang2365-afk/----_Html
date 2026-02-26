@@ -24,6 +24,8 @@ export async function GET(request: NextRequest) {
     const address = searchParams.get("address")?.trim() || null;
     const businessName = searchParams.get("businessName")?.trim() || null;
     const isRegistered = searchParams.get("isRegistered")?.trim() || null;
+    const businessCategory = searchParams.get("businessCategory")?.trim() || null;
+    const confirmedDate = searchParams.get("confirmedDate")?.trim() || null;
 
     if (!year || !period) {
       return NextResponse.json(
@@ -61,6 +63,16 @@ export async function GET(request: NextRequest) {
     // 실시여부 (Exact 검색)
     if (isRegistered && isRegistered !== "전체") {
       query = query.eq("is_registered", isRegistered);
+    }
+
+    // 업종분류 (Exact 검색)
+    if (businessCategory && businessCategory !== "전체" && businessCategory !== "") {
+      query = query.eq("business_category", businessCategory);
+    }
+
+    // 확정일 (Exact 검색)
+    if (confirmedDate) {
+      query = query.eq("measurement_date", confirmedDate);
     }
 
     // 지정지청 (Exact 검색 or IN 검색) - office_jurisdiction 컬럼 사용? 

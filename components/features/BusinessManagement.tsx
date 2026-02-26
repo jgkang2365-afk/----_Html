@@ -75,6 +75,8 @@ export const BusinessManagement: React.FC = () => {
     businessName: "",
     isRegistered: "", // 전체, 등록됨, 미등록
     planManager: "전체",
+    businessCategory: "",
+    confirmedDate: "",
   });
 
   // 현재 선택된 년도/반기 (기본값: 현재 년도 상반기)
@@ -247,6 +249,12 @@ export const BusinessManagement: React.FC = () => {
       }
       if (filters.isRegistered) {
         params.append("isRegistered", filters.isRegistered);
+      }
+      if (filters.businessCategory) {
+        params.append("businessCategory", filters.businessCategory);
+      }
+      if (filters.confirmedDate) {
+        params.append("confirmedDate", filters.confirmedDate);
       }
 
       const url = `/api/businesses?${params.toString()}`;
@@ -639,6 +647,14 @@ export const BusinessManagement: React.FC = () => {
             />
           </div>
           <div className="flex-1 min-w-[150px]">
+            <Select
+              label="업종분류"
+              value={filters.businessCategory}
+              onChange={(e) => setFilters({ ...filters, businessCategory: e.target.value })}
+              options={[{ value: "", label: "전체" }, ...businessCategories]}
+            />
+          </div>
+          <div className="flex-1 min-w-[150px]">
             <Input
               label="사업장명 검색"
               value={filters.businessName}
@@ -675,6 +691,19 @@ export const BusinessManagement: React.FC = () => {
                 { value: "미실시", label: "미실시" },
                 { value: "거래종료", label: "거래종료" },
               ]}
+            />
+          </div>
+          <div className="flex-1 min-w-[150px]">
+            <Input
+              label="확정일"
+              type="date"
+              value={filters.confirmedDate}
+              onChange={(e) => setFilters({ ...filters, confirmedDate: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  loadBusinesses();
+                }
+              }}
             />
           </div>
           <Button
@@ -764,16 +793,18 @@ export const BusinessManagement: React.FC = () => {
               <table className="w-full caption-bottom text-base border-collapse">
                 <thead className="bg-surface-50 sticky top-0 z-20 shadow-sm">
                   <tr className="border-b border-slate-100">
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[70px]">실시여부</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">코드</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">국고결과</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">계획담당자</th>
+                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">No</th>
+                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[70px]">주기</th>
+                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">계획진행</th>
+                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">국고</th>
+                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[90px]">계획담당</th>
+                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[120px]">업종분류</th>
+                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 text-sm max-w-[150px]">사업장명</th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[90px]">전회측정일</th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[90px]">전회 측정 주기</th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[90px]">금회예정일</th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">측정예정월</th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[100px]">금회측정확정일</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[120px]">업종분류</th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm min-w-[200px] max-w-[300px]">
                       <div className="flex items-center justify-between">
                         <span>주소</span>
@@ -809,7 +840,6 @@ export const BusinessManagement: React.FC = () => {
                     </th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[100px]">소재지 관할청</th>
                     <th className="bg-surface-50 h-12 px-2 text-center align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[60px]">미수횟수</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 text-sm max-w-[150px]">사업장명</th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">담당자명</th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[110px]">담당자 휴대폰</th>
                     <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[110px]">회사전화번호</th>
@@ -837,6 +867,12 @@ export const BusinessManagement: React.FC = () => {
 
                     return (
                       <tr key={entryKey} className="border-b border-slate-100 transition-colors hover:bg-surface-50 text-sm">
+                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap font-medium">
+                          {entry.code}
+                        </td>
+                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
+                          {entry.period}
+                        </td>
                         <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
                           <div className="w-[80px]">
                             <select
@@ -854,9 +890,6 @@ export const BusinessManagement: React.FC = () => {
                             </select>
                           </div>
                         </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap font-medium">
-                          {entry.code}
-                        </td>
                         <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
                           {entry.national_support_status ? (
                             <span className="text-text-700 text-sm">{entry.national_support_status}</span>
@@ -865,17 +898,6 @@ export const BusinessManagement: React.FC = () => {
                           )}
                         </td>
                         <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{entry.plan_manager || "-"}</td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
-                          {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.future_measurement_date)}</td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
-                          {entry.future_measurement_date
-                            ? `${new Date(entry.future_measurement_date).getMonth() + 1}월`
-                            : "-"}
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
                         <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
                           <select
                             value={editingValues.get(`${entryKey}-business_category`) ?? entry.business_category ?? ""}
@@ -891,6 +913,18 @@ export const BusinessManagement: React.FC = () => {
                             ))}
                           </select>
                         </td>
+                        <td className="p-2 align-middle text-slate-600 font-medium max-w-[150px] whitespace-normal break-words leading-tight">{entry.business_name}</td>
+                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
+                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
+                          {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
+                        </td>
+                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.future_measurement_date)}</td>
+                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
+                          {entry.future_measurement_date
+                            ? `${new Date(entry.future_measurement_date).getMonth() + 1}월`
+                            : "-"}
+                        </td>
+                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
                         <td className="p-2 align-middle text-slate-600 min-w-[200px] max-w-[300px] whitespace-normal break-words leading-tight">
                           {entry.address || "-"}
                         </td>
@@ -911,7 +945,6 @@ export const BusinessManagement: React.FC = () => {
                             <span className="text-gray-300">-</span>
                           )}
                         </td>
-                        <td className="p-2 align-middle text-slate-600 font-medium max-w-[150px] whitespace-normal break-words leading-tight">{entry.business_name}</td>
                         <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{entry.manager_name || "-"}</td>
                         <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{entry.manager_mobile || "-"}</td>
                         <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>

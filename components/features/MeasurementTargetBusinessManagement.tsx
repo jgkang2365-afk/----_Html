@@ -107,6 +107,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [data, setData] = useState<BusinessEntry[]>([]);
     const [filteredData, setFilteredData] = useState<BusinessEntry[]>([]);
     const [measurers, setMeasurers] = useState<User[]>([]); // 측정자 목록
+    const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
 
     // Initial Filter Setup
     const currentYear = new Date().getFullYear();
@@ -116,6 +117,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [filters, setFilters] = useState({
         yearPeriod: `${currentYear}-${initialPeriod}`, // Combined
         designatedOffice: "",
+        businessCategory: "",
         address: "",
         businessName: "",
         isRegistered: "전체",
@@ -160,6 +162,26 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             }
         };
         fetchMeasurers();
+    }, []);
+
+    // Fetch Business Categories
+    useEffect(() => {
+        const fetchBusinessCategories = async () => {
+            try {
+                const response = await fetch("/api/business-categories");
+                if (response.ok) {
+                    const data = await response.json();
+                    const categories = (data.categories || []).map((cat: { id: number; name: string }) => ({
+                        value: cat.name,
+                        label: cat.name,
+                    }));
+                    setBusinessCategories([{ value: "", label: "전체" }, ...categories]);
+                }
+            } catch (err) {
+                console.error("업종분류 목록 조회 오류:", err);
+            }
+        };
+        fetchBusinessCategories();
     }, []);
 
     // Modals & Edit State
@@ -243,6 +265,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 const office = toShortName(item.office_jurisdiction || "") || item.designated_office || "";
                 return office.includes(filters.designatedOffice);
             });
+        }
+
+        if (filters.businessCategory) {
+            result = result.filter(item => item.business_category === filters.businessCategory);
         }
 
         if (filters.businessName) {
@@ -447,6 +473,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "계획진행": item.is_registered_text === '실시' ? '확정' : item.is_registered_text === '미실시' ? '미확정' : item.is_registered_text,
             "국고결과": item.national_support_status,
             "계획담당": item.plan_manager,
+            "업종분류": item.business_category,
             "보고서 담당": item.measurer_id ? measurerMap.get(item.measurer_id) || "" : "",
             "향후측정주기": item.future_measurement_period ? (item.future_measurement_period === 6 ? "6개월" : item.future_measurement_period === 12 ? "1년" : item.future_measurement_period + "개월") : "-",
             "비고": item.notes
@@ -502,11 +529,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     // Grid Column Template
-    // 17 Columns: No(50), 주기(80), 실시여부(80), 국고(60), 계획담당(70), 사업장명(minmax(180,1fr)), 소재지(minmax(250,2fr)), 관할(70), 미수(50), 전회측정(90), 향후측정주기(100), 예정월(60), 예정일(90), 보고서 담당(100), 확정일(90), 비고(100), 관리(50)
-    const gridTemplateCols = "50px 80px 80px 60px 70px minmax(180px, 1fr) minmax(250px, 2fr) 70px 50px 90px 100px 60px 90px 100px 90px 100px 50px";
+    // 18 Columns: No(50), 주기(60), 실시여부(80), 국고(60), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 확정일(110), 비고(80), 관리(40)
+    const gridTemplateCols = "50px 60px 80px 60px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
 
     return (
-        <div className="p-4 min-w-[1600px]">
+        <div className="p-4 w-full min-w-[1400px]">
             {/* Sticky Container for Filter & Table Header */}
             <div className="sticky top-16 lg:top-[113px] z-40 space-y-4 bg-gray-50/95 backdrop-blur">
                 <Card className="p-4 bg-white shadow-sm border-surface-200">
@@ -614,14 +641,25 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 ({filteredData.length}/{data.length})
                             </span>
                         </h3>
-                        <div className="flex items-center gap-2 mr-3">
-                            <span className="text-base font-semibold whitespace-nowrap">계획담당자 :</span>
-                            <Select
-                                options={MANAGER_OPTIONS}
-                                value={filters.planManager}
-                                onChange={(e) => setFilters(prev => ({ ...prev, planManager: e.target.value }))}
-                                className="w-[120px] h-10 py-2 text-base text-center"
-                            />
+                        <div className="flex items-center gap-4 mr-3">
+                            <div className="flex items-center gap-2">
+                                <span className="text-base font-semibold whitespace-nowrap">업종분류 :</span>
+                                <Select
+                                    options={businessCategories.length > 0 ? businessCategories : [{ value: "", label: "전체" }]}
+                                    value={filters.businessCategory}
+                                    onChange={(e) => setFilters(prev => ({ ...prev, businessCategory: e.target.value }))}
+                                    className="w-[120px] h-10 py-2 text-base text-center"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-base font-semibold whitespace-nowrap">계획담당자 :</span>
+                                <Select
+                                    options={MANAGER_OPTIONS}
+                                    value={filters.planManager}
+                                    onChange={(e) => setFilters(prev => ({ ...prev, planManager: e.target.value }))}
+                                    className="w-[120px] h-10 py-2 text-base text-center"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -632,6 +670,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="py-3">계획진행</div>
                         <div className="py-3">국고</div>
                         <div className="py-3">계획담당</div>
+                        <div className="py-3 px-2 text-left">업종분류</div>
                         <div className="py-3 px-2 text-left">사업장명</div>
                         <div className="py-3 px-2 text-left">소재지</div>
                         <div className="py-3">관할</div>
@@ -693,6 +732,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 </div>
                                 <div className="text-center text-xs">{item.national_support_status}</div>
                                 <div className="text-center text-xs">{item.plan_manager}</div>
+                                <div className="px-2 truncate text-xs" title={item.business_category || ""}>{item.business_category}</div>
                                 <div className="px-2 truncate font-medium" title={item.business_name}>{item.business_name}</div>
                                 <div className="px-2 break-words text-xs leading-tight">{item.address}</div>
                                 <div className="text-center text-xs">{toShortName(item.office_jurisdiction || "")}</div>
