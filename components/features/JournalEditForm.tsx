@@ -1343,7 +1343,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               const numbers = parseBusinessNumber(e.target.value);
               setFormData({ ...formData, business_number: numbers });
             }}
-            placeholder="305-86-41481"
+            placeholder="000-00-00000"
             maxLength={12}
             className="md:col-span-2"
             error={!isValidDigitCount(formData.business_number, 10) ? "10자리 숫자를 입력해 주세요" : undefined}

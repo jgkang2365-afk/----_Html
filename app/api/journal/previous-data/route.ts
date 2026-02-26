@@ -319,6 +319,7 @@ export async function GET(request: NextRequest) {
       nationalSupportStatus,
       summaryInfo,
       surveyInfo,
+      referenceData, // 프론트엔드에서 자동 완성에 사용됨
       source: previousJournal ? {
         year: previousJournal.measurement_year,
         period: previousJournal.measurement_period,
