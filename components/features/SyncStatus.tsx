@@ -179,11 +179,43 @@ export function SyncStatus() {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   };
 
+  /* 최근 1주일치 로그에서 중복된 변경 내역 제거 */
+  const getUniqueLogs = (targetLogs: SyncLog[]) => {
+    const seenDetails = new Set<string>();
+
+    return targetLogs.map(log => {
+      let display_details: string[] = [];
+      let isAllDuplicated = false;
+
+      if (log.change_details && log.change_details.length > 0) {
+        display_details = log.change_details.filter(detail => {
+          const key = detail.trim();
+          if (seenDetails.has(key)) return false;
+          seenDetails.add(key);
+          return true;
+        });
+
+        if (display_details.length === 0) {
+          isAllDuplicated = true;
+        }
+      }
+
+      return {
+        ...log,
+        display_details,
+        isAllDuplicated
+      };
+    }).filter(log => !log.isAllDuplicated);
+  };
+
   const businessInfoLog = getLatestLog("사업장정보");
   const measurementBusinessLog = getLatestLog("측정사업장");
 
   const businessInfoLogs = getRecentLogs("사업장정보");
   const measurementBusinessLogs = getRecentLogs("측정사업장");
+
+  const uniqueBusinessInfoLogs = getUniqueLogs(businessInfoLogs);
+  const uniqueMeasurementBusinessLogs = getUniqueLogs(measurementBusinessLogs);
 
   if (loading) {
     return (
@@ -289,9 +321,9 @@ export function SyncStatus() {
             📋 [사업장정보] 최근 1주일 변경 내역
           </h3>
           <div className="bg-white border border-surface-200 rounded p-3 max-h-[300px] overflow-y-auto text-xs text-text-700 leading-relaxed scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-            {businessInfoLogs.length > 0 ? (
+            {uniqueBusinessInfoLogs.length > 0 ? (
               <div className="space-y-4">
-                {businessInfoLogs.map((log) => (
+                {uniqueBusinessInfoLogs.map((log) => (
                   <div key={log.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                     <div className="text-xs font-bold text-indigo-600 mb-1 flex justify-between">
                       <span>{formatDate(log.created_at)}</span>
@@ -299,9 +331,9 @@ export function SyncStatus() {
                         ({log.records_processed}건 처리 / {log.records_updated}건 수정)
                       </span>
                     </div>
-                    {log.change_details && log.change_details.length > 0 ? (
+                    {log.display_details && log.display_details.length > 0 ? (
                       <ul className="list-disc pl-4 space-y-1">
-                        {log.change_details.map((detail, idx) => (
+                        {log.display_details.map((detail, idx) => (
                           <li key={idx} className="break-all">{detail}</li>
                         ))}
                       </ul>
@@ -325,9 +357,9 @@ export function SyncStatus() {
             📋 [측정사업장] 최근 1주일 변경 내역
           </h3>
           <div className="bg-white border border-surface-200 rounded p-3 max-h-[300px] overflow-y-auto text-xs text-text-700 leading-relaxed scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-            {measurementBusinessLogs.length > 0 ? (
+            {uniqueMeasurementBusinessLogs.length > 0 ? (
               <div className="space-y-4">
-                {measurementBusinessLogs.map((log) => (
+                {uniqueMeasurementBusinessLogs.map((log) => (
                   <div key={log.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
                     <div className="text-xs font-bold text-indigo-600 mb-1 flex justify-between">
                       <span>{formatDate(log.created_at)}</span>
@@ -335,9 +367,9 @@ export function SyncStatus() {
                         ({log.records_processed}건 처리 / {log.records_updated}건 수정)
                       </span>
                     </div>
-                    {log.change_details && log.change_details.length > 0 ? (
+                    {log.display_details && log.display_details.length > 0 ? (
                       <ul className="list-disc pl-4 space-y-1">
-                        {log.change_details.map((detail, idx) => (
+                        {log.display_details.map((detail, idx) => (
                           <li key={idx} className="break-all">{detail}</li>
                         ))}
                       </ul>
