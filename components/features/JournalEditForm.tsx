@@ -61,8 +61,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
   const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
-  // 비고의 체크박스 외 텍스트를 보존하기 위한 상태
-  const [originalNoteText, setOriginalNoteText] = useState<string>("");
+  // 예비조사 정보를 별도로 보여주기 위한 상태
+  const [surveyInfo, setSurveyInfo] = useState<any>(null);
   // 전회 측정비 정보 (참고용)
   const [previousMeasurementFee, setPreviousMeasurementFee] = useState<{
     business: number | null;
@@ -576,6 +576,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
               // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)
               if (data.surveyInfo) {
+                setSurveyInfo(data.surveyInfo);
                 console.log('[JournalEditForm] 예비조사 정보 확인:', {
                   report_writer: data.surveyInfo.report_writer,
                   measurer: data.surveyInfo.measurer,
@@ -607,32 +608,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   if (!prev.measurement_end_date) {
                     updated.measurement_end_date = normalizeDateForInput(data.surveyInfo.measurement_date);
                   }
-                }
-
-                // note 필드에 예비조사 정보 추가
-                const noteParts: string[] = [];
-                if (data.surveyInfo.preliminary_surveyor) {
-                  noteParts.push(`예비조사자: ${data.surveyInfo.preliminary_surveyor}`);
-                }
-                if (data.surveyInfo.survey_code) {
-                  noteParts.push(`공시료 코드: ${data.surveyInfo.survey_code}`);
-                }
-                if (data.surveyInfo.actual_measurer) {
-                  noteParts.push(`실측정자: ${data.surveyInfo.actual_measurer}`);
-                }
-                if (data.surveyInfo.report_writer) {
-                  noteParts.push(`보고서 담당: ${data.surveyInfo.report_writer}`);
-                }
-
-                // note 필드에 추가 (기존 note 배열에 추가)
-                if (noteParts.length > 0) {
-                  const currentNotes = Array.isArray(prev.note) ? [...prev.note] : (prev.note ? [prev.note] : []);
-                  noteParts.forEach(part => {
-                    if (!currentNotes.some(n => n.includes(part.split(':')[0]))) {
-                      currentNotes.push(part);
-                    }
-                  });
-                  updated.note = currentNotes;
                 }
               }
 
@@ -888,34 +863,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
     const validNoteValues = noteOptions.map(opt => opt.value);
     let noteArray: string[] = [];
-    let otherNotesArray: string[] = [];
 
     if (entry.note) {
       if (typeof entry.note === 'string') {
         const noteString = entry.note.trim();
         const splitNotes = noteString.split(',').map(n => n.trim()).filter(Boolean);
 
-        noteArray = splitNotes.filter(note => {
-          if (note.includes(':') || !validNoteValues.includes(note)) {
-            otherNotesArray.push(note);
-            return false;
-          }
-          return true;
-        });
+        noteArray = splitNotes.filter(note => validNoteValues.includes(note));
 
       } else if (Array.isArray(entry.note)) {
-        noteArray = entry.note.filter(note => {
-          if (validNoteValues.includes(String(note))) {
-            return true;
-          }
-          otherNotesArray.push(String(note));
-          return false;
-        });
+        noteArray = entry.note.filter(note => validNoteValues.includes(String(note)));
       }
     }
 
-    setOriginalNoteText(otherNotesArray.join(','));
-    console.log('[JournalEditForm] note 배열 추출:', { selected: noteArray, originalText: otherNotesArray.join(',') });
+    console.log('[JournalEditForm] note 배열 추출:', { selected: noteArray });
 
     setFormData({
       // 기본 정보
@@ -1157,21 +1118,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       Object.keys(formData).forEach((key) => {
         const value = formData[key as keyof typeof formData];
 
-        // note 필드는 체크박스 배열(value)와 기존 텍스트(originalNoteText)를 결합하여 문자열로 변환
+        // note 필드는 배열을 콤마로 구분된 문자열로 변환
         if (key === 'note') {
-          const checkedNotes = Array.isArray(value) ? value : [];
-
-          let combinedNotes: string[] = [];
-          if (originalNoteText) {
-            combinedNotes.push(originalNoteText);
-          }
-          if (checkedNotes.length > 0) {
-            combinedNotes.push(...checkedNotes);
-          }
-
-          if (combinedNotes.length > 0) {
-            submitData[key] = combinedNotes.join(',');
-            console.log('[JournalEditForm] 저장할 note 값결합:', submitData[key]);
+          if (Array.isArray(value) && value.length > 0) {
+            submitData[key] = value.join(',');
+            console.log('[JournalEditForm] 저장할 note 값:', submitData[key]);
           } else {
             submitData[key] = null;
           }
@@ -2100,7 +2051,35 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     </div>
   );
 
+  const renderSurveyInfo = () => {
+    if (!surveyInfo) return null;
 
+    return (
+      <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
+        <h3 className="text-lg font-bold text-blue-900 mb-4 pb-2 border-b-2 border-primary-500">
+          예비조사 정보 (참고용)
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">예비조사자</label>
+            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.preliminary_surveyor || "-"}</div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">공시료 코드</label>
+            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.survey_code || "-"}</div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">실측정자</label>
+            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.actual_measurer || "-"}</div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">보고서 담당</label>
+            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.report_writer || "-"}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderSpecialNotes = () => (
     <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
@@ -2158,6 +2137,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             {renderBasicInfo()}
             {renderBusinessInfo()}
             {renderMeasurementInfo()}
+            {renderSurveyInfo()}
             {renderManagerInfo()}
             {renderK2BInfo()}
             {renderFeeInfo()}
@@ -2172,6 +2152,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             {renderK2BInfo()}
             {renderBasicInfo()}
             {renderMeasurementInfo()}
+            {renderSurveyInfo()}
             {renderManagerInfo()}
             {renderSpecialNotes()}
           </>
