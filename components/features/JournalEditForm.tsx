@@ -1112,6 +1112,27 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
     // 측정년도/측정주기 변경 검증 제거 (사용자 요청)
 
+    // 관리자가 연번(공문연번, 연번, 5인 이상 연번)을 변경했는지 확인하고 경고
+    if (isAdmin && entry.id) {
+      const isSequenceChanged =
+        (formData.document_number !== (entry.document_number || "")) ||
+        (formData.sequence_number !== (entry.sequence_number || "")) ||
+        (formData.five_plus_sequence !== (entry.five_plus_sequence || ""));
+
+      if (isSequenceChanged) {
+        const confirmMsg = "⚠️ [경고] 연번(번호표) 변경 감지 ⚠️\n\n" +
+          "관리자 권한으로 시스템의 핵심인 '연번'을 강제로 수정하려고 합니다.\n" +
+          "연번이 틀어지면 노동지청 보고 서류와 불일치하는 등 치명적인 문제가 발생할 수 있습니다.\n\n" +
+          "정말로 이 기록의 연번을 수정하시겠습니까?";
+
+        if (!window.confirm(confirmMsg)) {
+          setLoading(false);
+          if (setIsSubmitting) setIsSubmitting(false);
+          return; // 취소시 중단
+        }
+      }
+    }
+
     try {
       // 데이터 정리 (빈 문자열을 null로 변환)
       const submitData: any = {};
@@ -1826,14 +1847,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Input
               label="공문연번"
               value={formData.document_number}
-              // 관리자 여부와 상관없이 기존 항목(entry.id 존재)인 경우 수정 불가 (별도 승인 필요)
-              disabled={!!entry.id || isLockedByCompletion}
+              disabled={(!isAdmin && !!entry.id) || isLockedByCompletion}
               onChange={(e) => setFormData({ ...formData, document_number: e.target.value })}
-              className={cn("font-bold", (!!entry.id || isLockedByCompletion) ? "bg-surface-50" : "")}
-              placeholder={(!!entry.id || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
+              className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion) ? "bg-surface-50" : "")}
+              placeholder={((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
             />
-            {/* 관리자여도 수정 불가능함을 안내 */}
-            {entry.id && (
+            {/* 일반 사용자에게만 수정 불가능함을 안내 */}
+            {!isAdmin && entry.id && (
               <p className="text-xs text-text-500 mt-1">
                 관리자 승인 없이 수정 불가
               </p>
@@ -1843,13 +1863,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <Input
               label="연번"
               value={formData.sequence_number}
-              // 관리자 여부와 상관없이 기존 항목(entry.id 존재)인 경우 수정 불가 (별도 승인 필요)
-              disabled={!!entry.id || isLockedByCompletion}
+              disabled={(!isAdmin && !!entry.id) || isLockedByCompletion}
               onChange={(e) => setFormData({ ...formData, sequence_number: e.target.value })}
-              className={cn("font-bold", (!!entry.id || isLockedByCompletion) ? "bg-surface-50" : "")}
-              placeholder={(!!entry.id || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
+              className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion) ? "bg-surface-50" : "")}
+              placeholder={((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
             />
-            {entry.id && (
+            {!isAdmin && entry.id && (
               <p className="text-xs text-text-500 mt-1">
                 관리자 승인 없이 수정 불가
               </p>
@@ -1861,11 +1880,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 <Input
                   label="5인 이상 연번"
                   value={formData.five_plus_sequence}
-                  // 관리자 여부와 상관없이 기존 항목(entry.id 존재)인 경우 수정 불가 (별도 승인 필요)
-                  disabled={!!entry.id || isLockedByCompletion}
+                  disabled={(!isAdmin && !!entry.id) || isLockedByCompletion}
                   onChange={(e) => setFormData({ ...formData, five_plus_sequence: e.target.value })}
-                  className={cn("font-bold", (!!entry.id || isLockedByCompletion) ? "bg-surface-50" : "")}
-                  placeholder={(!!entry.id || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
+                  className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion) ? "bg-surface-50" : "")}
+                  placeholder={((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
                 />
               </div>
               {officeQuota !== null && (
@@ -1874,7 +1892,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 </div>
               )}
             </div>
-            {entry.id && (
+            {!isAdmin && entry.id && (
               <p className="text-xs text-text-500 mt-1">
                 관리자 승인 없이 수정 불가
               </p>

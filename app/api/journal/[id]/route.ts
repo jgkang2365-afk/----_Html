@@ -330,14 +330,34 @@ export async function PUT(
         }
       }
     } else {
-      // 자동 재계산 (총인원, 지정지청, 측정년도, 측정주기 변경 시 올바른 값으로 재계산)
-      const { assignFivePlusSequenceNumber } = await import("@/lib/utils/number-assignment");
-      finalFivePlusSequence = await assignFivePlusSequenceNumber(
-        finalDesignatedOffice,
-        finalMeasurementYear,
-        finalMeasurementPeriod,
-        finalTotalEmployees
-      );
+      // 자동 재계산 방지벽 (조건부 재계산)
+      // 1. 지정지청이 변경되었거나
+      // 2. 측정년도가 변경되었거나
+      // 3. 측정주기가 변경되었거나
+      // 4. 총인원이 5인 미만 <-> 5인 이상으로 교차(Threshold 크로스)된 경우에만 재계산
+
+      const isOfficeChanged = existingJournal.designated_office !== finalDesignatedOffice;
+      const isYearChanged = existingJournal.measurement_year !== finalMeasurementYear;
+      const isPeriodChanged = existingJournal.measurement_period !== finalMeasurementPeriod;
+
+      const wasLessThan5 = existingJournal.total_employees < 5;
+      const isNowLessThan5 = finalTotalEmployees < 5;
+      const isEmployeeThresholdCrossed = wasLessThan5 !== isNowLessThan5;
+
+      if (isOfficeChanged || isYearChanged || isPeriodChanged || isEmployeeThresholdCrossed) {
+        console.log(`[측정일지 수정] 5인 연번 재계산 조건 충족 (지청변경:${isOfficeChanged}, 년도변경:${isYearChanged}, 주기변경:${isPeriodChanged}, 인원임계점변경:${isEmployeeThresholdCrossed}) -> 재계산 실행`);
+        const { assignFivePlusSequenceNumber } = await import("@/lib/utils/number-assignment");
+        finalFivePlusSequence = await assignFivePlusSequenceNumber(
+          finalDesignatedOffice,
+          finalMeasurementYear,
+          finalMeasurementPeriod,
+          finalTotalEmployees
+        );
+      } else {
+        // 그 외의 단순 수정 (연락처, 비고, 오타 수정 등) 시에는 무조건 기존 번호 보존
+        finalFivePlusSequence = existingJournal.five_plus_sequence;
+        console.log(`[측정일지 수정] 5인 연번 재계산 조건 미충족 (단순 수정) -> 기존 번호(${finalFivePlusSequence}) 유지`);
+      }
     }
 
     let finalDocumentNumber = documentNumber;
