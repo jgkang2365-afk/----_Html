@@ -47,13 +47,13 @@ export async function POST(request: NextRequest) {
     const measurementPeriodRaw = body.measurement_period || body.measurementPeriod;
     const measurementPeriod = measurementPeriodRaw ? String(measurementPeriodRaw).trim() : measurementPeriodRaw;
 
-    // note 필드 처리: 배열이면 콤마로 구분된 문자열로 변환, 문자열이면 그대로, 최대 50자로 제한
+    // note 필드 처리: 배열이면 콤마로 구분된 문자열로 변환, 문자열이면 그대로, 최대 500자로 제한
     let note: string | null = null;
     if (body.note) {
       if (Array.isArray(body.note)) {
-        note = body.note.join(',').substring(0, 50);
+        note = body.note.join(',').substring(0, 500);
       } else if (typeof body.note === 'string') {
-        note = body.note.substring(0, 50);
+        note = body.note.substring(0, 500);
       }
       // 빈 문자열이면 null로 변환
       if (note === '') note = null;
@@ -225,9 +225,9 @@ export async function POST(request: NextRequest) {
         // note 필드 처리
         if (body.note) {
           if (Array.isArray(body.note)) {
-            updateData.note = body.note.join(',').substring(0, 50) || null;
+            updateData.note = body.note.join(',').substring(0, 500) || null;
           } else if (typeof body.note === 'string') {
-            updateData.note = body.note.substring(0, 50) || null;
+            updateData.note = body.note.substring(0, 500) || null;
           }
         }
 

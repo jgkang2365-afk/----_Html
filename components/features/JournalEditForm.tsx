@@ -61,6 +61,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
   const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
+  // 비고의 체크박스 외 텍스트를 보존하기 위한 상태
+  const [originalNoteText, setOriginalNoteText] = useState<string>("");
   // 전회 측정비 정보 (참고용)
   const [previousMeasurementFee, setPreviousMeasurementFee] = useState<{
     business: number | null;
@@ -95,36 +97,19 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         return [];
       }
       if (typeof entry.note === 'string') {
-        // 개선된 파싱: 콤마로 분리하고, 체크박스 값만 추출
-        // 콜론(:)이 포함된 항목(예비조사 정보)은 제외
         const noteString = entry.note.trim();
         const splitNotes = noteString.split(',').map(n => n.trim()).filter(Boolean);
 
-        // 체크박스 값만 필터링 (콜론이 없는 항목 중 validNoteValues에 일치하는 것만)
         const foundNotes = splitNotes.filter(note => {
-          // 콜론이 포함된 항목은 예비조사 정보이므로 제외
-          if (note.includes(':')) {
-            return false;
-          }
-          // validNoteValues에 정확히 일치하는 것만 포함
+          if (note.includes(':')) return false;
           return validNoteValues.includes(note);
         });
 
-        console.log('[JournalEditForm] 초기화: note 파싱 (개선)', {
-          원본: entry.note,
-          split후: splitNotes,
-          추출된값: foundNotes,
-          제외된항목: splitNotes.filter(n => n.includes(':') || !validNoteValues.includes(n)),
-        });
+        // 초기 상태 설정 시 원본 텍스트(체크박스 이외의 텍스트) 추출은 건너뜀 (useEffect에서 처리)
         return foundNotes;
       }
       if (Array.isArray(entry.note)) {
-        const filtered = entry.note.filter(note => validNoteValues.includes(note));
-        console.log('[JournalEditForm] 초기화: note 배열 필터링', {
-          원본: entry.note,
-          필터링후: filtered,
-        });
-        return filtered;
+        return entry.note.filter(note => validNoteValues.includes(String(note)));
       }
       return [];
     })(),
@@ -903,42 +888,34 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
     const validNoteValues = noteOptions.map(opt => opt.value);
     let noteArray: string[] = [];
+    let otherNotesArray: string[] = [];
 
     if (entry.note) {
       if (typeof entry.note === 'string') {
-        // 개선된 파싱: 콤마로 분리하고, 체크박스 값만 추출
-        // 콜론(:)이 포함된 항목(예비조사 정보)은 제외
         const noteString = entry.note.trim();
         const splitNotes = noteString.split(',').map(n => n.trim()).filter(Boolean);
 
-        // 체크박스 값만 필터링 (콜론이 없는 항목 중 validNoteValues에 일치하는 것만)
         noteArray = splitNotes.filter(note => {
-          // 콜론이 포함된 항목은 예비조사 정보이므로 제외
-          if (note.includes(':')) {
+          if (note.includes(':') || !validNoteValues.includes(note)) {
+            otherNotesArray.push(note);
             return false;
           }
-          // validNoteValues에 정확히 일치하는 것만 포함
-          return validNoteValues.includes(note);
+          return true;
         });
 
-        console.log('[JournalEditForm] note 파싱 상세 (개선):', {
-          원본값: entry.note,
-          split후: splitNotes,
-          추출된값: noteArray,
-          validNoteValues: validNoteValues,
-          제외된항목: splitNotes.filter(n => n.includes(':') || !validNoteValues.includes(n)),
-        });
       } else if (Array.isArray(entry.note)) {
-        // 배열인 경우에도 비고 체크박스 옵션에 해당하는 값만 필터링
-        console.log('[JournalEditForm] note 배열 파싱:', {
-          원본배열: entry.note,
-          validNoteValues: validNoteValues,
+        noteArray = entry.note.filter(note => {
+          if (validNoteValues.includes(String(note))) {
+            return true;
+          }
+          otherNotesArray.push(String(note));
+          return false;
         });
-        noteArray = entry.note.filter(note => validNoteValues.includes(note));
       }
     }
 
-    console.log('[JournalEditForm] note 배열 변환 결과 (필터링 후):', noteArray);
+    setOriginalNoteText(otherNotesArray.join(','));
+    console.log('[JournalEditForm] note 배열 추출:', { selected: noteArray, originalText: otherNotesArray.join(',') });
 
     setFormData({
       // 기본 정보
@@ -1180,14 +1157,23 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       Object.keys(formData).forEach((key) => {
         const value = formData[key as keyof typeof formData];
 
-        // note 필드는 배열을 콤마로 구분된 문자열로 변환
+        // note 필드는 체크박스 배열(value)와 기존 텍스트(originalNoteText)를 결합하여 문자열로 변환
         if (key === 'note') {
-          if (Array.isArray(value) && value.length > 0) {
-            submitData[key] = value.join(',');
-            console.log('[JournalEditForm] 저장할 note 값:', submitData[key]);
+          const checkedNotes = Array.isArray(value) ? value : [];
+
+          let combinedNotes: string[] = [];
+          if (originalNoteText) {
+            combinedNotes.push(originalNoteText);
+          }
+          if (checkedNotes.length > 0) {
+            combinedNotes.push(...checkedNotes);
+          }
+
+          if (combinedNotes.length > 0) {
+            submitData[key] = combinedNotes.join(',');
+            console.log('[JournalEditForm] 저장할 note 값결합:', submitData[key]);
           } else {
             submitData[key] = null;
-            console.log('[JournalEditForm] 저장할 note 값: null (빈 배열)');
           }
         } else {
           submitData[key] = value === "" ? null : value;

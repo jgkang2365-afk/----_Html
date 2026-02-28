@@ -393,7 +393,7 @@ export async function PUT(
       ...bodyWithoutNumbers,
       // VARCHAR(50) 제한 필드들 (기존 값이 있으면 유지, 없으면 새 값 사용)
       code: truncateField(bodyWithoutNumbers.code ?? existingJournal.code, 50, 'code'),
-      note: truncateField(bodyWithoutNumbers.note ?? existingJournal.note, 50, 'note'),
+      note: truncateField(bodyWithoutNumbers.note ?? existingJournal.note, 500, 'note'),
       industrial_accident_number: cleanToDigits(bodyWithoutNumbers.industrial_accident_number ?? existingJournal.industrial_accident_number),
       commencement_number: cleanToDigits(bodyWithoutNumbers.commencement_number ?? existingJournal.commencement_number),
       // VARCHAR(20) 제한 필드들
