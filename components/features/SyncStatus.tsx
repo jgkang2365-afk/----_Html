@@ -189,33 +189,36 @@ export function SyncStatus() {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   };
 
-  /* 최근 1주일치 로그에서 중복된 변경 내역 제거 */
+  /* 각 동기화 시점별로 의미 있는 변경 내역만 추출 */
   const getUniqueLogs = (targetLogs: SyncLog[]) => {
-    const seenDetails = new Set<string>();
-
     return targetLogs.map(log => {
       let display_details: string[] = [];
-      let isAllDuplicated = false;
+      let hasNoChanges = false;
 
       if (log.change_details && log.change_details.length > 0) {
+        // 해당 동기화 시점 내에서의 중복만 제거 (Set을 함수 내부로 이동)
+        const localSeen = new Set<string>();
         display_details = log.change_details.filter(detail => {
           const key = detail.trim();
-          if (seenDetails.has(key)) return false;
-          seenDetails.add(key);
+          if (localSeen.has(key)) return false;
+          localSeen.add(key);
           return true;
         });
 
         if (display_details.length === 0) {
-          isAllDuplicated = true;
+          hasNoChanges = true;
         }
+      } else {
+        // 애초에 변경 내역이 없는 경우
+        hasNoChanges = true;
       }
 
       return {
         ...log,
         display_details,
-        isAllDuplicated
+        hasNoChanges
       };
-    }).filter(log => !log.isAllDuplicated);
+    }).filter(log => !log.hasNoChanges);
   };
 
   const businessInfoLog = getLatestLog("사업장정보");
