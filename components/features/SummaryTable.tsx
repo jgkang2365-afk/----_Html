@@ -227,7 +227,16 @@ export const SummaryTable: React.FC = () => {
       const result = await response.json();
 
       if (response.ok) {
-        setResults(result.data || []);
+        const data = result.data || [];
+        data.sort((a: SummaryEntry, b: SummaryEntry) => {
+          const docA = a.document_number || "";
+          const docB = b.document_number || "";
+          if (!docA && !docB) return 0;
+          if (!docA) return 1;
+          if (!docB) return -1;
+          return docA.localeCompare(docB, 'ko-KR', { numeric: true });
+        });
+        setResults(data);
       } else {
         setError(result.error || "검색 중 오류가 발생했습니다.");
         setResults([]);
