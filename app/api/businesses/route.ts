@@ -349,16 +349,29 @@ export async function PATCH(request: NextRequest) {
               .update({ measurement_date: updates.measurement_date })
               .eq("id", existingSurvey.id);
           } else {
-            // ... (existing insert logic)
             const { data: businessInfo } = await supabase
               .from("measurement_target_business")
-              .select("business_name, address, office_jurisdiction")
+              .select("business_name, address, office_jurisdiction, measurer_id")
               .eq("code", code)
               .eq("year", year)
               .eq("period", period)
               .single();
 
             if (businessInfo) {
+              // Get report writer name if measurer_id exists
+              let reportWriterName = null;
+              if (businessInfo.measurer_id) {
+                const { data: userData } = await supabase
+                  .from("users")
+                  .select("name")
+                  .eq("id", businessInfo.measurer_id)
+                  .single();
+
+                if (userData) {
+                  reportWriterName = userData.name;
+                }
+              }
+
               // ... (existing sequence logic)
               const { data: maxSeq } = await supabase
                 .from("preliminary_survey")
@@ -376,6 +389,8 @@ export async function PATCH(request: NextRequest) {
                 business_name: businessInfo.business_name,
                 address: businessInfo.address,
                 sequence_number: nextSeq,
+                report_writer: reportWriterName,
+                actual_measurer: reportWriterName, // 본인이 직접 실측정자로 우선 들어감.
                 created_at: new Date().toISOString()
               });
             }
