@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/server";
 import { join } from "path";
 import { readFileSync, existsSync } from "fs";
+import { getKSTISOString, getKSTYear } from "@/lib/utils/date-utils";
 
 export interface SyncResult {
   success: boolean;
@@ -534,7 +535,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
   }
 
   // 파일명에서 년도 추출 시도
-  let defaultYear = new Date().getFullYear();
+  let defaultYear = getKSTYear();
   let defaultPeriod = "상반기";
 
   if (fileName) {
@@ -852,7 +853,7 @@ export async function syncBusinessInfo(
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
 
-  const syncStartTime = new Date();
+  const syncStartTime = new Date(getKSTISOString());
   let logId: number | null = null;
   let fileName = specificStorageFileName || fileNameXlsx; // 파일명 초기화
   const changeLog: string[] = []; // 변경 로그 배열
@@ -931,7 +932,7 @@ export async function syncBusinessInfo(
       .insert({
         file_name: fileName,
         sync_type: "사업장정보",
-        sync_start_time: syncStartTime.toISOString(),
+        sync_start_time: getKSTISOString(syncStartTime),
         status: "진행중",
         records_processed: 0,
         records_updated: 0,
@@ -1107,7 +1108,7 @@ export async function syncBusinessInfo(
     // 데이터를 삽입/업데이트로 분류
     const toInsert: any[] = [];
     const toUpdate: any[] = [];
-    const now = new Date().toISOString();
+    const now = getKSTISOString();
 
     parsedData.forEach(row => {
       if (!row.code) return;
@@ -1261,14 +1262,14 @@ export async function syncBusinessInfo(
       await Promise.all(updatePromises);
     }
 
-    const syncEndTime = new Date();
+    const syncEndTime = new Date(getKSTISOString());
 
     // 동기화 로그 업데이트
     if (logId) {
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: syncEndTime.toISOString(),
+          sync_end_time: getKSTISOString(syncEndTime),
           status: "성공",
           records_processed: parsedData.length,
           records_updated: recordsUpdated,
@@ -1287,7 +1288,7 @@ export async function syncBusinessInfo(
       change_log: changeLog,
     };
   } catch (error) {
-    const syncEndTime = new Date();
+    const syncEndTime = new Date(getKSTISOString());
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     // 동기화 로그 업데이트 (실패)
@@ -1296,7 +1297,7 @@ export async function syncBusinessInfo(
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: syncEndTime.toISOString(),
+          sync_end_time: getKSTISOString(syncEndTime),
           status: "실패",
           error_message: errorMessage,
         })
@@ -1335,7 +1336,7 @@ export async function syncMeasurementBusiness(
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
 
-  const syncStartTime = new Date();
+  const syncStartTime = new Date(getKSTISOString());
   let logId: number | null = null;
   let fileName = specificStorageFileName || fileNameXlsx;
   const changeLog: string[] = []; // 변경 로그 배열
@@ -1414,7 +1415,7 @@ export async function syncMeasurementBusiness(
       .insert({
         file_name: fileName,
         sync_type: "측정사업장",
-        sync_start_time: syncStartTime.toISOString(),
+        sync_start_time: getKSTISOString(syncStartTime),
         status: "진행중",
         records_processed: 0,
         records_updated: 0,
@@ -1797,7 +1798,7 @@ export async function syncMeasurementBusiness(
       }
     }
 
-    const syncEndTime = new Date();
+    const syncEndTime = new Date(getKSTISOString());
 
 
     // Define targetRows in outer scope for reuse
@@ -1924,7 +1925,7 @@ export async function syncMeasurementBusiness(
           .upsert(
             batch.map((b: any) => ({
               ...b,
-              updated_at: new Date().toISOString()
+              updated_at: getKSTISOString()
             })),
             {
               onConflict: "code,year,period",
@@ -1952,7 +1953,7 @@ export async function syncMeasurementBusiness(
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: syncEndTime.toISOString(),
+          sync_end_time: getKSTISOString(syncEndTime),
           status: "성공",
           records_processed: parsedData.length,
           records_updated: recordsProcessed, // UPSERT는 INSERT와 UPDATE를 모두 포함
@@ -1971,7 +1972,7 @@ export async function syncMeasurementBusiness(
       change_log: changeLog,
     };
   } catch (error) {
-    const syncEndTime = new Date();
+    const syncEndTime = new Date(getKSTISOString());
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     // 상세 에러 로깅
@@ -1989,7 +1990,7 @@ export async function syncMeasurementBusiness(
         await supabase
           .from("sync_log")
           .update({
-            sync_end_time: syncEndTime.toISOString(),
+            sync_end_time: getKSTISOString(syncEndTime),
             status: "실패",
             error_message: errorMessage,
           })
@@ -2017,7 +2018,7 @@ export async function syncMeasurementBusiness(
  * measurement_journal 테이블의 빈 필드를 business_info 및 measurement_business 데이터로 채움
  */
 export async function updateJournalFromReferenceData(externalSupabaseClient?: SupabaseClient): Promise<SyncResult> {
-  const syncStartTime = new Date();
+  const syncStartTime = new Date(getKSTISOString());
   let logId: number | null = null;
   const fileName = "JOURNAL_UPDATE";
 
@@ -2030,7 +2031,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       .insert({
         file_name: fileName,
         sync_type: "일지데이터보정",
-        sync_start_time: syncStartTime.toISOString(),
+        sync_start_time: getKSTISOString(syncStartTime),
         status: "진행중",
         records_processed: 0,
         records_updated: 0,
@@ -2097,7 +2098,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
     if (jError) throw new Error(`measurement_journal 조회 실패: ${jError.message}`);
 
     let updateCount = 0;
-    const now = new Date().toISOString();
+    const now = getKSTISOString();
 
     if (journals) {
       const updates = [];
@@ -2249,7 +2250,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: new Date().toISOString(),
+          sync_end_time: getKSTISOString(),
           status: "성공",
           records_processed: journals?.length || 0,
           records_updated: updateCount,
@@ -2275,7 +2276,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: new Date().toISOString(),
+          sync_end_time: getKSTISOString(),
           status: "실패",
           error_message: errorMessage,
         })

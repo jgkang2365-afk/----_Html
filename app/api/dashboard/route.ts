@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from "next/server";
 export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { getKSTDateString, getKSTYear, getKSTMonth } from "@/lib/utils/date-utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -96,7 +97,8 @@ export async function GET(request: NextRequest) {
     // 7. 측정 경과 일수 현황 (K2B 미전송 건 전체)
     // 조건: k2b_send_date IS NULL
     // 필터: measurement_end_date >= '2025-12-25' AND 경과일수 >= 20 (즉, end_date <= today - 20)
-    const todayK2b = new Date();
+    const todayStr = getKSTDateString();
+    const todayK2b = new Date(todayStr + 'T00:00:00');
     const twentyDaysAgo = new Date(todayK2b);
     twentyDaysAgo.setDate(todayK2b.getDate() - 20);
     const twentyDaysAgoStr = twentyDaysAgo.toISOString().split('T')[0];
@@ -151,7 +153,7 @@ export async function GET(request: NextRequest) {
 
     const processedOverdueItems = overdueItems?.map(item => {
       const endDate = new Date(item.measurement_end_date);
-      const today = new Date();
+      const today = new Date(getKSTDateString() + 'T00:00:00');
       const elapsed = Math.floor((today.getTime() - endDate.getTime()) / (1000 * 60 * 60 * 24));
       const remaining = 30 - elapsed;
 
@@ -234,7 +236,7 @@ export async function GET(request: NextRequest) {
     // 11. 년도별/월별 매출 추이 비교 (수정됨)
     // targetYear 기준 비교: targetYear vs targetYear-1
     // targetYear 없으면: currentYear vs currentYear-1
-    const comparisonYear = targetYear || new Date().getFullYear();
+    const comparisonYear = targetYear || getKSTYear();
     const prevYear = comparisonYear - 1;
 
     // 비교 데이터 조회 (measurement_year 기준)
@@ -257,9 +259,8 @@ export async function GET(request: NextRequest) {
 
     // 11-2. 월별 비교
     const monthlyStats: Record<string, { current: number | null, previous: number }> = {};
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
+    const currentYear = getKSTYear();
+    const currentMonth = getKSTMonth();
 
     for (let i = 1; i <= 12; i++) {
       // 비교 연도가 현재 연도이고, i월이 현재 월보다 미래인 경우 null (데이터 없음) 처리

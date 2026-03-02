@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from "next/server";
 export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { getKSTYear, getKSTMonth } from "@/lib/utils/date-utils";
 
 export async function GET(request: NextRequest) {
     try {
@@ -12,9 +13,8 @@ export async function GET(request: NextRequest) {
         const periodParam = searchParams.get("period");
 
         // 기본값 설정 (현재 년도/주기)
-        const now = new Date();
-        const currentYear = now.getFullYear();
-        const currentPeriod = now.getMonth() + 1 <= 6 ? "상반기" : "하반기";
+        const currentYear = getKSTYear();
+        const currentPeriod = getKSTMonth() <= 6 ? "상반기" : "하반기";
 
         const targetYear = yearParam && yearParam !== "전체" ? parseInt(yearParam) : currentYear;
         const targetPeriod = periodParam && periodParam !== "전체" ? periodParam : currentPeriod;

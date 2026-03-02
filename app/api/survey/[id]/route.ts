@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { reassignSequenceNumbers } from "@/lib/utils/survey-sequence";
+import { getKSTISOString } from "@/lib/utils/date-utils";
 
 /**
  * 예비조사 수정/삭제 API
@@ -112,7 +113,7 @@ export async function PUT(
         preliminary_surveyor: preliminary_surveyor || null,
         actual_measurer: actual_measurer || null,
         report_writer: report_writer || null,
-        updated_at: new Date().toISOString(),
+        updated_at: getKSTISOString(),
       })
       .eq("id", parseInt(id))
       .select()

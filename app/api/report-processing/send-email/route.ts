@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { createClient } from '@/lib/supabase/server';
 import { EmailService } from '@/lib/email/email-service';
 import { findReportFiles } from '@/lib/utils/findReportFiles';
+import { getKSTISOString } from '@/lib/utils/date-utils';
 
 /**
  * 보고서 메일 일괄 발송 API
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
                     .from('measurement_business')
                     .update({
                         is_email_sent: true,
-                        last_email_sent_at: new Date().toISOString(),
+                        last_email_sent_at: getKSTISOString(),
                     })
                     .eq('code', code)
                     .eq('year', year)
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
                     .from('measurement_journal')
                     .update({
                         is_email_sent: true,
-                        last_email_sent_at: new Date().toISOString(),
+                        last_email_sent_at: getKSTISOString(),
                     })
                     .eq('code', code)
                     .eq('measurement_year', year)

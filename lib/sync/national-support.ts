@@ -1,4 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getKSTISOString } from "@/lib/utils/date-utils";
 
 /**
  * 건강디딤돌 신청결과의 국고지원 상태값을 측정 대상 사업장 관리(measurement_business)에 동기화합니다.
@@ -30,7 +31,7 @@ export async function syncNationalSupportToBusiness(
             .from("measurement_target_business")
             .update({
                 national_support_status: targetStatus,
-                updated_at: new Date().toISOString(),
+                updated_at: getKSTISOString(),
             })
             .eq("code", code)
             .eq("year", year)

@@ -2,6 +2,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { VerificationIssue } from "./excel-sync";
+import { getKSTISOString } from "@/lib/utils/date-utils";
 
 /**
  * 데이터 정합성 검증 함수
@@ -275,7 +276,7 @@ async function syncIssuesToJournalRemarks(supabase: SupabaseClient, issues: Veri
 
                 await supabase
                     .from("measurement_journal")
-                    .update({ special_notes: newNotes, updated_at: new Date().toISOString() })
+                    .update({ special_notes: newNotes, updated_at: getKSTISOString() })
                     .eq("id", journal.id);
             }
         }
@@ -308,7 +309,7 @@ async function syncIssuesToJournalRemarks(supabase: SupabaseClient, issues: Veri
 
                         await supabase
                             .from("measurement_journal")
-                            .update({ special_notes: newNotes, updated_at: new Date().toISOString() })
+                            .update({ special_notes: newNotes, updated_at: getKSTISOString() })
                             .eq("id", journal.id);
                     }
                 }

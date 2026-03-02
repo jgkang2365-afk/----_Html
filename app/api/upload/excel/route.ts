@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { getKSTISOString } from "@/lib/utils/date-utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
     const supabase = createAdminClient();
 
     // 파일명 생성 (타입-원본파일명-타임스탬프)
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+    const timestamp = getKSTISOString().replace(/[:.]/g, "-").slice(0, -5);
     const fileExtension = file.name.split(".").pop();
     const fileName = `${targetFileType}-${timestamp}.${fileExtension}`;
     const filePath = `${targetFileType}/${fileName}`;
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
         path: filePath,
         type: targetFileType,
         size: file.size,
-        uploadedAt: new Date().toISOString(),
+        uploadedAt: getKSTISOString(),
       },
     };
 

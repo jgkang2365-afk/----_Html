@@ -4,6 +4,7 @@ import { K2BService } from '@/lib/automation/k2b-service';
 import { createClient } from '@/lib/supabase/server';
 import { findReportFiles } from '@/lib/utils/findReportFiles';
 import { getSession } from '@/lib/auth/session';
+import { getKSTDateString } from '@/lib/utils/date-utils';
 
 /**
  * K2B 보고서 업로드 API
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
                 });
 
                 // 3. DB 업데이트 (K2B 전송일자 및 상태)
-                const now = new Date().toISOString().split('T')[0];
+                const now = getKSTDateString();
                 const updateData: Record<string, any> = {
                     k2b_status: uploadRes.status // 항상 상태를 갱신
                 };
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
 
                     // 그리드에서 확인된 최종 상태가 성공('정상처리' 또는 '업로드 완료')이면 전송일자도 갱신
                     if (gr.status === '정상처리' || gr.status === '업로드 완료') {
-                        updateGridData.k2b_send_date = new Date().toISOString().split('T')[0];
+                        updateGridData.k2b_send_date = getKSTDateString();
                     }
 
                     await supabase

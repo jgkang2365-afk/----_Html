@@ -2,6 +2,38 @@
  * 날짜 관련 유틸리티 함수
  */
 
+// KST(한국표준시, UTC+9) 기준 날짜 문자열 반환 (YYYY-MM-DD)
+// Vercel 서버는 UTC 기준이므로, new Date().toISOString().split('T')[0]을 사용하면
+// 한국시간 00:00~08:59에 처리 시 전날 날짜가 기록되는 문제 방지
+export function getKSTDateString(date?: Date): string {
+  const d = date ?? new Date();
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return kst.toISOString().split("T")[0];
+}
+
+// KST 기준 ISO 문자열 반환 (updated_at, created_at 등 타임스탬프용)
+export function getKSTISOString(date?: Date): string {
+  const d = date ?? new Date();
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return kst.toISOString();
+}
+
+// KST 기준 현재 연도
+export function getKSTYear(): number {
+  return parseInt(getKSTDateString().substring(0, 4), 10);
+}
+
+// KST 기준 현재 월 (1~12)
+export function getKSTMonth(): number {
+  return parseInt(getKSTDateString().substring(5, 7), 10);
+}
+
+// KST 기준 현재 Date 객체 (로컬 시간으로 KST를 표현)
+export function getKSTNow(): Date {
+  const now = new Date();
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000);
+}
+
 /**
  * 날짜 문자열을 다양한 형식으로 파싱
  * @param dateStr - 날짜 문자열 (20260101, 0101, 2026-01-01 등)
@@ -50,7 +82,7 @@ export function parseDateInput(dateStr: string): Date | null {
  */
 export function formatDateMMDD(date: Date | string | null | undefined): string {
   if (!date) return "";
-  
+
   const dateObj = typeof date === "string" ? new Date(date) : date;
   if (isNaN(dateObj.getTime())) return "";
 
@@ -66,7 +98,7 @@ export function formatDateMMDD(date: Date | string | null | undefined): string {
  */
 export function formatDateYYYYMMDD(date: Date | string | null | undefined): string {
   if (!date) return "";
-  
+
   const dateObj = typeof date === "string" ? new Date(date) : date;
   if (isNaN(dateObj.getTime())) return "";
 

@@ -91,6 +91,14 @@ interface YearlySummary {
 }
 
 export const SalesManagement: React.FC = () => {
+  // KST 날짜를 YYYY-MM-DD 형식으로 포맷 (toISOString은 UTC로 변환되므로 사용 금지)
+  const formatKSTDate = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // 서울 시간대(Asia/Seoul) 기준으로 현재 년도 가져오기
   const getCurrentYear = () => {
     const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
@@ -301,11 +309,11 @@ export const SalesManagement: React.FC = () => {
     const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
     const oneMonthAgo = new Date(seoulTime);
     oneMonthAgo.setMonth(seoulTime.getMonth() - 1);
-    return oneMonthAgo.toISOString().split('T')[0];
+    return formatKSTDate(oneMonthAgo);
   });
   const [depositEndDate, setDepositEndDate] = useState<string>(() => {
     const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-    return seoulTime.toISOString().split('T')[0];
+    return formatKSTDate(seoulTime);
   });
   const [depositOffice, setDepositOffice] = useState("");
   const [depositYear, setDepositYear] = useState("");
@@ -355,7 +363,7 @@ export const SalesManagement: React.FC = () => {
   // 기간별 입금 현황 날짜 선택 헬퍼
   const handleQuickDateSelect = (type: "yesterday" | "today" | "week" | "month") => {
     const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-    const today = seoulTime.toISOString().split('T')[0];
+    const today = formatKSTDate(seoulTime);
     let start = "";
     let end = today;
 
@@ -363,16 +371,16 @@ export const SalesManagement: React.FC = () => {
 
     if (type === "yesterday") {
       startDate.setDate(seoulTime.getDate() - 1);
-      start = startDate.toISOString().split('T')[0];
-      end = start; // 전일은 시작일과 종료일이 같음 (어제 하루)
+      start = formatKSTDate(startDate);
+      end = start;
     } else if (type === "today") {
       start = today;
     } else if (type === "week") {
       startDate.setDate(seoulTime.getDate() - 7);
-      start = startDate.toISOString().split('T')[0];
+      start = formatKSTDate(startDate);
     } else if (type === "month") {
       startDate.setMonth(seoulTime.getMonth() - 1);
-      start = startDate.toISOString().split('T')[0];
+      start = formatKSTDate(startDate);
     }
 
     setDepositStartDate(start);

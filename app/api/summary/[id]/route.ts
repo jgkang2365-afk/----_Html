@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
+import { getKSTISOString } from "@/lib/utils/date-utils";
 
 /**
  * 측정정보 요약 수정 API
@@ -194,7 +195,7 @@ export async function PATCH(
       .update({
         ...filteredUpdateData,
         updated_by: user.name || user.id,
-        updated_at: new Date().toISOString(),
+        updated_at: getKSTISOString(),
       })
       .eq("id", journalId)
       .select()
