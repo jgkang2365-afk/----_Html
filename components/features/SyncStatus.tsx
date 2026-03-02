@@ -358,35 +358,47 @@ export function SyncStatus() {
       {/* 최근 1주일 변경 내역 표시 (사업장정보) */}
       <Card className="bg-surface-50 border-surface-200">
         <div className="p-4">
-          <h3 className="text-sm font-semibold text-text-900 mb-2 flex items-center gap-2">
-            📋 [사업장정보] 최근 1주일 변경 내역
+          <h3 className="text-[15px] font-bold text-slate-800 mb-3 flex items-center gap-2">
+            <span className="p-1 bg-indigo-100 rounded-md">🏢</span> [사업장정보] Excel 가져오기 이력
           </h3>
-          <div className="bg-white border border-surface-200 rounded p-3 max-h-[350px] overflow-y-auto text-xs text-text-700 leading-relaxed scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+          <div className="bg-white border border-surface-200 rounded-xl p-4 max-h-[450px] overflow-y-auto text-xs text-text-700 leading-relaxed shadow-inner scrollbar-thin scrollbar-thumb-gray-200">
             {Object.keys(groupedBusinessInfo).length > 0 ? (
-              <div className="space-y-6">
+              <div className="space-y-8">
                 {Object.entries(groupedBusinessInfo).map(([date, dayLogs]) => (
-                  <div key={date} className="space-y-3">
-                    <div className="flex items-center gap-2 sticky top-0 bg-white py-1 z-10 border-b border-gray-50">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                      <span className="font-bold text-[13px] text-indigo-900">{date}</span>
-                    </div>
-                    <div className="pl-3 space-y-4">
+                  <div key={date} className="relative pl-4 border-l-2 border-indigo-100 space-y-5">
+                    <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-white border-4 border-indigo-500 shadow-sm"></div>
+                    <div className="font-bold text-sm text-indigo-900 mb-2">{date}</div>
+
+                    <div className="space-y-6">
                       {dayLogs.map((log) => (
-                        <div key={log.id} className="last:border-0">
-                          <div className="text-[11px] font-bold text-indigo-500 mb-1 flex justify-between">
-                            <span>{new Date(log.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
-                            <span className="font-normal text-gray-400">
-                              ({log.records_processed}건 처리 / {log.records_updated}건 수정)
+                        <div key={log.id} className="bg-slate-50/50 rounded-lg p-3 border border-slate-100 hover:border-indigo-200 transition-colors">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
+                                {new Date(log.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              </span>
+                              <span className="text-[11px] font-medium text-slate-500 truncate max-w-[200px]" title={log.file_name}>
+                                📁 {log.file_name || '파일명 정보 없음'}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400">
+                              (처리 {log.records_processed}건 / 수정 {log.records_updated}건)
                             </span>
                           </div>
+
                           {log.display_details && log.display_details.length > 0 ? (
-                            <ul className="list-disc pl-4 space-y-1">
-                              {log.display_details.map((detail: string, idx: number) => (
-                                <li key={idx} className="break-all text-gray-700">{detail}</li>
-                              ))}
-                            </ul>
+                            <div className="pl-1.5 border-l-2 border-indigo-200/50 ml-1 mt-2">
+                              <ul className="space-y-1.5">
+                                {log.display_details.map((detail: string, idx: number) => (
+                                  <li key={idx} className="break-all text-slate-700 leading-normal flex items-start gap-1.5">
+                                    <span className="text-indigo-400 mt-0.5">•</span>
+                                    <span>{detail}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                           ) : (
-                            <div className="text-gray-400 pl-2 text-[10px] italic">- 변경 사항 없음 (데이터 동일)</div>
+                            <div className="text-slate-400 pl-4 py-1 text-[11px] italic">기존 데이터와 모두 일치하여 변경 내용 없음</div>
                           )}
                         </div>
                       ))}
@@ -406,35 +418,47 @@ export function SyncStatus() {
       {/* 최근 1주일 변경 내역 표시 (측정사업장) */}
       <Card className="bg-surface-50 border-surface-200">
         <div className="p-4">
-          <h3 className="text-sm font-semibold text-text-900 mb-2 flex items-center gap-2">
-            📋 [측정사업장] 최근 1주일 변경 내역
+          <h3 className="text-[15px] font-bold text-slate-800 mb-3 flex items-center gap-2">
+            <span className="p-1 bg-emerald-100 rounded-md">📊</span> [측정사업장] Excel 가져오기 이력
           </h3>
-          <div className="bg-white border border-surface-200 rounded p-3 max-h-[350px] overflow-y-auto text-xs text-text-700 leading-relaxed scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+          <div className="bg-white border border-surface-200 rounded-xl p-4 max-h-[450px] overflow-y-auto text-xs text-text-700 leading-relaxed shadow-inner scrollbar-thin scrollbar-thumb-gray-200">
             {Object.keys(groupedMeasurementBusiness).length > 0 ? (
-              <div className="space-y-6">
+              <div className="space-y-8">
                 {Object.entries(groupedMeasurementBusiness).map(([date, dayLogs]) => (
-                  <div key={date} className="space-y-3">
-                    <div className="flex items-center gap-2 sticky top-0 bg-white py-1 z-10 border-b border-gray-50">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      <span className="font-bold text-[13px] text-emerald-900">{date}</span>
-                    </div>
-                    <div className="pl-3 space-y-4">
+                  <div key={date} className="relative pl-4 border-l-2 border-emerald-100 space-y-5">
+                    <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-white border-4 border-emerald-500 shadow-sm"></div>
+                    <div className="font-bold text-sm text-emerald-900 mb-2">{date}</div>
+
+                    <div className="space-y-6">
                       {dayLogs.map((log) => (
-                        <div key={log.id}>
-                          <div className="text-[11px] font-bold text-emerald-600 mb-1 flex justify-between">
-                            <span>{new Date(log.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
-                            <span className="font-normal text-gray-400">
-                              ({log.records_processed}건 처리 / {log.records_updated}건 수정)
+                        <div key={log.id} className="bg-slate-50/50 rounded-lg p-3 border border-slate-100 hover:border-emerald-200 transition-colors">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
+                                {new Date(log.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              </span>
+                              <span className="text-[11px] font-medium text-slate-500 truncate max-w-[200px]" title={log.file_name}>
+                                📁 {log.file_name || '파일명 정보 없음'}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400">
+                              (처리 {log.records_processed}건 / 수정 {log.records_updated}건)
                             </span>
                           </div>
+
                           {log.display_details && log.display_details.length > 0 ? (
-                            <ul className="list-disc pl-4 space-y-1">
-                              {log.display_details.map((detail: string, idx: number) => (
-                                <li key={idx} className="break-all text-gray-700">{detail}</li>
-                              ))}
-                            </ul>
+                            <div className="pl-1.5 border-l-2 border-emerald-200/50 ml-1 mt-2">
+                              <ul className="space-y-1.5">
+                                {log.display_details.map((detail: string, idx: number) => (
+                                  <li key={idx} className="break-all text-slate-700 leading-normal flex items-start gap-1.5">
+                                    <span className="text-emerald-400 mt-0.5">•</span>
+                                    <span>{detail}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                           ) : (
-                            <div className="text-gray-400 pl-2 text-[10px] italic">- 신규 정보 또는 세부 변경 없음</div>
+                            <div className="text-slate-400 pl-4 py-1 text-[11px] italic">기존 데이터와 모두 일치하여 변경 내용 없음</div>
                           )}
                         </div>
                       ))}
@@ -452,63 +476,61 @@ export function SyncStatus() {
       </Card>
 
       {/* 데이터 정합성 검사 결과 */}
-      {
-        issues.length > 0 && (
-          <Card className="border-error-200 bg-error-50">
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-error-900 flex items-center gap-2">
-                    ⚠️ 데이터 불일치 알림 ({issues.length}건)
-                  </h3>
-                </div>
-                <Button
-                  variant="secondary"
-                  onClick={handleDownloadExcel}
-                  className="text-xs h-8 px-3 bg-white hover:bg-gray-50 text-gray-700 border-gray-300 flex items-center gap-1.5"
-                >
-                  <Download size={14} />
-                  엑셀 다운로드
-                </Button>
+      {issues.length > 0 && (
+        <Card className="border-error-200 bg-error-50">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-error-900 flex items-center gap-2">
+                  ⚠️ 데이터 불일치 알림 ({issues.length}건)
+                </h3>
               </div>
-
-              <p className="text-sm text-text-700 mb-4 flex flex-col gap-1">
-                <span>
-                  아래 항목들은 <span className="font-bold text-error-600">측정사업장(최신)(measurement_business)</span>과 <span className="font-bold text-indigo-600">사업장 정보(business_info)</span>가 일치하지 않습니다.
-                </span>
-                <span className="text-xs text-gray-500">
-                  * 해결 시 자동 삭제 (일자는 데이터 생성/수정일)
-                </span>
-              </p>
-
-              <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1">
-                {issues.map(issue => (
-                  <div key={issue.id} className="bg-white border border-error-100 rounded p-2 text-sm shadow-sm">
-                    <div className="font-medium text-error-800 flex justify-between items-center mb-1">
-                      <span>[{issue.code}] {issue.business_name}</span>
-                      <span className="text-xs text-gray-400 font-normal ml-2">
-                        {formatDate(issue.created_at)}
-                      </span>
-                    </div>
-                    <div className="text-gray-700 text-xs">
-                      {issue.description.split(/(\[\[.*?\]\])/).map((part, index) => {
-                        if (part.startsWith('[[') && part.endsWith(']]')) {
-                          return (
-                            <span key={index} className="bg-yellow-300 text-black font-extrabold px-0.5 rounded-sm mx-0.5">
-                              {part.slice(2, -2)}
-                            </span>
-                          );
-                        }
-                        return <span key={index}>{part}</span>;
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <Button
+                variant="secondary"
+                onClick={handleDownloadExcel}
+                className="text-xs h-8 px-3 bg-white hover:bg-gray-50 text-gray-700 border-gray-300 flex items-center gap-1.5"
+              >
+                <Download size={14} />
+                엑셀 다운로드
+              </Button>
             </div>
-          </Card>
-        )
-      }
-    </div >
+
+            <p className="text-sm text-text-700 mb-4 flex flex-col gap-1">
+              <span>
+                아래 항목들은 <span className="font-bold text-error-600">측정사업장(최신)(measurement_business)</span>과 <span className="font-bold text-indigo-600">사업장 정보(business_info)</span>가 일치하지 않습니다.
+              </span>
+              <span className="text-xs text-gray-500">
+                * 해결 시 자동 삭제 (일자는 데이터 생성/수정일)
+              </span>
+            </p>
+
+            <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1">
+              {issues.map(issue => (
+                <div key={issue.id} className="bg-white border border-error-100 rounded p-2 text-sm shadow-sm">
+                  <div className="font-medium text-error-800 flex justify-between items-center mb-1">
+                    <span>[{issue.code}] {issue.business_name}</span>
+                    <span className="text-xs text-gray-400 font-normal ml-2">
+                      {formatDate(issue.created_at)}
+                    </span>
+                  </div>
+                  <div className="text-gray-700 text-xs">
+                    {issue.description.split(/(\[\[.*?\]\])/).map((part, index) => {
+                      if (part.startsWith('[[') && part.endsWith(']]')) {
+                        return (
+                          <span key={index} className="bg-yellow-300 text-black font-extrabold px-0.5 rounded-sm mx-0.5">
+                            {part.slice(2, -2)}
+                          </span>
+                        );
+                      }
+                      return <span key={index}>{part}</span>;
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }
