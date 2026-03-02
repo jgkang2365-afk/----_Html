@@ -39,6 +39,7 @@ export function SyncStatus() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [referenceDate, setReferenceDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     fetchSyncLogs();
@@ -166,16 +167,25 @@ export function SyncStatus() {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
   };
 
-  /* 최근 1주일치 로그를 가져오는 함수 (변경 내역 리스트용) */
   const getRecentLogs = (type: string) => {
-    const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    // string (YYYY-MM-DD)을 로컬 날짜 객체로 안전하게 변환
+    const [y, m, d] = referenceDate.split('-').map(Number);
+    const refDate = new Date(y, m - 1, d);
+
+    // 조회일의 끝(23:59:59)
+    const endDate = new Date(refDate);
+    endDate.setHours(23, 59, 59, 999);
+
+    // 조회일 기준 7일 전의 시작(00:00:00)
+    const startDate = new Date(refDate);
+    startDate.setDate(startDate.getDate() - 7);
+    startDate.setHours(0, 0, 0, 0);
 
     return logs
-      .filter((log) =>
-        log.sync_type === type &&
-        new Date(log.created_at) >= oneWeekAgo
-      )
+      .filter((log) => {
+        const logDate = new Date(log.created_at);
+        return log.sync_type === type && logDate >= startDate && logDate <= endDate;
+      })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   };
 
@@ -217,6 +227,25 @@ export function SyncStatus() {
   const uniqueBusinessInfoLogs = getUniqueLogs(businessInfoLogs);
   const uniqueMeasurementBusinessLogs = getUniqueLogs(measurementBusinessLogs);
 
+  /* 날짜별로 그룹화 */
+  const groupLogsByDate = (targetLogs: any[]) => {
+    const groups: { [key: string]: any[] } = {};
+    targetLogs.forEach(log => {
+      const dateKey = new Date(log.created_at).toLocaleDateString('ko-KR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        weekday: 'short'
+      });
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(log);
+    });
+    return groups;
+  };
+
+  const groupedBusinessInfo = groupLogsByDate(uniqueBusinessInfoLogs);
+  const groupedMeasurementBusiness = groupLogsByDate(uniqueMeasurementBusinessLogs);
+
   if (loading) {
     return (
       <Card>
@@ -231,15 +260,27 @@ export function SyncStatus() {
     <div className="space-y-4">
       <Card>
         <div className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-text-900">Excel 파일 동기화 상태</h2>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-text-900">Excel 파일 동기화 상태</h2>
+              <div className="flex items-center gap-2 mt-1">
+                <label htmlFor="ref-date" className="text-xs text-text-500 font-medium">조회일 기준:</label>
+                <input
+                  id="ref-date"
+                  type="date"
+                  value={referenceDate}
+                  onChange={(e) => setReferenceDate(e.target.value)}
+                  className="text-xs border border-surface-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+            </div>
             <Button
               variant="primary"
               onClick={handleSync}
               disabled={syncing}
-              className="text-sm"
+              className="text-sm shadow-sm"
             >
-              {syncing ? "동기화 중..." : "수동 동기화"}
+              {syncing ? "동기화 중..." : "수동 동기화 실행"}
             </Button>
           </div>
 
@@ -259,8 +300,6 @@ export function SyncStatus() {
             {/* 사업장정보 동기화 상태 */}
             <div className="border border-surface-200 rounded p-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-text-900">사업장정보.xlsx (사업장 정보)</span>
-                <span className="text-sm font-medium text-text-900">사업장정보.xlsx (사업장 정보)</span>
                 <span className="text-sm font-medium text-text-900">사업장정보.xlsx (사업장 정보)</span>
                 {businessInfoLog && (
                   <span
@@ -287,7 +326,6 @@ export function SyncStatus() {
             {/* 측정사업장 동기화 상태 */}
             <div className="border border-surface-200 rounded p-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-text-900">측정사업장.xlsx (측정사업장(최신))</span>
                 <span className="text-sm font-medium text-text-900">측정사업장.xlsx (측정사업장(최신))</span>
                 {measurementBusinessLog && (
                   <span
@@ -320,31 +358,43 @@ export function SyncStatus() {
           <h3 className="text-sm font-semibold text-text-900 mb-2 flex items-center gap-2">
             📋 [사업장정보] 최근 1주일 변경 내역
           </h3>
-          <div className="bg-white border border-surface-200 rounded p-3 max-h-[300px] overflow-y-auto text-xs text-text-700 leading-relaxed scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-            {uniqueBusinessInfoLogs.length > 0 ? (
-              <div className="space-y-4">
-                {uniqueBusinessInfoLogs.map((log) => (
-                  <div key={log.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                    <div className="text-xs font-bold text-indigo-600 mb-1 flex justify-between">
-                      <span>{formatDate(log.created_at)}</span>
-                      <span className="font-normal text-gray-500">
-                        ({log.records_processed}건 처리 / {log.records_updated}건 수정)
-                      </span>
+          <div className="bg-white border border-surface-200 rounded p-3 max-h-[350px] overflow-y-auto text-xs text-text-700 leading-relaxed scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+            {Object.keys(groupedBusinessInfo).length > 0 ? (
+              <div className="space-y-6">
+                {Object.entries(groupedBusinessInfo).map(([date, dayLogs]) => (
+                  <div key={date} className="space-y-3">
+                    <div className="flex items-center gap-2 sticky top-0 bg-white py-1 z-10 border-b border-gray-50">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                      <span className="font-bold text-[13px] text-indigo-900">{date}</span>
                     </div>
-                    {log.display_details && log.display_details.length > 0 ? (
-                      <ul className="list-disc pl-4 space-y-1">
-                        {log.display_details.map((detail, idx) => (
-                          <li key={idx} className="break-all">{detail}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="text-gray-400 pl-2 text-[11px]">- 주요 변경 사항 없음</div>
-                    )}
+                    <div className="pl-3 space-y-4">
+                      {dayLogs.map((log) => (
+                        <div key={log.id} className="last:border-0">
+                          <div className="text-[11px] font-bold text-indigo-500 mb-1 flex justify-between">
+                            <span>{new Date(log.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="font-normal text-gray-400">
+                              ({log.records_processed}건 처리 / {log.records_updated}건 수정)
+                            </span>
+                          </div>
+                          {log.display_details && log.display_details.length > 0 ? (
+                            <ul className="list-disc pl-4 space-y-1">
+                              {log.display_details.map((detail: string, idx: number) => (
+                                <li key={idx} className="break-all text-gray-700">{detail}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className="text-gray-400 pl-2 text-[10px] italic">- 변경 사항 없음 (데이터 동일)</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-text-400 italic py-2 text-center">최근 1주일간 변경 내역이 없습니다.</div>
+              <div className="text-text-400 italic py-8 text-center bg-gray-50/50 rounded">
+                선택하신 {referenceDate} 기준 1주일간 변경 내역이 없습니다.
+              </div>
             )}
           </div>
         </div>
@@ -356,31 +406,43 @@ export function SyncStatus() {
           <h3 className="text-sm font-semibold text-text-900 mb-2 flex items-center gap-2">
             📋 [측정사업장] 최근 1주일 변경 내역
           </h3>
-          <div className="bg-white border border-surface-200 rounded p-3 max-h-[300px] overflow-y-auto text-xs text-text-700 leading-relaxed scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-            {uniqueMeasurementBusinessLogs.length > 0 ? (
-              <div className="space-y-4">
-                {uniqueMeasurementBusinessLogs.map((log) => (
-                  <div key={log.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                    <div className="text-xs font-bold text-indigo-600 mb-1 flex justify-between">
-                      <span>{formatDate(log.created_at)}</span>
-                      <span className="font-normal text-gray-500">
-                        ({log.records_processed}건 처리 / {log.records_updated}건 수정)
-                      </span>
+          <div className="bg-white border border-surface-200 rounded p-3 max-h-[350px] overflow-y-auto text-xs text-text-700 leading-relaxed scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+            {Object.keys(groupedMeasurementBusiness).length > 0 ? (
+              <div className="space-y-6">
+                {Object.entries(groupedMeasurementBusiness).map(([date, dayLogs]) => (
+                  <div key={date} className="space-y-3">
+                    <div className="flex items-center gap-2 sticky top-0 bg-white py-1 z-10 border-b border-gray-50">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      <span className="font-bold text-[13px] text-emerald-900">{date}</span>
                     </div>
-                    {log.display_details && log.display_details.length > 0 ? (
-                      <ul className="list-disc pl-4 space-y-1">
-                        {log.display_details.map((detail, idx) => (
-                          <li key={idx} className="break-all">{detail}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="text-gray-400 pl-2 text-[11px]">- 주요 변경 사항 없음</div>
-                    )}
+                    <div className="pl-3 space-y-4">
+                      {dayLogs.map((log) => (
+                        <div key={log.id}>
+                          <div className="text-[11px] font-bold text-emerald-600 mb-1 flex justify-between">
+                            <span>{new Date(log.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="font-normal text-gray-400">
+                              ({log.records_processed}건 처리 / {log.records_updated}건 수정)
+                            </span>
+                          </div>
+                          {log.display_details && log.display_details.length > 0 ? (
+                            <ul className="list-disc pl-4 space-y-1">
+                              {log.display_details.map((detail: string, idx: number) => (
+                                <li key={idx} className="break-all text-gray-700">{detail}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className="text-gray-400 pl-2 text-[10px] italic">- 신규 정보 또는 세부 변경 없음</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-text-400 italic py-2 text-center">최근 1주일간 변경 내역이 없습니다.</div>
+              <div className="text-text-400 italic py-8 text-center bg-gray-50/50 rounded">
+                선택하신 {referenceDate} 기준 1주일간 변경 내역이 없습니다.
+              </div>
             )}
           </div>
         </div>

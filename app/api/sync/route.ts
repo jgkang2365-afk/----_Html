@@ -117,7 +117,7 @@ export async function GET() {
       .from("sync_log")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(100);
 
     if (logError) {
       console.error("동기화 로그 조회 실패:", logError);
