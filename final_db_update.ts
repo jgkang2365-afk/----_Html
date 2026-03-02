@@ -26,7 +26,7 @@ async function runUpdate() {
             .from('measurement_journal')
             .update({ five_plus_sequence: target.new_seq })
             .eq('code', target.code)
-            .eq('measurement_date', target.measurement_date)
+            .eq('measurement_start_date', target.measurement_date)
             .eq('measurement_year', 2026)
             .select();
 
