@@ -153,15 +153,12 @@ async function getLatestFileFromStorage(
     let fileName: string | null = null;
     let storageFileName: string | null = null;
 
-    // 1. list()에서 가져온 최신 파일 시도
-    if (files && files.length > 0) {
-      // 폴더 내의 파일인지 확인하고 경로 구성
-      const latestFile = files[0];
-      // list 메서드는 해당 폴더 내의 항목만 반환하므로 경로는 `${fileType}/${latestFile.name}`
-      const fullPath = `${fileType}/${latestFile.name}`;
+    // 1. list()에서 가져온 최신 파일들을 순차적으로 다운로드 시도
+    let validFiles = files ? files.filter(f => f.name !== ".emptyFolderPlaceholder" && (f.name.endsWith(".xls") || f.name.endsWith(".xlsx"))) : [];
 
-      console.log(`[Storage] 최신 파일 감지: ${fullPath} (${latestFile.created_at})`);
-
+    for (const file of validFiles) {
+      const fullPath = `${fileType}/${file.name}`;
+      console.log(`[Storage] 최신 파일 감지: ${fullPath} (${file.created_at})`);
       try {
         const { data: fileData, error: downloadError } = await supabase.storage
           .from("excel-files")
@@ -170,17 +167,18 @@ async function getLatestFileFromStorage(
         if (!downloadError && fileData) {
           console.log(`[Storage] 최신 파일 다운로드 성공: ${fullPath}`);
           fileBuffer = Buffer.from(await fileData.arrayBuffer());
-          fileName = latestFile.name;
+          fileName = file.name;
           storageFileName = fullPath;
+          break; // 성공하면 탈출
         } else {
-          console.warn(`[Storage] 최신 파일 다운로드 실패: ${downloadError?.message}`);
+          console.error(`[Storage] 최신 파일 다운로드 오류 (${fullPath}):`, downloadError?.message || "Unknown error");
         }
       } catch (e) {
-        console.error(`[Storage] 최신 파일 처리 중 예외:`, e);
+        console.error(`[Storage] 최신 파일 처리 중 예외 (${fullPath}):`, e);
       }
     }
 
-    // 2. 최신 파일 다운로드 실패 시, 기존 하드코딩된 파일명 시도 (Fallback)
+    // 2. 최신 파일 다운로드 모두 실패 시, 기존 하드코딩된 파일명 시도 (Fallback)
     if (!fileBuffer) {
       console.log("[Storage] 최신 파일 다운로드 실패 또는 없음. 하드코딩된 파일명으로 재시도합니다.");
       const fileNamesToTry: { path: string; name: string }[] = [];
