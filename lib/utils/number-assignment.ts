@@ -166,12 +166,13 @@ export async function assignSequenceNumber(
   }
 
   // 연번을 숫자로 정렬하기 위해 모든 레코드를 가져와서 클라이언트에서 정렬
+  const basePeriod = String(measurementPeriod).trim().replace("(수시)", "");
   const { data: journals, error } = await supabase
     .from("measurement_journal")
     .select("sequence_number")
     .in("designated_office", officesToMatch)
     .eq("measurement_year", measurementYear)
-    .eq("measurement_period", String(measurementPeriod).trim()) // Trim Input
+    .like("measurement_period", `${basePeriod}%`) // '상반기' 또는 '상반기(수시)' 모두 포함
     .not("sequence_number", "is", null);
 
   if (error && error.code !== "PGRST116") {
@@ -227,6 +228,9 @@ export async function assignFivePlusSequenceNumber(
   // 약칭으로 정규화 (기존 전체명과 호환) - Trim Input
   const normalizedOffice = toShortName(String(designatedOffice).trim());
 
+  // (수시)를 제거한 기본 주기(상반기/하반기) 추출
+  const basePeriod = String(measurementPeriod).trim().replace("(수시)", "");
+
   // 총인원이 5인 미만인 경우: 마지막 5인 이상 연번 재사용(최대값 조회)
   if (!totalEmployees || totalEmployees < 5) {
     // 직전 5인 이상 연번 조회 (중복 허용, 기존 전체명과 약칭 모두 매칭)
@@ -242,7 +246,7 @@ export async function assignFivePlusSequenceNumber(
       .select("five_plus_sequence")
       .in("designated_office", officesToMatch)
       .eq("measurement_year", measurementYear)
-      .eq("measurement_period", String(measurementPeriod).trim()) // Trim Input
+      .like("measurement_period", `${basePeriod}%`) // '상반기' 또는 '상반기(수시)' 모두 매치
       .not("five_plus_sequence", "is", null);
 
     if (error && error.code !== "PGRST116") {
@@ -285,7 +289,7 @@ export async function assignFivePlusSequenceNumber(
     .select("five_plus_sequence")
     .in("designated_office", officesToMatch)
     .eq("measurement_year", measurementYear)
-    .eq("measurement_period", String(measurementPeriod).trim()) // Trim Input
+    .like("measurement_period", `${basePeriod}%`) // '상반기' 또는 '상반기(수시)' 모두 매치
     .not("five_plus_sequence", "is", null);
 
   if (error && error.code !== "PGRST116") {

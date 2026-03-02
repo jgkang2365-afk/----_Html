@@ -50,7 +50,8 @@ async function main() {
         if (!journal.designated_office || !journal.measurement_period) continue;
 
         const office = toShortName(journal.designated_office);
-        const key = `${office}_${journal.measurement_year}_${journal.measurement_period}`;
+        const basePeriod = String(journal.measurement_period).trim().replace("(수시)", "");
+        const key = `${office}_${journal.measurement_year}_${basePeriod}`;
 
         // 이 그룹에 처음 등장했다면 초기화
         if (tracker[key] === undefined) {
