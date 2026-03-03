@@ -126,6 +126,24 @@ export async function PUT(
         { status: 500 }
       );
     }
+    // 예비조사 수정 후 measurement_journal의 measurer 동기화
+    if (code && actual_measurer) {
+      const surveyYear = year ? parseInt(year) : null;
+      const surveyPeriod = period || null;
+
+      if (surveyYear && surveyPeriod) {
+        const { error: journalUpdateError } = await supabase
+          .from("measurement_journal")
+          .update({ measurer: actual_measurer })
+          .eq("code", code)
+          .eq("measurement_year", surveyYear)
+          .ilike("measurement_period", `%${surveyPeriod.replace('(수시)', '').replace('수시(', '').replace(')', '')}%`);
+
+        if (journalUpdateError) {
+          console.error("measurement_journal measurer 동기화 오류:", journalUpdateError);
+        }
+      }
+    }
 
     // 예비조사 수정 후 measurement_target_business 테이블의 measurement_date 업데이트
     if (code) {
