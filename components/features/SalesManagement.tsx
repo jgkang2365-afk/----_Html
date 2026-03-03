@@ -263,7 +263,7 @@ export const SalesManagement: React.FC = () => {
   const [unpaidFilters, setUnpaidFilters] = useState({
     type: "", // 구분: "measurement" | "other" | ""
     name: "", // 사업장명/품명
-    year: getCurrentYearString(), // 매출년도
+    year: "", // 매출년도
     period: "", // 측정주기
     designatedOffice: "", // 지정한계_관할지청
     hasDepositDate: "", // 입금일 여부: "yes" | "no" | ""
@@ -276,7 +276,7 @@ export const SalesManagement: React.FC = () => {
   // 기타 매출 필터 및 정렬 상태
   const [otherFilters, setOtherFilters] = useState({
     itemName: "", // 품명
-    year: getCurrentYearString(), // 매출년도
+    year: "", // 매출년도
     period: "", // 매출주기
     hasInvoiceDate: "", // 계산서 발행일 여부: "yes" | "no" | ""
     hasDepositDate: "", // 입금일 여부: "yes" | "no" | ""
@@ -291,7 +291,7 @@ export const SalesManagement: React.FC = () => {
   const [measurementFilters, setMeasurementFilters] = useState({
     businessName: "", // 사업장명
     representativeName: "", // 대표자명
-    year: getCurrentYearString(), // 측정년도
+    year: "", // 측정년도
     period: "", // 측정주기
     designatedOffice: "", // 지정한계_관할지청
     hasInvoiceDate: "", // 계산서 발행일 여부: "yes" | "no" | ""
