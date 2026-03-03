@@ -1687,53 +1687,64 @@ export async function syncMeasurementBusiness(
         return fullRow;
       });
 
-    // [NEW] 변경 사항 로깅 (메모리상의 최신 데이터와 비교)
-    // allRows는 엑셀에서 파싱한 전체 데이터 (Unique Key 중복 제거됨)
+    // [IMPROVED] 변경 사항 로깅 — code 기준 DB 최신 데이터와 핵심 필드만 비교
+    // 코드별 DB 최신 레코드를 Map으로 구성 (year 내림차순 → period 하반기 우선)
+    const latestByCode = new Map<string, any>();
+    for (const lm of latestMeasurements) {
+      if (!lm.code) continue;
+      const existing = latestByCode.get(lm.code);
+      if (!existing) {
+        latestByCode.set(lm.code, lm);
+      } else {
+        // 더 최신 레코드로 교체 (year 큰 것 → 같으면 하반기 > 상반기)
+        if (lm.year > existing.year || (lm.year === existing.year && (lm.period || '').includes('하반기') && !(existing.period || '').includes('하반기'))) {
+          latestByCode.set(lm.code, lm);
+        }
+      }
+    }
+
+    // 비교 대상 핵심 필드 정의 (사용자 지정 10개)
+    const compareFields: { key: string; label: string }[] = [
+      { key: 'business_name', label: '사업장명' },
+      { key: 'business_number', label: '사업자번호' },
+      { key: 'representative_name', label: '대표자' },
+      { key: 'industrial_accident_number', label: '산재관리번호' },
+      { key: 'commencement_number', label: '개시번호' },
+      { key: 'total_employees', label: '총인원' },
+      { key: 'office_jurisdiction', label: '소재지관할청' },
+      { key: 'manager_name', label: '담당자' },
+      { key: 'manager_mobile', label: '휴대번호' },
+      { key: 'manager_email', label: '이메일' },
+    ];
+
+    // 이미 로그에 추가된 코드를 추적 (같은 코드가 여러 year/period로 있을 수 있으므로 중복 방지)
+    const loggedCodes = new Set<string>();
+
     allRows.forEach(row => {
-      const latestMeasurement = latestMeasurements.find(lm => lm.code === row.code && lm.year === row.year && lm.period === row.period);
-      if (latestMeasurement) {
+      if (!row.code || loggedCodes.has(row.code)) return;
+
+      const dbRecord = latestByCode.get(row.code);
+      if (dbRecord) {
         const changes: string[] = [];
 
-        // 1. 산재관리번호
-        if (row.industrial_accident_number && latestMeasurement.industrial_accident_number !== row.industrial_accident_number) {
-          changes.push(`산재관리번호: ${latestMeasurement.industrial_accident_number || '(없음)'} -> ${row.industrial_accident_number}`);
-        }
-        // 2. 사업장개시번호
-        if (row.commencement_number && latestMeasurement.commencement_number !== row.commencement_number) {
-          changes.push(`개시번호: ${latestMeasurement.commencement_number || '(없음)'} -> ${row.commencement_number}`);
-        }
-        // 3. 담당자
-        if (row.manager_name && latestMeasurement.manager_name !== row.manager_name) {
-          changes.push(`담당자: ${latestMeasurement.manager_name || '(없음)'} -> ${row.manager_name}`);
-        }
-        // 4. 직위 (manager_position)
-        if (row.manager_position && latestMeasurement.manager_position !== row.manager_position) {
-          changes.push(`직위: ${latestMeasurement.manager_position || '(없음)'} -> ${row.manager_position}`);
-        }
-        // 5. 휴대전화
-        if (row.manager_mobile && latestMeasurement.manager_mobile !== row.manager_mobile) {
-          changes.push(`휴대전화: ${latestMeasurement.manager_mobile || '(없음)'} -> ${row.manager_mobile}`);
-        }
-        // 6. 이메일
-        if (row.manager_email && latestMeasurement.manager_email !== row.manager_email) {
-          changes.push(`이메일: ${latestMeasurement.manager_email || '(없음)'} -> ${row.manager_email}`);
-        }
-
-        // 기존 유지: 측정일
-        if (row.measurement_date && latestMeasurement.measurement_date !== row.measurement_date) {
-          changes.push(`측정일: ${latestMeasurement.measurement_date || '(없음)'} -> ${row.measurement_date}`);
-        }
-        // 기존 유지: 비고
-        if (row.notes && latestMeasurement.notes !== row.notes) {
-          changes.push(`비고: ${latestMeasurement.notes || '(없음)'} -> ${row.notes}`);
+        for (const field of compareFields) {
+          const newVal = String(row[field.key] ?? '').trim();
+          const oldVal = String(dbRecord[field.key] ?? '').trim();
+          // 새 값이 있고, 기존 값과 다른 경우만 변경으로 인식
+          if (newVal && newVal !== oldVal) {
+            changes.push(`${field.label}: ${oldVal || '(없음)'} -> ${newVal}`);
+          }
         }
 
         if (changes.length > 0) {
           changeLog.push(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
+          loggedCodes.add(row.code);
         }
+        // 변경 없으면 로그에 추가하지 않음
       } else {
-        // 신규 데이터인 경우
+        // 해당 code가 DB에 아예 없을 때만 진짜 신규
         changeLog.push(`[신규] ${row.business_name} (${row.code}) 측정 정보가 추가되었습니다.`);
+        loggedCodes.add(row.code);
       }
     });
 
