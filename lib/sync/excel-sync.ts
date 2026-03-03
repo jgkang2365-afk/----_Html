@@ -1694,20 +1694,11 @@ export async function syncMeasurementBusiness(
         return fullRow;
       });
 
-    // [IMPROVED] 변경 사항 로깅 — code 기준 DB 최신 데이터와 핵심 필드만 비교
-    // 코드별 DB 최신 레코드를 Map으로 구성 (year 내림차순 → period 하반기 우선)
-    const latestByCode = new Map<string, any>();
+    // [IMPROVED] 변경 사항 로깅 — 정확한 매칭 우선, code 폴백으로 신규 판별
+    // 1) code 기준 DB 존재 여부 확인용 Map (신규 판별용)
+    const codeExistsInDB = new Set<string>();
     for (const lm of latestMeasurements) {
-      if (!lm.code) continue;
-      const existing = latestByCode.get(lm.code);
-      if (!existing) {
-        latestByCode.set(lm.code, lm);
-      } else {
-        // 더 최신 레코드로 교체 (year 큰 것 → 같으면 하반기 > 상반기)
-        if (lm.year > existing.year || (lm.year === existing.year && (lm.period || '').includes('하반기') && !(existing.period || '').includes('하반기'))) {
-          latestByCode.set(lm.code, lm);
-        }
-      }
+      if (lm.code) codeExistsInDB.add(lm.code);
     }
 
     // 비교 대상 핵심 필드 정의 (사용자 지정 10개)
@@ -1724,30 +1715,33 @@ export async function syncMeasurementBusiness(
       { key: 'manager_email', label: '이메일' },
     ];
 
-    // 이미 로그에 추가된 코드를 추적 (같은 코드가 여러 year/period로 있을 수 있으므로 중복 방지)
+    // 이미 로그에 추가된 코드를 추적
     const loggedCodes = new Set<string>();
 
     allRows.forEach(row => {
       if (!row.code || loggedCodes.has(row.code)) return;
 
-      const dbRecord = latestByCode.get(row.code);
-      if (dbRecord) {
-        const changes: string[] = [];
+      // 2) 정확한 code+year+period 매칭 (재업로드 시 이미 갱신된 데이터와 비교)
+      const exactMatch = latestMeasurements.find(
+        lm => lm.code === row.code && lm.year === row.year && lm.period === row.period
+      );
 
+      if (exactMatch) {
+        const changes: string[] = [];
         for (const field of compareFields) {
           const newVal = String(row[field.key] ?? '').trim();
-          const oldVal = String(dbRecord[field.key] ?? '').trim();
-          // 새 값이 있고, 기존 값과 다른 경우만 변경으로 인식
+          const oldVal = String(exactMatch[field.key] ?? '').trim();
           if (newVal && newVal !== oldVal) {
             changes.push(`${field.label}: ${oldVal || '(없음)'} -> ${newVal}`);
           }
         }
-
         if (changes.length > 0) {
           changeLog.push(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
           loggedCodes.add(row.code);
         }
-        // 변경 없으면 로그에 추가하지 않음
+      } else if (codeExistsInDB.has(row.code)) {
+        // code는 DB에 있지만 이 year/period는 없는 경우 → 신규가 아닌 새 주기 데이터
+        // 변경 로그에 추가하지 않음 (기존 코드의 새 주기)
       } else {
         // 해당 code가 DB에 아예 없을 때만 진짜 신규
         changeLog.push(`[신규] ${row.business_name} (${row.code}) 측정 정보가 추가되었습니다.`);
