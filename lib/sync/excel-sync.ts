@@ -1110,8 +1110,19 @@ export async function syncBusinessInfo(
     const toUpdate: any[] = [];
     const now = getKSTISOString();
 
+    // 비교 대상 핵심 필드 정의 (사용자 지정 4개)
+    const compareFields: { key: string; label: string }[] = [
+      { key: 'business_name', label: '사업장명' },
+      { key: 'business_number', label: '사업자번호' },
+      { key: 'representative_name', label: '대표자명' },
+      { key: 'invoice_email', label: '세금계산서 메일' },
+    ];
+
+    const newCodesSet = new Set<string>();
+
     parsedData.forEach(row => {
       if (!row.code) return;
+      newCodesSet.add(row.code);
 
       const rowWithTimestamp = {
         ...row,
@@ -1121,29 +1132,17 @@ export async function syncBusinessInfo(
       if (existingCodesSet.has(row.code)) {
         toUpdate.push(rowWithTimestamp);
 
-        // [LOGGING] 변경 사항 비교
+        // [LOGGING] 핵심 필드 변경 사항만 비교
         const existing = existingDataMap.get(row.code);
         if (existing) {
           const changes: string[] = [];
 
-          // 사업장명 변경 감지
-          if (row.business_name && existing.business_name !== row.business_name) {
-            changes.push(`사업장명: (기존)${existing.business_name} -> (변경)${row.business_name}`);
-          }
-
-          // 사업자번호 변경 감지
-          if (row.business_number && existing.business_number !== row.business_number) {
-            changes.push(`사업자번호: (기존)${existing.business_number || '(없음)'} -> (변경)${row.business_number}`);
-          }
-
-          // 대표자명 변경 감지
-          if (row.representative_name && existing.representative_name !== row.representative_name) {
-            changes.push(`대표자: (기존)${existing.representative_name || '(없음)'} -> (변경)${row.representative_name}`);
-          }
-
-          // 주소 변경 감지
-          if (row.address && existing.address !== row.address) {
-            changes.push(`주소: (기존)${existing.address || '(없음)'} -> (변경)${row.address}`);
+          for (const field of compareFields) {
+            const newVal = String(row[field.key] ?? '').trim();
+            const oldVal = String(existing[field.key] ?? '').trim();
+            if (newVal && newVal !== oldVal) {
+              changes.push(`${field.label}: (기존)${oldVal || '(없음)'} -> (변경)${newVal}`);
+            }
           }
 
           if (changes.length > 0) {
@@ -1152,10 +1151,18 @@ export async function syncBusinessInfo(
         }
       } else {
         toInsert.push(row);
-        // [LOGGING] 신규 사업장 추가 로그 w/ 사업장명
         changeLog.push(`[신규] ${row.business_name} (${row.code}) 사업장이 추가되었습니다.`);
       }
     });
+
+    // [코드 삭제 감지] DB에 있지만 엑셀에 없는 코드
+    for (const existingCode of existingCodesSet) {
+      if (!newCodesSet.has(existingCode)) {
+        const existing = existingDataMap.get(existingCode);
+        const name = existing?.business_name || existingCode;
+        changeLog.push(`[삭제] ${name} (${existingCode}) 코드가 엑셀에서 삭제되었습니다.`);
+      }
+    }
 
     console.log(`[Sync Debug] To Insert: ${toInsert.length}, To Update: ${toUpdate.length}`);
     if (toInsert.length > 0) {
