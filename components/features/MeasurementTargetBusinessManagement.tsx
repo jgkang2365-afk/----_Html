@@ -75,14 +75,16 @@ const MANAGER_OPTIONS = [
     { value: "", label: "전체" },
     { value: "한기문", label: "한기문" },
     { value: "이주형", label: "이주형" },
-    { value: "강종구", label: "강종구" }
+    { value: "강종구", label: "강종구" },
+    { value: "고유빈", label: "고유빈" }
 ];
 
 const PLAN_MANAGER_EDIT_OPTIONS = [
     { value: "", label: "선택" },
     { value: "한기문", label: "한기문" },
     { value: "이주형", label: "이주형" },
-    { value: "강종구", label: "강종구" }
+    { value: "강종구", label: "강종구" },
+    { value: "고유빈", label: "고유빈" }
 ];
 
 // Generate Year-Period Options

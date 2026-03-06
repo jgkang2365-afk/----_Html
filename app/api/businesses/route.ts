@@ -485,7 +485,8 @@ export async function PATCH(request: NextRequest) {
     const calendarTriggerFields = updates.hasOwnProperty('measurement_date') ||
       updates.hasOwnProperty('measurer_id') ||
       updates.hasOwnProperty('is_registered') ||
-      updates.hasOwnProperty('notes');
+      updates.hasOwnProperty('notes') ||
+      updates.hasOwnProperty('plan_manager'); // 계획담당자 변경 시에도 캘린더 업데이트 트리거
     const isSettingConfirmed = updates.is_registered === "확정";
 
     if ((calendarTriggerFields || isSettingConfirmed) && code && year && period) {
@@ -504,7 +505,7 @@ export async function PATCH(request: NextRequest) {
         const isAfterCutoff = new Date(currentData.measurement_date) >= new Date("2026-02-22");
         if (isConfirmed && hasRequiredInfo && isAfterCutoff) {
 
-          let measurerName = "미지정";
+          let measurerName = currentData.plan_manager || "미지정";
           if (currentData.measurer_id) {
             const { data: userData } = await supabase
               .from("users")

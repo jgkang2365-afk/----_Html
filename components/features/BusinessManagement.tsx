@@ -770,6 +770,7 @@ export const BusinessManagement: React.FC = () => {
                   <option value="한기문">한기문</option>
                   <option value="이주형">이주형</option>
                   <option value="강종구">강종구</option>
+                  <option value="고유빈">고유빈</option>
                 </select>
               </div>
             </div>

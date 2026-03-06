@@ -8,7 +8,7 @@ const supabase = createClient(
 );
 
 async function checkDistribution() {
-    const targetManagers = ['한기문', '이주형', '강종구'];
+    const targetManagers = ['한기문', '이주형', '강종구', '고유빈'];
     const { data, error } = await supabase
         .from("measurement_target_business")
         .select("year, period")

@@ -22,7 +22,7 @@ async function diagnose() {
     console.log("Sample Data from measurement_target_business:");
     console.table(rawData);
 
-    const targetManagers = ['한기문', '이주형', '강종구'];
+    const targetManagers = ['한기문', '이주형', '강종구', '고유빈'];
     const { data: filteredData } = await supabase
         .from("measurement_target_business")
         .select("plan_manager, year, period")

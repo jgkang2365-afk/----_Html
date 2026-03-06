@@ -331,7 +331,7 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
         <Card className="p-6 shadow-sm">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-bold text-gray-800">계산서 발행 현황</h3>
-            <span className="text-xs text-text-400">계획담당 3인 기준 (클릭 시 미발행 목록 표시)</span>
+            <span className="text-xs text-text-400">계획담당자 기준 (클릭 시 미발행 목록 표시)</span>
           </div>
           <div className="h-[300px] w-full">
             {invoiceLoading ? (

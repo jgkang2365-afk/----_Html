@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
         const supabase = await createClient();
 
         // 1. 측정 대상 사업장(계획) 조회 - 특정 3인 계획담당자 기준
-        const targetManagers = ['한기문', '이주형', '강종구'];
+        const targetManagers = ['한기문', '이주형', '강종구', '고유빈'];
 
         let query = supabase
             .from("measurement_target_business")

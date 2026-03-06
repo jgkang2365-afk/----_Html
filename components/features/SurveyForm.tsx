@@ -25,6 +25,7 @@ const PRELIMINARY_SURVEYOR_OPTIONS = [
   "이주형",
   "한기문, 배윤민",
   "이주형, 고유빈",
+  "고유빈",
 ];
 
 interface BusinessInfo {
@@ -469,7 +470,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       "이주형": "이주형",
       "강종구": "이태환, 강종구",
       "배윤민": "한기문, 배윤민",
-      "고유빈": "이주형, 고유빈",
+      "고유빈": "고유빈",
     };
     return mapping[measurer] || null;
   };
