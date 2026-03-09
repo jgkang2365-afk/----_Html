@@ -75,27 +75,48 @@ export default function ReportProcessingPage() {
 
         const targets = records.filter(r => selectedCodes.includes(r.code));
 
-        if (!confirm(`${targets.length}개 업체에 보고서 이메일을 전송하시겠습니까?`)) return;
+        if (!confirm(`${targets.length}개 업체에 보고서 이메일을 전송하시겠습니까?\n(발송 간격: 2초)`)) return;
 
         setProcessing(true);
-        setProcessingMessage('이메일을 전송하고 있습니다...');
-        try {
-            const res = await fetch('/api/report-processing/send-email', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targets })
-            });
-            const data = await res.json();
+        let successCount = 0;
+        let failCount = 0;
 
-            if (res.ok) {
-                toast.success(data.message);
-                fetchRecords(); // 상태 갱신
-                setSelectedCodes([]);
-            } else {
-                toast.error(data.error || '전송 실패');
+        try {
+            for (let i = 0; i < targets.length; i++) {
+                const target = targets[i];
+                setProcessingMessage(`[${i + 1}/${targets.length}] ${target.business_name} 메일 발송 중...`);
+
+                const res = await fetch('/api/report-processing/send-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ targets: [target] })
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data.results && data.results[0]?.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+
+                // 마지막 항목이 아니면 2초 대기
+                if (i < targets.length - 1) {
+                    setProcessingMessage(`[${i + 1}/${targets.length}] ${target.business_name} 완료. 2초 대기 중...`);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
             }
+
+            if (failCount === 0) {
+                toast.success(`${successCount}개 업체 발송 성공`);
+            } else {
+                toast.warning(`${successCount}개 성공, ${failCount}개 실패`);
+            }
+
+            fetchRecords(); // 상태 갱신
+            setSelectedCodes([]);
         } catch (error) {
-            toast.error('전송 중 서버 오류');
+            toast.error('전송 중 오류 발생');
         } finally {
             setProcessing(false);
             setProcessingMessage('');
@@ -325,8 +346,8 @@ export default function ReportProcessingPage() {
                                     <TableCell>
                                         {record.k2b_status ? (
                                             <span className={`text-xs font-semibold px-2 py-1 rounded border ${['업로드 완료', '정상처리'].includes(record.k2b_status)
-                                                    ? 'text-green-600 bg-green-50 border-green-200'
-                                                    : 'text-red-600 bg-red-50 border-red-200'
+                                                ? 'text-green-600 bg-green-50 border-green-200'
+                                                : 'text-red-600 bg-red-50 border-red-200'
                                                 }`}>
                                                 {['업로드 완료', '정상처리'].includes(record.k2b_status) ? '성공' : '실패'}
                                                 {' '}({record.k2b_status})
