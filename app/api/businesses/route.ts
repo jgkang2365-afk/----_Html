@@ -501,9 +501,10 @@ export async function PATCH(request: NextRequest) {
         const eventId = currentData.google_event_id;
 
         // 3-1. 확정 상태이고 필수 정보(날짜)가 있는 경우 -> 생성 또는 수정
-        // 2026년 2월 22일 이전 날짜는 구글 캘린더 연동 생략
-        const isAfterCutoff = new Date(currentData.measurement_date) >= new Date("2026-02-22");
-        if (isConfirmed && hasRequiredInfo && isAfterCutoff) {
+        // 2026년 2월 23일부터 정식 연동 (1/12은 테스트 완료 건으로 예외 허용)
+        const isTargetDate = currentData.measurement_date === "2026-01-12" ||
+          new Date(currentData.measurement_date) >= new Date("2026-02-23");
+        if (isConfirmed && hasRequiredInfo && isTargetDate) {
 
           let measurerName = currentData.plan_manager || "미지정";
           if (currentData.measurer_id) {
@@ -599,7 +600,26 @@ export async function PATCH(request: NextRequest) {
             '이주형': '5',  // Banana
             '고유빈': '7',  // Peacock
           };
-          const colorId = calendarColorMap[measurerName];
+
+          let colorId = calendarColorMap[measurerName];
+
+          // [New Feature] K2B 전송 및 계산서 발행 완료 시 '포도(3)' 색상 적용
+          try {
+            const { data: currentJournal } = await supabase
+              .from("measurement_journal")
+              .select("k2b_send_date, electronic_invoice_date")
+              .eq("code", code)
+              .eq("measurement_year", year)
+              .eq("measurement_period", period)
+              .maybeSingle();
+
+            if (currentJournal?.k2b_send_date && currentJournal?.electronic_invoice_date) {
+              colorId = '3'; // Grape
+              console.log(`[Sync] Both K2B and Invoice completed for ${code}. Setting color to Grape(3).`);
+            }
+          } catch (e) {
+            console.error("[Calendar Sync] Status check error:", e);
+          }
 
           const eventData = {
             summary,

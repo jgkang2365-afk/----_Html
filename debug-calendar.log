@@ -102,3 +102,30 @@
 [2026-02-21T01:19:44.583Z] Event created successfully: pe66amhuiav0l4j2kpgko8h0ic 
 [2026-02-21T01:20:55.767Z] Deleting Calendar Event: pe66amhuiav0l4j2kpgko8h0ic 
 [2026-02-21T01:20:59.107Z] Event deleted: pe66amhuiav0l4j2kpgko8h0ic 
+[2026-03-10T01:47:21.362Z] Creating Calendar Event {"summary":"[배윤민]대성공업사 (포도색 테스트)","description":"테스트: K2B/계산서 완료 색상 변경\n사업장: 대성공업사\n주소: 대전광역시 대덕구 대화로 16 (대화동)","date":"2026-01-12","location":"대전광역시 대덕구 대화로 16 (대화동)","colorId":"3"}
+[2026-03-10T01:47:21.379Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-10T01:47:23.200Z] Event created successfully: 4p44k6tckkut99nsalserdeemc 
+[2026-03-10T01:47:23.488Z] Creating Calendar Event {"summary":"[배윤민]대성모터스 (포도색 테스트)","description":"테스트: K2B/계산서 완료 색상 변경\n사업장: 대성모터스\n주소: 대전광역시 대덕구 대화로 16 (대화동)","date":"2026-01-12","location":"대전광역시 대덕구 대화로 16 (대화동)","colorId":"3"}
+[2026-03-10T01:47:23.490Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-10T01:47:24.882Z] Event created successfully: it6ichk2pgougmumjr5aub2ev4 
+[2026-03-10T01:47:25.045Z] Creating Calendar Event {"summary":"[배윤민]우정공업사 (포도색 테스트)","description":"테스트: K2B/계산서 완료 색상 변경\n사업장: 우정공업사\n주소: 대전광역시 대덕구 대화로 24 (대화동)","date":"2026-01-12","location":"대전광역시 대덕구 대화로 24 (대화동)","colorId":"3"}
+[2026-03-10T01:47:25.048Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-10T01:47:26.427Z] Event created successfully: qbue5m7pprtvih93kmql7be8ec 
+[2026-03-10T01:49:58.258Z] Deleting Calendar Event: 4p44k6tckkut99nsalserdeemc 
+[2026-03-10T01:49:58.262Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-10T01:49:59.718Z] Event deleted: 4p44k6tckkut99nsalserdeemc 
+[2026-03-10T01:49:59.719Z] Deleting Calendar Event: it6ichk2pgougmumjr5aub2ev4 
+[2026-03-10T01:49:59.720Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-10T01:50:00.733Z] Event deleted: it6ichk2pgougmumjr5aub2ev4 
+[2026-03-10T01:50:00.735Z] Deleting Calendar Event: qbue5m7pprtvih93kmql7be8ec 
+[2026-03-10T01:50:00.738Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-10T01:50:01.682Z] Event deleted: qbue5m7pprtvih93kmql7be8ec 
+[2026-03-10T01:52:34.589Z] Updating Calendar Event: 4k7m3hre9emofhov74tqfdt9o4 {"summary":"[배윤민]대성공업사","description":"사업장: 대성공업사\n주소: 대전광역시 대덕구 대화로 16 (대화동)\n담당자: 배윤민\n연락처: 010-3408-7777\n비고:","date":"2026-01-12","location":"대전광역시 대덕구 대화로 16 (대화동)","colorId":"3"}
+[2026-03-10T01:52:34.593Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-10T01:52:36.630Z] Event updated successfully: 4k7m3hre9emofhov74tqfdt9o4 
+[2026-03-10T01:52:37.042Z] Updating Calendar Event: 28g9gc9qfjt9hhkuhen04735lv {"summary":"[배윤민]대성모터스","description":"사업장: 대성모터스\n주소: 대전광역시 대덕구 대화로 16 (대화동)\n담당자: 배윤민\n연락처: 010-5092-0364\n비고:","date":"2026-01-12","location":"대전광역시 대덕구 대화로 16 (대화동)","colorId":"3"}
+[2026-03-10T01:52:37.044Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-10T01:52:38.880Z] Event updated successfully: 28g9gc9qfjt9hhkuhen04735lv 
+[2026-03-10T01:52:39.191Z] Updating Calendar Event: 2mqoot6rdqc37dhmu6qggcal8c {"summary":"[배윤민]우정공업사","description":"사업장: 우정공업사\n주소: 대전광역시 대덕구 대화로 24 (대화동)\n담당자: 배윤민\n연락처: 010-5445-4272\n비고:","date":"2026-01-12","location":"대전광역시 대덕구 대화로 24 (대화동)","colorId":"3"}
+[2026-03-10T01:52:39.195Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-10T01:52:40.865Z] Event updated successfully: 2mqoot6rdqc37dhmu6qggcal8c 

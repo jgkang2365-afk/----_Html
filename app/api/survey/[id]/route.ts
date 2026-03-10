@@ -186,10 +186,11 @@ export async function PUT(
             .limit(1)
             .maybeSingle();
 
-          // [수정] 2026년 2월 22일 이전 날짜는 구글 캘린더 연동 안함
-          const isAfterCutoff = targetBiz?.measurement_date ? new Date(targetBiz.measurement_date) >= new Date("2026-02-22") : false;
+          // [수정] 2026년 2월 23일부터 정식 연동 (1/12은 테스트 완료 건으로 예외 허용)
+          const isTargetDate = targetBiz?.measurement_date === "2026-01-12" ||
+            (targetBiz?.measurement_date ? new Date(targetBiz.measurement_date) >= new Date("2026-02-23") : false);
 
-          if (targetBiz && targetBiz.google_event_id && targetBiz.is_registered === "확정" && targetBiz.measurement_date && isAfterCutoff) {
+          if (targetBiz && targetBiz.google_event_id && targetBiz.is_registered === "확정" && targetBiz.measurement_date && isTargetDate) {
             // 보고서 담당자 조회
             let reportWriterName = "미지정";
             if (targetBiz.measurer_id) {
@@ -236,7 +237,25 @@ export async function PUT(
 
             // Color mapping (보고서 담당자 기준)
             const colorMap: { [key: string]: string } = { '한기문': '10', '배윤민': '6', '강종구': '9', '이주형': '5', '고유빈': '7' };
-            const colorId = colorMap[reportWriterName];
+            let colorId = colorMap[reportWriterName];
+
+            // [New Feature] K2B 전송 및 계산서 발행 완료 시 '포도(3)' 색상 적용
+            try {
+              const { data: currentJournal } = await supabase
+                .from("measurement_journal")
+                .select("k2b_send_date, electronic_invoice_date")
+                .eq("code", code)
+                .eq("measurement_year", year ? parseInt(year) : null)
+                .eq("measurement_period", period || null)
+                .maybeSingle();
+
+              if (currentJournal?.k2b_send_date && currentJournal?.electronic_invoice_date) {
+                colorId = '3'; // Grape
+                console.log(`[Survey->Calendar] Both K2B and Invoice completed for ${code}. Setting color to Grape(3).`);
+              }
+            } catch (e) {
+              console.error("[Survey->Calendar] Status check error:", e);
+            }
 
             const eventData = {
               summary: newSummary,
