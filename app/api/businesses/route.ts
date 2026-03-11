@@ -578,9 +578,8 @@ export async function PATCH(request: NextRequest) {
           }
 
           // === 최종 제목 조합 ===
-          // 형식: [업체담당자]사업장명 - 미수정보, 비고 (사용자 요청: 보고서 담당자 대신 업체 담당자 표시)
-          const displayManager = currentData.manager_name || measurerName;
-          const baseSummary = `[${displayManager}]${businessName}`;
+          // 형식: [보고서담당자, 실측정자]사업장명 - 미수정보, 비고
+          const baseSummary = `[${namesDisplay}]${businessName}`;
           const suffixParts = [unpaidText, notesText].filter(Boolean);
           const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(" / ")}` : "";
           const summary = baseSummary + suffix;

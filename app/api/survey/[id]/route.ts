@@ -230,9 +230,7 @@ export async function PUT(
             }
 
             const notesText = targetBiz.notes || "";
-            // 제목에도 업체 담당자 표시 (사용자 요청: 보고서 담당자 대신 업체 담당자 표시)
-            const displayManager = targetBiz.manager_name || reportWriterName;
-            const baseSummary = `[${displayManager}]${business_name}`;
+            const baseSummary = `[${namesDisplay}]${business_name}`;
             const suffixParts = [unpaidText, notesText].filter(Boolean);
             const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(" / ")}` : "";
             const newSummary = baseSummary + suffix;
