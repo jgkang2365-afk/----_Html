@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { DESIGNATED_OFFICE_OPTIONS } from "@/lib/constants/designated-offices";
+import { DESIGNATED_OFFICE_OPTIONS, toShortName } from "@/lib/constants/designated-offices";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -1559,16 +1559,11 @@ export const SummaryTable: React.FC = () => {
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         소재지 관할청
                       </label>
-                      <Select
-                        className="h-11 md:h-10 py-2 text-center text-base md:text-sm shadow-sm"
-                        value={editFormData.office_jurisdiction || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, office_jurisdiction: e.target.value })
-                        }
-                        options={[
-                          { label: "선택", value: "" },
-                          ...DESIGNATED_OFFICE_OPTIONS
-                        ]}
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-surface-50"
+                        value={toShortName(editFormData.office_jurisdiction || "")}
+                        disabled
+                        title="측정일지의 소재지 관할청 정보가 연동됩니다."
                       />
                     </div>
                   </div>

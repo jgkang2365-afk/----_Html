@@ -22,6 +22,19 @@ export const DESIGNATED_OFFICES = [
 ] as const;
 
 /**
+ * 전국 모든 노동지청 목록 (약칭)
+ */
+export const ALL_JURISDICTIONS = [
+  "서울", "서울강남", "서울동부", "서울서부", "서울남부", "서울북부", "서울관악",
+  "중부", "인천북부", "부천", "의정부", "고양", "경기", "성남", "안양", "안산", "평택",
+  "강원", "강릉", "원주", "태백", "영월",
+  "부산", "부산동부", "부산북부", "창원", "마산", "울산", "양산", "진주", "통영",
+  "대구", "대구서부", "포항", "구미", "영주", "안동",
+  "광주", "전주", "익산", "군산", "목포", "여수",
+  "대전", "청주", "천안", "충주", "보령"
+] as const;
+
+/**
  * 지정한계_관할지청 타입
  */
 export type DesignatedOffice = typeof DESIGNATED_OFFICES[number];
@@ -101,6 +114,14 @@ export const DESIGNATED_OFFICE_OPTIONS_WITHOUT_ALL = DESIGNATED_OFFICES.map((off
   value: office,
   label: office,
 }));
+
+/**
+ * 전국 모든 노동지청 Select 옵션 (가나다순 정렬)
+ */
+export const ALL_JURISDICTION_OPTIONS = ALL_JURISDICTIONS.map((office) => ({
+  value: office,
+  label: office,
+})).sort((a, b) => a.label.localeCompare(b.label, 'ko-KR'));
 
 /**
  * 매출 집계용 지정한계_관할지청 목록 (기타 포함)
