@@ -190,7 +190,9 @@ export async function PUT(
           const isTargetDate = targetBiz?.measurement_date === "2026-01-12" ||
             (targetBiz?.measurement_date ? new Date(targetBiz.measurement_date) >= new Date("2026-02-23") : false);
 
-          if (targetBiz && targetBiz.google_event_id && targetBiz.is_registered === "확정" && targetBiz.measurement_date && isTargetDate) {
+          const isConfirmedBiz = targetBiz && (targetBiz.is_registered === "확정" || targetBiz.is_registered === "실시");
+
+          if (isConfirmedBiz && targetBiz.google_event_id && targetBiz.measurement_date && isTargetDate) {
             // 보고서 담당자 조회
             let reportWriterName = "미지정";
             if (targetBiz.measurer_id) {

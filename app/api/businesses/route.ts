@@ -480,23 +480,17 @@ export async function PATCH(request: NextRequest) {
 
     // [New Feature] System-as-Master Calendar Sync
     // Trigger conditions:
-    // 1. 특정 필드(measurement_date, measurer_id, is_registered, notes)가 변경될 때
-    // 2. 또는 현재 상태가 "확정"인데 google_event_id가 있을 때 (수동 삭제 후 재생성 대비)
-    const calendarTriggerFields = updates.hasOwnProperty('measurement_date') ||
-      updates.hasOwnProperty('measurer_id') ||
-      updates.hasOwnProperty('is_registered') ||
-      updates.hasOwnProperty('notes') ||
-      updates.hasOwnProperty('plan_manager'); // 계획담당자 변경 시에도 캘린더 업데이트 트리거
-    const isSettingConfirmed = updates.is_registered === "확정";
+    // 확정(또는 실시) 상태이거나, google_event_id가 있는 경우(삭제 또는 업데이트 필요) Sync 로직 수행
+    const isConfirmedStatus = updatedData.is_registered === "확정" || updatedData.is_registered === "실시";
+    const needsCalendarSync = isConfirmedStatus || !!updatedData.google_event_id;
 
-    if ((calendarTriggerFields || isSettingConfirmed) && code && year && period) {
+    if (needsCalendarSync && code && year && period) {
 
       try {
-        // Use updatedData directly instead of re-fetching
         const currentData = updatedData;
         console.log(`[Sync Start] Status=${currentData.is_registered}, Date=${currentData.measurement_date}, EventID=${currentData.google_event_id}`);
 
-        const isConfirmed = currentData.is_registered === "확정";
+        const isConfirmed = isConfirmedStatus;
         const hasRequiredInfo = !!currentData.measurement_date;
         const eventId = currentData.google_event_id;
 
