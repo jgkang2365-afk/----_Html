@@ -1,5 +1,6 @@
 import { getUser } from "@/lib/auth/get-user";
 import { NextRequest, NextResponse } from "next/server";
+import { clearSessionCookie } from "@/lib/auth/session";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -32,14 +33,18 @@ export async function GET() {
       // getUser에서 발생한 오류는 세션이 없거나 데이터베이스 오류일 수 있음
       // 세션이 없는 경우는 정상적인 상황이므로 null 반환
       if (getUserError?.message?.includes("세션") || getUserError?.message?.includes("Unauthorized")) {
-        return NextResponse.json({ user: null }, { status: 200 });
+        const response = NextResponse.json({ user: null }, { status: 200 });
+        clearSessionCookie(response);
+        return response;
       }
       // 그 외의 오류는 다시 throw하여 아래 catch 블록에서 처리
       throw getUserError;
     }
 
     if (!user) {
-      return NextResponse.json({ user: null }, { status: 200 });
+      const response = NextResponse.json({ user: null }, { status: 200 });
+      clearSessionCookie(response);
+      return response;
     }
 
     return NextResponse.json({ user });

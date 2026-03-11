@@ -52,10 +52,6 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
     }
   }, [user, loading, isAdmin]);
 
-  const handleLoginClick = () => {
-    router.push("/login");
-  };
-
   return (
     <header className="bg-white border-b border-surface-100 sticky top-0 z-50">
       <div className="h-16 flex items-center justify-between px-4 lg:px-6">
@@ -107,9 +103,11 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
               </Button>
             </div>
           ) : (
-            <Button variant="primary" size="sm" onClick={handleLoginClick}>
-              로그인
-            </Button>
+            <Link href="/login" passHref legacyBehavior>
+              <Button variant="primary" size="sm">
+                로그인
+              </Button>
+            </Link>
           )}
         </div>
       </div>

@@ -26,6 +26,11 @@ export function useUser() {
         const data = await response.json();
         console.log("[useUser] 사용자 정보:", data.user);
         setUser(data.user);
+        
+        // 사용자가 없는데 로그인 페이지가 아니라면 로그인으로 리다이렉트
+        if (!data.user && pathname !== "/login") {
+          window.location.href = "/login";
+        }
       } else {
         console.error("[useUser] 사용자 정보 조회 실패:", response.status, response.statusText);
         try {
