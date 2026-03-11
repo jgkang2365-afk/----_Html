@@ -1763,10 +1763,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           options={periodOptions}
           required
         />
-        <div className="md:col-span-2 lg:col-span-3 flex flex-col lg:flex-row gap-4 items-start">
-          <div className="flex-1 min-w-0">
-            <label className="block text-sm font-medium text-text-700 mb-2">비고 (복수 선택 가능)</label>
-            <div className="flex flex-nowrap gap-x-4 gap-y-2 p-3 bg-white border border-surface-200 rounded-lg overflow-x-auto">
+        <div className="md:col-span-2 lg:col-span-3 flex flex-col lg:flex-row gap-4 items-end">
+          <div className="flex-[2] min-w-0 w-full">
+            <label className="block text-sm font-medium text-text-700 mb-1">비고 (복수 선택 가능)</label>
+            <div className="flex flex-wrap lg:flex-nowrap gap-x-4 gap-y-2 p-[11px] bg-white border border-surface-200 rounded-lg overflow-x-auto min-h-[50px] items-center">
               {noteOptions.map((option) => {
                 const isChecked = Array.isArray(formData.note)
                   ? formData.note.includes(option.value)
@@ -1807,14 +1807,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               })}
             </div>
           </div>
-          <div className="flex-1 grid grid-cols-3 gap-4">
-            <Input
-              label="소재지 관할청"
-              value={formData.office_jurisdiction}
-              disabled
-              className="bg-surface-50"
-              placeholder="주소 입력 시 자동 입력됩니다"
-            />
+          <div className="flex-1 grid grid-cols-2 gap-4 w-full">
             <Select
               label="지정지청 *"
               value={formData.designated_office}
