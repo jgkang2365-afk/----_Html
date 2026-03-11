@@ -578,8 +578,9 @@ export async function PATCH(request: NextRequest) {
           }
 
           // === 최종 제목 조합 ===
-          // 형식: [보고서담당자, 실측정자]사업장명 - 미수정보, 비고
-          const baseSummary = `[${namesDisplay}]${businessName}`;
+          // 형식: [업체담당자]사업장명 - 미수정보, 비고 (사용자 요청: 보고서 담당자 대신 업체 담당자 표시)
+          const displayManager = currentData.manager_name || measurerName;
+          const baseSummary = `[${displayManager}]${businessName}`;
           const suffixParts = [unpaidText, notesText].filter(Boolean);
           const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(" / ")}` : "";
           const summary = baseSummary + suffix;
@@ -587,7 +588,7 @@ export async function PATCH(request: NextRequest) {
           const description = `
             사업장: ${businessName}
             주소: ${currentData.address || "주소 미입력"}
-            담당자: ${measurerName}
+            담당자: ${currentData.manager_name || "미지정"}
             연락처: ${currentData.manager_mobile || currentData.phone || "없음"}
             비고: ${currentData.notes || ""}
           `.trim();

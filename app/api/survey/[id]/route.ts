@@ -180,7 +180,7 @@ export async function PUT(
           // 해당 코드의 measurement_target_business 조회
           const { data: targetBiz } = await supabase
             .from("measurement_target_business")
-            .select("google_event_id, measurer_id, measurement_date, address, manager_mobile, phone, notes, is_registered")
+            .select("google_event_id, measurer_id, measurement_date, address, manager_mobile, manager_name, phone, notes, is_registered")
             .eq("code", code)
             .order("year", { ascending: false })
             .limit(1)
@@ -230,7 +230,9 @@ export async function PUT(
             }
 
             const notesText = targetBiz.notes || "";
-            const baseSummary = `[${namesDisplay}]${business_name}`;
+            // 제목에도 업체 담당자 표시 (사용자 요청: 보고서 담당자 대신 업체 담당자 표시)
+            const displayManager = targetBiz.manager_name || reportWriterName;
+            const baseSummary = `[${displayManager}]${business_name}`;
             const suffixParts = [unpaidText, notesText].filter(Boolean);
             const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(" / ")}` : "";
             const newSummary = baseSummary + suffix;
@@ -259,7 +261,7 @@ export async function PUT(
 
             const eventData = {
               summary: newSummary,
-              description: `사업장: ${business_name}\n주소: ${targetBiz.address || "주소 미입력"}\n담당자: ${reportWriterName}\n연락처: ${targetBiz.manager_mobile || targetBiz.phone || "없음"}\n비고: ${notesText}`.trim(),
+              description: `사업장: ${business_name}\n주소: ${targetBiz.address || "주소 미입력"}\n담당자: ${targetBiz.manager_name || "미지정"}\n연락처: ${targetBiz.manager_mobile || targetBiz.phone || "없음"}\n비고: ${notesText}`.trim(),
               date: targetBiz.measurement_date,
               endDate: (end_date && end_date !== targetBiz.measurement_date) ? end_date : undefined, // 다일 측정 시
               location: targetBiz.address || "",
