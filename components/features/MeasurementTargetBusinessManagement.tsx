@@ -672,9 +672,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="py-3">계획진행</div>
                         <div className="py-3">국고</div>
                         <div className="py-3">계획담당</div>
-                        <div className="py-3 px-2 text-left">업종분류</div>
-                        <div className="py-3 px-2 text-left">사업장명</div>
-                        <div className="py-3 px-2 text-left">소재지</div>
+                        <div className="py-3 px-2">업종분류</div>
+                        <div className="py-3 px-2 text-left pl-4">사업장명</div>
+                        <div className="py-3 px-2 text-left pl-4">소재지</div>
                         <div className="py-3">관할</div>
                         <div className="py-3">미수</div>
                         <div className="py-3">전회측정</div>
@@ -734,9 +734,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 </div>
                                 <div className="text-center text-xs">{item.national_support_status}</div>
                                 <div className="text-center text-xs">{item.plan_manager}</div>
-                                <div className="px-2 truncate text-xs" title={item.business_category || ""}>{item.business_category}</div>
-                                <div className="px-2 truncate font-medium" title={item.business_name}>{item.business_name}</div>
-                                <div className="px-2 break-words text-xs leading-tight">{item.address}</div>
+                                <div className="px-2 text-center text-xs break-words break-keep" title={item.business_category || ""}>{item.business_category}</div>
+                                <div className="px-2 text-left font-medium break-words break-keep pl-4" title={item.business_name}>{item.business_name}</div>
+                                <div className="px-2 text-left text-xs leading-tight break-words break-keep pl-4">{item.address}</div>
                                 <div className="text-center text-xs">{toShortName(item.office_jurisdiction || "")}</div>
                                 <div className="text-center">
                                     {(() => {
@@ -877,8 +877,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <Input value={editForm.address || ""} onChange={(e) => setEditForm(prev => ({ ...prev, address: e.target.value }))} />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">업종</label>
-                                <Input value={editForm.business_category || ""} onChange={(e) => setEditForm(prev => ({ ...prev, business_category: e.target.value }))} />
+                                <label className="block text-sm font-medium mb-1 text-slate-700">업종분류</label>
+                                <Select
+                                    options={businessCategories.map(c => c.value === "" ? { ...c, label: "선택" } : c)}
+                                    value={editForm.business_category || ""}
+                                    onChange={(e) => setEditForm(prev => ({ ...prev, business_category: e.target.value }))}
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">근로자수</label>
