@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { DESIGNATED_OFFICE_OPTIONS_WITHOUT_ALL } from "@/lib/constants/designated-offices";
+import { DESIGNATED_OFFICE_OPTIONS_WITHOUT_ALL, toShortName } from "@/lib/constants/designated-offices";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -1342,7 +1342,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         />
         <Input
           label="소재지 관할청"
-          value={formData.office_jurisdiction}
+          value={toShortName(formData.office_jurisdiction || "")}
           disabled
           className="bg-surface-50"
           placeholder="주소 입력 시 자동 입력됩니다"

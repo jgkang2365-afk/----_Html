@@ -34,6 +34,7 @@ export const DESIGNATED_OFFICE_FULL_NAME_TO_SHORT: Record<string, string> = {
   "대전지방고용노동청": "대전",
   "중부지방고용노동청 평택지청": "평택",
   "중부지방고용노동청 경기지청": "경기",
+  "중부지방고용노동청 영월지청": "영월",
 };
 
 /**
@@ -50,12 +51,14 @@ export const DESIGNATED_OFFICE_SHORT_TO_FULL_NAME: Record<string, string> = {
  * 전체명을 약칭으로 변환
  */
 export function toShortName(fullName: string): string {
-  // 1. 매핑 테이블 우선 확인
-  if (DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[fullName]) {
-    return DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[fullName];
-  }
-
   if (!fullName) return "";
+  
+  const trimmedName = fullName.trim();
+
+  // 1. 매핑 테이블 우선 확인
+  if (DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[trimmedName]) {
+    return DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[trimmedName];
+  }
 
   // 2. "XX지청" 패턴 처리 (예: "대전지방고용노동청 청주지청" -> "청주")
   const jicheongMatch = fullName.match(/\s+(.+)지청$/);
