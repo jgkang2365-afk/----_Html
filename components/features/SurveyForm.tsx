@@ -33,6 +33,7 @@ interface BusinessInfo {
   business_number?: string;
   address: string;
   office_jurisdiction?: string;
+  measurement_date?: string | null; // 계획 확정일
 }
 
 interface SurveyFormData {
@@ -94,6 +95,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const [loadingBusiness, setLoadingBusiness] = useState(false);
   const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
   const [unpaidWarningMessage, setUnpaidWarningMessage] = useState<React.ReactNode>("");
+  const [targetMeasurementDate, setTargetMeasurementDate] = useState<string | null>(null); // 업체별 계획 확정일
 
   // 사업장 검색 관련 상태
   const [showBusinessSearch, setShowBusinessSearch] = useState(false);
@@ -366,6 +368,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     setShowBusinessSearch(false);
     setSearchResults([]);
     setSearchParams({ code: "", businessName: "", designatedOffice: "", address: "" });
+    setTargetMeasurementDate(business.measurement_date || null);
 
     // 미수금 확인
     checkUnpaidCount(business.business_name);
@@ -442,6 +445,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         business_name: business.business_name,
         address: business.address || "",
       }));
+      setTargetMeasurementDate(business.measurement_date || null);
 
       // 미수금 확인
       checkUnpaidCount(business.business_name);
@@ -729,6 +733,23 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             </div>
           </div>
         </div>
+
+        {warning && (
+              <Alert variant="warning" className="mb-4">
+                {warning}
+              </Alert>
+            )}
+
+            {targetMeasurementDate && formData.measurement_date && targetMeasurementDate !== formData.measurement_date && (
+              <Alert variant="warning" className="mb-4 bg-orange-50 border-orange-200">
+                <div className="flex items-center gap-2 text-orange-700 font-bold">
+                  <span>⚠️ 일정 불일치 알림</span>
+                </div>
+                <p className="mt-1 text-sm text-orange-600">
+                  계획담당자가 지정한 확정일(<span className="font-bold underline">{targetMeasurementDate}</span>)과 현재 선택한 측정일(<span className="font-bold underline">{formData.measurement_date}</span>)이 다릅니다. 일정이 변경된 것인지 확인 바랍니다.
+                </p>
+              </Alert>
+            )}
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input

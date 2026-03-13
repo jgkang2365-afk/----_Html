@@ -298,8 +298,24 @@ export async function PATCH(request: NextRequest) {
     }
 
     const supabase = await createClient();
-
     console.log("[PATCH] Updates received:", JSON.stringify(updates, null, 2));
+
+    // [New Feature] Fetch existing date for notification check
+    let existingDate = null;
+    let businessNameForNote = "";
+    if (updates.hasOwnProperty('measurement_date')) {
+      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name");
+      if (id) {
+        bQuery = bQuery.eq("id", id);
+      } else if (code && year && period) {
+        bQuery = bQuery.eq("code", code).eq("year", year).eq("period", period);
+      }
+      const { data: oldData } = await bQuery.maybeSingle();
+      if (oldData) {
+        existingDate = oldData.measurement_date;
+        businessNameForNote = oldData.business_name;
+      }
+    }
 
     let query = supabase.from("measurement_target_business").update({
       ...updates,
@@ -348,6 +364,38 @@ export async function PATCH(request: NextRequest) {
               .from("preliminary_survey")
               .update({ measurement_date: updates.measurement_date })
               .eq("id", existingSurvey.id);
+
+            // [New Feature] Real-time notification if date actually changed
+            if (updates.measurement_date !== existingDate) {
+              try {
+                // Get all journal managers
+                const { data: managers } = await supabase
+                  .from("users")
+                  .select("id")
+                  .eq("is_journal_manager", true);
+
+                if (managers && managers.length > 0) {
+                  const getKDate = (dateStr: any) => {
+                    if (!dateStr) return "미지정";
+                    const days = ['일', '월', '화', '수', '목', '금', '토'];
+                    const d = new Date(dateStr);
+                    return `${dateStr}(${days[d.getDay()]})`;
+                  };
+
+                  const notifications = managers.map(m => ({
+                    user_id: m.id,
+                    message: `[${businessNameForNote}] ${getKDate(existingDate)} → <span class="noti-highlight font-bold text-blue-600">${getKDate(updates.measurement_date)}</span> 변경되었습니다.`,
+                    type: "WARNING",
+                    related_code: code,
+                  }));
+
+                  await supabase.from("notifications").insert(notifications);
+                  console.log(`[Notification] Sent to ${managers.length} managers for ${code}`);
+                }
+              } catch (notiError) {
+                console.error("Notification trigger error:", notiError);
+              }
+            }
           } else {
             const { data: businessInfo } = await supabase
               .from("measurement_target_business")

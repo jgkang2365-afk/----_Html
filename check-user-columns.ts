@@ -20,8 +20,8 @@ async function checkUserColumns() {
     }
 
     if (userData && userData.length > 0) {
-        console.log("Columns in users table:");
-        console.log(Object.keys(userData[0]));
+        console.log("Sample user record:");
+        console.log(userData[0]);
     } else {
         console.log("No users found to check columns. Attempting to get table definition if possible...");
         // Fallback: list columns via query if possible (using public.users might be restricted)

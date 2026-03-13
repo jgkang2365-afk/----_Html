@@ -8,7 +8,7 @@ import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
 import React from "react";
 import { ProfileModal } from "@/components/features/ProfileModal";
-import { Settings } from "lucide-react";
+import { Settings, Bell, Check, X } from "lucide-react";
 
 interface HeaderProps {
   onMenuToggle?: () => void;
@@ -37,15 +37,61 @@ const adminNavItems: NavItem[] = [
   { href: "/admin/quotas", label: "지청별 지정한계", adminOnly: true },
 ];
 
+interface Notification {
+  id: number;
+  message: string;
+  type: string;
+  is_read: boolean;
+  related_code?: string;
+  created_at: string;
+}
+
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading, logout, refetch } = useUser();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const isAdmin = user?.role === "관리자";
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  // 디버깅: 사용자 정보 확인
-  React.useEffect(() => {
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch("/api/notifications");
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data.notifications || []);
+      }
+    } catch (err) {
+      console.error("알림 fetch 에러:", err);
+    }
+  };
+
+  const markAsRead = async (id?: number) => {
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(id ? { id } : { all: true }),
+      });
+      if (res.ok) {
+        fetchNotifications();
+      }
+    } catch (err) {
+      console.error("알림 읽음 처리 에러:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchNotifications();
+      const interval = setInterval(fetchNotifications, 60000); // 1분마다 확인
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
+  useEffect(() => {
     if (!loading) {
       console.log("[Header] 사용자 정보:", user);
       console.log("[Header] 관리자 여부:", isAdmin);
@@ -80,35 +126,125 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         </div>
 
         {/* 사용자 메뉴 */}
-        <div className="relative">
-          {user ? (
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3 pr-4 border-r border-surface-100">
-                <div className="hidden sm:block text-right">
-                  <div className="text-sm font-bold text-text-900 leading-tight">{user.name} 님</div>
-                  <div className="text-[11px] text-text-500">{isAdmin ? "관리자" : "사용자"}</div>
+        <div className="flex items-center gap-2">
+          {user && (
+            <div className="relative mr-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="relative h-9 w-9 p-0 rounded-full"
+                onClick={() => setShowNotifications(!showNotifications)}
+                title="알림"
+              >
+                <Bell size={20} className="text-text-600" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white border-2 border-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </Button>
+
+              {/* 알림 드롭다운 */}
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-surface-100 overflow-hidden animate-in fade-in zoom-in duration-200">
+                  <div className="p-3 border-b border-surface-100 flex items-center justify-between bg-surface-50/50">
+                    <span className="text-sm font-bold text-text-900">알림</span>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={() => markAsRead()}
+                        className="text-[11px] text-primary-600 hover:text-primary-700 font-medium"
+                      >
+                        모두 읽음 처리
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-96 overflow-y-auto no-scrollbar">
+                    {notifications.filter(n => !n.is_read).length === 0 ? (
+                      <div className="p-8 text-center text-sm text-text-400">
+                        표시할 새로운 알림이 없습니다.
+                      </div>
+                    ) : (
+                      notifications
+                        .filter(n => !n.is_read)
+                        .map((noti) => (
+                          <div
+                            key={noti.id}
+                            className="p-3 border-b border-surface-50 transition-colors hover:bg-surface-50 cursor-default group"
+                          >
+                            <div className="flex justify-between gap-2">
+                              <p
+                                className="text-xs leading-relaxed text-text-900 font-medium"
+                                dangerouslySetInnerHTML={{ __html: noti.message }}
+                              />
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  markAsRead(noti.id);
+                                }}
+                                className="shrink-0 text-primary-500 hover:text-primary-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="읽음 처리"
+                              >
+                                <Check size={14} />
+                              </button>
+                            </div>
+                            <div className="mt-1.5 flex items-center justify-between">
+                              <span className="text-[10px] text-text-400">
+                                {new Date(noti.created_at).toLocaleString("ko-KR", {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                              {noti.related_code && (
+                                <Link
+                                  href={`/businesses?code=${noti.related_code}`}
+                                  className="text-[10px] text-primary-500 hover:underline"
+                                  onClick={() => setShowNotifications(false)}
+                                >
+                                  이동
+                                </Link>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                    )}
+                  </div>
                 </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-8 px-2"
-                  onClick={() => setShowProfileModal(true)}
-                  title="내 정보 수정"
-                >
-                  <Settings size={16} />
+              )}
+            </div>
+          )}
+
+          <div className="relative">
+            {user ? (
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 pr-4 border-r border-surface-100">
+                  <div className="hidden sm:block text-right">
+                    <div className="text-sm font-bold text-text-900 leading-tight">{user.name} 님</div>
+                    <div className="text-[11px] text-text-500">{isAdmin ? "관리자" : "사용자"}</div>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-8 px-2"
+                    onClick={() => setShowProfileModal(true)}
+                    title="내 정보 수정"
+                  >
+                    <Settings size={16} />
+                  </Button>
+                </div>
+                <Button variant="secondary" size="sm" onClick={logout} className="h-8">
+                  로그아웃
                 </Button>
               </div>
-              <Button variant="secondary" size="sm" onClick={logout} className="h-8">
-                로그아웃
-              </Button>
-            </div>
-          ) : (
-            <Link href="/login" passHref legacyBehavior>
-              <Button variant="primary" size="sm">
-                로그인
-              </Button>
-            </Link>
-          )}
+            ) : (
+              <Link href="/login" passHref legacyBehavior>
+                <Button variant="primary" size="sm">
+                  로그인
+                </Button>
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 

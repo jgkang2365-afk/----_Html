@@ -84,6 +84,7 @@ interface SummaryEntry {
   measurement_fee_business: number | null;
   special_notes: string | null;
   completion_status: string;
+  target_measurement_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -524,12 +525,18 @@ export const SummaryTable: React.FC = () => {
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정시작일
                       </label>
-                      <Input
-                        type="date"
-                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black"
-                        value={normalizeDateForInput(entry.measurement_start_date)}
-                        disabled
-                      />
+                      <div className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black p-2.5 rounded-lg border shadow-sm flex flex-col justify-center items-start">
+                        {entry.measurement_start_date ? (
+                          <>
+                            <span className="text-base font-bold">{normalizeDateForInput(entry.measurement_start_date)}</span>
+                            {entry.target_measurement_date && entry.measurement_start_date !== entry.target_measurement_date && (
+                              <span className="text-[10px] text-red-500 font-bold mt-0.5" title={`계획 확정일(${entry.target_measurement_date})과 다름`}>
+                                ⚠️ 계획:{entry.target_measurement_date.slice(5)}
+                              </span>
+                            )}
+                          </>
+                        ) : "-"}
+                      </div>
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">

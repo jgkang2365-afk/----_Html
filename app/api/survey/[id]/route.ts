@@ -96,6 +96,26 @@ export async function PUT(
       }
     }
 
+    // 3. 동일 일자 공시료 번호 중복 체크
+    if (survey_code) {
+      const { data: duplicateSurveyCode, error: surveyCodeError } = await supabase
+        .from("preliminary_survey")
+        .select("id, business_name")
+        .eq("measurement_date", measurement_date)
+        .eq("survey_code", survey_code)
+        .neq("id", parseInt(id))
+        .maybeSingle();
+
+      if (surveyCodeError) {
+        console.error("공시료 번호 중복 체크 오류:", surveyCodeError);
+      } else if (duplicateSurveyCode) {
+        return NextResponse.json(
+          { error: `공시료 번호 [${survey_code}]는 해당 일자(${measurement_date})에 이미 다른 업체(${duplicateSurveyCode.business_name})에서 사용 중입니다.` },
+          { status: 400 }
+        );
+      }
+    }
+
     // 예비조사 수정 (preliminary_survey 테이블만 업데이트, measurement_journal에는 영향 없음)
     const { data: survey, error } = await supabase
       .from("preliminary_survey")

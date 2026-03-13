@@ -639,3 +639,20 @@
 [2026-03-11T11:54:49.557Z] Updating Calendar Event: kt95atsetirvq9alj963gkmqjs {"summary":"[이주형]케이지모빌리티남대전서비스센터 주식회사 - 26상 미수","description":"사업장: 케이지모빌리티남대전서비스센터 주식회사\n주소: 대전광역시 중구 대둔산로 461 (산성동)\n담당자: 한성민 과장\n연락처: 010-9322-5970\n비고:","date":"2026-03-06","location":"대전광역시 중구 대둔산로 461 (산성동)","colorId":"5"}
 [2026-03-11T11:54:49.559Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
 [2026-03-11T11:54:51.462Z] Event updated successfully: kt95atsetirvq9alj963gkmqjs 
+[2026-03-13T11:10:04.544Z] Updating Calendar Event: q2l7chdnpr8l3gel9420q9d78o {"summary":"[고유빈]주식회사 세종바이오테크","description":"사업장: 주식회사 세종바이오테크\n            주소: 세종특별자치시 전동면 노장공단길 25-9 (노장리)\n            담당자: 홍다영 사원\n            연락처: 010-9953-6065\n            비고:","date":"2026-03-12","endDate":"2026-03-19","location":"세종특별자치시 전동면 노장공단길 25-9 (노장리)","colorId":"7"}
+[2026-03-13T11:10:04.564Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-13T11:10:08.027Z] Event updated successfully: q2l7chdnpr8l3gel9420q9d78o 
+[2026-03-13T11:10:47.152Z] Updating Calendar Event: q2l7chdnpr8l3gel9420q9d78o {"summary":"[고유빈]주식회사 세종바이오테크","description":"사업장: 주식회사 세종바이오테크\n            주소: 세종특별자치시 전동면 노장공단길 25-9 (노장리)\n            담당자: 홍다영 사원\n            연락처: 010-9953-6065\n            비고:","date":"2026-03-12","endDate":"2026-03-19","location":"세종특별자치시 전동면 노장공단길 25-9 (노장리)","colorId":"7"}
+[2026-03-13T11:10:47.154Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-13T11:10:54.529Z] Updating Calendar Event: q2l7chdnpr8l3gel9420q9d78o {"summary":"[고유빈]주식회사 세종바이오테크","description":"사업장: 주식회사 세종바이오테크\n            주소: 세종특별자치시 전동면 노장공단길 25-9 (노장리)\n            담당자: 홍다영 사원\n            연락처: 010-9953-6065\n            비고:","date":"2026-03-19","location":"세종특별자치시 전동면 노장공단길 25-9 (노장리)","colorId":"7"}
+[2026-03-13T11:10:54.531Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-13T11:10:58.705Z] Event updated successfully: q2l7chdnpr8l3gel9420q9d78o 
+[2026-03-13T11:11:00.938Z] Event updated successfully: q2l7chdnpr8l3gel9420q9d78o 
+[2026-03-13T11:29:08.996Z] Deleting Calendar Event: q2l7chdnpr8l3gel9420q9d78o 
+[2026-03-13T11:29:09.000Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-13T11:29:12.208Z] Event deleted: q2l7chdnpr8l3gel9420q9d78o 
+[2026-03-13T11:30:39.163Z] Creating Calendar Event {"summary":"[고유빈]주식회사 세종바이오테크","description":"사업장: 주식회사 세종바이오테크\n            주소: 세종특별자치시 전동면 노장공단길 25-9 (노장리)\n            담당자: 홍다영 사원\n            연락처: 010-9953-6065\n            비고:","date":"2026-03-12","endDate":"2026-03-19","location":"세종특별자치시 전동면 노장공단길 25-9 (노장리)","colorId":"7"}
+[2026-03-13T11:30:39.166Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-13T11:30:42.867Z] Event created successfully: 5774fv7s0uc0mvmmlt88gmlkk0 
+[2026-03-13T11:38:23.192Z] Updating Calendar Event: 5774fv7s0uc0mvmmlt88gmlkk0 {"summary":"[고유빈]주식회사 세종바이오테크","description":"사업장: 주식회사 세종바이오테크\n            주소: 세종특별자치시 전동면 노장공단길 25-9 (노장리)\n            담당자: 홍다영 사원\n            연락처: 010-9953-6065\n            비고:","date":"2026-03-19","location":"세종특별자치시 전동면 노장공단길 25-9 (노장리)","colorId":"7"}
+[2026-03-13T11:38:23.196Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 

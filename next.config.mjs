@@ -3,7 +3,7 @@ import path from 'path';
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     webpack: (config) => {
-        config.cache = false;
+        // config.cache = false;
 
         // 정적 분석 및 해석 범위 제한
         config.resolve.modules = [

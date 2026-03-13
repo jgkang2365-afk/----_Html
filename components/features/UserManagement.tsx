@@ -23,6 +23,9 @@ interface User {
   role: "관리자" | "사용자";
   job?: string;
   survey_code?: string | null;
+  mobile?: string | null;
+  email?: string | null;
+  is_journal_manager: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -41,6 +44,9 @@ export const UserManagement: React.FC = () => {
     job: "측정",
     password: "",
     survey_code: "",
+    mobile: "",
+    email: "",
+    is_journal_manager: false,
   });
 
   // 비밀번호 리셋 모달
@@ -58,6 +64,9 @@ export const UserManagement: React.FC = () => {
     role: "사용자" as "관리자" | "사용자",
     job: "측정",
     survey_code: "",
+    mobile: "",
+    email: "",
+    is_journal_manager: false,
   });
 
   // 삭제 확인 모달
@@ -114,7 +123,16 @@ export const UserManagement: React.FC = () => {
 
       setSuccess("사용자가 생성되었습니다.");
       setShowCreateModal(false);
-      setCreateForm({ name: "", role: "사용자", job: "측정", password: "", survey_code: "" });
+      setCreateForm({ 
+        name: "", 
+        role: "사용자", 
+        job: "측정", 
+        password: "", 
+        survey_code: "",
+        mobile: "",
+        email: "",
+        is_journal_manager: false,
+      });
       fetchUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -169,6 +187,9 @@ export const UserManagement: React.FC = () => {
           role: editForm.role,
           job: editForm.job,
           survey_code: editForm.survey_code || null,
+          mobile: editForm.mobile || null,
+          email: editForm.email || null,
+          is_journal_manager: !!editForm.is_journal_manager,
         }),
       });
 
@@ -180,7 +201,16 @@ export const UserManagement: React.FC = () => {
 
       setSuccess("사용자 정보가 수정되었습니다.");
       setShowEditModal(false);
-      setEditForm({ id: 0, name: "", role: "사용자", job: "측정", survey_code: "" });
+      setEditForm({ 
+        id: 0, 
+        name: "", 
+        role: "사용자", 
+        job: "측정", 
+        survey_code: "",
+        mobile: "",
+        email: "",
+        is_journal_manager: false,
+      });
       fetchUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -247,6 +277,9 @@ export const UserManagement: React.FC = () => {
               <TableHead>이름</TableHead>
               <TableHead>역할</TableHead>
               <TableHead>직무</TableHead>
+              <TableHead>일지담당</TableHead>
+              <TableHead>연락처</TableHead>
+              <TableHead>이메일</TableHead>
               <TableHead>공시료 코드</TableHead>
               <TableHead>생성일</TableHead>
               <TableHead className="text-right">작업</TableHead>
@@ -255,7 +288,7 @@ export const UserManagement: React.FC = () => {
           <TableBody>
             {users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-text-500 py-8">
+                <TableCell colSpan={9} className="text-center text-text-500 py-8">
                   등록된 사용자가 없습니다.
                 </TableCell>
               </TableRow>
@@ -265,6 +298,13 @@ export const UserManagement: React.FC = () => {
                   <TableCell className="font-medium">{user.name}</TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>{user.job || "-"}</TableCell>
+                  <TableCell>
+                    {user.is_journal_manager ? (
+                      <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">담당</span>
+                    ) : "-"}
+                  </TableCell>
+                  <TableCell>{user.mobile || "-"}</TableCell>
+                  <TableCell>{user.email || "-"}</TableCell>
                   <TableCell>{user.survey_code || "-"}</TableCell>
                   <TableCell>
                     {new Date(user.created_at).toLocaleDateString("ko-KR")}
@@ -275,7 +315,16 @@ export const UserManagement: React.FC = () => {
                         variant="secondary"
                         size="sm"
                         onClick={() => {
-                          setEditForm({ id: user.id, name: user.name, role: user.role, job: user.job || "측정", survey_code: user.survey_code || "" });
+                          setEditForm({ 
+                            id: user.id, 
+                            name: user.name, 
+                            role: user.role, 
+                            job: user.job || "측정", 
+                            survey_code: user.survey_code || "",
+                            mobile: user.mobile || "",
+                            email: user.email || "",
+                            is_journal_manager: !!user.is_journal_manager,
+                          });
                           setShowEditModal(true);
                         }}
                       >
@@ -315,7 +364,16 @@ export const UserManagement: React.FC = () => {
         isOpen={showCreateModal}
         onClose={() => {
           setShowCreateModal(false);
-          setCreateForm({ name: "", role: "사용자", job: "측정", password: "", survey_code: "" });
+          setCreateForm({ 
+            name: "", 
+            role: "사용자", 
+            job: "측정", 
+            password: "", 
+            survey_code: "",
+            mobile: "",
+            email: "",
+            is_journal_manager: false,
+          });
           setError(null);
         }}
         title="사용자 추가"
@@ -363,9 +421,34 @@ export const UserManagement: React.FC = () => {
             onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
             placeholder="비워두면 최초 로그인 시 설정 (최소 4자 이상)"
           />
+          <div className="flex items-center gap-2 px-1">
+            <input
+              type="checkbox"
+              id="create-is-journal-manager"
+              checked={createForm.is_journal_manager}
+              onChange={(e) => setCreateForm({ ...createForm, is_journal_manager: e.target.checked })}
+              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+            />
+            <label htmlFor="create-is-journal-manager" className="text-sm font-medium text-text-700">
+              측정일지 담당자로 지정
+            </label>
+          </div>
           <p className="text-xs text-text-500 -mt-2">
             비밀번호를 입력하지 않으면 사용자가 최초 로그인 시 비밀번호를 설정합니다.
           </p>
+          <Input
+            label="휴대폰 번호 (선택사항)"
+            value={createForm.mobile}
+            onChange={(e) => setCreateForm({ ...createForm, mobile: e.target.value })}
+            placeholder="010-0000-0000"
+          />
+          <Input
+            label="이메일 주소 (선택사항)"
+            type="email"
+            value={createForm.email}
+            onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+            placeholder="example@company.com"
+          />
           <Input
             label="공시료 코드 (선택사항)"
             value={createForm.survey_code}
@@ -378,7 +461,16 @@ export const UserManagement: React.FC = () => {
               variant="secondary"
               onClick={() => {
                 setShowCreateModal(false);
-                setCreateForm({ name: "", role: "사용자", job: "측정", password: "", survey_code: "" });
+                setCreateForm({ 
+                  name: "", 
+                  role: "사용자", 
+                  job: "측정", 
+                  password: "", 
+                  survey_code: "",
+                  mobile: "",
+                  email: "",
+                  is_journal_manager: false,
+                });
                 setError(null);
               }}
             >
@@ -442,7 +534,16 @@ export const UserManagement: React.FC = () => {
         isOpen={showEditModal}
         onClose={() => {
           setShowEditModal(false);
-          setEditForm({ id: 0, name: "", role: "사용자", job: "측정", survey_code: "" });
+          setEditForm({ 
+            id: 0, 
+            name: "", 
+            role: "사용자", 
+            job: "측정", 
+            survey_code: "",
+            mobile: "",
+            email: "",
+            is_journal_manager: false,
+          });
           setError(null);
         }}
         title="사용자 수정"
@@ -481,6 +582,31 @@ export const UserManagement: React.FC = () => {
               { value: "분석", label: "분석" },
             ]}
           />
+          <div className="flex items-center gap-2 px-1">
+            <input
+              type="checkbox"
+              id="edit-is-journal-manager"
+              checked={editForm.is_journal_manager}
+              onChange={(e) => setEditForm({ ...editForm, is_journal_manager: e.target.checked })}
+              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+            />
+            <label htmlFor="edit-is-journal-manager" className="text-sm font-medium text-text-700">
+              측정일지 담당자로 지정
+            </label>
+          </div>
+          <Input
+            label="휴대폰 번호 (선택사항)"
+            value={editForm.mobile}
+            onChange={(e) => setEditForm({ ...editForm, mobile: e.target.value })}
+            placeholder="010-0000-0000"
+          />
+          <Input
+            label="이메일 주소 (선택사항)"
+            type="email"
+            value={editForm.email}
+            onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+            placeholder="example@company.com"
+          />
           <Input
             label="공시료 코드 (선택사항)"
             value={editForm.survey_code}
@@ -493,7 +619,16 @@ export const UserManagement: React.FC = () => {
               variant="secondary"
               onClick={() => {
                 setShowEditModal(false);
-                setEditForm({ id: 0, name: "", role: "사용자", job: "측정", survey_code: "" });
+                setEditForm({ 
+                  id: 0, 
+                  name: "", 
+                  role: "사용자", 
+                  job: "측정", 
+                  survey_code: "",
+                  mobile: "",
+                  email: "",
+                  is_journal_manager: false,
+                });
                 setError(null);
               }}
             >

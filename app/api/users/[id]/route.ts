@@ -34,7 +34,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { role, survey_code, job } = body;
+    const { role, survey_code, job, mobile, email, is_journal_manager } = body;
 
     if (role && !["관리자", "사용자"].includes(role)) {
       return NextResponse.json(
@@ -63,9 +63,12 @@ export async function PATCH(
         ...(role && { role }),
         ...(job && { job }),
         survey_code: survey_code || null,
+        mobile: mobile || null,
+        email: email || null,
+        is_journal_manager: !!is_journal_manager,
       })
       .eq("id", userId)
-      .select("id, name, role, job, survey_code, updated_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, updated_at")
       .single();
 
     if (updateError) {
