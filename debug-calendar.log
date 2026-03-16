@@ -656,3 +656,4 @@
 [2026-03-13T11:30:42.867Z] Event created successfully: 5774fv7s0uc0mvmmlt88gmlkk0 
 [2026-03-13T11:38:23.192Z] Updating Calendar Event: 5774fv7s0uc0mvmmlt88gmlkk0 {"summary":"[고유빈]주식회사 세종바이오테크","description":"사업장: 주식회사 세종바이오테크\n            주소: 세종특별자치시 전동면 노장공단길 25-9 (노장리)\n            담당자: 홍다영 사원\n            연락처: 010-9953-6065\n            비고:","date":"2026-03-19","location":"세종특별자치시 전동면 노장공단길 25-9 (노장리)","colorId":"7"}
 [2026-03-13T11:38:23.196Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-13T11:38:36.988Z] Event updated successfully: 5774fv7s0uc0mvmmlt88gmlkk0 

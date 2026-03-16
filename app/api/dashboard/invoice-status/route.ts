@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
         // 2. 해당 기간의 측정일지(실제 등록 및 계산서 정보) 조회
         let jKQuery = supabase
             .from("measurement_journal")
-            .select("code, measurement_year, measurement_period, electronic_invoice_date, k2b_send_date");
+            .select("code, measurement_year, measurement_period, electronic_invoice_date, k2b_send_date, measurement_fee_business");
 
         if (yearParam && yearParam !== "전체") {
             jKQuery = jKQuery.eq("measurement_year", parseInt(yearParam));
@@ -65,7 +65,8 @@ export async function GET(request: NextRequest) {
             journalMap.set(key, {
                 registered: true,
                 invoiceDate: j.electronic_invoice_date,
-                k2bSendDate: j.k2b_send_date
+                k2bSendDate: j.k2b_send_date,
+                measurementFee: j.measurement_fee_business || 0
             });
         });
 
@@ -101,11 +102,14 @@ export async function GET(request: NextRequest) {
                 if (journal.invoiceDate) {
                     statsMap[manager].issued += 1;
                 } else {
-                    statsMap[manager].unissued_registered += 1;
-                    statsMap[manager].unissued_list.push({
-                        ...companyInfo,
-                        status: "일지등록/계산서미발행"
-                    });
+                    // 사업장 측정비가 0보다 큰 경우에만 계산서 미발행으로 집계
+                    if (journal.measurementFee > 0) {
+                        statsMap[manager].unissued_registered += 1;
+                        statsMap[manager].unissued_list.push({
+                            ...companyInfo,
+                            status: "일지등록/계산서미발행"
+                        });
+                    }
                 }
             } else {
                 statsMap[manager].unissued_unregistered += 1;
