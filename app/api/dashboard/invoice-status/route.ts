@@ -99,17 +99,16 @@ export async function GET(request: NextRequest) {
             };
 
             if (journal) {
-                if (journal.invoiceDate) {
+                // 비용이 0원 이하이거나 이미 계산서가 발행된 경우 '발행 완료'로 처리
+                if (journal.invoiceDate || journal.measurementFee <= 0) {
                     statsMap[manager].issued += 1;
                 } else {
                     // 사업장 측정비가 0보다 큰 경우에만 계산서 미발행으로 집계
-                    if (journal.measurementFee > 0) {
-                        statsMap[manager].unissued_registered += 1;
-                        statsMap[manager].unissued_list.push({
-                            ...companyInfo,
-                            status: "일지등록/계산서미발행"
-                        });
-                    }
+                    statsMap[manager].unissued_registered += 1;
+                    statsMap[manager].unissued_list.push({
+                        ...companyInfo,
+                        status: "일지등록/계산서미발행"
+                    });
                 }
             } else {
                 statsMap[manager].unissued_unregistered += 1;
