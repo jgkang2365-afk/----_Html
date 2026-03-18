@@ -428,6 +428,10 @@ export async function PUT(
       document_number: truncateField(finalDocumentNumber, 20, 'document_number'),
       // VARCHAR(200) 제한 필드 (업종)
       business_category: truncateField(bodyWithoutNumbers.business_category ?? existingJournal.business_category, 200, 'business_category'),
+      // VARCHAR(255) 제한 필드 (계산서 발행처 상호)
+      invoice_business_name: truncateField(bodyWithoutNumbers.invoice_business_name ?? existingJournal.invoice_business_name, 255, 'invoice_business_name'),
+      // VARCHAR(20) 제한 필드 (계산서 발행처 사업자번호) 기초 데이터 클리닝 적용
+      invoice_business_number: cleanToDigits(bodyWithoutNumbers.invoice_business_number ?? existingJournal.invoice_business_number),
       // 기타 필드
       designated_office: normalizedDesignatedOffice, // 약칭으로 저장
       office_jurisdiction: normalizedOfficeJurisdiction, // 약칭으로 저장

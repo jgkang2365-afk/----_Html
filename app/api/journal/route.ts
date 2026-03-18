@@ -211,6 +211,8 @@ export async function POST(request: NextRequest) {
           measurement_period: measurementPeriod,
           designated_office: designatedOffice,
           business_name: business_name || existingJournal.business_name,
+          invoice_business_name: body.invoice_business_name || null,
+          invoice_business_number: cleanToDigits(body.invoice_business_number),
           updated_by: user.name,
           updated_at: new Date().toISOString(),
         };
@@ -500,6 +502,8 @@ export async function POST(request: NextRequest) {
       k2b_sender: body.k2b_sender || null,
       // 전자계산서 정보 (body에서 가져오기)
       electronic_invoice_date: body.electronic_invoice_date || null,
+      invoice_business_name: body.invoice_business_name || null,
+      invoice_business_number: cleanToDigits(body.invoice_business_number),
       // 특이사항 (body에서 가져오기)
       special_notes: body.special_notes || null,
       completion_status: "미완료",

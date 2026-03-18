@@ -172,6 +172,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
     deposit_amount_national: entry.deposit_amount_national || "",
 
+    // 전자계산서 정보 (발행처)
+    invoice_business_name: entry.invoice_business_name || "",
+    invoice_business_number: entry.invoice_business_number || "",
+    
     // 특이사항
     special_notes: entry.special_notes || "",
   });
@@ -943,6 +947,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
       deposit_amount_national: entry.deposit_amount_national || "",
 
+      // 전자계산서 정보 (발행처)
+      invoice_business_name: entry.invoice_business_name || "",
+      invoice_business_number: entry.invoice_business_number || "",
+
       // 특이사항
       special_notes: entry.special_notes || "",
     });
@@ -1369,9 +1377,56 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           />
         </div>
       </div>
+
+      {/* 계산서 발행처 정보 (타업체 발행 요청 대비) */}
+      <div className="mt-6 pt-6 border-t border-surface-200">
+        <div className="flex items-center justify-between mb-4">
+          <h4 className="text-md font-semibold text-text-800 flex items-center gap-2">
+            <span className="w-1 h-4 bg-primary-500 rounded-full"></span>
+            계산서 발행처 정보 (기본값: 사업장 정보와 동일)
+          </h4>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => {
+              setFormData({
+                ...formData,
+                invoice_business_name: formData.business_name,
+                invoice_business_number: formData.business_number
+              });
+            }}
+          >
+            사업장 정보 복사
+          </Button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Input
+            label="계산서 발행 상호"
+            value={formData.invoice_business_name}
+            onChange={(e) =>
+              setFormData({ ...formData, invoice_business_name: e.target.value })
+            }
+            placeholder="사업장과 다른 상호로 발행 시 입력"
+          />
+          <Input
+            label="계산서 발행 사업자번호"
+            value={formatBusinessNumber(formData.invoice_business_number)}
+            onChange={(e) => {
+              const numbers = parseBusinessNumber(e.target.value);
+              setFormData({ ...formData, invoice_business_number: numbers });
+            }}
+            placeholder="000-00-00000"
+            maxLength={12}
+          />
+        </div>
+        <p className="text-[11px] text-text-400 mt-2">
+          * 지정된 사업장 정보와 다른 사업자번호로 계산서를 발행해야 하는 경우에만 입력하세요. 빈 칸일 경우 위 사업장 정보가 기본값으로 사용됩니다.
+        </p>
+      </div>
     </div>
   );
-  ;
 
   const renderDepositInfo = () => {
     // 매출관리 모드일 때만 입금 정보 강조 (나머지는 일반 스타일)

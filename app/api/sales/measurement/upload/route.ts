@@ -177,6 +177,8 @@ export async function POST(request: NextRequest) {
                 mapField("deposit_amount_national", ["입금액(국고)", "국고입금액", "공단입금액"], "number");
                 mapField("electronic_invoice_date", ["전자계산서", "발행일", "계산서발행일"], "date");
                 mapField("invoice_email", ["이메일", "계산서타켓", "계산서이메일"], "string");
+                mapField("invoice_business_name", ["발행처 상호", "발행처상호"], "string");
+                mapField("invoice_business_number", ["발행처 사업자", "발행처사업자"], "string");
 
                 if (Object.keys(updates).length === 0) {
                     continue;

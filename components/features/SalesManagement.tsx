@@ -22,6 +22,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
+import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 import { DESIGNATED_OFFICE_OPTIONS, DESIGNATED_OFFICES_FOR_SALES } from "@/lib/constants/designated-offices";
 import { JournalEditForm } from "./JournalEditForm";
 
@@ -49,6 +50,9 @@ interface MeasurementRevenue {
   invoice_email_2: string | null;
   electronic_invoice_date_2: string | null;
   representative_name: string | null;
+  business_number: string | null;
+  invoice_business_name: string | null;
+  invoice_business_number: string | null;
 }
 
 interface OtherRevenue {
@@ -909,7 +913,9 @@ export const SalesManagement: React.FC = () => {
         "입금일(국고)": "2025-06-20",
         "입금액(국고)": "300000",
         "전자계산서 발행일": "2025-05-10",
-        "계산서 이메일": "tax@example.com"
+        "계산서 이메일": "tax@example.com",
+        "발행처 상호(변경)": "타업체상호(주)",
+        "발행처 사업자(변경)": "000-00-00000"
       },
       {
         "코드(필수)": "입력필수",
@@ -923,7 +929,9 @@ export const SalesManagement: React.FC = () => {
         "입금일(국고)": "",
         "입금액(국고)": "",
         "전자계산서 발행일": "",
-        "계산서 이메일": ""
+        "계산서 이메일": "",
+        "발행처 상호(변경)": "",
+        "발행처 사업자(변경)": ""
       }
     ];
 
@@ -943,6 +951,8 @@ export const SalesManagement: React.FC = () => {
       { wch: 15 }, // 입금액(국고)
       { wch: 15 }, // 전자계산서 발행일
       { wch: 20 }, // 계산서 이메일
+      { wch: 20 }, // 발행처 상호(변경)
+      { wch: 20 }, // 발행처 사업자(변경)
     ];
     ws["!cols"] = wscols;
 
@@ -2834,6 +2844,125 @@ export const SalesManagement: React.FC = () => {
                                         삭제
                                       </Button>
                                     </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                );
+              })(),
+            },
+            {
+              id: "third_party",
+              label: "타업체 발행 현황",
+              content: (() => {
+                // 타업체 발행 건만 필터링 (발행처 정보가 입력되었고, 원래 정보와 다른 건)
+                const thirdPartyItems = measurementRevenue.filter(item => 
+                  (item.invoice_business_number && item.invoice_business_number !== item.business_number) ||
+                  (item.invoice_business_name && item.invoice_business_name !== item.business_name)
+                );
+
+                return (
+                  <div className="mt-4">
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4 flex items-start gap-3">
+                      <div className="bg-blue-500 text-white rounded-full p-1 mt-0.5">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm text-blue-800 font-medium">타업체 발행 현황 안내</p>
+                        <p className="text-xs text-blue-600 mt-1">측정일지에 등록된 사업장과 다른 사업자번호 또는 상호로 계산서를 발행한 내역입니다. 입금 확인 시 발행처 정보를 활용하세요.</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden shadow-sm">
+                      <Table className="table-fixed">
+                        <TableHeader>
+                          <TableRow className="bg-surface-50">
+                            <TableHead className="w-[100px]">발행일</TableHead>
+                            <TableHead className="w-[200px]">사업장명 (원래)</TableHead>
+                            <TableHead className="w-[130px]">사업자번호 (원래)</TableHead>
+                            <TableHead className="w-[200px] border-l border-primary-100 bg-primary-50/50">발행처 상호 (변경)</TableHead>
+                            <TableHead className="w-[130px] bg-primary-50/50">발행처 사업자 (변경)</TableHead>
+                            <TableHead className="w-[120px] text-right">금액(합계)</TableHead>
+                            <TableHead className="w-[90px] text-center">입금상태</TableHead>
+                            <TableHead className="w-[80px] text-center">작업</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {thirdPartyItems.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={8} className="text-center text-text-500 py-16">
+                                <div className="flex flex-col items-center gap-2">
+                                  <span className="text-3xl">📄</span>
+                                  <p>타업체로 발행된 내역이 발견되지 않았습니다.</p>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            thirdPartyItems.map((item) => {
+                              const total = parseFloat(item.measurement_fee_total?.toString() || "0");
+                              const deposit = parseFloat(item.deposit_total?.toString() || "0");
+                              const isFullyPaid = total > 0 && deposit >= total;
+                              
+                              return (
+                                <TableRow key={item.id} className="hover:bg-surface-50 transition-colors">
+                                  <TableCell className="text-sm text-text-600">
+                                    {item.electronic_invoice_date ? formatDateYYYYMMDD(item.electronic_invoice_date) : "-"}
+                                  </TableCell>
+                                  <TableCell className="font-medium truncate text-text-700" title={item.business_name}>
+                                    {item.business_name}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-text-400">
+                                    {formatBusinessNumber(item.business_number)}
+                                  </TableCell>
+                                  <TableCell className="font-bold text-primary-700 border-l border-primary-50 truncate" title={item.invoice_business_name || item.business_name}>
+                                    {item.invoice_business_name || item.business_name}
+                                  </TableCell>
+                                  <TableCell className="font-bold text-primary-700">
+                                    {formatBusinessNumber(item.invoice_business_number) || "-"}
+                                  </TableCell>
+                                  <TableCell className="text-right font-semibold text-text-800">
+                                    {formatCurrency(total)}원
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    {isFullyPaid ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold">완납</span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">미납</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      className="h-7 text-[10px] px-2"
+                                      onClick={async () => {
+                                        try {
+                                          const response = await fetch(
+                                            `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.measurement_year}&measurementPeriod=${encodeURIComponent(item.measurement_period)}&_t=${new Date().getTime()}`,
+                                            { cache: 'no-store' }
+                                          );
+                                          if (response.ok) {
+                                            const data = await response.json();
+                                            const journal = data.results?.find((j: any) => j.id === item.id);
+                                            if (journal) {
+                                              setSelectedJournalEntry(journal);
+                                              setIsJournalModalOpen(true);
+                                            }
+                                          }
+                                        } catch (err) {
+                                          console.error("조회 오류:", err);
+                                        }
+                                      }}
+                                    >
+                                      보기
+                                    </Button>
                                   </TableCell>
                                 </TableRow>
                               );
