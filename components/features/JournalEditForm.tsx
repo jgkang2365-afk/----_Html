@@ -1357,7 +1357,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         />
         <Select
           label="업종 분류"
-          value={formData.business_category}
+          value={formData.business_category || ""}
           onChange={(e) => setFormData({ ...formData, business_category: e.target.value })}
           options={[
             { value: "", label: "선택" },

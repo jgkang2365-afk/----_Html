@@ -36,6 +36,23 @@ export async function getBestReferenceData(
 ): Promise<ReferenceData> {
     if (!code) return { source_type: 'none' };
 
+    // 0. 측정 대상 사업장 (정확히 일치): year, period 기준
+    const { data: targetMatch } = await supabase
+        .from("measurement_target_business")
+        .select("*")
+        .eq("code", code)
+        .eq("year", year)
+        .eq("period", period)
+        .maybeSingle();
+
+    if (targetMatch) {
+        return {
+            ...mapTargetBusinessToRef(targetMatch),
+            source_type: 'exact',
+            source_desc: `측정대상(${year} ${period})`
+        };
+    }
+
     // 1. 측정사업장 (정확히 일치)
     const { data: exactMatch } = await supabase
         .from("measurement_business")
@@ -95,6 +112,22 @@ export async function getBestReferenceData(
     }
 
     return { source_type: 'none' };
+}
+
+function mapTargetBusinessToRef(data: any): ReferenceData {
+    return {
+        business_name: data.business_name,
+        business_number: data.business_number,
+        address: data.address,
+        manager_name: data.manager_name,
+        manager_mobile: data.manager_mobile,
+        phone: data.manager_phone, // measurement_target_business 에서는 manager_phone
+        total_employees: data.total_employees,
+        business_category: data.business_category,
+        industrial_accident_number: data.industrial_accident_number,
+        commencement_number: data.commencement_number,
+        representative_name: data.representative_name,
+    };
 }
 
 function mapMeasurementBusinessToRef(data: any): ReferenceData {
