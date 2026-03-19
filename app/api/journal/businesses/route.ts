@@ -160,14 +160,18 @@ export async function GET(request: Request) {
       if (year && period) {
         const { data: targetData, error: targetError } = await supabase
           .from("measurement_target_business")
-          .select("notes")
+          .select("notes, business_category")
           .eq("code", code)
           .eq("year", parseInt(year))
           .eq("period", period)
           .maybeSingle();
 
-        if (!targetError && targetData?.notes) {
-          (business as any).special_notes = targetData.notes;
+        if (!targetError && targetData) {
+          if (targetData.notes) (business as any).special_notes = targetData.notes;
+          if (targetData.business_category) {
+            (business as any).business_category = targetData.business_category;
+            console.log(`[API /api/journal/businesses] Found category from target_business: ${targetData.business_category}`);
+          }
         }
       }
 
