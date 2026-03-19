@@ -81,6 +81,7 @@ export async function GET(request: Request) {
         business_number: findFirstValue("business_number"),
         representative_name: findFirstValue("representative_name"),
         address: findFirstValue("address"),
+        business_category: findFirstValue("business_category"),
       };
 
       // 3. measurement_journal 조회 (담당자 정보 우선순위: journal > business)
@@ -150,6 +151,9 @@ export async function GET(request: Request) {
         // 연락처: BaseData > History > Journal > Info
         phone: (baseBusinessData?.phone || "") || prioritizedDefaults.phone || journalManagerInfo?.phone || businessInfo?.phone || "",
         fax: (baseBusinessData?.fax || "") || prioritizedDefaults.fax || journalManagerInfo?.fax || businessInfo?.fax || "",
+
+        // 업종 분류: BaseData > History > Info
+        business_category: baseBusinessData?.business_category || prioritizedDefaults.business_category || (businessInfo as any)?.business_category || "",
       };
 
       // 4. measurement_target_business 조회 (비고 데이터 활용)

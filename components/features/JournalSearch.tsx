@@ -50,6 +50,7 @@ interface JournalEntry {
   commencement_number?: string | null;
   invoice_email?: string | null;
   special_notes?: string | null;
+  business_category?: string | null;
   created_at: string;
   updated_at: string;
   _isFromBusiness?: boolean; // measurement_business에서 온 데이터인지 표시
@@ -440,6 +441,7 @@ export const JournalSearch: React.FC = () => {
     commencement_number?: string;
     invoice_email?: string;
     special_notes?: string;
+    business_category?: string;
   }) => {
     setIsRegisterModalOpen(false);
 
@@ -464,6 +466,7 @@ export const JournalSearch: React.FC = () => {
       commencement_number: data.commencement_number,
       invoice_email: data.invoice_email,
       special_notes: data.special_notes,
+      business_category: data.business_category,
       completion_status: "미완료",
       measurement_start_date: null,
       measurement_end_date: null,
