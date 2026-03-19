@@ -26,6 +26,7 @@ interface JournalEntry {
   measurement_start_date: string | null;
   measurement_end_date: string | null;
   measurer: string | null;
+  business_category?: string | null;
   invoice_email_2?: string;
   electronic_invoice_date_2?: string;
   deposit_date_business_2?: string;
@@ -137,11 +138,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     phone: entry.phone || "",
     fax: entry.fax || "",
     business_category: (() => {
-      // 지정지청이 "대전"이고 업종분류가 비어있으면 기본값 "공업사"
-      if (entry.designated_office === "대전" && !entry.business_category) {
+      // 1. 전달받은 에이브리(entry)의 값이 있으면 최우선 사용
+      if (entry.business_category) return entry.business_category;
+      
+      // 2. 지정지청이 "대전"일 때만 기본값 "공업사" 적용 (전달받은 값이 없을 때만)
+      if (entry.designated_office === "대전") {
         return "공업사";
       }
-      return entry.business_category || "";
+      return "";
     })(),
 
     // 담당자 정보
@@ -501,8 +505,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 if (!updated.total_employees && ref.total_employees) {
                   updated.total_employees = String(ref.total_employees);
                 }
-                // business_category
-                if (!updated.business_category && ref.business_category) {
+                // business_category (현재 값이 비어있거나 기본값인 "공업사"일 경우 덮어쓰기 허용)
+                if ((!updated.business_category || updated.business_category === "공업사") && ref.business_category) {
                   updated.business_category = ref.business_category;
                 }
                 // invoice_email
@@ -740,6 +744,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           { value: "정비", label: "정비" },
           { value: "제조", label: "제조" },
           { value: "환경", label: "환경" },
+          { value: "기타", label: "기타" },
         ]);
       }
     };
@@ -912,11 +917,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       phone: entry.phone || "",
       fax: entry.fax || "",
       business_category: (() => {
-        // 지정지청이 "대전"이고 업종분류가 비어있으면 기본값 "공업사"
-        if (entry.designated_office === "대전" && !entry.business_category) {
+        // 1. 전달받은 에이브리(entry)의 값이 있으면 최우선 사용
+        if (entry.business_category) return entry.business_category;
+        
+        // 2. 지정지청이 "대전"일 때만 기본값 "공업사" 적용 (전달받은 값이 없을 때만)
+        if (entry.designated_office === "대전") {
           return "공업사";
         }
-        return entry.business_category || "";
+        return "";
       })(),
 
       // 담당자 정보
