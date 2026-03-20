@@ -141,9 +141,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       // 1. 전달받은 에이브리(entry)의 값이 있으면 최우선 사용
       if (entry.business_category) return entry.business_category;
       
-      // 2. 지정지청이 "대전"일 때만 기본값 "공업사" 적용 (전달받은 값이 없을 때만)
+      // 2. 지정지청이 "대전"일 때도 기본값 "공업사"를 강제하지 않음 (사용자 요청: 제조 등 정확한 구분 필요)
       if (entry.designated_office === "대전") {
-        return "공업사";
+        return "";
       }
       return "";
     })(),
@@ -1088,14 +1088,21 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           }
         }
 
-        // ref 업데이트 (side effect이지만 setFormData 내부에서 안전하게 처리하기 위해 여기서 수행하지 않고 useEffect 외부에서 처리하거나, 
-        // 여기서는 값을 계산하고 밖에서 업데이트해야 함. 하지만 batching 고려하면 useEffect 끝에서 처리하는 게 맞음)
-
         if (hasUpdates) {
           return { ...prev, ...updates };
         }
         return prev;
       });
+    } else if (formData.business_category && formData.business_category !== "공업사") {
+      // 업종이 '공업사'가 아니면 계산서 발행일은 빈 값이어야 함 (사용자 요청)
+      if (formData.electronic_invoice_date || formData.electronic_invoice_date_2) {
+        setFormData(prev => ({
+          ...prev,
+          electronic_invoice_date: "",
+          electronic_invoice_date_2: ""
+        }));
+        console.log('[JournalEditForm] 업종이 공업사가 아니므로 전자계산서 발행일(1, 2)을 초기화합니다.');
+      }
     }
 
     // ref 업데이트
