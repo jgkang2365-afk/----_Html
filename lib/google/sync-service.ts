@@ -44,9 +44,10 @@ export async function syncBusinessToCalendar(
     const hasRequiredInfo = !!targetBiz.measurement_date;
     const eventId = targetBiz.google_event_id;
 
-    // 2026년 2월 23일부터 정식 연동 (1/12은 테스트 완료 건으로 예외 허용)
-    const isTargetDate = targetBiz.measurement_date === "2026-01-12" ||
-      (targetBiz.measurement_date && new Date(targetBiz.measurement_date) >= new Date("2026-02-23"));
+    const mDate = targetBiz.measurement_date;
+    const isTargetDate = mDate === "2026-01-12" || (mDate && mDate >= "2026-02-23");
+
+    console.log(`[Sync Service] Check: Confirmed=${isConfirmedStatus}, HasInfo=${hasRequiredInfo}, IsTargetDate=${isTargetDate}, EventID=${eventId}`);
 
     // 조건 1: 확정/실시 상태이고 필수 정보(날짜)가 있으며 타겟 날짜인 경우 -> 생성/수정
     if (isConfirmedStatus && hasRequiredInfo && isTargetDate) {
@@ -151,7 +152,9 @@ export async function syncBusinessToCalendar(
 
         if (currentJournal?.k2b_send_date && currentJournal?.electronic_invoice_date) {
           colorId = '3'; // Grape
-          console.log(`[Sync Service] Completed status for ${code}. Color -> Grape(3)`);
+          console.log(`[Sync Service] Completed status for ${code}. Color -> Grape(3). K2B=${currentJournal.k2b_send_date}, Invoice=${currentJournal.electronic_invoice_date}`);
+        } else {
+          console.log(`[Sync Service] Not completed yet for ${code}. Color -> ${colorId}. K2B=${currentJournal?.k2b_send_date}, Invoice=${currentJournal?.electronic_invoice_date}`);
         }
       } catch (e) {
         console.error("[Sync Service] Status check error:", e);

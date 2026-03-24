@@ -660,3 +660,9 @@
 [2026-03-24T16:15:00.963Z] Updating Calendar Event: ivhvrf7heu12qebtafg6qjsmmg {"summary":"[배윤민]산내모터스 - 26상 미수","description":"사업장: 산내모터스\n        주소: 대전광역시 동구 산내로 1400-1 (대성동)\n        담당자: 박주용 대표\n        연락처: 010-5326-9960\n        비고:","date":"2026-02-23","location":"대전광역시 동구 산내로 1400-1 (대성동)","colorId":"3"}
 [2026-03-24T16:15:00.966Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
 [2026-03-24T16:15:03.192Z] Event updated successfully: ivhvrf7heu12qebtafg6qjsmmg 
+[2026-03-24T16:27:35.627Z] Updating Calendar Event: cuiscv45699or9l8qu59mamjog {"summary":"[이주형](주)신이십일세기자동차정비","description":"사업장: (주)신이십일세기자동차정비\n        주소: 대전광역시 서구 대덕대로 67 (괴정동)\n        담당자: 이현우 상무\n        연락처: 010-9043-7066\n        비고:","date":"2026-02-23","location":"대전광역시 서구 대덕대로 67 (괴정동)","colorId":"3"}
+[2026-03-24T16:27:35.643Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-24T16:27:37.613Z] Event updated successfully: cuiscv45699or9l8qu59mamjog 
+[2026-03-24T16:28:19.928Z] Updating Calendar Event: cuiscv45699or9l8qu59mamjog {"summary":"[이주형](주)신이십일세기자동차정비","description":"사업장: (주)신이십일세기자동차정비\n        주소: 대전광역시 서구 대덕대로 67 (괴정동)\n        담당자: 이현우 상무\n        연락처: 010-9043-7066\n        비고:","date":"2026-02-23","location":"대전광역시 서구 대덕대로 67 (괴정동)","colorId":"3"}
+[2026-03-24T16:28:19.933Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-24T16:28:22.099Z] Event updated successfully: cuiscv45699or9l8qu59mamjog 
