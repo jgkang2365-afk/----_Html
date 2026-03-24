@@ -7,6 +7,7 @@ import { assignAllNumbers } from "@/lib/utils/number-assignment";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
+import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 
 /**
  * 측정일지 수정 API
@@ -544,6 +545,14 @@ export async function PUT(
       if (planUpdateError) {
         console.error("측정 대상 사업장 계획 업데이트 오류:", planUpdateError);
         // 계획 업데이트 실패해도 측정일지 수정은 성공으로 처리
+      }
+
+      // [New Feature] 구글 캘린더 동기화 트리거
+      try {
+        await syncBusinessToCalendar(supabase, code, measurementYear, measurementPeriod);
+        console.log(`[Journal Sync] Calendar sync triggered for ${code}`);
+      } catch (syncError) {
+        console.error(`[Journal Sync] Calendar sync failed for ${code}:`, syncError);
       }
     }
 
