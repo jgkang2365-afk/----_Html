@@ -669,3 +669,6 @@
 [2026-03-24T16:43:30.623Z] Updating Calendar Event: cuiscv45699or9l8qu59mamjog {"summary":"[이주형](주)신이십일세기자동차정비","description":"사업장: (주)신이십일세기자동차정비\n        주소: 대전광역시 서구 대덕대로 67 (괴정동)\n        담당자: 이현우 상무\n        연락처: 010-9043-7066\n        비고:","date":"2026-02-23","location":"대전광역시 서구 대덕대로 67 (괴정동)","colorId":"3"}
 [2026-03-24T16:43:30.629Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
 [2026-03-24T16:43:32.643Z] Event updated successfully: cuiscv45699or9l8qu59mamjog 
+[2026-03-24T17:00:14.620Z] Updating Calendar Event: 28g9gc9qfjt9hhkuhen04735lv {"summary":"[배윤민]대성모터스","description":"사업장: 대성모터스\n        주소: 대전광역시 대덕구 대화로 16 (대화동)\n        담당자: 박종대 대표\n        연락처: 010-5092-0364\n        비고:","date":"2026-01-12","location":"대전광역시 대덕구 대화로 16 (대화동)","colorId":"3"}
+[2026-03-24T17:00:14.622Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-24T17:00:16.558Z] Event updated successfully: 28g9gc9qfjt9hhkuhen04735lv 

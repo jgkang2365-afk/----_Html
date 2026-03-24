@@ -144,17 +144,22 @@ export async function syncBusinessToCalendar(
       try {
         const { data: currentJournal } = await supabase
           .from("measurement_journal")
-          .select("k2b_send_date, electronic_invoice_date")
+          .select("k2b_send_date, electronic_invoice_date, measurement_fee_business")
           .eq("code", code)
           .eq("measurement_year", typeof year === 'string' ? parseInt(year) : year)
           .eq("measurement_period", period)
           .maybeSingle();
 
-        if (currentJournal?.k2b_send_date && currentJournal?.electronic_invoice_date) {
+        const feeBiz = Number(currentJournal?.measurement_fee_business || 0);
+        const hasK2B = !!currentJournal?.k2b_send_date;
+        const hasInvoice = !!currentJournal?.electronic_invoice_date;
+
+        // 포도색(3) 조건: K2B 발송일이 있고, (전자계산서 발행일이 있거나 측정비(사업장)가 0원인 경우)
+        if (hasK2B && (hasInvoice || feeBiz === 0)) {
           colorId = '3'; // Grape
-          console.log(`[Sync Service] Completed status for ${code}. Color -> Grape(3). K2B=${currentJournal.k2b_send_date}, Invoice=${currentJournal.electronic_invoice_date}`);
+          console.log(`[Sync Service] Completed status for ${code}. Color -> Grape(3). K2B=${currentJournal?.k2b_send_date}, Invoice=${currentJournal?.electronic_invoice_date}, Fee=${feeBiz}`);
         } else {
-          console.log(`[Sync Service] Not completed yet for ${code}. Color -> ${colorId}. K2B=${currentJournal?.k2b_send_date}, Invoice=${currentJournal?.electronic_invoice_date}`);
+          console.log(`[Sync Service] Not completed yet for ${code}. Color -> ${colorId}. K2B=${currentJournal?.k2b_send_date}, Invoice=${currentJournal?.electronic_invoice_date}, Fee=${feeBiz}`);
         }
       } catch (e) {
         console.error("[Sync Service] Status check error:", e);
