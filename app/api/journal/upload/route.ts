@@ -10,6 +10,8 @@ import { getUser } from "@/lib/auth/get-user";
 import { assignAllNumbers } from "@/lib/utils/number-assignment";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { classifyDesignatedOffice, fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
+import { getKSTISOString } from "@/lib/utils/date-utils";
+import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import * as XLSX from "xlsx";
 
 export async function POST(request: NextRequest) {
@@ -456,6 +458,46 @@ export async function POST(request: NextRequest) {
           errorCount++;
         } else {
           successCount++;
+
+          // [New Feature] 구글 캘린더 동기화 트리거 및 대상 사업장 상태 업데이트
+          try {
+            // 1. 측정 대상 사업장 계획 업데이트 (진행률 파악 및 동기화 조건 충족을 위해)
+            const { data: existingPlan } = await supabase
+              .from("measurement_target_business")
+              .select("id")
+              .eq("code", code)
+              .eq("year", measurementYear)
+              .eq("period", measurementPeriod)
+              .maybeSingle();
+
+            if (existingPlan) {
+              await supabase
+                .from("measurement_target_business")
+                .update({
+                  journal_id: (await supabase.from("measurement_journal").select("id").eq("code", code).eq("measurement_year", measurementYear).eq("measurement_period", measurementPeriod).single()).data?.id,
+                  is_registered: "확정",
+                  registered_at: getKSTISOString(),
+                  measurement_start_date: journalData.measurement_start_date,
+                  measurement_end_date: journalData.measurement_end_date,
+                  measurer: journalData.measurer,
+                  business_name: journalData.business_name,
+                  business_number: journalData.business_number,
+                  total_employees: journalData.total_employees,
+                  address: journalData.address,
+                  office_jurisdiction: journalData.office_jurisdiction,
+                  national_support_status: journalData.national_support_status || null,
+                  manager_name: journalData.manager_name,
+                  manager_mobile: journalData.manager_mobile,
+                })
+                .eq("id", existingPlan.id);
+            }
+
+            // 2. 구글 캘린더 동기화 실행
+            await syncBusinessToCalendar(supabase, code, measurementYear, measurementPeriod);
+            console.log(`[Upload Sync] Calendar sync triggered for ${code} (${measurementYear}/${measurementPeriod})`);
+          } catch (syncError) {
+            console.error(`[Upload Sync] Calendar sync failed for ${code}:`, syncError);
+          }
         }
       } catch (error) {
         errors.push(`행 ${i + 2}: 처리 오류 - ${error instanceof Error ? error.message : String(error)}`);

@@ -666,3 +666,6 @@
 [2026-03-24T16:28:19.928Z] Updating Calendar Event: cuiscv45699or9l8qu59mamjog {"summary":"[이주형](주)신이십일세기자동차정비","description":"사업장: (주)신이십일세기자동차정비\n        주소: 대전광역시 서구 대덕대로 67 (괴정동)\n        담당자: 이현우 상무\n        연락처: 010-9043-7066\n        비고:","date":"2026-02-23","location":"대전광역시 서구 대덕대로 67 (괴정동)","colorId":"3"}
 [2026-03-24T16:28:19.933Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
 [2026-03-24T16:28:22.099Z] Event updated successfully: cuiscv45699or9l8qu59mamjog 
+[2026-03-24T16:43:30.623Z] Updating Calendar Event: cuiscv45699or9l8qu59mamjog {"summary":"[이주형](주)신이십일세기자동차정비","description":"사업장: (주)신이십일세기자동차정비\n        주소: 대전광역시 서구 대덕대로 67 (괴정동)\n        담당자: 이현우 상무\n        연락처: 010-9043-7066\n        비고:","date":"2026-02-23","location":"대전광역시 서구 대덕대로 67 (괴정동)","colorId":"3"}
+[2026-03-24T16:43:30.629Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-03-24T16:43:32.643Z] Event updated successfully: cuiscv45699or9l8qu59mamjog 

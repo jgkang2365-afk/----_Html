@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { getKSTISOString } from "@/lib/utils/date-utils";
+import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 
 /**
  * 측정정보 요약 수정 API
@@ -37,9 +38,9 @@ export async function PATCH(
 
     // 수정 불가 필드 및 measurement_journal에 없는 필드 제거
     const {
-      document_number,
-      sequence_number,
-      five_plus_sequence,
+      document_number: _doc,
+      sequence_number: _seq,
+      five_plus_sequence: _five,
       journal_id,
       survey_id,
       id,
@@ -82,7 +83,7 @@ export async function PATCH(
     if (updateData.deposit_date_national === "") updateData.deposit_date_national = null;
 
     // 번호 필드 정규화 (하이픈 등 특수문자 제거)
-    const digitFields = ['business_number', 'industrial_accident_number', 'commencement_number'];
+    const digitFields = ['business_number', 'industrial_accident_number', 'commencement_number', 'invoice_business_number'];
     digitFields.forEach(field => {
       if (updateData[field]) {
         updateData[field] = String(updateData[field]).replace(/[^\d]/g, "");
@@ -94,7 +95,7 @@ export async function PATCH(
     // 측정일지 존재 확인
     const { data: existingJournal, error: checkError } = await supabase
       .from("measurement_journal")
-      .select("id, completion_status")
+      .select("*")
       .eq("id", journalId)
       .maybeSingle();
 
@@ -170,6 +171,8 @@ export async function PATCH(
       'invoice_email_2',
       'electronic_invoice_date',
       'commencement_number',
+      'invoice_business_name',
+      'invoice_business_number',
       'measurement_fee_total',
       'measurement_fee_business',
       'measurement_fee_national',
@@ -207,6 +210,50 @@ export async function PATCH(
         { error: "측정일지를 업데이트하는 중 오류가 발생했습니다.", details: updateError.message },
         { status: 500 }
       );
+    }
+
+    // [New Feature] 구글 캘린더 동기화 트리거 및 대상 사업장 상태 업데이트
+    try {
+      const code = updatedJournal.code;
+      const measurementYear = updatedJournal.measurement_year;
+      const measurementPeriod = updatedJournal.measurement_period;
+
+      // 1. 측정 대상 사업장 계획 업데이트 (진행률 파악 및 동기화 조건 충족을 위해)
+      const { data: existingPlan } = await supabase
+        .from("measurement_target_business")
+        .select("id")
+        .eq("code", code)
+        .eq("year", measurementYear)
+        .eq("period", measurementPeriod)
+        .maybeSingle();
+
+      if (existingPlan) {
+        await supabase
+          .from("measurement_target_business")
+          .update({
+            journal_id: updatedJournal.id,
+            is_registered: "확정",
+            registered_at: getKSTISOString(),
+            measurement_start_date: updatedJournal.measurement_start_date,
+            measurement_end_date: updatedJournal.measurement_end_date,
+            measurer: updatedJournal.measurer,
+            business_name: updatedJournal.business_name,
+            business_number: updatedJournal.business_number,
+            total_employees: updatedJournal.total_employees,
+            address: updatedJournal.address,
+            office_jurisdiction: updatedJournal.office_jurisdiction,
+            national_support_status: updatedJournal.national_support_status || null,
+            manager_name: updatedJournal.manager_name,
+            manager_mobile: updatedJournal.manager_mobile,
+          })
+          .eq("id", existingPlan.id);
+      }
+
+      // 2. 구글 캘린더 동기화 실행
+      await syncBusinessToCalendar(supabase, code, measurementYear, measurementPeriod);
+      console.log(`[Summary Sync] Calendar sync triggered for ${code} (${measurementYear}/${measurementPeriod})`);
+    } catch (syncError) {
+      console.error(`[Summary Sync] Calendar sync failed:`, syncError);
     }
 
     return NextResponse.json({

@@ -6,6 +6,7 @@ import { assignAllNumbers } from "@/lib/utils/number-assignment";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
+import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 
 /**
  * 측정일지 등록 API
@@ -621,6 +622,14 @@ export async function POST(request: NextRequest) {
         { error: "측정일지 생성에 실패했습니다." },
         { status: 500 }
       );
+    }
+
+    // [New Feature] 구글 캘린더 동기화 트리거
+    try {
+      await syncBusinessToCalendar(supabase, code, measurementYear, measurementPeriod);
+      console.log(`[Journal POST Sync] Calendar sync triggered for ${code} (${measurementYear}/${measurementPeriod})`);
+    } catch (syncError) {
+      console.error(`[Journal POST Sync] Calendar sync failed:`, syncError);
     }
 
     return NextResponse.json({

@@ -1,8 +1,8 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
+import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import * as XLSX from "xlsx";
 
 /**
@@ -292,6 +292,14 @@ export async function POST(request: NextRequest) {
                     .eq("id", journalId);
 
                 if (updateError) throw new Error(`업데이트 실패: ${updateError.message}`);
+
+                // [New Feature] 구글 캘린더 동기화 트리거
+                try {
+                    await syncBusinessToCalendar(supabase, code, year, period);
+                    console.log(`[Sales Upload Sync] Calendar sync triggered for ${code} (${year}/${period})`);
+                } catch (syncError) {
+                    console.error(`[Sales Upload Sync] Calendar sync failed for ${code}:`, syncError);
+                }
 
                 successCount++;
 
