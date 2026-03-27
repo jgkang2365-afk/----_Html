@@ -132,20 +132,20 @@ export async function GET(request: Request) {
         business_number: baseBusinessData?.business_number || prioritizedDefaults.business_number || businessInfo?.business_number || "",
         representative_name: baseBusinessData?.representative_name || prioritizedDefaults.representative_name || businessInfo?.representative_name || "",
 
-        // 산재관리번호 (우선순위: BaseData(요청연도) > History(과거이력, 값이 있는 경우만) > Journal(최근일지))
+        // 산재관리번호 (우선순위: BaseData(요청연도) > History(과거이력, 값이 있는 경우만) > Journal(최근일지) > Info(마스터))
         // 주의: BaseData에 값이 있더라도 빈 문자열이면 History를 찾아야 함
-        industrial_accident_number: (baseBusinessData?.industrial_accident_number || "") || prioritizedDefaults.industrial_accident_number || journalManagerInfo?.industrial_accident_number || "",
+        industrial_accident_number: (baseBusinessData?.industrial_accident_number || "") || prioritizedDefaults.industrial_accident_number || journalManagerInfo?.industrial_accident_number || businessInfo?.industrial_accident_number || "",
 
         // 개시번호
-        commencement_number: (baseBusinessData?.commencement_number || "") || prioritizedDefaults.commencement_number || journalManagerInfo?.commencement_number || "",
+        commencement_number: (baseBusinessData?.commencement_number || "") || prioritizedDefaults.commencement_number || journalManagerInfo?.commencement_number || businessInfo?.commencement_number || "",
 
         // 담당자 정보: BaseData > History > Journal
         manager_name: (baseBusinessData?.manager_name || "") || prioritizedDefaults.manager_name || journalManagerInfo?.manager_name || "",
         manager_position: (baseBusinessData?.manager_position || "") || prioritizedDefaults.manager_position || journalManagerInfo?.manager_position || "",
         manager_mobile: (baseBusinessData?.manager_mobile || "") || prioritizedDefaults.manager_mobile || journalManagerInfo?.manager_mobile || "",
 
-        // 총인원: 1순위(현재 연도/주기), 2순위(과거 이력 최신값)
-        total_employees: baseBusinessData?.total_employees ?? prioritizedDefaults.total_employees ?? null,
+        // 총인원: 1순위(현재 연도/주기), 2순위(과거 이력 최신값), 3순위(마스터 정보)
+        total_employees: baseBusinessData?.total_employees ?? prioritizedDefaults.total_employees ?? businessInfo?.total_employees ?? null,
 
         // 이메일: BaseData > History > Journal
         // 주의: BaseData에 값이 있더라도 빈 문자열이면 History를 찾아야 함
