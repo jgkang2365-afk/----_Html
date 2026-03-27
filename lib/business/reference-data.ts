@@ -55,16 +55,24 @@ export async function getBestReferenceData(
         .maybeSingle();
 
     if (targetMatch || exactMatch) {
-        // 두 테이블의 데이터를 병합 (exactMatch의 풍부한 필드 우선)
-        const mergedData = {
-            ...(targetMatch ? mapTargetBusinessToRef(targetMatch) : {}),
-            ...(exactMatch ? mapMeasurementBusinessToRef(exactMatch) : {}),
-        };
+        // 두 테이블의 데이터를 병합
+        // 1. 과거 이력(exactMatch)에서 모든 필드를 가져옴
+        // 2. 현재 계획(targetMatch)에서 최신 정보를 덮어씀 (단, 계획에 없는 필드는 유지됨)
+        const base = exactMatch ? mapMeasurementBusinessToRef(exactMatch) : {};
+        const target = targetMatch ? mapTargetBusinessToRef(targetMatch) : {};
+        
+        // target에 값이 있는 경우만 덮어쓰기 (undefined나 null이 이력 데이터를 지우지 않도록)
+        const mergedData: any = { ...base };
+        Object.entries(target).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && value !== "") {
+                mergedData[key] = value;
+            }
+        });
 
         return {
             ...mergedData,
             source_type: 'exact',
-            source_desc: exactMatch ? `${year}년 ${period}` : `측정대상(${year} ${period})`
+            source_desc: targetMatch ? `측정대상(${year} ${period})` : `${year}년 ${period}`
         };
     }
 
