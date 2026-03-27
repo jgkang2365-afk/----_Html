@@ -45,14 +45,6 @@ export async function getBestReferenceData(
         .eq("period", period)
         .maybeSingle();
 
-    if (targetMatch) {
-        return {
-            ...mapTargetBusinessToRef(targetMatch),
-            source_type: 'exact',
-            source_desc: `측정대상(${year} ${period})`
-        };
-    }
-
     // 1. 측정사업장 (정확히 일치)
     const { data: exactMatch } = await supabase
         .from("measurement_business")
@@ -62,11 +54,17 @@ export async function getBestReferenceData(
         .eq("period", period)
         .maybeSingle();
 
-    if (exactMatch) {
+    if (targetMatch || exactMatch) {
+        // 두 테이블의 데이터를 병합 (exactMatch의 풍부한 필드 우선)
+        const mergedData = {
+            ...(targetMatch ? mapTargetBusinessToRef(targetMatch) : {}),
+            ...(exactMatch ? mapMeasurementBusinessToRef(exactMatch) : {}),
+        };
+
         return {
-            ...mapMeasurementBusinessToRef(exactMatch),
+            ...mergedData,
             source_type: 'exact',
-            source_desc: `${year}년 ${period}`
+            source_desc: exactMatch ? `${year}년 ${period}` : `측정대상(${year} ${period})`
         };
     }
 

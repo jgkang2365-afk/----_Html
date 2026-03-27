@@ -242,14 +242,14 @@ export async function GET(request: NextRequest) {
     // getBestReferenceData는 "최적"의 데이터 하나만 가져오지만, 
     // 기존 로직에서의 businessHistoryDefaults와 역할이 유사하므로 이를 사용
     const businessHistoryDefaults: Record<string, any> = {
-      manager_name: referenceData.source_type !== 'exact' ? referenceData.manager_name : null,
-      manager_position: referenceData.source_type !== 'exact' ? referenceData.manager_position : null,
-      manager_mobile: referenceData.source_type !== 'exact' ? referenceData.manager_mobile : null,
-      manager_email: referenceData.source_type !== 'exact' ? referenceData.manager_email : null,
-      invoice_email: referenceData.source_type !== 'exact' ? referenceData.invoice_email : null,
-      industrial_accident_number: referenceData.source_type !== 'exact' ? referenceData.industrial_accident_number : null,
-      commencement_number: referenceData.source_type !== 'exact' ? referenceData.commencement_number : null,
-      representative_name: referenceData.source_type !== 'exact' ? referenceData.representative_name : null,
+      manager_name: referenceData.manager_name || null,
+      manager_position: referenceData.manager_position || null,
+      manager_mobile: referenceData.manager_mobile || null,
+      manager_email: referenceData.manager_email || null,
+      invoice_email: referenceData.invoice_email || null,
+      industrial_accident_number: referenceData.industrial_accident_number || null,
+      commencement_number: referenceData.commencement_number || null,
+      representative_name: referenceData.representative_name || null,
     };
 
     // 직전 측정일지에서 자동 채울 수 있는 필드만 반환
