@@ -81,6 +81,7 @@ export async function GET(request: Request) {
         business_number: findFirstValue("business_number"),
         representative_name: findFirstValue("representative_name"),
         address: findFirstValue("address"),
+        total_employees: findFirstValue("total_employees"),
         business_category: findFirstValue("business_category"),
       };
 
@@ -142,6 +143,9 @@ export async function GET(request: Request) {
         manager_name: (baseBusinessData?.manager_name || "") || prioritizedDefaults.manager_name || journalManagerInfo?.manager_name || "",
         manager_position: (baseBusinessData?.manager_position || "") || prioritizedDefaults.manager_position || journalManagerInfo?.manager_position || "",
         manager_mobile: (baseBusinessData?.manager_mobile || "") || prioritizedDefaults.manager_mobile || journalManagerInfo?.manager_mobile || "",
+
+        // 총인원: 1순위(현재 연도/주기), 2순위(과거 이력 최신값)
+        total_employees: baseBusinessData?.total_employees ?? prioritizedDefaults.total_employees ?? null,
 
         // 이메일: BaseData > History > Journal
         // 주의: BaseData에 값이 있더라도 빈 문자열이면 History를 찾아야 함

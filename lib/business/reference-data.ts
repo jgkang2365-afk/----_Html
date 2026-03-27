@@ -161,6 +161,7 @@ function mapBusinessInfoToRef(data: any): ReferenceData {
         // manager_contact를 mobile로 매핑 시도
         phone: data.phone,
         fax: data.fax,
+        total_employees: data.total_employees, // business_info에도 존재하는 경우 매핑
         commencement_number: data.commencement_number, // 있을 경우
         invoice_email: data.invoice_email,
         representative_name: data.representative_name,

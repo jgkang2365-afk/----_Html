@@ -262,6 +262,9 @@ export async function GET(request: NextRequest) {
       manager_mobile: businessHistoryDefaults.manager_mobile || previousJournal?.manager_mobile || fallbackDefaults.manager_mobile || null,
       manager_email: previousJournal?.manager_email || businessHistoryDefaults.manager_email || (businessData as any)?.manager_email || fallbackDefaults.manager_email || null,
 
+      // 총인원: 1순위(현재 이력), 2순위(직전 측정일지)
+      total_employees: (businessData as any)?.total_employees ?? previousJournal?.total_employees ?? null,
+
       // 측정비 정보
       measurement_fee_business: previousJournal?.measurement_fee_business || null,
       measurement_fee_national: previousJournal?.measurement_fee_national || null,

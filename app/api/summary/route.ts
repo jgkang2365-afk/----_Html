@@ -259,10 +259,10 @@ export async function GET(request: NextRequest) {
         designated_office: journal.designated_office ? toShortName(journal.designated_office) : null, // 약칭으로 변환
         business_name: journal.business_name,
         representative_name: bi?.representative_name || null, // 대표자명 추가
-        total_employees: journal.total_employees,
+        total_employees: journal.total_employees ?? mb?.total_employees ?? null,
         business_number: journal.business_number,
         industrial_accident_number: journal.industrial_accident_number,
-        commencement_number: mb?.commencement_number || null, // 개시번호 추가
+        commencement_number: journal.commencement_number || mb?.commencement_number || null, // 개시번호는 빈 문자열일 수 있으므로 || 유지 또는 취사선택
         national_support_status: nationalSupportStatus,
         manager_name: journal.manager_name || mb?.manager_name || null, // 담당자명 fallback
         manager_position: journal.manager_position || mb?.manager_position || null, // 직위 fallback
