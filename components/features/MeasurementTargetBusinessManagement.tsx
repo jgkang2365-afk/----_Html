@@ -43,6 +43,7 @@ interface BusinessEntry {
     updated_at?: string;
     measurement_month?: string | null;
     measurer_id?: number | null; // 측정자 ID
+    collaborators?: string | null; // 협력자 목록 (쉼표 구분)
 }
 
 interface User {
@@ -998,6 +999,39 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     value={editForm.measurer_id?.toString() || ""}
                                     onChange={(e) => setEditForm(prev => ({ ...prev, measurer_id: e.target.value ? parseInt(e.target.value) : null }))}
                                 />
+                            </div>
+                            <div className="col-span-2">
+                                <label className="block text-sm font-medium mb-2 text-slate-700">협력자 (복수 선택)</label>
+                                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 p-3 bg-white border border-slate-200 rounded-md">
+                                    {measurers.map(m => {
+                                        // 보고서 담당자는 협력자에서 제외하거나 비활성화 (요구사항: 담당자 외 협력자)
+                                        const isReportWriter = editForm.measurer_id === m.id;
+                                        const collaborators = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()) : [];
+                                        const isChecked = collaborators.includes(m.name);
+
+                                        return (
+                                            <label key={m.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 ${isReportWriter ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isChecked && !isReportWriter}
+                                                    disabled={isReportWriter}
+                                                    onChange={(e) => {
+                                                        const checked = e.target.checked;
+                                                        let newCollabs = [...collaborators];
+                                                        if (checked) {
+                                                            if (!newCollabs.includes(m.name)) newCollabs.push(m.name);
+                                                        } else {
+                                                            newCollabs = newCollabs.filter(c => c !== m.name);
+                                                        }
+                                                        setEditForm(prev => ({ ...prev, collaborators: newCollabs.join(",") }));
+                                                    }}
+                                                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                                                />
+                                                <span className="text-sm text-slate-700">{m.name}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         </div>
                     </div>

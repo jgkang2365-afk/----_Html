@@ -527,6 +527,58 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // [New Feature] Sync 'Collaborators' to 'Preliminary Survey'
+    if (updates.hasOwnProperty('collaborators') && code && year && period) {
+      try {
+        // 현재 보고서 담당자 이름 가져오기
+        const { data: currentBiz } = await supabase
+          .from("measurement_target_business")
+          .select("measurer_id, collaborators")
+          .eq("code", code)
+          .eq("year", year)
+          .eq("period", period)
+          .single();
+
+        let reportWriterName = null;
+        if (currentBiz?.measurer_id) {
+          const { data: userData } = await supabase
+            .from("users")
+            .select("name")
+            .eq("id", currentBiz.measurer_id)
+            .single();
+          if (userData) reportWriterName = userData.name;
+        }
+
+        const collaborators = updates.collaborators || "";
+        let updatedActualMeasurer = reportWriterName || "";
+        
+        if (collaborators) {
+          const collabList = collaborators.split(",").map((s: string) => s.trim()).filter(Boolean);
+          if (updatedActualMeasurer) {
+            // 보고서 담당자가 협력자 목록에 이미 있으면 중복 제거
+            const filteredCollabs = collabList.filter((c: string) => c !== reportWriterName);
+            if (filteredCollabs.length > 0) {
+              updatedActualMeasurer = `${reportWriterName}, ${filteredCollabs.join(", ")}`;
+            }
+          } else {
+            updatedActualMeasurer = collabList.join(", ");
+          }
+        }
+
+        // Update preliminary_survey
+        await supabase
+          .from("preliminary_survey")
+          .update({ actual_measurer: updatedActualMeasurer })
+          .eq("code", code)
+          .eq("year", year)
+          .eq("period", period);
+
+        console.log(`[Sync] Updated actual_measurer for ${code}: ${updatedActualMeasurer}`);
+      } catch (e) {
+        console.error("Collaborators Sync Exception:", e);
+      }
+    }
+
     // [New Feature] System-as-Master Calendar Sync
     if ((updatedData.is_registered === "확정" || updatedData.is_registered === "실시" || !!updatedData.google_event_id) && code && year && period) {
       try {

@@ -89,10 +89,14 @@ export async function syncBusinessToCalendar(
         console.error("[Sync Service] Unpaid query error:", e);
       }
 
-      // 실측정자 + 종료일 조회 (preliminary_survey)
+      // 보고서 담당자 + 협력자 조합
       let namesDisplay = measurerName;
       let surveyEndDate: string | undefined;
       try {
+        // 1. 측정 대상 사업장의 협력자 정보 우선 확인
+        const collaborators = targetBiz.collaborators ? targetBiz.collaborators.split(",").map((m: string) => m.trim()).filter(Boolean) : [];
+        
+        // 2. 예비조사 테이블의 실측정자 정보 보완 (기존 데이터 호환용)
         const { data: surveyData } = await supabase
           .from("preliminary_survey")
           .select("actual_measurer, end_date")
@@ -101,18 +105,21 @@ export async function syncBusinessToCalendar(
           .eq("period", period)
           .maybeSingle();
 
-        if (surveyData?.actual_measurer) {
-          const actualList = surveyData.actual_measurer.split(",").map((m: string) => m.trim());
-          const additional = actualList.filter((m: string) => m !== measurerName);
-          if (additional.length > 0) {
-            namesDisplay = `${measurerName}, ${additional.join(", ")}`;
-          }
+        const actualList = surveyData?.actual_measurer ? surveyData.actual_measurer.split(",").map((m: string) => m.trim()) : [];
+        
+        // 중복 제거 및 합치기 (담당자 + 협력자 + 실측정자)
+        const allNames = new Set([measurerName, ...collaborators, ...actualList]);
+        const namesArray = Array.from(allNames).filter(Boolean);
+        
+        if (namesArray.length > 0) {
+          namesDisplay = namesArray.join(", ");
         }
+
         if (surveyData?.end_date && surveyData.end_date !== targetBiz.measurement_date) {
           surveyEndDate = surveyData.end_date;
         }
       } catch (e) {
-        console.error("[Sync Service] Survey query error:", e);
+        console.error("[Sync Service] Survey/Collaborator query error:", e);
       }
 
       // 최종 제목 및 설명 조합
