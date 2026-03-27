@@ -382,7 +382,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
                     'manager_name', 'manager_mobile', 'phone',
                     'management_status', 'notes', 'measurement_date', 'future_measurement_period',
-                    'future_measurement_date', 'measurer_id', 'period'
+                    'future_measurement_date', 'measurer_id', 'period', 'collaborators'
                 ];
 
                 const sanitized: any = {};
