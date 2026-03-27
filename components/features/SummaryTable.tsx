@@ -1316,11 +1316,11 @@ export const SummaryTable: React.FC = () => {
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">사업장 정보</h4>
                   <div className="grid grid-cols-1 md:grid-cols-12 print:grid-cols-12 gap-3 md:gap-4">
                     <div className="md:col-span-6 print:col-span-6 p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        사업장명
+                      <label className="block text-sm font-bold text-text-800 mb-1.5 ml-0.5 print:text-base">
+                        사업장명 *
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm font-bold print:text-lg print:font-black"
                         value={editFormData.business_name || ""}
                         onChange={(e) =>
                           setEditFormData({ ...editFormData, business_name: e.target.value })

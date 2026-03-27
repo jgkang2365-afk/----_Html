@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
     if (codes.length > 0) {
       const { data: mbData, error: mbError } = await supabase
         .from("measurement_business")
-        .select("code, commencement_number, manager_name, manager_position, manager_mobile, manager_email, invoice_email")
+        .select("code, representative_name, commencement_number, manager_name, manager_position, manager_mobile, manager_email, invoice_email")
         .in("code", codes);
 
       if (mbError) {
@@ -258,7 +258,7 @@ export async function GET(request: NextRequest) {
         office_jurisdiction: journal.office_jurisdiction,
         designated_office: journal.designated_office ? toShortName(journal.designated_office) : null, // 약칭으로 변환
         business_name: journal.business_name,
-        representative_name: bi?.representative_name || null, // 대표자명 추가
+        representative_name: journal.representative_name || mb?.representative_name || bi?.representative_name || null, // 대표자명 우선순위: Journal > MB > BI
         total_employees: (() => {
           const val = journal.total_employees ?? mb?.total_employees ?? bi?.total_employees;
           if (val === null || val === undefined) return null;
