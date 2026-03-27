@@ -259,7 +259,12 @@ export async function GET(request: NextRequest) {
         designated_office: journal.designated_office ? toShortName(journal.designated_office) : null, // 약칭으로 변환
         business_name: journal.business_name,
         representative_name: bi?.representative_name || null, // 대표자명 추가
-        total_employees: journal.total_employees ?? mb?.total_employees ?? bi?.total_employees ?? null,
+        total_employees: (() => {
+          const val = journal.total_employees ?? mb?.total_employees ?? bi?.total_employees;
+          if (val === null || val === undefined) return null;
+          const num = typeof val === 'string' ? parseInt(val.replace(/,/g, "")) : val;
+          return isNaN(num as any) ? val : num;
+        })(),
         business_number: journal.business_number,
         industrial_accident_number: journal.industrial_accident_number,
         commencement_number: journal.commencement_number || mb?.commencement_number || bi?.commencement_number || null, // 개시번호는 빈 문자열일 수 있으므로 || 유지 또는 취사선택

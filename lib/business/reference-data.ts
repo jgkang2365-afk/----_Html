@@ -131,6 +131,11 @@ function mapTargetBusinessToRef(data: any): ReferenceData {
 }
 
 function mapMeasurementBusinessToRef(data: any): ReferenceData {
+    // 총인원이 문자열로 저장되어 있을 경우에 대비해 파싱
+    const total_employees = data.total_employees !== null && data.total_employees !== undefined
+        ? (typeof data.total_employees === 'string' ? parseInt(data.total_employees.replace(/,/g, "")) : data.total_employees)
+        : null;
+
     return {
         business_name: data.business_name,
         business_number: data.business_number,
@@ -139,8 +144,7 @@ function mapMeasurementBusinessToRef(data: any): ReferenceData {
         manager_position: data.manager_position,
         manager_mobile: data.manager_mobile,
         manager_email: data.manager_email,
-        // phone: measurement_business에는 phone이 없음
-        total_employees: data.total_employees,
+        total_employees: isNaN(total_employees) ? null : total_employees,
         business_category: data.business_category,
         industrial_accident_number: data.industrial_accident_number,
         commencement_number: data.commencement_number,

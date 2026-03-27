@@ -48,9 +48,23 @@ export async function GET(request: Request) {
       if (year && period && allBusinessHistory) {
         const targetYear = parseInt(year);
         const targetPeriod = period.trim();
-        baseBusinessData = allBusinessHistory.find(
-          (b: any) => b.year === targetYear && b.period?.trim() === targetPeriod
-        );
+        console.log(`[API /api/journal/businesses] Searching for history match: targetYear=${targetYear}, targetPeriod=${targetPeriod}`);
+        
+        baseBusinessData = allBusinessHistory.find((b: any) => {
+          const matchYear = b.year === targetYear;
+          const matchPeriod = b.period?.trim() === targetPeriod || 
+                             (b.period?.trim()?.includes(targetPeriod)) || 
+                             (targetPeriod.includes(b.period?.trim()));
+          
+          if (matchYear && matchPeriod) return true;
+          return false;
+        });
+
+        if (baseBusinessData) {
+          console.log(`[API /api/journal/businesses] Found baseBusinessData: total_employees=${baseBusinessData.total_employees}, commencement_number=${baseBusinessData.commencement_number}`);
+        } else {
+          console.log(`[API /api/journal/businesses] No exact match found in ${allBusinessHistory.length} history records.`);
+        }
       }
 
       // 요청한 데이터가 없으면 가장 최신 데이터 사용 (Fallback)
@@ -63,7 +77,8 @@ export async function GET(request: Request) {
       const findFirstValue = (field: string) => {
         if (!allBusinessHistory) return null;
         for (const record of allBusinessHistory) {
-          if (record[field]) return record[field];
+          const val = record[field];
+          if (val !== null && val !== undefined && val !== "") return val;
         }
         return null;
       };
@@ -145,7 +160,13 @@ export async function GET(request: Request) {
         manager_mobile: (baseBusinessData?.manager_mobile || "") || prioritizedDefaults.manager_mobile || journalManagerInfo?.manager_mobile || "",
 
         // 총인원: 1순위(현재 연도/주기), 2순위(과거 이력 최신값), 3순위(마스터 정보)
-        total_employees: baseBusinessData?.total_employees ?? prioritizedDefaults.total_employees ?? businessInfo?.total_employees ?? null,
+        total_employees: (() => {
+          const val = baseBusinessData?.total_employees ?? prioritizedDefaults.total_employees ?? businessInfo?.total_employees;
+          if (val === null || val === undefined) return null;
+          // 숫자로 변환 가능하면 숫자로, 아니면 그대로 반환
+          const num = typeof val === 'string' ? parseInt(val.replace(/,/g, "")) : val;
+          return isNaN(num as any) ? val : num;
+        })(),
 
         // 이메일: BaseData > History > Journal
         // 주의: BaseData에 값이 있더라도 빈 문자열이면 History를 찾아야 함
