@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     // measurement_target_business 테이블에서 주소가 있는 모든 레코드 조회
     const { data: businesses, error: fetchError } = await supabase
       .from("measurement_target_business")
-      .select("id, business_name, address, office_jurisdiction")
+      .select("id, year, period, business_name, address, office_jurisdiction")
       .not("address", "is", null)
       .neq("address", "");
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     let updatedCount = 0;
     let skippedCount = 0;
     const errors: Array<{ id: string; error: string }> = [];
-    const changes: Array<{ id: string; business_name: string; address: string; before: string; after: string }> = [];
+    const changes: Array<{ id: string; year: number; period: string; business_name: string; address: string; before: string; after: string }> = [];
 
     for (const biz of businesses) {
       const newOffice = findOfficeByAddress(biz.address);
@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
         } else {
           changes.push({
             id: biz.id,
+            year: biz.year || 0,
+            period: biz.period || "",
             business_name: biz.business_name || "(없음)",
             address: biz.address,
             before: biz.office_jurisdiction || "(없음)",
