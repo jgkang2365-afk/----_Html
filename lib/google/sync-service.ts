@@ -45,11 +45,11 @@ export async function syncBusinessToCalendar(
     const eventId = targetBiz.google_event_id;
 
     const mDate = targetBiz.measurement_date;
-    const isTargetDate = mDate === "2026-01-12" || (mDate && mDate >= "2026-02-23");
+    const isTargetDate = !!mDate; // 모든 날짜 허용 (제한 해제)
 
     console.log(`[Sync Service] Check: Confirmed=${isConfirmedStatus}, HasInfo=${hasRequiredInfo}, IsTargetDate=${isTargetDate}, EventID=${eventId}`);
 
-    // 조건 1: 확정/실시 상태이고 필수 정보(날짜)가 있으며 타겟 날짜인 경우 -> 생성/수정
+    // 조건 1: 확정/실시 상태이고 필수 정보(날짜)가 있는 경우 -> 생성/수정
     if (isConfirmedStatus && hasRequiredInfo && isTargetDate) {
       
       // 담당자 이름 조회

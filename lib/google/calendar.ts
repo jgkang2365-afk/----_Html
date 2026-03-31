@@ -78,8 +78,22 @@ export async function createSurveyEvent(eventData: {
         const authClient = await getAuthClient();
         const calendar = google.calendar({ version: 'v3', auth: authClient as any });
 
+        // Normalize date to YYYY-MM-DD to avoid API errors
+        const normalizeDate = (d: string) => {
+            const dateObj = new Date(d);
+            if (isNaN(dateObj.getTime())) return d;
+            return dateObj.toISOString().split('T')[0];
+        };
+        const startDateNormalized = normalizeDate(eventData.date);
+
         // Calculate end date: endDate+1 (Google Calendar의 종일 이벤트는 end를 exclusive로 처리)
-        const lastDay = eventData.endDate || eventData.date;
+        let lastDay = eventData.endDate ? normalizeDate(eventData.endDate) : startDateNormalized;
+        
+        // 방어코드: endDate가 startDate보다 이전인 경우 startDate로 덮어쓰기
+        if (eventData.endDate && new Date(lastDay) < new Date(startDateNormalized)) {
+            lastDay = startDateNormalized;
+        }
+
         const endCalc = new Date(lastDay);
         endCalc.setDate(endCalc.getDate() + 1);
         const endDateStr = endCalc.toISOString().split('T')[0];
@@ -91,7 +105,7 @@ export async function createSurveyEvent(eventData: {
             colorId: eventData.colorId,
             status: 'confirmed',
             start: {
-                date: eventData.date,
+                date: startDateNormalized,
                 timeZone: 'Asia/Seoul',
             },
             end: {
@@ -132,8 +146,22 @@ export async function updateSurveyEvent(eventId: string, eventData: {
         const authClient = await getAuthClient();
         const calendar = google.calendar({ version: 'v3', auth: authClient as any });
 
+        // Normalize date to YYYY-MM-DD to avoid API errors
+        const normalizeDate = (d: string) => {
+            const dateObj = new Date(d);
+            if (isNaN(dateObj.getTime())) return d;
+            return dateObj.toISOString().split('T')[0];
+        };
+        const startDateNormalized = normalizeDate(eventData.date);
+
         // Calculate end date: endDate+1
-        const lastDay = eventData.endDate || eventData.date;
+        let lastDay = eventData.endDate ? normalizeDate(eventData.endDate) : startDateNormalized;
+        
+        // 방어코드: endDate가 startDate보다 이전인 경우 startDate로 덮어쓰기
+        if (eventData.endDate && new Date(lastDay) < new Date(startDateNormalized)) {
+            lastDay = startDateNormalized;
+        }
+
         const endCalc = new Date(lastDay);
         endCalc.setDate(endCalc.getDate() + 1);
         const endDateStr = endCalc.toISOString().split('T')[0];
@@ -145,7 +173,7 @@ export async function updateSurveyEvent(eventId: string, eventData: {
             colorId: eventData.colorId,
             status: 'confirmed',
             start: {
-                date: eventData.date,
+                date: startDateNormalized,
                 timeZone: 'Asia/Seoul',
             },
             end: {
