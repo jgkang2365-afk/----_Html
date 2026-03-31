@@ -78,6 +78,23 @@ function loadJurisdictionData(): JurisdictionMapping[] {
 }
 
 /**
+ * 주소 내 시/도 명칭을 표준화합니다.
+ */
+function normalizeSido(address: string): string {
+  return address
+    .replace(/특별시|광역시|특별자치시|특별자치도/g, "")
+    .replace(/경기도/g, "경기")
+    .replace(/강원특별자치도|강원도/g, "강원")
+    .replace(/충청북도/g, "충북")
+    .replace(/충청남도/g, "충남")
+    .replace(/전라북도|전북특별자치도/g, "전북")
+    .replace(/전라남도/g, "전남")
+    .replace(/경상북도/g, "경북")
+    .replace(/경상남도/g, "경남")
+    .replace(/제주특별자치도/g, "제주");
+}
+
+/**
  * 주소를 기준으로 소재지 관할청을 찾습니다.
  * @param address 주소 문자열
  * @returns 매칭된 노동지청 약칭 또는 null
@@ -86,25 +103,73 @@ export function findOfficeByAddress(address: string | null | undefined): string 
   if (!address) return null;
 
   const mappings = loadJurisdictionData();
-  const normalizedAddress = address.trim();
+  const rawAddress = address.trim();
+  const normalizedAddress = normalizeSido(rawAddress);
 
-  // 주소에서 시/도, 시/군/구 정보 추출
-  // 더 구체적인 매칭을 위해 더 긴 키워드를 우선 처리
-  const matches: Array<{ office: string; keywordLength: number }> = [];
+  // 매칭 후보들 저장 { office: string, score: number }
+  const matches: Array<{ office: string; score: number }> = [];
   
   for (const mapping of mappings) {
+    let bestScoreForThisOffice = 0;
+
     for (const region of mapping.regions) {
-      // 키워드가 주소에 포함되어 있는지 확인
-      // 더 긴 키워드를 우선 처리하기 위해 키워드 길이를 저장
-      if (normalizedAddress.includes(region)) {
-        matches.push({ office: mapping.office, keywordLength: region.length });
+      const normalizedRegion = normalizeSido(region);
+      const isGeneric = ["서구", "남구", "북구", "동구", "중구"].includes(normalizedRegion);
+      
+      // 1. 전체 지역명 매칭 (예: "충청남도 서산시" 또는 "경기 수원시")
+      if (normalizedAddress.includes(normalizedRegion)) {
+        let score = normalizedRegion.length * 10;
+        
+        if (isGeneric) {
+          // 흔한 지명은 시/도 정보가 같이 있을 때만 높은 점수
+          const officeSido = mapping.office.substring(0, 2); // 서울, 대전, 인천 등
+          if (normalizedAddress.includes(officeSido)) {
+            score += 100;
+          } else {
+            score = 5; // 시/도 정보 없으면 최하점
+          }
+        } else {
+          score += 50; // 고유 지명 매칭 보너스
+        }
+        bestScoreForThisOffice = Math.max(bestScoreForThisOffice, score);
+      } 
+      
+      // 2. 구체적인 행정구역명 매칭 (예: "서산", "수원", "강남")
+      const sigunguNames = region.split(/\s+/).filter(p => p.length >= 2);
+      for (const name of sigunguNames) {
+        const cleanName = name.replace(/특별시|광역시|특별자치시|특별자치도|경기도|충청남도|충청북도|전라남도|전라북도|전북특별자치도|경상남도|경상북도|강원특별자치도|제주특별자치도/g, "").trim();
+        const shortName = cleanName.replace(/[시군구]$/, "");
+        const targetNames = [cleanName, shortName].filter(n => n.length >= 2);
+
+        for (const tName of targetNames) {
+          if (normalizedAddress.includes(tName)) {
+            const isTGeneric = ["서구", "남구", "북구", "동구", "중구"].includes(tName);
+            let score = tName.length * 5;
+            
+            if (isTGeneric) {
+              const officeSido = mapping.office.substring(0, 2);
+              if (normalizedAddress.includes(officeSido)) {
+                score += 80;
+              } else {
+                score = 3;
+              }
+            } else {
+              score += 30; // 고유 지명 보너스
+            }
+            bestScoreForThisOffice = Math.max(bestScoreForThisOffice, score);
+          }
+        }
       }
+    }
+
+    if (bestScoreForThisOffice > 0) {
+      matches.push({ office: mapping.office, score: bestScoreForThisOffice });
     }
   }
   
-  // 가장 긴 키워드와 매칭된 office 반환 (더 구체적인 매칭 우선)
+  // 가장 높은 점수를 받은 office 반환
   if (matches.length > 0) {
-    matches.sort((a, b) => b.keywordLength - a.keywordLength);
+    matches.sort((a, b) => b.score - a.score);
     return matches[0].office;
   }
 
@@ -215,22 +280,23 @@ export function classifyDesignatedOffice(
 
   // 규칙 2: "중부지방고용노동청 평택지청" 또는 "평택지청" → "평택"
   // (규칙 2와 3을 먼저 체크해야 함, 평택/경기는 중부지방고용노동청의 하위 지청이지만 예외)
-  if (normalized.includes("중부지방고용노동청 평택지청") || normalized === "평택지청") {
+  if (normalized.includes("중부지방고용노동청 평택지청") || normalized === "평택지청" || normalized === "평택") {
     return "평택";
   }
 
   // 규칙 3: "중부지방고용노동청 경기지청" 또는 "경기지청" → "경기"
-  if (normalized.includes("중부지방고용노동청 경기지청") || normalized === "경기지청") {
+  if (normalized.includes("중부지방고용노동청 경기지청") || normalized === "경기지청" || normalized === "경기") {
     return "경기";
   }
 
   // 규칙 1: "대전지방고용노동청"이 정확히 일치하는 경우만 → "대전"
   // (하위 지청이 있으면 "지청"이 포함되므로 정확히 일치하지 않음)
-  if (normalized === "대전지방고용노동청") {
+  if (normalized === "대전지방고용노동청" || normalized === "대전") {
     return "대전";
   }
 
   // 규칙 4: 그 외 모든 지청 (대전지방고용노동청의 하위 지청 포함, 대전지방고용노동청 천안지청 포함, 서울, 부산, 광주, 대구, 제주 등) → "천안"
+  // 추가: 서산출장소("서산")도 규칙 4에 의해 "천안"으로 분류됨
   return "천안";
 }
 

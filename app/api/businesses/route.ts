@@ -13,6 +13,7 @@ import { toShortName } from "@/lib/constants/designated-offices";
 import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
+import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
 
 export async function GET(request: NextRequest) {
   try {
@@ -318,10 +319,20 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    let query = supabase.from("measurement_target_business").update({
+    let updatePayload = {
       ...updates,
       updated_at: new Date().toISOString()
-    });
+    };
+
+    // [New Feature] Auto-calculate office_jurisdiction if address is being updated
+    if (updates.hasOwnProperty('address')) {
+      const office = findOfficeByAddress(updates.address);
+      if (office) {
+        updatePayload.office_jurisdiction = office;
+      }
+    }
+
+    let query = supabase.from("measurement_target_business").update(updatePayload);
 
     if (id) {
       query = query.eq("id", id);
@@ -636,6 +647,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Auto-calculate office_jurisdiction based on address
+    const officeJurisdiction = address ? findOfficeByAddress(address) : null;
+
     // 2. Insert into measurement_target_business
     const { data: newTarget, error: insertError } = await supabase
       .from("measurement_target_business")
@@ -645,6 +659,7 @@ export async function POST(request: NextRequest) {
         period,
         business_name,
         address: address || null,
+        office_jurisdiction: officeJurisdiction, // 자동 할당
         plan_manager: plan_manager || null,
         is_registered: "미확정", // Default
         created_at: new Date().toISOString()
