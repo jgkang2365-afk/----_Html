@@ -1093,16 +1093,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         }
         return prev;
       });
-    } else if (formData.business_category && formData.business_category !== "공업사") {
-      // 업종이 '공업사'가 아니면 계산서 발행일은 빈 값이어야 함 (사용자 요청)
-      if (formData.electronic_invoice_date || formData.electronic_invoice_date_2) {
-        setFormData(prev => ({
-          ...prev,
-          electronic_invoice_date: "",
-          electronic_invoice_date_2: ""
-        }));
-        console.log('[JournalEditForm] 업종이 공업사가 아니므로 전자계산서 발행일(1, 2)을 초기화합니다.');
-      }
     }
 
     // ref 업데이트
