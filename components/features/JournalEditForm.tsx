@@ -55,6 +55,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const isAdmin = user?.role === "관리자";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const [originalYear, setOriginalYear] = useState(entry.measurement_year);
   const [originalPeriod, setOriginalPeriod] = useState(entry.measurement_period);
   const [autoFilling, setAutoFilling] = useState(false);

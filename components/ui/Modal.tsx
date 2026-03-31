@@ -13,9 +13,18 @@ export interface ModalProps {
   showCloseButton?: boolean;
   headerActions?: React.ReactNode;
   resizable?: boolean;
+  error?: string | null;
 }
 
+import { createContext, useContext } from "react";
 import { createPortal } from "react-dom";
+
+export const ModalContext = createContext<{ setGlobalError: (err: string | null) => void; isInsideModal?: boolean }>({
+  setGlobalError: () => {},
+  isInsideModal: false,
+});
+
+export const useModalError = () => useContext(ModalContext);
 
 export const Modal: React.FC<ModalProps> = ({
   isOpen,
@@ -26,11 +35,13 @@ export const Modal: React.FC<ModalProps> = ({
   showCloseButton = true,
   headerActions,
   resizable = false,
+  error: parentError = null,
 }) => {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [mounted, setMounted] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
 
   // 리사이즈 관련 상태
   const [isResizing, setIsResizing] = useState(false);
@@ -51,8 +62,10 @@ export const Modal: React.FC<ModalProps> = ({
       // 모달이 열릴 때 위치 및 크기 초기화
       setPosition({ x: 0, y: 0 });
       setModalSize({ width: "", height: "" });
+      setGlobalError(null);
     } else {
       document.body.style.overflow = "unset";
+      setGlobalError(null);
     }
 
     return () => {
@@ -218,11 +231,22 @@ export const Modal: React.FC<ModalProps> = ({
             onMouseDown={handleHeaderMouseDown}
           >
             {title && (
-              <h2 id="modal-title" className="text-xl sm:text-2xl font-bold text-slate-900 flex-1 tracking-tight leading-tight">
+              <h2 id="modal-title" className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight leading-tight shrink-0">
                 {title}
               </h2>
             )}
-            <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+            
+            {/* 고정된 에러 출력 영역 */}
+            {(parentError || globalError) && (
+              <div className="flex-1 min-w-0 mx-2 sm:mx-4 flex items-center h-full">
+                <div className="w-full bg-red-50 text-red-600 px-3 py-1.5 rounded-md text-sm sm:text-base font-semibold border border-red-200 shadow-sm truncate animate-in fade-in zoom-in duration-300">
+                  ⚠️ {parentError || globalError}
+                </div>
+              </div>
+            )}
+            {!(parentError || globalError) && <div className="flex-1" />}
+
+            <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0">
               {headerActions && (
                 <div className="flex items-center gap-2 flex-1 sm:flex-none overflow-x-auto no-scrollbar" onClick={(e) => e.stopPropagation()}>
                   {headerActions}
@@ -253,7 +277,9 @@ export const Modal: React.FC<ModalProps> = ({
           // 리사이즈 핸들이 내용을 가리지 않도록 하단 패딩 추가
           resizable && "pb-8"
         )}>
-          <div className="text-text-900">{children}</div>
+          <ModalContext.Provider value={{ setGlobalError, isInsideModal: true }}>
+            <div className="text-text-900">{children}</div>
+          </ModalContext.Provider>
         </div>
 
         {/* 리사이즈 핸들 */}
