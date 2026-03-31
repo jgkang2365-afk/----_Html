@@ -14,70 +14,86 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // measurement_target_business 테이블에서 주소가 있는 모든 레코드 조회
-    const { data: businesses, error: fetchError } = await supabase
-      .from("measurement_target_business")
-      .select("id, year, period, business_name, address, office_jurisdiction")
-      .not("address", "is", null)
-      .neq("address", "");
-
-    if (fetchError) {
-      return NextResponse.json(
-        { error: "데이터 조회 실패", details: fetchError.message },
-        { status: 500 }
-      );
-    }
-
-    if (!businesses || businesses.length === 0) {
-      return NextResponse.json({ message: "업데이트할 레코드가 없습니다.", updated: 0 });
-    }
-
     let updatedCount = 0;
     let skippedCount = 0;
     const errors: Array<{ id: string; error: string }> = [];
     const changes: Array<{ id: string; year: number; period: string; business_name: string; address: string; before: string; after: string }> = [];
 
-    for (const biz of businesses) {
-      const newOffice = findOfficeByAddress(biz.address);
+    // 1. measurement_target_business (측정사업장) 처리
+    const { data: targetBusinesses, error: targetError } = await supabase
+      .from("measurement_target_business")
+      .select("id, year, period, business_name, address, office_jurisdiction")
+      .not("address", "is", null)
+      .neq("address", "");
 
-      if (!newOffice) {
-        skippedCount++;
-        continue;
-      }
+    if (targetError) throw targetError;
 
-      // 기존 값과 다를 때만 업데이트
-      if (biz.office_jurisdiction !== newOffice) {
-        const { error: updateError } = await supabase
-          .from("measurement_target_business")
-          .update({ office_jurisdiction: newOffice })
-          .eq("id", biz.id);
+    for (const biz of (targetBusinesses || [])) {
+      try {
+        const newOffice = findOfficeByAddress(biz.address);
+        if (newOffice && biz.office_jurisdiction !== newOffice) {
+          const { error: updateError } = await supabase.from("measurement_target_business").update({ office_jurisdiction: newOffice }).eq("id", biz.id);
+          if (updateError) throw updateError;
 
-        if (updateError) {
-          errors.push({ id: biz.id, error: updateError.message });
-        } else {
           changes.push({
             id: biz.id,
             year: biz.year || 0,
             period: biz.period || "",
-            business_name: biz.business_name || "(없음)",
+            business_name: `[사업장] ${biz.business_name || "(없음)"}`,
             address: biz.address,
             before: biz.office_jurisdiction || "(없음)",
             after: newOffice,
           });
           updatedCount++;
+        } else {
+          skippedCount++;
         }
-      } else {
-        skippedCount++;
+      } catch (err: any) {
+        errors.push({ id: biz.id, error: err.message });
+      }
+    }
+
+    // 2. measurement_journal (측정일지) 처리
+    const { data: journals, error: journalError } = await supabase
+      .from("measurement_journal")
+      .select("id, measurement_year, measurement_period, business_name, address, office_jurisdiction")
+      .not("address", "is", null)
+      .neq("address", "");
+
+    if (journalError) throw journalError;
+
+    for (const journal of (journals || [])) {
+      try {
+        const newOffice = findOfficeByAddress(journal.address);
+        if (newOffice && journal.office_jurisdiction !== newOffice) {
+          const { error: updateError } = await supabase.from("measurement_journal").update({ office_jurisdiction: newOffice }).eq("id", journal.id);
+          if (updateError) throw updateError;
+
+          changes.push({
+            id: journal.id,
+            year: journal.measurement_year || 0,
+            period: journal.measurement_period || "",
+            business_name: `[일지] ${journal.business_name || "(없음)"}`,
+            address: journal.address,
+            before: journal.office_jurisdiction || "(없음)",
+            after: newOffice,
+          });
+          updatedCount++;
+        } else {
+          skippedCount++;
+        }
+      } catch (err: any) {
+        errors.push({ id: journal.id, error: err.message });
       }
     }
 
     return NextResponse.json({
       message: `관할청 재계산 완료`,
-      total: businesses.length,
+      total: updatedCount + skippedCount,
       updated: updatedCount,
       skipped: skippedCount,
       errorCount: errors.length,
-      changes: changes.slice(0, 50),
+      changes: changes.slice(0, 100),
       errors: errors.slice(0, 10),
     });
   } catch (error) {
