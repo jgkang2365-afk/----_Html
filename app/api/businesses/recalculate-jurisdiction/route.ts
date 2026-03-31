@@ -10,7 +10,7 @@ import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
  */
 export async function POST(request: NextRequest) {
   try {
-    await checkPermission("survey:admin");
+    await checkPermission("system:settings");
 
     const supabase = await createClient();
 
