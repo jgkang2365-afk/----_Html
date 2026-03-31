@@ -19,10 +19,12 @@ export async function POST(request: NextRequest) {
     const errors: Array<{ id: string; error: string }> = [];
     const changes: Array<{ id: string; year: number; period: string; business_name: string; address: string; before: string; after: string }> = [];
 
-    // 1. measurement_target_business (측정사업장) 처리
+    // 1. measurement_target_business (측정사업장) 처리: 2026년 상반기만
     const { data: targetBusinesses, error: targetError } = await supabase
       .from("measurement_target_business")
       .select("id, year, period, business_name, address, office_jurisdiction")
+      .eq("year", 2026)
+      .ilike("period", "상반기%")
       .not("address", "is", null)
       .neq("address", "");
 
@@ -53,10 +55,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2. measurement_journal (측정일지) 처리
+    // 2. measurement_journal (측정일지) 처리: 2026년 상반기만
     const { data: journals, error: journalError } = await supabase
       .from("measurement_journal")
       .select("id, measurement_year, measurement_period, business_name, address, office_jurisdiction")
+      .eq("measurement_year", 2026)
+      .ilike("measurement_period", "상반기%")
       .not("address", "is", null)
       .neq("address", "");
 
