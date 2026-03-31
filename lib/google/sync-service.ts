@@ -1,4 +1,4 @@
-import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent } from "./calendar";
+import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "./calendar";
 import { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -182,12 +182,11 @@ export async function syncBusinessToCalendar(
       };
 
       if (eventId) {
-        const updated = await updateSurveyEvent(eventId, eventData);
-        if (updated) {
-          console.log(`[Sync Service] Event updated: ${eventId}`);
-          return updated;
-        } else {
-          // 404 등일 경우 재생성
+        // 구글 캘린더에서 수동으로 삭제('cancelled')되었는지 확인
+        const existingEvent = await getSurveyEvent(eventId);
+        
+        if (!existingEvent || existingEvent.status === 'cancelled') {
+          console.log(`[Sync Service] Event ${eventId} was deleted or not found. Re-creating sequence.`);
           const created = await createSurveyEvent(eventData);
           if (created?.id) {
             await supabase
@@ -196,6 +195,24 @@ export async function syncBusinessToCalendar(
               .eq("id", targetBiz.id);
             console.log(`[Sync Service] Event re-created: ${created.id}`);
             return created;
+          }
+        } else {
+          // 기존 일정이 유효하면 업데이트 수행
+          const updated = await updateSurveyEvent(eventId, eventData);
+          if (updated) {
+            console.log(`[Sync Service] Event updated: ${eventId}`);
+            return updated;
+          } else {
+            // 404 등일 경우 재생성 (Fallback)
+            const created = await createSurveyEvent(eventData);
+            if (created?.id) {
+              await supabase
+                .from("measurement_target_business")
+                .update({ google_event_id: created.id })
+                .eq("id", targetBiz.id);
+              console.log(`[Sync Service] Event re-created (fallback): ${created.id}`);
+              return created;
+            }
           }
         }
       } else {
