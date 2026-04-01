@@ -8,7 +8,8 @@ import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
 import React from "react";
 import { ProfileModal } from "@/components/features/ProfileModal";
-import { Settings, Bell, Check, X } from "lucide-react";
+import { Settings, Bell, Check, X, MessageSquare } from "lucide-react";
+import { QuotaMemoPanel } from "@/components/admin/QuotaMemoPanel";
 
 interface HeaderProps {
   onMenuToggle?: () => void;
@@ -55,6 +56,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const unreadCount = notifications.filter(n => !n.is_read).length;
+  const [isMemoOpen, setIsMemoOpen] = useState(false);
 
   const fetchNotifications = async () => {
     try {
@@ -308,11 +310,27 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                     </li>
                   );
                 })}
+                {/* 메모장 버튼 추가 */}
+                <li className="shrink-0 ml-1">
+                  <button
+                    onClick={() => setIsMemoOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap text-primary-600 hover:bg-primary-50 bg-white border border-primary-100 shadow-sm"
+                  >
+                    <MessageSquare size={14} />
+                    <span>메모</span>
+                  </button>
+                </li>
               </ul>
             )}
           </div>
         </div>
       </nav>
+
+      {/* 메모장 사이드바 패널 (전역) */}
+      <QuotaMemoPanel 
+        isOpen={isMemoOpen} 
+        onClose={() => setIsMemoOpen(false)} 
+      />
 
       {/* 내 정보 수정 모달 */}
       {user && (
