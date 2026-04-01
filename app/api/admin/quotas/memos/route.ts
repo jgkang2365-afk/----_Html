@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth/session";
 
 export async function GET(request: NextRequest) {
     try {
-        const supabase = await createClient();
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-        if (authError || !user) {
+        const session = await getSession();
+        if (!session) {
             return NextResponse.json({ error: "인증되지 않은 사용자입니다." }, { status: 401 });
         }
 
+        const supabase = await createClient();
+        
         // is_shared = true 이거나 (user_id = 현재사용자) 인 건들만 조회
         const { data, error } = await supabase
             .from("quota_memos")
             .select("*")
-            .or(`is_shared.eq.true,user_id.eq.${user.id}`)
+            .or(`is_shared.eq.true,user_id.eq.${session.userId}`)
             .order("created_at", { ascending: false });
 
         if (error) throw error;
@@ -31,10 +32,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
     try {
-        const supabase = await createClient();
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-        if (authError || !user) {
+        const session = await getSession();
+        if (!session) {
             return NextResponse.json({ error: "인증되지 않은 사용자입니다." }, { status: 401 });
         }
 
@@ -45,22 +44,15 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "내용을 입력해주세요." }, { status: 400 });
         }
 
-        // 사용자 이름 가져오기
-        const { data: profile } = await supabase
-            .from("users")
-            .select("name")
-            .eq("id", user.id)
-            .single();
-
-        const userName = profile?.name || "사용자";
+        const supabase = await createClient();
 
         const { data, error } = await supabase
             .from("quota_memos")
             .insert({
                 content,
                 is_shared: is_shared !== undefined ? is_shared : true,
-                user_id: user.id,
-                user_name: userName,
+                user_id: session.userId,
+                user_name: session.name,
             })
             .select()
             .single();
@@ -79,10 +71,8 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
     try {
-        const supabase = await createClient();
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-        if (authError || !user) {
+        const session = await getSession();
+        if (!session) {
             return NextResponse.json({ error: "인증되지 않은 사용자입니다." }, { status: 401 });
         }
 
@@ -93,14 +83,8 @@ export async function PUT(request: NextRequest) {
             return NextResponse.json({ error: "필수 정보가 누락되었습니다." }, { status: 400 });
         }
 
-        // 사용자 권한 확인
-        const { data: profile } = await supabase
-            .from("users")
-            .select("role")
-            .eq("id", user.id)
-            .single();
-        
-        const isAdmin = profile?.role === "관리자";
+        const supabase = await createClient();
+        const isAdmin = session.role === "관리자";
 
         // 쿼리 빌드
         let query = supabase
@@ -114,7 +98,7 @@ export async function PUT(request: NextRequest) {
         
         // 관리자가 아니면 본인 글만 수정 가능
         if (!isAdmin) {
-            query = query.eq("user_id", user.id);
+            query = query.eq("user_id", session.userId);
         }
 
         const { data, error } = await query.select().single();
@@ -133,10 +117,8 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
     try {
-        const supabase = await createClient();
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-        if (authError || !user) {
+        const session = await getSession();
+        if (!session) {
             return NextResponse.json({ error: "인증되지 않은 사용자입니다." }, { status: 401 });
         }
 
@@ -147,14 +129,8 @@ export async function DELETE(request: NextRequest) {
             return NextResponse.json({ error: "메모 ID가 누락되었습니다." }, { status: 400 });
         }
 
-        // 사용자 권한 확인
-        const { data: profile } = await supabase
-            .from("users")
-            .select("role")
-            .eq("id", user.id)
-            .single();
-        
-        const isAdmin = profile?.role === "관리자";
+        const supabase = await createClient();
+        const isAdmin = session.role === "관리자";
 
         // 쿼리 빌드
         let query = supabase
@@ -164,7 +140,7 @@ export async function DELETE(request: NextRequest) {
         
         // 관리자가 아니면 본인 글만 삭제 가능
         if (!isAdmin) {
-            query = query.eq("user_id", user.id);
+            query = query.eq("user_id", session.userId);
         }
 
         const { error } = await query;
