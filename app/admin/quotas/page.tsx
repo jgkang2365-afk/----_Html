@@ -10,6 +10,8 @@ import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";             // Modal 컴포넌트 추가
 import { Textarea } from "@/components/ui/Textarea";       // Textarea 컴포넌트 추가
 import { DESIGNATED_OFFICES } from "@/lib/constants/designated-offices";
+import { QuotaMemoPanel } from "@/components/admin/QuotaMemoPanel";
+import { MessageSquare } from "lucide-react";
 
 interface QuotaData {
     id?: number;
@@ -38,6 +40,9 @@ export default function AdminQuotasPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [changeReason, setChangeReason] = useState("");
     const [pendingChange, setPendingChange] = useState<ChangeRequest | null>(null);
+
+    // 메모장 사이드바 상태
+    const [isMemoOpen, setIsMemoOpen] = useState(false);
 
     // 년도 옵션 (현재 년도 기준 -2년 ~ +3년)
     const yearOptions = Array.from({ length: 6 }, (_, i) => {
@@ -160,13 +165,23 @@ export default function AdminQuotasPage() {
     const sortedOffices = [...DESIGNATED_OFFICES];
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 relative">
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-text-900">지청별 지정한계 관리</h1>
                     <p className="text-text-700 mt-1">
                         각 연도 및 주기별로 지청의 인가 갯수를 설정합니다.
                     </p>
+                </div>
+                <div>
+                    <Button 
+                        variant="secondary" 
+                        onClick={() => setIsMemoOpen(true)}
+                        className="flex items-center gap-2 border-primary-200 text-primary-700 hover:bg-primary-50 bg-white shadow-sm"
+                    >
+                        <MessageSquare className="w-4 h-4" />
+                        메모장 열기
+                    </Button>
                 </div>
             </div>
 
@@ -307,6 +322,12 @@ export default function AdminQuotasPage() {
                     </div>
                 </div>
             </Modal>
+
+            {/* 메모장 사이드바 패널 */}
+            <QuotaMemoPanel 
+                isOpen={isMemoOpen} 
+                onClose={() => setIsMemoOpen(false)} 
+            />
         </div>
     );
 }
