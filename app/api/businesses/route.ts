@@ -374,7 +374,10 @@ export async function PATCH(request: NextRequest) {
           if (existingSurvey) {
             await supabase
               .from("preliminary_survey")
-              .update({ measurement_date: updates.measurement_date })
+              .update({ 
+                measurement_date: updates.measurement_date,
+                end_date: updates.measurement_date 
+              })
               .eq("id", existingSurvey.id);
 
             // [New Feature] Real-time notification if date actually changed
@@ -446,6 +449,7 @@ export async function PATCH(request: NextRequest) {
                 period: period,
                 code: code,
                 measurement_date: updates.measurement_date,
+                end_date: updates.measurement_date,
                 business_name: businessInfo.business_name,
                 address: businessInfo.address,
                 sequence_number: nextSeq,
