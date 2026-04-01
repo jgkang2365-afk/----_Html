@@ -130,8 +130,20 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         {/* 사용자 메뉴 */}
         <div className="flex items-center gap-2">
           {user && (
-            <div className="relative mr-2">
+            <div className="flex items-center gap-2 mr-2">
+              {/* 메모장 버튼 (알림 좌측) */}
               <Button
+                variant="secondary"
+                size="sm"
+                className="h-9 w-9 p-0 rounded-full bg-white border border-surface-100 hover:bg-primary-50 text-primary-600 shadow-sm"
+                onClick={() => setIsMemoOpen(true)}
+                title="지청 메모장"
+              >
+                <MessageSquare size={20} />
+              </Button>
+
+              <div className="relative">
+                <Button
                 variant="secondary"
                 size="sm"
                 className="relative h-9 w-9 p-0 rounded-full"
@@ -214,6 +226,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                   </div>
                 </div>
               )}
+              </div>
             </div>
           )}
 
@@ -310,16 +323,6 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                     </li>
                   );
                 })}
-                {/* 메모장 버튼 추가 */}
-                <li className="shrink-0 ml-1">
-                  <button
-                    onClick={() => setIsMemoOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap text-primary-600 hover:bg-primary-50 bg-white border border-primary-100 shadow-sm"
-                  >
-                    <MessageSquare size={14} />
-                    <span>메모</span>
-                  </button>
-                </li>
               </ul>
             )}
           </div>
