@@ -20,9 +20,10 @@ interface QuotaMemoPanelProps {
     isOpen: boolean;
     onClose: () => void;
     currentUserId?: string; // 현재 접속자 ID (수정/삭제 권한 확인용)
+    isAdmin?: boolean;     // 관리자 여부
 }
 
-export function QuotaMemoPanel({ isOpen, onClose, currentUserId }: QuotaMemoPanelProps) {
+export function QuotaMemoPanel({ isOpen, onClose, currentUserId, isAdmin }: QuotaMemoPanelProps) {
     const [memos, setMemos] = useState<Memo[]>([]);
     const [loading, setLoading] = useState(false);
     const [content, setContent] = useState("");
@@ -72,10 +73,11 @@ export function QuotaMemoPanel({ isOpen, onClose, currentUserId }: QuotaMemoPane
             const data = await res.json();
             
             if (data.success) {
-                setContent("");
-                fetchMemos();
+                setContent(""); // 입력창 초기화
+                setIsShared(true); // 공유 옵션 초기화
+                fetchMemos(); // 목록 새로고침
             } else {
-                alert(data.error || "등록 실패");
+                alert(data.error || "메모를 등록하는 중 오류가 발생했습니다.");
             }
         } catch (error) {
             console.error("메모 등록 실패:", error);
@@ -222,8 +224,8 @@ export function QuotaMemoPanel({ isOpen, onClose, currentUserId }: QuotaMemoPane
                                                     </span>
                                                 )}
 
-                                                {/* 작성자 본인만 수정/삭제 버튼 표시 (currentUserId가 없어도 동작은 API에서 방어하지만 UI에서 가려줌) */}
-                                                {(!currentUserId || currentUserId === memo.user_id) && (
+                                                {/* 작성자 본인 또는 관리자라면 수정/삭제 버튼 표시 */}
+                                                {(isAdmin || !currentUserId || currentUserId === memo.user_id) && (
                                                     <div className="flex ml-1">
                                                         <button 
                                                             onClick={() => {
@@ -285,7 +287,7 @@ export function QuotaMemoPanel({ isOpen, onClose, currentUserId }: QuotaMemoPane
                             disabled={!content.trim() || submitting}
                             className="px-6 shadow-sm"
                         >
-                            {submitting ? "등록 중..." : "설정"}
+                            {submitting ? "등록 중..." : "등록"}
                         </Button>
                     </div>
                 </div>

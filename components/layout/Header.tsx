@@ -330,6 +330,8 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
       <QuotaMemoPanel 
         isOpen={isMemoOpen} 
         onClose={() => setIsMemoOpen(false)} 
+        currentUserId={user?.id}
+        isAdmin={isAdmin}
       />
 
       {/* 내 정보 수정 모달 */}

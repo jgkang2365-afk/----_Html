@@ -93,17 +93,31 @@ export async function PUT(request: NextRequest) {
             return NextResponse.json({ error: "필수 정보가 누락되었습니다." }, { status: 400 });
         }
 
-        const { data, error } = await supabase
+        // 사용자 권한 확인
+        const { data: profile } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", user.id)
+            .single();
+        
+        const isAdmin = profile?.role === "관리자";
+
+        // 쿼리 빌드
+        let query = supabase
             .from("quota_memos")
             .update({
                 content,
                 is_shared,
                 updated_at: new Date().toISOString()
             })
-            .eq("id", id)
-            .eq("user_id", user.id) // 본인 글만 수정 가능
-            .select()
-            .single();
+            .eq("id", id);
+        
+        // 관리자가 아니면 본인 글만 수정 가능
+        if (!isAdmin) {
+            query = query.eq("user_id", user.id);
+        }
+
+        const { data, error } = await query.select().single();
 
         if (error) throw error;
 
@@ -133,11 +147,27 @@ export async function DELETE(request: NextRequest) {
             return NextResponse.json({ error: "메모 ID가 누락되었습니다." }, { status: 400 });
         }
 
-        const { error } = await supabase
+        // 사용자 권한 확인
+        const { data: profile } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", user.id)
+            .single();
+        
+        const isAdmin = profile?.role === "관리자";
+
+        // 쿼리 빌드
+        let query = supabase
             .from("quota_memos")
             .delete()
-            .eq("id", id)
-            .eq("user_id", user.id); // 본인 글만 삭제 가능
+            .eq("id", id);
+        
+        // 관리자가 아니면 본인 글만 삭제 가능
+        if (!isAdmin) {
+            query = query.eq("user_id", user.id);
+        }
+
+        const { error } = await query;
 
         if (error) throw error;
 
