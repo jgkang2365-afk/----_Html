@@ -143,8 +143,15 @@ export const SalesManagement: React.FC = () => {
       if (term === "하반기") {
         return itemPeriod === "하반기" || itemPeriod === "하반기(수시)" || itemPeriod === "수시(하)";
       }
-      return itemPeriod === term;
     });
+  };
+
+  // 주기에 따른 정렬 가중치 반환 (하반기 > 상반기)
+  const getPeriodWeight = (period: string | null) => {
+    if (!period) return 0;
+    if (period.includes("하반기") || period.includes("수시(하)")) return 2;
+    if (period.includes("상반기") || period.includes("수시(상)")) return 1;
+    return 0;
   };
 
   // 검색어 매칭 헬퍼 함수 (콤마로 구분된 다중 키워드 OR 검색, 부분 일치)
@@ -275,7 +282,7 @@ export const SalesManagement: React.FC = () => {
   const [unpaidSort, setUnpaidSort] = useState<{
     column: string;
     direction: "asc" | "desc";
-  }>({ column: "unpaid", direction: "desc" });
+  }>({ column: "year", direction: "desc" });
 
   // 기타 매출 필터 및 정렬 상태
   const [otherFilters, setOtherFilters] = useState({
@@ -289,7 +296,7 @@ export const SalesManagement: React.FC = () => {
   const [otherSort, setOtherSort] = useState<{
     column: string;
     direction: "asc" | "desc";
-  }>({ column: "total_amount", direction: "desc" });
+  }>({ column: "revenue_year", direction: "desc" });
 
   // 측정비 필터 및 정렬 상태
   const [measurementFilters, setMeasurementFilters] = useState({
@@ -303,7 +310,7 @@ export const SalesManagement: React.FC = () => {
   const [measurementSort, setMeasurementSort] = useState<{
     column: string;
     direction: "asc" | "desc";
-  }>({ column: "measurement_fee_total", direction: "desc" });
+  }>({ column: "measurement_year", direction: "desc" });
 
   // 디바운싱된 필터 상태 - 기타 매출만 유지 (나머지는 Enter/Blur 시 즉시 반영)
   const [debouncedOtherFilters, setDebouncedOtherFilters] = useState(otherFilters);
@@ -2035,6 +2042,7 @@ export const SalesManagement: React.FC = () => {
 
                 // 정렬 적용
                 filteredMeasurement.sort((a, b) => {
+                  let result = 0;
                   let aValue: any;
                   let bValue: any;
 
@@ -2062,11 +2070,20 @@ export const SalesManagement: React.FC = () => {
                   if (aValue === null || aValue === undefined) aValue = "";
                   if (bValue === null || bValue === undefined) bValue = "";
 
-                  if (measurementSort.direction === "asc") {
-                    return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
-                  } else {
-                    return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+                  if (aValue > bValue) result = measurementSort.direction === "asc" ? 1 : -1;
+                  else if (aValue < bValue) result = measurementSort.direction === "asc" ? -1 : 1;
+
+                  if (result !== 0) return result;
+
+                  // 2차 정렬: 년도 내림차순 (DESC)
+                  if (a.measurement_year !== b.measurement_year) {
+                    return b.measurement_year - a.measurement_year;
                   }
+
+                  // 3차 정렬: 주기 내림차순 (하반기 > 상반기)
+                  const aWeight = getPeriodWeight(a.measurement_period);
+                  const bWeight = getPeriodWeight(b.measurement_period);
+                  return bWeight - aWeight;
                 });
 
                 // 정렬 아이콘 컴포넌트
@@ -2498,6 +2515,7 @@ export const SalesManagement: React.FC = () => {
 
                 // 정렬 적용
                 filteredOther.sort((a, b) => {
+                  let result = 0;
                   let aValue: any = a[otherSort.column as keyof OtherRevenue];
                   let bValue: any = b[otherSort.column as keyof OtherRevenue];
 
@@ -2511,11 +2529,22 @@ export const SalesManagement: React.FC = () => {
                   if (aValue === null || aValue === undefined) aValue = "";
                   if (bValue === null || bValue === undefined) bValue = "";
 
-                  if (otherSort.direction === "asc") {
-                    return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
-                  } else {
-                    return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+                  if (aValue > bValue) result = otherSort.direction === "asc" ? 1 : -1;
+                  else if (aValue < bValue) result = otherSort.direction === "asc" ? -1 : 1;
+
+                  if (result !== 0) return result;
+
+                  // 2차 정렬: 년도 내림차순 (DESC)
+                  const aYear = a.revenue_year || 0;
+                  const bYear = b.revenue_year || 0;
+                  if (aYear !== bYear) {
+                    return bYear - aYear;
                   }
+
+                  // 3차 정렬: 주기 내림차순 (하반기 > 상반기)
+                  const aWeight = getPeriodWeight(a.revenue_period);
+                  const bWeight = getPeriodWeight(b.revenue_period);
+                  return bWeight - aWeight;
                 });
 
                 // 정렬 아이콘 컴포넌트
@@ -3053,6 +3082,7 @@ export const SalesManagement: React.FC = () => {
 
                 // 정렬 적용
                 filteredItems.sort((a, b) => {
+                  let result = 0;
                   let aValue: any = a[unpaidSort.column as keyof typeof a];
                   let bValue: any = b[unpaidSort.column as keyof typeof b];
 
@@ -3066,11 +3096,20 @@ export const SalesManagement: React.FC = () => {
                   if (aValue === null || aValue === undefined) aValue = "";
                   if (bValue === null || bValue === undefined) bValue = "";
 
-                  if (unpaidSort.direction === "asc") {
-                    return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
-                  } else {
-                    return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+                  if (aValue > bValue) result = unpaidSort.direction === "asc" ? 1 : -1;
+                  else if (aValue < bValue) result = unpaidSort.direction === "asc" ? -1 : 1;
+
+                  if (result !== 0) return result;
+
+                  // 2차 정렬: 년도 내림차순 (DESC)
+                  if (a.year !== b.year) {
+                    return b.year - a.year;
                   }
+
+                  // 3차 정렬: 주기 내림차순 (하반기 > 상반기)
+                  const aWeight = getPeriodWeight(a.period);
+                  const bWeight = getPeriodWeight(b.period);
+                  return bWeight - aWeight;
                 });
 
                 // 미수금 합계 계산
