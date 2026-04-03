@@ -2918,7 +2918,7 @@ export const SalesManagement: React.FC = () => {
                             <TableHead className="w-[130px]">사업자번호 (원래)</TableHead>
                             <TableHead className="w-[200px] border-l border-primary-100 bg-primary-50/50">발행처 상호 (변경)</TableHead>
                             <TableHead className="w-[130px] bg-primary-50/50">발행처 사업자 (변경)</TableHead>
-                            <TableHead className="w-[120px] text-right">금액(합계)</TableHead>
+                            <TableHead className="w-[120px] text-right">측정비(사업장)</TableHead>
                             <TableHead className="w-[90px] text-center">입금상태</TableHead>
                             <TableHead className="w-[80px] text-center">작업</TableHead>
                           </TableRow>
@@ -2935,8 +2935,8 @@ export const SalesManagement: React.FC = () => {
                             </TableRow>
                           ) : (
                             thirdPartyItems.map((item) => {
-                              const total = parseFloat(item.measurement_fee_total?.toString() || "0");
-                              const deposit = parseFloat(item.deposit_total?.toString() || "0");
+                              const total = parseFloat(item.measurement_fee_business?.toString() || "0");
+                              const deposit = parseFloat(((item.deposit_amount_business || 0) + (item.deposit_amount_business_2 || 0)).toString());
                               const isFullyPaid = total > 0 && deposit >= total;
                               
                               return (
