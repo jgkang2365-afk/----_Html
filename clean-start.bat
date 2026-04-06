@@ -20,4 +20,4 @@ if exist node_modules\.cache (
 
 echo ✨ Done. Starting development server...
 echo ----------------------------------------
-npm run dev
+npm run dev:turbo
