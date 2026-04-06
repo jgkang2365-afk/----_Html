@@ -191,6 +191,12 @@ export const SalesManagement: React.FC = () => {
     byYear: Record<number, YearlySummary>;
   } | null>(null);
 
+  // 페이지네이션 상태
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [pageSize] = useState(50);
+
 
 
   // 년도별 집계 년도 선택 상태 (기본값: 현재 년도)
@@ -416,18 +422,32 @@ export const SalesManagement: React.FC = () => {
   // 지정한계_관할지청 옵션
   const officeOptions = DESIGNATED_OFFICE_OPTIONS;
 
-  const loadSalesData = React.useCallback(async () => {
+  const loadSalesData = React.useCallback(async (page: number = 1) => {
     try {
       setLoading(true);
       setError(null);
 
-      // const params = new URLSearchParams();
-      // if (filters.year) params.append("year", filters.year);
-      // if (filters.businessName) params.append("businessName", filters.businessName);
-      // if (filters.measurementPeriod) params.append("measurementPeriod", filters.measurementPeriod);
-      // if (filters.designatedOffice) params.append("designatedOffice", filters.designatedOffice);
+      const params = new URLSearchParams();
+      params.append("page", page.toString());
+      params.append("limit", pageSize.toString());
+      
+      // 검색 필터 적용 (측정비 탭 기준)
+      if (activeTab === "measurement") {
+        if (measurementFilters.year) params.append("year", measurementFilters.year);
+        if (measurementFilters.businessName) params.append("businessName", measurementFilters.businessName);
+        if (measurementFilters.representativeName) params.append("representativeName", measurementFilters.representativeName);
+        if (measurementFilters.period) params.append("measurementPeriod", measurementFilters.period);
+        if (measurementFilters.designatedOffice) params.append("designatedOffice", measurementFilters.designatedOffice);
+        
+        // 정렬 적용
+        params.append("sortColumn", measurementSort.column);
+        params.append("sortDirection", measurementSort.direction);
+      } else if (activeTab === "unpaid") {
+        if (unpaidFilters.year) params.append("year", unpaidFilters.year);
+        if (unpaidFilters.period) params.append("measurementPeriod", unpaidFilters.period);
+      }
 
-      const response = await fetch(`/api/sales`);
+      const response = await fetch(`/api/sales?${params.toString()}`);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -436,17 +456,22 @@ export const SalesManagement: React.FC = () => {
       }
 
       const result = await response.json();
-      console.log("매출 데이터 로드 성공:", result);
-
+      
       if (result.success !== false) {
         setMeasurementRevenue(result.measurementRevenue || []);
-        // 삭제된 항목 제외
         const filteredOtherRevenue = (result.otherRevenue || []).filter(
           (item: OtherRevenue) => !deletedOtherIds.has(item.id)
         );
         setOtherRevenue(filteredOtherRevenue);
         setSummary(result.summary || null);
-        // 데이터 로드 시 선택 초기화
+        
+        // 페이지네이션 정보 업데이트
+        if (result.pagination) {
+          setTotalCount(result.pagination.totalCount);
+          setTotalPages(result.pagination.totalPages);
+          setCurrentPage(result.pagination.currentPage);
+        }
+        
         setSelectedOtherIds([]);
       } else {
         setError(result.error || "매출 데이터를 불러오는 중 오류가 발생했습니다.");
@@ -454,18 +479,32 @@ export const SalesManagement: React.FC = () => {
     } catch (err: any) {
       console.error("매출 데이터 로드 오류:", err);
       setError(err.message || "매출 데이터를 불러오는 중 오류가 발생했습니다.");
-      // 에러가 발생해도 기본값 설정
       setMeasurementRevenue([]);
       setOtherRevenue([]);
       setSummary(null);
     } finally {
       setLoading(false);
     }
-  }, [deletedOtherIds]);
+  }, [deletedOtherIds, pageSize, activeTab, measurementFilters, unpaidFilters]);
 
+  // 데이터 로드 효과
   useEffect(() => {
-    loadSalesData();
-  }, [loadSalesData]);
+    loadSalesData(currentPage);
+  }, [currentPage]); // 페이지 변경 시 로드
+
+  // 필터 변경 시 1페이지로 리셋하며 데이터 로드
+  useEffect(() => {
+    setCurrentPage(1);
+    loadSalesData(1);
+  }, [
+    activeTab,
+    measurementFilters.year,
+    measurementFilters.businessName,
+    measurementFilters.period,
+    measurementFilters.designatedOffice,
+    unpaidFilters.year,
+    unpaidFilters.period
+  ]);
 
 
 
@@ -1041,93 +1080,78 @@ export const SalesManagement: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {(() => {
-                  // 선택된 년도에 따라 데이터 필터링
-                  const filteredMeasurementRevenue = salesSummaryYear && salesSummaryYear !== ""
-                    ? measurementRevenue.filter((item) => item.measurement_year === parseInt(salesSummaryYear))
-                    : measurementRevenue;
-
-                  const filteredOtherRevenue = salesSummaryYear && salesSummaryYear !== ""
-                    ? otherRevenue.filter((item) => item.revenue_year === parseInt(salesSummaryYear))
-                    : otherRevenue;
-
-                  // 측정비 집계 계산
+                  // 집계 데이터 계산
                   let measurementRevenueSum = 0;
-                  let measurementTotalSum = 0;
                   let measurementDepositSum = 0;
                   let measurementUnpaidSum = 0;
 
-                  filteredMeasurementRevenue.forEach((item) => {
-                    const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
-                    const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
-                    const unpaid = revenue - deposit;
-
-                    measurementRevenueSum += revenue;
-                    measurementTotalSum += revenue;
-                    measurementDepositSum += deposit;
-                    measurementUnpaidSum += unpaid;
-                  });
-
-                  // 기타 매출 집계 계산
                   let otherRevenueSum = 0;
                   let otherVatSum = 0;
                   let otherTotalSum = 0;
                   let otherDepositSum = 0;
                   let otherUnpaidSum = 0;
 
-                  filteredOtherRevenue.forEach((item) => {
-                    const supply = parseFloat(item.supply_amount?.toString() || "0") || 0;
-                    const vat = parseFloat(item.vat_amount?.toString() || "0") || 0;
-                    const total = parseFloat(item.total_amount?.toString() || "0") || 0;
-                    const deposit = parseFloat(item.deposit_amount?.toString() || "0") || 0;
-                    const unpaid = total - deposit;
+                  if (salesSummaryYear && salesSummaryYear !== "" && summary?.byYear) {
+                    const yearData = summary.byYear[parseInt(salesSummaryYear)]?.total;
+                    if (yearData) {
+                      measurementRevenueSum = yearData.measurementRevenue;
+                      measurementDepositSum = yearData.measurementDeposit;
+                      measurementUnpaidSum = yearData.measurementUnpaid;
 
-                    otherRevenueSum += supply;
-                    otherVatSum += vat;
-                    otherTotalSum += total;
-                    otherDepositSum += deposit;
-                    otherUnpaidSum += unpaid;
-                  });
+                      otherRevenueSum = yearData.otherRevenue;
+                      otherVatSum = yearData.otherVat;
+                      otherTotalSum = yearData.otherTotal;
+                      otherDepositSum = yearData.otherDeposit;
+                      otherUnpaidSum = yearData.otherUnpaid;
+                    }
+                  } else if (summary?.byOffice) {
+                    // 전체 합계 계산
+                    Object.values(summary.byOffice).forEach(officeData => {
+                      measurementRevenueSum += officeData.measurementRevenue;
+                      measurementDepositSum += officeData.measurementDeposit;
+                      measurementUnpaidSum += officeData.measurementUnpaid;
 
-                  // 측정비 합계 클릭 핸들러
+                      otherRevenueSum += officeData.otherRevenue;
+                      otherVatSum += officeData.otherVat;
+                      otherTotalSum += officeData.otherTotal;
+                      otherDepositSum += officeData.otherDeposit;
+                      otherUnpaidSum += officeData.otherUnpaid;
+                    });
+                  }
+
+                  const measurementTotalSum = measurementRevenueSum;
+
+                  // 상세 내역 클릭 핸들러
                   const handleMeasurementTotalClick = () => {
                     setSalesDetailType("measurementTotal");
-                    setSalesDetailList(filteredMeasurementRevenue);
-                    setSalesDetailTitle(`측정비 합계 내역${salesSummaryYear ? ` (${salesSummaryYear}년)` : ""}`);
+                    setSalesDetailList(measurementRevenue);
+                    setSalesDetailTitle(`측정비 합계 내역(현재 페이지)${salesSummaryYear ? ` (${salesSummaryYear}년)` : ""}`);
                     setIsSalesDetailModalOpen(true);
                   };
 
-                  // 측정비 입금액 클릭 핸들러
                   const handleMeasurementDepositClick = () => {
                     setSalesDetailType("measurementDeposit");
-                    // 입금액이 있는 항목만 필터링
-                    const itemsWithDeposit = filteredMeasurementRevenue.filter(
-                      (item) => (item.deposit_total || 0) > 0
-                    );
+                    const itemsWithDeposit = measurementRevenue.filter((item) => (item.deposit_total || 0) > 0);
                     setSalesDetailList(itemsWithDeposit);
-                    setSalesDetailTitle(`측정비 입금액 내역${salesSummaryYear ? ` (${salesSummaryYear}년)` : ""}`);
+                    setSalesDetailTitle(`측정비 입금액 내역(현재 페이지)${salesSummaryYear ? ` (${salesSummaryYear}년)` : ""}`);
                     setIsSalesDetailModalOpen(true);
                   };
 
                   return (
                     <>
-                      {/* 측정비 집계 */}
                       <TableRow>
                         <TableCell className="font-medium">측정비</TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(measurementRevenueSum)}원
-                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(measurementRevenueSum)}원</TableCell>
                         <TableCell className="text-right">0원</TableCell>
                         <TableCell
-                          className="text-right font-semibold cursor-pointer hover:bg-gray-100 hover:text-primary-600 transition-colors"
+                          className="text-right font-semibold cursor-pointer hover:bg-gray-100"
                           onClick={handleMeasurementTotalClick}
-                          title="클릭하여 상세 내역 보기"
                         >
                           {formatCurrency(measurementTotalSum)}원
                         </TableCell>
                         <TableCell
-                          className="text-right cursor-pointer hover:bg-gray-100 hover:text-primary-600 transition-colors"
+                          className="text-right cursor-pointer hover:bg-gray-100"
                           onClick={handleMeasurementDepositClick}
-                          title="클릭하여 상세 내역 보기"
                         >
                           {formatCurrency(measurementDepositSum)}원
                         </TableCell>
@@ -1135,21 +1159,12 @@ export const SalesManagement: React.FC = () => {
                           {formatCurrency(measurementUnpaidSum)}원
                         </TableCell>
                       </TableRow>
-                      {/* 기타 집계 */}
                       <TableRow>
                         <TableCell className="font-medium">기타</TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(otherRevenueSum)}원
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(otherVatSum)}원
-                        </TableCell>
-                        <TableCell className="text-right font-semibold">
-                          {formatCurrency(otherTotalSum)}원
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(otherDepositSum)}원
-                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(otherRevenueSum)}원</TableCell>
+                        <TableCell className="text-right">{formatCurrency(otherVatSum)}원</TableCell>
+                        <TableCell className="text-right font-semibold">{formatCurrency(otherTotalSum)}원</TableCell>
+                        <TableCell className="text-right">{formatCurrency(otherDepositSum)}원</TableCell>
                         <TableCell className="text-right text-warning-600 font-semibold">
                           {formatCurrency(otherUnpaidSum)}원
                         </TableCell>
@@ -2115,7 +2130,8 @@ export const SalesManagement: React.FC = () => {
                     <div className="sticky top-[-1px] z-40 bg-white py-3 flex justify-between items-center border-b border-surface-100 mb-2">
                       <div className="flex items-center gap-3">
                         <div className="text-sm font-medium text-text-700">
-                          검색 결과: <span className="text-primary-600 font-bold">{filteredMeasurement.length}</span>건 <span className="text-text-400 font-normal ml-1">(전체 {measurementRevenue.length}건)</span>
+                          검색 결과: <span className="text-primary-600 font-bold">{totalCount.toLocaleString()}</span>건 
+                          <span className="text-text-400 font-normal ml-2">({currentPage} / {totalPages} 페이지)</span>
                         </div>
                         {isMeasurementFiltering && (
                           <div className="flex items-center gap-2 text-xs text-primary-500 animate-pulse">
@@ -2356,16 +2372,14 @@ export const SalesManagement: React.FC = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {filteredMeasurement.length === 0 ? (
+                          {measurementRevenue.length === 0 ? (
                             <TableRow>
                               <TableCell colSpan={13} className="text-center text-text-500 py-8">
-                                {measurementRevenue.length === 0
-                                  ? "데이터가 없습니다."
-                                  : "필터 조건에 맞는 항목이 없습니다."}
+                                {loading ? "데이터를 불러오는 중..." : "항목이 없습니다."}
                               </TableCell>
                             </TableRow>
                           ) : (
-                            filteredMeasurement.map((item) => {
+                            measurementRevenue.map((item) => {
                               const total = parseFloat(item.measurement_fee_total?.toString() || "0");
                               const deposit = parseFloat(item.deposit_total?.toString() || "0");
                               const unpaid = total - deposit;
@@ -2491,6 +2505,58 @@ export const SalesManagement: React.FC = () => {
                           )}
                         </TableBody>
                       </Table>
+                    </div>
+
+                    {/* 페이지네이션 컨트롤 */}
+                    <div className="mt-4 flex flex-col items-center gap-3 py-4 border-t border-surface-100">
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={currentPage <= 1 || loading}
+                          onClick={() => setCurrentPage(1)}
+                          className="px-2"
+                        >
+                          맨앞
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={currentPage <= 1 || loading}
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          className="px-2"
+                        >
+                          이전
+                        </Button>
+                        
+                        <div className="flex items-center px-4">
+                          <span className="text-sm font-medium">
+                            <span className="text-primary-600 font-bold">{currentPage}</span> / {totalPages}
+                          </span>
+                        </div>
+
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={currentPage >= totalPages || loading}
+                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                          className="px-2"
+                        >
+                          다음
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={currentPage >= totalPages || loading}
+                          onClick={() => setCurrentPage(totalPages)}
+                          className="px-2"
+                        >
+                          맨뒤
+                        </Button>
+                      </div>
+                      <div className="text-xs text-text-500">
+                        전체 {totalCount.toLocaleString()}개의 데이터 중 {(currentPage - 1) * 50 + 1}~{Math.min(currentPage * 50, totalCount)}번째 항목 표시 중
+                      </div>
                     </div>
                   </div>
                 );
