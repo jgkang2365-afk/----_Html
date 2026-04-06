@@ -59,7 +59,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [originalYear, setOriginalYear] = useState(entry.measurement_year);
   const [originalPeriod, setOriginalPeriod] = useState(entry.measurement_period);
   const [autoFilling, setAutoFilling] = useState(false);
-  const [completionSuggestion, setCompletionSuggestion] = useState<string | null>(null);
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
   const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
@@ -1007,34 +1006,27 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   };
 
-  // 금액·입금 상태 기반 자동 완료여부 제안
+  // 금액·입금 상태 및 날짜 기반 자동 완료 전환
   useEffect(() => {
-    // 완료 상태가 아닐 때만 제안
+    // 이미 완료 상태가 아닐 때만 체크
     if (formData.completion_status !== "완료") {
       const feeTotal = parseFloat(parseCurrency(formData.measurement_fee_total)) || 0;
       const depositTotal = parseFloat(parseCurrency(formData.deposit_total)) || 0;
-      const endDate = formData.measurement_end_date;
+      const startDate = formData.measurement_start_date;
+      const k2bDate = formData.k2b_send_date;
 
-      // 조건: 측정비 합계 = 입금액 합계이고, 측정 종료일이 과거인 경우
-      if (feeTotal > 0 && depositTotal > 0 && feeTotal === depositTotal && endDate) {
-        const endDateObj = new Date(endDate);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        endDateObj.setHours(0, 0, 0, 0);
-
-        // 측정 종료일이 오늘 이전이면 완료 제안
-        if (endDateObj <= today) {
-          setCompletionSuggestion("측정비와 입금액이 일치하고 측정이 종료되었습니다. 완료여부를 '완료'로 변경하시겠습니까?");
-        } else {
-          setCompletionSuggestion(null);
-        }
-      } else {
-        setCompletionSuggestion(null);
+      // 조건: 1. 측정비 합계 = 입금액 합계 (교차 검증)
+      //       2. 측정 시작일 등록됨
+      //       3. K2B 전송일 등록됨
+      if (feeTotal > 0 && depositTotal > 0 && feeTotal === depositTotal && startDate && k2bDate) {
+        console.log('[JournalEditForm] 모든 조건 충족: 완료 상태로 자동 전환');
+        setFormData(prev => ({
+          ...prev,
+          completion_status: "완료"
+        }));
       }
-    } else {
-      setCompletionSuggestion(null);
     }
-  }, [formData.measurement_fee_total, formData.deposit_total, formData.measurement_end_date, formData.completion_status]);
+  }, [formData.measurement_fee_total, formData.deposit_total, formData.measurement_start_date, formData.k2b_send_date, formData.completion_status]);
 
   // 업종분류가 '공업사'일 때 자동화 로직
   useEffect(() => {
@@ -2179,28 +2171,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         </div>
       )}
 
-      {/* 오류 및 알림 메시지 영역 */}
-      <div className="space-y-3">
-        {error && <Alert variant="error">{error}</Alert>}
-        {completionSuggestion && (
-          <Alert variant="warning">
-            {completionSuggestion}
-            <div className="mt-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setFormData({ ...formData, completion_status: "완료" });
-                  setCompletionSuggestion(null);
-                }}
-              >
-                완료로 변경
-              </Button>
-            </div>
-          </Alert>
-        )}
-      </div>
+        <div className="space-y-3">
+          {error && <Alert variant="error">{error}</Alert>}
+        </div>
 
 
       {
