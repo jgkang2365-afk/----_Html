@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     // StatTables 컴포넌트에서 미수금 상세 분석 등을 위해 추가 컬럼이 필요하므로 포함합니다.
     let measurementSummaryQuery = supabase
       .from("measurement_journal")
-      .select("id, business_name, designated_office, measurement_year, measurement_period, measurement_fee_total, deposit_total, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national")
+      .select("id, business_name, designated_office, measurement_year, measurement_period, measurement_fee_total, deposit_total, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national, k2b_send_date, k2b_status, is_email_sent, last_email_sent_at")
       .not("business_name", "ilike", "%번외%");
 
     // 기타 매출은 전체 데이터를 테이블에 표시해야 하므로 전체 컬럼을 선택합니다.

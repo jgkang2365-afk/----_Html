@@ -345,11 +345,11 @@ export default function ReportProcessingPage() {
                                     </TableCell>
                                     <TableCell>
                                         {record.k2b_status ? (
-                                            <span className={`text-xs font-semibold px-2 py-1 rounded border ${['업로드 완료', '정상처리'].includes(record.k2b_status)
+                                            <span className={`text-xs font-semibold px-2 py-1 rounded border ${record.k2b_status === '정상처리'
                                                 ? 'text-green-600 bg-green-50 border-green-200'
                                                 : 'text-red-600 bg-red-50 border-red-200'
                                                 }`}>
-                                                {['업로드 완료', '정상처리'].includes(record.k2b_status) ? '성공' : '실패'}
+                                                {record.k2b_status === '정상처리' ? '성공' : '실패'}
                                                 {' '}({record.k2b_status})
                                             </span>
                                         ) : (

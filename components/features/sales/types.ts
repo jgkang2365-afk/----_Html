@@ -25,6 +25,10 @@ export interface MeasurementRevenue {
   business_number: string | null;
   invoice_business_name: string | null;
   invoice_business_number: string | null;
+  k2b_send_date: string | null;
+  k2b_status: string | null;
+  is_email_sent: boolean;
+  last_email_sent_at: string | null;
 }
 
 export interface OtherRevenue {

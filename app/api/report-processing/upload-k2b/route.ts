@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
                     const updateGridData: Record<string, any> = { k2b_status: gr.status };
 
                     // 그리드에서 확인된 최종 상태가 성공('정상처리' 또는 '업로드 완료')이면 전송일자도 갱신
-                    if (gr.status === '정상처리' || gr.status === '업로드 완료') {
+                    if (gr.status === '정상처리') {
                         updateGridData.k2b_send_date = getKSTDateString();
                     }
 
@@ -107,8 +107,8 @@ export async function POST(req: NextRequest) {
                     const existingResult = results.find(r => r.code === matchTarget.code);
                     if (existingResult) {
                         existingResult.status = gr.status;
-                        // "정상처리" 또는 "업로드 완료" 이면 성공으로 간주
-                        if (gr.status === '정상처리' || gr.status === '업로드 완료') {
+                        // "정상처리" 이면 성공으로 간주
+                        if (gr.status === '정상처리') {
                             existingResult.success = true;
                         }
                     }
