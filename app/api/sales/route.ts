@@ -34,14 +34,16 @@ export async function GET(request: NextRequest) {
 
     // --- [최적화 1] 집계 계산을 위한 가벼운 전체 데이터 조회 ---
     // 전체 목록을 가져오는 대신, 계산에 꼭 필요한 컬럼만 선택하여 속도 향상
+    // StatTables 컴포넌트에서 미수금 상세 분석 등을 위해 추가 컬럼이 필요하므로 포함합니다.
     let measurementSummaryQuery = supabase
       .from("measurement_journal")
-      .select("designated_office, measurement_year, measurement_period, measurement_fee_total, deposit_total")
+      .select("id, business_name, designated_office, measurement_year, measurement_period, measurement_fee_total, deposit_total, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national")
       .not("business_name", "ilike", "%번외%");
 
+    // 기타 매출은 전체 데이터를 테이블에 표시해야 하므로 전체 컬럼을 선택합니다.
     let otherSummaryQuery = supabase
       .from("other_revenue")
-      .select("designated_office, revenue_year, revenue_period, supply_amount, vat_amount, total_amount, deposit_amount");
+      .select("*");
 
     // 공통 필터 적용 함수
     const applyFilters = (query: any, isOther: boolean = false) => {
@@ -152,8 +154,8 @@ export async function GET(request: NextRequest) {
 
     // 측정비 집계
     (allMeasurementForSummary || []).forEach((item: any) => {
-      const office = item.designated_office || "기타";
-      const officeKey = offices.includes(office) ? office : "기타";
+      const shortOffice = item.designated_office ? toShortName(item.designated_office) : "기타";
+      const officeKey = offices.includes(shortOffice as any) ? shortOffice : "기타";
       const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
       officeSummary[officeKey].measurementRevenue += revenue;
@@ -164,8 +166,8 @@ export async function GET(request: NextRequest) {
 
     // 기타 매출 집계
     (allOtherForSummary || []).forEach((item: any) => {
-      const office = item.designated_office || "기타";
-      const officeKey = offices.includes(office) ? office : "기타";
+      const shortOffice = item.designated_office ? toShortName(item.designated_office) : "기타";
+      const officeKey = offices.includes(shortOffice as any) ? shortOffice : "기타";
       const supply = parseFloat(item.supply_amount?.toString() || "0") || 0;
       const vat = parseFloat(item.vat_amount?.toString() || "0") || 0;
       const total = parseFloat(item.total_amount?.toString() || "0") || 0;
@@ -233,6 +235,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       measurementRevenue: (measurementRevenue || []).map((item: any) => ({
+        ...item,
+        designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
+      })),
+      allMeasurementData: (allMeasurementForSummary || []).map((item: any) => ({
         ...item,
         designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
       })),

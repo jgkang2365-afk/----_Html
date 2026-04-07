@@ -126,6 +126,7 @@ export const SalesManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [measurementRevenue, setMeasurementRevenue] = useState<MeasurementRevenue[]>([]);
+  const [allMeasurementData, setAllMeasurementData] = useState<MeasurementRevenue[]>([]);
   const [otherRevenue, setOtherRevenue] = useState<OtherRevenue[]>([]);
   const [summary, setSummary] = useState<SalesSummaryData | null>(null);
 
@@ -397,6 +398,7 @@ export const SalesManagement: React.FC = () => {
       
       if (result.success !== false) {
         setMeasurementRevenue(result.measurementRevenue || []);
+        setAllMeasurementData(result.allMeasurementData || []);
         const filteredOtherRevenue = (result.otherRevenue || []).filter(
           (item: OtherRevenue) => !deletedOtherIds.has(item.id)
         );
@@ -418,6 +420,7 @@ export const SalesManagement: React.FC = () => {
       console.error("매출 데이터 로드 오류:", err);
       setError(err.message || "매출 데이터를 불러오는 중 오류가 발생했습니다.");
       setMeasurementRevenue([]);
+      setAllMeasurementData([]);
       setOtherRevenue([]);
       setSummary(null);
     } finally {
@@ -1027,7 +1030,7 @@ export const SalesManagement: React.FC = () => {
       {summary && (
         <StatTables
           summary={summary}
-          measurementRevenue={measurementRevenue}
+          measurementRevenue={allMeasurementData}
           otherRevenue={otherRevenue}
           formatCurrency={formatCurrency}
           yearOptions={yearOptions}

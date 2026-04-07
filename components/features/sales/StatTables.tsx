@@ -296,7 +296,7 @@ export const StatTables: React.FC<StatTablesProps> = ({
       {/* 2. 년도별 측정비 입금 및 미수금 집계 현황 */}
       <Card className="p-4 mt-8">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-text-900">미수금 집계 분석</h2>
+          <h2 className="text-lg font-semibold text-text-900">년도별 측정비 입금 및 미수금 집계 현황</h2>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-text-700">년도:</label>
@@ -382,27 +382,57 @@ export const StatTables: React.FC<StatTablesProps> = ({
                 return { office, label: officeLabels[office] || office, totalCount, totalSubtotal, totalDeposit, bizCount, bizSubtotal, bizDeposit, natCount, natSubtotal, natDeposit };
               });
 
+              const totalRow = unpaidAnalysis.reduce((acc, row) => {
+                acc.totalCount += row.totalCount;
+                acc.totalSubtotal += row.totalSubtotal;
+                acc.totalDeposit += row.totalDeposit;
+                acc.bizCount += row.bizCount;
+                acc.bizSubtotal += row.bizSubtotal;
+                acc.bizDeposit += row.bizDeposit;
+                acc.natCount += row.natCount;
+                acc.natSubtotal += row.natSubtotal;
+                acc.natDeposit += row.natDeposit;
+                return acc;
+              }, {
+                totalCount: 0, totalSubtotal: 0, totalDeposit: 0,
+                bizCount: 0, bizSubtotal: 0, bizDeposit: 0,
+                natCount: 0, natSubtotal: 0, natDeposit: 0
+              });
+
               return (
                 <>
+                  <TableRow className="border-t-2 border-b-2 border-gray-200 bg-gray-50 text-xs text-black">
+                    <TableCell className="font-bold text-center">합계</TableCell>
+                    <TableCell className="text-center font-bold text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(null, "total")}>{totalRow.totalCount}</TableCell>
+                    <TableCell className="text-right font-bold">{formatCurrency(totalRow.totalSubtotal)}</TableCell>
+                    <TableCell className="text-right font-bold">{formatCurrency(totalRow.totalDeposit)}</TableCell>
+                    <TableCell className="text-right font-bold text-warning-600 border-r-2">{formatCurrency(totalRow.totalSubtotal - totalRow.totalDeposit)}</TableCell>
+                    
+                    <TableCell className="text-center font-bold text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(null, "business")}>{totalRow.bizCount}</TableCell>
+                    <TableCell className="text-right font-bold">{formatCurrency(totalRow.bizSubtotal)}</TableCell>
+                    <TableCell className="text-right font-bold">{formatCurrency(totalRow.bizDeposit)}</TableCell>
+                    <TableCell className="text-right font-bold text-warning-600 border-r-2">{formatCurrency(totalRow.bizSubtotal - totalRow.bizDeposit)}</TableCell>
+                    
+                    <TableCell className="text-center font-bold text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(null, "national")}>{totalRow.natCount}</TableCell>
+                    <TableCell className="text-right font-bold">{formatCurrency(totalRow.natSubtotal)}</TableCell>
+                    <TableCell className="text-right font-bold">{formatCurrency(totalRow.natDeposit)}</TableCell>
+                    <TableCell className="text-right font-bold text-warning-600">{formatCurrency(totalRow.natSubtotal - totalRow.natDeposit)}</TableCell>
+                  </TableRow>
                   {unpaidAnalysis.map(row => (
                     <TableRow key={row.office} className="border-b text-xs">
                       <TableCell className="font-medium text-center">{row.label}</TableCell>
-                      <TableCell className="text-center">{row.totalCount}</TableCell>
-                      <TableCell className="text-right cursor-pointer hover:underline" onClick={() => handleUnpaidBusinessClick(row.office, "total")}>
-                        {formatCurrency(row.totalSubtotal)}
-                      </TableCell>
+                      <TableCell className="text-center text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(row.office, "total")}>{row.totalCount}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(row.totalSubtotal)}</TableCell>
                       <TableCell className="text-right">{formatCurrency(row.totalDeposit)}</TableCell>
                       <TableCell className="text-right font-bold text-warning-600 border-r-2">{formatCurrency(row.totalSubtotal - row.totalDeposit)}</TableCell>
-                      <TableCell className="text-center">{row.bizCount}</TableCell>
-                      <TableCell className="text-right cursor-pointer hover:underline" onClick={() => handleUnpaidBusinessClick(row.office, "business")}>
-                        {formatCurrency(row.bizSubtotal)}
-                      </TableCell>
+                      
+                      <TableCell className="text-center text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(row.office, "business")}>{row.bizCount}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(row.bizSubtotal)}</TableCell>
                       <TableCell className="text-right">{formatCurrency(row.bizDeposit)}</TableCell>
                       <TableCell className="text-right font-bold text-warning-600 border-r-2">{formatCurrency(row.bizSubtotal - row.bizDeposit)}</TableCell>
-                      <TableCell className="text-center">{row.natCount}</TableCell>
-                      <TableCell className="text-right cursor-pointer hover:underline" onClick={() => handleUnpaidBusinessClick(row.office, "national")}>
-                        {formatCurrency(row.natSubtotal)}
-                      </TableCell>
+                      
+                      <TableCell className="text-center text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(row.office, "national")}>{row.natCount}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(row.natSubtotal)}</TableCell>
                       <TableCell className="text-right">{formatCurrency(row.natDeposit)}</TableCell>
                       <TableCell className="text-right font-bold text-warning-600">{formatCurrency(row.natSubtotal - row.natDeposit)}</TableCell>
                     </TableRow>
