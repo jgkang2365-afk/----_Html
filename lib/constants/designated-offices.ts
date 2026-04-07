@@ -73,8 +73,8 @@ export function toShortName(fullName: string): string {
     return DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[trimmedName];
   }
 
-  // 2. "XX지청" 패턴 처리 (예: "대전지방고용노동청 청주지청" -> "청주")
-  const jicheongMatch = fullName.match(/\s+(.+)지청$/);
+  // 2. "XX지청" 패턴 처리 (예: "대전지방고용노동청 청주지청" -> "청주", "천안지청" -> "천안")
+  const jicheongMatch = fullName.match(/(?:.*\s+)?(.+)지청$/);
   if (jicheongMatch && jicheongMatch[1]) {
     return jicheongMatch[1];
   }
