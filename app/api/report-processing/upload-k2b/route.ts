@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { findReportFiles } from '@/lib/utils/findReportFiles';
 import { getSession } from '@/lib/auth/session';
 import { getKSTDateString } from '@/lib/utils/date-utils';
+import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 
 /**
  * K2B 보고서 업로드 API
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
 
         const { data: dbUser } = await supabase
             .from('users')
-            .select('k2b_id, k2b_pw')
+            .select('name, k2b_id, k2b_pw')
             .eq('id', session.userId)
             .single();
 
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
 
                 if (uploadRes.success) {
                     updateData.k2b_send_date = now;
+                    updateData.k2b_sender = dbUser?.name;
                 }
 
                 await supabase
@@ -70,6 +72,14 @@ export async function POST(req: NextRequest) {
                     .eq('code', target.code)
                     .eq('measurement_year', target.year)
                     .eq('measurement_period', target.period);
+
+                // 구글 캘린더 동기화 트리거
+                try {
+                    await syncBusinessToCalendar(supabase, target.code, target.year, target.period);
+                    console.log(`[K2B Sync] Calendar sync triggered for ${target.code}`);
+                } catch (syncError) {
+                    console.error(`[K2B Sync] Calendar sync failed for ${target.code}:`, syncError);
+                }
 
                 results.push({
                     code: target.code,
@@ -89,7 +99,10 @@ export async function POST(req: NextRequest) {
                     gr.companyName.includes(t.business_name) || t.business_name.includes(gr.companyName)
                 );
                 if (matchTarget) {
-                    const updateGridData: Record<string, any> = { k2b_status: gr.status };
+                    const updateGridData: Record<string, any> = { 
+                        k2b_status: gr.status,
+                        k2b_sender: dbUser?.name
+                    };
 
                     // 그리드에서 확인된 최종 상태가 성공('정상처리' 또는 '업로드 완료')이면 전송일자도 갱신
                     if (gr.status === '정상처리') {
@@ -102,6 +115,14 @@ export async function POST(req: NextRequest) {
                         .eq('code', matchTarget.code)
                         .eq('measurement_year', matchTarget.year)
                         .eq('measurement_period', matchTarget.period);
+
+                    // 구글 캘린더 동기화 트리거
+                    try {
+                        await syncBusinessToCalendar(supabase, matchTarget.code, matchTarget.year, matchTarget.period);
+                        console.log(`[K2B Sync] Calendar sync triggered for ${matchTarget.code}`);
+                    } catch (syncError) {
+                        console.error(`[K2B Sync] Calendar sync failed for ${matchTarget.code}:`, syncError);
+                    }
 
                     // results 배열에도 반영
                     const existingResult = results.find(r => r.code === matchTarget.code);
