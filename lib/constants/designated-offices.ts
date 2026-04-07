@@ -66,27 +66,35 @@ export const DESIGNATED_OFFICE_SHORT_TO_FULL_NAME: Record<string, string> = {
 export function toShortName(fullName: string): string {
   if (!fullName) return "";
   
-  const trimmedName = fullName.trim();
+  // 모든 공백 제거 (예: "평 택 " -> "평택", " 대전 " -> "대전")
+  const trimmedName = fullName.replace(/\s+/g, '');
 
-  // 1. 매핑 테이블 우선 확인
-  if (DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[trimmedName]) {
-    return DESIGNATED_OFFICE_FULL_NAME_TO_SHORT[trimmedName];
+  // 1. 매핑 테이블 우선 확인 (매핑 테이블 키도 공백 없이 비교)
+  for (const [full, short] of Object.entries(DESIGNATED_OFFICE_FULL_NAME_TO_SHORT)) {
+    if (full.replace(/\s+/g, '') === trimmedName) {
+      return short;
+    }
   }
 
-  // 2. "XX지청" 패턴 처리 (예: "대전지방고용노동청 청주지청" -> "청주", "천안지청" -> "천안")
-  const jicheongMatch = fullName.match(/(?:.*\s+)?(.+)지청$/);
-  if (jicheongMatch && jicheongMatch[1]) {
-    return jicheongMatch[1];
-  }
-
-  // 3. "XX지방고용노동청" 패턴 처리 (예: "대전지방고용노동청" -> "대전")
-  const cheongMatch = fullName.match(/^(.+)지방고용노동청$/);
+  // 2. "XX지방고용노동청" 패턴 처리 (예: "대전지방고용노동청" -> "대전")
+  const cheongMatch = trimmedName.match(/^(.+)지방고용노동청$/);
   if (cheongMatch && cheongMatch[1]) {
     return cheongMatch[1];
   }
 
-  // 4. 원래 값 반환 (변환 불가 시)
-  return fullName;
+  // 3. "XX지청" 패턴 처리 (예: "대전지방고용노동청천안지청" -> "천안", "천안지청" -> "천안")
+  // 지방청 대표 도시명 및 "지방고용노동청" 키워드 제거
+  const prefixes = ["서울", "중부", "부산", "대구", "광주", "대전", "지방고용노동청"];
+  let cleanedName = trimmedName;
+  prefixes.forEach(p => { cleanedName = cleanedName.replace(new RegExp(p, 'g'), ''); });
+  
+  const jicheongMatch = cleanedName.match(/(.+)지청$/);
+  if (jicheongMatch && jicheongMatch[1]) {
+    return jicheongMatch[1];
+  }
+
+  // 4. 원래 값 (공백 제거된 상태) 반환
+  return trimmedName;
 }
 
 /**

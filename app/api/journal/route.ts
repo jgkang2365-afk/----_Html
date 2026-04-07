@@ -488,21 +488,25 @@ export async function POST(request: NextRequest) {
       manager_mobile: body.manager_mobile || businessData.manager_mobile || null,
       manager_email: body.manager_email || businessData.manager_email || null,
       invoice_email: body.invoice_email || businessData.invoice_email || null,
+      invoice_email_2: body.invoice_email_2 || null,
       // 측정비 정보 (body에서 가져오기)
-      measurement_fee_total: body.measurement_fee_total ? parseFloat(String(body.measurement_fee_total).replace(/,/g, '')) || null : null,
-      measurement_fee_business: body.measurement_fee_business ? parseFloat(String(body.measurement_fee_business).replace(/,/g, '')) || null : null,
-      measurement_fee_national: body.measurement_fee_national ? parseFloat(String(body.measurement_fee_national).replace(/,/g, '')) || null : null,
+      measurement_fee_total: body.measurement_fee_total ? parseFloat(String(body.measurement_fee_total).replace(/,/g, "")) || null : null,
+      measurement_fee_business: body.measurement_fee_business ? parseFloat(String(body.measurement_fee_business).replace(/,/g, "")) || null : null,
+      measurement_fee_national: body.measurement_fee_national ? parseFloat(String(body.measurement_fee_national).replace(/,/g, "")) || null : null,
       // 입금 정보 (body에서 가져오기)
-      deposit_total: body.deposit_total ? parseFloat(String(body.deposit_total).replace(/,/g, '')) || null : null,
+      deposit_total: body.deposit_total ? parseFloat(String(body.deposit_total).replace(/,/g, "")) || null : null,
       deposit_date_business: body.deposit_date_business || null,
-      deposit_amount_business: body.deposit_amount_business ? parseFloat(String(body.deposit_amount_business).replace(/,/g, '')) || null : null,
+      deposit_amount_business: body.deposit_amount_business ? parseFloat(String(body.deposit_amount_business).replace(/,/g, "")) || null : null,
+      deposit_date_business_2: body.deposit_date_business_2 || null,
+      deposit_amount_business_2: body.deposit_amount_business_2 ? parseFloat(String(body.deposit_amount_business_2).replace(/,/g, "")) || null : null,
       deposit_date_national: body.deposit_date_national || null,
-      deposit_amount_national: body.deposit_amount_national ? parseFloat(String(body.deposit_amount_national).replace(/,/g, '')) || null : null,
+      deposit_amount_national: body.deposit_amount_national ? parseFloat(String(body.deposit_amount_national).replace(/,/g, "")) || null : null,
       // K2B 정보 (body에서 가져오기)
       k2b_send_date: body.k2b_send_date || null,
       k2b_sender: body.k2b_sender || null,
       // 전자계산서 정보 (body에서 가져오기)
       electronic_invoice_date: body.electronic_invoice_date || null,
+      electronic_invoice_date_2: body.electronic_invoice_date_2 || null,
       invoice_business_name: body.invoice_business_name || null,
       invoice_business_number: cleanToDigits(body.invoice_business_number),
       // 특이사항 (body에서 가져오기)

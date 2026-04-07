@@ -271,6 +271,7 @@ export async function GET(request: NextRequest) {
 
       // 이메일 정보
       invoice_email: previousJournal?.invoice_email || businessHistoryDefaults.invoice_email || (businessData as any)?.invoice_email || fallbackDefaults.invoice_email || null,
+      invoice_email_2: previousJournal?.invoice_email_2 || null, // [ADD] 보조 이메일 추가
 
       // 측정자
       measurer: previousJournal?.measurer || null,
@@ -286,6 +287,10 @@ export async function GET(request: NextRequest) {
 
       // 대표자명 (우선순위: 현재사업장정보(Master) > 직전본문 > 최근이력(fallback))
       representative_name: businessHistoryDefaults.representative_name || (businessData as any)?.representative_name || previousJournal?.representative_name || fallbackDefaults.representative_name || null,
+
+      // [ADD] 전화번호 및 FAX 추가
+      phone: previousJournal?.phone || fallbackDefaults.phone || (referenceData as any)?.phone || null,
+      fax: previousJournal?.fax || fallbackDefaults.fax || (referenceData as any)?.fax || null,
     } : null;
 
     // 디버깅: previousData 확인

@@ -414,6 +414,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 // updated.measurement_fee_business = prev.measurement_fee_business || (data.previousData.measurement_fee_business ? String(data.previousData.measurement_fee_business) : "") || "";
                 // updated.measurement_fee_national = prev.measurement_fee_national || (data.previousData.measurement_fee_national ? String(data.previousData.measurement_fee_national) : "") || "";
                 updated.invoice_email = prev.invoice_email || data.previousData.invoice_email || "";
+                updated.invoice_email_2 = prev.invoice_email_2 || data.previousData.invoice_email_2 || "";
                 updated.measurer = prev.measurer || data.previousData.measurer || "";
                 // K2B 전송자는 예비조사 정보를 우선으로 하므로 여기서는 설정하지 않음
                 // updated.k2b_sender = prev.k2b_sender || data.previousData.k2b_sender || "";
@@ -448,6 +449,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const previousRepresentativeName = data.previousData.representative_name || null;
                 if (!currentRepresentativeName && previousRepresentativeName) {
                   updated.representative_name = previousRepresentativeName;
+                }
+
+                // [ADD] 전화번호 및 FAX 자동 채우기
+                if (!prev.phone && data.previousData.phone) {
+                  updated.phone = data.previousData.phone;
+                }
+                if (!prev.fax && data.previousData.fax) {
+                  updated.fax = data.previousData.fax;
                 }
 
                 // 전회 측정비 정보 저장 (참고용)

@@ -51,6 +51,13 @@ export const SalesManagement: React.FC = () => {
   };
   const getCurrentYearString = () => getCurrentYear().toString();
 
+  // 현재 KST 기준으로 상반기/하반기 가져오기
+  const getCurrentPeriod = () => {
+    const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+    const month = seoulTime.getMonth() + 1;
+    return month <= 6 ? "상반기" : "하반기";
+  };
+
   // URL 쿼리 파라미터 훅
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -128,6 +135,7 @@ export const SalesManagement: React.FC = () => {
   const [measurementRevenue, setMeasurementRevenue] = useState<MeasurementRevenue[]>([]);
   const [allMeasurementData, setAllMeasurementData] = useState<MeasurementRevenue[]>([]);
   const [otherRevenue, setOtherRevenue] = useState<OtherRevenue[]>([]);
+  const [allOtherData, setAllOtherData] = useState<OtherRevenue[]>([]);
   const [summary, setSummary] = useState<SalesSummaryData | null>(null);
 
   // 페이지네이션 상태
@@ -138,16 +146,38 @@ export const SalesManagement: React.FC = () => {
 
 
 
-  // 년도별 집계 년도 선택 상태 (기본값: 현재 년도)
-  const [yearlySummaryYear, setYearlySummaryYear] = useState<string>(getCurrentYearString());
-  const [yearlySummaryPeriod, setYearlySummaryPeriod] = useState<string>("");
+  // 로컬 스토리지 키 정의
+  const STORAGE_KEY_YEAR = "sales_management_last_year";
+  const STORAGE_KEY_PERIOD = "sales_management_last_period";
+
+  // 로컬 스토리지에서 초기값 가져오기 (년도 기본값: KST 현재년도, 주기 기본값: 전체(""))
+  const getInitialYear = () => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(STORAGE_KEY_YEAR) || getCurrentYearString();
+    }
+    return getCurrentYearString();
+  };
+  const getInitialPeriod = () => {
+    if (typeof window !== "undefined") {
+      // 주기는 기본값을 "전체"("")로 설정 (사용자 요청)
+      return localStorage.getItem(STORAGE_KEY_PERIOD) || "";
+    }
+    return "";
+  };
+
+  const initialYear = getInitialYear();
+  const initialPeriod = getInitialPeriod();
+
+  // 년도별 집계 년도 선택 상태
+  const [yearlySummaryYear, setYearlySummaryYear] = useState<string>(initialYear);
+  const [yearlySummaryPeriod, setYearlySummaryPeriod] = useState<string>(initialPeriod);
 
   // 미수금 집계 년도 선택 상태
-  const [unpaidSummaryYear, setUnpaidSummaryYear] = useState<string>(getCurrentYearString());
-  const [unpaidSummaryPeriod, setUnpaidSummaryPeriod] = useState<string>("");
+  const [unpaidSummaryYear, setUnpaidSummaryYear] = useState<string>(initialYear);
+  const [unpaidSummaryPeriod, setUnpaidSummaryPeriod] = useState<string>(initialPeriod);
 
   // 매출 집계 년도 선택 상태
-  const [salesSummaryYear, setSalesSummaryYear] = useState<string>(getCurrentYearString());
+  const [salesSummaryYear, setSalesSummaryYear] = useState<string>(initialYear);
 
   // 매출 집계 상세 내역 모달 상태
   const [isSalesDetailModalOpen, setIsSalesDetailModalOpen] = useState(false);
@@ -219,8 +249,8 @@ export const SalesManagement: React.FC = () => {
   const [unpaidFilters, setUnpaidFilters] = useState({
     type: "", // 구분: "measurement" | "other" | ""
     name: "", // 사업장명/품명
-    year: "", // 매출년도
-    period: "", // 측정주기
+    year: initialYear, // 매출년도
+    period: initialPeriod, // 측정주기
     designatedOffice: "", // 지정한계_관할지청
     hasDepositDate: "", // 입금일 여부: "yes" | "no" | ""
   });
@@ -247,8 +277,8 @@ export const SalesManagement: React.FC = () => {
   const [measurementFilters, setMeasurementFilters] = useState({
     businessName: "", // 사업장명
     representativeName: "", // 대표자명
-    year: "", // 측정년도
-    period: "", // 측정주기
+    year: initialYear, // 측정년도 (기본값 로컬 스토리지 또는 KST 현재년도)
+    period: initialPeriod, // 측정주기 (기본값 로컬 스토리지 또는 전체)
     designatedOffice: "", // 지정한계_관할지청
     hasInvoiceDate: "", // 계산서 발행일 여부: "yes" | "no" | ""
   });
@@ -316,6 +346,16 @@ export const SalesManagement: React.FC = () => {
     if (measurementFilters.representativeName === "") setLocalRepresentativeName("");
   }, [measurementFilters.businessName, measurementFilters.representativeName]);
 
+  // 필터 상태 변경 시 로컬 스토리지에 저장
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      // 다양한 필터 중 하나라도 변경되면 최신 값을 저장
+      // (모든 필터가 같은 스토리지 키를 공유하도록 하여 섹션 전체의 일관성 유지)
+      localStorage.setItem(STORAGE_KEY_YEAR, measurementFilters.year || unpaidFilters.year || yearlySummaryYear || unpaidSummaryYear || salesSummaryYear);
+      localStorage.setItem(STORAGE_KEY_PERIOD, measurementFilters.period !== undefined ? measurementFilters.period : (unpaidFilters.period !== undefined ? unpaidFilters.period : yearlySummaryPeriod));
+    }
+  }, [measurementFilters.year, measurementFilters.period, unpaidFilters.year, unpaidFilters.period, yearlySummaryYear, yearlySummaryPeriod, unpaidSummaryYear, unpaidSummaryPeriod, salesSummaryYear]);
+
   // 기간별 입금 현황 날짜 선택 헬퍼
   const handleQuickDateSelect = (type: "yesterday" | "today" | "week" | "month") => {
     const seoulTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
@@ -342,6 +382,10 @@ export const SalesManagement: React.FC = () => {
     setDepositStartDate(start);
     setDepositEndDate(end);
     setActiveQuickDate(type);
+    
+    // 퀵 버튼 클릭 시 특정 년도/주기 필터를 해제하여 전체 검색이 가능하도록 함
+    setDepositYear("");
+    setDepositPeriod("");
   };
 
   // 측정년도 옵션
@@ -384,6 +428,22 @@ export const SalesManagement: React.FC = () => {
       } else if (activeTab === "unpaid") {
         if (unpaidFilters.year) params.append("year", unpaidFilters.year);
         if (unpaidFilters.period) params.append("measurementPeriod", unpaidFilters.period);
+      } else if (activeTab === "other") {
+        // 기타 매출 필터 적용
+        if (otherFilters.year) params.append("year", otherFilters.year);
+        if (otherFilters.period) params.append("measurementPeriod", otherFilters.period);
+        
+        // 정렬 적용
+        params.append("sortColumn", otherSort.column);
+        params.append("sortDirection", otherSort.direction);
+      } else if (activeTab === "third_party") {
+        // 타업체 발행 현황은 측정비 탭의 년도/주기 필터를 공유
+        if (measurementFilters.year) params.append("year", measurementFilters.year);
+        if (measurementFilters.period) params.append("measurementPeriod", measurementFilters.period);
+      } else if (activeTab === "period-deposit") {
+        // 기간별 입금 현황 조회 시 사용자가 선택한 년도/주기 필터가 있으면 서버에 전달
+        if (depositYear) params.append("year", depositYear);
+        if (depositPeriod) params.append("measurementPeriod", depositPeriod);
       }
 
       const response = await fetch(`/api/sales?${params.toString()}`);
@@ -399,10 +459,16 @@ export const SalesManagement: React.FC = () => {
       if (result.success !== false) {
         setMeasurementRevenue(result.measurementRevenue || []);
         setAllMeasurementData(result.allMeasurementData || []);
+        
         const filteredOtherRevenue = (result.otherRevenue || []).filter(
           (item: OtherRevenue) => !deletedOtherIds.has(item.id)
         );
+        const filteredAllOtherData = (result.allOtherData || []).filter(
+          (item: OtherRevenue) => !deletedOtherIds.has(item.id)
+        );
+        
         setOtherRevenue(filteredOtherRevenue);
+        setAllOtherData(filteredAllOtherData);
         setSummary(result.summary || null);
         
         // 페이지네이션 정보 업데이트
@@ -422,11 +488,12 @@ export const SalesManagement: React.FC = () => {
       setMeasurementRevenue([]);
       setAllMeasurementData([]);
       setOtherRevenue([]);
+      setAllOtherData([]);
       setSummary(null);
     } finally {
       setLoading(false);
     }
-  }, [deletedOtherIds, pageSize, activeTab, measurementFilters, unpaidFilters]);
+  }, [deletedOtherIds, pageSize, activeTab, measurementFilters, unpaidFilters, depositYear, depositPeriod]);
 
   // 데이터 로드 효과
   useEffect(() => {
@@ -444,7 +511,11 @@ export const SalesManagement: React.FC = () => {
     measurementFilters.period,
     measurementFilters.designatedOffice,
     unpaidFilters.year,
-    unpaidFilters.period
+    unpaidFilters.period,
+    otherFilters.year,
+    otherFilters.period,
+    depositYear,
+    depositPeriod
   ]);
 
 
@@ -1032,6 +1103,7 @@ export const SalesManagement: React.FC = () => {
           summary={summary}
           measurementRevenue={allMeasurementData}
           otherRevenue={otherRevenue}
+          allOtherData={allOtherData}
           formatCurrency={formatCurrency}
           yearOptions={yearOptions}
         />
@@ -1087,6 +1159,11 @@ export const SalesManagement: React.FC = () => {
                   data={otherRevenue}
                   onEdit={handleOtherEdit}
                   formatCurrency={formatCurrency}
+                  otherFilters={otherFilters}
+                  setOtherFilters={setOtherFilters}
+                  yearOptions={yearOptions}
+                  periodOptions={periodOptions}
+                  loading={loading}
                 />
               ),
             },
@@ -1095,7 +1172,8 @@ export const SalesManagement: React.FC = () => {
               label: "타업체 발행 현황",
               content: (() => {
                 // 타업체 발행 건만 필터링 (발행처 정보가 입력되었고, 원래 정보와 다른 건)
-                const thirdPartyItems = measurementRevenue.filter(item => 
+                // 현재 페이지 데이터가 아닌 전체 데이터(allMeasurementData)를 기준으로 필터링하여 모든 내역을 표시
+                const thirdPartyItems = allMeasurementData.filter(item => 
                   (item.invoice_business_number && item.invoice_business_number !== item.business_number) ||
                   (item.invoice_business_name && item.invoice_business_name !== item.business_name)
                 );
@@ -1674,7 +1752,7 @@ export const SalesManagement: React.FC = () => {
                 const unifiedDeposits: UnifiedDeposit[] = [];
 
                 // 1. 측정비 사업장 입금 (1차, 2차)
-                measurementRevenue.forEach(item => {
+                allMeasurementData.forEach(item => {
                   // 1차 입금
                   if (item.deposit_date_business && item.deposit_amount_business) {
                     unifiedDeposits.push({
@@ -1709,7 +1787,7 @@ export const SalesManagement: React.FC = () => {
                 });
 
                 // 2. 측정비 국고 입금
-                measurementRevenue.forEach(item => {
+                allMeasurementData.forEach(item => {
                   if (item.deposit_date_national && item.deposit_amount_national) {
                     unifiedDeposits.push({
                       id: `meas-nat-${item.id}`,
@@ -1727,7 +1805,7 @@ export const SalesManagement: React.FC = () => {
                 });
 
                 // 3. 기타 매출 입금
-                otherRevenue.forEach(item => {
+                allOtherData.forEach(item => {
                   if (item.deposit_date && item.deposit_amount) {
                     unifiedDeposits.push({
                       id: `other-${item.id}`,
@@ -1746,7 +1824,10 @@ export const SalesManagement: React.FC = () => {
 
                 // 필터링 적용
                 const filteredDeposits = unifiedDeposits.filter(item => {
-                  const dateMatch = item.date >= depositStartDate && item.date <= depositEndDate;
+                  const itemDateOnly = item.date.substring(0, 10);
+                  const startDateMatch = !depositStartDate || itemDateOnly >= depositStartDate;
+                  const endDateMatch = !depositEndDate || itemDateOnly <= depositEndDate;
+                  const dateMatch = startDateMatch && endDateMatch;
                   const officeMatch = checkExactMatch(item.designatedOffice, depositOffice);
                   const yearMatch = checkExactMatch(item.year, depositYear);
                   const periodMatch = isMatchSelection(item.period || null, depositPeriod);

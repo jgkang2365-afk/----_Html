@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card } from "@/components/ui/Card";
 import { Select } from "@/components/ui/Select";
 import {
@@ -16,12 +16,16 @@ import {
   SalesSummaryData,
   PERIOD_OPTIONS,
 } from "./types";
-import { DESIGNATED_OFFICES_FOR_SALES } from "@/lib/constants/designated-offices";
+import { 
+  DESIGNATED_OFFICES_FOR_SALES,
+  toShortName 
+} from "@/lib/constants/designated-offices";
 
 interface StatTablesProps {
   summary: SalesSummaryData;
   measurementRevenue: MeasurementRevenue[];
   otherRevenue: OtherRevenue[];
+  allOtherData?: OtherRevenue[];
   formatCurrency: (amount: number | null | undefined) => string;
   yearOptions: Array<{ value: string; label: string }>;
 }
@@ -30,26 +34,80 @@ export const StatTables: React.FC<StatTablesProps> = ({
   summary,
   measurementRevenue,
   otherRevenue,
+  allOtherData,
   formatCurrency,
   yearOptions,
 }) => {
+  // 서울 시간대(Asia/Seoul) 기준으로 현재 년도 및 주기 가져오기
+  const seoulNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+  const currentYear = seoulNow.getFullYear().toString();
+  const currentPeriod = (seoulNow.getMonth() + 1) <= 6 ? "상반기" : "하반기";
+
+  // 로컬 스토리지 키 정의 (SalesManagement와 동일하게 유지)
+  const STORAGE_KEY_YEAR = "sales_management_last_year";
+  const STORAGE_KEY_PERIOD = "sales_management_last_period";
+
+  // 로컬 스토리지 및 KST 기준 초기값 설정
+  const getInitialYear = () => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(STORAGE_KEY_YEAR) || currentYear;
+    }
+    return currentYear;
+  };
+  const getInitialPeriod = () => {
+    if (typeof window !== "undefined") {
+      // 주기는 기본값을 "전체"("")로 설정 (사용자 요청)
+      // 만약 세션에 저장된 값이 없다면 빈 문자열 반환
+      return localStorage.getItem(STORAGE_KEY_PERIOD) || "";
+    }
+    return "";
+  };
+
+  const initialYear = getInitialYear();
+  const initialPeriod = getInitialPeriod();
+
   // 년도별 집계 현황 상태
-  const [yearlySummaryYear, setYearlySummaryYear] = useState<string>("");
-  const [yearlySummaryPeriod, setYearlySummaryPeriod] = useState<string>("");
+  const [yearlySummaryYear, setYearlySummaryYear] = useState<string>(initialYear);
+  const [yearlySummaryPeriod, setYearlySummaryPeriod] = useState<string>(initialPeriod);
 
   // 미수금 집계 현황 상태
-  const [unpaidSummaryYear, setUnpaidSummaryYear] = useState<string>("");
-  const [unpaidSummaryPeriod, setUnpaidSummaryPeriod] = useState<string>("");
+  const [unpaidSummaryYear, setUnpaidSummaryYear] = useState<string>(initialYear);
+  const [unpaidSummaryPeriod, setUnpaidSummaryPeriod] = useState<string>(initialPeriod);
+
+  // 필터 상태 변경 시 로컬 스토리지에 저장 (섹션 전체의 일관성 유지)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      // 통계 테이블의 필터가 변경되면 최신 값을 로컬 스토리지에 저장
+      localStorage.setItem(STORAGE_KEY_YEAR, yearlySummaryYear || unpaidSummaryYear);
+      localStorage.setItem(STORAGE_KEY_PERIOD, yearlySummaryPeriod !== undefined ? yearlySummaryPeriod : unpaidSummaryPeriod);
+    }
+  }, [yearlySummaryYear, yearlySummaryPeriod, unpaidSummaryYear, unpaidSummaryPeriod]);
 
   // 미수금 상세 모달 상태
   const [isUnpaidDetailModalOpen, setIsUnpaidDetailModalOpen] = useState(false);
   const [unpaidDetailTitle, setUnpaidDetailTitle] = useState("");
   const [unpaidDetailList, setUnpaidDetailList] = useState<any[]>([]);
 
-  const isMatchSelection = (period: string | null, target: string) => {
+  const isMatchSelection = (item: any, target: string) => {
     if (!target) return true;
-    if (!period) return false;
-    return period.includes(target);
+    
+    // 1. 주기 문자열로 매칭 시도
+    const period = item.measurement_period || item.revenue_period;
+    if (period) {
+      if (target === "상반기") return period.includes("상반기") || period.includes("수시(상)");
+      if (target === "하반기") return period.includes("하반기") || period.includes("수시(하)");
+      return period.includes(target);
+    }
+    
+    // 2. 문자열이 없으면 날짜로 매칭 시도 (측정비 한정)
+    const startDate = item.measurement_start_date;
+    if (startDate) {
+      const month = parseInt(startDate.split("-")[1]);
+      if (target === "상반기") return month >= 1 && month <= 6;
+      if (target === "하반기") return month >= 7 && month <= 12;
+    }
+    
+    return false;
   };
 
   const officeLabels: Record<string, string> = {
@@ -75,7 +133,7 @@ export const StatTables: React.FC<StatTablesProps> = ({
         ? !item.designated_office || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(item.designated_office)
         : item.designated_office === office;
       const yearMatch = !unpaidSummaryYear || item.measurement_year === parseInt(unpaidSummaryYear);
-      const periodMatch = isMatchSelection(item.measurement_period, unpaidSummaryPeriod);
+      const periodMatch = isMatchSelection(item, unpaidSummaryPeriod);
       return officeMatch && yearMatch && periodMatch;
     });
 
@@ -183,10 +241,11 @@ export const StatTables: React.FC<StatTablesProps> = ({
                   const targetPeriod = yearlySummaryPeriod;
 
                   if (office === "기타") {
-                    otherRevenue
+                    const otherDataToUse = allOtherData || otherRevenue;
+                    otherDataToUse
                       .filter((item) => {
                         const yearMatch = !targetYear || item.revenue_year === targetYear;
-                        const periodMatch = isMatchSelection(item.revenue_period, targetPeriod);
+                        const periodMatch = isMatchSelection(item, targetPeriod);
                         return yearMatch && periodMatch;
                       })
                       .forEach((item) => {
@@ -199,9 +258,11 @@ export const StatTables: React.FC<StatTablesProps> = ({
                   } else {
                     measurementRevenue
                       .filter((item) => {
-                        const officeMatch = item.designated_office === office;
+                        // DB의 풀네임(예: 대전지방고용노동청 천안지청)과 UI의 약칭(천안) 매칭을 위해 toShortName 사용
+                        const shortOfficeName = toShortName(item.designated_office || "");
+                        const officeMatch = shortOfficeName === office;
                         const yearMatch = !targetYear || item.measurement_year === targetYear;
-                        const periodMatch = isMatchSelection(item.measurement_period, targetPeriod);
+                        const periodMatch = isMatchSelection(item, targetPeriod);
                         return officeMatch && yearMatch && periodMatch;
                       })
                       .forEach((item) => {
@@ -218,18 +279,22 @@ export const StatTables: React.FC<StatTablesProps> = ({
                   let secondHalf = 0;
                   if (targetYear) {
                     if (office === "기타") {
-                      otherRevenue
+                      const otherDataToUse = allOtherData || otherRevenue;
+                      otherDataToUse
                         .filter((item) => item.revenue_year === targetYear)
                         .forEach((item) => {
-                          if (isMatchSelection(item.revenue_period, "상반기")) firstHalf += item.total_amount || 0;
-                          if (isMatchSelection(item.revenue_period, "하반기")) secondHalf += item.total_amount || 0;
+                          if (isMatchSelection(item, "상반기")) firstHalf += item.total_amount || 0;
+                          if (isMatchSelection(item, "하반기")) secondHalf += item.total_amount || 0;
                         });
                     } else {
                       measurementRevenue
-                        .filter((item) => item.designated_office === office && item.measurement_year === targetYear)
+                        .filter((item) => {
+                          const shortOfficeName = toShortName(item.designated_office || "");
+                          return shortOfficeName === office && item.measurement_year === targetYear;
+                        })
                         .forEach((item) => {
-                          if (isMatchSelection(item.measurement_period, "상반기")) firstHalf += item.measurement_fee_total || 0;
-                          if (isMatchSelection(item.measurement_period, "하반기")) secondHalf += item.measurement_fee_total || 0;
+                          if (isMatchSelection(item, "상반기")) firstHalf += item.measurement_fee_total || 0;
+                          if (isMatchSelection(item, "하반기")) secondHalf += item.measurement_fee_total || 0;
                         });
                     }
                   }
@@ -345,11 +410,12 @@ export const StatTables: React.FC<StatTablesProps> = ({
             {(() => {
               const unpaidAnalysis = [...DESIGNATED_OFFICES_FOR_SALES].map((office) => {
                 const filtered = measurementRevenue.filter((item) => {
+                  const shortOfficeName = toShortName(item.designated_office || "");
                   const officeMatch = office === "기타"
-                    ? !item.designated_office || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(item.designated_office)
-                    : item.designated_office === office;
+                    ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
+                    : shortOfficeName === office;
                   const yearMatch = !unpaidSummaryYear || item.measurement_year === parseInt(unpaidSummaryYear);
-                  const periodMatch = isMatchSelection(item.measurement_period, unpaidSummaryPeriod);
+                  const periodMatch = isMatchSelection(item, unpaidSummaryPeriod);
                   return officeMatch && yearMatch && periodMatch;
                 });
 
@@ -369,9 +435,10 @@ export const StatTables: React.FC<StatTablesProps> = ({
                 });
 
                 if (office === "기타") {
-                  otherRevenue.filter(item => {
+                  const otherDataToUse = allOtherData || otherRevenue;
+                  otherDataToUse.filter(item => {
                     const yearMatch = !unpaidSummaryYear || item.revenue_year === parseInt(unpaidSummaryYear);
-                    const periodMatch = isMatchSelection(item.revenue_period, unpaidSummaryPeriod);
+                    const periodMatch = isMatchSelection(item, unpaidSummaryPeriod);
                     return yearMatch && periodMatch;
                   }).forEach(item => {
                     bizCount++; bizSubtotal += item.total_amount; bizDeposit += item.deposit_amount || 0;

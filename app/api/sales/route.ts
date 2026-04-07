@@ -37,21 +37,29 @@ export async function GET(request: NextRequest) {
     // StatTables 컴포넌트에서 미수금 상세 분석 등을 위해 추가 컬럼이 필요하므로 포함합니다.
     let measurementSummaryQuery = supabase
       .from("measurement_journal")
-      .select("id, business_name, designated_office, measurement_year, measurement_period, measurement_fee_total, deposit_total, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national, k2b_send_date, k2b_status, is_email_sent, last_email_sent_at")
+      .select("id, business_name, business_number, designated_office, measurement_year, measurement_period, measurement_start_date, measurement_fee_total, deposit_total, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national, k2b_send_date, k2b_status, is_email_sent, last_email_sent_at, invoice_business_name, invoice_business_number, electronic_invoice_date, electronic_invoice_date_2, invoice_email, invoice_email_2, deposit_date_business, deposit_date_business_2, deposit_date_national")
+      .order("measurement_year", { ascending: false })
+      .order("measurement_period", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(10000)
       .not("business_name", "ilike", "%번외%");
 
     // 기타 매출은 전체 데이터를 테이블에 표시해야 하므로 전체 컬럼을 선택합니다.
     let otherSummaryQuery = supabase
       .from("other_revenue")
-      .select("*");
+      .select("*")
+      .order("revenue_year", { ascending: false })
+      .order("revenue_period", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(10000);
 
     // 공통 필터 적용 함수
-    const applyFilters = (query: any, isOther: boolean = false) => {
+    const applyFilters = (query: any, isOther: boolean = false, excludeYear: boolean = false, includeSearch: boolean = true) => {
       let q = query;
       const yearCol = isOther ? "revenue_year" : "measurement_year";
       const periodCol = isOther ? "revenue_period" : "measurement_period";
 
-      if (year) {
+      if (year && !excludeYear) {
         if (year.includes(",")) {
           const years = year.split(",").map(y => parseInt(y.trim())).filter(y => !isNaN(y));
           if (years.length > 0) q = q.in(yearCol, years);
@@ -67,7 +75,9 @@ export async function GET(request: NextRequest) {
           q = q.eq(periodCol, measurementPeriod);
         }
       }
-      if (!isOther) {
+      
+      // 검색 필터 (사업장명, 대표자명) - 목록 조회 시에만 적용하고 집계 시에는 제외 (사용자 요청)
+      if (!isOther && includeSearch) {
         if (businessName) {
           if (businessName.includes(",")) {
             const names = businessName.split(",").map(n => n.trim()).filter(Boolean);
@@ -83,6 +93,7 @@ export async function GET(request: NextRequest) {
           q = q.ilike("representative_name", `%${representativeName}%`);
         }
       }
+
       if (designatedOffice) {
         const officeList = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
         if (officeList.length > 0) {
@@ -104,16 +115,23 @@ export async function GET(request: NextRequest) {
       .select("*", { count: "exact" })
       .not("business_name", "ilike", "%번외%");
 
-    // 필터 적용
+    // 필터 적용 (목록용 - 검색 포함)
     measurementDataQuery = applyFilters(measurementDataQuery);
 
-    // 정렬 적용
+    // 정렬 적용 (측정비 전용)
     const isAsc = sortDirection === "asc";
+    // 기타 매출용 컬럼으로 측정비 테이블을 정렬하려 하면 오류가 발생하므로 체크
+    const isOtherSort = ["revenue_year", "revenue_period", "item_name"].includes(sortColumn);
+    
     if (sortColumn === "unpaid") {
        // 미수금 정렬 요청 시, 편의상 측정비 합계 순으로 정렬
        measurementDataQuery = measurementDataQuery.order("measurement_fee_total", { ascending: isAsc });
-    } else {
+    } else if (!isOtherSort) {
+       // 측정비 테이블에 존재하는 컬럼인 경우에만 정렬 적용
        measurementDataQuery = measurementDataQuery.order(sortColumn, { ascending: isAsc });
+    } else {
+       // 기타 매출 정렬 시점에는 기본 정렬 유지
+       measurementDataQuery = measurementDataQuery.order("measurement_year", { ascending: false });
     }
 
     // 보조 정렬 (일관성 유지)
@@ -122,20 +140,35 @@ export async function GET(request: NextRequest) {
       .order("measurement_period", { ascending: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
-    
+      
+    // 기타 매출 쿼리
+    let otherRevenueQuery = supabase.from("other_revenue").select("*");
+    otherRevenueQuery = applyFilters(otherRevenueQuery, true);
+
+    // 기타 매출 정렬 적용
+    if (isOtherSort) {
+      otherRevenueQuery = otherRevenueQuery.order(sortColumn, { ascending: isAsc });
+    } else {
+      otherRevenueQuery = otherRevenueQuery.order("revenue_year", { ascending: false });
+    }
+    otherRevenueQuery = otherRevenueQuery.order("revenue_period", { ascending: false });
+
     // 데이터 로딩 병렬 처리
     const [
       { data: measurementRevenue, count: totalCount, error: measurementError },
+      { data: otherRevenue, error: otherError },
       { data: allMeasurementForSummary },
       { data: allOtherForSummary }
     ] = await Promise.all([
       measurementDataQuery,
-      applyFilters(measurementSummaryQuery),
-      applyFilters(otherSummaryQuery, true)
+      otherRevenueQuery,
+      // 집계용 데이터는 년도 필터와 검색 필터(사업장/대표자) 제외 (통계의 정확성 유지)
+      applyFilters(measurementSummaryQuery, false, true, false),
+      applyFilters(otherSummaryQuery, true, true, false)
     ]);
 
-    if (measurementError) {
-      console.error("측정비 매출 조회 오류:", measurementError);
+    if (measurementError || otherError) {
+      console.error("매출 조회 오류:", measurementError || otherError);
       return NextResponse.json({ error: "데이터를 불러오는 중 오류가 발생했습니다." }, { status: 500 });
     }
 
@@ -154,29 +187,41 @@ export async function GET(request: NextRequest) {
 
     // 측정비 집계
     (allMeasurementForSummary || []).forEach((item: any) => {
+      // 부서별 집계(officeSummary)는 사용자가 선택한 년도에만 해당하는 데이터만 포함 (다른 년도는 제외)
+      const isSelectedYear = !year || item.measurement_year === parseInt(year);
+      
       const shortOffice = item.designated_office ? toShortName(item.designated_office) : "기타";
       const officeKey = offices.includes(shortOffice as any) ? shortOffice : "기타";
       const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
-      officeSummary[officeKey].measurementRevenue += revenue;
-      officeSummary[officeKey].measurementTotal += revenue;
-      officeSummary[officeKey].measurementDeposit += deposit;
-      officeSummary[officeKey].measurementUnpaid += (revenue - deposit);
+      
+      if (isSelectedYear) {
+        officeSummary[officeKey].measurementRevenue += revenue;
+        officeSummary[officeKey].measurementTotal += revenue;
+        officeSummary[officeKey].measurementDeposit += deposit;
+        officeSummary[officeKey].measurementUnpaid += (revenue - deposit);
+      }
     });
 
     // 기타 매출 집계
     (allOtherForSummary || []).forEach((item: any) => {
+      // 부서별 집계(officeSummary)는 사용자가 선택한 년도에만 해당하는 데이터만 포함
+      const isSelectedYear = !year || item.revenue_year === parseInt(year);
+
       const shortOffice = item.designated_office ? toShortName(item.designated_office) : "기타";
       const officeKey = offices.includes(shortOffice as any) ? shortOffice : "기타";
       const supply = parseFloat(item.supply_amount?.toString() || "0") || 0;
       const vat = parseFloat(item.vat_amount?.toString() || "0") || 0;
       const total = parseFloat(item.total_amount?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_amount?.toString() || "0") || 0;
-      officeSummary[officeKey].otherRevenue += supply;
-      officeSummary[officeKey].otherVat += vat;
-      officeSummary[officeKey].otherTotal += total;
-      officeSummary[officeKey].otherDeposit += deposit;
-      officeSummary[officeKey].otherUnpaid += (total - deposit);
+      
+      if (isSelectedYear) {
+        officeSummary[officeKey].otherRevenue += supply;
+        officeSummary[officeKey].otherVat += vat;
+        officeSummary[officeKey].otherTotal += total;
+        officeSummary[officeKey].otherDeposit += deposit;
+        officeSummary[officeKey].otherUnpaid += (total - deposit);
+      }
     });
 
     // 최종 합계 계산
@@ -195,29 +240,70 @@ export async function GET(request: NextRequest) {
       const year = item.measurement_year;
       if (!year) return;
       if (!yearlySummary[year]) yearlySummary[year] = { firstHalf: createEmptySummary(), secondHalf: createEmptySummary(), total: createEmptySummary() };
-      const period = item.measurement_period === "상반기" ? "firstHalf" : "secondHalf";
+      
+      // 주기 판별: 문자열 우선, 없으면 시작일 기준
+      let period = "secondHalf";
+      if (item.measurement_period) {
+        if (item.measurement_period.includes("상반기") || item.measurement_period.includes("수시(상)")) {
+          period = "firstHalf";
+        } else if (item.measurement_period.includes("하반기") || item.measurement_period.includes("수시(하)")) {
+          period = "secondHalf";
+        }
+      } else if (item.measurement_start_date) {
+        // measurement_start_date가 'YYYY-MM-DD' 형식이면 두 번째 파트가 월
+        const parts = item.measurement_start_date.split("-");
+        if (parts.length >= 2) {
+          const month = parseInt(parts[1]);
+          if (month >= 1 && month <= 6) period = "firstHalf";
+        }
+      }
+
       const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
+      
       yearlySummary[year][period].measurementRevenue += revenue;
       yearlySummary[year][period].measurementTotal += revenue;
       yearlySummary[year][period].measurementDeposit += deposit;
       yearlySummary[year][period].measurementUnpaid += (revenue - deposit);
+      
+      // 전체 합계(total)에도 추가
+      yearlySummary[year].total.measurementRevenue += revenue;
+      yearlySummary[year].total.measurementTotal += revenue;
+      yearlySummary[year].total.measurementDeposit += deposit;
+      yearlySummary[year].total.measurementUnpaid += (revenue - deposit);
     });
 
     (allOtherForSummary || []).forEach((item: any) => {
       const year = item.revenue_year;
       if (!year) return;
       if (!yearlySummary[year]) yearlySummary[year] = { firstHalf: createEmptySummary(), secondHalf: createEmptySummary(), total: createEmptySummary() };
-      const period = item.revenue_period === "상반기" ? "firstHalf" : "secondHalf";
+      
+      let period = "secondHalf";
+      if (item.revenue_period) {
+        if (item.revenue_period.includes("상반기") || item.revenue_period.includes("수시(상)")) {
+          period = "firstHalf";
+        } else if (item.revenue_period.includes("하반기") || item.revenue_period.includes("수시(하)")) {
+          period = "secondHalf";
+        }
+      }
+      
       const supply = parseFloat(item.supply_amount?.toString() || "0") || 0;
       const vat = parseFloat(item.vat_amount?.toString() || "0") || 0;
       const total = parseFloat(item.total_amount?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_amount?.toString() || "0") || 0;
+      
       yearlySummary[year][period].otherRevenue += supply;
       yearlySummary[year][period].otherVat += vat;
       yearlySummary[year][period].otherTotal += total;
       yearlySummary[year][period].otherDeposit += deposit;
       yearlySummary[year][period].otherUnpaid += (total - deposit);
+      
+      // 전체 합계(total)에도 추가
+      yearlySummary[year].total.otherRevenue += supply;
+      yearlySummary[year].total.otherVat += vat;
+      yearlySummary[year].total.otherTotal += total;
+      yearlySummary[year].total.otherDeposit += deposit;
+      yearlySummary[year].total.otherUnpaid += (total - deposit);
     });
 
     Object.keys(yearlySummary).forEach(yearStr => {
@@ -242,7 +328,11 @@ export async function GET(request: NextRequest) {
         ...item,
         designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
       })),
-      otherRevenue: (allOtherForSummary || []).map((item: any) => ({
+      allOtherData: (allOtherForSummary || []).map((item: any) => ({
+        ...item,
+        designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
+      })),
+      otherRevenue: (otherRevenue || []).map((item: any) => ({
         ...item,
         designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
       })),

@@ -148,10 +148,11 @@ export async function syncBusinessToCalendar(
       let colorId = colorMap[measurerName];
 
       // K2B 및 세금계산서 완료 체크 (포도색)
+      let k2bDescription = "";
       try {
         const { data: currentJournal } = await supabase
           .from("measurement_journal")
-          .select("k2b_send_date, electronic_invoice_date, measurement_fee_business")
+          .select("k2b_send_date, k2b_sender, electronic_invoice_date, measurement_fee_business")
           .eq("code", code)
           .eq("measurement_year", typeof year === 'string' ? parseInt(year) : year)
           .eq("measurement_period", period)
@@ -161,12 +162,14 @@ export async function syncBusinessToCalendar(
         const hasK2B = !!currentJournal?.k2b_send_date;
         const hasInvoice = !!currentJournal?.electronic_invoice_date;
 
+        if (hasK2B) {
+            k2bDescription = `\n[K2B 전송] ${currentJournal.k2b_send_date} (${currentJournal.k2b_sender || "이름없음"})`;
+        }
+
         // 포도색(3) 조건: K2B 발송일이 있고, (전자계산서 발행일이 있거나 측정비(사업장)가 0원인 경우)
         if (hasK2B && (hasInvoice || feeBiz === 0)) {
           colorId = '3'; // Grape
-          console.log(`[Sync Service] Completed status for ${code}. Color -> Grape(3). K2B=${currentJournal?.k2b_send_date}, Invoice=${currentJournal?.electronic_invoice_date}, Fee=${feeBiz}`);
-        } else {
-          console.log(`[Sync Service] Not completed yet for ${code}. Color -> ${colorId}. K2B=${currentJournal?.k2b_send_date}, Invoice=${currentJournal?.electronic_invoice_date}, Fee=${feeBiz}`);
+          console.log(`[Sync Service] Completed status for ${code}. Color -> Grape(3).`);
         }
       } catch (e) {
         console.error("[Sync Service] Status check error:", e);
@@ -174,7 +177,13 @@ export async function syncBusinessToCalendar(
 
       const eventData = {
         summary,
-        description,
+        description: `
+          사업장: ${targetBiz.business_name}
+          주소: ${targetBiz.address || "주소 미입력"}
+          담당자: ${targetBiz.manager_name || "미지정"}
+          연락처: ${targetBiz.manager_mobile || targetBiz.phone || "없음"}
+          비고: ${targetBiz.notes || ""}${k2bDescription}
+        `.trim(),
         date: targetBiz.measurement_date,
         endDate: surveyEndDate,
         location: targetBiz.address || "",

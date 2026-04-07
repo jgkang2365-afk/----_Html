@@ -79,7 +79,9 @@ export async function PATCH(
     if (updateData.measurement_end_date === "") updateData.measurement_end_date = null;
     if (updateData.k2b_send_date === "") updateData.k2b_send_date = null;
     if (updateData.electronic_invoice_date === "") updateData.electronic_invoice_date = null;
+    if (updateData.electronic_invoice_date_2 === "") updateData.electronic_invoice_date_2 = null;
     if (updateData.deposit_date_business === "") updateData.deposit_date_business = null;
+    if (updateData.deposit_date_business_2 === "") updateData.deposit_date_business_2 = null;
     if (updateData.deposit_date_national === "") updateData.deposit_date_national = null;
 
     // 번호 필드 정규화 (하이픈 등 특수문자 제거)
@@ -129,6 +131,7 @@ export async function PATCH(
       'measurement_fee_national',
       'deposit_total',
       'deposit_amount_business',
+      'deposit_amount_business_2',
       'deposit_amount_national'
     ];
 
@@ -170,6 +173,7 @@ export async function PATCH(
       'invoice_email',
       'invoice_email_2',
       'electronic_invoice_date',
+      'electronic_invoice_date_2',
       'commencement_number',
       'invoice_business_name',
       'invoice_business_number',
@@ -179,6 +183,8 @@ export async function PATCH(
       'deposit_total',
       'deposit_date_business',
       'deposit_amount_business',
+      'deposit_date_business_2',
+      'deposit_amount_business_2',
       'deposit_date_national',
       'deposit_amount_national',
       'special_notes',
