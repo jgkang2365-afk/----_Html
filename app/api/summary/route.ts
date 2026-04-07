@@ -287,6 +287,7 @@ export async function GET(request: NextRequest) {
         deposit_amount_business_2: journal.deposit_amount_business_2,
         deposit_date_business_2: journal.deposit_date_business_2,
         measurement_fee_business: journal.measurement_fee_business,
+        measurement_fee_national: journal.measurement_fee_national,
         special_notes: journal.special_notes,
         completion_status: journal.completion_status,
         target_measurement_date: target?.measurement_date || null,

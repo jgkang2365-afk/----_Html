@@ -82,6 +82,7 @@ interface SummaryEntry {
   k2b_send_date: string | null;
   k2b_sender: string | null;
   measurement_fee_business: number | null;
+  measurement_fee_national: number | null;
   special_notes: string | null;
   completion_status: string;
   target_measurement_date: string | null;
@@ -281,6 +282,7 @@ export const SummaryTable: React.FC = () => {
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
       k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
       measurement_fee_business: entry.measurement_fee_business || null,
+      measurement_fee_national: entry.measurement_fee_national || null,
       national_support_status: entry.national_support_status || "",
       office_jurisdiction: entry.office_jurisdiction || "",
       special_notes: entry.special_notes || "",
@@ -342,10 +344,14 @@ export const SummaryTable: React.FC = () => {
         saveData.national_support_status = null;
       }
 
-      // measurement_fee_business가 문자열인 경우 숫자로 변환
+      // measurement_fee_business 및 national 가 문자열인 경우 숫자로 변환
       if (typeof saveData.measurement_fee_business === "string") {
         const parsed = parseCurrency(saveData.measurement_fee_business);
         saveData.measurement_fee_business = parsed ? parseFloat(parsed) : null;
+      }
+      if (typeof saveData.measurement_fee_national === "string") {
+        const parsed = parseCurrency(saveData.measurement_fee_national);
+        saveData.measurement_fee_national = parsed ? parseFloat(parsed) : null;
       }
 
       const response = await fetch(`/api/summary/${selectedEntry.journal_id}`, {
@@ -431,8 +437,8 @@ export const SummaryTable: React.FC = () => {
           {selectedEntries.map((entry, index) => (
             <div
               key={entry.id}
-              className="break-after-page page-break-always bg-white p-8 rounded-lg shadow-sm print:shadow-none print:rounded-none print:p-0 max-w-[210mm] mx-auto print:max-w-none"
-              style={{ pageBreakAfter: 'always' }}
+              className="break-after-page page-break-always bg-white p-8 rounded-lg shadow-sm print:shadow-none print:rounded-none print:p-10 max-w-[210mm] mx-auto print:max-w-none"
+              style={{ pageBreakAfter: "always" }}
             >
               <div className="mb-8 print:mb-8">
                 <h2 className="text-2xl font-bold text-center mb-2">측정정보 요약</h2>
@@ -560,9 +566,9 @@ export const SummaryTable: React.FC = () => {
                         사업장명
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black print:text-lg print:font-black"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold !text-red-600 print:text-xl print:font-black print:!text-red-600"
                         value={entry.business_name || ""}
-                        disabled
+                        readOnly
                       />
                     </div>
                     <div className="md:col-span-3 print:col-span-3 p-1">
@@ -580,7 +586,7 @@ export const SummaryTable: React.FC = () => {
                         총인원
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm text-right shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         type="number"
                         value={entry.total_employees || ""}
                         disabled
@@ -747,24 +753,45 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정비 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정비 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3 md:gap-4">
+                  <div className="grid grid-cols-4 gap-4 w-full px-1">
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        전자계산서 발행일
+                      </label>
+                      <Input
+                        type="date"
+                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black"
+                        value={normalizeDateForInput(entry.electronic_invoice_date)}
+                        disabled
+                      />
+                    </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정비(사업장)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-right"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-left"
                         value={formatCurrency(entry.measurement_fee_business)}
                         disabled
                       />
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        국고지원 여부
+                        국고
                       </label>
                       <Input
                         className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
                         value={entry.national_support_status || ""}
+                        disabled
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정비(국고)
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-left"
+                        value={formatCurrency(entry.measurement_fee_national)}
                         disabled
                       />
                     </div>
@@ -1343,7 +1370,7 @@ export const SummaryTable: React.FC = () => {
                         총인원
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm text-right shadow-sm"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                         type="number"
                         value={editFormData.total_employees || ""}
                         onChange={(e) =>
@@ -1578,7 +1605,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정비 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정비 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         전자계산서 발행일
@@ -1612,7 +1639,7 @@ export const SummaryTable: React.FC = () => {
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        국고지원 여부
+                        국고
                       </label>
                       <Select
                         className="h-11 md:h-10 py-2 text-base md:text-sm shadow-sm text-center"
@@ -1628,6 +1655,24 @@ export const SummaryTable: React.FC = () => {
                           { value: "지원", label: "지원" },
                           { value: "비대상", label: "비대상" },
                         ]}
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정비(국고)
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        type="text"
+                        value={formatCurrency(editFormData.measurement_fee_national)}
+                        onChange={(e) => {
+                          const parsed = parseCurrency(e.target.value);
+                          setEditFormData({
+                            ...editFormData,
+                            measurement_fee_national: parsed ? parseFloat(parsed) : null,
+                          });
+                        }}
+                        placeholder="숫자만 입력"
                       />
                     </div>
                   </div>
