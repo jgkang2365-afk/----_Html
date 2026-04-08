@@ -609,6 +609,29 @@ export async function POST(request: NextRequest) {
         })
         .eq("id", existingPlan.id);
 
+      // [New Feature] 마스터 사업장 정보(measurement_business) 동기화 (차기 주기 반영용)
+      try {
+        const { error: masterSyncError } = await supabase
+          .from("measurement_business")
+          .update({
+            business_category: journalData.business_category,
+            industrial_accident_number: journalData.industrial_accident_number,
+            total_employees: journalData.total_employees,
+            manager_name: journalData.manager_name,
+            manager_mobile: journalData.manager_mobile,
+            representative_name: journalData.representative_name,
+          })
+          .eq("code", code);
+
+        if (masterSyncError) {
+          console.error("[POST Sync] Master Business Category Sync Error:", masterSyncError);
+        } else {
+          console.log(`[POST Sync] Updated master business info for ${code}`);
+        }
+      } catch (e) {
+        console.error("[POST Sync] Sync Exception:", e);
+      }
+
       if (planUpdateError) {
         console.error("측정 대상 사업장 계획 업데이트 오류:", planUpdateError);
         // 계획 업데이트 실패해도 측정일지 등록은 성공으로 처리

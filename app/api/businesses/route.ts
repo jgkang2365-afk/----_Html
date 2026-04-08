@@ -187,7 +187,7 @@ export async function GET(request: NextRequest) {
     // 2순위: measurement_journal
     const { data: latestJournalData } = await supabase
       .from("measurement_journal")
-      .select("code, measurement_year, measurement_period, business_number, total_employees, phone")
+      .select("code, measurement_year, measurement_period, business_number, total_employees, phone, business_category")
       .in("code", codes)
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false });
@@ -251,8 +251,8 @@ export async function GET(request: NextRequest) {
       const totalEmployees = bInfo?.total_employees || jInfo?.total_employees || item.total_employees;
       // 유선전화 (Source 'phone' -> Target 'manager_phone' for UI display)
       const phone = bInfo?.phone || jInfo?.phone || item.manager_phone;
-      // 업종 (journal에는 없음, business에만 있는 것으로 가정)
-      const businessCategory = bInfo?.business_category || item.business_category;
+      // 업종 (journal 데이터 최우선)
+      const businessCategory = jInfo?.business_category || bInfo?.business_category || item.business_category;
 
 
       return {

@@ -263,13 +263,8 @@ export async function POST(request: NextRequest) {
           ? (fullNameToShortName(officeJurisdictionRaw) || officeJurisdictionRaw)
           : (businessData.office_jurisdiction || null);
 
-        // 업종분류 처리: 엑셀에서 입력된 값이 있으면 사용, 없으면 지정지청이 "대전"이면 기본값 "공업사"
+        // 업종분류 처리: 엑셀에서 입력된 값이 있으면 사용
         let businessCategory = String(row["업종 분류"] || row["업종분류"] || row["business_category"] || "").trim() || null;
-
-        // 엑셀에 업종분류가 없고 지정지청이 "대전"이면 기본값 "공업사"
-        if (!businessCategory && designatedOffice === "대전") {
-          businessCategory = "공업사";
-        }
 
         // 지정한계_관할지청이 없으면 소재지 관할청을 기반으로 자동 계산
         if (!designatedOffice && officeJurisdiction) {

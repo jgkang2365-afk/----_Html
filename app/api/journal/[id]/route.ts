@@ -548,6 +548,29 @@ export async function PUT(
         // 계획 업데이트 실패해도 측정일지 수정은 성공으로 처리
       }
 
+      // [New Feature] 마스터 사업장 정보(measurement_business) 동기화 (차기 주기 반영용)
+      try {
+        const { error: masterSyncError } = await supabase
+          .from("measurement_business")
+          .update({
+            business_category: updatedJournal.business_category,
+            industrial_accident_number: updatedJournal.industrial_accident_number,
+            total_employees: updatedJournal.total_employees,
+            manager_name: updatedJournal.manager_name,
+            manager_mobile: updatedJournal.manager_mobile,
+            representative_name: updatedJournal.representative_name,
+          })
+          .eq("code", code);
+
+        if (masterSyncError) {
+          console.error("[PUT Sync] Master Business Category Sync Error:", masterSyncError);
+        } else {
+          console.log(`[PUT Sync] Updated master business info for ${code}`);
+        }
+      } catch (e) {
+        console.error("[PUT Sync] Sync Exception:", e);
+      }
+
       // [New Feature] 구글 캘린더 동기화 트리거
       try {
         await syncBusinessToCalendar(supabase, code, measurementYear, measurementPeriod);

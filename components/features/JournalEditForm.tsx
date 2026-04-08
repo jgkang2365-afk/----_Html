@@ -1024,9 +1024,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   }, [formData.measurement_fee_total, formData.deposit_total, formData.measurement_start_date, formData.k2b_send_date, formData.completion_status]);
 
-  // 업종분류가 '공업사'일 때 자동화 로직
+  // 업종분류가 '대전/천안 공업사'일 때 자동화 로직 (그 외에는 빈값)
   useEffect(() => {
-    if (formData.business_category === "공업사") {
+    const isTargetArea = ["대전", "천안"].includes(formData.designated_office);
+    const isAutoRepair = formData.business_category === "공업사";
+
+    if (isTargetArea && isAutoRepair) {
       // ref 업데이트 전 변경 여부 확인 (setFormData 내부가 아닌 여기서 캡처)
       const isStartDateChanged = prevStartDateRef.current !== formData.measurement_start_date;
 
@@ -1045,10 +1048,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         }
 
         // 2. 전자계산서 발행일: 측정 시작일 + 1일 (워킹데이 기준)
-        // 측정 시작일이 변경되었거나, 전자계산서 발행일이 비어있는 경우에만 자동 계산
         const currentStartDate = prev.measurement_start_date;
-
-        // 시작일이 변경되었거나(캡처된 값 사용), 전자계산서 발행일이 비어있는 경우에만 자동 계산
         const shouldUpdateDate = isStartDateChanged || !prev.electronic_invoice_date;
 
         if (currentStartDate && shouldUpdateDate) {
@@ -1063,17 +1063,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             nextDate.setDate(nextDate.getDate() + 1);
           }
 
-          const nextWorkingDay = normalizeDateForInput(nextDate.toISOString()); // YYYY-MM-DD 변환
+          const nextWorkingDay = normalizeDateForInput(nextDate.toISOString());
 
-          // 기존 값과 다르면 업데이트
           if (prev.electronic_invoice_date !== nextWorkingDay) {
             updates.electronic_invoice_date = nextWorkingDay;
             hasUpdates = true;
-            console.log('[JournalEditForm] 전자계산서 발행일 자동 계산:', {
-              측정시작일: currentStartDate,
-              발행일: nextWorkingDay,
-              자동계산사유: isStartDateChanged ? '시작일변경' : '현재값없음'
-            });
+            console.log('[JournalEditForm] 대전/천안 공업사 자동 계산:', nextWorkingDay);
           }
         }
 
@@ -1082,12 +1077,27 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         }
         return prev;
       });
+    } else {
+      // 대전/천안 공업사가 아니면 전자계산서 발행일 비우기
+      if (formData.electronic_invoice_date) {
+        setFormData(prev => ({ ...prev, electronic_invoice_date: "" }));
+      }
+      
+      // 비고에서 '공정 수시변경' 제거 (선택사항이나 일관성을 위해)
+      const NOTE_VALUE = "공정 수시변경";
+      const currentNotes = Array.isArray(formData.note) ? [...formData.note] : (formData.note ? [String(formData.note)] : []);
+      if (currentNotes.includes(NOTE_VALUE)) {
+        setFormData(prev => ({
+          ...prev,
+          note: currentNotes.filter(n => n !== NOTE_VALUE)
+        }));
+      }
     }
 
     // ref 업데이트
     prevStartDateRef.current = formData.measurement_start_date;
 
-  }, [formData.business_category, formData.measurement_start_date]);
+  }, [formData.business_category, formData.designated_office, formData.measurement_start_date]);
 
   // 측정년도/측정주기 변경 검증 (수정 모드에서만)
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1864,8 +1874,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const newOffice = e.target.value;
                 setFormData((prev) => ({
                   ...prev,
-                  designated_office: newOffice,
-                  business_category: (newOffice === "대전" && !prev.business_category) ? "공업사" : prev.business_category
+                  designated_office: newOffice
                 }));
               }}
               options={designatedOfficeOptions}
