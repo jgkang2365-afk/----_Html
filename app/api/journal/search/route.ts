@@ -466,6 +466,8 @@ export async function GET(request: NextRequest) {
           if (!journal.address && matchingBusiness.address) {
             journal.address = matchingBusiness.address;
           }
+          // 업종 분류 보완 (measurement_journal에 없으면 measurement_business에서 가져오기)
+          journal.business_category = journal.business_category || matchingBusiness.business_category || null;
         }
 
         // measurement_target_business에서 비고(notes) 가져와서 special_notes에 반영
@@ -601,6 +603,7 @@ export async function GET(request: NextRequest) {
           deposit_amount_business: null,
           deposit_date_national: null,
           deposit_amount_national: null,
+          business_category: business.business_category || null,
           special_notes: targetBusinessMap.get(key) || null,
           created_by: null,
           updated_by: null,

@@ -137,16 +137,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     address: entry.address || "",
     phone: entry.phone || "",
     fax: entry.fax || "",
-    business_category: (() => {
-      // 1. 전달받은 에이브리(entry)의 값이 있으면 최우선 사용
-      if (entry.business_category) return entry.business_category;
-      
-      // 2. 지정지청이 "대전"일 때도 기본값 "공업사"를 강제하지 않음 (사용자 요청: 제조 등 정확한 구분 필요)
-      if (entry.designated_office === "대전") {
-        return "";
-      }
-      return "";
-    })(),
+    business_category: entry.business_category || "",
 
     // 담당자 정보
     manager_name: entry.manager_name || "",
@@ -925,16 +916,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       address: entry.address || "",
       phone: entry.phone || "",
       fax: entry.fax || "",
-      business_category: (() => {
-        // 1. 전달받은 에이브리(entry)의 값이 있으면 최우선 사용
-        if (entry.business_category) return entry.business_category;
-        
-        // 2. 지정지청이 "대전"일 때만 기본값 "공업사" 적용 (전달받은 값이 없을 때만)
-        if (entry.designated_office === "대전") {
-          return "공업사";
-        }
-        return "";
-      })(),
+      business_category: entry.business_category || "",
 
       // 담당자 정보
       manager_name: entry.manager_name || "",
@@ -979,7 +961,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // entry 변경 시 ref도 업데이트
     prevStartDateRef.current = normalizeDateForInput(entry.measurement_start_date);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry.id, entry.note, entry.code, entry.measurement_year, entry.measurement_period, entry.measurement_start_date]); // entry의 주요 필드가 변경될 때 전체 재초기화
+  }, [entry.id, entry.note, entry.code, entry.measurement_year, entry.measurement_period, entry.measurement_start_date, entry.business_category]); // entry의 주요 필드가 변경될 때 전체 재초기화
 
   // 주소 변경 시 자동으로 소재지 관할청과 지정한계_관할지청 업데이트
   const handleAddressChange = async (newAddress: string) => {
