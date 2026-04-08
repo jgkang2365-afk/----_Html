@@ -151,6 +151,17 @@ export const SalesSummary: React.FC<SalesSummaryProps> = ({
                         {formatCurrency(otherUnpaidSum)}원
                       </TableCell>
                     </TableRow>
+                    {/* 합계 행 추가 */}
+                    <TableRow className="bg-gray-100/80 border-t-2 border-gray-300">
+                      <TableCell className="font-bold text-gray-900">합계</TableCell>
+                      <TableCell className="text-right font-bold text-gray-900">{formatCurrency(measurementRevenueSum + otherRevenueSum)}원</TableCell>
+                      <TableCell className="text-right font-bold text-gray-900">{formatCurrency(otherVatSum)}원</TableCell>
+                      <TableCell className="text-right font-bold text-primary-700">{formatCurrency(measurementTotalSum + otherTotalSum)}원</TableCell>
+                      <TableCell className="text-right font-bold text-gray-900">{formatCurrency(measurementDepositSum + otherDepositSum)}원</TableCell>
+                      <TableCell className="text-right font-bold text-warning-700">
+                        {formatCurrency(measurementUnpaidSum + otherUnpaidSum)}원
+                      </TableCell>
+                    </TableRow>
                   </>
                 );
               })()}

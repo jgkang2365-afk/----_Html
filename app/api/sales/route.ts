@@ -67,7 +67,8 @@ export async function GET(request: NextRequest) {
           q = q.eq(yearCol, parseInt(year));
         }
       }
-      if (measurementPeriod) {
+      // excludeYear가 true인 경우 주기 필터도 적용하지 않음 (집계용 전체 데이터 보장을 위함)
+      if (measurementPeriod && !excludeYear) {
         if (measurementPeriod.includes(",")) {
           const periods = measurementPeriod.split(",").map(p => p.trim()).filter(Boolean);
           if (periods.length > 0) q = q.in(periodCol, periods);
@@ -185,17 +186,18 @@ export async function GET(request: NextRequest) {
       officeSummary[office] = createEmptySummary();
     });
 
-    // 측정비 집계
+    // 측정비 집계 (측정비 전용 집계 데이터 생성)
     (allMeasurementForSummary || []).forEach((item: any) => {
-      // 부서별 집계(officeSummary)는 사용자가 선택한 년도에만 해당하는 데이터만 포함 (다른 년도는 제외)
+      // 부서별 집계(officeSummary)는 사용자가 선택한 년도 및 주기에 해당하는 데이터만 포함
       const isSelectedYear = !year || item.measurement_year === parseInt(year);
+      const isSelectedPeriod = !measurementPeriod || item.measurement_period === measurementPeriod;
       
       const shortOffice = item.designated_office ? toShortName(item.designated_office) : "기타";
       const officeKey = offices.includes(shortOffice as any) ? shortOffice : "기타";
       const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
       
-      if (isSelectedYear) {
+      if (isSelectedYear && isSelectedPeriod) {
         officeSummary[officeKey].measurementRevenue += revenue;
         officeSummary[officeKey].measurementTotal += revenue;
         officeSummary[officeKey].measurementDeposit += deposit;
@@ -203,10 +205,12 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // 기타 매출 집계
+    // 기타 매출 집계 (측정비와 섞이지 않도록 별도 항목으로 집계)
     (allOtherForSummary || []).forEach((item: any) => {
-      // 부서별 집계(officeSummary)는 사용자가 선택한 년도에만 해당하는 데이터만 포함
+      // 부서별 집계(officeSummary)는 사용자가 선택한 년도 및 주기에 해당하는 데이터만 포함
       const isSelectedYear = !year || item.revenue_year === parseInt(year);
+      // 기타 매출은 measurementPeriod 파라미터를 그대로 사용하거나 필요시 별도 처리
+      const isSelectedPeriod = !measurementPeriod || item.revenue_period === measurementPeriod;
 
       const shortOffice = item.designated_office ? toShortName(item.designated_office) : "기타";
       const officeKey = offices.includes(shortOffice as any) ? shortOffice : "기타";
@@ -215,7 +219,7 @@ export async function GET(request: NextRequest) {
       const total = parseFloat(item.total_amount?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_amount?.toString() || "0") || 0;
       
-      if (isSelectedYear) {
+      if (isSelectedYear && isSelectedPeriod) {
         officeSummary[officeKey].otherRevenue += supply;
         officeSummary[officeKey].otherVat += vat;
         officeSummary[officeKey].otherTotal += total;

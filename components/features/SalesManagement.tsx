@@ -347,62 +347,18 @@ export const SalesManagement: React.FC = () => {
     if (measurementFilters.representativeName === "") setLocalRepresentativeName("");
   }, [measurementFilters.businessName, measurementFilters.representativeName]);
 
-  // 필터 상태 변경 시 로컬 스토리지에 저장하고 탭 간 동기화
+  // 필터 상태 변경 시 로컬 스토리지에 각각 저장
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // 1. 활성 탭에 따른 현재 선택된 년도/주기 결정
-      let currentYear = "";
-      let currentPeriod = "";
-
-      if (activeTab === "measurement") {
-        currentYear = measurementFilters.year;
-        currentPeriod = measurementFilters.period;
-      } else if (activeTab === "unpaid") {
-        currentYear = unpaidFilters.year;
-        currentPeriod = unpaidFilters.period;
-      } else if (activeTab === "other") {
-        currentYear = otherFilters.year;
-        currentPeriod = otherFilters.period;
-      } else if (activeTab === "period-deposit") {
-        currentYear = depositYear;
-        currentPeriod = depositPeriod;
-      } else {
-        currentYear = yearlySummaryYear || unpaidSummaryYear || salesSummaryYear || "";
-        currentPeriod = yearlySummaryPeriod || unpaidSummaryPeriod || "";
-      }
-
-      // 2. 로컬 스토리지 저장 (빈 문자열 ""도 '전체'라는 유효한 상태이므로 저장)
-      if (currentYear !== undefined && currentYear !== null) {
-        localStorage.setItem(STORAGE_KEY_YEAR, currentYear);
-      }
-      if (currentPeriod !== undefined && currentPeriod !== null) {
-        localStorage.setItem(STORAGE_KEY_PERIOD, currentPeriod);
-      }
-
-      // 3. (선택 사항) 다른 탭의 필터들도 동일하게 동기화하여 일관성 유지
-      // 무한 루프 방지를 위해 현재 값과 다를 때만 업데이트
-      if (measurementFilters.year !== currentYear || measurementFilters.period !== currentPeriod) {
-        setMeasurementFilters(prev => ({ ...prev, year: currentYear, period: currentPeriod }));
-      }
-      if (unpaidFilters.year !== currentYear || unpaidFilters.period !== currentPeriod) {
-        setUnpaidFilters(prev => ({ ...prev, year: currentYear, period: currentPeriod }));
-      }
-      if (yearlySummaryYear !== currentYear) setYearlySummaryYear(currentYear);
-      if (yearlySummaryPeriod !== currentPeriod) setYearlySummaryPeriod(currentPeriod);
-      if (unpaidSummaryYear !== currentYear) setUnpaidSummaryYear(currentYear);
-      if (unpaidSummaryPeriod !== currentPeriod) setUnpaidSummaryPeriod(currentPeriod);
-      if (salesSummaryYear !== currentYear) setSalesSummaryYear(currentYear);
+      // 각 필터의 최신 상태를 로컬 스토리지에 개별적으로 저장 (새로고침 시 유지용)
+      if (measurementFilters.year) localStorage.setItem("sales_last_measurement_year", measurementFilters.year);
+      if (measurementFilters.period) localStorage.setItem("sales_last_measurement_period", measurementFilters.period);
+      if (otherFilters.year) localStorage.setItem("sales_last_other_year", otherFilters.year);
+      if (otherFilters.period) localStorage.setItem("sales_last_other_period", otherFilters.period);
+      if (unpaidFilters.year) localStorage.setItem("sales_last_unpaid_year", unpaidFilters.year);
+      if (unpaidFilters.period) localStorage.setItem("sales_last_unpaid_period", unpaidFilters.period);
     }
-  }, [
-    activeTab,
-    measurementFilters.year, measurementFilters.period,
-    unpaidFilters.year, unpaidFilters.period,
-    otherFilters.year, otherFilters.period,
-    depositYear, depositPeriod,
-    yearlySummaryYear, yearlySummaryPeriod,
-    unpaidSummaryYear, unpaidSummaryPeriod,
-    salesSummaryYear
-  ]);
+  }, [measurementFilters, otherFilters, unpaidFilters, activeTab]);
 
   // 기간별 입금 현황 날짜 선택 헬퍼
   const handleQuickDateSelect = (type: "yesterday" | "today" | "week" | "month") => {
@@ -541,7 +497,13 @@ export const SalesManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [deletedOtherIds, pageSize, activeTab, measurementFilters, unpaidFilters, depositYear, depositPeriod]);
+  }, [
+    deletedOtherIds, pageSize, activeTab, 
+    measurementFilters, unpaidFilters, otherFilters,
+    depositYear, depositPeriod,
+    yearlySummaryYear, yearlySummaryPeriod, 
+    unpaidSummaryYear, unpaidSummaryPeriod
+  ]);
 
   // 데이터 로드 효과
   useEffect(() => {
@@ -562,6 +524,10 @@ export const SalesManagement: React.FC = () => {
     unpaidFilters.period,
     otherFilters.year,
     otherFilters.period,
+    yearlySummaryYear,
+    yearlySummaryPeriod,
+    unpaidSummaryYear,
+    unpaidSummaryPeriod,
     depositYear,
     depositPeriod
   ]);
@@ -1154,6 +1120,14 @@ export const SalesManagement: React.FC = () => {
           allOtherData={allOtherData}
           formatCurrency={formatCurrency}
           yearOptions={yearOptions}
+          yearlySummaryYear={yearlySummaryYear}
+          setYearlySummaryYear={setYearlySummaryYear}
+          yearlySummaryPeriod={yearlySummaryPeriod}
+          setYearlySummaryPeriod={setYearlySummaryPeriod}
+          unpaidSummaryYear={unpaidSummaryYear}
+          setUnpaidSummaryYear={setUnpaidSummaryYear}
+          unpaidSummaryPeriod={unpaidSummaryPeriod}
+          setUnpaidSummaryPeriod={setUnpaidSummaryPeriod}
         />
       )}
 

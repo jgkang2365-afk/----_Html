@@ -509,6 +509,35 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                               );
                             })
                           )}
+                          {/* 현재 페이지 합계 행 추가 */}
+                          {measurementRevenue.length > 0 && (
+                            <TableRow className="bg-slate-50 border-t-2 border-slate-200 sticky bottom-0 z-10 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
+                              <TableCell colSpan={5} className="text-center font-bold text-slate-700 py-3">현재 페이지 합계</TableCell>
+                              <TableCell className="text-right font-bold text-slate-700">
+                                {formatCurrency(measurementRevenue.reduce((sum, item) => sum + (item.measurement_fee_business || 0), 0))}원
+                              </TableCell>
+                              <TableCell className="text-right text-slate-500">-</TableCell>
+                              <TableCell className="text-right font-bold text-slate-700">
+                                {formatCurrency(measurementRevenue.reduce((sum, item) => sum + (item.measurement_fee_national || 0), 0))}원
+                              </TableCell>
+                              <TableCell className="text-right font-bold text-blue-700">
+                                {formatCurrency(measurementRevenue.reduce((sum, item) => sum + (item.measurement_fee_total || 0), 0))}원
+                              </TableCell>
+                              <TableCell className="text-right font-bold text-slate-700">
+                                {formatCurrency(measurementRevenue.reduce((sum, item) => sum + (item.deposit_total || 0), 0))}원
+                              </TableCell>
+                              <TableCell className="text-right font-bold text-warning-700">
+                                {formatCurrency(
+                                  measurementRevenue.reduce((sum, item) => {
+                                    const total = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
+                                    const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
+                                    return sum + (total - deposit);
+                                  }, 0)
+                                )}원
+                              </TableCell>
+                              <TableCell colSpan={2} className="text-center text-slate-400">-</TableCell>
+                            </TableRow>
+                          )}
                         </TableBody>
                       </Table>
                     </div>

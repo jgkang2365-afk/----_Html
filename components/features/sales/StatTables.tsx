@@ -27,6 +27,7 @@ interface StatTablesProps {
   otherRevenue: OtherRevenue[];
   allOtherData?: OtherRevenue[];
   formatCurrency: (amount: number | null | undefined) => string;
+  yearOptions: { value: string; label: string }[];
   yearlySummaryYear: string;
   setYearlySummaryYear: (year: string) => void;
   yearlySummaryPeriod: string;
@@ -215,62 +216,69 @@ export const StatTables: React.FC<StatTablesProps> = ({
                   const targetYear = yearlySummaryYear ? parseInt(yearlySummaryYear) : null;
                   const targetPeriod = yearlySummaryPeriod;
 
+                  // 1. 측정비(측정일지) 집계
+                  measurementRevenue
+                    .filter((item) => {
+                      const shortOfficeName = toShortName(item.designated_office || "");
+                      const officeMatch = office === "기타" 
+                        ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
+                        : shortOfficeName === office;
+                      const yearMatch = !targetYear || item.measurement_year === targetYear;
+                      const periodMatch = isMatchSelection(item, targetPeriod);
+                      return officeMatch && yearMatch && periodMatch;
+                    })
+                    .forEach((item) => {
+                      const fee = item.measurement_fee_total || 0;
+                      const dep = item.deposit_total || 0;
+                      measurementFee += fee;
+                      totalValue += fee;
+                      deposit += dep;
+                      unpaid += fee - dep;
+                    });
+
+                  // 2. [추가] 기타 매출 집계 (사용자 요청: 기타 = 기타 매출)
+                  // '기타' 행인 경우에만 기타 매출 데이터를 합산함
                   if (office === "기타") {
                     const otherDataToUse = allOtherData || otherRevenue;
-                    otherDataToUse
-                      .filter((item) => {
-                        const yearMatch = !targetYear || item.revenue_year === targetYear;
-                        const periodMatch = isMatchSelection(item, targetPeriod);
-                        return yearMatch && periodMatch;
-                      })
-                      .forEach((item) => {
+                    otherDataToUse.forEach(item => {
+                      const yearMatch = !targetYear || item.revenue_year === targetYear;
+                      const periodMatch = isMatchSelection(item, targetPeriod);
+                      if (yearMatch && periodMatch) {
                         measurementFee += item.supply_amount || 0;
                         vat += item.vat_amount || 0;
                         totalValue += item.total_amount || 0;
                         deposit += item.deposit_amount || 0;
                         unpaid += (item.total_amount || 0) - (item.deposit_amount || 0);
-                      });
-                  } else {
-                    measurementRevenue
-                      .filter((item) => {
-                        // DB의 풀네임(예: 대전지방고용노동청 천안지청)과 UI의 약칭(천안) 매칭을 위해 toShortName 사용
-                        const shortOfficeName = toShortName(item.designated_office || "");
-                        const officeMatch = shortOfficeName === office;
-                        const yearMatch = !targetYear || item.measurement_year === targetYear;
-                        const periodMatch = isMatchSelection(item, targetPeriod);
-                        return officeMatch && yearMatch && periodMatch;
-                      })
-                      .forEach((item) => {
-                        const fee = item.measurement_fee_total || 0;
-                        const dep = item.deposit_total || 0;
-                        measurementFee += fee;
-                        totalValue += fee;
-                        deposit += dep;
-                        unpaid += fee - dep;
-                      });
+                      }
+                    });
                   }
 
                   let firstHalf = 0;
                   let secondHalf = 0;
                   if (targetYear) {
+                    // 측정비 상/하반기 집계
+                    measurementRevenue
+                      .filter((item) => {
+                        const shortOfficeName = toShortName(item.designated_office || "");
+                        const officeMatch = office === "기타"
+                          ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
+                          : shortOfficeName === office;
+                        return officeMatch && item.measurement_year === targetYear;
+                      })
+                      .forEach((item) => {
+                        if (isMatchSelection(item, "상반기")) firstHalf += item.measurement_fee_total || 0;
+                        if (isMatchSelection(item, "하반기")) secondHalf += item.measurement_fee_total || 0;
+                      });
+                    
+                    // 기타 매출 상/하반기 집계 (기타 행인 경우)
                     if (office === "기타") {
                       const otherDataToUse = allOtherData || otherRevenue;
-                      otherDataToUse
-                        .filter((item) => item.revenue_year === targetYear)
-                        .forEach((item) => {
+                      otherDataToUse.forEach(item => {
+                        if (item.revenue_year === targetYear) {
                           if (isMatchSelection(item, "상반기")) firstHalf += item.total_amount || 0;
                           if (isMatchSelection(item, "하반기")) secondHalf += item.total_amount || 0;
-                        });
-                    } else {
-                      measurementRevenue
-                        .filter((item) => {
-                          const shortOfficeName = toShortName(item.designated_office || "");
-                          return shortOfficeName === office && item.measurement_year === targetYear;
-                        })
-                        .forEach((item) => {
-                          if (isMatchSelection(item, "상반기")) firstHalf += item.measurement_fee_total || 0;
-                          if (isMatchSelection(item, "하반기")) secondHalf += item.measurement_fee_total || 0;
-                        });
+                        }
+                      });
                     }
                   }
 
@@ -384,13 +392,16 @@ export const StatTables: React.FC<StatTablesProps> = ({
           <TableBody>
             {(() => {
               const unpaidAnalysis = [...DESIGNATED_OFFICES_FOR_SALES].map((office) => {
+                const targetYear = unpaidSummaryYear ? parseInt(unpaidSummaryYear) : null;
+                const targetPeriod = unpaidSummaryPeriod;
+
                 const filtered = measurementRevenue.filter((item) => {
                   const shortOfficeName = toShortName(item.designated_office || "");
                   const officeMatch = office === "기타"
                     ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
                     : shortOfficeName === office;
-                  const yearMatch = !unpaidSummaryYear || item.measurement_year === parseInt(unpaidSummaryYear);
-                  const periodMatch = isMatchSelection(item, unpaidSummaryPeriod);
+                  const yearMatch = !targetYear || item.measurement_year === targetYear;
+                  const periodMatch = isMatchSelection(item, targetPeriod);
                   return officeMatch && yearMatch && periodMatch;
                 });
 
@@ -409,18 +420,28 @@ export const StatTables: React.FC<StatTablesProps> = ({
                   if (bFee + nFee > 0 || bDep + nDep > 0) { totalCount++; totalSubtotal += (bFee + nFee); totalDeposit += (bDep + nDep); }
                 });
 
+                // [수정] '기타' 행인 경우 기타 매출(other_revenue)의 미수금 데이터도 합산함
                 if (office === "기타") {
                   const otherDataToUse = allOtherData || otherRevenue;
-                  otherDataToUse.filter(item => {
-                    const yearMatch = !unpaidSummaryYear || item.revenue_year === parseInt(unpaidSummaryYear);
-                    const periodMatch = isMatchSelection(item, unpaidSummaryPeriod);
-                    return yearMatch && periodMatch;
-                  }).forEach(item => {
-                    bizCount++; bizSubtotal += item.total_amount; bizDeposit += item.deposit_amount || 0;
-                    totalCount++; totalSubtotal += item.total_amount; totalDeposit += item.deposit_amount || 0;
+                  otherDataToUse.forEach(item => {
+                    const yearMatch = !targetYear || item.revenue_year === targetYear;
+                    const periodMatch = isMatchSelection(item, targetPeriod);
+                    if (yearMatch && periodMatch) {
+                      const amount = item.total_amount || 0;
+                      const deposit = item.deposit_amount || 0;
+                      
+                      totalCount++;
+                      totalSubtotal += amount;
+                      totalDeposit += deposit;
+                      
+                      // 기타 매출은 성격상 '사업장' 미수금으로 분류
+                      bizCount++;
+                      bizSubtotal += amount;
+                      bizDeposit += deposit;
+                    }
                   });
                 }
-
+                
                 return { office, label: officeLabels[office] || office, totalCount, totalSubtotal, totalDeposit, bizCount, bizSubtotal, bizDeposit, natCount, natSubtotal, natDeposit };
               });
 

@@ -123,6 +123,26 @@ export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
                 </TableRow>
               ))
             )}
+            {/* 현재 페이지 합계 행 추가 */}
+            {data.length > 0 && (
+              <TableRow className="bg-slate-50 border-t-2 border-slate-200 sticky bottom-0 z-10 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
+                <TableCell colSpan={5} className="text-center font-bold text-slate-700 py-3">현재 페이지 합계</TableCell>
+                <TableCell className="text-right font-bold text-slate-700">
+                  {formatCurrency(data.reduce((sum, item) => sum + (item.supply_amount || 0), 0))}원
+                </TableCell>
+                <TableCell className="text-right font-bold text-slate-700">
+                  {formatCurrency(data.reduce((sum, item) => sum + (item.vat_amount || 0), 0))}원
+                </TableCell>
+                <TableCell className="text-right font-bold text-primary-700">
+                  {formatCurrency(data.reduce((sum, item) => sum + (item.total_amount || 0), 0))}원
+                </TableCell>
+                <TableCell className="text-center text-slate-400">-</TableCell>
+                <TableCell className="text-right font-bold text-slate-700">
+                  {formatCurrency(data.reduce((sum, item) => sum + (item.deposit_amount || 0), 0))}원
+                </TableCell>
+                <TableCell colSpan={2} className="text-center text-slate-400">-</TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </div>
