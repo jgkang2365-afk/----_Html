@@ -333,6 +333,17 @@ export const StatTables: React.FC<StatTablesProps> = ({
                         <TableCell className="text-right font-bold">{formatCurrency(yearlySummaryYear ? data.yearlyTotal : data.totalValue)}</TableCell>
                       </TableRow>
                     ))}
+                    <TableRow className="border-t-2 bg-gray-50 font-bold">
+                      <TableCell colSpan={2} className="text-center text-black py-3">합계</TableCell>
+                      <TableCell className="text-right text-black">{formatCurrency(totalRow.measurementFee)}</TableCell>
+                      <TableCell className="text-right text-black">{formatCurrency(totalRow.vat)}</TableCell>
+                      <TableCell className="text-right text-black">{formatCurrency(totalRow.total)}</TableCell>
+                      <TableCell className="text-right text-black">{formatCurrency(totalRow.deposit)}</TableCell>
+                      <TableCell className="text-right text-black">{formatCurrency(totalRow.unpaid)}</TableCell>
+                      <TableCell className="text-right text-black">{formatCurrency(yearlySummaryYear ? totalRow.firstHalf : totalRow.total)}</TableCell>
+                      <TableCell className="text-right text-black">{formatCurrency(yearlySummaryYear ? totalRow.secondHalf : totalRow.total)}</TableCell>
+                      <TableCell className="text-right text-black">{formatCurrency(yearlySummaryYear ? totalRow.yearlyTotal : totalRow.total)}</TableCell>
+                    </TableRow>
                   </>
                 );
               })()}
@@ -500,6 +511,23 @@ export const StatTables: React.FC<StatTablesProps> = ({
                       <TableCell className="text-right font-bold text-warning-600">{formatCurrency(row.natSubtotal - row.natDeposit)}</TableCell>
                     </TableRow>
                   ))}
+                  <TableRow className="border-t-2 border-b-2 border-gray-200 bg-gray-50 text-xs text-black font-bold">
+                    <TableCell className="text-center">합계</TableCell>
+                    <TableCell className="text-center text-blue-600 cursor-pointer underline" onClick={() => handleUnpaidBusinessClick(null, "total")}>{totalRow.totalCount}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(totalRow.totalSubtotal)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(totalRow.totalDeposit)}</TableCell>
+                    <TableCell className="text-right text-warning-600 border-r-2">{formatCurrency(totalRow.totalSubtotal - totalRow.totalDeposit)}</TableCell>
+                    
+                    <TableCell className="text-center text-blue-600 cursor-pointer underline" onClick={() => handleUnpaidBusinessClick(null, "business")}>{totalRow.bizCount}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(totalRow.bizSubtotal)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(totalRow.bizDeposit)}</TableCell>
+                    <TableCell className="text-right text-warning-600 border-r-2">{formatCurrency(totalRow.bizSubtotal - totalRow.bizDeposit)}</TableCell>
+                    
+                    <TableCell className="text-center text-blue-600 cursor-pointer underline" onClick={() => handleUnpaidBusinessClick(null, "national")}>{totalRow.natCount}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(totalRow.natSubtotal)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(totalRow.natDeposit)}</TableCell>
+                    <TableCell className="text-right text-warning-600">{formatCurrency(totalRow.natSubtotal - totalRow.natDeposit)}</TableCell>
+                  </TableRow>
                 </>
               );
             })()}
