@@ -115,7 +115,7 @@ export async function syncBusinessToCalendar(
           namesDisplay = namesArray.join(", ");
         }
 
-        if (surveyData?.end_date && surveyData.end_date !== targetBiz.measurement_date) {
+        if (surveyData?.end_date && surveyData.end_date > targetBiz.measurement_date) {
           surveyEndDate = surveyData.end_date;
         }
       } catch (e) {
