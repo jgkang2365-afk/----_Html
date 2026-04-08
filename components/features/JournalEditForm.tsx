@@ -450,6 +450,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   updated.fax = data.previousData.fax;
                 }
 
+                // [ADD] 업종분류 자동 채우기
+                if (!updated.business_category && data.previousData.business_category) {
+                  updated.business_category = data.previousData.business_category;
+                }
+
                 // 전회 측정비 정보 저장 (참고용)
                 const previousBusinessFee = data.previousData.measurement_fee_business || null;
                 const previousNationalFee = data.previousData.measurement_fee_national || null;

@@ -463,13 +463,7 @@ export async function POST(request: NextRequest) {
       representative_name: businessInfo?.representative_name || businessData.representative_name || null,
       phone: businessInfo?.phone || null,
       fax: businessInfo?.fax || null,
-      // 업종분류: 지정지청이 "대전"이면 기본값 "공업사", 그 외는 null
-      business_category: (() => {
-        if (designatedOffice === "대전") {
-          return "공업사";
-        }
-        return null;
-      })(),
+      business_category: body.business_category || businessData.business_category || null,
       // measurement_business에서 담당자 정보 가져오기 (사용자 입력 값 우선)
       industrial_accident_number: cleanToDigits(body.industrial_accident_number || businessData.industrial_accident_number),
       manager_name: (() => {
@@ -611,6 +605,7 @@ export async function POST(request: NextRequest) {
           manager_name: journalData.manager_name,
           manager_mobile: journalData.manager_mobile,
           manager_phone: journalData.phone,
+          business_category: journalData.business_category,
         })
         .eq("id", existingPlan.id);
 

@@ -756,3 +756,11 @@
 [2026-04-07T11:53:52.172Z] Updating Calendar Event: 6695ra9nl6q05pe4ib7m6pdtkc {"summary":"[이주형]일주산업개발(주) 비하동 임대형 기숙사(2부지) 신축","description":"사업장: 일주산업개발(주) 비하동 임대형 기숙사(2부지) 신축\n          주소: 주소 미입력\n          담당자: 미지정\n          연락처: 없음\n          비고:","date":"2026-04-07","location":"","colorId":"5"}
 [2026-04-07T11:53:52.174Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
 [2026-04-07T11:53:54.086Z] Event updated successfully: 6695ra9nl6q05pe4ib7m6pdtkc 
+[2026-04-08T10:13:54.090Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-04-08T10:13:55.184Z] Updating Calendar Event: s2bdd5t1rd68jjmjlnl7mupdjs {"summary":"[강종구](주) 현대자동차충청써비스 - 26상 미수","description":"사업장: (주) 현대자동차충청써비스\n          주소: 충청남도 아산시 곡교천로125번길 35 (실옥동)\n          담당자: 김사론\n          연락처: 010-7138-1537\n          비고:","date":"2026-04-07","location":"충청남도 아산시 곡교천로125번길 35 (실옥동)","colorId":"9"}
+[2026-04-08T10:13:55.187Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-04-08T10:13:56.918Z] Event updated successfully: s2bdd5t1rd68jjmjlnl7mupdjs 
+[2026-04-08T10:15:29.294Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-04-08T10:15:30.321Z] Updating Calendar Event: s2bdd5t1rd68jjmjlnl7mupdjs {"summary":"[강종구](주) 현대자동차충청써비스 - 26상 미수","description":"사업장: (주) 현대자동차충청써비스\n          주소: 충청남도 아산시 곡교천로125번길 35 (실옥동)\n          담당자: 김사론\n          연락처: 010-7138-1537\n          비고:","date":"2026-04-07","location":"충청남도 아산시 곡교천로125번길 35 (실옥동)","colorId":"9"}
+[2026-04-08T10:15:30.323Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-04-08T10:15:32.182Z] Event updated successfully: s2bdd5t1rd68jjmjlnl7mupdjs 

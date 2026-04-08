@@ -604,6 +604,41 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // [New Feature] Sync 'Business Category' to 'Journal' and 'Master'
+    if (updates.hasOwnProperty('business_category') && code) {
+      try {
+        // 1. 현재 주기의 측정일지 업데이트
+        if (year && period) {
+          const { error: journalSyncError } = await supabase
+            .from("measurement_journal")
+            .update({ business_category: updates.business_category })
+            .eq("code", code)
+            .eq("measurement_year", year)
+            .eq("measurement_period", period);
+          
+          if (journalSyncError) {
+            console.error("Journal Category Sync Error:", journalSyncError);
+          } else {
+            console.log(`[Sync] Updated journal business_category for ${code}`);
+          }
+        }
+
+        // 2. 마스터 사업장 정보(measurement_business) 업데이트 (차기 주기 반영용)
+        const { error: masterSyncError } = await supabase
+          .from("measurement_business")
+          .update({ business_category: updates.business_category })
+          .eq("code", code);
+
+        if (masterSyncError) {
+          console.error("Master Business Category Sync Error:", masterSyncError);
+        } else {
+          console.log(`[Sync] Updated master business_category for ${code}`);
+        }
+      } catch (e) {
+        console.error("Category Sync Exception:", e);
+      }
+    }
+
     return NextResponse.json({ success: true, data: updatedData });
 
   } catch (error: any) {

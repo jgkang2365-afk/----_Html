@@ -291,6 +291,9 @@ export async function GET(request: NextRequest) {
       // [ADD] 전화번호 및 FAX 추가
       phone: previousJournal?.phone || fallbackDefaults.phone || (referenceData as any)?.phone || null,
       fax: previousJournal?.fax || fallbackDefaults.fax || (referenceData as any)?.fax || null,
+
+      // [ADD] 업종분류 추가
+      business_category: previousJournal?.business_category || (referenceData as any)?.business_category || null,
     } : null;
 
     // 디버깅: previousData 확인

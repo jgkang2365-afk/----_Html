@@ -27,7 +27,14 @@ interface StatTablesProps {
   otherRevenue: OtherRevenue[];
   allOtherData?: OtherRevenue[];
   formatCurrency: (amount: number | null | undefined) => string;
-  yearOptions: Array<{ value: string; label: string }>;
+  yearlySummaryYear: string;
+  setYearlySummaryYear: (year: string) => void;
+  yearlySummaryPeriod: string;
+  setYearlySummaryPeriod: (period: string) => void;
+  unpaidSummaryYear: string;
+  setUnpaidSummaryYear: (year: string) => void;
+  unpaidSummaryPeriod: string;
+  setUnpaidSummaryPeriod: (period: string) => void;
 }
 
 export const StatTables: React.FC<StatTablesProps> = ({
@@ -37,51 +44,19 @@ export const StatTables: React.FC<StatTablesProps> = ({
   allOtherData,
   formatCurrency,
   yearOptions,
+  yearlySummaryYear,
+  setYearlySummaryYear,
+  yearlySummaryPeriod,
+  setYearlySummaryPeriod,
+  unpaidSummaryYear,
+  setUnpaidSummaryYear,
+  unpaidSummaryPeriod,
+  setUnpaidSummaryPeriod,
 }) => {
   // 서울 시간대(Asia/Seoul) 기준으로 현재 년도 및 주기 가져오기
   const seoulNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
   const currentYear = seoulNow.getFullYear().toString();
   const currentPeriod = (seoulNow.getMonth() + 1) <= 6 ? "상반기" : "하반기";
-
-  // 로컬 스토리지 키 정의 (SalesManagement와 동일하게 유지)
-  const STORAGE_KEY_YEAR = "sales_management_last_year";
-  const STORAGE_KEY_PERIOD = "sales_management_last_period";
-
-  // 로컬 스토리지 및 KST 기준 초기값 설정
-  const getInitialYear = () => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem(STORAGE_KEY_YEAR) || currentYear;
-    }
-    return currentYear;
-  };
-  const getInitialPeriod = () => {
-    if (typeof window !== "undefined") {
-      // 주기는 기본값을 "전체"("")로 설정 (사용자 요청)
-      // 만약 세션에 저장된 값이 없다면 빈 문자열 반환
-      return localStorage.getItem(STORAGE_KEY_PERIOD) || "";
-    }
-    return "";
-  };
-
-  const initialYear = getInitialYear();
-  const initialPeriod = getInitialPeriod();
-
-  // 년도별 집계 현황 상태
-  const [yearlySummaryYear, setYearlySummaryYear] = useState<string>(initialYear);
-  const [yearlySummaryPeriod, setYearlySummaryPeriod] = useState<string>(initialPeriod);
-
-  // 미수금 집계 현황 상태
-  const [unpaidSummaryYear, setUnpaidSummaryYear] = useState<string>(initialYear);
-  const [unpaidSummaryPeriod, setUnpaidSummaryPeriod] = useState<string>(initialPeriod);
-
-  // 필터 상태 변경 시 로컬 스토리지에 저장 (섹션 전체의 일관성 유지)
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      // 통계 테이블의 필터가 변경되면 최신 값을 로컬 스토리지에 저장
-      localStorage.setItem(STORAGE_KEY_YEAR, yearlySummaryYear || unpaidSummaryYear);
-      localStorage.setItem(STORAGE_KEY_PERIOD, yearlySummaryPeriod !== undefined ? yearlySummaryPeriod : unpaidSummaryPeriod);
-    }
-  }, [yearlySummaryYear, yearlySummaryPeriod, unpaidSummaryYear, unpaidSummaryPeriod]);
 
   // 미수금 상세 모달 상태
   const [isUnpaidDetailModalOpen, setIsUnpaidDetailModalOpen] = useState(false);

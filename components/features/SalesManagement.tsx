@@ -153,9 +153,10 @@ export const SalesManagement: React.FC = () => {
   // 로컬 스토리지에서 초기값 가져오기 (년도 기본값: KST 현재년도, 주기 기본값: 전체(""))
   const getInitialYear = () => {
     if (typeof window !== "undefined") {
-      return localStorage.getItem(STORAGE_KEY_YEAR) || getCurrentYearString();
+      // 년도 기본값을 "전체"("")로 설정 (사용자 요청 반영)
+      return localStorage.getItem(STORAGE_KEY_YEAR) || "";
     }
-    return getCurrentYearString();
+    return "";
   };
   const getInitialPeriod = () => {
     if (typeof window !== "undefined") {
@@ -346,15 +347,62 @@ export const SalesManagement: React.FC = () => {
     if (measurementFilters.representativeName === "") setLocalRepresentativeName("");
   }, [measurementFilters.businessName, measurementFilters.representativeName]);
 
-  // 필터 상태 변경 시 로컬 스토리지에 저장
+  // 필터 상태 변경 시 로컬 스토리지에 저장하고 탭 간 동기화
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // 다양한 필터 중 하나라도 변경되면 최신 값을 저장
-      // (모든 필터가 같은 스토리지 키를 공유하도록 하여 섹션 전체의 일관성 유지)
-      localStorage.setItem(STORAGE_KEY_YEAR, measurementFilters.year || unpaidFilters.year || yearlySummaryYear || unpaidSummaryYear || salesSummaryYear);
-      localStorage.setItem(STORAGE_KEY_PERIOD, measurementFilters.period !== undefined ? measurementFilters.period : (unpaidFilters.period !== undefined ? unpaidFilters.period : yearlySummaryPeriod));
+      // 1. 활성 탭에 따른 현재 선택된 년도/주기 결정
+      let currentYear = "";
+      let currentPeriod = "";
+
+      if (activeTab === "measurement") {
+        currentYear = measurementFilters.year;
+        currentPeriod = measurementFilters.period;
+      } else if (activeTab === "unpaid") {
+        currentYear = unpaidFilters.year;
+        currentPeriod = unpaidFilters.period;
+      } else if (activeTab === "other") {
+        currentYear = otherFilters.year;
+        currentPeriod = otherFilters.period;
+      } else if (activeTab === "period-deposit") {
+        currentYear = depositYear;
+        currentPeriod = depositPeriod;
+      } else {
+        currentYear = yearlySummaryYear || unpaidSummaryYear || salesSummaryYear || "";
+        currentPeriod = yearlySummaryPeriod || unpaidSummaryPeriod || "";
+      }
+
+      // 2. 로컬 스토리지 저장 (빈 문자열 ""도 '전체'라는 유효한 상태이므로 저장)
+      if (currentYear !== undefined && currentYear !== null) {
+        localStorage.setItem(STORAGE_KEY_YEAR, currentYear);
+      }
+      if (currentPeriod !== undefined && currentPeriod !== null) {
+        localStorage.setItem(STORAGE_KEY_PERIOD, currentPeriod);
+      }
+
+      // 3. (선택 사항) 다른 탭의 필터들도 동일하게 동기화하여 일관성 유지
+      // 무한 루프 방지를 위해 현재 값과 다를 때만 업데이트
+      if (measurementFilters.year !== currentYear || measurementFilters.period !== currentPeriod) {
+        setMeasurementFilters(prev => ({ ...prev, year: currentYear, period: currentPeriod }));
+      }
+      if (unpaidFilters.year !== currentYear || unpaidFilters.period !== currentPeriod) {
+        setUnpaidFilters(prev => ({ ...prev, year: currentYear, period: currentPeriod }));
+      }
+      if (yearlySummaryYear !== currentYear) setYearlySummaryYear(currentYear);
+      if (yearlySummaryPeriod !== currentPeriod) setYearlySummaryPeriod(currentPeriod);
+      if (unpaidSummaryYear !== currentYear) setUnpaidSummaryYear(currentYear);
+      if (unpaidSummaryPeriod !== currentPeriod) setUnpaidSummaryPeriod(currentPeriod);
+      if (salesSummaryYear !== currentYear) setSalesSummaryYear(currentYear);
     }
-  }, [measurementFilters.year, measurementFilters.period, unpaidFilters.year, unpaidFilters.period, yearlySummaryYear, yearlySummaryPeriod, unpaidSummaryYear, unpaidSummaryPeriod, salesSummaryYear]);
+  }, [
+    activeTab,
+    measurementFilters.year, measurementFilters.period,
+    unpaidFilters.year, unpaidFilters.period,
+    otherFilters.year, otherFilters.period,
+    depositYear, depositPeriod,
+    yearlySummaryYear, yearlySummaryPeriod,
+    unpaidSummaryYear, unpaidSummaryPeriod,
+    salesSummaryYear
+  ]);
 
   // 기간별 입금 현황 날짜 선택 헬퍼
   const handleQuickDateSelect = (type: "yesterday" | "today" | "week" | "month") => {
