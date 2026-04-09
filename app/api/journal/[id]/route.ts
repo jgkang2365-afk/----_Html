@@ -520,13 +520,10 @@ export async function PUT(
       .maybeSingle();
 
     if (!planCheckError && existingPlan) {
-      // 계획이 있으면 등록 정보 업데이트
+      // [Sync Priority 1] 국고지원, 업종분류 -> measurement_target_business (권위자)
       const { error: planUpdateError } = await supabase
         .from("measurement_target_business")
         .update({
-          journal_id: updatedJournal.id,
-          is_registered: "확정",
-          registered_at: new Date().toISOString(),
           measurement_start_date: updatedJournal.measurement_start_date,
           measurement_end_date: updatedJournal.measurement_end_date,
           measurer: updatedJournal.measurer,
@@ -535,7 +532,7 @@ export async function PUT(
           total_employees: updatedJournal.total_employees,
           address: updatedJournal.address,
           office_jurisdiction: updatedJournal.office_jurisdiction,
-          national_support_status: updatedJournal.national_support_status || null,
+          national_support_status: body.national_support_status || updatedJournal.national_support_status || null,
           manager_name: updatedJournal.manager_name,
           manager_mobile: updatedJournal.manager_mobile,
           manager_phone: updatedJournal.phone,
@@ -548,24 +545,33 @@ export async function PUT(
         // 계획 업데이트 실패해도 측정일지 수정은 성공으로 처리
       }
 
-      // [New Feature] 마스터 사업장 정보(measurement_business) 동기화 (차기 주기 반영용)
+      // [Sync Priority 2] 담당자 정보, 계산서 정보 -> measurement_business (마스터)
       try {
         const { error: masterSyncError } = await supabase
           .from("measurement_business")
           .update({
+            manager_name: updatedJournal.manager_name,
+            manager_position: updatedJournal.manager_position,
+            manager_mobile: updatedJournal.manager_mobile,
+            manager_email: updatedJournal.manager_email,
+            invoice_email: updatedJournal.invoice_email,
+            invoice_email_2: updatedJournal.invoice_email_2,
             business_category: updatedJournal.business_category,
+            national_support_status: body.national_support_status || null,
             industrial_accident_number: updatedJournal.industrial_accident_number,
             total_employees: updatedJournal.total_employees,
-            manager_name: updatedJournal.manager_name,
-            manager_mobile: updatedJournal.manager_mobile,
             representative_name: updatedJournal.representative_name,
+            phone: updatedJournal.phone,
+            fax: updatedJournal.fax,
           })
-          .eq("code", code);
+          .eq("code", code)
+          .eq("year", measurementYear)
+          .eq("period", measurementPeriod);
 
         if (masterSyncError) {
-          console.error("[PUT Sync] Master Business Category Sync Error:", masterSyncError);
+          console.error("[PUT Sync] Master Business Sync Error:", masterSyncError);
         } else {
-          console.log(`[PUT Sync] Updated master business info for ${code}`);
+          console.log(`[PUT Sync] Updated master business info for ${code} (${measurementYear}/${measurementPeriod})`);
         }
       } catch (e) {
         console.error("[PUT Sync] Sync Exception:", e);

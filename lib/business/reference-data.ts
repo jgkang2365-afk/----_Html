@@ -1,6 +1,4 @@
 
-import { SupabaseClient } from "@supabase/supabase-js";
-
 export interface ReferenceData {
     business_name?: string;
     business_number?: string;
@@ -13,9 +11,11 @@ export interface ReferenceData {
     fax?: string;
     total_employees?: number;
     business_category?: string;
+    national_support_status?: string;
     industrial_accident_number?: string;
     commencement_number?: string;
     invoice_email?: string;
+    invoice_email_2?: string;
     representative_name?: string;
     source_type?: 'exact' | 'latest_history' | 'business_info' | 'none';
     source_desc?: string;
@@ -23,10 +23,9 @@ export interface ReferenceData {
 
 /**
  * 측정일지 데이터 보정을 위한 "최적의 참조 데이터"를 조회합니다.
- * 우선순위:
- * 1. 측정사업장 (정확히 일치): code + year + period
- * 2. 측정사업장 (최신 이력): code 일치, year(내림차순), period(하반기 우선)
- * 3. 사업장정보: code 일치 (기본 마스터 정보)
+ * 필드별 우선순위 요건 반영:
+ * 1. 국고지원, 업종분류: measurement_target_business (계획) 우선
+ * 2. 담당자 정보, 계산서 정보: measurement_business (Excel 동기화 데이터) 우선
  */
 export async function getBestReferenceData(
     supabase: SupabaseClient,
@@ -36,7 +35,7 @@ export async function getBestReferenceData(
 ): Promise<ReferenceData> {
     if (!code) return { source_type: 'none' };
 
-    // 0. 측정 대상 사업장 (정확히 일치): year, period 기준
+    // 1. 측정 대상 사업장 (계획 테이블) 조회
     const { data: targetMatch } = await supabase
         .from("measurement_target_business")
         .select("*")
@@ -45,7 +44,7 @@ export async function getBestReferenceData(
         .eq("period", period)
         .maybeSingle();
 
-    // 1. 측정사업장 (정확히 일치)
+    // 2. 측정사업장 (Excel 동기화 마스터 테이블) 조회
     const { data: exactMatch } = await supabase
         .from("measurement_business")
         .select("*")
@@ -55,19 +54,33 @@ export async function getBestReferenceData(
         .maybeSingle();
 
     if (targetMatch || exactMatch) {
-        // 두 테이블의 데이터를 병합
-        // 1. 과거 이력(exactMatch)에서 모든 필드를 가져옴
-        // 2. 현재 계획(targetMatch)에서 최신 정보를 덮어씀 (단, 계획에 없는 필드는 유지됨)
-        const base = exactMatch ? mapMeasurementBusinessToRef(exactMatch) : {};
         const target = targetMatch ? mapTargetBusinessToRef(targetMatch) : {};
+        const exact = exactMatch ? mapMeasurementBusinessToRef(exactMatch) : {};
         
-        // target에 값이 있는 경우만 덮어쓰기 (undefined나 null이 이력 데이터를 지우지 않도록)
-        const mergedData: any = { ...base };
-        Object.entries(target).forEach(([key, value]) => {
-            if (value !== null && value !== undefined && value !== "") {
-                mergedData[key] = value;
-            }
-        });
+        // [필수 로직] 필드별 권위(Authority)에 따른 병합
+        const mergedData: any = {};
+
+        // A. 계획 테이블이 권위 있는 필드 (국고지원, 업종분류)
+        mergedData.national_support_status = target.national_support_status || exact.national_support_status;
+        mergedData.business_category = target.business_category || exact.business_category;
+
+        // B. 측정사업장(Excel)이 권위 있는 필드 (담당자, 계산서 정보 등)
+        mergedData.manager_name = exact.manager_name || target.manager_name;
+        mergedData.manager_position = exact.manager_position || target.manager_position;
+        mergedData.manager_mobile = exact.manager_mobile || target.manager_mobile;
+        mergedData.manager_email = exact.manager_email || target.manager_email;
+        mergedData.invoice_email = exact.invoice_email || target.invoice_email;
+        mergedData.invoice_email_2 = exact.invoice_email_2 || target.invoice_email_2;
+
+        // C. 기타 공통 정보 (Excel 우선, 없으면 계획)
+        mergedData.business_name = exact.business_name || target.business_name;
+        mergedData.business_number = exact.business_number || target.business_number;
+        mergedData.address = exact.address || target.address;
+        mergedData.phone = exact.phone || target.phone;
+        mergedData.total_employees = exact.total_employees ?? target.total_employees;
+        mergedData.industrial_accident_number = exact.industrial_accident_number || target.industrial_accident_number;
+        mergedData.commencement_number = exact.commencement_number || target.commencement_number;
+        mergedData.representative_name = exact.representative_name || target.representative_name;
 
         return {
             ...mergedData,
@@ -76,24 +89,16 @@ export async function getBestReferenceData(
         };
     }
 
-    // 2. 측정사업장 (최신 이력) - 현재 시점보다 과거 데이터 중 최신
-    // 쿼리 복잡성을 줄이기 위해, 해당 코드의 최근 데이터를 가져와서 메모리에서 필터링
+    // 3. 측정사업장 (최신 이력) - 최근 10건 중 가장 최신
     const { data: history } = await supabase
         .from("measurement_business")
         .select("*")
         .eq("code", code)
         .order("year", { ascending: false })
-        .order("period", { ascending: false }) // 하반기 > 상반기 (문자열 기준)
+        .order("period", { ascending: false })
         .limit(10);
 
     if (history && history.length > 0) {
-        // 현재 시점(year, period)보다 이전인 데이터 찾기
-        // 혹은 입력된 시점과 관계없이 "가장 최신 데이터"를 원하면 그냥 첫 번째를 쓰면 됨.
-        // 사용자의 의도는 "빈 값을 채우는 것"이므로, 미래 데이터라도 있다면 채우는게 좋을 수 있음.
-        // 하지만 논리적으로 과거 데이터를 가져오는게 맞음.
-        // 여기서는 "가장 최신의 유효한 데이터"를 사용 (미래 데이터가 입력되어 있다면 그것도 유효 정보로 간주)
-
-        // 단순하게 가장 최신 데이터를 사용
         const latest = history[0];
         return {
             ...mapMeasurementBusinessToRef(latest),
@@ -102,7 +107,7 @@ export async function getBestReferenceData(
         };
     }
 
-    // 3. 사업장정보 (기본 마스터)
+    // 4. 사업장정보 (기본 마스터)
     const { data: businessInfo } = await supabase
         .from("business_info")
         .select("*")
@@ -126,10 +131,12 @@ function mapTargetBusinessToRef(data: any): ReferenceData {
         business_number: data.business_number,
         address: data.address,
         manager_name: data.manager_name,
+        manager_position: data.manager_position, // 계획 테이블에 있다면 매핑
         manager_mobile: data.manager_mobile,
-        phone: data.manager_phone, // measurement_target_business 에서는 manager_phone
+        phone: data.manager_phone, 
         total_employees: data.total_employees,
         business_category: data.business_category,
+        national_support_status: data.national_support_status,
         industrial_accident_number: data.industrial_accident_number,
         commencement_number: data.commencement_number,
         representative_name: data.representative_name,
@@ -137,7 +144,6 @@ function mapTargetBusinessToRef(data: any): ReferenceData {
 }
 
 function mapMeasurementBusinessToRef(data: any): ReferenceData {
-    // 총인원이 문자열로 저장되어 있을 경우에 대비해 파싱
     const total_employees = data.total_employees !== null && data.total_employees !== undefined
         ? (typeof data.total_employees === 'string' ? parseInt(data.total_employees.replace(/,/g, "")) : data.total_employees)
         : null;
@@ -152,10 +158,14 @@ function mapMeasurementBusinessToRef(data: any): ReferenceData {
         manager_email: data.manager_email,
         total_employees: isNaN(total_employees) ? null : total_employees,
         business_category: data.business_category,
+        national_support_status: data.national_support_status,
         industrial_accident_number: data.industrial_accident_number,
         commencement_number: data.commencement_number,
         invoice_email: data.invoice_email,
+        invoice_email_2: data.invoice_email_2,
         representative_name: data.representative_name,
+        phone: data.phone,
+        fax: data.fax,
     };
 }
 
@@ -167,13 +177,12 @@ function mapBusinessInfoToRef(data: any): ReferenceData {
         address: address,
         manager_name: data.manager_name,
         manager_position: data.manager_position,
-        manager_mobile: undefined, // business_info에는 mobile 필드가 명확치 않음 (manager_contact가 있긴 함)
-        // manager_contact를 mobile로 매핑 시도
         phone: data.phone,
         fax: data.fax,
-        total_employees: data.total_employees, // business_info에도 존재하는 경우 매핑
-        commencement_number: data.commencement_number, // 있을 경우
+        total_employees: data.total_employees,
+        commencement_number: data.commencement_number,
         invoice_email: data.invoice_email,
         representative_name: data.representative_name,
     };
 }
+

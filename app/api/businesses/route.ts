@@ -243,16 +243,16 @@ export async function GET(request: NextRequest) {
       // 향후 측정주기 로직: 최신값 우선, 없으면 현재 값
       const futurePeriod = bInfo?.future_measurement_period || item.future_measurement_period;
 
-      // [Sync Priority]: term (measurement_business) > journal (measurement_journal) > target (original)
+      // [New Sync Priority Logic] 
+      // 1. 업종분류 & 국고지원: 측정대상(Target) 테이블이 권위 있는 소스
+      const businessCategory = item.business_category || jInfo?.business_category || bInfo?.business_category;
+      const nationalSupportStatus = item.national_support_status || bInfo?.national_support_status;
 
-      // 사업자등록번호
+      // 2. 사업자번호, 근로자수, 유선전화: 측정사업장(Business Master) 테이블이 권위 있는 소스
+      // (measurement_business(bInfo) > measurement_journal(jInfo) > target(item))
       const businessNumber = bInfo?.business_number || jInfo?.business_number || item.business_number;
-      // 근로자수
       const totalEmployees = bInfo?.total_employees || jInfo?.total_employees || item.total_employees;
-      // 유선전화 (Source 'phone' -> Target 'manager_phone' for UI display)
       const phone = bInfo?.phone || jInfo?.phone || item.manager_phone;
-      // 업종 (journal 데이터 최우선)
-      const businessCategory = jInfo?.business_category || bInfo?.business_category || item.business_category;
 
 
       return {
@@ -271,6 +271,7 @@ export async function GET(request: NextRequest) {
         total_employees: totalEmployees,
         manager_phone: phone,
         business_category: businessCategory,
+        national_support_status: nationalSupportStatus,
       };
     });
 

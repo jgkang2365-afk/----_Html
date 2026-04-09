@@ -224,7 +224,7 @@ export async function PATCH(
       const measurementYear = updatedJournal.measurement_year;
       const measurementPeriod = updatedJournal.measurement_period;
 
-      // 1. 측정 대상 사업장 계획 업데이트 (진행률 파악 및 동기화 조건 충족을 위해)
+      // 1. 측정 대상 사업장 계획 업데이트 (국고지원, 업종분류 등 권위 필드 반영)
       const { data: existingPlan } = await supabase
         .from("measurement_target_business")
         .select("id")
@@ -251,11 +251,41 @@ export async function PATCH(
             national_support_status: updatedJournal.national_support_status || null,
             manager_name: updatedJournal.manager_name,
             manager_mobile: updatedJournal.manager_mobile,
+            manager_phone: updatedJournal.phone,
+            business_category: updatedJournal.business_category,
           })
           .eq("id", existingPlan.id);
       }
 
-      // 2. 구글 캘린더 동기화 실행
+      // 2. 측정사업장 마스터 업데이트 (담당자 정보, 계산서 메일 등 권위 필드 반영)
+      try {
+        await supabase
+          .from("measurement_business")
+          .update({
+            manager_name: updatedJournal.manager_name,
+            manager_position: updatedJournal.manager_position,
+            manager_mobile: updatedJournal.manager_mobile,
+            manager_email: updatedJournal.manager_email,
+            invoice_email: updatedJournal.invoice_email,
+            invoice_email_2: updatedJournal.invoice_email_2,
+            business_category: updatedJournal.business_category,
+            national_support_status: updatedJournal.national_support_status || null,
+            industrial_accident_number: updatedJournal.industrial_accident_number,
+            total_employees: updatedJournal.total_employees,
+            representative_name: updatedJournal.representative_name,
+            phone: updatedJournal.phone,
+            fax: updatedJournal.fax,
+          })
+          .eq("code", code)
+          .eq("year", measurementYear)
+          .eq("period", measurementPeriod);
+        
+        console.log(`[Summary Sync] Master business info updated for ${code} (${measurementYear}/${measurementPeriod})`);
+      } catch (masterError) {
+        console.error(`[Summary Sync] Master business update failed:`, masterError);
+      }
+
+      // 3. 구글 캘린더 동기화 실행
       await syncBusinessToCalendar(supabase, code, measurementYear, measurementPeriod);
       console.log(`[Summary Sync] Calendar sync triggered for ${code} (${measurementYear}/${measurementPeriod})`);
     } catch (syncError) {

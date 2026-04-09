@@ -575,68 +575,66 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 측정 대상 사업장 계획 업데이트 (진행률 파악)
-    // 해당 code, year, period의 계획이 있으면 등록 여부 및 정보 업데이트
-    const { data: existingPlan, error: planCheckError } = await supabase
-      .from("measurement_target_business")
-      .select("id")
-      .eq("code", code)
-      .eq("year", measurementYear)
-      .eq("period", measurementPeriod)
-      .maybeSingle();
-
-    if (!planCheckError && existingPlan && newJournal) {
-      // 계획이 있으면 등록 정보 업데이트
-      const { error: planUpdateError } = await supabase
-        .from("measurement_target_business")
-        .update({
-          journal_id: newJournal.id,
-          is_registered: "확정",
-          registered_at: new Date().toISOString(),
-          measurement_start_date: journalData.measurement_start_date,
-          measurement_end_date: journalData.measurement_end_date,
-          measurer: journalData.measurer,
-          business_name: journalData.business_name,
-          business_number: journalData.business_number,
-          total_employees: journalData.total_employees,
-          address: journalData.address,
-          office_jurisdiction: journalData.office_jurisdiction,
-          national_support_status: body.national_support_status || null,
-          manager_name: journalData.manager_name,
-          manager_mobile: journalData.manager_mobile,
-          manager_phone: journalData.phone,
-          business_category: journalData.business_category,
-        })
-        .eq("id", existingPlan.id);
-
-      // [New Feature] 마스터 사업장 정보(measurement_business) 동기화 (차기 주기 반영용)
-      try {
-        const { error: masterSyncError } = await supabase
-          .from("measurement_business")
+      if (!planCheckError && existingPlan && newJournal) {
+        // [Sync Priority 1] 국고지원, 업종분류 -> measurement_target_business (권위자)
+        const { error: planUpdateError } = await supabase
+          .from("measurement_target_business")
           .update({
-            business_category: journalData.business_category,
-            industrial_accident_number: journalData.industrial_accident_number,
+            journal_id: newJournal.id,
+            is_registered: "확정",
+            registered_at: new Date().toISOString(),
+            measurement_start_date: journalData.measurement_start_date,
+            measurement_end_date: journalData.measurement_end_date,
+            measurer: journalData.measurer,
+            business_name: journalData.business_name,
+            business_number: journalData.business_number,
             total_employees: journalData.total_employees,
+            address: journalData.address,
+            office_jurisdiction: journalData.office_jurisdiction,
+            national_support_status: body.national_support_status || journalData.national_support_status || null,
             manager_name: journalData.manager_name,
             manager_mobile: journalData.manager_mobile,
-            representative_name: journalData.representative_name,
+            manager_phone: journalData.phone,
+            business_category: journalData.business_category,
           })
-          .eq("code", code);
+          .eq("id", existingPlan.id);
 
-        if (masterSyncError) {
-          console.error("[POST Sync] Master Business Category Sync Error:", masterSyncError);
-        } else {
-          console.log(`[POST Sync] Updated master business info for ${code}`);
+        if (planUpdateError) {
+          console.error("측정 대상 사업장 계획 업데이트 오류:", planUpdateError);
         }
-      } catch (e) {
-        console.error("[POST Sync] Sync Exception:", e);
-      }
 
-      if (planUpdateError) {
-        console.error("측정 대상 사업장 계획 업데이트 오류:", planUpdateError);
-        // 계획 업데이트 실패해도 측정일지 등록은 성공으로 처리
+        // [Sync Priority 2] 담당자 정보, 계산서 정보 -> measurement_business (마스터)
+        try {
+          const { error: masterSyncError } = await supabase
+            .from("measurement_business")
+            .update({
+              manager_name: journalData.manager_name,
+              manager_position: journalData.manager_position,
+              manager_mobile: journalData.manager_mobile,
+              manager_email: journalData.manager_email,
+              invoice_email: journalData.invoice_email,
+              invoice_email_2: journalData.invoice_email_2,
+              business_category: journalData.business_category,
+              national_support_status: body.national_support_status || null,
+              industrial_accident_number: journalData.industrial_accident_number,
+              total_employees: journalData.total_employees,
+              representative_name: journalData.representative_name,
+              phone: journalData.phone,
+              fax: journalData.fax,
+            })
+            .eq("code", code)
+            .eq("year", measurementYear)
+            .eq("period", measurementPeriod);
+
+          if (masterSyncError) {
+            console.error("[POST Sync] Master Business Sync Error:", masterSyncError);
+          } else {
+            console.log(`[POST Sync] Updated master business info for ${code} (${measurementYear}/${measurementPeriod})`);
+          }
+        } catch (e) {
+          console.error("[POST Sync] Sync Exception:", e);
+        }
       }
-    }
 
     if (!newJournal) {
       console.error("측정일지 생성 실패: newJournal이 null입니다.");
