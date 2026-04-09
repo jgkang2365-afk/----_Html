@@ -253,47 +253,44 @@ export async function GET(request: NextRequest) {
     };
 
     // 직전 측정일지에서 자동 채울 수 있는 필드만 반환
-    // 산재관리번호 등은 fallbackDefaults(최근이력) 또는 businessData도 활용
-    // 담당자 정보 우선순위: 업체관리 이력(businessHistory/referenceData) > 직전 일지(journal) > 최근 일지(fallback)
+    // 담당자 정보 우선순위: 계획/마스터(referenceData) > 직전 일지(journal) > 최근 일지(fallback)
     const previousData = hasData ? {
       // 담당자 정보
-      manager_name: businessHistoryDefaults.manager_name || previousJournal?.manager_name || fallbackDefaults.manager_name || null,
-      manager_position: businessHistoryDefaults.manager_position || previousJournal?.manager_position || fallbackDefaults.manager_position || null,
-      manager_mobile: businessHistoryDefaults.manager_mobile || previousJournal?.manager_mobile || fallbackDefaults.manager_mobile || null,
-      manager_email: previousJournal?.manager_email || businessHistoryDefaults.manager_email || (businessData as any)?.manager_email || fallbackDefaults.manager_email || null,
+      manager_name: referenceData.manager_name || previousJournal?.manager_name || fallbackDefaults.manager_name || null,
+      manager_position: referenceData.manager_position || previousJournal?.manager_position || fallbackDefaults.manager_position || null,
+      manager_mobile: referenceData.manager_mobile || previousJournal?.manager_mobile || fallbackDefaults.manager_mobile || null,
+      manager_email: referenceData.manager_email || previousJournal?.manager_email || fallbackDefaults.manager_email || null,
 
-      // 총인원: 1순위(현재 이력), 2순위(직전 측정일지)
-      total_employees: (businessData as any)?.total_employees ?? previousJournal?.total_employees ?? null,
+      // 총인원: 1순위(현재 마스터/이력), 2순위(직전 측정일지)
+      total_employees: referenceData.total_employees ?? previousJournal?.total_employees ?? null,
 
-      // 측정비 정보
+      // 측정비 정보 (과거 일지 데이터 유지)
       measurement_fee_business: previousJournal?.measurement_fee_business || null,
       measurement_fee_national: previousJournal?.measurement_fee_national || null,
 
       // 이메일 정보
-      invoice_email: previousJournal?.invoice_email || businessHistoryDefaults.invoice_email || (businessData as any)?.invoice_email || fallbackDefaults.invoice_email || null,
-      invoice_email_2: previousJournal?.invoice_email_2 || null, // [ADD] 보조 이메일 추가
+      invoice_email: referenceData.invoice_email || previousJournal?.invoice_email || fallbackDefaults.invoice_email || null,
+      invoice_email_2: previousJournal?.invoice_email_2 || null,
 
-      // 측정자
+      // 측정자/전송자 (과거 일지 데이터 유지)
       measurer: previousJournal?.measurer || null,
-
-      // K2B 전송자
       k2b_sender: previousJournal?.k2b_sender || null,
 
-      // 산재관리번호 (우선순위: 현재사업장정보(Master) > 직전본문 > 최근이력(fallback))
-      industrial_accident_number: businessHistoryDefaults.industrial_accident_number || (businessData as any)?.industrial_accident_number || previousJournal?.industrial_accident_number || fallbackDefaults.industrial_accident_number || null,
+      // 산재관리번호 (계획/마스터 정보 우선)
+      industrial_accident_number: referenceData.industrial_accident_number || previousJournal?.industrial_accident_number || fallbackDefaults.industrial_accident_number || null,
 
-      // 개시번호 (우선순위: 현재사업장정보(Master) > 직전본문 > 최근이력(fallback))
-      commencement_number: businessHistoryDefaults.commencement_number || (businessData as any)?.commencement_number || previousJournal?.commencement_number || fallbackDefaults.commencement_number || null,
+      // 개시번호 (계획/마스터 정보 우선)
+      commencement_number: referenceData.commencement_number || previousJournal?.commencement_number || fallbackDefaults.commencement_number || null,
 
-      // 대표자명 (우선순위: 현재사업장정보(Master) > 직전본문 > 최근이력(fallback))
-      representative_name: businessHistoryDefaults.representative_name || (businessData as any)?.representative_name || previousJournal?.representative_name || fallbackDefaults.representative_name || null,
+      // 대표자명 (계획/마스터 정보 우선)
+      representative_name: referenceData.representative_name || previousJournal?.representative_name || fallbackDefaults.representative_name || null,
 
-      // [ADD] 전화번호 및 FAX 추가
-      phone: previousJournal?.phone || fallbackDefaults.phone || (referenceData as any)?.phone || null,
-      fax: previousJournal?.fax || fallbackDefaults.fax || (referenceData as any)?.fax || null,
+      // 전화번호 및 FAX
+      phone: referenceData.phone || previousJournal?.phone || fallbackDefaults.phone || null,
+      fax: referenceData.fax || previousJournal?.fax || fallbackDefaults.fax || null,
 
-      // [ADD] 업종분류 추가
-      business_category: previousJournal?.business_category || (referenceData as any)?.business_category || null,
+      // 업종분류 (계획 정보 우선)
+      business_category: referenceData.business_category || previousJournal?.business_category || null,
     } : null;
 
     // 디버깅: previousData 확인

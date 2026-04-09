@@ -506,12 +506,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 if (!updated.business_number && ref.business_number) {
                   updated.business_number = ref.business_number;
                 }
-                // total_employees
-                if (!updated.total_employees && ref.total_employees) {
+                // total_employees (0인 경우도 포함하여 엄격하게 체크)
+                if ((updated.total_employees === "" || updated.total_employees === null) && 
+                    (ref.total_employees !== undefined && ref.total_employees !== null)) {
                   updated.total_employees = String(ref.total_employees);
                 }
-                // business_category (현재 값이 비어있거나 기본값인 "공업사"일 경우 덮어쓰기 허용)
-                if ((!updated.business_category || updated.business_category === "공업사") && ref.business_category) {
+                // business_category (현재 값이 비어있거나 "선택", 또는 기본값 "공업사"일 때 계획 정보 우선)
+                if ((!updated.business_category || updated.business_category === "" || updated.business_category === "공업사") && 
+                    ref.business_category) {
                   updated.business_category = ref.business_category;
                 }
                 // invoice_email
@@ -522,7 +524,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 if (!updated.representative_name && ref.representative_name) {
                   updated.representative_name = ref.representative_name;
                 }
-                // phone (참고: business_info fallback)
+                // phone
                 if (!updated.phone && ref.phone) {
                   updated.phone = ref.phone;
                 }

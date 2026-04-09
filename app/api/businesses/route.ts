@@ -243,16 +243,27 @@ export async function GET(request: NextRequest) {
       // 향후 측정주기 로직: 최신값 우선, 없으면 현재 값
       const futurePeriod = bInfo?.future_measurement_period || item.future_measurement_period;
 
-      // [New Sync Priority Logic] 
-      // 1. 업종분류 & 국고지원: 측정대상(Target) 테이블이 권위 있는 소스
-      const businessCategory = item.business_category || jInfo?.business_category || bInfo?.business_category;
-      const nationalSupportStatus = item.national_support_status || bInfo?.national_support_status;
+      // [New Sync Priority Logic - Refined]
+      // 1. 업종분류 & 국고지원: 측정대상(Target) 테이블이 권위 있는 소스이나, 기입된 정보가 없거나 기본값("공업사")인 경우 최신 정보로 보완
+      let businessCategory = item.business_category;
+      if (!businessCategory || businessCategory === "공업사" || businessCategory === "선택") {
+        businessCategory = bInfo?.business_category || jInfo?.business_category || item.business_category;
+      }
 
-      // 2. 사업자번호, 근로자수, 유선전화: 측정사업장(Business Master) 테이블이 권위 있는 소스
+      let nationalSupportStatus = item.national_support_status;
+      if (!nationalSupportStatus) {
+        nationalSupportStatus = bInfo?.national_support_status || jInfo?.national_support_status || item.national_support_status;
+      }
+
+      // 2. 사업자번호, 근로자수, 연락처, 대표자명: 측정사업장(Business Master) 테이블이 권위 있는 소스
       // (measurement_business(bInfo) > measurement_journal(jInfo) > target(item))
       const businessNumber = bInfo?.business_number || jInfo?.business_number || item.business_number;
       const totalEmployees = bInfo?.total_employees || jInfo?.total_employees || item.total_employees;
       const phone = bInfo?.phone || jInfo?.phone || item.manager_phone;
+      const representativeName = bInfo?.representative_name || jInfo?.representative_name || item.representative_name;
+
+      const industrialAccidentNumber = bInfo?.industrial_accident_number || jInfo?.industrial_accident_number || item.industrial_accident_number;
+      const commencementNumber = bInfo?.commencement_number || jInfo?.commencement_number;
 
 
       return {
@@ -272,6 +283,9 @@ export async function GET(request: NextRequest) {
         manager_phone: phone,
         business_category: businessCategory,
         national_support_status: nationalSupportStatus,
+        representative_name: representativeName,
+        industrial_accident_number: industrialAccidentNumber,
+        commencement_number: commencementNumber,
       };
     });
 

@@ -44,7 +44,11 @@ export async function getBestReferenceData(
         .eq("period", period)
         .maybeSingle();
 
-    // 2. 측정사업장 (Excel 동기화 마스터 테이블) 조회
+    // 2. 측정사업장 (Master) 조회 - 현재 주기 데이터 우선, 없으면 최신 이력 조회
+    let masterData = null;
+    let masterSourceDesc = "";
+    
+    // 2-a. 현재 주기 데이터 조회
     const { data: exactMatch } = await supabase
         .from("measurement_business")
         .select("*")
@@ -53,57 +57,60 @@ export async function getBestReferenceData(
         .eq("period", period)
         .maybeSingle();
 
-    if (targetMatch || exactMatch) {
-        const target = targetMatch ? mapTargetBusinessToRef(targetMatch) : {};
-        const exact = exactMatch ? mapMeasurementBusinessToRef(exactMatch) : {};
+    if (exactMatch) {
+        masterData = exactMatch;
+        masterSourceDesc = `${year}년 ${period} (Master)`;
+    } else {
+        // 2-b. 최신 주기의 데이터 조회 (1개만)
+        const { data: latestHistory } = await supabase
+            .from("measurement_business")
+            .select("*")
+            .eq("code", code)
+            .order("year", { ascending: false })
+            .order("period", { ascending: false })
+            .limit(1)
+            .maybeSingle();
         
-        // [필수 로직] 필드별 권위(Authority)에 따른 병합
+        if (latestHistory) {
+            masterData = latestHistory;
+            masterSourceDesc = `${latestHistory.year}년 ${latestHistory.period} (이력)`;
+        }
+    }
+
+    // 3. 데이터 병합 (계획 + 마스터)
+    if (targetMatch || masterData) {
+        const target = targetMatch ? mapTargetBusinessToRef(targetMatch) : {};
+        const master = masterData ? mapMeasurementBusinessToRef(masterData) : {};
+        
         const mergedData: any = {};
 
         // A. 계획 테이블이 권위 있는 필드 (국고지원, 업종분류)
-        mergedData.national_support_status = target.national_support_status || exact.national_support_status;
-        mergedData.business_category = target.business_category || exact.business_category;
+        mergedData.national_support_status = target.national_support_status || master.national_support_status;
+        mergedData.business_category = target.business_category || master.business_category;
 
-        // B. 측정사업장(Excel)이 권위 있는 필드 (담당자, 계산서 정보 등)
-        mergedData.manager_name = exact.manager_name || target.manager_name;
-        mergedData.manager_position = exact.manager_position || target.manager_position;
-        mergedData.manager_mobile = exact.manager_mobile || target.manager_mobile;
-        mergedData.manager_email = exact.manager_email || target.manager_email;
-        mergedData.invoice_email = exact.invoice_email || target.invoice_email;
-        mergedData.invoice_email_2 = exact.invoice_email_2 || target.invoice_email_2;
+        // B. 측정사업장(Master)이 권위 있는 필드 (담당자, 계산서 정보, 개시번호, 총인원 등)
+        mergedData.manager_name = master.manager_name || target.manager_name;
+        mergedData.manager_position = master.manager_position || target.manager_position;
+        mergedData.manager_mobile = master.manager_mobile || target.manager_mobile;
+        mergedData.manager_email = master.manager_email || target.manager_email;
+        mergedData.invoice_email = master.invoice_email || target.invoice_email;
+        mergedData.invoice_email_2 = master.invoice_email_2 || target.invoice_email_2;
+        mergedData.total_employees = master.total_employees ?? target.total_employees;
+        mergedData.commencement_number = master.commencement_number || target.commencement_number;
+        mergedData.industrial_accident_number = master.industrial_accident_number || target.industrial_accident_number;
 
-        // C. 기타 공통 정보 (Excel 우선, 없으면 계획)
-        mergedData.business_name = exact.business_name || target.business_name;
-        mergedData.business_number = exact.business_number || target.business_number;
-        mergedData.address = exact.address || target.address;
-        mergedData.phone = exact.phone || target.phone;
-        mergedData.total_employees = exact.total_employees ?? target.total_employees;
-        mergedData.industrial_accident_number = exact.industrial_accident_number || target.industrial_accident_number;
-        mergedData.commencement_number = exact.commencement_number || target.commencement_number;
-        mergedData.representative_name = exact.representative_name || target.representative_name;
+        // C. 기타 공통 정보 (Master 우선, 없으면 계획)
+        mergedData.business_name = master.business_name || target.business_name;
+        mergedData.business_number = master.business_number || target.business_number;
+        mergedData.address = master.address || target.address;
+        mergedData.phone = master.phone || target.phone;
+        mergedData.fax = master.fax || target.fax;
+        mergedData.representative_name = master.representative_name || target.representative_name;
 
         return {
             ...mergedData,
-            source_type: 'exact',
-            source_desc: targetMatch ? `측정대상(${year} ${period})` : `${year}년 ${period}`
-        };
-    }
-
-    // 3. 측정사업장 (최신 이력) - 최근 10건 중 가장 최신
-    const { data: history } = await supabase
-        .from("measurement_business")
-        .select("*")
-        .eq("code", code)
-        .order("year", { ascending: false })
-        .order("period", { ascending: false })
-        .limit(10);
-
-    if (history && history.length > 0) {
-        const latest = history[0];
-        return {
-            ...mapMeasurementBusinessToRef(latest),
-            source_type: 'latest_history',
-            source_desc: `${latest.year}년 ${latest.period}`
+            source_type: exactMatch ? 'exact' : (masterData ? 'latest_history' : 'none'),
+            source_desc: masterSourceDesc || (targetMatch ? `측정대상(${year} ${period})` : "")
         };
     }
 
