@@ -575,14 +575,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-      if (!planCheckError && existingPlan && newJournal) {
-        // [Sync Priority 1] 국고지원, 업종분류 -> measurement_target_business (권위자)
-        const { error: planUpdateError } = await supabase
-          .from("measurement_target_business")
-          .update({
-            journal_id: newJournal.id,
-            is_registered: "확정",
-            registered_at: new Date().toISOString(),
+    // 측정 대상 사업장 계획 업데이트 (진행률 파목 및 데이터 동기화)
+    const { data: existingPlan, error: planCheckError } = await supabase
+      .from("measurement_target_business")
+      .select("id")
+      .eq("code", code)
+      .eq("year", measurementYear)
+      .eq("period", measurementPeriod)
+      .maybeSingle();
+
+    if (!planCheckError && existingPlan && newJournal) {
+      // [Sync Priority 1] 국고지원, 업종분류 -> measurement_target_business (권위자)
+      const { error: planUpdateError } = await supabase
+        .from("measurement_target_business")
+        .update({
+          journal_id: newJournal.id,
+          is_registered: "확정",
+          registered_at: new Date().toISOString(),
             measurement_start_date: journalData.measurement_start_date,
             measurement_end_date: journalData.measurement_end_date,
             measurer: journalData.measurer,
