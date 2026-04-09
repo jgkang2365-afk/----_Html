@@ -1,3 +1,4 @@
+import { SupabaseClient } from "@supabase/supabase-js";
 
 export interface ReferenceData {
     business_name?: string;
