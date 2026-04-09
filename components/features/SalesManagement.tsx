@@ -1057,13 +1057,15 @@ export const SalesManagement: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-12">
-        <LoadingSpinner />
-      </div>
-    );
-  }
+  // 데이터 로컬 로딩 중에도 레이아웃 프레임을 유지하여 스크롤 점프 방지
+  // if (loading) {
+  //   return (
+  //     <div className="flex justify-center py-12">
+  //       <LoadingSpinner />
+  //     </div>
+  //   );
+  // }
+
 
   if (error && !summary) {
     return <Alert variant="error">{error}</Alert>;
@@ -1072,7 +1074,19 @@ export const SalesManagement: React.FC = () => {
   const offices = [...DESIGNATED_OFFICES_FOR_SALES];
 
   return (
-    <div className="space-y-4">
+    <div className="relative">
+      {/* 로딩 오버레이: 스크롤 위치를 유지하면서 사용자에게 로딩 상태 알림 */}
+      {loading && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-white/30 backdrop-blur-[1px]">
+          <div className="bg-white p-6 rounded-xl shadow-2xl border border-primary-100 flex flex-col items-center gap-4 animate-in fade-in zoom-in duration-200">
+            <LoadingSpinner className="w-12 h-12 text-primary-600" />
+            <p className="text-primary-900 font-bold text-lg">데이터를 불러오는 중입니다...</p>
+          </div>
+        </div>
+      )}
+
+      <div className={cn("space-y-4 transition-all duration-300", loading ? "opacity-50 grayscale-[20%] pointer-events-none blur-[1px]" : "opacity-100")}>
+
       <div className="flex justify-between items-start mb-6">
         <div>
           <h1 className="text-2xl font-bold text-text-900 mb-2">매출관리</h1>
@@ -2666,6 +2680,7 @@ export const SalesManagement: React.FC = () => {
           </div>
         </div>
       </Modal>
-    </div >
+      </div>
+    </div>
   );
 };

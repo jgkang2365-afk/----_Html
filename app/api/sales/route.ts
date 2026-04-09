@@ -121,8 +121,8 @@ export async function GET(request: NextRequest) {
 
     // 정렬 적용 (측정비 전용)
     const isAsc = sortDirection === "asc";
-    // 기타 매출용 컬럼으로 측정비 테이블을 정렬하려 하면 오류가 발생하므로 체크
     const isOtherSort = ["revenue_year", "revenue_period", "item_name"].includes(sortColumn);
+    const isYearAll = !year;
     
     if (sortColumn === "unpaid") {
        // 미수금 정렬 요청 시, 편의상 측정비 합계 순으로 정렬
@@ -131,16 +131,24 @@ export async function GET(request: NextRequest) {
        // 측정비 테이블에 존재하는 컬럼인 경우에만 정렬 적용
        measurementDataQuery = measurementDataQuery.order(sortColumn, { ascending: isAsc });
     } else {
-       // 기타 매출 정렬 시점에는 기본 정렬 유지
+       // 기본 정렬: 측정년도 내림차순
        measurementDataQuery = measurementDataQuery.order("measurement_year", { ascending: false });
     }
 
-    // 보조 정렬 (일관성 유지)
-    measurementDataQuery = measurementDataQuery
-      .order("measurement_year", { ascending: false })
-      .order("measurement_period", { ascending: false })
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+    // 보조 정렬 (일관성 유지 및 상세 시간 역순 보장)
+    // 년도 전체일 경우 년도 -> 주기 -> 생성일 모두 내림차순으로 정렬되도록 보강
+    if (isYearAll && (sortColumn === "measurement_year" || isOtherSort)) {
+      measurementDataQuery = measurementDataQuery
+        .order("measurement_period", { ascending: false })
+        .order("created_at", { ascending: false });
+    } else {
+      measurementDataQuery = measurementDataQuery
+        .order("measurement_year", { ascending: false })
+        .order("measurement_period", { ascending: false })
+        .order("created_at", { ascending: false });
+    }
+    
+    measurementDataQuery = measurementDataQuery.range(offset, offset + limit - 1);
       
     // 기타 매출 쿼리
     let otherRevenueQuery = supabase.from("other_revenue").select("*");

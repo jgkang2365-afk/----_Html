@@ -31,41 +31,56 @@ export async function getBestReferenceData(
     supabase: SupabaseClient,
     code: string,
     year: number,
-    period: string
+    period: string,
+    options?: { excludeCurrent?: boolean }
 ): Promise<ReferenceData> {
     if (!code) return { source_type: 'none' };
 
     // 1. 측정 대상 사업장 (계획 테이블) 조회
-    const { data: targetMatch } = await supabase
-        .from("measurement_target_business")
-        .select("*")
-        .eq("code", code)
-        .eq("year", year)
-        .eq("period", period)
-        .maybeSingle();
+    // 현재 주기 제외 옵션이 켜져 있으면 계획 테이블 조회도 건너뜁니다 (계획은 항상 해당 주기용이므로)
+    const targetMatch = !options?.excludeCurrent 
+        ? (await supabase
+            .from("measurement_target_business")
+            .select("*")
+            .eq("code", code)
+            .eq("year", year)
+            .eq("period", period)
+            .maybeSingle()).data
+        : null;
 
     // 2. 측정사업장 (Master) 조회 - 현재 주기 데이터 우선, 없으면 최신 이력 조회
     let masterData = null;
     let masterSourceDesc = "";
     
     // 2-a. 현재 주기 데이터 조회
-    const { data: exactMatch } = await supabase
-        .from("measurement_business")
-        .select("*")
-        .eq("code", code)
-        .eq("year", year)
-        .eq("period", period)
-        .maybeSingle();
+    let exactMatch = null;
+    if (!options?.excludeCurrent) {
+        const { data } = await supabase
+            .from("measurement_business")
+            .select("*")
+            .eq("code", code)
+            .eq("year", year)
+            .eq("period", period)
+            .maybeSingle();
+        exactMatch = data;
+    }
 
     if (exactMatch) {
         masterData = exactMatch;
         masterSourceDesc = `${year}년 ${period} (Master)`;
     } else {
         // 2-b. 최신 주기의 데이터 조회 (1개만)
-        const { data: latestHistory } = await supabase
+        let query = supabase
             .from("measurement_business")
             .select("*")
-            .eq("code", code)
+            .eq("code", code);
+        
+        // 현재 주기 제외 옵션이 있으면 필터 추가
+        if (options?.excludeCurrent) {
+            query = query.or(`year.neq.${year},period.neq.${period}`);
+        }
+
+        const { data: latestHistory } = await query
             .order("year", { ascending: false })
             .order("period", { ascending: false })
             .limit(1)

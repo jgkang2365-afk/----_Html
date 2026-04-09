@@ -743,8 +743,37 @@ export async function GET(request: NextRequest) {
     // 정렬 로직 (메뉴별 구분)
     // 1. 측정일지 등록 현황 (menuType === 'registration') -> '공문연번' 오름차순 우선
     // 2. 그 외 (영업관리 등) -> '예비조사 등록 시간(created_at)' 오름차순 우선
+    // 3. 측정년도가 '전체'일 경우 -> '시간의 역순' (년도 DESC, 주기 DESC, 등록시간 DESC)
     const periodOrder: { [key: string]: number } = { "하반기": 2, "상반기": 1 };
+    const isYearAll = !measurementYear;
+
     filteredResults.sort((a, b) => {
+      // [신규 요구사항] 측정년도가 '전체'일 경우 시간의 역순 정렬
+      if (isYearAll) {
+        // 1. 측정년도 내림차순
+        if (a.measurement_year !== b.measurement_year) {
+          return b.measurement_year - a.measurement_year;
+        }
+        // 2. 측정주기 내림차순 (하반기 > 상반기)
+        const pOrderA = periodOrder[a.measurement_period] || 0;
+        const pOrderB = periodOrder[b.measurement_period] || 0;
+        if (pOrderA !== pOrderB) {
+          return pOrderB - pOrderA;
+        }
+        // 3. 등록 시간 내림차순
+        const keyA = `${a.code}-${a.measurement_year}-${a.measurement_period}`;
+        const keyB = `${b.code}-${b.measurement_year}-${b.measurement_period}`;
+        const createdAtA = surveyCreatedAtMap.get(keyA) || a.created_at || "";
+        const createdAtB = surveyCreatedAtMap.get(keyB) || b.created_at || "";
+        const timeA = new Date(createdAtA).getTime();
+        const timeB = new Date(createdAtB).getTime();
+        if (timeA !== timeB) {
+          return timeB - timeA;
+        }
+        return 0;
+      }
+
+      // --- 기존 정렬 로직 (년도가 선택된 경우) ---
       const isRegistrationMenu = menuType === 'registration';
 
       if (isRegistrationMenu) {

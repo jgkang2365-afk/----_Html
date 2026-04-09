@@ -27,11 +27,24 @@ export async function GET(request: NextRequest) {
     let journalQuery = supabase
       .from("measurement_journal")
       .select("*")
-      .not("business_name", "ilike", "%번외%")
-      .order("document_number", { ascending: false })
-      .order("measurement_year", { ascending: false })
-      .order("measurement_period", { ascending: false })
-      .order("created_at", { ascending: false });
+      .not("business_name", "ilike", "%번외%");
+
+    // 정렬 적용
+    if (!measurementYear) {
+      // 년도 전체일 때: 시간 역순 (년도 DESC, 주기 DESC, 등록순 DESC)
+      journalQuery = journalQuery
+        .order("measurement_year", { ascending: false })
+        .order("measurement_period", { ascending: false })
+        .order("document_number", { ascending: false })
+        .order("created_at", { ascending: false });
+    } else {
+      // 년도 선택 시: 기존 정렬 유지
+      journalQuery = journalQuery
+        .order("document_number", { ascending: false })
+        .order("measurement_year", { ascending: false })
+        .order("measurement_period", { ascending: false })
+        .order("created_at", { ascending: false });
+    }
 
     // 검색 조건 적용
     if (measurementYear) {

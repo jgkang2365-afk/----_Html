@@ -178,6 +178,9 @@ export async function GET(request: NextRequest) {
     // 측정일지 등록/수정 시 빈 필드를 채울 최적의 참조 데이터
     const { getBestReferenceData } = await import("@/lib/business/reference-data");
     const referenceData = await getBestReferenceData(supabase, code, measurementYear, period);
+    
+    // [NEW] 전회 데이터 레이블용 (현재 주기 제외)
+    const historyReferenceData = await getBestReferenceData(supabase, code, measurementYear, period, { excludeCurrent: true });
 
     // measurement_business에서 국고지원 정보 및 산재관리번호 조회 (현재 시점 데이터)
     // -> getBestReferenceData로 대체되었으나, 기존 로직 호환성을 위해 유지하거나 referenceData 사용
@@ -238,59 +241,57 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // [COMPATIBILITY] referenceData를 businessHistoryDefaults 이름으로 매핑 (기존 로직 유지)
-    // getBestReferenceData는 "최적"의 데이터 하나만 가져오지만, 
-    // 기존 로직에서의 businessHistoryDefaults와 역할이 유사하므로 이를 사용
+    // [COMPATIBILITY] historyReferenceData를 businessHistoryDefaults 이름으로 매핑 (기본적으로 과거 이력 기준)
     const businessHistoryDefaults: Record<string, any> = {
-      manager_name: referenceData.manager_name || null,
-      manager_position: referenceData.manager_position || null,
-      manager_mobile: referenceData.manager_mobile || null,
-      manager_email: referenceData.manager_email || null,
-      invoice_email: referenceData.invoice_email || null,
-      industrial_accident_number: referenceData.industrial_accident_number || null,
-      commencement_number: referenceData.commencement_number || null,
-      representative_name: referenceData.representative_name || null,
+      manager_name: historyReferenceData.manager_name || null,
+      manager_position: historyReferenceData.manager_position || null,
+      manager_mobile: historyReferenceData.manager_mobile || null,
+      manager_email: historyReferenceData.manager_email || null,
+      invoice_email: historyReferenceData.invoice_email || null,
+      industrial_accident_number: historyReferenceData.industrial_accident_number || null,
+      commencement_number: historyReferenceData.commencement_number || null,
+      representative_name: historyReferenceData.representative_name || null,
     };
 
     // 직전 측정일지에서 자동 채울 수 있는 필드만 반환
     // 담당자 정보 우선순위: 계획/마스터(referenceData) > 직전 일지(journal) > 최근 일지(fallback)
     const previousData = hasData ? {
       // 담당자 정보
-      manager_name: referenceData.manager_name || previousJournal?.manager_name || fallbackDefaults.manager_name || null,
-      manager_position: referenceData.manager_position || previousJournal?.manager_position || fallbackDefaults.manager_position || null,
-      manager_mobile: referenceData.manager_mobile || previousJournal?.manager_mobile || fallbackDefaults.manager_mobile || null,
-      manager_email: referenceData.manager_email || previousJournal?.manager_email || fallbackDefaults.manager_email || null,
+      manager_name: historyReferenceData.manager_name || previousJournal?.manager_name || fallbackDefaults.manager_name || null,
+      manager_position: historyReferenceData.manager_position || previousJournal?.manager_position || fallbackDefaults.manager_position || null,
+      manager_mobile: historyReferenceData.manager_mobile || previousJournal?.manager_mobile || fallbackDefaults.manager_mobile || null,
+      manager_email: historyReferenceData.manager_email || previousJournal?.manager_email || fallbackDefaults.manager_email || null,
 
-      // 총인원: 1순위(현재 마스터/이력), 2순위(직전 측정일지)
-      total_employees: referenceData.total_employees ?? previousJournal?.total_employees ?? null,
+      // 총인원: 1순위(과거 마스터/이력), 2순위(직전 측정일지)
+      total_employees: historyReferenceData.total_employees ?? previousJournal?.total_employees ?? null,
 
       // 측정비 정보 (과거 일지 데이터 유지)
       measurement_fee_business: previousJournal?.measurement_fee_business || null,
       measurement_fee_national: previousJournal?.measurement_fee_national || null,
 
       // 이메일 정보
-      invoice_email: referenceData.invoice_email || previousJournal?.invoice_email || fallbackDefaults.invoice_email || null,
+      invoice_email: historyReferenceData.invoice_email || previousJournal?.invoice_email || fallbackDefaults.invoice_email || null,
       invoice_email_2: previousJournal?.invoice_email_2 || null,
 
       // 측정자/전송자 (과거 일지 데이터 유지)
       measurer: previousJournal?.measurer || null,
       k2b_sender: previousJournal?.k2b_sender || null,
 
-      // 산재관리번호 (계획/마스터 정보 우선)
-      industrial_accident_number: referenceData.industrial_accident_number || previousJournal?.industrial_accident_number || fallbackDefaults.industrial_accident_number || null,
+      // 산재관리번호 (과거 마스터 정보 우선)
+      industrial_accident_number: historyReferenceData.industrial_accident_number || previousJournal?.industrial_accident_number || fallbackDefaults.industrial_accident_number || null,
 
-      // 개시번호 (계획/마스터 정보 우선)
-      commencement_number: referenceData.commencement_number || previousJournal?.commencement_number || fallbackDefaults.commencement_number || null,
+      // 개시번호 (과거 마스터 정보 우선)
+      commencement_number: historyReferenceData.commencement_number || previousJournal?.commencement_number || fallbackDefaults.commencement_number || null,
 
-      // 대표자명 (계획/마스터 정보 우선)
-      representative_name: referenceData.representative_name || previousJournal?.representative_name || fallbackDefaults.representative_name || null,
+      // 대표자명 (과거 마스터 정보 우선)
+      representative_name: historyReferenceData.representative_name || previousJournal?.representative_name || fallbackDefaults.representative_name || null,
 
       // 전화번호 및 FAX
-      phone: referenceData.phone || previousJournal?.phone || fallbackDefaults.phone || null,
-      fax: referenceData.fax || previousJournal?.fax || fallbackDefaults.fax || null,
+      phone: historyReferenceData.phone || previousJournal?.phone || fallbackDefaults.phone || null,
+      fax: historyReferenceData.fax || previousJournal?.fax || fallbackDefaults.fax || null,
 
-      // 업종분류 (계획 정보 우선)
-      business_category: referenceData.business_category || previousJournal?.business_category || null,
+      // 업종분류 (과거 정보 우선)
+      business_category: historyReferenceData.business_category || previousJournal?.business_category || null,
     } : null;
 
     // 디버깅: previousData 확인

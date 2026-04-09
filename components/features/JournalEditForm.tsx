@@ -366,91 +366,77 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 return { name: trimmed, position: "" };
               };
 
-              // 직전 측정일지 데이터
+              // [NEW] Best Reference Data 활용 (최신 데이터 우선 순위)
+              // 엑셀 업로드 등으로 갱신된 최신 자료를 폼에 즉시 반영하기 위해 previousData보다 먼저 혹은 우선적으로 처리
+              if (data.referenceData && data.referenceData.source_type !== 'none') {
+                const ref = data.referenceData;
+                console.log('[JournalEditForm] Reference Data (최신) 활용:', ref);
+
+                if (ref.manager_name) updated.manager_name = ref.manager_name;
+                if (ref.manager_mobile) updated.manager_mobile = ref.manager_mobile;
+                if (ref.manager_email) updated.manager_email = ref.manager_email;
+                if (ref.address) updated.address = ref.address;
+                if (ref.business_number) updated.business_number = ref.business_number;
+                if (ref.total_employees !== undefined && ref.total_employees !== null) {
+                  updated.total_employees = String(ref.total_employees);
+                }
+                // 업종분류: 계획 정보가 있으면 우선 적용
+                if (ref.business_category) {
+                  updated.business_category = ref.business_category;
+                }
+                if (ref.invoice_email) updated.invoice_email = ref.invoice_email;
+                if (ref.representative_name) updated.representative_name = ref.representative_name;
+                if (ref.phone) updated.phone = ref.phone;
+                if (ref.fax) updated.fax = ref.fax;
+                if (ref.industrial_accident_number) updated.industrial_accident_number = ref.industrial_accident_number;
+                if (ref.commencement_number) updated.commencement_number = ref.commencement_number;
+              }
+
+              // 직전 측정일지 데이터 (과거 이력 - 빈 필드 채우기용)
               if (data.previousData) {
                 let pName = data.previousData.manager_name || "";
                 let pPosition = data.previousData.manager_position || "";
 
                 if (pName) {
                   const trimmedName = pName.trim();
-
-                  // 1. 직위가 이미 있는 경우: 이름 끝에 직위가 붙어있으면 제거
                   if (pPosition) {
                     const trimmedPosition = pPosition.trim();
                     if (trimmedPosition && trimmedName.endsWith(trimmedPosition)) {
-                      // 이름에서 직위 제거 (예: "이재홍 이사" -> "이재홍")
                       const potentialName = trimmedName.slice(0, -trimmedPosition.length).trim();
-                      if (potentialName.length > 0) {
-                        console.log('[JournalEditForm] 이름에서 중복 직위 제거:', pName, '->', potentialName);
-                        pName = potentialName;
-                      }
+                      if (potentialName.length > 0) pName = potentialName;
                     }
-                  }
-                  // 2. 직위가 없는 경우: 이름에서 분리 시도
-                  else {
+                  } else {
                     const separated = separateNameAndPosition(pName);
                     if (separated.position) {
-                      console.log('[JournalEditForm] 이름/직위 자동 분리 (previousData):', pName, '->', separated);
                       pName = separated.name;
                       pPosition = separated.position;
                     }
                   }
                 }
 
-                updated.manager_name = prev.manager_name || pName;
-                updated.manager_position = prev.manager_position || pPosition;
-                updated.manager_mobile = prev.manager_mobile || data.previousData.manager_mobile || "";
-                updated.manager_email = prev.manager_email || data.previousData.manager_email || "";
-                // 측정비는 자동으로 채우지 않고 참고용으로만 저장
-                // updated.measurement_fee_business = prev.measurement_fee_business || (data.previousData.measurement_fee_business ? String(data.previousData.measurement_fee_business) : "") || "";
-                // updated.measurement_fee_national = prev.measurement_fee_national || (data.previousData.measurement_fee_national ? String(data.previousData.measurement_fee_national) : "") || "";
-                updated.invoice_email = prev.invoice_email || data.previousData.invoice_email || "";
-                updated.invoice_email_2 = prev.invoice_email_2 || data.previousData.invoice_email_2 || "";
-                updated.measurer = prev.measurer || data.previousData.measurer || "";
-                // K2B 전송자는 예비조사 정보를 우선으로 하므로 여기서는 설정하지 않음
-                // updated.k2b_sender = prev.k2b_sender || data.previousData.k2b_sender || "";
-                // 산재관리번호 (비어있을 때만 자동 채우기)
-                const currentIndustrialAccidentNumber = prev.industrial_accident_number || "";
-                const previousIndustrialAccidentNumber = data.previousData.industrial_accident_number || null;
-                console.log('[JournalEditForm] 산재관리번호 비교:', {
-                  current: currentIndustrialAccidentNumber,
-                  previous: previousIndustrialAccidentNumber,
-                  willUpdate: !currentIndustrialAccidentNumber && previousIndustrialAccidentNumber
-                });
-                if (!currentIndustrialAccidentNumber && previousIndustrialAccidentNumber) {
-                  updated.industrial_accident_number = previousIndustrialAccidentNumber;
-                  console.log('[JournalEditForm] 산재관리번호 자동 채움:', previousIndustrialAccidentNumber);
+                updated.manager_name = updated.manager_name || pName;
+                updated.manager_position = updated.manager_position || pPosition;
+                updated.manager_mobile = updated.manager_mobile || data.previousData.manager_mobile || "";
+                updated.manager_email = updated.manager_email || data.previousData.manager_email || "";
+                updated.invoice_email = updated.invoice_email || data.previousData.invoice_email || "";
+                updated.invoice_email_2 = updated.invoice_email_2 || data.previousData.invoice_email_2 || "";
+                updated.measurer = updated.measurer || data.previousData.measurer || "";
+                
+                if (!updated.industrial_accident_number && data.previousData.industrial_accident_number) {
+                  updated.industrial_accident_number = data.previousData.industrial_accident_number;
                 }
-
-                // 개시번호 (비어있을 때만 자동 채우기)
-                const currentCommencementNumber = prev.commencement_number || "";
-                const previousCommencementNumber = data.previousData.commencement_number || null;
-                console.log('[JournalEditForm] 개시번호 비교:', {
-                  current: currentCommencementNumber,
-                  previous: previousCommencementNumber,
-                  willUpdate: !currentCommencementNumber && previousCommencementNumber
-                });
-                if (!currentCommencementNumber && previousCommencementNumber) {
-                  updated.commencement_number = previousCommencementNumber;
-                  console.log('[JournalEditForm] 개시번호 자동 채움:', previousCommencementNumber);
+                if (!updated.commencement_number && data.previousData.commencement_number) {
+                  updated.commencement_number = data.previousData.commencement_number;
                 }
-
-                // 대표자명 (비어있을 때만 자동 채우기)
-                const currentRepresentativeName = prev.representative_name || "";
-                const previousRepresentativeName = data.previousData.representative_name || null;
-                if (!currentRepresentativeName && previousRepresentativeName) {
-                  updated.representative_name = previousRepresentativeName;
+                if (!updated.representative_name && data.previousData.representative_name) {
+                  updated.representative_name = data.previousData.representative_name;
                 }
-
-                // [ADD] 전화번호 및 FAX 자동 채우기
-                if (!prev.phone && data.previousData.phone) {
+                if (!updated.phone && data.previousData.phone) {
                   updated.phone = data.previousData.phone;
                 }
-                if (!prev.fax && data.previousData.fax) {
+                if (!updated.fax && data.previousData.fax) {
                   updated.fax = data.previousData.fax;
                 }
-
-                // [ADD] 업종분류 자동 채우기
                 if (!updated.business_category && data.previousData.business_category) {
                   updated.business_category = data.previousData.business_category;
                 }
@@ -463,84 +449,21 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   national: previousNationalFee,
                 });
 
-                // 전회치 값이 있으면 기본값으로 설정 (등록 모드에서만)
                 if (!entry.id) {
-                  if (previousBusinessFee && !prev.measurement_fee_business) {
+                  if (previousBusinessFee && !updated.measurement_fee_business) {
                     updated.measurement_fee_business = String(previousBusinessFee);
                   }
-                  if (previousNationalFee && !prev.measurement_fee_national) {
+                  if (previousNationalFee && !updated.measurement_fee_national) {
                     updated.measurement_fee_national = String(previousNationalFee);
                   }
                 }
 
-                // 전회 이메일 정보 저장
+                // 전회 이메일 정보 저장 (힌트용)
                 setPreviousEmails({
                   manager_email: data.previousData.manager_email || null,
                   invoice_email: data.previousData.invoice_email || null,
                   invoice_email_2: data.previousData.invoice_email_2 || null,
                 });
-              }
-
-              // [NEW] Best Reference Data 활용 (previousData가 없거나 비어있는 필드 채우기)
-              if (data.referenceData && data.referenceData.source_type !== 'none') {
-                const ref = data.referenceData;
-                console.log('[JournalEditForm] Reference Data 활용:', ref);
-
-                // manager_name
-                if (!updated.manager_name && ref.manager_name) {
-                  updated.manager_name = ref.manager_name;
-                }
-                // manager_mobile
-                if (!updated.manager_mobile && ref.manager_mobile) {
-                  updated.manager_mobile = ref.manager_mobile;
-                }
-                // manager_email
-                if (!updated.manager_email && ref.manager_email) {
-                  updated.manager_email = ref.manager_email;
-                }
-                // address
-                if (!updated.address && ref.address) {
-                  updated.address = ref.address;
-                }
-                // business_number
-                if (!updated.business_number && ref.business_number) {
-                  updated.business_number = ref.business_number;
-                }
-                // total_employees (0인 경우도 포함하여 엄격하게 체크)
-                if ((updated.total_employees === "" || updated.total_employees === null) && 
-                    (ref.total_employees !== undefined && ref.total_employees !== null)) {
-                  updated.total_employees = String(ref.total_employees);
-                }
-                // business_category (현재 값이 비어있거나 "선택", 또는 기본값 "공업사"일 때 계획 정보 우선)
-                if ((!updated.business_category || updated.business_category === "" || updated.business_category === "공업사") && 
-                    ref.business_category) {
-                  updated.business_category = ref.business_category;
-                }
-                // invoice_email
-                if (!updated.invoice_email && ref.invoice_email) {
-                  updated.invoice_email = ref.invoice_email;
-                }
-                // representative_name
-                if (!updated.representative_name && ref.representative_name) {
-                  updated.representative_name = ref.representative_name;
-                }
-                // phone
-                if (!updated.phone && ref.phone) {
-                  updated.phone = ref.phone;
-                }
-                // fax
-                if (!updated.fax && ref.fax) {
-                  updated.fax = ref.fax;
-                }
-
-                // 산재관리번호 (비어있을 때만)
-                if (!updated.industrial_accident_number && ref.industrial_accident_number) {
-                  updated.industrial_accident_number = ref.industrial_accident_number;
-                }
-                // 개시번호 (비어있을 때만)
-                if (!updated.commencement_number && ref.commencement_number) {
-                  updated.commencement_number = ref.commencement_number;
-                }
               }
 
               // 요약 정보 (직전 데이터가 없거나 비어있을 때)
