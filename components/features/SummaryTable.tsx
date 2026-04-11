@@ -987,11 +987,11 @@ export const SummaryTable: React.FC = () => {
               <>
                 {/* 데스크톱 테이블 뷰 (768px 이상) */}
                 <div className="hidden md:block">
-                  <Table maxHeight="max-h-[calc(100vh-300px)]">
-                    <TableHeader>
+                  <Table maxHeight="max-h-[calc(100vh-320px)]">
+                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black">
                       <TableRow>
-                        <TableHead className="w-8 text-center bg-surface-50 p-0">
-                          <div className="flex justify-center">
+                        <TableHead className="w-[45px] text-center p-0 pl-2.5">
+                          <div className="flex justify-center items-center h-full">
                             <input
                               type="checkbox"
                               className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 h-4 w-4"
@@ -1000,46 +1000,53 @@ export const SummaryTable: React.FC = () => {
                             />
                           </div>
                         </TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">측정년도</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">측정주기</TableHead>
-                        <TableHead className="w-[200px] text-xs bg-surface-50">사업장명</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">공문연번</TableHead>
-                        <TableHead className="w-12 text-center text-xs bg-surface-50">연번</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50 px-1">5인이상</TableHead>
-                        <TableHead className="w-20 text-center text-xs bg-surface-50">측정시작일</TableHead>
-                        <TableHead className="w-20 text-center text-xs bg-surface-50">측정종료일</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">측정자</TableHead>
-                        <TableHead className="w-16 text-center text-xs bg-surface-50">예비조사자</TableHead>
-                        <TableHead className="w-16 text-center text-xs bg-surface-50">실측정자</TableHead>
-                        <TableHead className="w-16 text-center text-xs bg-surface-50">보고서 담당</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">완료여부</TableHead>
-                        <TableHead className="w-12 text-center text-xs bg-surface-50">작업</TableHead>
+                        <TableHead className="w-20 !text-left !pl-2.5 text-xs font-bold text-slate-800">측정년도</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정주기</TableHead>
+                        <TableHead className="w-[220px] text-left text-xs font-bold text-slate-800">사업장명</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">공문연번</TableHead>
+                        <TableHead className="w-16 text-center text-xs font-bold text-slate-800">연번</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">5인이상</TableHead>
+                        <TableHead className="w-24 text-center text-xs font-bold text-slate-800">측정시작일</TableHead>
+                        <TableHead className="w-24 text-center text-xs font-bold text-slate-800">측정종료일</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정자</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">예비조사자</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">실측정자</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">보고서 담당</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">완료여부</TableHead>
+                        <TableHead className="w-16 text-center text-xs font-bold text-slate-800">작업</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {results.map((entry) => (
-                        <TableRow key={entry.id} className="hover:bg-slate-50/50">
-                          <TableCell className="p-1 text-center">
-                            <input
-                              type="checkbox"
-                              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 h-4 w-4"
-                              checked={selectedIds.has(entry.id)}
-                              onChange={(e) => handleSelect(entry.id, e.target.checked)}
-                            />
+                        <TableRow 
+                          key={entry.id} 
+                          className="hover:bg-blue-50/40 border-b border-slate-100 last:border-0 group relative growable-row transition-colors"
+                        >
+                          <TableCell className="w-[45px] py-3 pl-2.5 relative">
+                            <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                            <div className="flex items-center">
+                              <input
+                                type="checkbox"
+                                className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 h-4 w-4 cursor-pointer"
+                                checked={selectedIds.has(entry.id)}
+                                onChange={(e) => handleSelect(entry.id, e.target.checked)}
+                              />
+                            </div>
                           </TableCell>
-                          <TableCell className="p-1 text-center text-xs font-medium">{entry.measurement_year}</TableCell>
-                          <TableCell className="p-1 text-center text-xs">{entry.measurement_period}</TableCell>
-                          <TableCell className="p-1 font-medium text-xs truncate max-w-[200px]" title={entry.business_name}>{entry.business_name}</TableCell>
-                          <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
+                          <TableCell className="w-20 !text-left !pl-2.5 text-xs font-medium py-3 px-1">{entry.measurement_year}</TableCell>
+                          <TableCell className="w-20 text-center text-xs py-3 px-1">{entry.measurement_period}</TableCell>
+                          <TableCell className="w-[220px] text-left font-bold text-xs py-3 px-1 truncate max-w-[220px]" title={entry.business_name}>
+                            {entry.business_name}
+                          </TableCell>
+                          <TableCell className="w-20 text-center text-xs font-mono py-3 px-1">
                             {entry.document_number || "-"}
                           </TableCell>
-                          <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
+                          <TableCell className="w-16 text-center text-xs font-mono py-3 px-1">
                             {entry.sequence_number || "-"}
                           </TableCell>
-                          <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
+                          <TableCell className="w-20 text-center text-xs font-mono py-3 px-1">
                             {entry.five_plus_sequence || "-"}
                             {(() => {
-                              // 1. 정확히 일치하는 주기 검색
                               let quota = quotas.find(
                                 (q) =>
                                   q.year === entry.measurement_year &&
@@ -1047,7 +1054,6 @@ export const SummaryTable: React.FC = () => {
                                   q.office_name === entry.designated_office
                               );
 
-                              // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
                               if (!quota && entry.measurement_period && entry.measurement_period.includes('(수시)')) {
                                 const basePeriod = entry.measurement_period.replace('(수시)', '');
                                 quota = quotas.find(
@@ -1061,38 +1067,34 @@ export const SummaryTable: React.FC = () => {
                               return quota ? <span className="text-gray-400 text-[10px] ml-1">/ {quota.quota}</span> : null;
                             })()}
                           </TableCell>
-                          <TableCell className="p-1 text-center text-xs">
-                            {entry.measurement_start_date
-                              ? formatDateYYYYMMDD(entry.measurement_start_date)
-                              : "-"}
+                          <TableCell className="w-24 text-center text-xs py-3 px-1">
+                            {entry.measurement_start_date ? formatDateYYYYMMDD(entry.measurement_start_date) : "-"}
                           </TableCell>
-                          <TableCell className="p-1 text-center text-xs">
-                            {entry.measurement_end_date
-                              ? formatDateYYYYMMDD(entry.measurement_end_date)
-                              : "-"}
+                          <TableCell className="w-24 text-center text-xs py-3 px-1">
+                            {entry.measurement_end_date ? formatDateYYYYMMDD(entry.measurement_end_date) : "-"}
                           </TableCell>
-                          <TableCell className="p-1 text-center text-xs text-text-600">{entry.measurer || "-"}</TableCell>
-                          <TableCell className="p-1 text-center text-xs text-text-600">{entry.preliminary_surveyor || "-"}</TableCell>
-                          <TableCell className="p-1 text-center text-xs text-text-600">{entry.actual_measurer || "-"}</TableCell>
-                          <TableCell className="p-1 text-center text-xs text-text-600">{entry.report_writer || "-"}</TableCell>
-                          <TableCell className="p-1 text-center">
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.measurer || "-"}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.preliminary_surveyor || "-"}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.actual_measurer || "-"}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.report_writer || "-"}</TableCell>
+                          <TableCell className="w-20 text-center py-3 px-1">
                             <span
-                              className={`px-1.5 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${entry.completion_status === "완료"
-                                ? "bg-success-100 text-success-700"
-                                : "bg-warning-100 text-warning-700"
+                              className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap shadow-sm border ${entry.completion_status === "완료"
+                                ? "bg-green-100 text-green-700 border-green-200"
+                                : "bg-orange-50 text-orange-600 border-orange-100"
                                 }`}
                             >
                               {entry.completion_status}
                             </span>
                           </TableCell>
-                          <TableCell className="p-1 text-center">
+                          <TableCell className="w-16 text-center py-3 px-1">
                             <Button
                               variant="secondary"
                               size="sm"
                               onClick={() => handleEdit(entry)}
-                              className={`h-7 px-1.5 text-xs ${entry.completion_status === "완료"
-                                ? ""
-                                : "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border-yellow-200"
+                              className={`h-7 px-2 text-[11px] font-bold shadow-sm transition-all duration-200 ${entry.completion_status === "완료"
+                                ? "bg-white hover:bg-slate-50 border-slate-200"
+                                : "bg-amber-100 hover:bg-amber-200 text-amber-900 border-amber-200"
                                 }`}
                             >
                               {entry.completion_status === "완료" ? "조회" : "수정"}

@@ -2088,13 +2088,13 @@ export const SalesManagement: React.FC = () => {
                       <Table className="table-fixed" maxHeight="max-h-[calc(100vh-420px)]">
                         <TableHeader>
                           <TableRow className="bg-surface-50">
-                            <TableHead className="font-bold py-4 text-text-900 text-sm pl-6 w-[120px]">지정지청</TableHead>
-                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm w-[250px]">사업장명 / 품명</TableHead>
-                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm text-center w-[150px]">대표자</TableHead>
-                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm w-[120px]">매출 구분</TableHead>
-                            <TableHead className="text-center font-bold py-4 text-text-900 border-l border-surface-100 text-sm w-[120px]">입금일</TableHead>
-                            <TableHead className="text-right font-bold py-4 text-text-900 border-l border-surface-100 px-8 text-sm w-[150px]">입금액</TableHead>
-                            <TableHead className="font-bold py-4 text-text-900 border-l border-surface-100 text-sm w-[200px]">비고</TableHead>
+                            <TableHead className="!font-bold py-4 !text-slate-900 !text-sm !text-left !pl-2.5 w-[120px]">지정지청</TableHead>
+                            <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[250px]">사업장명 / 품명</TableHead>
+                            <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm !text-left !pl-4 w-[120px]">대표자</TableHead>
+                            <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[120px]">매출 구분</TableHead>
+                            <TableHead className="!text-left !pl-4 !font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[120px]">입금일</TableHead>
+                            <TableHead className="!text-right !font-bold py-4 !text-slate-900 border-l border-surface-100 !px-8 !text-sm w-[150px]">입금액</TableHead>
+                            <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[200px]">비고</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2108,14 +2108,15 @@ export const SalesManagement: React.FC = () => {
                             filteredDeposits.map((item) => (
                               <TableRow
                                 key={item.id}
-                                className="group hover:bg-primary-50/60 transition-all border-b last:border-0 h-14 cursor-default relative"
+                                className="group hover:bg-blue-50/40 transition-colors border-b last:border-0 h-14 cursor-default relative"
                               >
-                                <TableCell className="text-text-700 font-medium pl-6 relative">
-                                  <div className="absolute left-0 top-0 bottom-0 w-0 group-hover:w-1.5 bg-primary-500 transition-all rounded-r-md" />
+                                <TableCell className="!text-slate-800 !font-medium !text-left !pl-2.5 relative !py-3">
+                                  {/* 표준 블루 인디케이터 바 - 텍스트와 찰떡같이 밀착 */}
+                                  <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                                   {item.designatedOffice || "-"}
                                 </TableCell>
-                                <TableCell className="font-bold text-text-900 text-base truncate max-w-[230px]" title={item.name}>{item.name}</TableCell>
-                                <TableCell className="text-text-700 font-medium text-center">{item.representative || "-"}</TableCell>
+                                <TableCell className="!font-bold !text-slate-900 !text-base truncate max-w-[230px] !py-3" title={item.name}>{item.name}</TableCell>
+                                <TableCell className="!text-slate-700 !font-medium !text-left !pl-4 !py-3">{item.representative || "-"}</TableCell>
                                 <TableCell>
                                   <span className={`px-3 py-1 rounded-lg text-xs font-black
                                     ${item.category.includes("사업장") ? "bg-blue-100 text-blue-700" :
@@ -2124,7 +2125,7 @@ export const SalesManagement: React.FC = () => {
                                     {item.category}
                                   </span>
                                 </TableCell>
-                                <TableCell className="text-center font-semibold text-text-600">{formatDateYYYYMMDD(item.date)}</TableCell>
+                                <TableCell className="!text-left !pl-4 !font-semibold !text-slate-600 !py-3">{formatDateYYYYMMDD(item.date)}</TableCell>
                                 <TableCell className="text-right font-black text-primary-700 px-8 text-lg">
                                   {formatCurrency(item.amount)}
                                 </TableCell>

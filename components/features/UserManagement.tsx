@@ -272,17 +272,17 @@ export const UserManagement: React.FC = () => {
 
       <Card className="p-6">
         <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>이름</TableHead>
-              <TableHead>역할</TableHead>
-              <TableHead>직무</TableHead>
-              <TableHead>일지담당</TableHead>
-              <TableHead>연락처</TableHead>
-              <TableHead>이메일</TableHead>
-              <TableHead>공시료 코드</TableHead>
-              <TableHead>생성일</TableHead>
-              <TableHead className="text-right">작업</TableHead>
+          <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black font-bold">
+            <TableRow className="border-b border-sky-200">
+              <TableHead className="w-[100px] pl-2.5 text-black">이름</TableHead>
+              <TableHead className="text-black">역활</TableHead>
+              <TableHead className="text-black">직무</TableHead>
+              <TableHead className="text-center text-black">일지담당</TableHead>
+              <TableHead className="text-black">연락처</TableHead>
+              <TableHead className="text-black">이메일</TableHead>
+              <TableHead className="text-black">공시료 코드</TableHead>
+              <TableHead className="text-black">생성일</TableHead>
+              <TableHead className="text-right text-black">작업</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -294,8 +294,12 @@ export const UserManagement: React.FC = () => {
               </TableRow>
             ) : (
               users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.name}</TableCell>
+                <TableRow key={user.id} className="hover:bg-blue-50/40 group relative growable-row transition-colors border-b border-slate-100">
+                  <TableCell className="w-[100px] font-medium pl-2.5 relative">
+                    {/* 표준 블루 인디케이터 바 */}
+                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                    {user.name}
+                  </TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>{user.job || "-"}</TableCell>
                   <TableCell>

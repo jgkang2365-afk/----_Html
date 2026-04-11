@@ -8,6 +8,14 @@ import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
+import {
+    Table,
+    TableHeader,
+    TableBody,
+    TableRow,
+    TableHead,
+    TableCell,
+} from "@/components/ui/Table";
 import { toShortName } from "@/lib/constants/designated-offices";
 import * as XLSX from "xlsx";
 
@@ -67,9 +75,9 @@ const OFFICE_OPTIONS = [
 // Status Options Update
 const STATUS_OPTIONS = [
     { value: "전체", label: "전체" },
-    { value: "확정", label: "확정" }, // 실시 -> 확정
-    { value: "미확정", label: "미확정" }, // 미실시 -> 미확정
-    { value: "종료", label: "종료" } // 거래종료 -> 종료
+    { value: "실시", label: "실시" }, 
+    { value: "미실시", label: "미실시" }, 
+    { value: "거래종료", label: "거래종료" } 
 ];
 
 const MANAGER_OPTIONS = [
@@ -300,14 +308,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         if (filters.isRegistered !== "전체") {
             result = result.filter(item => {
                 const status = item.is_registered_text;
-                if (filters.isRegistered === '확정') {
-                    return status === '확정' || status === '실시';
+                if (filters.isRegistered === '실시') {
+                    return status === '실시' || status === '확정';
                 }
-                if (filters.isRegistered === '미확정') {
-                    return status === '미확정' || status === '미실시' || !status;
+                if (filters.isRegistered === '미실시') {
+                    return status === '미실시' || status === '미확정' || !status;
                 }
-                if (filters.isRegistered === '종료') {
-                    return status === '종료' || status === '거래종료';
+                if (filters.isRegistered === '거래종료') {
+                    return status === '거래종료' || status === '종료';
                 }
                 return status === filters.isRegistered;
             });
@@ -324,9 +332,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         // Custom Sort: 1. Status (Unconfirmed > Confirmed > Terminated), 2. Month (Asc)
         result.sort((a, b) => {
             const getStatusPriority = (status: string | null) => {
-                if (status === '미확정' || status === '미실시' || !status) return 1;
-                if (status === '확정' || status === '실시') return 2;
-                if (status === '종료' || status === '거래종료') return 3;
+                if (status === '미실시' || status === '미확정' || !status) return 1;
+                if (status === '실시' || status === '확정') return 2;
+                if (status === '거래종료' || status === '종료') return 3;
                 return 4;
             };
 
@@ -386,7 +394,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 ];
 
                 const sanitized: any = {};
-                if (raw.is_registered_text !== undefined) sanitized.is_registered = raw.is_registered_text;
+                
+                // UI '실시' -> DB '확정' or '실시' (DB 제약 조건에 따라 유연하게 대응)
+                // 현재 DB 제약 조건이 001_initial_schema.sql 기준으로 명시되어 있지 않으나, 기존 코드 호환성 유지
+                if (raw.is_registered_text !== undefined) {
+                    sanitized.is_registered = raw.is_registered_text;
+                }
+                
                 if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
                 if (raw.manager_phone !== undefined) sanitized.phone = raw.manager_phone;
 
@@ -398,9 +412,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         sanitized[key] = (raw as any)[key];
                     }
                 });
-
-                if (sanitized.measurement_date === "") sanitized.measurement_date = null;
-                if (sanitized.future_measurement_date === "") sanitized.future_measurement_date = null;
 
                 return sanitized;
             };
@@ -470,13 +481,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "No": idx + 1,
             "년도": item.year,
             "주기": item.period,
-            "지정지청": item.designated_office,
+            "지정지청": item.designated_office || toShortName(item.office_jurisdiction || ""),
             "사업장명": item.business_name,
             "소재지": item.address,
-            "계획진행": item.is_registered_text === '실시' ? '확정' : item.is_registered_text === '미실시' ? '미확정' : item.is_registered_text,
+            "실시여부": item.is_registered_text === '확정' ? '실시' : item.is_registered_text === '미확정' ? '미실시' : item.is_registered_text === '종료' ? '거래종료' : item.is_registered_text || '미실시',
             "국고결과": item.national_support_status,
             "계획담당": item.plan_manager,
             "업종분류": item.business_category,
+            "담당자명": item.manager_name || "",
+            "휴대폰": item.manager_mobile || "",
+            "전화번호": item.phone || item.manager_phone || "",
             "보고서 담당": item.measurer_id ? measurerMap.get(item.measurer_id) || "" : "",
             "향후측정주기": item.future_measurement_period ? (item.future_measurement_period === 6 ? "6개월" : item.future_measurement_period === 12 ? "1년" : item.future_measurement_period + "개월") : "-",
             "비고": item.notes
@@ -533,7 +547,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     // Grid Column Template
     // 18 Columns: No(50), 주기(60), 실시여부(80), 국고(60), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 확정일(110), 비고(80), 관리(40)
-    const gridTemplateCols = "50px 60px 80px 60px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
+    const gridTemplateCols = "45px 60px 80px 60px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
 
     return (
         <div className="p-4 w-full min-w-[1400px]">
@@ -667,10 +681,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     </div>
 
                     {/* Grid Header Row */}
-                    <div className="bg-surface-50 font-medium text-sm text-slate-600 grid items-center text-center border border-slate-200" style={{ gridTemplateColumns: gridTemplateCols }}>
-                        <div className="py-3">No</div>
+                    <div className="bg-sky-100 font-bold text-sm text-black grid items-center text-center border-x border-t border-slate-200 border-b-2 border-sky-200 pointer-events-none" style={{ gridTemplateColumns: gridTemplateCols }}>
+                        <div className="py-3 text-center">No</div>
                         <div className="py-3">주기</div>
-                        <div className="py-3">계획진행</div>
+                        <div className="py-3">실시여부</div>
                         <div className="py-3">국고</div>
                         <div className="py-3">계획담당</div>
                         <div className="py-3 px-2">업종분류</div>
@@ -700,59 +714,61 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="h-40 flex items-center justify-center text-text-500">데이터가 없습니다.</div>
                     ) : (
                         filteredData.map((item, index) => (
-                            <div key={`${item.code}-${index}`} className="group hover:bg-surface-50 grid items-center text-sm text-slate-700 py-1" style={{ gridTemplateColumns: gridTemplateCols }}>
-                                <div className="text-center">{index + 1}</div>
-                                <div className={`text-center text-xs ${item.period.includes("(수시)") ? "text-red-600 font-bold" : ""}`}>
+                            <div key={`${item.code}-${index}`} className="group relative hover:bg-blue-50/40 grid items-center text-sm text-slate-700 py-1.5 transition-all duration-150 border-b border-slate-100 last:border-0 growable-row" style={{ gridTemplateColumns: gridTemplateCols }}>
+                                {/* 표준 호버 인디케이터 바 */}
+                                <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                                
+                                <div className="text-center font-medium">{index + 1}</div>
+                                <div className={`text-left text-xs ${item.period.includes("(수시)") ? "text-red-600 font-bold" : ""}`}>
                                     {item.period}
                                 </div>
-                                <div className="text-center">
+                                <div className="px-1 text-left">
                                     <select
-                                        className={`w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 text-center cursor-pointer ${(item.is_registered_text === '확정' || item.is_registered_text === '실시') ? 'bg-green-100 text-green-700' :
-                                            (item.is_registered_text === '미확정' || item.is_registered_text === '미실시') ? 'bg-yellow-100 text-yellow-800' :
-                                                item.is_registered_text === '종료' ? 'bg-red-100 text-red-700' :
+                                        className={`w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 px-1 cursor-pointer ${(item.is_registered_text === '실시' || item.is_registered_text === '확정') ? 'bg-green-100 text-green-700 font-medium' :
+                                            (item.is_registered_text === '미실시' || item.is_registered_text === '미확정' || !item.is_registered_text) ? 'bg-yellow-100 text-yellow-800 font-medium' :
+                                                (item.is_registered_text === '거래종료' || item.is_registered_text === '종료') ? 'bg-red-100 text-red-700 font-medium' :
                                                     'bg-gray-100'
                                             }`}
                                         value={
-                                            item.is_registered_text === '실시' ? '확정' :
-                                                item.is_registered_text === '미실시' ? '미확정' :
-                                                    item.is_registered_text === '거래종료' ? '종료' :
-                                                        item.is_registered_text || '미확정'
+                                            item.is_registered_text === '확정' ? '실시' :
+                                                item.is_registered_text === '미확정' ? '미실시' :
+                                                    item.is_registered_text === '종료' ? '거래종료' :
+                                                        item.is_registered_text || '미실시'
                                         }
                                         onChange={(e) => {
                                             const newVal = e.target.value;
-                                            const updates: Partial<BusinessEntry> = {
-                                                is_registered: newVal,
+                                            saveChanges(item.code, {
                                                 is_registered_text: newVal
-                                            };
-                                            saveChanges(item.code, updates);
+                                            });
                                         }}
                                         onClick={(e) => e.stopPropagation()}
+                                        style={{ textAlignLast: "left" }}
                                     >
-                                        <option value="미확정" className="bg-white text-black">미확정</option>
-                                        <option value="확정" className="bg-white text-black">확정</option>
-                                        <option value="종료" className="bg-white text-black">종료</option>
+                                        <option value="미실시" className="bg-white text-black">미실시</option>
+                                        <option value="실시" className="bg-white text-black">실시</option>
+                                        <option value="거래종료" className="bg-white text-black">거래종료</option>
                                     </select>
                                 </div>
-                                <div className="text-center text-xs">{item.national_support_status}</div>
-                                <div className="text-center text-xs">{item.plan_manager}</div>
-                                <div className="px-2 text-center text-xs break-words break-keep" title={item.business_category || ""}>{item.business_category}</div>
-                                <div className="px-2 text-left font-medium break-words break-keep pl-4" title={item.business_name}>{item.business_name}</div>
-                                <div className="px-2 text-left text-xs leading-tight break-words break-keep pl-4">{item.address}</div>
-                                <div className="text-center text-xs">{toShortName(item.office_jurisdiction || "")}</div>
-                                <div className="text-center">
+                                <div className="text-left text-xs px-1">{item.national_support_status || "-"}</div>
+                                <div className="text-left text-xs px-1">{item.plan_manager || "-"}</div>
+                                <div className="px-1 text-left text-xs break-words break-keep" title={item.business_category || ""}>{item.business_category || "-"}</div>
+                                <div className="px-1 text-left font-medium break-words break-keep" title={item.business_name}>{item.business_name}</div>
+                                <div className="px-1 text-left text-xs leading-tight break-words break-keep">{item.address}</div>
+                                <div className="text-left text-xs px-1">{toShortName(item.office_jurisdiction || "")}</div>
+                                <div className="text-left px-1">
                                     {(() => {
                                         const businessCount = item.unpaid_count || 0;
                                         const nationalCount = item.national_unpaid_count || 0;
 
-                                        if (businessCount === 0 && nationalCount === 0) return null;
+                                        if (businessCount === 0 && nationalCount === 0) return "-";
 
-                                        let textColor = "text-black";
-                                        if (businessCount > 0) textColor = "text-red-600 font-bold underline";
-                                        else if (nationalCount > 0) textColor = "text-blue-600 font-bold underline";
+                                        let textColor = "text-black text-xs";
+                                        if (businessCount > 0) textColor = "text-red-600 font-bold underline text-xs";
+                                        else if (nationalCount > 0) textColor = "text-blue-600 font-bold underline text-xs";
 
                                         return (
                                             <span
-                                                className={`text-xs cursor-pointer ${textColor}`}
+                                                className={`cursor-pointer ${textColor}`}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     setSelectedUnpaidBusinessName(item.business_name);
@@ -766,12 +782,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         );
                                     })()}
                                 </div>
-                                <div className="text-center text-xs">{item.previous_measurement_date}</div>
-                                <div className="text-center text-xs font-medium text-blue-600">
+                                <div className="text-left text-xs px-1">{item.previous_measurement_date || "-"}</div>
+                                <div className="text-left text-xs font-medium text-blue-600 px-1">
                                     {formatCycle(item.future_measurement_period)}
                                 </div>
-                                <div className="text-center text-xs">{item.measurement_month ? `${item.measurement_month}` : '-'}</div>
-                                <div className="text-center text-xs text-slate-500">
+                                <div className="text-left text-xs px-1">{item.measurement_month ? `${item.measurement_month}월` : '-'}</div>
+                                <div className="text-left text-xs text-slate-500 px-1">
                                     {item.future_measurement_date || calculateScheduledDate(item.previous_measurement_date, item.future_measurement_period || 6)}
                                 </div>
                                 <div className="px-1">
@@ -794,10 +810,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         onBlur={(e) => {
                                             const newVal = e.target.value;
                                             if (newVal !== (item.measurement_date || "")) {
-                                                const newStatus = newVal ? '확정' : '미확정';
+                                                const newStatus = newVal ? '실시' : '미실시';
                                                 saveChanges(item.code, {
                                                     measurement_date: newVal || null,
-                                                    is_registered: newStatus,
                                                     is_registered_text: newStatus
                                                 });
                                             }
@@ -823,7 +838,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     />
                                 </div>
                                 <div className="text-center">
-                                    <button onClick={() => handleEditClick(item)} className="p-1 hover:bg-surface-200 rounded text-text-500">✎</button>
+                                    <button onClick={() => handleEditClick(item)} className="p-1 hover:bg-surface-200 rounded text-slate-500">✎</button>
                                 </div>
                             </div>
                         ))
@@ -1160,45 +1175,48 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 </form>
             </Modal>
 
-            {/* Unpaid Details Modal */}
             <Modal
                 isOpen={isUnpaidModalOpen}
                 onClose={() => setIsUnpaidModalOpen(false)}
                 title={`미수 내역 (${selectedUnpaidBusinessName})`}
             >
                 <div className="bg-white p-4 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-                    <table className="w-full text-sm text-left border-collapse">
-                        <thead className="bg-gray-100 text-gray-700">
-                            <tr>
-                                <th className="p-2 border">년도</th>
-                                <th className="p-2 border">주기</th>
-                                <th className="p-2 border">계산서 발행일</th>
-                                <th className="p-2 border text-right">미수금액(사업장)</th>
-                                <th className="p-2 border text-right">미수금액(국고)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {selectedUnpaidDetails.length > 0 ? (
-                                selectedUnpaidDetails.map((detail: any, idx: number) => (
-                                    <tr key={idx} className="border-b hover:bg-gray-50">
-                                        <td className="p-2 border text-center">{detail.year}</td>
-                                        <td className="p-2 border text-center">{detail.period}</td>
-                                        <td className="p-2 border text-center">{detail.invoiceDate || "-"}</td>
-                                        <td className="p-2 border text-right font-medium text-red-600">
-                                            {detail.unpaidBusiness ? detail.unpaidBusiness.toLocaleString() + "원" : "-"}
-                                        </td>
-                                        <td className="p-2 border text-right font-medium text-blue-600">
-                                            {detail.unpaidNational ? detail.unpaidNational.toLocaleString() + "원" : "-"}
-                                        </td>
-                                    </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={5} className="p-4 text-center text-gray-500">미수 내역이 없습니다.</td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+                    <div className="rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                        <Table>
+                            <TableHeader className="bg-slate-50">
+                                <TableRow>
+                                    <TableHead className="w-16 text-center text-xs font-bold text-slate-800">년도</TableHead>
+                                    <TableHead className="w-20 text-center text-xs font-bold text-slate-800">주기</TableHead>
+                                    <TableHead className="text-center text-xs font-bold text-slate-800">계산서 발행일</TableHead>
+                                    <TableHead className="w-32 text-right text-xs font-bold text-slate-800">미수금액(사업장)</TableHead>
+                                    <TableHead className="w-32 text-right text-xs font-bold text-slate-800">미수금액(국고)</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {selectedUnpaidDetails.length > 0 ? (
+                                    selectedUnpaidDetails.map((detail: any, idx: number) => (
+                                        <TableRow key={idx} className="hover:bg-slate-50 border-b border-slate-100 last:border-0 growable-row">
+                                            <TableCell className="text-center text-xs py-2.5">{detail.year}</TableCell>
+                                            <TableCell className="text-center text-xs py-2.5">{detail.period}</TableCell>
+                                            <TableCell className="text-center text-xs py-2.5 text-slate-500">{detail.invoiceDate || "-"}</TableCell>
+                                            <TableCell className="text-right text-xs font-bold text-red-600 py-2.5">
+                                                {detail.unpaidBusiness ? detail.unpaidBusiness.toLocaleString() + "원" : "-"}
+                                            </TableCell>
+                                            <TableCell className="text-right text-xs font-bold text-blue-600 py-2.5">
+                                                {detail.unpaidNational ? detail.unpaidNational.toLocaleString() + "원" : "-"}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="p-8 text-center text-slate-400 text-sm">
+                                            미수 내역이 없습니다.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
                 </div>
                 <div className="bg-white p-4 rounded-b-lg border-t flex justify-end">
                     <Button onClick={() => setIsUnpaidModalOpen(false)} variant="secondary">닫기</Button>

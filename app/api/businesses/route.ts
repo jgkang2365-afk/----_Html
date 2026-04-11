@@ -127,6 +127,9 @@ export async function GET(request: NextRequest) {
 
       if (unpaidData) {
         unpaidData.forEach((item: any) => {
+          // 2025년 이후 데이터 정밀 판단 로직 적용
+          const mYear = Number(item.measurement_year || 0);
+          
           const fee = Number(item.measurement_fee_total || 0);
           const deposit = Number(item.deposit_total || 0);
           const unpaidAmount = fee - deposit;
@@ -135,12 +138,16 @@ export async function GET(request: NextRequest) {
           const feeBusiness = Number(item.measurement_fee_business || 0);
           const depositBusiness = Number(item.deposit_amount_business || 0);
           const depositBusiness2 = Number(item.deposit_amount_business_2 || 0);
-          const unpaidBusiness = feeBusiness - (depositBusiness + depositBusiness2);
+          
+          // 고도화 로직: 측정비(사업장)가 없으면 미수가 아님 (2025년 이후 데이터 기준이나 범용 적용)
+          const unpaidBusiness = feeBusiness > 0 ? feeBusiness - (depositBusiness + depositBusiness2) : 0;
 
           // Unpaid National Amount
           const feeNational = Number(item.measurement_fee_national || 0);
           const depositNational = Number(item.deposit_amount_national || 0);
-          const unpaidNational = feeNational - depositNational;
+          
+          // 고도화 로직: 측정비(국고)가 없으면 미수가 아님
+          const unpaidNational = feeNational > 0 ? feeNational - depositNational : 0;
 
           if (unpaidBusiness > 0 || unpaidNational > 0) {
             const current = unpaidMap.get(item.code) || { businessCount: 0, nationalCount: 0, details: [] };
@@ -610,7 +617,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // [New Feature] System-as-Master Calendar Sync
-    if ((updatedData.is_registered === "확정" || updatedData.is_registered === "실시" || !!updatedData.google_event_id) && code && year && period) {
+    if ((updatedData.is_registered === "실시" || updatedData.is_registered === "확정" || !!updatedData.google_event_id) && code && year && period) {
       try {
         await syncBusinessToCalendar(supabase, code, year, period);
         console.log(`[Business Sync] Calendar sync triggered for ${code}`);
@@ -715,7 +722,7 @@ export async function POST(request: NextRequest) {
         address: address || null,
         office_jurisdiction: officeJurisdiction, // 자동 할당
         plan_manager: plan_manager || null,
-        is_registered: "미확정", // Default
+        is_registered: "미실시", // Default
         created_at: new Date().toISOString()
       })
       .select()

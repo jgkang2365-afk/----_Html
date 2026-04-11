@@ -192,9 +192,9 @@ export const BusinessCategoryManagement: React.FC = () => {
 
       <Card className="p-6">
         <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>순서</TableHead>
+          <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black font-bold">
+            <TableRow className="border-b border-sky-200">
+              <TableHead className="w-[60px] text-center">순서</TableHead>
               <TableHead>업종분류명</TableHead>
               <TableHead>생성일</TableHead>
               <TableHead className="text-right">작업</TableHead>
@@ -208,9 +208,13 @@ export const BusinessCategoryManagement: React.FC = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              categories.map((category) => (
-                <TableRow key={category.id}>
-                  <TableCell>{category.display_order}</TableCell>
+                categories.map((category) => (
+                <TableRow key={category.id} className="hover:bg-blue-50/40 group relative growable-row transition-colors border-b border-slate-100">
+                  <TableCell className="w-[60px] text-center relative font-medium">
+                    {/* 표준 블루 인디케이터 바 */}
+                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                    {category.display_order}
+                  </TableCell>
                   <TableCell className="font-medium">{category.name}</TableCell>
                   <TableCell>
                     {new Date(category.created_at).toLocaleDateString("ko-KR")}

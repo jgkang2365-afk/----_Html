@@ -225,7 +225,7 @@ export const NationalSupportManagement: React.FC = () => {
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
               options={yearOptions}
-              className="text-center"
+              className="text-left"
             />
           </div>
           <div className="w-[120px]">
@@ -234,7 +234,7 @@ export const NationalSupportManagement: React.FC = () => {
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value)}
               options={periodOptions}
-              className="text-center"
+              className="text-left"
             />
           </div>
           <div className="w-[200px]">
@@ -255,7 +255,7 @@ export const NationalSupportManagement: React.FC = () => {
                 { value: "대상", label: "대상" },
                 { value: "비대상", label: "비대상" }
               ]}
-              className="text-center"
+              className="text-left"
             />
           </div>
 
@@ -321,32 +321,36 @@ export const NationalSupportManagement: React.FC = () => {
           </div>
         ) : (
           <Table maxHeight="max-h-[calc(100vh-300px)]">
-            <TableHeader>
+            <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black font-bold">
               <TableRow>
-                <TableHead className="bg-surface-50 w-[120px]">코드</TableHead>
-                <TableHead className="bg-surface-50 w-[220px]">사업장명</TableHead>
-                <TableHead className="bg-surface-50 w-[300px]">주소</TableHead>
-                <TableHead className="bg-surface-50 text-center w-[100px]">측정년도</TableHead>
-                <TableHead className="bg-surface-50 text-center w-[100px]">측정주기</TableHead>
-                <TableHead className="bg-surface-50 text-center w-[100px]">신청 여부</TableHead>
-                <TableHead className="bg-surface-50 text-center w-[100px]">신청결과</TableHead>
-                <TableHead className="bg-surface-50 text-center w-[120px]">국고지원 상태</TableHead>
-                <TableHead className="bg-surface-50 w-[180px]">등록일시</TableHead>
-                <TableHead className="bg-surface-50 w-[180px]">수정일시</TableHead>
-                <TableHead className="bg-surface-50 w-[80px]">관리</TableHead>
+                <TableHead className="!text-left !pl-2.5 font-bold py-4 text-black text-sm">코드</TableHead>
+                <TableHead className="w-[220px] text-black">사업장명</TableHead>
+                <TableHead className="w-[300px] text-black">주소</TableHead>
+                <TableHead className="text-center w-[100px] text-black">측정년도</TableHead>
+                <TableHead className="text-center w-[100px] text-black">측정주기</TableHead>
+                <TableHead className="text-center w-[100px] text-black">신청 여부</TableHead>
+                <TableHead className="text-center w-[100px] text-black">신청결과</TableHead>
+                <TableHead className="text-center w-[120px] text-black">국고지원 상태</TableHead>
+                <TableHead className="w-[180px] text-black">등록일시</TableHead>
+                <TableHead className="w-[180px] text-black">수정일시</TableHead>
+                <TableHead className="w-[80px] text-black">관리</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredEntries.map((entry) => (
-                <TableRow key={entry.id} className="hover:bg-surface-50">
-                  <TableCell className="font-medium align-middle">{entry.code}</TableCell>
+                <TableRow key={entry.id} className="hover:bg-blue-50/40 group relative growable-row transition-colors">
+                  <TableCell className="relative !text-left !pl-2.5 !py-3">
+                    {/* 표준 블루 인디케이터 바 */}
+                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                    {entry.code}
+                  </TableCell>
                   <TableCell className="font-medium align-middle truncate max-w-[220px]" title={entry.business_name || ""}>{entry.business_name || "-"}</TableCell>
-                  <TableCell className="text-sm text-text-500 align-middle truncate max-w-[300px]" title={entry.address || ""}>{entry.address || "-"}</TableCell>
-                  <TableCell className="text-center align-middle">{entry.year}</TableCell>
-                  <TableCell className="align-middle text-center">{entry.period}</TableCell>
-                  <TableCell className="align-middle text-center">{entry.application_status || "-"}</TableCell>
-                  <TableCell className="align-middle text-center">{entry.result || "-"}</TableCell>
-                  <TableCell className="align-middle text-center">
+                  <TableCell title={entry.address || ""}>{entry.address || "-"}</TableCell>
+                  <TableCell className="align-middle px-2">{entry.year}</TableCell>
+                  <TableCell className="align-middle px-2">{entry.period}</TableCell>
+                  <TableCell className="align-middle px-2">{entry.application_status || "-"}</TableCell>
+                  <TableCell className="align-middle px-2">{entry.result || "-"}</TableCell>
+                  <TableCell className="align-middle px-2">
                     <span
                       className={`px-2 py-1 rounded text-sm font-medium ${entry.national_support_status === "지원"
                         ? "bg-green-100 text-green-800"

@@ -401,33 +401,39 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
           </div>
           <div className="relative border rounded-md">
             <Table maxHeight="max-h-[600px]">
-              <TableHeader>
-                <TableRow className="border-b border-gray-100 hover:bg-transparent">
-                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 shadow-sm h-10 w-[15%]">사업장명</TableHead>
-                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[10%]">보고서 담당자</TableHead>
-                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[15%]">측정종료일</TableHead>
-                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-right shadow-sm h-10 w-[10%]">경과일수</TableHead>
-                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-right shadow-sm h-10 w-[10%]">잔여일수</TableHead>
-                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[15%]">K2B전송일</TableHead>
-                  <TableHead className="sticky top-0 bg-white z-20 text-xs font-semibold text-gray-500 text-center shadow-sm h-10 w-[25%]">처리결과</TableHead>
+              <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black font-bold">
+                <TableRow className="border-b border-sky-200 hover:bg-transparent">
+                  <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[5%] text-center">No</TableHead>
+                  <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[20%]">사업장명</TableHead>
+                  <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[10%]">보고서 담당자</TableHead>
+                  <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[15%]">측정종료일</TableHead>
+                  <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[10%]">경과일수</TableHead>
+                  <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[10%] transition-colors">잔여일수</TableHead>
+                  <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[15%]">K2B전송일</TableHead>
+                  <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[15%]">처리결과</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.overdueItems.map((item) => (
-                  <TableRow key={item.id} className="border-b border-gray-50 last:border-0 hover:bg-red-50/30">
+                  <TableRow key={item.id} className="border-b border-slate-100 last:border-0 hover:bg-blue-50/40 group relative growable-row transition-colors">
+                    <TableCell className="text-sm font-medium text-slate-700 py-3 text-center relative">
+                      {/* 표준 블루 인디케이터 바 */}
+                      <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                      {item.id % 100} {/* 순번 가공 예시 */}
+                    </TableCell>
                     <TableCell className="text-sm font-medium text-gray-700 py-3 truncate max-w-[150px]" title={item.business_name}>{item.business_name}</TableCell>
-                    <TableCell className="text-sm text-gray-600 text-center py-3">{item.measurer}</TableCell>
-                    <TableCell className="text-sm text-gray-600 text-center py-3">
+                    <TableCell className="text-sm text-gray-600 py-3">{item.measurer}</TableCell>
+                    <TableCell className="text-sm text-gray-600 py-3">
                       {new Date(item.measurement_end_date).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className="text-sm text-gray-600 text-right py-3">
+                    <TableCell className="text-sm text-gray-600 py-3">
                       {item.elapsed_days}일
                     </TableCell>
-                    <TableCell className={`text-sm font-bold text-right py-3 ${item.remaining_days >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                    <TableCell className={`text-sm font-bold py-3 ${item.remaining_days >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
                       {item.remaining_days >= 0 ? `-${item.remaining_days}일` : `+${Math.abs(item.remaining_days)}일`}
                     </TableCell>
-                    <TableCell className="text-sm text-gray-400 text-center py-3">-</TableCell>
-                    <TableCell className="text-center py-3">
+                    <TableCell className="text-sm text-gray-400 py-3">-</TableCell>
+                    <TableCell className="py-3">
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${item.status_prediction === "적합"
                         ? "bg-green-100 text-green-700"
                         : "bg-red-100 text-red-700"
@@ -466,13 +472,13 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
           <div className="border rounded-xl overflow-hidden shadow-sm bg-white">
             <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
               <Table>
-                <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-                  <TableRow>
-                    <TableHead className="font-bold text-slate-700 h-11 min-w-[250px] pl-6">업체명</TableHead>
-                    <TableHead className="font-bold text-slate-700 text-center h-11 w-[120px]">K2B 전송 여부</TableHead>
-                    <TableHead className="font-bold text-slate-700 text-center h-11 w-[160px]">상태</TableHead>
-                    <TableHead className="font-bold text-slate-700 text-center h-11 w-[100px]">담당자</TableHead>
-                    <TableHead className="font-bold text-slate-700 text-center h-11 w-[150px]">연락처</TableHead>
+                <TableHeader className="bg-sky-100 border-b-2 border-sky-200 sticky top-0 z-20 pointer-events-none">
+                  <TableRow className="border-b border-sky-200">
+                    <TableHead className="font-bold text-black h-11 min-w-[250px] pl-6 text-sm">업체명</TableHead>
+                    <TableHead className="font-bold text-black text-center h-11 w-[120px] text-sm">K2B 전송 여부</TableHead>
+                    <TableHead className="font-bold text-black text-center h-11 w-[160px] text-sm">상태</TableHead>
+                    <TableHead className="font-bold text-black text-center h-11 w-[100px] text-sm">담당자</TableHead>
+                    <TableHead className="font-bold text-black text-center h-11 w-[150px] text-sm">연락처</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -494,10 +500,10 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
                           onClick={() => setSelectedBusinessCode(company.code)}
                         >
                           <TableCell className="font-medium text-slate-800 py-2.5 pl-6 relative">
-                            {/* 행 강조 인디케이터 (선택 시 고정, 호버 시 가변) */}
+                            {/* 표준 블루 인디케이터 바 */}
                             <div className={cn(
-                              "absolute left-0 top-0 bottom-0 w-1 bg-primary-500 transition-opacity z-10",
-                              isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                              "absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm transition-all duration-200 origin-center pointer-events-none",
+                              isSelected ? "opacity-100 scale-y-100" : "opacity-0 scale-y-0 group-hover:opacity-100 group-hover:scale-y-100"
                             )} />
 
                             <div className="flex items-center gap-2.5">

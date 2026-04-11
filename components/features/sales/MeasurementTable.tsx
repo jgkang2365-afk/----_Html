@@ -194,8 +194,8 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                     <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white">
                       <Table className="table-fixed" maxHeight="max-h-[calc(100vh-350px)]">
                         <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[100px]">
+                          <TableRow className="bg-sky-100 border-b-2 border-sky-200">
+                            <TableHead className="w-[80px] pl-2.5">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -210,7 +210,7 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                                     setMeasurementFilters({ ...measurementFilters, year: e.target.value })
                                   }
                                   options={[{ value: "", label: "전체" }, ...yearOptions]}
-                                  className="text-sm h-8 py-1 px-2 text-center"
+                                  className="text-sm h-8 py-1 px-2 text-left"
                                 />
                               </div>
                             </TableHead>
@@ -298,7 +298,7 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                                     setMeasurementFilters({ ...measurementFilters, designatedOffice: e.target.value })
                                   }
                                   options={officeOptions}
-                                  className="text-sm h-8 py-1 px-2 text-center"
+                                  className="text-sm h-8 py-1 px-2 text-left"
                                 />
                               </div>
                             </TableHead>
@@ -413,8 +413,12 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                               const deposit = parseFloat(item.deposit_total?.toString() || "0");
                               const unpaid = total - deposit;
                               return (
-                                <TableRow key={item.id}>
-                                  <TableCell>{item.measurement_year}</TableCell>
+                                <TableRow key={item.id} className="group relative hover:bg-blue-50/40 transition-colors growable-row">
+                                  <TableCell className="w-[80px] pl-2.5 relative">
+                                    {/* 표준 블루 인디케이터 바 */}
+                                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                                    {item.measurement_year}
+                                  </TableCell>
                                   <TableCell>{item.measurement_period}</TableCell>
                                   <TableCell className="font-medium truncate max-w-[200px]" title={item.business_name}>{item.business_name}</TableCell>
                                   <TableCell>{item.representative_name}</TableCell>

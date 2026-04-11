@@ -196,15 +196,20 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
                         ) : filteredBusinesses.length === 0 ? (
                             <div className="p-4 text-center text-gray-500">검색 결과가 없습니다.</div>
                         ) : (
-                            <ul className="divide-y">
+                            <ul className="divide-y divide-slate-100">
                                 {filteredBusinesses.map((b) => (
                                     <li
                                         key={b.code}
-                                        className={`p-3 cursor-pointer hover:bg-gray-50 flex justify-between items-center ${selectedBusinessCode === b.code ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
+                                        className={`p-2.5 cursor-pointer hover:bg-slate-50 flex justify-between items-center group relative transition-colors ${selectedBusinessCode === b.code ? 'bg-blue-50/50' : ''}`}
                                         onClick={() => setSelectedBusinessCode(b.code)}
                                     >
-                                        <span className="font-medium">{b.business_name}</span>
-                                        <span className="text-sm text-gray-500">{b.code}</span>
+                                        {/* 표준 블루 인디케이터 바 */}
+                                        <div className={`absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm transition-all duration-200 origin-center pointer-events-none ${selectedBusinessCode === b.code ? 'opacity-100 scale-y-100' : 'opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100'}`} />
+                                        
+                                        <div className="flex flex-col pl-2">
+                                            <span className="font-medium text-slate-800 text-sm">{b.business_name}</span>
+                                            <span className="text-xs text-slate-400">{b.code}</span>
+                                        </div>
                                     </li>
                                 ))}
                             </ul>

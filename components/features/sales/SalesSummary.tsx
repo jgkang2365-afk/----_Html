@@ -42,26 +42,26 @@ export const SalesSummary: React.FC<SalesSummaryProps> = ({
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-text-900">매출 집계</h2>
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-text-700 whitespace-nowrap">년도 선택:</label>
+            <label className="text-sm font-medium text-slate-700 whitespace-nowrap">년도 선택:</label>
             <Select
               value={salesSummaryYear}
               onChange={(e) => setSalesSummaryYear(e.target.value)}
               options={[{ value: "", label: "전체" }, ...yearOptions]}
-              className="w-32 bg-primary-50 border-2 border-primary-400 text-primary-700 font-medium focus:border-primary-600 focus:ring-2 focus:ring-primary-300 text-center"
+              className="w-32 h-10 bg-blue-50/50 border-blue-400 text-blue-700 font-medium rounded-xl text-center px-2 py-0 border-2"
             />
           </div>
         </div>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>구분</TableHead>
-                <TableHead className="text-right">공급가액</TableHead>
-                <TableHead className="text-right">부가세</TableHead>
-                <TableHead className="text-right">합계</TableHead>
-                <TableHead className="text-right">입금액</TableHead>
-                <TableHead className="text-right">미수금(부가세 포함)</TableHead>
-              </TableRow>
+                <TableRow className="bg-sky-100 border-b-2 border-sky-200 pointer-events-none">
+                  <TableHead className="font-bold py-3 px-3 text-black text-center pl-2.5">구분</TableHead>
+                  <TableHead className="text-right font-bold py-3 px-4 text-black">공급가액</TableHead>
+                  <TableHead className="text-right font-bold py-3 px-4 text-black">부가세</TableHead>
+                  <TableHead className="text-right font-bold py-3 px-4 text-black">합계</TableHead>
+                  <TableHead className="text-right font-bold py-3 px-4 text-black">입금액</TableHead>
+                  <TableHead className="text-right font-bold py-3 px-4 text-black">미수금(부가세 포함)</TableHead>
+                </TableRow>
             </TableHeader>
             <TableBody>
               {(() => {
@@ -121,18 +121,22 @@ export const SalesSummary: React.FC<SalesSummaryProps> = ({
 
                 return (
                   <>
-                    <TableRow>
-                      <TableCell className="font-medium">측정비</TableCell>
+                    <TableRow className="group relative hover:bg-blue-50/40 transition-colors pointer-events-auto growable-row">
+                      <TableCell className="font-medium text-center relative">
+                        {/* 표준 블루 인디케이터 바 */}
+                        <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                        측정비
+                      </TableCell>
                       <TableCell className="text-right">{formatCurrency(measurementRevenueSum)}원</TableCell>
                       <TableCell className="text-right">0원</TableCell>
                       <TableCell
-                        className="text-right font-semibold cursor-pointer hover:bg-gray-100"
+                        className="text-right font-semibold cursor-pointer hover:underline hover:text-primary-700"
                         onClick={handleMeasurementTotalClick}
                       >
                         {formatCurrency(measurementTotalSum)}원
                       </TableCell>
                       <TableCell
-                        className="text-right cursor-pointer hover:bg-gray-100"
+                        className="text-right cursor-pointer hover:underline hover:text-primary-700"
                         onClick={handleMeasurementDepositClick}
                       >
                         {formatCurrency(measurementDepositSum)}원
@@ -141,8 +145,12 @@ export const SalesSummary: React.FC<SalesSummaryProps> = ({
                         {formatCurrency(measurementUnpaidSum)}원
                       </TableCell>
                     </TableRow>
-                    <TableRow>
-                      <TableCell className="font-medium">기타</TableCell>
+                    <TableRow className="group relative hover:bg-blue-50/40 transition-colors pointer-events-auto growable-row">
+                      <TableCell className="font-medium text-center relative">
+                        {/* 표준 블루 인디케이터 바 */}
+                        <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                        기타
+                      </TableCell>
                       <TableCell className="text-right">{formatCurrency(otherRevenueSum)}원</TableCell>
                       <TableCell className="text-right">{formatCurrency(otherVatSum)}원</TableCell>
                       <TableCell className="text-right font-semibold">{formatCurrency(otherTotalSum)}원</TableCell>
@@ -152,8 +160,12 @@ export const SalesSummary: React.FC<SalesSummaryProps> = ({
                       </TableCell>
                     </TableRow>
                     {/* 합계 행 추가 */}
-                    <TableRow className="bg-gray-100/80 border-t-2 border-gray-300">
-                      <TableCell className="font-bold text-gray-900">합계</TableCell>
+                    <TableRow className="bg-gray-100/80 border-t-2 border-gray-300 group relative growable-row">
+                      <TableCell className="font-bold text-gray-900 text-center relative">
+                        {/* 표준 블루 인디케이터 바 */}
+                        <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                        합계
+                      </TableCell>
                       <TableCell className="text-right font-bold text-gray-900">{formatCurrency(measurementRevenueSum + otherRevenueSum)}원</TableCell>
                       <TableCell className="text-right font-bold text-gray-900">{formatCurrency(otherVatSum)}원</TableCell>
                       <TableCell className="text-right font-bold text-primary-700">{formatCurrency(measurementTotalSum + otherTotalSum)}원</TableCell>
@@ -182,15 +194,15 @@ export const SalesSummary: React.FC<SalesSummaryProps> = ({
           ) : (
             <Table maxHeight="max-h-[60vh]">
               <TableHeader>
-                <TableRow className="bg-sky-100">
-                  <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">연번</TableHead>
-                  <TableHead className="font-semibold py-1 px-2 text-black text-sm">사업장명</TableHead>
-                  <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">측정년도</TableHead>
-                  <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">측정주기</TableHead>
-                  <TableHead className="text-center font-semibold py-1 px-2 text-black text-sm">관할지청</TableHead>
-                  <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">측정비(합계)</TableHead>
-                  <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">입금액</TableHead>
-                  <TableHead className="text-right font-semibold py-1 px-2 text-black text-sm">미수금액</TableHead>
+                <TableRow className="bg-sky-100 pointer-events-none">
+                  <TableHead className="font-bold py-3 px-3 text-black text-center pl-2.5 w-[60px]">연번</TableHead>
+                  <TableHead className="font-bold py-3 px-3 text-black text-left">사업장명</TableHead>
+                  <TableHead className="text-center font-bold py-3 px-3 text-black w-[80px]">측정년도</TableHead>
+                  <TableHead className="text-center font-bold py-3 px-3 text-black w-[80px]">측정주기</TableHead>
+                  <TableHead className="text-center font-bold py-3 px-3 text-black w-[100px]">관할지청</TableHead>
+                  <TableHead className="text-right font-bold py-3 px-3 text-black w-[120px]">측정비(합계)</TableHead>
+                  <TableHead className="text-right font-bold py-3 px-3 text-black w-[150px]">입금액</TableHead>
+                  <TableHead className="text-right font-bold py-3 px-3 text-black w-[120px]">미수금액</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -200,16 +212,20 @@ export const SalesSummary: React.FC<SalesSummaryProps> = ({
                   const unpaid = total - deposit;
 
                   return (
-                    <TableRow key={item.id || index} className="border-b border-gray-200">
-                      <TableCell className="text-center text-black py-1 px-2 text-sm">{index + 1}</TableCell>
-                      <TableCell className="text-black py-1 px-2 text-sm">{item.business_name}</TableCell>
-                      <TableCell className="text-center text-black py-1 px-2 text-sm">{item.measurement_year}</TableCell>
-                      <TableCell className="text-center text-black py-1 px-2 text-sm">{item.measurement_period}</TableCell>
-                      <TableCell className="text-center text-black py-1 px-2 text-sm">{item.designated_office || "-"}</TableCell>
-                      <TableCell className="text-right text-black py-1 px-2 text-sm">
+                    <TableRow key={item.id || index} className="group relative hover:bg-blue-50/40 transition-colors border-b border-gray-200 growable-row">
+                      <TableCell className="text-center text-black py-2 px-3 text-sm pl-2.5 relative">
+                        {/* 표준 블루 인디케이터 바 */}
+                        <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                        {index + 1}
+                      </TableCell>
+                      <TableCell className="text-black py-2 px-3 text-sm">{item.business_name}</TableCell>
+                      <TableCell className="text-center text-black py-2 px-3 text-sm">{item.measurement_year}</TableCell>
+                      <TableCell className="text-center text-black py-2 px-3 text-sm">{item.measurement_period}</TableCell>
+                      <TableCell className="text-center text-black py-2 px-3 text-sm">{item.designated_office || "-"}</TableCell>
+                      <TableCell className="text-right text-black py-2 px-3 text-sm">
                         {formatCurrency(total)}원
                       </TableCell>
-                      <TableCell className="text-right text-black py-1 px-2 text-sm">
+                      <TableCell className="text-right text-black py-2 px-3 text-sm">
                         <div className="flex flex-col items-end gap-0.5">
                           <div className="font-bold text-black border-b border-gray-200 pb-0.5 mb-0.5 w-full text-right">
                             {formatCurrency(deposit)}원
@@ -250,7 +266,7 @@ export const SalesSummary: React.FC<SalesSummaryProps> = ({
                           {deposit === 0 && <div className="text-gray-400 text-xs">-</div>}
                         </div>
                       </TableCell>
-                      <TableCell className={`text-right py-1 px-2 text-sm font-semibold ${unpaid > 0 ? "text-warning-600" : "text-black"}`}>
+                      <TableCell className={`text-right py-2 px-3 text-sm font-semibold ${unpaid > 0 ? "text-warning-600" : "text-black"}`}>
                         {formatCurrency(unpaid)}원
                       </TableCell>
                     </TableRow>
