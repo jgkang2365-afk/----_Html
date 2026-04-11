@@ -433,6 +433,8 @@ export async function PUT(
       invoice_business_name: truncateField(bodyWithoutNumbers.invoice_business_name ?? existingJournal.invoice_business_name, 255, 'invoice_business_name'),
       // VARCHAR(20) 제한 필드 (계산서 발행처 사업자번호) 기초 데이터 클리닝 적용
       invoice_business_number: cleanToDigits(bodyWithoutNumbers.invoice_business_number ?? existingJournal.invoice_business_number),
+      // 측정일수 필드 추가
+      measurement_days: bodyWithoutNumbers.measurement_days !== undefined ? parseInt(String(bodyWithoutNumbers.measurement_days)) : existingJournal.measurement_days,
       // 기타 필드
       designated_office: normalizedDesignatedOffice, // 약칭으로 저장
       office_jurisdiction: normalizedOfficeJurisdiction, // 약칭으로 저장

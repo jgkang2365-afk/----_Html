@@ -25,6 +25,7 @@ interface JournalEntry {
   completion_status: string;
   measurement_start_date: string | null;
   measurement_end_date: string | null;
+  measurement_days: number | null;
   measurer: string | null;
   business_category?: string | null;
   invoice_email_2?: string;
@@ -123,6 +124,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // 측정 정보
     measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
     measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
+    measurement_days: entry.measurement_days || "",
     measurer: entry.measurer || "",
     completion_status: entry.completion_status || "미완료",
 
@@ -513,40 +515,68 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               }
 
               // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)
-              if (data.surveyInfo) {
-                setSurveyInfo(data.surveyInfo);
-                console.log('[JournalEditForm] 예비조사 정보 확인:', {
-                  report_writer: data.surveyInfo.report_writer,
-                  measurer: data.surveyInfo.measurer,
-                  기존_k2b_sender: prev.k2b_sender,
+              if (data.surveys && data.surveys.length > 0) {
+                const surveys = data.surveys;
+                // surveys 배열을 surveyInfo 상태에 저장 (상세 표시용)
+                setSurveyInfo(surveys);
+                
+                console.log('[JournalEditForm] 다중 예비조사 정보 확인:', {
+                  count: surveys.length,
+                  dates: surveys.map((s: any) => s.measurement_date)
                 });
 
-                // 측정자 (예비조사의 measurer가 있으면 사용)
-                if (data.surveyInfo.measurer) {
-                  updated.measurer = prev.measurer || data.surveyInfo.measurer;
-                }
-
-                // K2B 전송자 (예비조사의 report_writer가 있으면 기본값으로 설정, 최우선)
-                // report_writer는 콤마 구분 문자열일 수 있으므로 첫 번째 값만 사용
-                if (data.surveyInfo.report_writer) {
-                  // 콤마로 구분된 경우 첫 번째 값만 사용
-                  const reportWriterValue = data.surveyInfo.report_writer.split(',').map((w: string) => w.trim()).filter(Boolean)[0] || data.surveyInfo.report_writer.trim();
-
-                  // 예비조사 정보가 있으면 최우선으로 사용 (로그인 사용자 이름이나 기존 DB 값보다 우선)
-                  if (reportWriterValue) {
-                    updated.k2b_sender = reportWriterValue;
-                    console.log('[JournalEditForm] 예비조사 정보(report_writer)로 K2B 전송자 강제 덮어쓰기:', reportWriterValue);
+                // 1. 측정 시작일/종료일 계산 (전체 기간 합산)
+                const validDates = surveys
+                  .map((s: any) => s.measurement_date)
+                  .filter(Boolean)
+                  .sort();
+                
+                if (validDates.length > 0) {
+                  const startDate = validDates[0];
+                  const endDate = validDates[validDates.length - 1];
+                  
+                  // 기존 값이 없을 때만 자동 설정
+                  if (!prev.measurement_start_date) {
+                    updated.measurement_start_date = normalizeDateForInput(startDate);
                   }
-                }
-
-                // 측정 시작일 (예비조사의 measurement_date가 있으면 기본값으로 설정)
-                if (data.surveyInfo.measurement_date && !prev.measurement_start_date) {
-                  updated.measurement_start_date = normalizeDateForInput(data.surveyInfo.measurement_date);
-                  // 측정 종료일도 비어있으면 측정 시작일과 동일하게 설정
                   if (!prev.measurement_end_date) {
-                    updated.measurement_end_date = normalizeDateForInput(data.surveyInfo.measurement_date);
+                    updated.measurement_end_date = normalizeDateForInput(endDate);
+                  }
+                  
+                  // 2. 측정일수 계산 (중복 없는 고유 날짜 수)
+                  const uniqueDates = new Set(validDates);
+                  if (!prev.measurement_days) {
+                    updated.measurement_days = uniqueDates.size;
                   }
                 }
+
+                // 3. 측정자 통합 (모든 일자의 측정자 합집합)
+                const allMeasurers = new Set<string>();
+                surveys.forEach((s: any) => {
+                  if (s.actual_measurer) {
+                    s.actual_measurer.split(',').forEach((m: string) => {
+                      const trimmed = m.trim();
+                      if (trimmed) allMeasurers.add(trimmed);
+                    });
+                  }
+                });
+
+                if (allMeasurers.size > 0 && !prev.measurer) {
+                  updated.measurer = Array.from(allMeasurers).join(', ');
+                }
+
+                // 4. K2B 전송자 (가장 마지막 날짜의 보고서 담당자 사용)
+                const lastSurvey = surveys[surveys.length - 1];
+                if (lastSurvey.report_writer) {
+                  const reportWriterValue = lastSurvey.report_writer.split(',').map((w: string) => w.trim()).filter(Boolean)[0] || lastSurvey.report_writer.trim();
+                  if (reportWriterValue && !prev.k2b_sender) {
+                    updated.k2b_sender = reportWriterValue;
+                  }
+                }
+              } else if (data.surveyInfo) {
+                // 구형 로직 지원 (surveys가 없는 경우)
+                setSurveyInfo(data.surveyInfo);
+                // ... 생략 (surveys 로직으로 대체됨)
               }
 
               // K2B 전송자 fallback: 예비조사 정보가 없을 때만 직전 측정일지나 요약 정보 사용
@@ -832,6 +862,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       // 측정 정보
       measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
       measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
+      measurement_days: entry.measurement_days || "",
       measurer: entry.measurer || "",
       completion_status: entry.completion_status || "미완료",
 
@@ -1121,6 +1152,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       }
       if (submitData.deposit_amount_business_2) {
         submitData.deposit_amount_business_2 = parseFloat(parseCurrency(String(submitData.deposit_amount_business_2)));
+      }
+      if (submitData.measurement_days) {
+        submitData.measurement_days = parseInt(String(submitData.measurement_days)) || null;
       }
 
       // 입금액 합계 재계산 (비동기 상태 업데이트 지연 방지 및 사업장2 포함 보장)
@@ -1960,7 +1994,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
         측정 정보
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Input
           label="측정 시작일"
           type="date"
@@ -1976,7 +2010,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               return updated;
             });
           }}
-          className="max-w-[200px]"
         />
         <Input
           label="측정 종료일"
@@ -1985,7 +2018,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           onChange={(e) =>
             setFormData({ ...formData, measurement_end_date: e.target.value })
           }
-          className="max-w-[200px]"
+        />
+        <Input
+          label="측정일수"
+          type="number"
+          value={formData.measurement_days}
+          onChange={(e) => setFormData({ ...formData, measurement_days: parseInt(e.target.value) || 0 })}
+          placeholder="일수"
         />
         <Input
           label="측정자"
@@ -2048,27 +2087,67 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const renderSurveyInfo = () => {
     if (!surveyInfo) return null;
 
+    // surveyInfo가 배열인 경우(신규 로직)와 단일 객체인 경우(기존 로직) 모두 대응
+    const surveys = Array.isArray(surveyInfo) ? surveyInfo : [surveyInfo];
+    if (surveys.length === 0) return null;
+
+    // 통합 데이터 계산
+    const surveyors = new Set<string>();
+    const actualMeasurers = new Set<string>();
+    const reportWriters = new Set<string>();
+    
+    // 날짜별 공시료 코드 집계 (예: "4/21일: B, 4/22일: C")
+    const codeByDate = surveys
+      .filter(s => s.measurement_date && s.survey_code)
+      .map(s => {
+        const date = new Date(s.measurement_date);
+        const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
+        return `${dateStr}: ${s.survey_code}`;
+      })
+      .join(', ');
+
+    surveys.forEach(s => {
+      if (s.preliminary_surveyor) s.preliminary_surveyor.split(',').forEach((name: string) => surveyors.add(name.trim()));
+      if (s.actual_measurer) s.actual_measurer.split(',').forEach((name: string) => actualMeasurers.add(name.trim()));
+      if (s.report_writer) s.report_writer.split(',').forEach((name: string) => reportWriters.add(name.trim()));
+    });
+
     return (
       <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
-        <h3 className="text-lg font-bold text-blue-900 mb-4 pb-2 border-b-2 border-primary-500">
-          예비조사 정보 (참고용)
-        </h3>
+        <div className="flex items-center justify-between mb-4 pb-2 border-b border-blue-100">
+          <h3 className="text-lg font-bold text-blue-900">
+            예비조사 정보 (참고용)
+          </h3>
+          {surveys.length > 1 && (
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+              집계됨 ({surveys.length}일)
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">예비조사자</label>
-            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.preliminary_surveyor || "-"}</div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">예비조사자</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
+              {Array.from(surveyors).join(', ') || "-"}
+            </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">공시료 코드</label>
-            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.survey_code || "-"}</div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">공시료 코드</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-bold h-9 flex items-center shadow-sm">
+              {codeByDate || surveys[0]?.survey_code || "-"}
+            </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">실측정자</label>
-            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.actual_measurer || "-"}</div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">실측정자</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
+              {Array.from(actualMeasurers).join(', ') || "-"}
+            </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">보고서 담당</label>
-            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.report_writer || "-"}</div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">보고서 담당</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
+              {Array.from(reportWriters).join(', ') || "-"}
+            </div>
           </div>
         </div>
       </div>

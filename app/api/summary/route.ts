@@ -248,6 +248,7 @@ export async function GET(request: NextRequest) {
         five_plus_sequence: journal.five_plus_sequence,
         measurement_start_date: journal.measurement_start_date,
         measurement_end_date: journal.measurement_end_date,
+        measurement_days: journal.measurement_days,
         measurer: journal.measurer,
         preliminary_surveyor: survey?.preliminary_surveyor || null,
         actual_measurer: survey?.actual_measurer || null,

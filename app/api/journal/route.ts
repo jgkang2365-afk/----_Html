@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
     const office_jurisdiction = office_jurisdictionRaw ? fullNameToShortName(String(office_jurisdictionRaw).trim()) : null;
     const measurement_start_date = body.measurement_start_date;
     const measurement_end_date = body.measurement_end_date;
+    const measurement_days = body.measurement_days;
     const measurer = body.measurer;
 
     // 필수 필드 검증
@@ -260,6 +261,9 @@ export async function POST(request: NextRequest) {
         }
         if (updateData.deposit_amount_national) {
           updateData.deposit_amount_national = parseFloat(String(updateData.deposit_amount_national).replace(/,/g, '')) || null;
+        }
+        if (updateData.measurement_days) {
+          updateData.measurement_days = parseInt(String(updateData.measurement_days)) || null;
         }
 
         const { error: updateError } = await supabase
@@ -457,6 +461,7 @@ export async function POST(request: NextRequest) {
       office_jurisdiction: office_jurisdiction || businessData.office_jurisdiction,
       measurement_start_date: measurement_start_date || businessData.measurement_start_date,
       measurement_end_date: measurement_end_date || businessData.measurement_end_date,
+      measurement_days: measurement_days ? parseInt(String(measurement_days)) : null,
       measurer: measurer || businessData.measurer,
       // business_info에서 가져오기
       business_number: cleanToDigits(body.business_number || businessInfo?.business_number || businessData.business_number),

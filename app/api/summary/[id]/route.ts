@@ -153,6 +153,7 @@ export async function PATCH(
       'designated_office',
       'measurement_start_date',
       'measurement_end_date',
+      'measurement_days',
       'completion_status',
       'measurer',
       'office_jurisdiction',

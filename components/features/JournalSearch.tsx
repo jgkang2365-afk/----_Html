@@ -33,6 +33,7 @@ interface JournalEntry {
   completion_status: string;
   measurement_start_date: string | null;
   measurement_end_date: string | null;
+  measurement_days: number | null;
   measurer: string | null;
   document_number?: string | null;
   sequence_number?: string | null;
@@ -1165,6 +1166,7 @@ export const JournalSearch: React.FC = () => {
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">5인이상</TableHead>
                         <TableHead className="w-16 text-center text-xs font-bold text-slate-800">총인원</TableHead>
                         <TableHead className="w-28 text-center text-xs font-bold text-slate-800">측정시작일</TableHead>
+                        <TableHead className="w-12 text-center text-xs font-bold text-slate-800">일수</TableHead>
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">담당자</TableHead>
                         <TableHead className="w-32 text-center text-xs font-bold text-slate-800">휴대폰</TableHead>
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정자</TableHead>
@@ -1229,6 +1231,7 @@ export const JournalSearch: React.FC = () => {
                             {entry.total_employees || "-"}
                           </TableCell>
                           <TableCell className="text-center text-xs py-1 px-1">{formatDate(entry.measurement_start_date)}</TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1 font-bold text-primary-600">{entry.measurement_days || "-"}</TableCell>
                           <TableCell className="text-center text-xs py-1 px-1">{entry.manager_name || "-"}</TableCell>
                           <TableCell className="text-center text-xs py-1 px-1">{entry.manager_mobile || "-"}</TableCell>
                           <TableCell className="text-center text-xs py-1 px-1 text-text-600 font-medium">{entry.measurer || "-"}</TableCell>
@@ -1467,6 +1470,7 @@ export const JournalSearch: React.FC = () => {
                         <TableHead className="w-12 text-center text-xs px-1">5인이상</TableHead>
                         <TableHead className="w-10 text-center text-xs">총인원</TableHead>
                         <TableHead className="w-20 text-center text-xs">측정 시작일</TableHead>
+                        <TableHead className="w-10 text-center text-xs">일수</TableHead>
                         <TableHead className="w-14 text-center text-xs">담당자</TableHead>
                         <TableHead className="w-20 text-center text-xs">담당자 휴대폰</TableHead>
                         <TableHead className="w-12 text-center text-xs">측정자</TableHead>
@@ -1564,6 +1568,7 @@ export const JournalSearch: React.FC = () => {
                               {entry.total_employees || "-"}
                             </TableCell>
                             <TableCell className="text-center text-xs">{formatDate(entry.measurement_start_date)}</TableCell>
+                            <TableCell className="text-center text-xs font-bold text-primary-600">{entry.measurement_days || "-"}</TableCell>
                             <TableCell className="text-center text-xs">{entry.manager_name || "-"}</TableCell>
                             <TableCell className="text-center text-xs">{entry.manager_mobile || "-"}</TableCell>
                             <TableCell className="text-text-600 text-center text-xs">

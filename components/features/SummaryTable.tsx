@@ -52,6 +52,7 @@ interface SummaryEntry {
   five_plus_sequence: string | null; // 수정 불가
   measurement_start_date: string | null;
   measurement_end_date: string | null;
+  measurement_days: number | null;
   measurer: string | null;
   preliminary_surveyor: string | null;
   actual_measurer: string | null;
@@ -260,10 +261,23 @@ export const SummaryTable: React.FC = () => {
 
   // 수정 모달 열기
   const handleEdit = (entry: SummaryEntry) => {
-    setSelectedEntry(entry);
+    // 기존 데이터에 측정일수가 없는 경우, 연관된 모든 예비조사 일자를 기준으로 자동 산출
+    let calculatedDays = entry.measurement_days || null;
+    if (!calculatedDays && entry.all_surveys && entry.all_surveys.length > 0) {
+      const uniqueDates = new Set(
+        entry.all_surveys
+          .map(s => s.measurement_date)
+          .filter(Boolean)
+      );
+      if (uniqueDates.size > 0) {
+        calculatedDays = uniqueDates.size;
+      }
+    }
+
     setEditFormData({
       measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
       measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
+      measurement_days: calculatedDays,
       measurer: entry.measurer || "",
       business_name: entry.business_name || "",
       total_employees: entry.total_employees || null,
@@ -544,7 +558,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정시작일
@@ -569,6 +583,17 @@ export const SummaryTable: React.FC = () => {
                         type="date"
                         className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black"
                         value={normalizeDateForInput(entry.measurement_end_date)}
+                        disabled
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정일수
+                      </label>
+                      <Input
+                        type="number"
+                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-primary-600"
+                        value={entry.measurement_days || ""}
                         disabled
                       />
                     </div>
@@ -1026,6 +1051,7 @@ export const SummaryTable: React.FC = () => {
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">5인이상</TableHead>
                         <TableHead className="w-24 text-center text-xs font-bold text-slate-800">측정시작일</TableHead>
                         <TableHead className="w-24 text-center text-xs font-bold text-slate-800">측정종료일</TableHead>
+                        <TableHead className="w-12 text-center text-xs font-bold text-slate-800">일수</TableHead>
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정자</TableHead>
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">예비조사자</TableHead>
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">실측정자</TableHead>
@@ -1090,6 +1116,14 @@ export const SummaryTable: React.FC = () => {
                           </TableCell>
                           <TableCell className="w-24 text-center text-xs py-3 px-1">
                             {entry.measurement_end_date ? formatDateYYYYMMDD(entry.measurement_end_date) : "-"}
+                          </TableCell>
+                          <TableCell className="w-12 text-center text-xs font-bold text-primary-600 py-3 px-1">
+                            {entry.measurement_days || (() => {
+                              const surveys = entry.all_surveys || [];
+                              if (surveys.length === 0) return "-";
+                              const uniqueDates = new Set(surveys.map(s => s.measurement_date).filter(Boolean));
+                              return uniqueDates.size > 0 ? uniqueDates.size : "-";
+                            })()}
                           </TableCell>
                           <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {(() => {
@@ -1350,7 +1384,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정시작일
@@ -1384,6 +1418,23 @@ export const SummaryTable: React.FC = () => {
                           setEditFormData({
                             ...editFormData,
                             measurement_end_date: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정일수
+                      </label>
+                      <Input
+                        type="number"
+                        className="h-11 md:h-10 text-base md:text-sm font-bold text-primary-600"
+                        placeholder="일수 입력"
+                        value={editFormData.measurement_days || ""}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            measurement_days: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
                       />
