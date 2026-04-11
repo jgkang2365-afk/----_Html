@@ -10,13 +10,22 @@ const DEBUG_LOG_PATH = path.join(process.cwd(), 'debug-calendar.log');
 
 function logDebug(message: string, data?: any) {
     const timestamp = new Date().toISOString();
-    const logMsg = `[${timestamp}] ${message} ${data ? JSON.stringify(data) : ''}\n`;
+    // Error 객체인 경우 상세 정보 추출
+    let logData = data;
+    if (data instanceof Error) {
+        logData = {
+            message: data.message,
+            stack: data.stack,
+            ...(data as any)
+        };
+    }
+    const logMsg = `[${timestamp}] ${message} ${logData ? JSON.stringify(logData, null, 2) : ''}\n`;
     try {
-        fs.appendFileSync(DEBUG_LOG_PATH, logMsg);
+        fs.appendFileSync(DEBUG_LOG_PATH, logMsg, { encoding: 'utf8' });
     } catch (e) {
         console.error("Failed to write to debug log", e);
     }
-    console.log(message, data);
+    console.log(message, logData);
 }
 
 /**

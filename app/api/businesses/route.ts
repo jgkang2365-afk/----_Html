@@ -370,261 +370,123 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // [New Feature] Sync 'Confirmed Date' to 'Preliminary Survey'
-    // If 'measurement_date' is updated
-    if (updates.hasOwnProperty('measurement_date') && code && year && period) {
+    // === [Integrated Sync Logic] ===
+    // This section handles synchronizing 'preliminary_survey' and Summary fields 
+    // whenever any measurement-related field is updated.
+    const isMeasurementUpdate = 
+      updates.hasOwnProperty('measurement_date') || 
+      updates.hasOwnProperty('measurer_id') || 
+      updates.hasOwnProperty('collaborators') || 
+      updates.hasOwnProperty('daily_staff') ||
+      updates.hasOwnProperty('business_name');
+
+    if (isMeasurementUpdate && code && year && period) {
       try {
-        if (!updates.measurement_date) {
-          // ... (existing logic)
-          await supabase
-            .from("preliminary_survey")
-            .delete()
-            .eq("code", code)
-            .eq("year", year)
-            .eq("period", period);
-
-        } else {
-          // ... (existing logic) 
-          const { data: existingSurvey } = await supabase
-            .from("preliminary_survey")
-            .select("id")
-            .eq("code", code)
-            .eq("year", year)
-            .eq("period", period)
-            .maybeSingle();
-
-          if (existingSurvey) {
-            await supabase
-              .from("preliminary_survey")
-              .update({ 
-                measurement_date: updates.measurement_date,
-                end_date: updates.measurement_date 
-              })
-              .eq("id", existingSurvey.id);
-
-            // [New Feature] Real-time notification if date actually changed
-            if (updates.measurement_date !== existingDate) {
-              try {
-                // Get all journal managers
-                const { data: managers } = await supabase
-                  .from("users")
-                  .select("id")
-                  .eq("is_journal_manager", true);
-
-                if (managers && managers.length > 0) {
-                  const getKDate = (dateStr: any) => {
-                    if (!dateStr) return "미지정";
-                    const days = ['일', '월', '화', '수', '목', '금', '토'];
-                    const d = new Date(dateStr);
-                    return `${dateStr}(${days[d.getDay()]})`;
-                  };
-
-                  const notifications = managers.map(m => ({
-                    user_id: m.id,
-                    message: `[${businessNameForNote}] ${getKDate(existingDate)} → <span class="noti-highlight font-bold text-blue-600">${getKDate(updates.measurement_date)}</span> 변경되었습니다.`,
-                    type: "WARNING",
-                    related_code: code,
-                  }));
-
-                  await supabase.from("notifications").insert(notifications);
-                  console.log(`[Notification] Sent to ${managers.length} managers for ${code}`);
-                }
-              } catch (notiError) {
-                console.error("Notification trigger error:", notiError);
-              }
-            }
-          } else {
-            const { data: businessInfo } = await supabase
-              .from("measurement_target_business")
-              .select("business_name, address, office_jurisdiction, measurer_id")
-              .eq("code", code)
-              .eq("year", year)
-              .eq("period", period)
-              .single();
-
-            if (businessInfo) {
-              // Get report writer name if measurer_id exists
-              let reportWriterName = null;
-              if (businessInfo.measurer_id) {
-                const { data: userData } = await supabase
-                  .from("users")
-                  .select("name")
-                  .eq("id", businessInfo.measurer_id)
-                  .single();
-
-                if (userData) {
-                  reportWriterName = userData.name;
-                }
-              }
-
-              // ... (existing sequence logic)
-              const { data: maxSeq } = await supabase
-                .from("preliminary_survey")
-                .select("sequence_number")
-                .order("sequence_number", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-              const nextSeq = (maxSeq?.sequence_number || 0) + 1;
-
-              await supabase.from("preliminary_survey").insert({
-                year: year,
-                period: period,
-                code: code,
-                measurement_date: updates.measurement_date,
-                end_date: updates.measurement_date,
-                business_name: businessInfo.business_name,
-                address: businessInfo.address,
-                sequence_number: nextSeq,
-                report_writer: reportWriterName,
-                actual_measurer: reportWriterName, // 본인이 직접 실측정자로 우선 들어감.
-                created_at: new Date().toISOString()
-              });
-            }
-          }
-        }
-      } catch (syncError) {
-        console.error("Preliminary Survey Sync Error (Date):", syncError);
-      }
-    }
-
-    // [New Feature] Sync 'Business Name' to 'Preliminary Survey'
-    // 사업장명 변경 시 예비조사 테이블의 사업장명도 자동 업데이트
-    if (updates.business_name && code && year && period) {
-      try {
-        const { error: nameSyncError } = await supabase
-          .from("preliminary_survey")
-          .update({ business_name: updates.business_name })
-          .eq("code", code)
-          .eq("year", year)
-          .eq("period", period);
-
-        if (nameSyncError) {
-          console.error("Preliminary Survey Name Sync Error:", nameSyncError);
-        } else {
-          console.log(`[Sync] Updated preliminary_survey name for ${code} to ${updates.business_name}`);
-        }
-      } catch (e) {
-        console.error("Preliminary Survey Name Sync Exception:", e);
-      }
-    }
-
-    // [New Feature] Sync 'Report Writer' to 'Preliminary Survey'
-    // 측정자(보고서 담당) 변경 시 예비조사 테이블의 작성자(report_writer)와 실측정자(actual_measurer) 자동 업데이트
-    if (updates.hasOwnProperty('measurer_id') && code && year && period) {
-      try {
-        let reportWriterName = null;
-        if (updates.measurer_id) {
-          const { data: userData } = await supabase
-            .from("users")
-            .select("name")
-            .eq("id", updates.measurer_id)
-            .single();
-
-          if (userData) {
-            reportWriterName = userData.name;
-          }
-        }
-
-        // 예비조사의 기존 실측정자 목록 가져오기
-        const { data: surveyData } = await supabase
-          .from("preliminary_survey")
-          .select("actual_measurer")
-          .eq("code", code)
-          .eq("year", year)
-          .eq("period", period)
-          .maybeSingle();
-
-        let updatedActualMeasurer = surveyData?.actual_measurer || "";
-        if (reportWriterName) {
-          const currentMeasurers = updatedActualMeasurer ? updatedActualMeasurer.split(",").map((m: string) => m.trim()) : [];
-          if (!currentMeasurers.includes(reportWriterName)) {
-            currentMeasurers.push(reportWriterName);
-            updatedActualMeasurer = currentMeasurers.join(", ");
-          }
-        }
-
-        // Update preliminary_survey
-        const { error: rwSyncError } = await supabase
-          .from("preliminary_survey")
-          .update({
-            report_writer: reportWriterName,
-            actual_measurer: updatedActualMeasurer
-          })
-          .eq("code", code)
-          .eq("year", year)
-          .eq("period", period);
-
-        if (rwSyncError) {
-          console.error("Preliminary Survey Report Writer Sync Error:", rwSyncError);
-        } else {
-          console.log(`[Sync] Updated preliminary_survey for ${code}: report_writer=${reportWriterName}, actual_measurer=${updatedActualMeasurer}`);
-        }
-      } catch (e) {
-        console.error("Preliminary Survey Report Writer Sync Exception:", e);
-      }
-    }
-
-    // [New Feature] Sync 'Collaborators' to 'Preliminary Survey'
-    if (updates.hasOwnProperty('collaborators') && code && year && period) {
-      try {
-        // 현재 보고서 담당자 이름 가져오기
-        const { data: currentBiz } = await supabase
-          .from("measurement_target_business")
-          .select("measurer_id, collaborators")
-          .eq("code", code)
-          .eq("year", year)
-          .eq("period", period)
-          .single();
-
-        let reportWriterName = null;
-        if (currentBiz?.measurer_id) {
-          const { data: userData } = await supabase
-            .from("users")
-            .select("name")
-            .eq("id", currentBiz.measurer_id)
-            .single();
-          if (userData) reportWriterName = userData.name;
-        }
-
-        const collaborators = updates.collaborators || "";
-        let updatedActualMeasurer = reportWriterName || "";
+        console.log(`[Integrated Sync] Starting sync for ${code}...`);
         
-        if (collaborators) {
-          const collabList = collaborators.split(",").map((s: string) => s.trim()).filter(Boolean);
-          if (updatedActualMeasurer) {
-            // 보고서 담당자가 협력자 목록에 이미 있으면 중복 제거
-            const filteredCollabs = collabList.filter((c: string) => c !== reportWriterName);
-            if (filteredCollabs.length > 0) {
-              updatedActualMeasurer = `${reportWriterName}, ${filteredCollabs.join(", ")}`;
-            }
-          } else {
-            updatedActualMeasurer = collabList.join(", ");
+        // 1. Determine Source of Truth (daily_staff or single-date fallback)
+        let dailyStaff = updates.daily_staff;
+        
+        if (!dailyStaff) {
+          // Fallback to single-date logic if daily_staff isn't provided in the update
+          // but we might need the current state from the DB if only some parts changed
+          const mDate = updates.hasOwnProperty('measurement_date') ? updates.measurement_date : updatedData.measurement_date;
+          const mId = updates.hasOwnProperty('measurer_id') ? updates.measurer_id : updatedData.measurer_id;
+          const collabs = updates.hasOwnProperty('collaborators') ? updates.collaborators : updatedData.collaborators;
+          
+          if (mDate) {
+            dailyStaff = [{
+              date: mDate,
+              measurer_id: mId,
+              collaborators: typeof collabs === 'string' ? collabs.split(",").map(s => s.trim()).filter(Boolean) : (collabs || [])
+            }];
           }
         }
 
-        // Update preliminary_survey
-        await supabase
+        if (dailyStaff && Array.isArray(dailyStaff)) {
+          // 2. Fetch existing surveys to manage diffs (Add/Update/Delete)
+          const { data: existingSurveys } = await supabase
+            .from("preliminary_survey")
+            .select("id, measurement_date, google_event_id")
+            .eq("code", code).eq("year", year).eq("period", period);
+
+          const existingDates = new Set(existingSurveys?.map(s => s.measurement_date) || []);
+          const incomingDates = new Set(dailyStaff.map((d: any) => d.date).filter(Boolean));
+
+          // 3. Delete surveys for removed dates
+          const datesToDelete = Array.from(existingDates).filter(d => !incomingDates.has(d));
+          if (datesToDelete.length > 0) {
+            await supabase.from("preliminary_survey").delete()
+              .eq("code", code).eq("year", year).eq("period", period)
+              .in("measurement_date", datesToDelete);
+          }
+
+          // 4. Update or Create surveys for all dates in dailyStaff
+          const allCollaboratorsSet = new Set<string>();
+          let maxEndDate = null;
+          const sortedDates = dailyStaff.map((d: any) => d.date).filter(Boolean).sort();
+          if (sortedDates.length > 0) maxEndDate = sortedDates[sortedDates.length - 1];
+
+          for (const entry of dailyStaff) {
+            if (!entry.date) continue;
+
+            const mId = entry.measurer_id;
+            const { data: userData } = mId ? await supabase.from("users").select("name").eq("id", mId).single() : { data: null };
+            const reportWriterName = userData?.name || null;
+            const entryCollabs = entry.collaborators || [];
+            
+            // Build actual_measurer string for this specific date
+            // 측정자 목록(collaborators)을 그대로 사용 - 보고서 담당자는 자동 합산하지 않음
+            const actualMeasurer = entryCollabs.length > 0 ? entryCollabs.join(", ") : "";
+            entryCollabs.forEach((c: string) => allCollaboratorsSet.add(c.trim()));
+
+            const surveyPayload = {
+              measurement_date: entry.date,
+              end_date: entry.date,
+              report_writer: reportWriterName,
+              actual_measurer: actualMeasurer,
+              business_name: updates.business_name || updatedData.business_name
+            };
+
+            const existing = existingSurveys?.find(s => s.measurement_date === entry.date);
+            if (existing) {
+              await supabase.from("preliminary_survey").update(surveyPayload).eq("id", existing.id);
+            } else {
+              const { data: maxSeq } = await supabase.from("preliminary_survey").select("sequence_number").order("sequence_number", { ascending: false }).limit(1).maybeSingle();
+              const nextSeq = (maxSeq?.sequence_number || 0) + 1;
+              await supabase.from("preliminary_survey").insert({ ...surveyPayload, code, year, period, sequence_number: nextSeq });
+            }
+          }
+
+          // 5. Update summary fields on measurement_target_business
+          const unifiedCollaborators = Array.from(allCollaboratorsSet).filter(Boolean).join(", ");
+          await supabase.from("measurement_target_business").update({
+            collaborators: unifiedCollaborators || null,
+            measurement_end_date: maxEndDate
+          }).eq("code", code).eq("year", year).eq("period", period);
+          
+          console.log(`[Integrated Sync] Preliminary surveys and summary updated for ${code}`);
+        }
+
+        // 6. Trigger Google Calendar Sync (Always attempt if schedules exist)
+        const { data: currentSchedule } = await supabase
           .from("preliminary_survey")
-          .update({ actual_measurer: updatedActualMeasurer })
-          .eq("code", code)
-          .eq("year", year)
-          .eq("period", period);
+          .select("id, google_event_id")
+          .eq("code", code).eq("year", year).eq("period", period);
+        
+        const hasCalendarEvent = currentSchedule?.some(s => !!s.google_event_id);
+        const isRegistered = updatedData.is_registered === "실시" || updatedData.is_registered === "확정";
 
-        console.log(`[Sync] Updated actual_measurer for ${code}: ${updatedActualMeasurer}`);
-      } catch (e) {
-        console.error("Collaborators Sync Exception:", e);
-      }
-    }
+        if (isRegistered || hasCalendarEvent) {
+          await syncBusinessToCalendar(supabase, code, year, period);
+          console.log(`[Integrated Sync] Calendar sync triggered for ${code}`);
+        }
 
-    // [New Feature] System-as-Master Calendar Sync
-    if ((updatedData.is_registered === "실시" || updatedData.is_registered === "확정" || !!updatedData.google_event_id) && code && year && period) {
-      try {
-        await syncBusinessToCalendar(supabase, code, year, period);
-        console.log(`[Business Sync] Calendar sync triggered for ${code}`);
       } catch (syncError) {
-        console.error(`[Business Sync] Calendar sync failed for ${code}:`, syncError);
+        console.error(`[Integrated Sync] Failed for ${code}:`, syncError);
       }
     }
+
 
     // [New Feature] Sync 'Business Category' to 'Journal' and 'Master'
     if (updates.hasOwnProperty('business_category') && code) {

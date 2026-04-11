@@ -146,21 +146,45 @@ export async function PUT(
         { status: 500 }
       );
     }
-    // 예비조사 수정 후 measurement_journal의 measurer 동기화
-    if (code && actual_measurer) {
+    // 예비조사 수정 후 measurement_journal의 measurer 동기화 (다중 일자 합집합 및 중복 제거)
+    if (code) {
       const surveyYear = year ? parseInt(year) : null;
-      const surveyPeriod = period || null;
+      const surveyPeriod = period || ""; // null 방지
 
       if (surveyYear && surveyPeriod) {
-        const { error: journalUpdateError } = await supabase
-          .from("measurement_journal")
-          .update({ measurer: actual_measurer })
+        // 1. 해당 프로젝트(코드/년도/주기)의 모든 예비조사 데이터 조회
+        const { data: allSurveys } = await supabase
+          .from("preliminary_survey")
+          .select("actual_measurer")
           .eq("code", code)
-          .eq("measurement_year", surveyYear)
-          .ilike("measurement_period", `%${surveyPeriod.replace('(수시)', '').replace('수시(', '').replace(')', '')}%`);
+          .eq("year", surveyYear)
+          .eq("period", surveyPeriod);
 
-        if (journalUpdateError) {
-          console.error("measurement_journal measurer 동기화 오류:", journalUpdateError);
+        if (allSurveys) {
+          // 2. 모든 일자의 측정자 합집합 및 중복 제거
+          const measurerSet = new Set<string>();
+          allSurveys.forEach(s => {
+            if (s.actual_measurer) {
+              s.actual_measurer.split(",").forEach((m: string) => {
+                const trimmed = m.trim();
+                if (trimmed) measurerSet.add(trimmed);
+              });
+            }
+          });
+
+          const unifiedMeasurers = Array.from(measurerSet).sort().join(", ");
+
+          // 3. 측정일지 업데이트
+          const { error: journalUpdateError } = await supabase
+            .from("measurement_journal")
+            .update({ measurer: unifiedMeasurers })
+            .eq("code", code)
+            .eq("measurement_year", surveyYear)
+            .ilike("measurement_period", `%${surveyPeriod.replace('(수시)', '').replace('수시(', '').replace(')', '')}%`);
+
+          if (journalUpdateError) {
+            console.error("measurement_journal measurer 동기화 오류:", journalUpdateError);
+          }
         }
       }
     }
@@ -212,9 +236,10 @@ export async function PUT(
 
           const isConfirmedBiz = targetBiz && (targetBiz.is_registered === "확정" || targetBiz.is_registered === "실시");
 
-          if (isConfirmedBiz && targetBiz.google_event_id && targetBiz.measurement_date && isTargetDate) {
-            await syncBusinessToCalendar(supabase, code, year!, period!);
-            console.log(`[Survey Sync] Calendar sync triggered for ${code}`);
+          // 로직 완화: google_event_id가 없더라도 확정 상태라면 동기화를 시도하여 신규 생성
+          if (isConfirmedBiz && targetBiz.measurement_date && isTargetDate && year && period) {
+            await syncBusinessToCalendar(supabase, code, year, period);
+            console.log(`[Survey Sync] Calendar sync triggered for ${code} on PATCH`);
           }
         } catch (calErr) {
           console.error("[Survey->Calendar] Calendar sync error:", calErr);

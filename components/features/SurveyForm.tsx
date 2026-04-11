@@ -16,6 +16,7 @@ import {
 import { normalizeForDateInput, isValidDateString } from "@/lib/utils/date-validator";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { MEASURER_LIST, getSurveyCode } from "@/lib/utils/survey-code";
+import { useUser } from "@/hooks/use-user";
 
 // 예비조사자 조합 목록
 const PRELIMINARY_SURVEYOR_OPTIONS = [
@@ -64,6 +65,11 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   onSuccess,
   onCancel,
 }) => {
+  const { user: currentUser } = useUser();
+  const isAdmin = currentUser?.role === "관리자";
+  const isJournalManager = isAdmin || !!currentUser?.is_journal_manager;
+  const [isSurveyCodeEditable, setIsSurveyCodeEditable] = useState(false);
+  const [isAssigneeManualMode, setIsAssigneeManualMode] = useState(false); // 담당자 수동 모드 (초기화 후)
   const [formData, setFormData] = useState<SurveyFormData>({
     year: "2026",
     period: "상반기",
@@ -121,11 +127,12 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         const response = await fetch("/api/users");
         if (response.ok) {
           const data = await response.json();
-          // survey_code가 있는 사용자만 필터링
-          const usersWithSurveyCode = (data.users || []).filter(
+          const allUsers = data.users || [];
+          // 관리자인 경우 전체 노출, 일반 사용자는 survey_code가 있는 사용자만 필터링
+          const filteredUsers = isAdmin ? allUsers : allUsers.filter(
             (user: { survey_code?: string | null }) => user.survey_code
           );
-          setUsers(usersWithSurveyCode);
+          setUsers(filteredUsers);
         }
       } catch (err) {
         console.error("사용자 목록 가져오기 실패:", err);
@@ -486,49 +493,58 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
     setSelectedMeasurers(updated);
 
-    // 공시료 코드 자동 부여
-    // 첫 번째 측정자의 공시료 코드를 사용
-    let surveyCode = "";
-    if (updated.length > 0) {
-      const firstMeasurer = updated[0];
-      // 사용자 목록에서 해당 측정자의 survey_code 확인
-      const user = users.find((u) => u.name === firstMeasurer);
-
-      if (user && user.survey_code) {
-        // 사용자에 등록된 공시료 코드가 있으면 사용
-        surveyCode = user.survey_code;
-      } else {
-        // 없으면 기존 로직 사용
-        surveyCode = getSurveyCode(firstMeasurer) || "";
-      }
-    }
-
+    // 측정자 문자열 생성
     const measurerStr = updated.join(", ");
 
-    // 측정자 선택/해제에 따라 예비조사자 자동 설정
-    let updatedPreliminarySurveyors = [...preliminarySurveyors];
-    const correspondingPreliminarySurveyor = getPreliminarySurveyorByMeasurer(measurer);
-
-    if (correspondingPreliminarySurveyor) {
-      if (isAdding) {
-        // 측정자가 선택되면 해당 예비조사자 조합도 자동으로 체크
-        if (!updatedPreliminarySurveyors.includes(correspondingPreliminarySurveyor)) {
-          updatedPreliminarySurveyors = [...updatedPreliminarySurveyors, correspondingPreliminarySurveyor];
+    // 수동 모드가 아닐 때만 예비조사자 자동 매핑
+    if (!isAssigneeManualMode) {
+      const updatedPreliminarySurveyors: string[] = [];
+      updated.forEach((m) => {
+        const surveyor = getPreliminarySurveyorByMeasurer(m);
+        if (surveyor && !updatedPreliminarySurveyors.includes(surveyor)) {
+          updatedPreliminarySurveyors.push(surveyor);
         }
-      } else {
-        // 측정자가 해제되면 해당 예비조사자 조합도 자동으로 해제
-        updatedPreliminarySurveyors = updatedPreliminarySurveyors.filter((p) => p !== correspondingPreliminarySurveyor);
-      }
+      });
+      setPreliminarySurveyors(updatedPreliminarySurveyors);
+
+      setFormData((prev) => {
+        let surveyCode = prev.survey_code;
+        if (updated.length > 0) {
+          const firstMeasurer = updated[0];
+          const user = users.find((u) => u.name === firstMeasurer);
+          if (user && user.survey_code) {
+            surveyCode = user.survey_code;
+          } else {
+            surveyCode = getSurveyCode(firstMeasurer) || "";
+          }
+        }
+        return {
+          ...prev,
+          measurer: measurerStr,
+          survey_code: surveyCode,
+          preliminary_surveyor: updatedPreliminarySurveyors.join(", "),
+        };
+      });
+    } else {
+      // 수동 모드: 측정자와 공시료 코드만 업데이트, 예비조사자/실측정자/보고서담당은 건드리지 않음
+      setFormData((prev) => {
+        let surveyCode = prev.survey_code;
+        if (updated.length > 0) {
+          const firstMeasurer = updated[0];
+          const user = users.find((u) => u.name === firstMeasurer);
+          if (user && user.survey_code) {
+            surveyCode = user.survey_code;
+          } else {
+            surveyCode = getSurveyCode(firstMeasurer) || "";
+          }
+        }
+        return {
+          ...prev,
+          measurer: measurerStr,
+          survey_code: surveyCode,
+        };
+      });
     }
-
-    setPreliminarySurveyors(updatedPreliminarySurveyors);
-
-    setFormData((prev) => ({
-      ...prev,
-      measurer: measurerStr,
-      survey_code: surveyCode,
-      preliminary_surveyor: updatedPreliminarySurveyors.join(", "),
-    }));
   };
 
   // 예비조사자 선택 처리 (조합 단위로 선택)
@@ -554,22 +570,24 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       actual_measurer: updated.join(", "),
     }));
 
-    // 실측정자가 선택되면 보고서 담당도 동일 이름으로 자동 체크
-    if (updated.includes(measurer)) {
-      // 실측정자가 추가된 경우, 보고서 담당도 동일 이름으로 설정
-      setReportWriter(measurer);
-      setFormData((prev) => ({
-        ...prev,
-        report_writer: measurer,
-      }));
-    } else {
-      // 실측정자가 해제된 경우, 보고서 담당이 해당 이름이면 해제
-      if (reportWriter === measurer) {
-        setReportWriter("");
+    // 수동 모드가 아닐 때만 자동 연동
+    if (!isAssigneeManualMode) {
+      if (updated.includes(measurer)) {
+        setReportWriter(measurer);
         setFormData((prev) => ({
           ...prev,
-          report_writer: "",
+          actual_measurer: updated.join(", "),
+          report_writer: measurer,
         }));
+      } else {
+        if (reportWriter === measurer) {
+          setReportWriter("");
+          setFormData((prev) => ({
+            ...prev,
+            actual_measurer: updated.join(", "),
+            report_writer: "",
+          }));
+        }
       }
     }
   };
@@ -579,8 +597,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     const selected = reportWriter === measurer ? "" : measurer;
     setReportWriter(selected);
 
-    // 보고서 담당자가 선택되면 실측정자 목록에도 자동으로 추가 (기존 목록 유지)
-    if (selected && !actualMeasurers.includes(selected)) {
+    // 수동 모드가 아닐 때만 실측정자에 자동 추가
+    if (!isAssigneeManualMode && selected && !actualMeasurers.includes(selected)) {
       const updatedActuals = [...actualMeasurers, selected];
       setActualMeasurers(updatedActuals);
       setFormData((prev) => ({
@@ -735,21 +753,21 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         </div>
 
         {warning && (
-              <Alert variant="warning" className="mb-4">
-                {warning}
-              </Alert>
-            )}
+          <Alert variant="warning" className="mb-4">
+            {warning}
+          </Alert>
+        )}
 
-            {targetMeasurementDate && formData.measurement_date && targetMeasurementDate !== formData.measurement_date && (
-              <Alert variant="warning" className="mb-4 bg-orange-50 border-orange-200">
-                <div className="flex items-center gap-2 text-orange-700 font-bold">
-                  <span>⚠️ 일정 불일치 알림</span>
-                </div>
-                <p className="mt-1 text-sm text-orange-600">
-                  계획담당자가 지정한 확정일(<span className="font-bold underline">{targetMeasurementDate}</span>)과 현재 선택한 측정일(<span className="font-bold underline">{formData.measurement_date}</span>)이 다릅니다. 일정이 변경된 것인지 확인 바랍니다.
-                </p>
-              </Alert>
-            )}
+        {targetMeasurementDate && formData.measurement_date && targetMeasurementDate !== formData.measurement_date && (
+          <Alert variant="warning" className="mb-4 bg-orange-50 border-orange-200">
+            <div className="flex items-center gap-2 text-orange-700 font-bold">
+              <span>⚠️ 일정 불일치 알림</span>
+            </div>
+            <p className="mt-1 text-sm text-orange-600">
+              계획담당자가 지정한 확정일(<span className="font-bold underline">{targetMeasurementDate}</span>)과 현재 선택한 측정일(<span className="font-bold underline">{formData.measurement_date}</span>)이 다릅니다. 일정이 변경된 것인지 확인 바랍니다.
+            </p>
+          </Alert>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input
@@ -834,18 +852,63 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
               ))}
             </div>
           </div>
-          <Input
-            label="공시료 코드"
-            value={formData.survey_code}
-            readOnly
-            className="bg-surface-50"
-          />
+          <div className="md:col-span-2">
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-text-700">
+                공시료 코드
+              </label>
+            </div>
+            <Input
+              value={formData.survey_code}
+              onChange={(e) => setFormData(prev => ({ ...prev, survey_code: e.target.value.toUpperCase() }))}
+              readOnly={!isJournalManager}
+              title={isJournalManager ? "일지담당: 직접 수정 가능" : "측정자 선택 시 자동 부여됩니다."}
+              className={isJournalManager ? "" : "bg-surface-50"}
+            />
+          </div>
         </div>
       </Card>
 
       {/* 담당자 정보 */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-text-900 mb-6">담당자 정보</h3>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-semibold text-text-900">담당자 정보</h3>
+          {isJournalManager && initialData?.id && (
+            <Button
+              type="button"
+              variant="secondary"
+              className={`h-8 px-3 text-xs font-medium border ${
+                isAssigneeManualMode
+                  ? 'bg-orange-50 border-orange-300 text-orange-700 hover:bg-orange-100'
+                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+              }`}
+              onClick={() => {
+                if (!isAssigneeManualMode) {
+                  // 초기화: 예비조사자, 실측정자, 보고서 담당 모두 비움
+                  setPreliminarySurveyors([]);
+                  setActualMeasurers([]);
+                  setReportWriter("");
+                  setFormData(prev => ({
+                    ...prev,
+                    preliminary_surveyor: "",
+                    actual_measurer: "",
+                    report_writer: "",
+                  }));
+                  setIsAssigneeManualMode(true);
+                } else {
+                  setIsAssigneeManualMode(false);
+                }
+              }}
+            >
+              {isAssigneeManualMode ? '🔓 수동 모드 (클릭하여 해제)' : '🔄 담당자 초기화'}
+            </Button>
+          )}
+        </div>
+        {isAssigneeManualMode && (
+          <Alert variant="warning" className="mb-4 text-xs">
+            수동 모드입니다. 자동 매핑 규칙이 적용되지 않으며, 담당자를 직접 선택할 수 있습니다.
+          </Alert>
+        )}
         <div className="space-y-6">
           {/* 예비조사자 */}
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">

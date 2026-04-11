@@ -819,3 +819,371 @@
 [2026-04-11T03:50:16.272Z] Creating Calendar Event {"summary":"[강종구](주) 넥스파워텍","description":"사업장: (주) 넥스파워텍\n          주소: 충청남도 천안시 서북구 직산읍 군수1길 96 (군서리)\n          담당자: 정윤철 과장\n          연락처: 010-9090-8652\n          비고:","date":"2026-04-17","location":"충청남도 천안시 서북구 직산읍 군수1길 96 (군서리)","colorId":"9"}
 [2026-04-11T03:50:16.274Z] Auth Client Creation Error {}
 [2026-04-11T03:50:16.276Z] Error creating Google Calendar event: {}
+[2026-04-11T07:31:52.568Z] Auth Client Creation Error {}
+[2026-04-11T07:31:52.580Z] Error getting Google Calendar event: {}
+[2026-04-11T07:31:52.581Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관 (04-21, 04-22)","description":"사업장: 국립해양생물자원관\n          측정일: 2026-04-21,2026-04-22\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T07:31:52.583Z] Auth Client Creation Error {}
+[2026-04-11T07:31:52.584Z] Error creating Google Calendar event: {}
+[2026-04-11T08:57:47.835Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-21","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T08:57:47.853Z] Auth Client Creation Error {}
+[2026-04-11T08:57:47.857Z] Error creating Google Calendar event: {}
+[2026-04-11T08:57:47.859Z] Deleting Calendar Event: qglehsvlai7njf9mfbno2el6j4 
+[2026-04-11T08:57:47.859Z] Auth Client Creation Error {}
+[2026-04-11T08:57:47.860Z] Error deleting Google Calendar event: {}
+[2026-04-11T08:58:01.950Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-22","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T08:58:01.952Z] Auth Client Creation Error {}
+[2026-04-11T08:58:01.953Z] Error creating Google Calendar event: {}
+[2026-04-11T08:58:01.989Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-21","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T08:58:01.990Z] Auth Client Creation Error {}
+[2026-04-11T08:58:01.992Z] Error creating Google Calendar event: {}
+[2026-04-11T08:59:50.903Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-21","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T08:59:50.904Z] Auth Client Creation Error {}
+[2026-04-11T08:59:50.905Z] Error creating Google Calendar event: {}
+[2026-04-11T08:59:50.945Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-22","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T08:59:50.946Z] Auth Client Creation Error {}
+[2026-04-11T08:59:50.947Z] Error creating Google Calendar event: {}
+[2026-04-11T09:00:58.690Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-21","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:00:58.692Z] Auth Client Creation Error {}
+[2026-04-11T09:00:58.693Z] Error creating Google Calendar event: {}
+[2026-04-11T09:00:58.732Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-22","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:00:58.733Z] Auth Client Creation Error {}
+[2026-04-11T09:00:58.734Z] Error creating Google Calendar event: {}
+[2026-04-11T09:05:31.451Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-21","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:05:31.455Z] Auth Client Creation Error {}
+[2026-04-11T09:05:31.458Z] Error creating Google Calendar event: {}
+[2026-04-11T09:05:31.511Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-22","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:05:31.513Z] Auth Client Creation Error {}
+[2026-04-11T09:05:31.514Z] Error creating Google Calendar event: {}
+[2026-04-11T09:06:20.553Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-21","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:06:20.555Z] Auth Client Creation Error {}
+[2026-04-11T09:06:20.556Z] Error creating Google Calendar event: {}
+[2026-04-11T09:06:20.611Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-22","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:06:20.613Z] Auth Client Creation Error {}
+[2026-04-11T09:06:20.615Z] Error creating Google Calendar event: {}
+[2026-04-11T09:15:22.042Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-21","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:15:22.046Z] Auth Client Creation Error {}
+[2026-04-11T09:15:22.049Z] Error creating Google Calendar event: {}
+[2026-04-11T09:15:22.113Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-22","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:15:22.114Z] Auth Client Creation Error {}
+[2026-04-11T09:15:22.115Z] Error creating Google Calendar event: {}
+[2026-04-11T09:15:45.167Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-22","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:15:45.168Z] Auth Client Creation Error {}
+[2026-04-11T09:15:45.169Z] Error creating Google Calendar event: {}
+[2026-04-11T09:16:01.015Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-21","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:16:01.016Z] Auth Client Creation Error {}
+[2026-04-11T09:16:01.017Z] Error creating Google Calendar event: {}
+[2026-04-11T09:16:01.058Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-22","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:16:01.061Z] Auth Client Creation Error {}
+[2026-04-11T09:16:01.064Z] Error creating Google Calendar event: {}
+[2026-04-11T09:16:08.700Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-21","endDate":"2026-04-21","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:16:08.702Z] Auth Client Creation Error {}
+[2026-04-11T09:16:08.703Z] Error creating Google Calendar event: {}
+[2026-04-11T09:16:08.789Z] Creating Calendar Event {"summary":"[한기문, 고유빈]국립해양생물자원관","description":"사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:","date":"2026-04-22","endDate":"2026-04-22","location":"충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)","colorId":"10"}
+[2026-04-11T09:16:08.790Z] Auth Client Creation Error {}
+[2026-04-11T09:16:08.791Z] Error creating Google Calendar event: {}
+[2026-04-11T09:27:35.850Z] Creating Calendar Event {
+  "summary": "[한기문, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:27:35.855Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:27:37.504Z] Event created successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T09:27:37.688Z] Creating Calendar Event {
+  "summary": "[한기문, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:27:37.689Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:27:39.005Z] Event created successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T09:28:35.779Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:28:36.911Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:28:36.912Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:28:38.649Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T09:28:38.696Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:28:39.454Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[한기문, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:28:39.455Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:28:41.256Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T09:35:14.783Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:35:15.923Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:35:15.925Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:35:17.805Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T09:35:17.873Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:35:18.645Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[한기문, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:35:18.646Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:35:20.251Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T09:35:49.166Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:35:50.297Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:35:50.298Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:35:52.076Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T09:35:52.197Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:35:52.937Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[한기문, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:35:52.938Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:35:54.533Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T09:44:41.336Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:44:42.715Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:44:42.716Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:44:44.510Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T09:44:44.621Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:44:45.459Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[한기문, 강종구, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:44:45.461Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:44:46.984Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T09:50:58.600Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:50:59.779Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:50:59.781Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:51:01.623Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T09:51:01.684Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:51:02.487Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[고유빈, 강종구(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:51:02.489Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:51:04.063Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T09:52:31.406Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:52:32.678Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[강종구, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:52:32.692Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:52:34.540Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T09:52:34.663Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:52:35.505Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[강종구, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:52:35.508Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:52:37.217Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T09:55:40.515Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:55:41.842Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:55:41.844Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:55:43.738Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T09:55:43.794Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:55:44.659Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T09:55:44.660Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T09:55:46.375Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T10:17:52.628Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:17:53.808Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:17:53.810Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:17:55.618Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T10:17:55.657Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:17:56.462Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[고유빈, 강종구(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:17:56.463Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:17:58.058Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T10:20:04.495Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:20:05.418Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:20:05.419Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:20:07.199Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T10:20:07.251Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:20:08.003Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[고유빈, 강종구(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:20:08.005Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:20:10.307Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T10:22:49.008Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:22:50.138Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:22:50.144Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:22:51.951Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T10:22:51.996Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:22:52.782Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[고유빈, 강종구(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:22:52.784Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:22:54.526Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T10:42:56.425Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:42:57.538Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:42:57.540Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:42:59.168Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T10:42:59.299Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:43:00.094Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[강종구, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:43:00.096Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:43:01.703Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T10:43:42.396Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:43:43.521Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:43:43.524Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:43:45.366Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T10:43:45.414Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:43:46.261Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[한기문, 강종구, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:43:46.262Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:43:47.972Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 
+[2026-04-11T10:46:48.258Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:46:49.316Z] Updating Calendar Event: fupfhjih8uvsg8qksaf6f82gbg {
+  "summary": "[한기문, 고유빈] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-21",
+  "endDate": "2026-04-21",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:46:49.317Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:46:51.017Z] Event updated successfully: fupfhjih8uvsg8qksaf6f82gbg 
+[2026-04-11T10:46:51.056Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:46:51.987Z] Updating Calendar Event: 9f373fbgt0a39p3muh8irrumuk {
+  "summary": "[강종구, 고유빈(한기문)] 국립해양생물자원관",
+  "description": "사업장: 국립해양생물자원관\n          주소: 충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)\n          담당자: 이예솔\n          연락처: 010-3386-6325\n          비고:",
+  "date": "2026-04-22",
+  "endDate": "2026-04-22",
+  "location": "충청남도 서천군 장항읍 장산로101번길 75 (송림리, 국립해양생물자원관)",
+  "colorId": "10"
+}
+[2026-04-11T10:46:51.988Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-11T10:46:53.758Z] Event updated successfully: 9f373fbgt0a39p3muh8irrumuk 

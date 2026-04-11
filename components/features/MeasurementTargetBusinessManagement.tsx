@@ -47,6 +47,8 @@ interface BusinessEntry {
     future_measurement_period: number | null; // 향후 측정주기
     future_measurement_date: string | null;
     measurement_date: string | null;
+    measurement_end_date: string | null; // 다중일자 종료일
+    daily_staff: any | null; // 일자별 배정 정보 (JSONB)
     notes: string | null;
     updated_at?: string;
     measurement_month?: string | null;
@@ -75,9 +77,9 @@ const OFFICE_OPTIONS = [
 // Status Options Update
 const STATUS_OPTIONS = [
     { value: "전체", label: "전체" },
-    { value: "실시", label: "실시" }, 
-    { value: "미실시", label: "미실시" }, 
-    { value: "거래종료", label: "거래종료" } 
+    { value: "실시", label: "실시" },
+    { value: "미실시", label: "미실시" },
+    { value: "거래종료", label: "거래종료" }
 ];
 
 const MANAGER_OPTIONS = [
@@ -389,18 +391,18 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     'business_name', 'business_category', 'address',
                     'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
                     'manager_name', 'manager_mobile', 'phone',
-                    'management_status', 'notes', 'measurement_date', 'future_measurement_period',
-                    'future_measurement_date', 'measurer_id', 'period', 'collaborators'
+                    'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
+                    'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff'
                 ];
 
                 const sanitized: any = {};
-                
+
                 // UI '실시' -> DB '확정' or '실시' (DB 제약 조건에 따라 유연하게 대응)
                 // 현재 DB 제약 조건이 001_initial_schema.sql 기준으로 명시되어 있지 않으나, 기존 코드 호환성 유지
                 if (raw.is_registered_text !== undefined) {
                     sanitized.is_registered = raw.is_registered_text;
                 }
-                
+
                 if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
                 if (raw.manager_phone !== undefined) sanitized.phone = raw.manager_phone;
 
@@ -717,7 +719,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             <div key={`${item.code}-${index}`} className="group relative hover:bg-blue-50/40 grid items-center text-sm text-slate-700 py-1.5 transition-all duration-150 border-b border-slate-100 last:border-0 growable-row" style={{ gridTemplateColumns: gridTemplateCols }}>
                                 {/* 표준 호버 인디케이터 바 */}
                                 <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
-                                
+
                                 <div className="text-center font-medium">{index + 1}</div>
                                 <div className={`text-left text-xs ${item.period.includes("(수시)") ? "text-red-600 font-bold" : ""}`}>
                                     {item.period}
@@ -802,22 +804,30 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         ))}
                                     </select>
                                 </div>
-                                <div className="px-1">
-                                    <input
-                                        type="date"
-                                        className="w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 bg-transparent text-center"
-                                        defaultValue={item.measurement_date || ""}
-                                        onBlur={(e) => {
-                                            const newVal = e.target.value;
-                                            if (newVal !== (item.measurement_date || "")) {
-                                                const newStatus = newVal ? '실시' : '미실시';
-                                                saveChanges(item.code, {
-                                                    measurement_date: newVal || null,
-                                                    is_registered_text: newStatus
-                                                });
-                                            }
-                                        }}
-                                    />
+                                <div className="px-1 text-center">
+                                    <div className="flex flex-col gap-0.5">
+                                        <input
+                                            type="date"
+                                            className="w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 bg-transparent text-center"
+                                            defaultValue={item.measurement_date || ""}
+                                            onBlur={(e) => {
+                                                const newVal = e.target.value;
+                                                if (newVal !== (item.measurement_date || "")) {
+                                                    const newStatus = newVal ? '실시' : '미실시';
+                                                    saveChanges(item.code, {
+                                                        measurement_date: newVal || null,
+                                                        measurement_end_date: newVal || null,
+                                                        is_registered_text: newStatus
+                                                    });
+                                                }
+                                            }}
+                                        />
+                                        {(item.measurement_end_date && item.measurement_end_date !== item.measurement_date) && (
+                                            <div className="text-[10px] text-slate-400 font-medium">
+                                                ~ {item.measurement_end_date}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="px-1">
                                     <input
@@ -993,60 +1003,161 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <label className="block text-sm font-medium mb-1 text-slate-700">금회예정일</label>
                                 <Input type="date" value={editForm.future_measurement_date || ""} onChange={(e) => setEditForm(prev => ({ ...prev, future_measurement_date: e.target.value }))} />
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">확정일</label>
-                                <Input type="date" value={editForm.measurement_date || ""} onChange={(e) => {
-                                    const val = e.target.value;
-                                    setEditForm(prev => ({
-                                        ...prev,
-                                        measurement_date: val,
-                                        is_registered_text: val ? '확정' : '미확정'
-                                    }));
-                                }} />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">보고서 담당자</label>
-                                <Select
-                                    options={[
-                                        { value: "", label: "선택" },
-                                        ...measurers.map(m => ({ value: m.id.toString(), label: m.name }))
-                                    ]}
-                                    value={editForm.measurer_id?.toString() || ""}
-                                    onChange={(e) => setEditForm(prev => ({ ...prev, measurer_id: e.target.value ? parseInt(e.target.value) : null }))}
-                                />
-                            </div>
-                            <div className="col-span-2">
-                                <label className="block text-sm font-medium mb-2 text-slate-700">협력자 (복수 선택)</label>
-                                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 p-3 bg-white border border-slate-200 rounded-md">
-                                    {measurers.map(m => {
-                                        // 보고서 담당자는 협력자에서 제외하거나 비활성화 (요구사항: 담당자 외 협력자)
-                                        const isReportWriter = editForm.measurer_id === m.id;
-                                        const collaborators = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()) : [];
-                                        const isChecked = collaborators.includes(m.name);
-
-                                        return (
-                                            <label key={m.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 ${isReportWriter ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isChecked && !isReportWriter}
-                                                    disabled={isReportWriter}
-                                                    onChange={(e) => {
-                                                        const checked = e.target.checked;
-                                                        let newCollabs = [...collaborators];
-                                                        if (checked) {
-                                                            if (!newCollabs.includes(m.name)) newCollabs.push(m.name);
-                                                        } else {
-                                                            newCollabs = newCollabs.filter(c => c !== m.name);
-                                                        }
-                                                        setEditForm(prev => ({ ...prev, collaborators: newCollabs.join(",") }));
-                                                    }}
-                                                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                                                />
-                                                <span className="text-sm text-slate-700">{m.name}</span>
-                                            </label>
-                                        );
-                                    })}
+                            {/* 다중 일자 배정 섹션 */}
+                            <div className="col-span-2 space-y-4">
+                                <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-2">
+                                    <label className="text-sm font-bold text-slate-800">측정 일정 및 인력 배정</label>
+                                    <Button 
+                                        type="button" 
+                                        variant="secondary" 
+                                        className="h-7 text-xs px-2"
+                                        onClick={() => {
+                                            const currentStaff = editForm.daily_staff || [];
+                                            const newDate = ""; 
+                                            setEditForm(prev => ({
+                                                ...prev,
+                                                daily_staff: [...currentStaff, { date: newDate, measurer_id: prev.measurer_id || null, collaborators: prev.collaborators ? prev.collaborators.split(",") : [] }]
+                                            }));
+                                        }}
+                                    >
+                                        + 일자 추가
+                                    </Button>
                                 </div>
+
+                                {(!(editForm.daily_staff) || (editForm.daily_staff.length === 0)) ? (
+                                    /* 기존 단일 일자 UI 유지 (이질감 최소화) */
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1 text-slate-700">확정일</label>
+                                            <Input type="date" value={editForm.measurement_date || ""} onChange={(e) => {
+                                                const val = e.target.value;
+                                                setEditForm(prev => ({
+                                                    ...prev,
+                                                    measurement_date: val,
+                                                    measurement_end_date: val,
+                                                    is_registered_text: val ? '확정' : '미확정'
+                                                }));
+                                            }} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1 text-slate-700">보고서 담당자</label>
+                                            <Select
+                                                options={[
+                                                    { value: "", label: "선택" },
+                                                    ...measurers.map(m => ({ value: m.id.toString(), label: m.name }))
+                                                ]}
+                                                value={editForm.measurer_id?.toString() || ""}
+                                                onChange={(e) => setEditForm(prev => ({ ...prev, measurer_id: e.target.value ? parseInt(e.target.value) : null }))}
+                                            />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="block text-sm font-medium mb-2 text-slate-700">측정자 (복수 선택)</label>
+                                            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 p-3 bg-white border border-slate-200 rounded-md">
+                                                {measurers.map(m => {
+                                                    const collaborators = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()) : [];
+                                                    const isChecked = collaborators.includes(m.name);
+                                                    return (
+                                                        <label key={m.id} className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isChecked}
+                                                                onChange={(e) => {
+                                                                    const checked = e.target.checked;
+                                                                    let newCollabs = [...collaborators];
+                                                                    if (checked) {
+                                                                        if (!newCollabs.includes(m.name)) newCollabs.push(m.name);
+                                                                    } else {
+                                                                        newCollabs = newCollabs.filter(c => c !== m.name);
+                                                                    }
+                                                                    setEditForm(prev => ({ ...prev, collaborators: newCollabs.join(",") }));
+                                                                }}
+                                                                className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                                                            />
+                                                            <span className="text-sm text-slate-700">{m.name}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    /* 다중 일자 UI (동적 생성) */
+                                    <div className="space-y-4">
+                                        {(editForm.daily_staff as any[]).map((entry, idx) => (
+                                            <Card key={idx} className="p-3 bg-white border-slate-200 relative group">
+                                                <button 
+                                                    type="button"
+                                                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                                    onClick={() => {
+                                                        const newList = [...(editForm.daily_staff as any[])];
+                                                        newList.splice(idx, 1);
+                                                        setEditForm(prev => ({ ...prev, daily_staff: newList.length > 0 ? newList : null }));
+                                                    }}
+                                                >
+                                                    ×
+                                                </button>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-500 mb-1">측정일 {idx + 1}</label>
+                                                        <Input type="date" value={entry.date || ""} onChange={(e) => {
+                                                            const newList = [...(editForm.daily_staff as any[])];
+                                                            newList[idx].date = e.target.value;
+                                                            // Update measurement_date (start) and measurement_end_date (end)
+                                                            const sortedDates = newList.map(d => d.date).filter(Boolean).sort();
+                                                            setEditForm(prev => ({ 
+                                                                ...prev, 
+                                                                daily_staff: newList,
+                                                                measurement_date: sortedDates[0] || null,
+                                                                measurement_end_date: sortedDates[sortedDates.length - 1] || null
+                                                            }));
+                                                        }} />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-500 mb-1">보고서 담당(코드)</label>
+                                                        <Select
+                                                            options={[
+                                                                { value: "", label: "선택" },
+                                                                ...measurers.map(m => ({ value: m.id.toString(), label: m.name }))
+                                                            ]}
+                                                            value={entry.measurer_id?.toString() || (idx === 0 ? editForm.measurer_id?.toString() : "")}
+                                                            onChange={(e) => {
+                                                                const newList = [...(editForm.daily_staff as any[])];
+                                                                newList[idx].measurer_id = e.target.value ? parseInt(e.target.value) : null;
+                                                                setEditForm(prev => ({ ...prev, daily_staff: newList }));
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <div className="col-span-2">
+                                                        <label className="block text-xs font-semibold text-slate-500 mb-1">측정자</label>
+                                                        <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
+                                                            {measurers.map(m => {
+                                                                const isChecked = entry.collaborators?.includes(m.name);
+                                                                return (
+                                                                    <label key={m.id} className="flex items-center gap-1.5 cursor-pointer">
+                                                                        <input 
+                                                                            type="checkbox"
+                                                                            checked={isChecked || false}
+                                                                            onChange={(e) => {
+                                                                                const newList = [...(editForm.daily_staff as any[])];
+                                                                                let collabs = newList[idx].collaborators || [];
+                                                                                if (e.target.checked) collabs.push(m.name);
+                                                                                else collabs = collabs.filter((c: string) => c !== m.name);
+                                                                                newList[idx].collaborators = Array.from(new Set(collabs));
+                                                                                setEditForm(prev => ({ ...prev, daily_staff: newList }));
+                                                                            }}
+                                                                            className="w-3.5 h-3.5 rounded"
+                                                                        />
+                                                                        <span className="text-xs text-slate-600">{m.name}</span>
+                                                                    </label>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </Card>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

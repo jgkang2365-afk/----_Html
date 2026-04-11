@@ -88,6 +88,7 @@ interface SummaryEntry {
   target_measurement_date: string | null;
   created_at: string;
   updated_at: string;
+  all_surveys?: any[]; // [New] 다중 일자 지원을 위한 연관 예비조사 목록
 }
 
 export const SummaryTable: React.FC = () => {
@@ -500,16 +501,33 @@ export const SummaryTable: React.FC = () => {
                     <div className="p-1">
                       <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
                       <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                        {entry.preliminary_surveyor || "-"}
-                        {entry.survey_code && (
-                          <span className="text-text-500 ml-1.5 font-normal">({entry.survey_code})</span>
-                        )}
+                        {(() => {
+                           const surveys = entry.all_surveys || [];
+                           if (surveys.length === 0) return entry.preliminary_surveyor || "-";
+                           const surveyor = entry.preliminary_surveyor || "-";
+                           const codes = surveys
+                             .filter(s => s.measurement_date && s.survey_code)
+                             .map(s => `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`)
+                             .join(", ");
+                           return codes ? `${surveyor} (${codes})` : surveyor;
+                        })()}
                       </div>
                     </div>
                     <div className="p-1">
                       <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
                       <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                        {entry.measurer || "-"}
+                         {(() => {
+                           const surveys = entry.all_surveys || [];
+                           if (surveys.length === 0) return entry.measurer || "-";
+                           const names = new Set<string>();
+                           surveys.forEach(s => {
+                             if (s.actual_measurer) {
+                               s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                             }
+                           });
+                           if (names.size === 0) return entry.measurer || "-";
+                           return Array.from(names).sort().join(", ");
+                        })()}
                       </div>
                     </div>
                     <div className="p-1">
@@ -1073,9 +1091,25 @@ export const SummaryTable: React.FC = () => {
                           <TableCell className="w-24 text-center text-xs py-3 px-1">
                             {entry.measurement_end_date ? formatDateYYYYMMDD(entry.measurement_end_date) : "-"}
                           </TableCell>
-                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.measurer || "-"}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
+                            {(() => {
+                               const names = new Set<string>();
+                               (entry.all_surveys || []).forEach(s => {
+                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                               });
+                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.measurer || "-");
+                            })()}
+                          </TableCell>
                           <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.preliminary_surveyor || "-"}</TableCell>
-                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.actual_measurer || "-"}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
+                            {(() => {
+                               const names = new Set<string>();
+                               (entry.all_surveys || []).forEach(s => {
+                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                               });
+                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.actual_measurer || "-");
+                            })()}
+                          </TableCell>
                           <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.report_writer || "-"}</TableCell>
                           <TableCell className="w-20 text-center py-3 px-1">
                             <span
@@ -1269,16 +1303,33 @@ export const SummaryTable: React.FC = () => {
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
                     <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                      {selectedEntry.preliminary_surveyor || "-"}
-                      {selectedEntry.survey_code && (
-                        <span className="text-text-500 ml-1.5 font-normal">({selectedEntry.survey_code})</span>
-                      )}
+                      {(() => {
+                         const surveys = selectedEntry.all_surveys || [];
+                         if (surveys.length === 0) return selectedEntry.preliminary_surveyor || "-";
+                         const surveyor = selectedEntry.preliminary_surveyor || "-";
+                         const codes = surveys
+                           .filter(s => s.measurement_date && s.survey_code)
+                           .map(s => `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`)
+                           .join(", ");
+                         return codes ? `${surveyor} (${codes})` : surveyor;
+                      })()}
                     </div>
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
                     <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                      {selectedEntry.measurer || "-"}
+                       {(() => {
+                         const surveys = selectedEntry.all_surveys || [];
+                         if (surveys.length === 0) return selectedEntry.measurer || "-";
+                         const names = new Set<string>();
+                         surveys.forEach(s => {
+                           if (s.actual_measurer) {
+                             s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                           }
+                         });
+                         if (names.size === 0) return selectedEntry.measurer || "-";
+                         return Array.from(names).sort().join(", ");
+                      })()}
                     </div>
                   </div>
                   <div className="p-1">

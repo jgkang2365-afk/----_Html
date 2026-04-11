@@ -605,6 +605,47 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 예비조사 등록 후 measurement_journal의 measurer 동기화 (다중 일자 합집합 및 중복 제거)
+    if (code) {
+      const surveyYear = year ? parseInt(year) : 2026;
+      const surveyPeriod = period || "상반기";
+
+      // 1. 해당 프로젝트(코드/년도/주기)의 모든 예비조사 데이터 조회
+      const { data: allSurveys } = await supabase
+        .from("preliminary_survey")
+        .select("actual_measurer")
+        .eq("code", code)
+        .eq("year", surveyYear)
+        .eq("period", surveyPeriod);
+
+      if (allSurveys) {
+        // 2. 모든 일자의 측정자 합집합 및 중복 제거
+        const measurerSet = new Set<string>();
+        allSurveys.forEach(s => {
+          if (s.actual_measurer) {
+            s.actual_measurer.split(",").forEach((m: string) => {
+              const trimmed = m.trim();
+              if (trimmed) measurerSet.add(trimmed);
+            });
+          }
+        });
+
+        const unifiedMeasurers = Array.from(measurerSet).sort().join(", ");
+
+        // 3. 측정일지 업데이트
+        const { error: journalUpdateError } = await supabase
+          .from("measurement_journal")
+          .update({ measurer: unifiedMeasurers })
+          .eq("code", code)
+          .eq("measurement_year", surveyYear)
+          .ilike("measurement_period", `%${surveyPeriod.replace('(수시)', '').replace('수시(', '').replace(')', '')}%`);
+
+        if (journalUpdateError) {
+          console.error("measurement_journal measurer 동기화 오류:", journalUpdateError);
+        }
+      }
+    }
+
     // 예비조사 등록 후 measurement_target_business 테이블의 measurement_date 업데이트
     if (code) {
       // 해당 코드의 모든 년도/반기 조합에 대해 측정일 업데이트
@@ -636,6 +677,19 @@ export async function POST(request: NextRequest) {
 
     // 순번 재정렬 (측정일 기준)
     await reassignSequenceNumbers(supabase);
+
+    // 구글 캘린더 동기화 (다중 일자 반영)
+    try {
+      const { syncBusinessToCalendar } = await import("@/lib/google/sync-service");
+      const syncYear = year ? parseInt(year) : 2026;
+      const syncPeriod = period || "상반기";
+      if (code) {
+        await syncBusinessToCalendar(supabase, code, syncYear, syncPeriod);
+        console.log(`[Survey Sync] Calendar sync triggered for ${code} on POST`);
+      }
+    } catch (syncError) {
+      console.error("[Survey Sync] Calendar sync failed in POST:", syncError);
+    }
 
     // 재정렬된 최신 정보 조회 (순번이 변경되었을 수 있으므로)
     const { data: updatedSurvey } = await supabase

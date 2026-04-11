@@ -9,11 +9,12 @@ import { SupabaseClient } from "@supabase/supabase-js";
  */
 export async function reassignSequenceNumbers(supabase: SupabaseClient) {
     try {
-        // 1. 모든 예비조사 데이터 조회 (정렬 기준: 측정일 ASC, 생성일 ASC)
+        // 1. 모든 예비조사 데이터 조회 (정렬 기준: 측정일 ASC, 공시료 코드 ASC, 생성일 ASC)
         const { data: surveys, error: fetchError } = await supabase
             .from("preliminary_survey")
-            .select("id, measurement_date, sequence_number")
+            .select("id, measurement_date, survey_code, sequence_number")
             .order("measurement_date", { ascending: true, nullsFirst: false })
+            .order("survey_code", { ascending: true, nullsFirst: false })
             .order("created_at", { ascending: true });
 
         if (fetchError) {
