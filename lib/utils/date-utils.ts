@@ -109,21 +109,29 @@ export function formatDateYYYYMMDD(date: Date | string | null | undefined): stri
 }
 
 /**
- * 한국 공휴일 목록 (2025년 기준, 필요시 확장)
+ * 한국 법정 공휴일 목록 (2025~2026년)
+ * 대체공휴일 포함
  */
-const KOREAN_HOLIDAYS_2025 = [
-  "2025-01-01", // 신정
-  "2025-01-28", // 설날
-  "2025-01-29", // 설날
-  "2025-01-30", // 설날
-  "2025-03-01", // 삼일절
-  "2025-05-05", // 어린이날
-  "2025-05-06", // 어린이날 대체공휴일
-  "2025-06-06", // 현충일
-  "2025-08-15", // 광복절
-  "2025-10-03", // 개천절
-  "2025-10-09", // 한글날
-  "2025-12-25", // 크리스마스
+const KOREAN_HOLIDAYS = [
+  // 2025년
+  "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30",
+  "2025-03-01", "2025-03-03", // 삼일절 대체공휴일 (실제 2025-03-03)
+  "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15",
+  "2025-10-03", "2025-10-06", "2025-10-07", "2025-10-08", // 추석 연휴 및 대체
+  "2025-10-09", "2025-12-25",
+
+  // 2026년
+  "2026-01-01", // 신정
+  "2026-02-16", "2026-02-17", "2026-02-18", // 설날 연휴
+  "2026-03-01", "2026-03-02", // 삼일절 및 대체공휴일
+  "2026-05-05", // 어린이날
+  "2026-05-24", "2026-05-25", // 부처님오신날 및 대체공휴일
+  "2026-06-06", // 현충일
+  "2026-08-15", "2026-08-17", // 광복절 및 대체공휴일
+  "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-28", // 추석 연휴 및 대체공휴일
+  "2026-10-03", "2026-10-05", // 개천절 및 대체공휴일
+  "2026-10-09", // 한글날
+  "2026-12-25", // 성탄절
 ];
 
 /**
@@ -133,7 +141,31 @@ const KOREAN_HOLIDAYS_2025 = [
  */
 export function isHoliday(date: Date): boolean {
   const dateStr = formatDateYYYYMMDD(date);
-  return KOREAN_HOLIDAYS_2025.includes(dateStr);
+  return KOREAN_HOLIDAYS.includes(dateStr);
+}
+
+/**
+ * 다음 영업일(워킹데이) 계산
+ * 주말과 공휴일을 제외한 다음 날짜를 반환합니다.
+ * @param startDateStr - 기준일 (YYYY-MM-DD)
+ * @returns 다음 영업일 (YYYY-MM-DD)
+ */
+export function getNextWorkingDay(startDateStr: string): string {
+  if (!startDateStr) return "";
+
+  const date = new Date(startDateStr);
+  if (isNaN(date.getTime())) return startDateStr;
+
+  // 다음 날부터 탐색 시작
+  let current = new Date(date);
+  current.setDate(current.getDate() + 1);
+
+  // 주말(토:6, 일:0)이거나 공휴일인 동안 계속 다음 날로 이동
+  while (current.getDay() === 0 || current.getDay() === 6 || isHoliday(current)) {
+    current.setDate(current.getDate() + 1);
+  }
+
+  return formatDateYYYYMMDD(current);
 }
 
 /**

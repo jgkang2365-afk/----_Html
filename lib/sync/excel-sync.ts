@@ -7,7 +7,7 @@ import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/server";
 import { join } from "path";
 import { readFileSync, existsSync } from "fs";
-import { getKSTISOString, getKSTYear } from "@/lib/utils/date-utils";
+import { getKSTISOString, getKSTYear, getNextWorkingDay } from "@/lib/utils/date-utils";
 
 export interface SyncResult {
   success: boolean;
@@ -662,6 +662,20 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       national_support_status: row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3] || null,
       business_category: businessCategory,
     };
+
+    // [NEW] 지청별/업종별 예외 발행일 로직 (대전/천안지청 & 공업사)
+    // 규칙: 전자계산서 발행일(billing_date)을 측정일 익일(워킹데이 기준)로 자동 기록
+    const officeStr = String(baseData.office_jurisdiction || "");
+    const categoryStr = String(baseData.business_category || "");
+    
+    if ((officeStr.includes("대전") || officeStr.includes("천안")) && categoryStr.includes("공업사")) {
+      // [Check] 2026-04-11(금일)부터 적용, 소급적용하지 않음
+      if (baseData.measurement_date && baseData.measurement_date >= "2026-04-11") {
+        // measurement_date는 이미 YYYY-MM-DD 형식
+        baseData.electronic_invoice_date = getNextWorkingDay(baseData.measurement_date);
+        console.log(`[Exception Billing] ${baseData.business_name} (${baseData.code}): ${baseData.measurement_date} -> ${baseData.electronic_invoice_date}`);
+      }
+    }
 
     const optionalFields: any = {};
     const managerName = row["담당자명"] || row["담당자"] || row["담당자 성명"] || null;
@@ -2137,100 +2151,85 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
 
         // 우선순위: measurement_business -> business_info
 
+        // [LATEST WINS] 최신성 유지 원칙에 따라 기존 데이터 존재 여부와 상관없이 최신 정보로 항상 갱신(Overwrite)
+        // 단, 엑셀에 데이터가 있을 때만 덮어씀 (데이터 유실 방지)
+
         // 1. 담당자 휴대폰 (manager_mobile)
-        if (!journal.manager_mobile) {
-          if (mbRow?.manager_mobile) {
-            updateData.manager_mobile = mbRow.manager_mobile;
-            needsUpdate = true;
-          } else if (bRow?.manager_contact) {
-            // business_info에는 manager_mobile 대신 manager_contact(연락처)가 있음
-            updateData.manager_mobile = bRow.manager_contact;
-            needsUpdate = true;
-          }
+        if (mbRow?.manager_mobile) {
+          updateData.manager_mobile = mbRow.manager_mobile;
+          needsUpdate = true;
+        } else if (bRow?.manager_contact) {
+          updateData.manager_mobile = bRow.manager_contact;
+          needsUpdate = true;
         }
 
         // 2. 담당자명 (manager_name)
-        if (!journal.manager_name) {
-          if (mbRow?.manager_name) {
-            updateData.manager_name = mbRow.manager_name;
-            needsUpdate = true;
-          } else if (bRow?.manager_name) {
-            updateData.manager_name = bRow.manager_name;
-            needsUpdate = true;
-          }
+        if (mbRow?.manager_name) {
+          updateData.manager_name = mbRow.manager_name;
+          needsUpdate = true;
+        } else if (bRow?.manager_name) {
+          updateData.manager_name = bRow.manager_name;
+          needsUpdate = true;
         }
 
         // 3. 주소 (address)
-        if (!journal.address) {
-          if (mbRow?.address) {
-            updateData.address = mbRow.address;
-            needsUpdate = true;
-          } else if (bRow?.address) {
-            updateData.address = bRow.address;
-            needsUpdate = true;
-          }
+        if (mbRow?.address) {
+          updateData.address = mbRow.address;
+          needsUpdate = true;
+        } else if (bRow?.address) {
+          updateData.address = bRow.address;
+          needsUpdate = true;
         }
 
         // 4. 사업자번호 (business_number)
-        if (!journal.business_number) {
-          if (mbRow?.business_number) {
-            updateData.business_number = mbRow.business_number;
-            needsUpdate = true;
-          } else if (bRow?.business_number) {
-            updateData.business_number = bRow.business_number;
-            needsUpdate = true;
-          }
+        if (mbRow?.business_number) {
+          updateData.business_number = mbRow.business_number;
+          needsUpdate = true;
+        } else if (bRow?.business_number) {
+          updateData.business_number = bRow.business_number;
+          needsUpdate = true;
         }
 
-        // 5. 전화번호 (phone) - business_info의 phone
-        if (!journal.phone) {
-          if (bRow?.phone) {
-            updateData.phone = bRow.phone;
-            needsUpdate = true;
-          }
+        // 5. 전화번호 (phone)
+        if (bRow?.phone) {
+          updateData.phone = bRow.phone;
+          needsUpdate = true;
         }
 
         // 6. 근로자수 (total_employees)
-        if (!journal.total_employees && mbRow?.total_employees) {
+        if (mbRow?.total_employees) {
           updateData.total_employees = mbRow.total_employees;
           needsUpdate = true;
         }
 
         // 7. 업종분류 (business_category)
-        if (!journal.business_category && mbRow?.business_category) {
+        if (mbRow?.business_category) {
           updateData.business_category = mbRow.business_category;
           needsUpdate = true;
         }
 
         // 8. 사업장명 (business_name)
-        if (!journal.business_name) {
-          if (mbRow?.business_name) {
-            updateData.business_name = mbRow.business_name;
-            needsUpdate = true;
-          } else if (bRow?.business_name) {
-            updateData.business_name = bRow.business_name;
-            needsUpdate = true;
-          }
+        if (mbRow?.business_name) {
+          updateData.business_name = mbRow.business_name;
+          needsUpdate = true;
+        } else if (bRow?.business_name) {
+          updateData.business_name = bRow.business_name;
+          needsUpdate = true;
         }
 
         // 9. 산재관리번호 (industrial_accident_number)
-        if (!journal.industrial_accident_number) {
-          if (mbRow?.industrial_accident_number) {
-            updateData.industrial_accident_number = mbRow.industrial_accident_number;
-            needsUpdate = true;
-          }
+        if (mbRow?.industrial_accident_number) {
+          updateData.industrial_accident_number = mbRow.industrial_accident_number;
+          needsUpdate = true;
         }
 
         // 10. 개시번호 (commencement_number)
-        if (!journal.commencement_number) {
-          // measurement_business나 business_info에 개시번호 필드가 있다면 업데이트
-          if (mbRow?.commencement_number) {
-            updateData.commencement_number = mbRow.commencement_number;
-            needsUpdate = true;
-          } else if (bRow?.commencement_number) {
-            updateData.commencement_number = bRow.commencement_number;
-            needsUpdate = true;
-          }
+        if (mbRow?.commencement_number) {
+          updateData.commencement_number = mbRow.commencement_number;
+          needsUpdate = true;
+        } else if (bRow?.commencement_number) {
+          updateData.commencement_number = bRow.commencement_number;
+          needsUpdate = true;
         }
 
         if (needsUpdate) {

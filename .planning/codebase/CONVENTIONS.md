@@ -36,3 +36,12 @@ const normalizeDigits = (str: string) => str.replace(/[^0-9]/g, '');
 ## 3. 코드 스타일 가이드
 - **기능 분리**: 하나의 함수는 하나의 엑셀 시트 또는 하나의 API 책임만 가짐.
 - **KS 시간대**: 모든 시간 처리는 한국 표준시(KST)를 기준으로 `getKSTISOString()` 유틸리티를 통해 처리함.
+### 3. 지청별 예외 발행일 규칙 (Special Billing Logic)
+- **대상**: `designated_office`가 '대전' 또는 '천안'을 포함하고, `business_category`가 '공업사'를 포함하는 경우.
+- **적용 시점**: **2026-04-11(금일) 이후** 측정(`measurement_date`) 건부터 적용하며, 이전 데이터에는 소급 적용하지 않는다.
+- **규칙**: 전자계산서 발행일(`electronic_invoice_date`)은 측정확정일(`measurement_date`) 기준 **익일(워킹데이)**로 자동 지정한다.
+- **워킹데이 정의**: 주말(토, 일) 및 한국 법정 공휴일(설, 추석, 대체공휴일 등)을 제외한 첫 번째 평일.
+
+### 4. 최신 데이터 우선 동기화 (Latest Wins Policy)
+- **원칙**: `measurement_journal`의 정보는 `measurement_business` 또는 `business_info` 엑셀 데이터가 존재할 경우, 기존 수기 수정 여부와 상관없이 **항상 최신 정보로 덮어쓰기(Overwrite)** 한다.
+- **데이터 보존**: 단, 엑셀 필드가 비어있는 경우에는 기존 데이터를 유지하여 정보 유실을 방지한다.
