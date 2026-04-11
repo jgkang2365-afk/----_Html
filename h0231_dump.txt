@@ -1,8 +1,0 @@
-[dotenv@17.2.3] injecting env (5) from .env.local -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
-Inspecting H0231 Data...
-
-[Target Business Records]
-- ID: 93, Period: 상반기, Status: undefined, Manager: 이하니 대리, Updated: 2026-02-06T07:37:25.832+00:00
-
-[Journal Records]
-- ID: 1423, Period: 상반기(수시), Created: 2026-01-24T02:44:13.94651+00:00

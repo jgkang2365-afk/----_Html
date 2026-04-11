@@ -13,12 +13,10 @@ export function findReportFiles(options: {
     semester: string;
     companyName: string;
 }): ReportFiles {
-    // 1. 빌드 시점(Static Analysis), 브라우저 환경, 테스트 환경에서는 즉시 차단
-    // NEXT_PHASE를 최상단에서 체크하여 아래의 require나 fs 접근을 원천 차단
+    // 1. 빌드 시점(Static Analysis) 및 브라우저 환경에서는 파일 시스템 접근 차단
     if (
-        typeof process !== 'undefined' &&
-        (process.env.NEXT_PHASE === 'phase-production-build' || process.env.NODE_ENV === 'test') ||
-        typeof window !== 'undefined'
+        typeof window !== 'undefined' ||
+        (typeof process !== 'undefined' && process.env.NEXT_PHASE === 'phase-production-build')
     ) {
         return { report: null, invoice: null, dataFile: null, drawings: [], drawingFolderPath: '' };
     }
@@ -31,10 +29,11 @@ export function findReportFiles(options: {
         const yearShort = year.substring(2);
         const semesterShort = semester === '상반기' || semester === '상' ? '상' : '하';
 
-        // 3. 정적 분석 탐지 방지를 위해 드라이브 문자 및 경로를 런타임에 결합
-        const drive = ['Z', ':'].join('');
-        const pathSegments = ['data', '측정팀', '측정보고서', `${year}년`, semester];
-        const basePath = [drive, ...pathSegments].join('\\');
+        // 3. 보고서 저장소 루트 경로 설정 (환경 변수 우선, 없으면 기본 Z: 드라이브 사용)
+        const storageRoot = process.env.REPORT_STORAGE_ROOT || ['Z', ':', '\\data\\측정팀\\측정보고서'].join('');
+        
+        // OS별 경로 구분을 위해 path.join 사용 (환경 변수가 Windows 경로일 경우를 대비해 backslash 처리 고려)
+        const basePath = join(storageRoot, `${year}년`, semester);
 
         if (!fs.existsSync(basePath)) {
             return { report: null, invoice: null, dataFile: null, drawings: [], drawingFolderPath: '' };

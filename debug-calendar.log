@@ -800,3 +800,7 @@
 [2026-04-09T08:24:20.666Z] Updating Calendar Event: p59h455vmj6n4eu17af1a7g2ro {"summary":"[강종구](주)엘에스티 - 26상 미수 / P4","description":"사업장: (주)엘에스티\n          주소: 충청남도 천안시 서북구 직산읍 4산단4로 60, C동 1호 (모시리)\n          담당자: 박기상 부장\n          연락처: 010-8964-7234\n          비고: P4","date":"2026-04-09","location":"충청남도 천안시 서북구 직산읍 4산단4로 60, C동 1호 (모시리)","colorId":"9"}
 [2026-04-09T08:24:20.668Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
 [2026-04-09T08:24:22.484Z] Event updated successfully: p59h455vmj6n4eu17af1a7g2ro 
+[2026-04-09T09:16:22.214Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-04-09T09:16:23.296Z] Updating Calendar Event: 3lpknl0eskvobf3uhub2uqn3t4 {"summary":"[고유빈]사단법인 천안제5일반산업단지입주기업체협의회 - 26상 미수","description":"사업장: 사단법인 천안제5일반산업단지입주기업체협의회\n          주소: 충청남도 천안시 동남구 성남면 5산단3로 78 (대화리)\n          담당자: 이신혜\n          연락처: 041-569-0264\n          비고: \n[K2B 전송] 2026-04-02 (고유빈)","date":"2026-03-11","location":"충청남도 천안시 동남구 성남면 5산단3로 78 (대화리)","colorId":"3"}
+[2026-04-09T09:16:23.298Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-04-09T09:16:25.138Z] Event updated successfully: 3lpknl0eskvobf3uhub2uqn3t4 
