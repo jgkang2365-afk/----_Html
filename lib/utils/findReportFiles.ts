@@ -32,10 +32,12 @@ export function findReportFiles(options: {
         // 3. 보고서 저장소 루트 경로 설정 (환경 변수 우선, 없으면 기본 Z: 드라이브 사용)
         const storageRoot = process.env.REPORT_STORAGE_ROOT || ['Z', ':', '\\data\\측정팀\\측정보고서'].join('');
         
-        // OS별 경로 구분을 위해 path.join 사용 (환경 변수가 Windows 경로일 경우를 대비해 backslash 처리 고려)
+        // OS별 경로 구분을 위해 path.join 사용
         const basePath = join(storageRoot, `${year}년`, semester);
 
         if (!fs.existsSync(basePath)) {
+            console.warn(`[findReportFiles] 경로를 찾을 수 없습니다: ${basePath}`);
+            console.log(`[findReportFiles] 현재 STORAGE_ROOT: ${storageRoot}`);
             return { report: null, invoice: null, dataFile: null, drawings: [], drawingFolderPath: '' };
         }
 

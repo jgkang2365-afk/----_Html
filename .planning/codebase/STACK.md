@@ -1,26 +1,28 @@
 # Project Stack - 측정일지 관리 시스템
 
-본 프로젝트에서 사용되는 주요 기술 스택과 라이브러리 정의서입니다.
+본 프로젝트는 최신 웹 개발 스택과 업무 자동화를 위한 라이브러리들을 혼합하여 구현되었습니다.
 
-## Core Framework
-- **Next.js 14 (App Router)**: 서버 사이드 렌더링(SSR) 및 API Routes 처리를 위한 메인 프레임워크.
-- **TypeScript**: 정적 타입 체킹을 통한 코드 안정성 확보.
-- **Node.js**: 런타임 환경.
+## 1. Core Framework & Language
+- **Next.js 14 (App Router)**: 서버 컴포넌트(SSR) 기반의 안정적인 대시보드 및 API 구축.
+- **TypeScript**: 데이터 타입 안정성 확보 및 유지보수 편의성 증대.
+- **Node.js**: 서버 사이드 런타임 환경.
 
-## UI & Styling
-- **Tailwind CSS**: 유틸리티 우선 디자인 프레임워크.
-- **Lucide React**: 아이콘 라이브러리.
+## 2. Interface & Styling
+- **Tailwind CSS**: 유틸리티 기반 프레임워크를 활용한 반응형 UI 구현.
+- **Lucide React**: 현대적인 아이콘 세트.
+- **Vanilla CSS (global)**: 디자인 일관성을 위한 전역 테마 관리.
 
-## Backend & Database
-- **Supabase (PostgreSQL)**: 메인 데이터베이스 및 실시간 데이터 처리.
-- **Supabase Auth**: 사용자 인증 및 세션 관리.
-- **Supabase Storage**: 엑셀 문서 및 리포트 파일 저장소.
+## 3. Storage & Authentication
+- **Supabase (PostgreSQL)**: 실시간 데이터베이스 및 복잡한 관계형 쿼리 처리.
+- **Supabase Auth**: 이메일/비밀번호 기반의 사용자 인증 체계.
+- **Supabase Storage**: 엑셀 원본 파일 및 성적서 PDF 저장.
 
-## Automation & Processing
-- **Selenium (Webdriver)**: K2B 사이트 접속 및 데이터 전송 자동화.
-- **XLSX (SheetJS)**: 복잡한 엑셀 파일(`.xls`, `.xlsx`) 파싱 및 생성을 위한 핵심 엔진.
-- **Google Knowledge / APIs**: 일정 및 데이터 동기화를 위한 연동 모듈.
+## 4. Automation & Data Processing
+- **Selenium WebDriver (Node.js)**: K2B 전산망 접속 및 자동 데이터 전송 엔진.
+- **XLSX (SheetJS)**: 대용량 엑셀(`사업장정보`, `측정사업장`)의 고속 파싱 및 데이터 정제.
+- **Google Sheets/Calendar API**: 외부 캘린더 연동 및 스케줄 관리.
 
-## Development Tools
-- **Vercel**: 프론트엔드 배포 및 호스팅.
-- **PowerShell / Bash**: OS 레벨의 자동화 제어 (SendKeys 등).
+## 5. Development Utilities
+- **Vercel**: 프론트엔드 및 API 호스팅.
+- **ts-node / npx**: 스크립트 기반 데이터 검증 및 일회성 작업 실행.
+- **Custom Mapping Engine**: `.planning/codebase/` 문서를 통한 컨텍스트 유지 시스템.

@@ -1,21 +1,48 @@
-# Architecture & Data Flow - 측정일지 관리 시스템
+# Architecture Guide - 측정일지 관리 시스템
 
-본 시스템의 소프트웨어 아키텍처와 계층별 데이터 흐름을 정의합니다.
+본 시스템은 '1-Source Multi-Use (1SMU)' 철학에 기반하여, 한 번의 엑셀 데이터 연동으로 측정일지, K2B 전송, 사업장 관리, 성과 관리까지 연쇄적으로 처리하는 아키텍처를 가집니다.
 
-## 시스템 계층구조
-1. **Frontend (UI Layer)**: Next.js App Router 기반 컴포넌트 (`app/` 디렉토리). 사용자와 상호작용하며 실시간 상태 관리 및 API 통신 담당.
-2. **Logic Layer (Service Layer)**: `lib/` 디렉토리에 위치한 비즈니스 모듈.
-   - `lib/sync/`: 엑셀 데이터 파싱 및 DB 동기화.
-   - `lib/automation/`: Selenium 및 OS 제어를 통한 외부 시스템 연동.
-   - `lib/utils/`: 데이터 형식화, 관할청 매칭, 일련번호 부여 알고리즘.
-3. **Storage & Database (Data Layer)**: Supabase 기반의 데이터 영속화 계층.
+## 1. High-Level Architecture
 
-## 데이터 파이프라인 (Data Pipeline)
-1. **수집 (Ingestion)**: 사용자가 `.xls/xlsx` 파일을 업로드하거나 네트워크 드라이브(Z:) 파일 감시.
-2. **처리 (Processing)**: `excel-sync.ts`에서 각 사업장의 코드(HXXXX)를 식별하고, 특정 로직(5인 이상 연번 등)에 따라 데이터를 가공.
-3. **저장 (Persistence)**: 가공된 데이터를 `business_info`, `measurement_business`, `measurement_journal` 테이블에 업데이트.
-4. **연동 (Automation)**: 저장된 데이터를 바탕으로 K2B 사이트에 로그인하여 필드를 자동 입력하고 전송 처리.
+```mermaid
+graph TD
+    subgraph "External Sources"
+        MB[측정사업장.xls] --> Sync[Excel Sync Engine]
+        BI[사업장정보.xls] --> Sync
+    end
 
-## 주요 설계 패턴
-- **Service Object Pattern**: 복잡한 자동화 및 파싱 로직을 별도의 서비스 클래스(`K2BService`, `ExcelSync`)로 분리하여 유지보수성 확보.
-- **Incremental Sync**: 전체 데이터를 덮어쓰지 않고, `code`와 `year/period`를 기반으로 변경 사항만 선별적으로 업데이트.
+    subgraph "Core Data Layer (Supabase)"
+        Sync --> DB[(PostgreSQL)]
+        DB --> Storage[Supabase Storage]
+    end
+
+    subgraph "Logic Layer (Lib)"
+        DB --> Logic[Business Logic / utils]
+        Logic --> Number[연번 부여 알고리즘]
+        Logic --> Date[영업일 계산기]
+    end
+
+    subgraph "Service Layer"
+        Logic --> Automation[Selenium K2B Servo]
+        Logic --> Google[Google Calendar Sync]
+    end
+
+    subgraph "UI Layer (Next.js)"
+        DB --> Web[Management Dashboard]
+        Web --> Journal[측정일지 작성/검색]
+        Web --> Summary[측정정보 요약/통계]
+    end
+```
+
+## 2. Data Lifecycle
+
+1.  **Ingestion**: `lib/sync/excel-sync.ts`를 통해 로컬 엑셀 파일을 읽어 `measurement_business` 및 `business_info` 테이블로 동기화.
+2.  **Processing**: 동기화된 데이터를 바탕으로 `measurement_journal`을 생성하거나 빈 필드를 'Latest Wins' 원칙에 따라 보정.
+3.  **Automation**: 작성된 측정일지 데이터를 기반으로 Selenium을 구동하여 K2B 고용노동부 전산망에 자동 입력.
+4.  **Reporting**: Google Calendar 및 대시보드 통계를 통해 성과 및 정합성 검증.
+
+## 3. 핵심 설계 원칙
+
+-   **Single Source of Truth**: 엑셀 데이터가 시스템의 근간이며, 모든 보정 로직은 엑셀 원본성을 우선함.
+-   **Atomic Operations**: 연번 부여 및 데이터 동기화는 트랜잭션 또는 무결성 검증 단계를 거쳐 중복 발생을 억제함.
+-   **Guard Clauses**: 지청별 예외 로직(발행일 등)이나 권한 체크는 함수 시작부에서 명시적으로 격리함.
