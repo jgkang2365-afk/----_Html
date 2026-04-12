@@ -327,13 +327,13 @@ export default function ReportProcessingPage() {
                                     onChange={toggleAll}
                                 />
                             </TableHead>
-                            <TableHead>업체코드</TableHead>
-                            <TableHead>사업장명</TableHead>
+                            <TableHead className="w-20 text-center">구분</TableHead>
                             <TableHead className="w-24 text-center">년도</TableHead>
                             <TableHead className="w-24 text-center">주기</TableHead>
-                            <TableHead className="w-20 text-center">구분</TableHead>
+                            <TableHead>업체코드</TableHead>
+                            <TableHead>사업장명</TableHead>
                             <TableHead>담당자 이메일</TableHead>
-                            <TableHead>이메일 발송상태</TableHead>
+                            <TableHead>이메일 발송 상태</TableHead>
                             <TableHead>K2B 전송일자</TableHead>
                             <TableHead>K2B 상태</TableHead>
                         </TableRow>
@@ -362,12 +362,8 @@ export default function ReportProcessingPage() {
                                                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => toggleOne(rowKey, e.target.checked)}
                                             />
                                         </TableCell>
-                                        <TableCell className="font-mono text-xs">{record.code}</TableCell>
-                                        <TableCell className="font-medium">{record.business_name}</TableCell>
-                                        <TableCell className="text-center text-sm">{record.year}년</TableCell>
-                                        <TableCell className="text-center text-sm">{record.period}</TableCell>
                                         <TableCell className="text-center">
-                                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                            <span className={`text-sm px-2 py-0.5 rounded-full font-medium ${
                                                 record.classification === '정규' 
                                                 ? 'bg-blue-100 text-blue-700' 
                                                 : 'bg-gray-100 text-gray-600'
@@ -375,28 +371,32 @@ export default function ReportProcessingPage() {
                                                 {record.classification}
                                             </span>
                                         </TableCell>
+                                        <TableCell className="text-center text-sm">{record.year}년</TableCell>
+                                        <TableCell className="text-center text-sm">{record.period}</TableCell>
+                                        <TableCell className="font-mono text-sm">{record.code}</TableCell>
+                                        <TableCell className="font-medium">{record.business_name}</TableCell>
                                         <TableCell className="text-sm truncate max-w-[200px]" title={record.manager_email}>
                                             {record.manager_email || <span className="text-red-400">정보없음</span>}
                                         </TableCell>
                                         <TableCell>
                                             {record.delivery_status === 'bounced' ? (
-                                                <span className="text-red-600 text-xs font-semibold bg-red-50 px-2 py-1 rounded border border-red-200" title={record.delivery_error || '반송됨'}>
+                                                <span className="text-red-600 text-sm font-semibold bg-red-50 px-2 py-1 rounded border border-red-200" title={record.delivery_error || '반송됨'}>
                                                     반송됨 (확인필요)
                                                 </span>
                                             ) : record.is_email_sent ? (
-                                                <span className="text-green-600 text-xs font-semibold bg-green-50 px-2 py-1 rounded border border-green-200">
+                                                <span className="text-green-600 text-sm font-semibold bg-green-50 px-2 py-1 rounded border border-green-200">
                                                     발송완료 ({record.last_email_sent_at?.substring(5, 16)})
                                                 </span>
                                             ) : (
-                                                <span className="text-muted-foreground text-xs">미발송</span>
+                                                <span className="text-muted-foreground text-sm">미발송</span>
                                             )}
                                         </TableCell>
-                                        <TableCell className="text-xs">
+                                        <TableCell className="text-sm">
                                             {record.k2b_send_date || '-'}
                                         </TableCell>
                                         <TableCell>
                                             {record.k2b_status ? (
-                                                <span className={`text-xs font-semibold px-2 py-1 rounded border ${record.k2b_status === '정상처리'
+                                                <span className={`text-sm font-semibold px-2 py-1 rounded border ${record.k2b_status === '정상처리'
                                                     ? 'text-green-600 bg-green-50 border-green-200'
                                                     : 'text-red-600 bg-red-50 border-red-200'
                                                     }`}>
@@ -404,7 +404,7 @@ export default function ReportProcessingPage() {
                                                     {' '}({record.k2b_status})
                                                 </span>
                                             ) : (
-                                                <span className="text-muted-foreground text-xs">-</span>
+                                                <span className="text-muted-foreground text-sm">-</span>
                                             )}
                                         </TableCell>
                                     </TableRow>
