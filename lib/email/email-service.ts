@@ -42,11 +42,11 @@ export class EmailService {
     async sendReportEmail(options: {
         to: string;
         companyName: string;
-        year: string;
-        semester: string;
+        reports: { year: string; period: string }[];
         attachments: { filename: string; path: string }[];
+        isAdditional?: boolean; // 명시적으로 추가 요청 여부를 지정 (선택)
     }) {
-        const { to, companyName, year, semester, attachments } = options;
+        const { to, companyName, reports, attachments, isAdditional: manualIsAdditional } = options;
 
         // 수신자 이메일 파싱 (콤마 분리 지원)
         const toList = to.split(/[,;]/).map(email => email.trim()).filter(Boolean);
@@ -55,18 +55,46 @@ export class EmailService {
             throw new Error('수신자 이메일 주소가 올바르지 않습니다.');
         }
 
-        const subject = `${companyName}-${year}년 ${semester} 작업환경측정결과 보고서 송부`;
+        // 판별 로직: 보고서가 1개 초과이거나 만료된 보고서(또는 명시적 추가 요청)인 경우
+        // 여기서는 reports 배열의 길이를 기준으로 1차 판단하고, 호출부에서 넘겨준 manualIsAdditional 결합
+        const isAdditional = manualIsAdditional || reports.length > 1;
+
+        let subject = "";
+        let bodyHtml = "";
+
+        if (isAdditional) {
+            // [추가 요청 / 합산 발송용 구성]
+            subject = `${companyName} 요청하신 작업환경측정결과 보고서 송부`;
+            bodyHtml = `
+                <p style="margin: 0;">안녕하십니까!</p>
+                <br>
+                <p style="margin: 0;">요청하신 다음의 작업환경측정결과 보고서를 첨부와 같이 송부드립니다.</p>
+                <br>
+                <p style="margin: 0; font-weight: bold;">[보고서 목록]</p>
+                <ul style="margin: 5px 0; padding-left: 20px;">
+                    ${reports.map(r => `<li>${r.year}년 ${r.period} 보고서</li>`).join('')}
+                </ul>
+            `;
+        } else {
+            // [정규 발송용 구성]
+            const r = reports[0];
+            subject = `${companyName}-${r.year}년 ${r.period} 작업환경측정결과 보고서 송부`;
+            bodyHtml = `
+                <p style="margin: 0;">안녕하십니까!</p>
+                <br>
+                <p style="margin: 0;">${r.year}년 ${r.period} 작업환경측정결과 보고서 첨부와 같이 송부드리며, 서면은 우편으로 발송 예정이오니 참고하시기 바랍니다.</p>
+            `;
+        }
+
         const html = `
       <html>
-        <body style="font-family: '맑은 고딕', Malgun Gothic, sans-serif; font-size: 14px; line-height: 1.6;">
-          <p style="margin: 0;">안녕하십니까!</p>
-          <br>
-          <p style="margin: 0;">${year}년 ${semester} 작업환경측정결과 보고서 첨부와 같이 송부드리며, 서면은 우편으로 발송 예정이오니 참고하시기 바랍니다.</p>
+        <body style="font-family: '맑은 고딕', Malgun Gothic, sans-serif; font-size: 16px; line-height: 1.6;">
+          ${bodyHtml}
           <br><br>
           <p style="margin: 0;">감사합니다.</p>
           <br><br><br>
           <div style="border-top: 3px solid #add8e6; border-bottom: 3px solid #add8e6; padding: 10px 0;">
-            <p style="font-size: 12px; color: #666666; margin: 0;">
+            <p style="font-size: 13px; color: #666666; margin: 0;">
               본 메일 계정은 주식회사 한결작업환경컨설팅의 작업환경측정결과 보고서 발송 전용 계정으로 수신이 불가능한 계정입니다.<br>
               회신이나 문의가 필요할 경우 <a href="mailto:5678882@naver.com" style="color: #0066cc; font-weight: bold; text-decoration: none;">5678882@naver.com</a> 또는 <span style="color: #0066cc; font-weight: bold;">041-567-8882</span>로 연락 주시면 성실하게 답변드리도록 하겠습니다.
             </p>

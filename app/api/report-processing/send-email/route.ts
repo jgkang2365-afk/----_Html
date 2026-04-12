@@ -23,65 +23,85 @@ export async function POST(req: NextRequest) {
         const results = [];
 
         for (const target of targets) {
-            // target 테이블 필드명에 맞춤 (year / period / business_name / manager_email)
-            const { code, year, period, business_name, manager_email } = target;
+            // target 구조: { business_name, manager_email, reports: [{ year, period, code }] }
+            const { business_name, manager_email, reports } = target;
 
-            // 변수 이름 변경 대응
-            const companyName = business_name;
-            const managerEmail = manager_email;
+            if (!reports || !Array.isArray(reports) || reports.length === 0) {
+                results.push({ companyName: business_name, success: false, error: '발송할 보고서 정보가 없습니다.' });
+                continue;
+            }
 
             try {
-                // 1. 파일 찾기
-                const files = findReportFiles({ year: String(year), semester: period, companyName });
+                const allAttachments: { filename: string; path: string }[] = [];
+                const processedReports: typeof reports = [];
 
-                if (!files.report) {
-                    results.push({ code, companyName, success: false, error: '보고서 PDF 파일을 찾을 수 없습니다.' });
-                    continue;
+                // 1. 모든 보고서 파일 취합
+                for (const report of reports) {
+                    const rowFiles = findReportFiles({ 
+                        year: String(report.year), 
+                        semester: report.period, 
+                        companyName: business_name 
+                    });
+
+                    if (rowFiles.report) {
+                        allAttachments.push({ filename: rowFiles.report.filename, path: rowFiles.report.path });
+                        if (rowFiles.invoice) {
+                            allAttachments.push({ filename: rowFiles.invoice.filename, path: rowFiles.invoice.path });
+                        }
+                        processedReports.push(report);
+                    } else {
+                        console.warn(`[File Not Found] ${business_name} ${report.year}-${report.period}`);
+                    }
                 }
 
-                const attachments = [files.report];
-                if (files.invoice) {
-                    attachments.push(files.invoice);
+                if (allAttachments.length === 0) {
+                    results.push({ 
+                        companyName: business_name, 
+                        success: false, 
+                        error: '첨부할 가용한 보고서 파일이 없습니다.' 
+                    });
+                    continue;
                 }
 
                 // 2. 메일 발송
                 await emailService.sendReportEmail({
-                    to: managerEmail,
-                    companyName,
-                    year: String(year),
-                    semester: period,
-                    attachments: attachments.map(f => ({ filename: f.filename, path: f.path })),
+                    to: manager_email,
+                    companyName: business_name,
+                    reports: processedReports.map(r => ({ year: String(r.year), period: r.period })),
+                    attachments: allAttachments,
+                    // isAdditional 판별: 1개 초과이거나, (기능 확장성 위해 필요시 프론트에서 넘겨준 값 활용 가능)
                 });
 
-                // 3. DB 상태 업데이트 (measurement_business)
-                await supabase
-                    .from('measurement_business')
-                    .update({
-                        is_email_sent: true,
-                        last_email_sent_at: getKSTISOString(),
-                    })
-                    .eq('code', code)
-                    .eq('year', year)
-                    .eq('period', period);
+                // 3. DB 상태 업데이트 (모든 성공 항목에 대해)
+                for (const r of processedReports) {
+                    // measurement_business 업데이트
+                    await supabase
+                        .from('measurement_business')
+                        .update({
+                            is_email_sent: true,
+                            last_email_sent_at: getKSTISOString(),
+                        })
+                        .eq('code', r.code)
+                        .eq('year', r.year)
+                        .eq('period', r.period);
 
-                // 4. DB 상태 업데이트 (measurement_journal - 동기화)
-                // journal 테이블에는 컬럼명이 measurement_year, measurement_period 임
-                await supabase
-                    .from('measurement_journal')
-                    .update({
-                        is_email_sent: true,
-                        last_email_sent_at: getKSTISOString(),
-                    })
-                    .eq('code', code)
-                    .eq('measurement_year', year)
-                    .eq('measurement_period', period);
+                    // measurement_journal 업데이트
+                    await supabase
+                        .from('measurement_journal')
+                        .update({
+                            is_email_sent: true,
+                            last_email_sent_at: getKSTISOString(),
+                        })
+                        .eq('code', r.code)
+                        .eq('measurement_year', r.year)
+                        .eq('measurement_period', r.period);
+                }
 
-                results.push({ code, companyName, success: true });
+                results.push({ companyName: business_name, success: true, count: processedReports.length });
             } catch (err) {
-                console.error(`[API Error] ${companyName} 발송 실패:`, err);
+                console.error(`[API Error] ${business_name} 발송 실패:`, err);
                 results.push({
-                    code,
-                    companyName,
+                    companyName: business_name,
                     success: false,
                     error: err instanceof Error ? err.message : '알 수 없는 오류'
                 });
