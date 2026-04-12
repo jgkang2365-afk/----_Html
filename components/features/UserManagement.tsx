@@ -272,7 +272,7 @@ export const UserManagement: React.FC = () => {
 
       <Card className="p-6">
         <Table>
-          <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black font-bold">
+          <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black font-bold">
             <TableRow className="border-b border-sky-200">
               <TableHead className="w-[100px] pl-2.5 text-black">이름</TableHead>
               <TableHead className="text-black">역활</TableHead>

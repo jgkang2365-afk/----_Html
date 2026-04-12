@@ -192,7 +192,7 @@ export const BusinessCategoryManagement: React.FC = () => {
 
       <Card className="p-6">
         <Table>
-          <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black font-bold">
+          <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black font-bold">
             <TableRow className="border-b border-sky-200">
               <TableHead className="w-[60px] text-center">순서</TableHead>
               <TableHead>업종분류명</TableHead>

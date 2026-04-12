@@ -401,7 +401,7 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
           </div>
           <div className="relative border rounded-md">
             <Table maxHeight="max-h-[600px]">
-              <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black font-bold">
+              <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black font-bold">
                 <TableRow className="border-b border-sky-200 hover:bg-transparent">
                   <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[5%] text-center">No</TableHead>
                   <TableHead className="sticky top-0 bg-sky-100 z-20 text-xs font-bold text-black h-10 w-[20%]">사업장명</TableHead>
@@ -472,7 +472,7 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
           <div className="border rounded-xl overflow-hidden shadow-sm bg-white">
             <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
               <Table>
-                <TableHeader className="bg-sky-100 border-b-2 border-sky-200 sticky top-0 z-20 pointer-events-none">
+                <TableHeader className="bg-sky-100 border-b-2 border-sky-200 sticky top-0 z-20">
                   <TableRow className="border-b border-sky-200">
                     <TableHead className="font-bold text-black h-11 min-w-[250px] pl-6 text-sm">업체명</TableHead>
                     <TableHead className="font-bold text-black text-center h-11 w-[120px] text-sm">K2B 전송 여부</TableHead>

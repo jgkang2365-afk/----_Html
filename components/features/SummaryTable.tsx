@@ -1031,7 +1031,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 데스크톱 테이블 뷰 (768px 이상) */}
                 <div className="hidden md:block">
                   <Table maxHeight="max-h-[calc(100vh-320px)]">
-                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black">
+                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black">
                       <TableRow>
                         <TableHead className="w-[45px] text-center p-0 pl-2.5">
                           <div className="flex justify-center items-center h-full">

@@ -1153,7 +1153,7 @@ export const JournalSearch: React.FC = () => {
               ) : (
                 <div className="rounded-lg border border-surface-200 overflow-hidden bg-white">
                   <Table maxHeight="max-h-[calc(100vh-500px)]">
-                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black">
+                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black">
                       <TableRow>
                         <TableHead className="w-[55px] text-left text-xs font-bold text-slate-800 pl-2.5">코드</TableHead>
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정년도</TableHead>
@@ -1416,7 +1416,7 @@ export const JournalSearch: React.FC = () => {
               ) : (
                 <div className="rounded-lg border border-surface-200">
                   <Table maxHeight="max-h-[calc(100vh-300px)]">
-                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black">
+                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black">
                       <TableRow>
                         <TableHead className="w-8">
                           <Checkbox

@@ -791,7 +791,7 @@ export const BusinessManagement: React.FC = () => {
         ) : (
           <div className="rounded-lg border border-surface-200 overflow-hidden bg-white">
             <Table maxHeight="max-h-[calc(100vh-400px)]">
-              <TableHeader className="bg-sky-100 border-b-2 border-sky-200 sticky top-0 z-20 pointer-events-none text-black">
+              <TableHeader className="bg-sky-100 border-b-2 border-sky-200 sticky top-0 z-20 text-black">
                 <TableRow className="border-b border-sky-200">
                   <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[50px] text-center">No</TableHead>
                   <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[70px] text-center">주기</TableHead>

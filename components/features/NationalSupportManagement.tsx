@@ -321,7 +321,7 @@ export const NationalSupportManagement: React.FC = () => {
           </div>
         ) : (
           <Table maxHeight="max-h-[calc(100vh-300px)]">
-            <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 pointer-events-none text-black font-bold">
+            <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black font-bold">
               <TableRow>
                 <TableHead className="!text-left !pl-2.5 font-bold py-4 text-black text-sm">코드</TableHead>
                 <TableHead className="w-[220px] text-black">사업장명</TableHead>
