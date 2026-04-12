@@ -620,7 +620,7 @@ export const SummaryTable: React.FC = () => {
                         대표자명
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.representative_name || ""}
                         disabled
                       />
@@ -630,7 +630,7 @@ export const SummaryTable: React.FC = () => {
                         총인원
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         type="number"
                         value={entry.total_employees || ""}
                         disabled
@@ -641,7 +641,7 @@ export const SummaryTable: React.FC = () => {
                         사업자번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={formatBusinessNumber(entry.business_number)}
                         disabled
                       />
@@ -651,7 +651,7 @@ export const SummaryTable: React.FC = () => {
                         산재관리번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.industrial_accident_number || ""}
                         disabled
                       />
@@ -661,7 +661,7 @@ export const SummaryTable: React.FC = () => {
                         개시번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.commencement_number || ""}
                         disabled
                       />
@@ -671,7 +671,7 @@ export const SummaryTable: React.FC = () => {
                         주소
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.address || ""}
                         disabled
                       />
@@ -681,7 +681,7 @@ export const SummaryTable: React.FC = () => {
                         전화번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.phone || ""}
                         disabled
                       />
@@ -691,7 +691,7 @@ export const SummaryTable: React.FC = () => {
                         팩스
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.fax || ""}
                         disabled
                       />
@@ -708,7 +708,7 @@ export const SummaryTable: React.FC = () => {
                         담당자명
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.manager_name || ""}
                         disabled
                       />
@@ -718,7 +718,7 @@ export const SummaryTable: React.FC = () => {
                         직책
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.manager_position || ""}
                         disabled
                       />
@@ -728,7 +728,7 @@ export const SummaryTable: React.FC = () => {
                         휴대폰
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.manager_mobile || ""}
                         disabled
                       />
@@ -738,7 +738,7 @@ export const SummaryTable: React.FC = () => {
                         이메일
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.manager_email || ""}
                         disabled
                       />
@@ -748,7 +748,7 @@ export const SummaryTable: React.FC = () => {
                         계산서 이메일
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.invoice_email || ""}
                         disabled
                       />
@@ -776,7 +776,7 @@ export const SummaryTable: React.FC = () => {
                         K2B 발송자
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.report_writer ? entry.report_writer.split(',')[0].trim() : (entry.k2b_sender || "")}
                         disabled
                       />
@@ -786,7 +786,7 @@ export const SummaryTable: React.FC = () => {
                         소재지 관할청
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.office_jurisdiction || ""}
                         disabled
                       />
@@ -824,7 +824,7 @@ export const SummaryTable: React.FC = () => {
                         국고
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.national_support_status || ""}
                         disabled
                       />
@@ -1217,19 +1217,57 @@ export const SummaryTable: React.FC = () => {
                       <div className="grid grid-cols-2 gap-y-2.5 gap-x-4 text-sm mt-4 p-3 bg-surface-50 rounded-lg">
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">공문연번</span>
-                          <p className="font-mono text-xs font-bold text-text-800">{entry.document_number || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">{entry.document_number || "-"}</p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">연번</span>
-                          <p className="font-mono text-xs font-bold text-text-800">{entry.sequence_number || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">{entry.sequence_number || "-"}</p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">5인 이상 연번</span>
+                          <p className="text-xs font-medium text-slate-600">{entry.five_plus_sequence || "-"}</p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">측정일수</span>
+                          <p className="text-xs font-medium text-slate-600">
+                            {entry.measurement_days || (() => {
+                              const surveys = entry.all_surveys || [];
+                              const uniqueDates = new Set(surveys.map(s => s.measurement_date).filter(Boolean));
+                              return uniqueDates.size > 0 ? `${uniqueDates.size}일` : "-";
+                            })()}
+                          </p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">측정자</span>
-                          <p className="font-medium text-text-700">{entry.measurer || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">
+                            {(() => {
+                               const names = new Set<string>();
+                               (entry.all_surveys || []).forEach(s => {
+                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                               });
+                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.measurer || "-");
+                            })()}
+                          </p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">예비조사자</span>
+                          <p className="text-xs font-medium text-slate-600">{entry.preliminary_surveyor || "-"}</p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">실측정자</span>
+                          <p className="text-xs font-medium text-slate-600">
+                            {(() => {
+                               const names = new Set<string>();
+                               (entry.all_surveys || []).forEach(s => {
+                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                               });
+                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.actual_measurer || "-");
+                            })()}
+                          </p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">보고서 담당</span>
-                          <p className="font-medium text-text-700">{entry.report_writer || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">{entry.report_writer || "-"}</p>
                         </div>
                       </div>
 
@@ -1297,19 +1335,19 @@ export const SummaryTable: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
-                    <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
                       {selectedEntry.document_number || "-"}
                     </div>
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">연번</label>
-                    <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
                       {selectedEntry.sequence_number || "-"}
                     </div>
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
-                    <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
                       {selectedEntry.five_plus_sequence || "-"}
                       {(() => {
                         // 1. 정확히 일치하는 주기 검색
@@ -1337,7 +1375,7 @@ export const SummaryTable: React.FC = () => {
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
-                    <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
                       {(() => {
                          const surveys = selectedEntry.all_surveys || [];
                          if (surveys.length === 0) return selectedEntry.preliminary_surveyor || "-";
@@ -1352,7 +1390,7 @@ export const SummaryTable: React.FC = () => {
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
-                    <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
                        {(() => {
                          const surveys = selectedEntry.all_surveys || [];
                          if (surveys.length === 0) return selectedEntry.measurer || "-";
@@ -1369,7 +1407,7 @@ export const SummaryTable: React.FC = () => {
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">보고서 담당</label>
-                    <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
                       {selectedEntry.report_writer || "-"}
                     </div>
                   </div>
@@ -1392,7 +1430,7 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         type="date"
-                        className="h-11 md:h-10 text-base md:text-sm"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-semibold font-medium md:text-text-900 text-slate-600"
                         value={normalizeDateForInput(editFormData.measurement_start_date)}
                         onChange={(e) => {
                           const startDate = e.target.value;
@@ -1413,7 +1451,7 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         type="date"
-                        className="h-11 md:h-10 text-base md:text-sm"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-semibold font-medium md:text-text-900 text-slate-600"
                         value={normalizeDateForInput(editFormData.measurement_end_date)}
                         onChange={(e) =>
                           setEditFormData({
