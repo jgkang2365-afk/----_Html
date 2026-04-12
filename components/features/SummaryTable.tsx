@@ -1077,18 +1077,18 @@ export const SummaryTable: React.FC = () => {
                               />
                             </div>
                           </TableCell>
-                          <TableCell className="w-20 !text-left !pl-2.5 text-xs font-medium py-3 px-1">{entry.measurement_year}</TableCell>
-                          <TableCell className="w-20 text-center text-xs py-3 px-1">{entry.measurement_period}</TableCell>
+                          <TableCell className="w-20 !text-left !pl-2.5 text-xs text-slate-600 font-medium py-3 px-1">{entry.measurement_year}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.measurement_period}</TableCell>
                           <TableCell className="w-[220px] text-left font-bold text-xs py-3 px-1 truncate max-w-[220px]" title={entry.business_name}>
                             {entry.business_name}
                           </TableCell>
-                          <TableCell className="w-20 text-center text-xs font-mono py-3 px-1">
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {entry.document_number || "-"}
                           </TableCell>
-                          <TableCell className="w-16 text-center text-xs font-mono py-3 px-1">
+                          <TableCell className="w-16 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {entry.sequence_number || "-"}
                           </TableCell>
-                          <TableCell className="w-20 text-center text-xs font-mono py-3 px-1">
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {entry.five_plus_sequence || "-"}
                             {(() => {
                               let quota = quotas.find(
@@ -1111,13 +1111,13 @@ export const SummaryTable: React.FC = () => {
                               return quota ? <span className="text-gray-400 text-[10px] ml-1">/ {quota.quota}</span> : null;
                             })()}
                           </TableCell>
-                          <TableCell className="w-24 text-center text-xs py-3 px-1">
+                          <TableCell className="w-24 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {entry.measurement_start_date ? formatDateYYYYMMDD(entry.measurement_start_date) : "-"}
                           </TableCell>
-                          <TableCell className="w-24 text-center text-xs py-3 px-1">
+                          <TableCell className="w-24 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {entry.measurement_end_date ? formatDateYYYYMMDD(entry.measurement_end_date) : "-"}
                           </TableCell>
-                          <TableCell className="w-12 text-center text-xs font-bold text-primary-600 py-3 px-1">
+                          <TableCell className="w-12 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {entry.measurement_days || (() => {
                               const surveys = entry.all_surveys || [];
                               if (surveys.length === 0) return "-";
