@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
         // 1. 기본 쿼리 생성
         let query = supabase
             .from('measurement_business')
-            .select('code, business_name, year, period, manager_email, is_email_sent, last_email_sent_at')
+            .select('code, business_name, year, period, manager_email, is_email_sent, last_email_sent_at, delivery_status, delivery_error')
             .not('business_name', 'ilike', '%번외%');
 
         // 2. 필터 적용 (year/period가 'all'이 아닌 경우에만)

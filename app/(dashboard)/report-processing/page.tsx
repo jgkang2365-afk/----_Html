@@ -26,7 +26,9 @@ interface BusinessRecord {
     last_email_sent_at: string | null;
     k2b_send_date: string | null;
     k2b_status: string | null;
-    classification?: '정규' | '추가'; // 신규: 구분 (정규/추가)
+    classification?: '정규' | '추가';
+    delivery_status?: 'success' | 'bounced'; // 신규: 수신 성공/반송 여부
+    delivery_error?: string | null;         // 신규: 반송 사유
 }
 
 export default function ReportProcessingPage() {
@@ -136,8 +138,8 @@ export default function ReportProcessingPage() {
                 }
 
                 if (i < targetGroups.length - 1) {
-                    setProcessingMessage(`[${i + 1}/${targetGroups.length}] ${target.business_name} 완료. 2초 대기 중...`);
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    setProcessingMessage(`[${i + 1}/${targetGroups.length}] ${target.business_name} 완료. 1초 대기 중...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
 
@@ -377,7 +379,11 @@ export default function ReportProcessingPage() {
                                             {record.manager_email || <span className="text-red-400">정보없음</span>}
                                         </TableCell>
                                         <TableCell>
-                                            {record.is_email_sent ? (
+                                            {record.delivery_status === 'bounced' ? (
+                                                <span className="text-red-600 text-xs font-semibold bg-red-50 px-2 py-1 rounded border border-red-200" title={record.delivery_error || '반송됨'}>
+                                                    반송됨 (확인필요)
+                                                </span>
+                                            ) : record.is_email_sent ? (
                                                 <span className="text-green-600 text-xs font-semibold bg-green-50 px-2 py-1 rounded border border-green-200">
                                                     발송완료 ({record.last_email_sent_at?.substring(5, 16)})
                                                 </span>
