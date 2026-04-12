@@ -261,6 +261,7 @@ export const SummaryTable: React.FC = () => {
 
   // 수정 모달 열기
   const handleEdit = (entry: SummaryEntry) => {
+    setSelectedEntry(entry);
     // 기존 데이터에 측정일수가 없는 경우, 연관된 모든 예비조사 일자를 기준으로 자동 산출
     let calculatedDays = entry.measurement_days || null;
     if (!calculatedDays && entry.all_surveys && entry.all_surveys.length > 0) {
