@@ -108,12 +108,21 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
       return { data, worksheet, headerRowIndex: 1, rawArrayData }; // headerRowIndex: 1 = 두 번째 행 (0-based)
     } else {
       // 기본 동작: 첫 번째 행을 헤더로 인식
+      const headerIndex = 0;
       const data = XLSX.utils.sheet_to_json(worksheet, {
         defval: null,
         raw: false
       });
       console.log(`[Excel Read] Standard read. Total rows parsed: ${data.length}`);
-      return data;
+
+      // [Raw Data Fetch] 절대 인덱스 파싱을 위해 항상 가져옴
+      const rawArrayData = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: null,
+        raw: false
+      });
+
+      return { data, worksheet, headerRowIndex: headerIndex, rawArrayData };
     }
   } catch (error) {
     const filePathStr = typeof filePathOrBuffer === "string" ? filePathOrBuffer : (fileName || "Buffer");
@@ -644,17 +653,23 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
 
     let businessCategory = findColumnValue(row, ["업종분류", "업종"]);
 
+    // [Robust Mapping] rawArrayData를 사용하여 빈 칸에 상관없이 절대 인덱스로 추출
+    // XLSX.utils.sheet_to_json(..., {header: headerRowIndex}) 사용 시 
+    // data[0]은 실제 엑셀의 headerRowIndex + 1 행에 해당함.
+    const startOffset = (headerRowIndex !== undefined ? headerRowIndex : 0) + 1;
+    const rawRow = rawArrayData && rawArrayData[dataIndex + startOffset] ? rawArrayData[dataIndex + startOffset] : null;
+
     const baseData: any = {
       code: String(codeValue || "").trim(),
       year: rowYear,
       period: normalizedPeriod,
-      business_name: String(row["사업장명"] || rowValues[5] || "").trim(),
+      business_name: String(row["사업장명"] || (rawRow ? rawRow[5] : rowValues[5]) || "").trim(),
       business_number: row["사업자번호"] ? String(row["사업자번호"]).replace(/[^\d]/g, "").trim() : null,
-      total_employees: row["총인원"] || rowValues[13] ? parseInt(String(row["총인원"] || rowValues[13]), 10) : null,
-      address: row["주소"] || null, // 인덱스 기반 매핑(12)이 FAX와 충돌하므로 제거하거나 확인 필요
-      office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || null,
-      phone: row["전화번호"] || rowValues[11] || null, // L열 (인덱스 11)
-      fax: row["FAX"] || rowValues[12] || null,        // M열 (인덱스 12)
+      total_employees: row["총인원"] || (rawRow ? rawRow[13] : rowValues[13]) ? parseInt(String(row["총인원"] || (rawRow ? rawRow[13] : rowValues[13])), 10) : null,
+      address: row["주소"] || (rawRow ? rawRow[8] : null) || null,           // I열 (인덱스 8)
+      office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || (rawRow ? rawRow[9] : null) || null, // J열 (인덱스 9)
+      phone: row["전화번호"] || (rawRow ? rawRow[11] : rowValues[11]) || null, // L열 (인덱스 11)
+      fax: row["FAX"] || (rawRow ? rawRow[12] : rowValues[12]) || null,        // M열 (인덱스 12)
       measurement_start_date: startDate || null,
       measurement_end_date: endDate || null,
       measurement_date: measurementDate || null,
@@ -706,10 +721,15 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       let selectedManagerPhone: string | null = null;
 
       // BM열 (인덱스 64): 담당자 전화번호 (직통전화)
-      const bmCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: 64 });
-      const bmCell = worksheet[bmCellAddress];
-      if (bmCell && bmCell.v !== undefined && bmCell.v !== null) {
-        selectedManagerPhone = String(bmCell.v).trim();
+      // rawRow를 최우선으로 사용 하여 빈 칸 밀림 방지
+      if (rawRow && rawRow[64] !== undefined && rawRow[64] !== null) {
+        selectedManagerPhone = String(rawRow[64]).trim();
+      } else {
+        const bmCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: 64 });
+        const bmCell = worksheet[bmCellAddress];
+        if (bmCell && bmCell.v !== undefined && bmCell.v !== null) {
+          selectedManagerPhone = String(bmCell.v).trim();
+        }
       }
 
       if (foundValues[62] && (mobilePattern.test(foundValues[62]) || looseMobilePattern.test(foundValues[62]))) {
@@ -1665,6 +1685,7 @@ export async function syncMeasurementBusiness(
     const baseFields = [
       "code", "year", "period", "business_name", "business_number",
       "total_employees", "address", "office_jurisdiction",
+      "phone", "fax",
       "measurement_start_date", "measurement_end_date",
       "completion_status", "measurer",
       "measurement_date", "future_measurement_date",
@@ -1672,7 +1693,7 @@ export async function syncMeasurementBusiness(
     ];
 
     const optionalFields = [
-      "manager_name", "manager_position", "manager_mobile",
+      "manager_name", "manager_position", "manager_mobile", "manager_phone",
       "manager_email", "invoice_email", "industrial_accident_number",
       "representative_name", "future_measurement_period", "commencement_number"
     ];
@@ -1733,12 +1754,15 @@ export async function syncMeasurementBusiness(
       { key: 'business_name', label: '사업장명' },
       { key: 'business_number', label: '사업자번호' },
       { key: 'representative_name', label: '대표자' },
+      { key: 'phone', label: '전화번호' },
+      { key: 'fax', label: '팩스' },
       { key: 'industrial_accident_number', label: '산재관리번호' },
       { key: 'commencement_number', label: '개시번호' },
       { key: 'total_employees', label: '총인원' },
       { key: 'office_jurisdiction', label: '소재지관할청' },
       { key: 'manager_name', label: '담당자' },
       { key: 'manager_mobile', label: '휴대번호' },
+      { key: 'manager_phone', label: '직통번호' },
       { key: 'manager_email', label: '이메일' },
     ];
 
