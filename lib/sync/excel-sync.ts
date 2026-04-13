@@ -650,9 +650,11 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       period: normalizedPeriod,
       business_name: String(row["사업장명"] || rowValues[5] || "").trim(),
       business_number: row["사업자번호"] ? String(row["사업자번호"]).replace(/[^\d]/g, "").trim() : null,
-      total_employees: row["총인원"] ? parseInt(String(row["총인원"]), 10) : null,
-      address: row["주소"] || rowValues[12] || null,
-      office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || rowValues[13] || null,
+      total_employees: row["총인원"] || rowValues[13] ? parseInt(String(row["총인원"] || rowValues[13]), 10) : null,
+      address: row["주소"] || null, // 인덱스 기반 매핑(12)이 FAX와 충돌하므로 제거하거나 확인 필요
+      office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || null,
+      phone: row["전화번호"] || rowValues[11] || null, // L열 (인덱스 11)
+      fax: row["FAX"] || rowValues[12] || null,        // M열 (인덱스 12)
       measurement_start_date: startDate || null,
       measurement_end_date: endDate || null,
       measurement_date: measurementDate || null,
@@ -681,6 +683,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     const managerName = row["담당자명"] || row["담당자"] || row["담당자 성명"] || null;
     const managerPosition = row["직위"] || row["담당자 직위"] || null;
     let managerMobile: string | null = null;
+    let managerPhone: string | null = null; // [NEW] BM열 (담당자 직통전화)
 
     // 담당자 휴대폰 (워크시트 직접 접근)
     const actualHeaderRowIndex = headerRowIndex !== undefined ? headerRowIndex : 0;
@@ -700,6 +703,14 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       const mobilePattern = /^01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}$/;
       const looseMobilePattern = /^\d{2,3}[-\s.]?\d{3,4}[-\s.]?\d{4}$/;
       let selectedMobile: string | null = null;
+      let selectedManagerPhone: string | null = null;
+
+      // BM열 (인덱스 64): 담당자 전화번호 (직통전화)
+      const bmCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: 64 });
+      const bmCell = worksheet[bmCellAddress];
+      if (bmCell && bmCell.v !== undefined && bmCell.v !== null) {
+        selectedManagerPhone = String(bmCell.v).trim();
+      }
 
       if (foundValues[62] && (mobilePattern.test(foundValues[62]) || looseMobilePattern.test(foundValues[62]))) {
         selectedMobile = foundValues[62];
@@ -712,6 +723,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
         selectedMobile = foundValues[62];
       }
       if (selectedMobile) managerMobile = selectedMobile;
+      if (selectedManagerPhone) managerPhone = selectedManagerPhone;
     }
 
     // Fallback logic for mobile
@@ -801,6 +813,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     if (managerName) optionalFields.manager_name = managerName;
     if (managerPosition) optionalFields.manager_position = managerPosition;
     optionalFields.manager_mobile = managerMobile;
+    if (managerPhone) optionalFields.manager_phone = managerPhone;
     if (managerEmail) optionalFields.manager_email = managerEmail;
     if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
     if (finalSanjae) optionalFields.industrial_accident_number = finalSanjae;

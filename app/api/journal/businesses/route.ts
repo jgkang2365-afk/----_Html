@@ -90,6 +90,7 @@ export async function GET(request: Request) {
         invoice_email: findFirstValue("invoice_email"), // 계산서 메일
         manager_name: findFirstValue("manager_name"),
         manager_mobile: findFirstValue("manager_mobile"),
+        manager_phone: findFirstValue("manager_phone"),
         manager_position: findFirstValue("manager_position"),
         phone: findFirstValue("phone"),
         fax: findFirstValue("fax"),
@@ -105,7 +106,7 @@ export async function GET(request: Request) {
       let journalManagerInfo: Record<string, any> = {};
       const { data: recentJournals, error: journalError } = await supabase
         .from("measurement_journal")
-        .select("manager_name, manager_mobile, manager_email, manager_position, phone, fax, invoice_email, industrial_accident_number, commencement_number")
+        .select("manager_name, manager_mobile, manager_email, manager_position, phone, fax, invoice_email, industrial_accident_number, commencement_number, manager_phone")
         .eq("code", code)
         .order("measurement_year", { ascending: false })
         .order("measurement_period", { ascending: false })
@@ -116,7 +117,7 @@ export async function GET(request: Request) {
         const fieldsToFind = [
           "manager_name", "manager_mobile", "manager_email",
           "manager_position", "phone", "fax",
-          "invoice_email", "industrial_accident_number", "commencement_number"
+          "invoice_email", "industrial_accident_number", "commencement_number", "manager_phone"
         ];
 
         for (const field of fieldsToFind) {
@@ -158,6 +159,7 @@ export async function GET(request: Request) {
         manager_name: (baseBusinessData?.manager_name || "") || prioritizedDefaults.manager_name || journalManagerInfo?.manager_name || "",
         manager_position: (baseBusinessData?.manager_position || "") || prioritizedDefaults.manager_position || journalManagerInfo?.manager_position || "",
         manager_mobile: (baseBusinessData?.manager_mobile || "") || prioritizedDefaults.manager_mobile || journalManagerInfo?.manager_mobile || "",
+        manager_phone: (baseBusinessData?.manager_phone || "") || prioritizedDefaults.manager_phone || journalManagerInfo?.manager_phone || "",
 
         // 총인원: 1순위(현재 연도/주기), 2순위(과거 이력 최신값), 3순위(마스터 정보)
         total_employees: (() => {
