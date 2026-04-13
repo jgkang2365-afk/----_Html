@@ -93,7 +93,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     measurement_period: entry.measurement_period,
     // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
     note: (() => {
-      const validNoteValues = ["최초실시", "고시물질", "공정 수시변경", "소음 85 이상", "전회 미실시", "타기관 신규"];
+      const validNoteValues = ["최초실시", "고시물질", "공정 변경", "공정 수시변경", "소음 85 이상", "전회 미실시", "타기관 신규"];
       if (!entry.note) {
         console.log('[JournalEditForm] 초기화: entry.note가 없음');
         return [];
@@ -102,16 +102,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         const noteString = entry.note.trim();
         const splitNotes = noteString.split(',').map(n => n.trim()).filter(Boolean);
 
-        const foundNotes = splitNotes.filter(note => {
-          if (note.includes(':')) return false;
-          return validNoteValues.includes(note);
-        });
+        const foundNotes = splitNotes
+          .map(n => (n === "공정 수시변경" ? "공정 변경" : n)) // 이전 명칭 호환성 유지
+          .filter(note => {
+            if (note.includes(':')) return false;
+            return validNoteValues.includes(note);
+          });
 
         // 초기 상태 설정 시 원본 텍스트(체크박스 이외의 텍스트) 추출은 건너뜀 (useEffect에서 처리)
         return foundNotes;
       }
       if (Array.isArray(entry.note)) {
-        return entry.note.filter(note => validNoteValues.includes(String(note)));
+        return entry.note
+          .map(n => (n === "공정 수시변경" ? "공정 변경" : String(n))) // 이전 명칭 호환성 유지
+          .filter(note => validNoteValues.includes(String(note)));
       }
       return [];
     })(),
@@ -181,7 +185,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const noteOptions = [
     { value: "최초실시", label: "최초실시" },
     { value: "고시물질", label: "고시물질" },
-    { value: "공정 수시변경", label: "공정 수시변경" },
+    { value: "공정 변경", label: "공정 변경" },
     { value: "소음 85 이상", label: "소음 85 이상" },
     { value: "전회 미실시", label: "전회 미실시" },
     { value: "타기관 신규", label: "타기관 신규" },
@@ -993,8 +997,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         const updates: any = {};
         let hasUpdates = false;
 
-        // 1. 비고: '공정 수시변경' 자동 체크
-        const NOTE_VALUE = "공정 수시변경";
+        // 1. 비고: '공정 변경' 자동 체크 (기존 '공정 수시변경')
+        const NOTE_VALUE = "공정 변경";
         const currentNotes = Array.isArray(prev.note) ? [...prev.note] : (prev.note ? [String(prev.note)] : []);
 
         if (!currentNotes.includes(NOTE_VALUE)) {
@@ -1039,8 +1043,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         setFormData(prev => ({ ...prev, electronic_invoice_date: "" }));
       }
       
-      // 비고에서 '공정 수시변경' 제거 (선택사항이나 일관성을 위해)
-      const NOTE_VALUE = "공정 수시변경";
+      // 비고에서 '공정 변경' 제거 (선택사항이나 일관성을 위해)
+      const NOTE_VALUE = "공정 변경";
       const currentNotes = Array.isArray(formData.note) ? [...formData.note] : (formData.note ? [String(formData.note)] : []);
       if (currentNotes.includes(NOTE_VALUE)) {
         setFormData(prev => ({
@@ -2096,10 +2100,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     const actualMeasurers = new Set<string>();
     const reportWriters = new Set<string>();
     
-    // 날짜별 공시료 코드 집계 (예: "4/21일: B, 4/22일: C")
+    // 날짜별 공시료 코드 집계 (예: "4/21: B, 4/22: C")
     const codeByDate = surveys
       .filter(s => s.measurement_date && s.survey_code)
       .map(s => {
+        // 측정일수가 1일이면 날짜 표시 생략 (사용자 요청)
+        if (surveys.length === 1) {
+          return s.survey_code;
+        }
         const date = new Date(s.measurement_date);
         const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
         return `${dateStr}: ${s.survey_code}`;
