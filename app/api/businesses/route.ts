@@ -242,13 +242,8 @@ export async function GET(request: NextRequest) {
       const jInfo = journalInfoMap.get(item.code);
 
       // 실시여부 로직: 기 입력된 값이 '거래종료', '종료', '실시', '미실시' 등 정규화된 값이면 유지.
-      // 그 외(null 등)의 경우 예비조사 등록 여부에 따라 판단
+      // 그 외(null 등)의 경우 기본값('미실시')으로 처리
       let isRegisteredText = normalizeBusinessStatus(item.is_registered);
-      
-      // 만약 정규화된 값이 '미실시'였는데 예비조사가 등록되어 있다면 '실시'로 간주 (Legacy 호환성 및 자동판단)
-      if (isRegisteredText === "미실시" && isSurveyRegistered) {
-        isRegisteredText = "실시";
-      }
 
       // 향후 측정주기 로직: 최신값 우선, 없으면 현재 값
       const futurePeriod = bInfo?.future_measurement_period || item.future_measurement_period;
@@ -595,36 +590,6 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       throw new Error(`Target Insert Error: ${insertError.message}`);
-    }
-
-    // 3. Insert into preliminary_survey (Sync)
-    // Check sequence number
-    const { data: maxSeq } = await supabase
-      .from("preliminary_survey")
-      .select("sequence_number")
-      .order("sequence_number", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const nextSeq = (maxSeq?.sequence_number || 0) + 1;
-
-    const { error: surveyError } = await supabase
-      .from("preliminary_survey")
-      .insert({
-        year: Number(year),
-        period,
-        code,
-        business_name,
-        address: address || null,
-        sequence_number: nextSeq,
-        created_at: new Date().toISOString()
-      });
-
-    if (surveyError) {
-      // Log error but don't fail the whole request (soft sync)
-      console.error("Preliminary Survey Auto-Insert Error:", surveyError);
-    } else {
-      console.log(`[POST] Auto-created preliminary_survey for ${code}`);
     }
 
     return NextResponse.json({ success: true, data: newTarget });
