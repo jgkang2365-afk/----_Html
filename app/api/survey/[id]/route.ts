@@ -169,32 +169,30 @@ export async function PUT(
     }
 
     // === [Calendar Sync] 예비조사 수정 시 캘린더 이벤트 자동 업데이트 ===
-    try {
-      const { syncBusinessToCalendar } = await import("@/lib/google/sync-service");
+    if (code && year && period) {
+      try {
+        const { syncBusinessToCalendar } = await import("@/lib/google/sync-service");
 
-      // 해당 코드의 measurement_target_business 조회
-      const { data: targetBiz } = await supabase
-        .from("measurement_target_business")
-        .select("google_event_id, measurer_id, measurement_date, address, manager_mobile, manager_name, phone, notes, is_registered")
-        .eq("code", code)
-        .order("year", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        // 최신 상태의 사업장 마스터 정보 조회
+        const { data: targetBiz } = await supabase
+          .from("measurement_target_business")
+          .select("is_registered, measurement_date")
+          .eq("code", code)
+          .maybeSingle();
 
-      // [수정] 2026년 2월 23일부터 정식 연동 (1/12은 테스트 완료 건으로 예외 허용)
-      const isTargetDate = targetBiz?.measurement_date === "2026-01-12" ||
-        (targetBiz?.measurement_date ? new Date(targetBiz.measurement_date) >= new Date("2026-02-23") : false);
+        const isConfirmedBiz = targetBiz && (targetBiz.is_registered === "확정" || targetBiz.is_registered === "실시");
+        
+        // 2026-02-23 이후 데이터 또는 정식 연동 대상에 대해 동기화 실행
+        const isTargetDate = targetBiz?.measurement_date === "2026-01-12" ||
+          (targetBiz?.measurement_date ? new Date(targetBiz.measurement_date) >= new Date("2026-02-23") : false);
 
-      const isConfirmedBiz = targetBiz && (targetBiz.is_registered === "확정" || targetBiz.is_registered === "실시");
-
-      // 로직 완화: google_event_id가 없더라도 확정 상태라면 동기화를 시도하여 신규 생성
-      if (isConfirmedBiz && targetBiz.measurement_date && isTargetDate && year && period) {
-        await syncBusinessToCalendar(supabase, code, year, period);
-        console.log(`[Survey Sync] Calendar sync triggered for ${code} on PATCH`);
+        if (isConfirmedBiz && isTargetDate) {
+          await syncBusinessToCalendar(supabase, code, year, period);
+          console.log(`[Survey Sync] Calendar sync triggered for ${code} on PUT`);
+        }
+      } catch (calErr) {
+        console.error("[Survey->Calendar] Calendar sync error:", calErr);
       }
-    } catch (calErr) {
-      console.error("[Survey->Calendar] Calendar sync error:", calErr);
-      // 캘린더 오류가 발생해도 예비조사 수정은 성공으로 처리
     }
 
     // 순번 재정렬 (측정일 기준)
@@ -299,6 +297,11 @@ export async function DELETE(
       try {
         const { syncBusinessSchedule } = await import("@/lib/utils/survey-sync");
         await syncBusinessSchedule(supabase, deletedCode, surveyToDelete.year, surveyToDelete.period);
+        
+        // [Calendar Sync] 삭제 후 전체 정합성 복구 (Successful Null)
+        const { syncBusinessToCalendar } = await import("@/lib/google/sync-service");
+        await syncBusinessToCalendar(supabase, deletedCode, surveyToDelete.year, surveyToDelete.period);
+        console.log(`[Survey Sync] Final calendar reconciliation triggered for ${deletedCode} after deletion`);
       } catch (syncError) {
         console.error("[Full Re-Sync] Failed in DELETE:", syncError);
       }

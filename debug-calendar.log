@@ -1292,3 +1292,38 @@
 [2026-04-14T12:09:45.612Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-14T12:09:46.915Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-14T12:09:47.657Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:12:20.551Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:18:00.512Z] Creating Calendar Event {
+  "summary": "[(한기문)] 테스트 사업장",
+  "description": "사업장: 테스트 사업장\n          주소: 주소 미입력\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-12-25",
+  "endDate": "2026-12-25",
+  "location": "",
+  "colorId": "10"
+}
+[2026-04-14T12:18:00.514Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:18:02.472Z] Event created successfully: l52o640t66f420kbs2cj0pti0s 
+[2026-04-14T12:18:02.532Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:18:03.497Z] Deleting Calendar Event: l52o640t66f420kbs2cj0pti0s 
+[2026-04-14T12:18:03.498Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:18:04.648Z] Event deleted: l52o640t66f420kbs2cj0pti0s 
+[2026-04-14T12:18:04.698Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:18:05.783Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:18:06.577Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:34:09.560Z] Creating Calendar Event {
+  "summary": "[(한기문)] 테스트 사업장",
+  "description": "사업장: 테스트 사업장\n          주소: 주소 미입력\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-12-25",
+  "endDate": "2026-12-25",
+  "location": "",
+  "colorId": "10"
+}
+[2026-04-14T12:34:09.564Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:34:11.508Z] Event created successfully: 5fujji7obfganv5nlbglg58n5k 
+[2026-04-14T12:34:11.600Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:34:12.412Z] Deleting Calendar Event: 5fujji7obfganv5nlbglg58n5k 
+[2026-04-14T12:34:12.414Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:34:13.621Z] Event deleted: 5fujji7obfganv5nlbglg58n5k 
+[2026-04-14T12:34:13.674Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:34:15.016Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-14T12:34:15.802Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

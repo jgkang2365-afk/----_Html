@@ -1,4 +1,4 @@
-import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "./calendar";
+import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent, listEvents } from "./calendar";
 import { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -177,7 +177,6 @@ export async function syncBusinessToCalendar(
 
     // [The Joo Rule] Successful Null: DB에 없는 찌꺼기 이벤트 전수 조사 및 제거
     try {
-        const { listEvents } = await import("./calendar");
         const timeMin = `${yearNum}-01-01T00:00:00Z`;
         const timeMax = `${yearNum}-12-31T23:59:59Z`;
         
@@ -200,7 +199,9 @@ export async function syncBusinessToCalendar(
         if (orphanEvents.length > 0) {
             console.log(`[Sync Service] Found ${orphanEvents.length} orphan events for ${targetBiz.business_name} in ${yearNum}. Cleaning up...`);
             for (const orphan of orphanEvents) {
-                await deleteSurveyEvent(orphan.id);
+                if (orphan.id) {
+                    await deleteSurveyEvent(orphan.id);
+                }
             }
         }
     } catch (reconcileErr) {
