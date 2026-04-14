@@ -494,6 +494,7 @@ export const JournalSearch: React.FC = () => {
       completion_status: "미완료",
       measurement_start_date: null,
       measurement_end_date: null,
+      measurement_days: null,
       measurer: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

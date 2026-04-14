@@ -47,3 +47,18 @@
   - `year`, `period`: 데이터 필터링을 위한 기간 정보 (선택)
   - `autoOpen=true`: 결과가 1건일 때 자동으로 상세 모달을 팝업하도록 지시하는 플래그.
 - **구현 방식**: `JournalSearch`와 같은 수신 컴포넌트의 초기 `useEffect`에서 해당 파라미터를 감지하여 `handleSearch(newParams, autoOpenParam)`를 실행함.
+
+## 5. 에이전트 자가 검증 규약 (Type Safety & Self-Verification)
+
+반복되는 구문 및 타입 오류를 방지하기 위해 에이전트(Antigravity)가 반드시 준수해야 하는 작업 절차입니다.
+
+### 5-1. Definition-First 확인 절차
+- 객체 생성(Literal) 및 수정을 포함하는 모든 편집 작업 전, 작업 대상 파일 상단이나 타입 정의 파일(`.d.ts` 등)에서 해당 **인터페이스 정의를 최소 1회 직접 조회**해야 합니다.
+- (성공 DNA): `JournalEntry`와 같이 속성이 많은 인터페이스의 경우, 모든 필수 필드(Required Fields)가 객체 리터럴에 포함되었는지 체크리스트 방식으로 대조합니다.
+
+### 5-2. 수정 후 검증 (Validation Loop)
+- 코드 수정 후에는 반드시 해당 라인 주변의 문법 오류 여부를 `view_file`로 재검토합니다.
+- (권장): 가능한 경우 `npm run build` 또는 개발 서버의 `lint` 명령을 실행하여 구문 오류를 사전에 포착합니다.
+
+### 5-3. 타입 명세 업데이트
+- `JournalEntry` 등 시스템의 척추 역할을 하는 핵심 인터페이스가 변경될 경우, 즉시 `.planning/codebase/STRUCTURE.md`에 해당 변경 사항을 동기화하여 향후 컨텍스트 손실을 방지합니다.
