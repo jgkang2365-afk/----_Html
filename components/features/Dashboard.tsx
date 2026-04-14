@@ -506,17 +506,26 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
                               isSelected ? "opacity-100 scale-y-100" : "opacity-0 scale-y-0 group-hover:opacity-100 group-hover:scale-y-100"
                             )} />
 
-                            <div className="flex items-center gap-2.5">
-                              <div className={`w-1.5 h-1.5 rounded-full ${company.status === "일지등록/계산서미발행" ? "bg-amber-400" : "bg-rose-400"}`} />
-                              <span className="group-hover:text-primary-600 transition-colors block truncate max-w-[300px]" title={`${company.business_name} ${company.period ? `(${company.period})` : ''}`}>
-                                {company.business_name}
-                                {company.period && (
-                                  <span className="ml-1 text-[10px] text-slate-400 font-normal">
-                                    ({company.period})
-                                  </span>
-                                )}
-                              </span>
-                            </div>
+                             <div className="flex items-center gap-2.5">
+                               <div className={`w-1.5 h-1.5 rounded-full ${company.status === "일지등록/계산서미발행" ? "bg-amber-400" : "bg-rose-400"}`} />
+                               <span
+                                 className="text-primary-600 hover:text-primary-700 hover:underline cursor-pointer transition-colors block truncate max-w-[300px] font-bold"
+                                 title={`${company.business_name} ${company.period ? `(${company.period})` : ''} - 클릭 시 측정일지로 이동하며 즉시 수정 창이 뜹니다.`}
+                                 onClick={(e) => {
+                                   e.stopPropagation();
+                                   const searchYear = year === "전체" ? (company.period?.match(/\d{4}년/)?.[0]?.replace('년', '') || "") : year;
+                                   const searchPeriod = company.period?.includes("상반기") ? "상반기" : (company.period?.includes("하반기") ? "하반기" : "");
+                                   window.open(`/journal?code=${company.code}&businessName=${encodeURIComponent(company.business_name)}&year=${searchYear}&period=${searchPeriod}&autoOpen=true`, '_blank');
+                                 }}
+                               >
+                                 {company.business_name}
+                                 {company.period && (
+                                   <span className="ml-1 text-[10px] text-slate-400 font-normal">
+                                     ({company.period})
+                                   </span>
+                                 )}
+                               </span>
+                             </div>
                           </TableCell>
                           <TableCell className="text-center py-2.5 w-[120px]">
                             <span className={cn(

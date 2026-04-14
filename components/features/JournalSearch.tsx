@@ -166,9 +166,31 @@ export const JournalSearch: React.FC = () => {
     errors?: string[];
   } | null>(null);
 
-  // 페이지 로드 시 초기 검색 실행 (최신 자료 표시)
+  // 페이지 로드 시 초기 검색 실행 (URL 파라미터 우선, 없으면 로컬 스토리지)
   useEffect(() => {
-    // 1. 로컬 스토리지에서 검색 조건 복원
+    // 1. URL 파라미터 확인 (우선순위 1)
+    const codeParam = searchParamsUrl.get("code");
+    const nameParam = searchParamsUrl.get("businessName");
+    const yearParam = searchParamsUrl.get("year");
+    const periodParam = searchParamsUrl.get("period");
+    const autoOpenParam = searchParamsUrl.get("autoOpen") === "true";
+
+    if (codeParam || nameParam) {
+      const newParams = {
+        ...searchParams,
+        code: codeParam || "",
+        businessName: nameParam || "",
+        measurementYear: yearParam || searchParams.measurementYear || (new Date().getFullYear()).toString(),
+        measurementPeriod: periodParam || searchParams.measurementPeriod || "",
+      };
+      setSearchParams(newParams);
+      
+      // URL 파라미터가 있을 경우 즉시 검색 (검색어 상태 업데이트가 비동기이므로 직접 전달)
+      handleSearch(newParams, autoOpenParam);
+      return;
+    }
+
+    // 2. 로컬 스토리지에서 검색 조건 복원
     const savedParams = localStorage.getItem("journal_search_params");
     if (savedParams) {
       try {
@@ -180,11 +202,6 @@ export const JournalSearch: React.FC = () => {
     }
 
     if (activeTab === "search") {
-      // 복원된 조건으로 검색 실행 (약간의 지연 필요할 수 있음 - useEffect 의존성 고려)
-      // 여기서는 handleSearch를 호출하지만, searchParams 상태 업데이트가 비동기라 
-      // 초기값으로 검색될 수 있음. 
-      // 완벽한 복원을 위해서는 searchParams가 업데이트된 후 검색해야 함.
-      // 일단은 기본 동작 유지 (빈 값이면 전체 검색)
       handleSearch();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -232,34 +249,35 @@ export const JournalSearch: React.FC = () => {
   // 지정한계_관할지청 옵션 (필터/등록용)
   const designatedOfficeOptions = DESIGNATED_OFFICE_OPTIONS;
 
-  const handleSearch = async () => {
-    console.log("측정일지 검색 버튼 클릭됨", searchParams);
+  const handleSearch = async (overrideParams?: typeof searchParams, autoOpen: boolean = false) => {
+    const currentParams = overrideParams || searchParams;
+    console.log("측정일지 검색 실행", currentParams);
     setLoading(true);
     setError(null);
     setHasSearched(true);
 
     try {
       const params = new URLSearchParams();
-      if (searchParams.code) {
-        params.append("code", searchParams.code);
+      if (currentParams.code) {
+        params.append("code", currentParams.code);
       }
-      if (searchParams.measurementYear) {
-        params.append("measurementYear", searchParams.measurementYear);
+      if (currentParams.measurementYear) {
+        params.append("measurementYear", currentParams.measurementYear);
       }
-      if (searchParams.measurementPeriod) {
-        params.append("measurementPeriod", searchParams.measurementPeriod);
+      if (currentParams.measurementPeriod) {
+        params.append("measurementPeriod", currentParams.measurementPeriod);
       }
-      if (searchParams.businessName) {
-        params.append("businessName", searchParams.businessName);
+      if (currentParams.businessName) {
+        params.append("businessName", currentParams.businessName);
       }
-      if (searchParams.designatedOffice) {
-        params.append("designatedOffice", searchParams.designatedOffice);
+      if (currentParams.designatedOffice) {
+        params.append("designatedOffice", currentParams.designatedOffice);
       }
-      if (searchParams.address) {
-        params.append("address", searchParams.address);
+      if (currentParams.address) {
+        params.append("address", currentParams.address);
       }
-      if (searchParams.measurementDate) {
-        params.append("measurementDate", searchParams.measurementDate);
+      if (currentParams.measurementDate) {
+        params.append("measurementDate", currentParams.measurementDate);
       }
 
       params.append("menuType", "registration"); // 등록 현황 화면임을 API에 전달 (공문연번 정렬용)
@@ -306,6 +324,11 @@ export const JournalSearch: React.FC = () => {
         const deduplicatedResults = Array.from(seenKeys.values());
 
         setResults(deduplicatedResults);
+
+        // 결과가 1건이고 autoOpen이 true인 경우 자동으로 모달 팝업
+        if (autoOpen && deduplicatedResults.length === 1) {
+          handleSelectJournal(deduplicatedResults[0]);
+        }
       } else {
         setError((data && data.error) || "검색 중 오류가 발생했습니다.");
         setResults([]);
