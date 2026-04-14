@@ -854,7 +854,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                 }
                                             }}
                                         />
-                                        {(item.measurement_end_date && item.measurement_end_date !== item.measurement_date) && (
+                                        {/* [The Joo Rule] Guard Logic: 시작일이 없으면 종료일 섹션 자체를 렌더링하지 않음 (찌꺼기 방지) */}
+                                        {(item.measurement_date && item.measurement_end_date && item.measurement_end_date !== item.measurement_date) && (
                                             <div className="text-[10px] text-slate-400 font-medium">
                                                 ~ {item.measurement_end_date}
                                             </div>

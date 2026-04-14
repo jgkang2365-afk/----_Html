@@ -457,13 +457,16 @@ export async function PATCH(request: NextRequest) {
           }
 
           // 5. Update summary fields on measurement_target_business
-          const unifiedCollaborators = Array.from(allCollaboratorsSet).filter(Boolean).join(", ");
+          const unifiedCollaborators = Array.from(allCollaboratorsSet).filter(Boolean).sort().join(", ");
+          const minDate = sortedDates.length > 0 ? sortedDates[0] : null;
+          
           const businessUpdatePayload: any = {
             collaborators: unifiedCollaborators || null,
+            measurement_date: minDate,
             measurement_end_date: maxEndDate
           };
 
-          // 실시일이 완전히 비워졌고 현재 상태가 '실시' 또는 '확정'이라면 '미실시'로 자동 하향 동기화
+          // [The Joo Rule] Successful Null: 실시일이 완전히 비워졌고 현재 상태가 '실시' 또는 '확정'이라면 '미실시'로 자동 하향 동기화
           if (!maxEndDate && (updatedData.is_registered === "실시" || updatedData.is_registered === "확정")) {
             businessUpdatePayload.is_registered = "미실시";
           }
