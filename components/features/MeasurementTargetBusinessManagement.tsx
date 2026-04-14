@@ -368,7 +368,35 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const handleEditClick = (item: BusinessEntry) => {
         setEditingItem(item);
-        setEditForm({ ...item });
+        
+        // 1일 측정인 경우 보고서 담당자를 측정자에 강제 포함 (데이터 정합성 유지)
+        let initialForm = { ...item };
+        const totalDays = item.daily_staff?.length || 1;
+        
+        if (totalDays === 1 && item.measurer_id) {
+            const measurerName = measurers.find(m => m.id === item.measurer_id)?.name;
+            if (measurerName) {
+                if (!item.daily_staff || item.daily_staff.length === 0) {
+                    // 단일 일자 모드
+                    const collabs = item.collaborators ? item.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
+                    if (!collabs.includes(measurerName)) {
+                        collabs.push(measurerName);
+                        initialForm.collaborators = collabs.join(",");
+                    }
+                } else {
+                    // 다중 일자 UI지만 1일인 경우
+                    const entry = item.daily_staff[0];
+                    let collabs = entry.collaborators || [];
+                    if (!collabs.includes(measurerName)) {
+                        const newDailyStaff = [...item.daily_staff];
+                        newDailyStaff[0] = { ...entry, collaborators: [...collabs, measurerName] };
+                        initialForm.daily_staff = newDailyStaff;
+                    }
+                }
+            }
+        }
+        
+        setEditForm(initialForm);
         setIsEditModalOpen(true);
     };
 
@@ -1047,7 +1075,18 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                     ...measurers.map(m => ({ value: m.id.toString(), label: m.name }))
                                                 ]}
                                                 value={editForm.measurer_id?.toString() || ""}
-                                                onChange={(e) => setEditForm(prev => ({ ...prev, measurer_id: e.target.value ? parseInt(e.target.value) : null }))}
+                                                onChange={(e) => {
+                                                    const newId = e.target.value ? parseInt(e.target.value) : null;
+                                                    const newName = measurers.find(m => m.id === newId)?.name;
+                                                    setEditForm(prev => {
+                                                        const collaborators = prev.collaborators ? prev.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
+                                                        let newCollabs = [...collaborators];
+                                                        if (newName && !newCollabs.includes(newName)) {
+                                                            newCollabs.push(newName);
+                                                        }
+                                                        return { ...prev, measurer_id: newId, collaborators: newCollabs.join(",") };
+                                                    });
+                                                }}
                                             />
                                         </div>
                                         <div className="col-span-2">
@@ -1057,11 +1096,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                     const collaborators = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()) : [];
                                                     const isChecked = collaborators.includes(m.name);
                                                     return (
-                                                        <label key={m.id} className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50">
+                                                        <label key={m.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 ${m.id === editForm.measurer_id ? "bg-blue-50/50" : ""}`}>
                                                             <input
                                                                 type="checkbox"
-                                                                checked={isChecked}
+                                                                checked={isChecked || m.id === editForm.measurer_id}
+                                                                disabled={m.id === editForm.measurer_id}
                                                                 onChange={(e) => {
+                                                                    if (m.id === editForm.measurer_id) return;
                                                                     const checked = e.target.checked;
                                                                     let newCollabs = [...collaborators];
                                                                     if (checked) {
@@ -1071,9 +1112,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                     }
                                                                     setEditForm(prev => ({ ...prev, collaborators: newCollabs.join(",") }));
                                                                 }}
-                                                                className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                                                                className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-70 disabled:cursor-not-allowed"
                                                             />
-                                                            <span className="text-sm text-slate-700">{m.name}</span>
+                                                            <span className={`text-sm ${m.id === editForm.measurer_id ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
+                                                                {m.name}
+                                                                {m.id === editForm.measurer_id && <span className="ml-1 text-[10px] bg-blue-100 px-1 rounded">담당</span>}
+                                                            </span>
                                                         </label>
                                                     );
                                                 })}
@@ -1121,8 +1165,20 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                             ]}
                                                             value={entry.measurer_id?.toString() || (idx === 0 ? editForm.measurer_id?.toString() : "")}
                                                             onChange={(e) => {
+                                                                const newId = e.target.value ? parseInt(e.target.value) : null;
+                                                                const newName = measurers.find(m => m.id === newId)?.name;
                                                                 const newList = [...(editForm.daily_staff as any[])];
-                                                                newList[idx].measurer_id = e.target.value ? parseInt(e.target.value) : null;
+                                                                newList[idx].measurer_id = newId;
+
+                                                                // 2일 이상 측정인 경우 보고서 담당자 선택 시 기본으로 측정자에도 체크 (수정 가능)
+                                                                if (newName) {
+                                                                    let collabs = newList[idx].collaborators || [];
+                                                                    if (!collabs.includes(newName)) {
+                                                                        collabs.push(newName);
+                                                                        newList[idx].collaborators = [...collabs];
+                                                                    }
+                                                                }
+
                                                                 setEditForm(prev => ({ ...prev, daily_staff: newList }));
                                                             }}
                                                         />
@@ -1130,27 +1186,35 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                     <div className="col-span-2">
                                                         <label className="block text-xs font-semibold text-slate-500 mb-1">측정자</label>
                                                         <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
-                                                            {measurers.map(m => {
-                                                                const isChecked = entry.collaborators?.includes(m.name);
-                                                                return (
-                                                                    <label key={m.id} className="flex items-center gap-1.5 cursor-pointer">
-                                                                        <input 
-                                                                            type="checkbox"
-                                                                            checked={isChecked || false}
-                                                                            onChange={(e) => {
-                                                                                const newList = [...(editForm.daily_staff as any[])];
-                                                                                let collabs = newList[idx].collaborators || [];
-                                                                                if (e.target.checked) collabs.push(m.name);
-                                                                                else collabs = collabs.filter((c: string) => c !== m.name);
-                                                                                newList[idx].collaborators = Array.from(new Set(collabs));
-                                                                                setEditForm(prev => ({ ...prev, daily_staff: newList }));
-                                                                            }}
-                                                                            className="w-3.5 h-3.5 rounded"
-                                                                        />
-                                                                        <span className="text-xs text-slate-600">{m.name}</span>
-                                                                    </label>
-                                                                );
-                                                            })}
+                                                                    {measurers.map(m => {
+                                                                        const isChecked = entry.collaborators?.includes(m.name);
+                                                                        const isReportWriter = m.id === (entry.measurer_id || (idx === 0 ? editForm.measurer_id : null));
+                                                                        const isLocked = isReportWriter && (editForm.daily_staff as any[]).length === 1;
+
+                                                                        return (
+                                                                            <label key={m.id} className={`flex items-center gap-1.5 cursor-pointer p-0.5 rounded ${isLocked ? "bg-blue-50/50" : ""}`}>
+                                                                                <input 
+                                                                                    type="checkbox"
+                                                                                    checked={isChecked || isLocked || false}
+                                                                                    disabled={isLocked}
+                                                                                    onChange={(e) => {
+                                                                                        if (isLocked) return;
+                                                                                        const newList = [...(editForm.daily_staff as any[])];
+                                                                                        let collabs = newList[idx].collaborators || [];
+                                                                                        if (e.target.checked) collabs.push(m.name);
+                                                                                        else collabs = collabs.filter((c: string) => c !== m.name);
+                                                                                        newList[idx].collaborators = Array.from(new Set(collabs));
+                                                                                        setEditForm(prev => ({ ...prev, daily_staff: newList }));
+                                                                                    }}
+                                                                                    className="w-3.5 h-3.5 rounded disabled:opacity-70 disabled:cursor-not-allowed"
+                                                                                />
+                                                                                <span className={`text-xs ${isLocked ? "text-blue-700 font-semibold" : "text-slate-600"}`}>
+                                                                                    {m.name}
+                                                                                    {isLocked && <span className="ml-1 text-[9px] bg-blue-100 px-1 rounded">담당</span>}
+                                                                                </span>
+                                                                            </label>
+                                                                        );
+                                                                    })}
                                                         </div>
                                                     </div>
                                                 </div>
