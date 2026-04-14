@@ -13,7 +13,24 @@ interface SyncResult {
     manager_name: string | null;
     manager_mobile: string | null;
     phone: string | null;
+    fax: string | null;
+    business_number: string | null;
+    industrial_accident_number: string | null;
     office_jurisdiction: string | null;
+    status: string | null; // New field for standardized status
+}
+
+/**
+ * [The Joo Rule] 사업장 상태값 정규화
+ * '확정' -> '실시', '미확정' -> '미실시', '종료' -> '거래종료'
+ */
+export function normalizeBusinessStatus(val: any): string {
+    if (!val) return "미실시";
+    const s = String(val).trim();
+    if (s === "확정" || s === "실시" || s === "완료") return "실시";
+    if (s === "미확정" || s === "미실시" || s === "대기") return "미실시";
+    if (s === "종료" || s === "거래종료" || s === "거래 종료") return "거래종료";
+    return s;
 }
 
 /**
@@ -62,7 +79,11 @@ export async function syncBusinessData(
         manager_name: baseData.manager_name || null,
         manager_mobile: baseData.manager_mobile || null,
         phone: baseData.phone || null,
+        fax: baseData.fax || null,
+        business_number: baseData.business_number || null,
+        industrial_accident_number: baseData.industrial_accident_number || null,
         office_jurisdiction: baseData.office_jurisdiction || null,
+        status: normalizeBusinessStatus(baseData.status),
     };
 
     // 1. 필요한 필드가 모두 채워져 있으면 바로 리턴 (최적화)
@@ -119,7 +140,7 @@ export async function syncBusinessData(
     // 5. 기본 정보 (business_info) - 최신 1건
     const { data: bInfo } = await supabase
         .from("business_info")
-        .select("address1, address2, phone, manager_name, business_category, office_jurisdiction")
+        .select("address1, address2, phone, fax, manager_name, business_category, office_jurisdiction, business_number, industrial_accident_number")
         .eq("code", code)
         .single();
 
@@ -128,7 +149,7 @@ export async function syncBusinessData(
     // 여기서는 '최신' 정보를 가져오기 위해 역순 정렬
     const { data: mbData } = await supabase
         .from("measurement_business")
-        .select("business_name, address, manager_name, manager_mobile, business_category, future_measurement_period")
+        .select("business_name, address, manager_name, manager_mobile, business_category, future_measurement_period, industrial_accident_number, business_number, fax")
         .eq("code", code)
         .order("year", { ascending: false }) // 최신 년도
         .order("period", { ascending: false })
@@ -164,6 +185,21 @@ export async function syncBusinessData(
 
     if (!result.phone && bInfo?.phone) {
         result.phone = bInfo.phone;
+    }
+
+    if (!result.fax) {
+        if (mbData?.fax) result.fax = mbData.fax;
+        else if (bInfo?.fax) result.fax = bInfo.fax;
+    }
+
+    if (!result.business_number) {
+        if (mbData?.business_number) result.business_number = mbData.business_number;
+        else if (bInfo?.business_number) result.business_number = bInfo.business_number;
+    }
+
+    if (!result.industrial_accident_number) {
+        if (mbData?.industrial_accident_number) result.industrial_accident_number = mbData.industrial_accident_number;
+        else if (bInfo?.industrial_accident_number) result.industrial_accident_number = bInfo.industrial_accident_number;
     }
 
     if (!result.office_jurisdiction) {

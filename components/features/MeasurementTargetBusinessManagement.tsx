@@ -317,7 +317,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     return status === '미실시' || status === '미확정' || !status;
                 }
                 if (filters.isRegistered === '거래종료') {
-                    return status === '거래종료' || status === '종료';
+                    return status === '거래종료' || status === '종료' || status === '거래 종료';
                 }
                 return status === filters.isRegistered;
             });
@@ -336,7 +336,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             const getStatusPriority = (status: string | null) => {
                 if (status === '미실시' || status === '미확정' || !status) return 1;
                 if (status === '실시' || status === '확정') return 2;
-                if (status === '거래종료' || status === '종료') return 3;
+                if (status === '거래종료' || status === '종료' || status === '거래 종료') return 3;
                 return 4;
             };
 
@@ -425,10 +425,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
                 const sanitized: any = {};
 
-                // UI '실시' -> DB '확정' or '실시' (DB 제약 조건에 따라 유연하게 대응)
-                // 현재 DB 제약 조건이 001_initial_schema.sql 기준으로 명시되어 있지 않으나, 기존 코드 호환성 유지
+                // UI '실시' -> DB '실시'
                 if (raw.is_registered_text !== undefined) {
-                    sanitized.is_registered = raw.is_registered_text;
+                    sanitized.is_registered = (raw.is_registered_text === '확정' || raw.is_registered_text === '실시') ? '실시' : 
+                                             (raw.is_registered_text === '미확정' || raw.is_registered_text === '미실시') ? '미실시' :
+                                             (raw.is_registered_text === '종료' || raw.is_registered_text === '거래종료' || raw.is_registered_text === '거래 종료') ? '거래종료' :
+                                             raw.is_registered_text;
                 }
 
                 if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
@@ -493,8 +495,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
         const updates: Partial<BusinessEntry> = { measurement_date: newDate || null };
         if (newDate) {
-            updates.is_registered = "확정";
-            updates.is_registered_text = "확정";
+            updates.is_registered = "실시";
+            updates.is_registered_text = "실시";
         }
         saveChanges(item.code, updates);
     };
@@ -514,7 +516,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "지정지청": item.designated_office || toShortName(item.office_jurisdiction || ""),
             "사업장명": item.business_name,
             "소재지": item.address,
-            "실시여부": item.is_registered_text === '확정' ? '실시' : item.is_registered_text === '미확정' ? '미실시' : item.is_registered_text === '종료' ? '거래종료' : item.is_registered_text || '미실시',
+            "실시여부": item.is_registered_text === '확정' || item.is_registered_text === '실시' ? '실시' : item.is_registered_text === '미확정' || item.is_registered_text === '미실시' ? '미실시' : item.is_registered_text === '종료' || item.is_registered_text === '거래종료' ? '거래종료' : item.is_registered_text || '미실시',
             "국고결과": item.national_support_status,
             "계획담당": item.plan_manager,
             "업종분류": item.business_category,
@@ -576,7 +578,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     // Grid Column Template
-    // 18 Columns: No(50), 주기(60), 실시여부(80), 국고(60), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 확정일(110), 비고(80), 관리(40)
+    // 18 Columns: No(50), 주기(60), 실시여부(80), 국고(60), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 실시일(110), 비고(80), 관리(40)
     const gridTemplateCols = "45px 60px 80px 60px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
 
     return (
@@ -635,7 +637,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 />
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">확정일</span>
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">실시일</span>
                                 <Input
                                     type="date"
                                     value={filters.confirmedDate || ""}
@@ -727,7 +729,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="py-3">예정월</div>
                         <div className="py-3">예정일</div>
                         <div className="py-3">보고서 담당</div>
-                        <div className="py-3">확정일</div>
+                        <div className="py-3">실시일</div>
                         <div className="py-3">비고</div>
                         <div className="py-3">관리</div>
                     </div>
@@ -743,42 +745,44 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     ) : filteredData.length === 0 ? (
                         <div className="h-40 flex items-center justify-center text-text-500">데이터가 없습니다.</div>
                     ) : (
-                        filteredData.map((item, index) => (
-                            <div key={`${item.code}-${index}`} className="group relative hover:bg-blue-50/40 grid items-center text-sm text-slate-700 py-1.5 transition-all duration-150 border-b border-slate-100 last:border-0 growable-row" style={{ gridTemplateColumns: gridTemplateCols }}>
-                                {/* 표준 호버 인디케이터 바 */}
-                                <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                        filteredData.map((item, index) => {
+                            const isTerminated = item.is_registered_text === '거래종료' || item.is_registered_text === '종료';
+                            return (
+                                <div key={`${item.code}-${index}`} className={`group relative hover:bg-blue-50/40 grid items-center text-sm text-slate-700 py-1.5 transition-all duration-150 border-b border-slate-100 last:border-0 growable-row ${isTerminated ? 'opacity-50 grayscale-[0.3]' : ''}`} style={{ gridTemplateColumns: gridTemplateCols }}>
+                                    {/* 표준 호버 인디케이터 바 */}
+                                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
 
                                 <div className="text-center font-medium">{index + 1}</div>
                                 <div className={`text-left text-xs ${item.period.includes("(수시)") ? "text-red-600 font-bold" : ""}`}>
                                     {item.period}
                                 </div>
-                                <div className="px-1 text-left">
-                                    <select
-                                        className={`w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 px-1 cursor-pointer ${(item.is_registered_text === '실시' || item.is_registered_text === '확정') ? 'bg-green-100 text-green-700 font-medium' :
-                                            (item.is_registered_text === '미실시' || item.is_registered_text === '미확정' || !item.is_registered_text) ? 'bg-yellow-100 text-yellow-800 font-medium' :
-                                                (item.is_registered_text === '거래종료' || item.is_registered_text === '종료') ? 'bg-red-100 text-red-700 font-medium' :
-                                                    'bg-gray-100'
-                                            }`}
-                                        value={
-                                            item.is_registered_text === '확정' ? '실시' :
-                                                item.is_registered_text === '미확정' ? '미실시' :
-                                                    item.is_registered_text === '종료' ? '거래종료' :
-                                                        item.is_registered_text || '미실시'
-                                        }
-                                        onChange={(e) => {
-                                            const newVal = e.target.value;
-                                            saveChanges(item.code, {
-                                                is_registered_text: newVal
-                                            });
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                        style={{ textAlignLast: "left" }}
-                                    >
-                                        <option value="미실시" className="bg-white text-black">미실시</option>
-                                        <option value="실시" className="bg-white text-black">실시</option>
-                                        <option value="거래종료" className="bg-white text-black">거래종료</option>
-                                    </select>
-                                </div>
+                                    <div className="px-1 text-left">
+                                        <select
+                                            className={`w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 px-1 cursor-pointer ${(item.is_registered_text === '실시' || item.is_registered_text === '확정') ? 'bg-green-100 text-green-700 font-medium' :
+                                                (item.is_registered_text === '미실시' || item.is_registered_text === '미확정' || !item.is_registered_text) ? 'bg-yellow-100 text-yellow-800 font-medium' :
+                                                    (item.is_registered_text === '거래종료' || item.is_registered_text === '종료' || item.is_registered_text === '거래 종료') ? 'bg-red-50 text-red-500 font-medium border-red-100' :
+                                                        'bg-gray-100'
+                                                }`}
+                                            value={
+                                                (item.is_registered_text === '확정' || item.is_registered_text === '실시') ? '실시' :
+                                                    (item.is_registered_text === '미확정' || item.is_registered_text === '미실시' || !item.is_registered_text) ? '미실시' :
+                                                        (item.is_registered_text === '종료' || item.is_registered_text === '거래종료' || item.is_registered_text === '거래 종료') ? '거래종료' :
+                                                            '미실시'
+                                            }
+                                            onChange={(e) => {
+                                                const newVal = e.target.value;
+                                                saveChanges(item.code, {
+                                                    is_registered_text: newVal
+                                                });
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            style={{ textAlignLast: "left" }}
+                                        >
+                                            <option value="미실시" className="bg-white text-black">미실시</option>
+                                            <option value="실시" className="bg-white text-black">실시</option>
+                                            <option value="거래종료" className="bg-white text-black">거래종료</option>
+                                        </select>
+                                    </div>
                                 <div className="text-left text-xs px-1">{item.national_support_status || "-"}</div>
                                 <div className="text-left text-xs px-1">{item.plan_manager || "-"}</div>
                                 <div className="px-1 text-left text-xs break-words break-keep" title={item.business_category || ""}>{item.business_category || "-"}</div>
@@ -879,10 +883,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     <button onClick={() => handleEditClick(item)} className="p-1 hover:bg-surface-200 rounded text-slate-500">✎</button>
                                 </div>
                             </div>
-                        ))
-                    )}
-                </div>
+                        );
+                    })
+                )}
             </div>
+        </div>
 
             {/* Modals ... */}
             <Modal isOpen={isExcelModalOpen} onClose={() => setIsExcelModalOpen(false)} title="측정 대상 사업장 엑셀 업로드">
@@ -988,18 +993,23 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <div className="flex items-center gap-2">
                                     <select
                                         className={`block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm h-10 px-3
-                                            ${editForm.is_registered_text === '확정' ? 'bg-green-100 text-green-700' :
-                                                editForm.is_registered_text === '미확정' ? 'bg-yellow-100 text-yellow-800' :
-                                                    editForm.is_registered_text === '종료' ? 'bg-red-100 text-red-700' : 'bg-white'}`}
-                                        value={editForm.is_registered_text || "미확정"}
+                                            ${(editForm.is_registered_text === '확정' || editForm.is_registered_text === '실시') ? 'bg-green-100 text-green-700' :
+                                                (editForm.is_registered_text === '미확정' || editForm.is_registered_text === '미실시') ? 'bg-yellow-100 text-yellow-800' :
+                                                    (editForm.is_registered_text === '종료' || editForm.is_registered_text === '거래종료') ? 'bg-red-50 text-red-500' : 'bg-white'}`}
+                                        value={
+                                            (editForm.is_registered_text === '확정' || editForm.is_registered_text === '실시') ? '실시' :
+                                                (editForm.is_registered_text === '미확정' || editForm.is_registered_text === '미실시' || !editForm.is_registered_text) ? '미실시' :
+                                                    (editForm.is_registered_text === '종료' || editForm.is_registered_text === '거래종료' || editForm.is_registered_text === '거래 종료') ? '거래종료' :
+                                                        '미실시'
+                                        }
                                         onChange={(e) => setEditForm(prev => ({ ...prev, is_registered_text: e.target.value }))}
                                     >
-                                        <option value="확정" className="bg-white text-black">확정</option>
-                                        <option value="미확정" className="bg-white text-black">미확정</option>
-                                        <option value="종료" className="bg-white text-black">종료</option>
+                                        <option value="미실시" className="bg-white text-black">미실시</option>
+                                        <option value="실시" className="bg-white text-black">실시</option>
+                                        <option value="거래종료" className="bg-white text-black">거래종료</option>
                                     </select>
                                 </div>
-                                <p className="text-xs text-slate-500 mt-1">* &apos;종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
+                                <p className="text-xs text-slate-500 mt-1">* &apos;거래종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
@@ -1056,14 +1066,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     /* 기존 단일 일자 UI 유지 (이질감 최소화) */
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="block text-sm font-medium mb-1 text-slate-700">확정일</label>
+                                            <label className="block text-sm font-medium mb-1 text-slate-700">실시일</label>
                                             <Input type="date" value={editForm.measurement_date || ""} onChange={(e) => {
                                                 const val = e.target.value;
                                                 setEditForm(prev => ({
                                                     ...prev,
                                                     measurement_date: val,
                                                     measurement_end_date: val,
-                                                    is_registered_text: val ? '확정' : '미확정'
+                                                    is_registered_text: val ? '실시' : '미실시'
                                                 }));
                                             }} />
                                         </div>

@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { classifyDesignatedOffice, shortNameToFullName, findOfficeByAddress, getDesignatedOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
 import { normalizeAddress, validateDesignatedOffice, normalizeString } from "@/lib/utils/data-utils";
+import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 
 export async function POST(request: NextRequest) {
   try {
@@ -201,7 +202,7 @@ export async function POST(request: NextRequest) {
             plan_based_period: prevYearJournal.measurement_period,
             future_measurement_period: futurePeriod,
             last_measurement_date: latestDateStr,
-            is_registered: "미확정",
+            is_registered: "미실시",
           });
           planCount++;
         }
@@ -264,7 +265,7 @@ export async function POST(request: NextRequest) {
 
       if (journal) {
         plan.journal_id = journal.id;
-        plan.is_registered = "확정";
+        plan.is_registered = "실시";
         plan.registered_at = new Date().toISOString();
         plan.measurement_start_date = journal.measurement_start_date;
         plan.measurement_end_date = journal.measurement_end_date;

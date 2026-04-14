@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import * as XLSX from "xlsx";
-import { syncBusinessData } from "@/lib/utils/sync-helper";
+import { syncBusinessData, normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 
 // 최대 처리 행 수 (타임아웃 방지)
 const MAX_ROWS = 500;
@@ -86,41 +86,52 @@ export async function POST(request: NextRequest) {
                         plan_manager: getValue(row, ["plan_manager", "계획담당자", "담당"]),
                         manager_mobile: getValue(row, ["manager_mobile", "연락처", "휴대폰"]),
                         phone: getValue(row, ["phone", "전화번호", "회사전화"]),
+                        fax: getValue(row, ["fax", "팩스", "전송"]),
+                        business_number: getValue(row, ["business_number", "사업자번호", "등록번호"]),
+                        industrial_accident_number: getValue(row, ["industrial_accident_number", "산재번호", "관리번호_산재"]),
                         notes: getValue(row, ["notes", "비고", "특이사항"]),
-                        is_registered: getValue(row, ["is_registered", "계획진행", "실시여부", "상태"]) || "미확정",
+                        is_registered_text: normalizeBusinessStatus(getValue(row, ["is_registered", "계획진행", "실시여부", "상태"])),
                         office_jurisdiction: getValue(row, ["office_jurisdiction", "관할청", "소재지관할청"]),
                         measurement_month: getValue(row, ["measurement_month", "측정예정월", "예정월"]),
                         measurement_date: getValue(row, ["measurement_date", "측정확정일", "확정일"]),
                     };
 
                     const syncedData = await syncBusinessData(supabase, code, year, period, {
-                        national_support_status: null,
-                        previous_measurement_date: null,
-                        previous_measurement_period: null,
-                        future_measurement_period: null,
                         address: baseData.address,
                         business_category: baseData.business_category,
                         business_name: baseData.business_name,
                         manager_name: baseData.manager_name,
                         manager_mobile: baseData.manager_mobile,
                         phone: baseData.phone,
+                        fax: baseData.fax,
+                        business_number: baseData.business_number,
+                        industrial_accident_number: baseData.industrial_accident_number,
                         office_jurisdiction: baseData.office_jurisdiction,
+                        status: baseData.is_registered_text,
                     });
 
                     const finalData = {
                         ...baseData,
+                        // 동기화된 정보 (null이 아닌 경우에만 덮어씀)
                         national_support_status: syncedData.national_support_status,
                         previous_measurement_date: syncedData.previous_measurement_date,
                         previous_measurement_period: syncedData.previous_measurement_period,
                         future_measurement_period: syncedData.future_measurement_period,
 
+                        // [Latest Wins] 엑셀 값이 있으면 우선, 없으면 동기화(DB) 데이터 사용
                         address: baseData.address || syncedData.address,
                         business_name: baseData.business_name || syncedData.business_name,
                         business_category: baseData.business_category || syncedData.business_category,
                         manager_name: baseData.manager_name || syncedData.manager_name,
                         manager_mobile: baseData.manager_mobile || syncedData.manager_mobile,
                         phone: baseData.phone || syncedData.phone,
+                        fax: baseData.fax || syncedData.fax,
+                        business_number: baseData.business_number || syncedData.business_number,
+                        industrial_accident_number: baseData.industrial_accident_number || syncedData.industrial_accident_number,
                         office_jurisdiction: baseData.office_jurisdiction || syncedData.office_jurisdiction,
+
+                        // 상태값 표준화 적용
+                        is_registered_text: normalizeBusinessStatus(baseData.is_registered_text || syncedData.status),
 
                         measurement_month: baseData.measurement_month,
                         measurement_date: baseData.measurement_date,
