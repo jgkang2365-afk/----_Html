@@ -258,3 +258,33 @@ export async function deleteSurveyEvent(eventId: string) {
         return false;
     }
 }
+/**
+ * 특정 기간의 구글 캘린더 일정 목록 조회
+ * @param timeMin 시작 시점 (ISO String)
+ * @param timeMax 종료 시점 (ISO String)
+ * @param q 검색어 (옵션)
+ */
+export async function listEvents(timeMin: string, timeMax: string, q?: string) {
+    const calendarId = process.env.GOOGLE_CALENDAR_ID;
+    if (!calendarId) return [];
+
+    try {
+        const authClient = await getAuthClient();
+        const calendar = google.calendar({ version: 'v3', auth: authClient as any });
+
+        const response = await calendar.events.list({
+            calendarId,
+            timeMin,
+            timeMax,
+            q,
+            singleEvents: true,
+            orderBy: 'startTime',
+            maxResults: 2500 // 충분히 큰 값으로 설정
+        });
+
+        return response.data.items || [];
+    } catch (error) {
+        logDebug('Error listing Google Calendar events:', error);
+        return [];
+    }
+}

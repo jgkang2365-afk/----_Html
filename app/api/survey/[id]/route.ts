@@ -251,7 +251,7 @@ export async function DELETE(
     // 삭제할 예비조사의 정보 조회 (동기화용)
     const { data: surveyToDelete, error: selectError } = await supabase
       .from("preliminary_survey")
-      .select("sequence_number, code, year, period")
+      .select("sequence_number, code, year, period, google_event_id")
       .eq("id", parseInt(id))
       .single();
 
@@ -260,6 +260,17 @@ export async function DELETE(
         { error: "삭제할 예비조사를 찾을 수 없습니다.", details: selectError?.message },
         { status: 404 }
       );
+    }
+
+    // [Calendar Sync] 연동된 구글 캘린더 이벤트 삭제
+    if (surveyToDelete.google_event_id) {
+      try {
+        const { deleteSurveyEvent } = await import("@/lib/google/calendar");
+        await deleteSurveyEvent(surveyToDelete.google_event_id);
+        console.log(`[Survey Sync] Deleted associated calendar event: ${surveyToDelete.google_event_id}`);
+      } catch (calErr) {
+        console.error("[Survey Sync] Failed to delete calendar event:", calErr);
+      }
     }
 
     const deletedSequenceNumber = surveyToDelete.sequence_number;

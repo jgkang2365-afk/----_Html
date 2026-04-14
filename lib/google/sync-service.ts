@@ -166,15 +166,49 @@ export async function syncBusinessToCalendar(
       }
     }
 
-    // 5. [중요] target_business 테이블의 google_event_id 관리 (첫 번째 일정으로 동기화 또는 삭제)
-    // 기존 시스템 호환성을 위해 target_business의 이벤트 ID는 삭제하거나 첫 번째 일정의 ID로 대체 고려
-    if (targetBiz.google_event_id) {
-        // 기존 단일 이벤트가 survey_ids 중 하나가 아니라면 삭제 (중복 방지)
-        const surveyEventIds = validSurveys.map(s => s.google_event_id).filter(Boolean);
-        if (!surveyEventIds.includes(targetBiz.google_event_id)) {
-            await deleteSurveyEvent(targetBiz.google_event_id);
-            await supabase.from("measurement_target_business").update({ google_event_id: null }).eq("id", targetBiz.id);
+    // 5. [중요] target_business 테이블의 google_event_id 관리 및 고아 이벤트(Orphans) 청소
+    const surveyEventIds = validSurveys.map(s => s.google_event_id).filter(Boolean);
+    
+    // target_business에 저장된 이전 방식의 이벤트 ID가 있다면 정리
+    if (targetBiz.google_event_id && !surveyEventIds.includes(targetBiz.google_event_id)) {
+        await deleteSurveyEvent(targetBiz.google_event_id);
+        await supabase.from("measurement_target_business").update({ google_event_id: null }).eq("id", targetBiz.id);
+    }
+
+    // [The Joo Rule] Successful Null: DB에 없는 찌꺼기 이벤트 전수 조사 및 제거
+    try {
+        const { listEvents } = await import("./calendar");
+        const timeMin = `${yearNum}-01-01T00:00:00Z`;
+        const timeMax = `${yearNum}-12-31T23:59:59Z`;
+        
+        // 사업장 명칭으로 1차 필터링하여 조회 (성능 최적화)
+        const allCalendarEvents = await listEvents(timeMin, timeMax, targetBiz.business_name);
+        console.log(`[Sync Service] Reconciliation: Found ${allCalendarEvents.length} relevant events for "${targetBiz.business_name}" in ${yearNum}`);
+
+        const orphanEvents = allCalendarEvents.filter((event: any) => {
+            const hasName = event.summary?.includes(targetBiz.business_name);
+            const isSystem = event.description?.includes("사업장:") || event.summary?.trim().startsWith("[");
+            const isNotId = !surveyEventIds.includes(event.id);
+            
+            if (hasName && isSystem && isNotId) {
+                console.log(`[Sync Service] Identified Orphan: "${event.summary}" (ID: ${event.id})`);
+                return true;
+            }
+            return false;
+        });
+
+        if (orphanEvents.length > 0) {
+            console.log(`[Sync Service] Found ${orphanEvents.length} orphan events for ${targetBiz.business_name} in ${yearNum}. Cleaning up...`);
+            for (const orphan of orphanEvents) {
+                await deleteSurveyEvent(orphan.id);
+            }
         }
+    } catch (reconcileErr) {
+        console.error("[Sync Service] Reconciliation error:", reconcileErr);
+    }
+
+    if (validSurveys.length === 0) {
+        console.log(`[Sync Service] Successful Null: No surveys remain for ${code}. Calendar cleanup complete.`);
     }
 
     console.log(`[Sync Service] Sync completed for ${code}`);
