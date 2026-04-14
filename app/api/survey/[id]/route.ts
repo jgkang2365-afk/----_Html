@@ -348,12 +348,19 @@ export async function DELETE(
 
       if (!latestSurveyError) {
         // measurement_target_business 테이블에서 해당 코드의 모든 레코드 업데이트
-        // latestSurvey가 null이면 (더 이상 예비조사가 없으면) measurement_date를 null로 설정
+        // latestSurvey가 null이면 (더 이상 예비조사가 없으면) measurement_date를 null로 설정하고 상태를 '미실시'로 동기화
+        const updatePayload: any = {
+          measurement_date: latestSurvey?.measurement_date || null
+        };
+
+        // 남은 일정이 없으면 '미실시'로 상태 하향 조정
+        if (!latestSurvey?.measurement_date) {
+          updatePayload.is_registered = "미실시";
+        }
+
         const { error: updateError } = await supabase
           .from("measurement_target_business")
-          .update({
-            measurement_date: latestSurvey?.measurement_date || null
-          })
+          .update(updatePayload)
           .eq("code", deletedCode);
 
         if (updateError) {

@@ -458,10 +458,18 @@ export async function PATCH(request: NextRequest) {
 
           // 5. Update summary fields on measurement_target_business
           const unifiedCollaborators = Array.from(allCollaboratorsSet).filter(Boolean).join(", ");
-          await supabase.from("measurement_target_business").update({
+          const businessUpdatePayload: any = {
             collaborators: unifiedCollaborators || null,
             measurement_end_date: maxEndDate
-          }).eq("code", code).eq("year", year).eq("period", period);
+          };
+
+          // 실시일이 완전히 비워졌고 현재 상태가 '실시' 또는 '확정'이라면 '미실시'로 자동 하향 동기화
+          if (!maxEndDate && (updatedData.is_registered === "실시" || updatedData.is_registered === "확정")) {
+            businessUpdatePayload.is_registered = "미실시";
+          }
+
+          await supabase.from("measurement_target_business").update(businessUpdatePayload)
+            .eq("code", code).eq("year", year).eq("period", period);
           
           console.log(`[Integrated Sync] Preliminary surveys and summary updated for ${code}`);
         }
