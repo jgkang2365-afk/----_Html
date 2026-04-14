@@ -522,7 +522,10 @@ export const SummaryTable: React.FC = () => {
                            const surveyor = entry.preliminary_surveyor || "-";
                            const codes = surveys
                              .filter(s => s.measurement_date && s.survey_code)
-                             .map(s => `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`)
+                             .map(s => surveys.length === 1 
+                              ? s.survey_code 
+                              : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
+                            )
                              .join(", ");
                            return codes ? `${surveyor} (${codes})` : surveyor;
                         })()}
@@ -1382,7 +1385,10 @@ export const SummaryTable: React.FC = () => {
                          const surveyor = selectedEntry.preliminary_surveyor || "-";
                          const codes = surveys
                            .filter(s => s.measurement_date && s.survey_code)
-                           .map(s => `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`)
+                           .map(s => surveys.length === 1 
+                            ? s.survey_code 
+                            : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
+                          )
                            .join(", ");
                          return codes ? `${surveyor} (${codes})` : surveyor;
                       })()}
