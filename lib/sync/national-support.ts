@@ -22,7 +22,8 @@ export async function syncNationalSupportToBusiness(
     try {
         let targetStatus: "대상" | "비대상" = "비대상";
 
-        if (nationalSupportStatus === "지원") {
+        // [The Joo Rule] 정규화 규칙 적용
+        if (nationalSupportStatus === "지원" || nationalSupportStatus === "대상" || nationalSupportStatus === "지원대상") {
             targetStatus = "대상";
         }
 

@@ -352,7 +352,7 @@ export const NationalSupportManagement: React.FC = () => {
                   <TableCell className="align-middle px-2">{entry.result || "-"}</TableCell>
                   <TableCell className="align-middle px-2">
                     <span
-                      className={`px-2 py-1 rounded text-sm font-medium ${entry.national_support_status === "지원"
+                      className={`px-2 py-1 rounded text-sm font-medium ${entry.national_support_status === "대상"
                         ? "bg-green-100 text-green-800"
                         : entry.national_support_status === "비대상"
                           ? "bg-gray-100 text-gray-800"
@@ -477,7 +477,7 @@ export const NationalSupportManagement: React.FC = () => {
             onChange={(e) => setFormData({ ...formData, national_support_status: e.target.value })}
             options={[
               { value: "", label: "자동 계산" },
-              { value: "지원", label: "지원" },
+              { value: "대상", label: "대상" },
               { value: "비대상", label: "비대상" },
             ]}
           />

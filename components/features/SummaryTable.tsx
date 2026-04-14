@@ -1795,13 +1795,11 @@ export const SummaryTable: React.FC = () => {
                         value={editFormData.national_support_status || ""}
                         onChange={(e) => {
                           const value = e.target.value;
-                          // "대상"을 "지원"으로 변환
-                          const convertedValue = value === "대상" ? "지원" : value;
-                          setEditFormData({ ...editFormData, national_support_status: convertedValue || "" });
+                          setEditFormData({ ...editFormData, national_support_status: value || "" });
                         }}
                         options={[
                           { value: "", label: "선택" },
-                          { value: "지원", label: "지원" },
+                          { value: "대상", label: "대상" },
                           { value: "비대상", label: "비대상" },
                         ]}
                       />

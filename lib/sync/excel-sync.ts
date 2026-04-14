@@ -9,6 +9,16 @@ import { join } from "path";
 import { readFileSync, existsSync } from "fs";
 import { getKSTISOString, getKSTYear, getNextWorkingDay } from "@/lib/utils/date-utils";
 
+// [The Joo Rule] 국고지원 상태값 정규화 함수
+const normalizeNationalSupportStatus = (val: any): string | null => {
+  if (val === undefined || val === null) return null;
+  const s = String(val).trim();
+  // 정규화 규칙: ["지원", "지원대상", "대상"] -> "대상", ["미지원", "비대상"] -> "비대상"
+  if (s === "지원" || s === "지원대상" || s === "대상") return "대상";
+  if (s === "미지원" || s === "비대상") return "비대상";
+  return s || null;
+};
+
 export interface SyncResult {
   success: boolean;
   file_name: string;
@@ -676,7 +686,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       future_measurement_date: futureMeasurementDate || null,
       completion_status: normalizedStatus,
       measurer: row["계획담당자"] || row["주관담당자"] || null,
-      national_support_status: row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3] || null,
+      national_support_status: normalizeNationalSupportStatus(row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3]),
       business_category: businessCategory,
     };
 
@@ -1877,7 +1887,8 @@ export async function syncMeasurementBusiness(
           "total_employees", "address", "office_jurisdiction", "designated_office",
           "measurement_start_date", "measurement_end_date", "completion_status", "measurer",
           "future_measurement_date", "measurement_date", "future_measurement_period",
-          "manager_name", "manager_mobile", "manager_phone", "notes", "business_category"
+          "manager_name", "manager_mobile", "manager_phone", "manager_email", "notes", "business_category",
+          "industrial_accident_number", "commencement_number", "fax", "representative_name", "national_support_status"
         ];
 
         targetRows = allRows.map(row => {
@@ -2266,6 +2277,12 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
           needsUpdate = true;
         } else if (bRow?.commencement_number) {
           updateData.commencement_number = bRow.commencement_number;
+          needsUpdate = true;
+        }
+
+        // 11. 국고지원 상태 (national_support_status) - [The Joo Rule] 최신 정보로 덮어쓰기
+        if (mbRow?.national_support_status) {
+          updateData.national_support_status = mbRow.national_support_status;
           needsUpdate = true;
         }
 

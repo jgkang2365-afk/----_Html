@@ -205,7 +205,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 국고지원 여부 옵션
   const nationalSupportOptions = [
     { value: "", label: "선택" },
-    { value: "지원", label: "지원" },
+    { value: "대상", label: "대상" },
     { value: "비대상", label: "비대상" },
   ];
 
@@ -515,7 +515,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               // 등록 모드: 기존 값이 없을 때만 가져오기
               // 수정 모드: 기존 값이 없을 때만 가져오기 (건강디딤돌 신청결과 우선)
               if (data.nationalSupportStatus) {
-                updated.national_support_status = prev.national_support_status || data.nationalSupportStatus || "";
+                const statusFromData = data.nationalSupportStatus;
+                // "지원" -> "대상" 정규화
+                const normalizedStatus = statusFromData === "지원" ? "대상" : statusFromData;
+                updated.national_support_status = prev.national_support_status || normalizedStatus || "";
               }
 
               // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)
@@ -753,13 +756,15 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               setFormData((prev) => {
                 // 기존 값이 없거나 빈 문자열일 때만 건강디딤돌 신청결과 값으로 채우기
                 if (!prev.national_support_status || prev.national_support_status === "") {
+                  // "지원" -> "대상" 정합성 확보
+                  const normalizedStatus = data.nationalSupportStatus === "지원" ? "대상" : data.nationalSupportStatus;
                   console.log('[JournalEditForm] 수정 모드: 건강디딤돌 신청결과 값으로 국고지원 여부 설정', {
                     기존값: prev.national_support_status,
-                    신청결과값: data.nationalSupportStatus,
+                    신청결과값: normalizedStatus,
                   });
                   return {
                     ...prev,
-                    national_support_status: data.nationalSupportStatus,
+                    national_support_status: normalizedStatus,
                   };
                 }
                 return prev;

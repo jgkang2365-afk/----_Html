@@ -40,7 +40,7 @@ interface BusinessEntry {
   previous_measurement_date: string | null; // 전회 측정일
   isRegistered: boolean; // 측정일지 등록 여부
   journal_id: number | null; // 등록된 측정일지 ID
-  national_support_status: string | null; // '지원', '비대상' 또는 null
+  national_support_status: string | null; // '대상', '비대상' 또는 null
   manager_name: string | null;
   manager_mobile: string | null;
   manager_phone: string | null;
