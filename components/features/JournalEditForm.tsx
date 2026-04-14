@@ -1037,21 +1037,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         }
         return prev;
       });
-    } else {
-      // 대전/천안 공업사가 아니면 전자계산서 발행일 비우기
-      if (formData.electronic_invoice_date) {
-        setFormData(prev => ({ ...prev, electronic_invoice_date: "" }));
-      }
-      
-      // 비고에서 '공정 변경' 제거 (선택사항이나 일관성을 위해)
-      const NOTE_VALUE = "공정 변경";
-      const currentNotes = Array.isArray(formData.note) ? [...formData.note] : (formData.note ? [String(formData.note)] : []);
-      if (currentNotes.includes(NOTE_VALUE)) {
-        setFormData(prev => ({
-          ...prev,
-          note: currentNotes.filter(n => n !== NOTE_VALUE)
-        }));
-      }
     }
 
     // ref 업데이트
