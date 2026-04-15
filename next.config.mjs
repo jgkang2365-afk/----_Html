@@ -31,7 +31,8 @@ const nextConfig = {
     },
     experimental: {
         optimizePackageImports: ['lucide-react', 'recharts'],
-        instrumentationHook: true
+        instrumentationHook: true,
+        serverComponentsExternalPackages: ['node-cron']
     }
 };
 

@@ -140,6 +140,7 @@ export async function syncBusinessToCalendar(
       const eventData = {
         summary,
         description: `
+          사업장코드: ${code}
           사업장: ${targetBiz.business_name}
           주소: ${targetBiz.address || "주소 미입력"}
           담당자: ${targetBiz.manager_name || "미지정"}
@@ -158,11 +159,17 @@ export async function syncBusinessToCalendar(
           await updateSurveyEvent(survey.google_event_id, eventData);
         } else {
           const created = await createSurveyEvent(eventData);
-          if (created?.id) await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
+          if (created?.id) {
+             await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
+             survey.google_event_id = created.id; // [CRITICAL FIX] 메모리 객체 업데이트
+          }
         }
       } else {
         const created = await createSurveyEvent(eventData);
-        if (created?.id) await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
+        if (created?.id) {
+            await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
+            survey.google_event_id = created.id; // [CRITICAL FIX] 메모리 객체 업데이트
+        }
       }
     }
 
@@ -188,8 +195,9 @@ export async function syncBusinessToCalendar(
             const hasName = event.summary?.includes(targetBiz.business_name);
             const isSystem = event.description?.includes("사업장:") || event.summary?.trim().startsWith("[");
             const isNotId = !surveyEventIds.includes(event.id);
+            const hasSameCode = event.description && event.description.includes(`사업장코드: ${code}`);
             
-            if (hasName && isSystem && isNotId) {
+            if (hasName && isSystem && isNotId && hasSameCode) {
                 console.log(`[Sync Service] Identified Orphan: "${event.summary}" (ID: ${event.id})`);
                 return true;
             }

@@ -1,4 +1,3 @@
-import cron from 'node-cron';
 import { BounceChecker } from '../email/bounce-checker';
 
 /**
@@ -27,6 +26,15 @@ export class BackgroundTasks {
         }
 
         console.log("[BackgroundTasks] 스케줄러 초기화 시작 (06, 12, 15, 18시)...");
+
+        // Webpack/Turbopack 빌드 에러 우회 (서버 환경에서만 런타임에 로드)
+        let cron;
+        try {
+            cron = eval('require')('node-cron');
+        } catch (e) {
+            console.warn("[BackgroundTasks] node-cron 로드 실패. 스케줄러가 동작하지 않습니다.");
+            return;
+        }
 
         // 1. 반송 메일 체크 작업 (06:00, 12:00, 15:00, 18:00)
         // 크론 표현식: 0 6,12,15,18 * * *

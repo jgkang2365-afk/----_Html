@@ -1327,3 +1327,111 @@
 [2026-04-14T12:34:13.674Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-14T12:34:15.016Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-14T12:34:15.802Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T08:56:18.913Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T08:56:19.958Z] Creating Calendar Event {
+  "summary": "[이주형] (주) 두산금속 - D: 11, H: 8",
+  "description": "사업장코드: H0401\n          사업장: (주) 두산금속\n          주소: 경기도 시흥시 마유로82번길 52 (정왕동)\n          담당자: 김원경 과장\n          연락처: 010-9642-0201\n          비고: D: 11, H: 8",
+  "date": "2026-05-06",
+  "endDate": "2026-05-06",
+  "location": "경기도 시흥시 마유로82번길 52 (정왕동)",
+  "colorId": "5"
+}
+[2026-04-15T08:56:19.961Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T08:56:21.265Z] Event created successfully: f0bumacci6q0lmv0j7mvj0kofc 
+[2026-04-15T08:56:21.311Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T08:56:22.079Z] Deleting Calendar Event: f0bumacci6q0lmv0j7mvj0kofc 
+[2026-04-15T08:56:22.082Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T08:56:23.138Z] Event deleted: f0bumacci6q0lmv0j7mvj0kofc 
+[2026-04-15T08:56:36.254Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T08:56:37.287Z] Creating Calendar Event {
+  "summary": "[이주형] 두산판금",
+  "description": "사업장코드: H0400\n          사업장: 두산판금\n          주소: 경기도 시흥시 공단3대로 153 (정왕동)\n          담당자: 김원경 과장\n          연락처: 010-9642-0201\n          비고:",
+  "date": "2026-05-06",
+  "endDate": "2026-05-06",
+  "location": "경기도 시흥시 공단3대로 153 (정왕동)",
+  "colorId": "5"
+}
+[2026-04-15T08:56:37.288Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T08:56:38.558Z] Event created successfully: lcbn1hm0vtpnmtoa9elugev4mk 
+[2026-04-15T08:56:38.606Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T08:56:39.349Z] Deleting Calendar Event: lcbn1hm0vtpnmtoa9elugev4mk 
+[2026-04-15T08:56:39.352Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T08:56:40.410Z] Event deleted: lcbn1hm0vtpnmtoa9elugev4mk 
+[2026-04-15T09:01:49.554Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:01:50.591Z] Creating Calendar Event {
+  "summary": "[이주형] 두산판금",
+  "description": "사업장코드: H0400\n          사업장: 두산판금\n          주소: 경기도 시흥시 공단3대로 153 (정왕동)\n          담당자: 김원경 과장\n          연락처: 010-9642-0201\n          비고:",
+  "date": "2026-05-06",
+  "endDate": "2026-05-06",
+  "location": "경기도 시흥시 공단3대로 153 (정왕동)",
+  "colorId": "5"
+}
+[2026-04-15T09:01:50.595Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:01:52.091Z] Event created successfully: 9gvvspgk4skhi79t3umglrnpbo 
+[2026-04-15T09:01:52.135Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:01:52.915Z] Deleting Calendar Event: 9gvvspgk4skhi79t3umglrnpbo 
+[2026-04-15T09:01:52.918Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:01:54.156Z] Event deleted: 9gvvspgk4skhi79t3umglrnpbo 
+[2026-04-15T09:02:16.379Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:02:17.320Z] Creating Calendar Event {
+  "summary": "[이주형] (주) 두산금속 - D: 11, H: 8",
+  "description": "사업장코드: H0401\n          사업장: (주) 두산금속\n          주소: 경기도 시흥시 마유로82번길 52 (정왕동)\n          담당자: 김원경 과장\n          연락처: 010-9642-0201\n          비고: D: 11, H: 8",
+  "date": "2026-05-06",
+  "endDate": "2026-05-06",
+  "location": "경기도 시흥시 마유로82번길 52 (정왕동)",
+  "colorId": "5"
+}
+[2026-04-15T09:02:17.322Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:02:18.775Z] Event created successfully: vpddj9ptffvb8d4dgflp4jkfco 
+[2026-04-15T09:02:18.823Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:02:19.610Z] Deleting Calendar Event: vpddj9ptffvb8d4dgflp4jkfco 
+[2026-04-15T09:02:19.611Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:02:20.681Z] Event deleted: vpddj9ptffvb8d4dgflp4jkfco 
+[2026-04-15T09:11:58.015Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:11:58.951Z] Creating Calendar Event {
+  "summary": "[이주형] 두산판금",
+  "description": "사업장코드: H0400\n          사업장: 두산판금\n          주소: 경기도 시흥시 공단3대로 153 (정왕동)\n          담당자: 김원경 과장\n          연락처: 010-9642-0201\n          비고:",
+  "date": "2026-05-06",
+  "endDate": "2026-05-06",
+  "location": "경기도 시흥시 공단3대로 153 (정왕동)",
+  "colorId": "5"
+}
+[2026-04-15T09:11:58.953Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:12:00.289Z] Event created successfully: 3l304crcjdbga5tmps9s8pppo0 
+[2026-04-15T09:12:00.329Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:12:12.120Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:12:13.033Z] Creating Calendar Event {
+  "summary": "[이주형] (주) 두산금속 - D: 11, H: 8",
+  "description": "사업장코드: H0401\n          사업장: (주) 두산금속\n          주소: 경기도 시흥시 마유로82번길 52 (정왕동)\n          담당자: 김원경 과장\n          연락처: 010-9642-0201\n          비고: D: 11, H: 8",
+  "date": "2026-05-06",
+  "endDate": "2026-05-06",
+  "location": "경기도 시흥시 마유로82번길 52 (정왕동)",
+  "colorId": "5"
+}
+[2026-04-15T09:12:13.035Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:12:14.290Z] Event created successfully: pqcgl7b42o532p9dph7fiibicc 
+[2026-04-15T09:12:14.328Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:13:02.286Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:13:03.139Z] Creating Calendar Event {
+  "summary": "[이주형] 주식회사 에스케이팩",
+  "description": "사업장코드: H0349\n          사업장: 주식회사 에스케이팩\n          주소: 경기도 광주시 초월읍 현산로361번길 13-8 (지월리)\n          담당자: 박준수 차장\n          연락처: 010-9989-8913\n          비고:",
+  "date": "2026-05-08",
+  "endDate": "2026-05-08",
+  "location": "경기도 광주시 초월읍 현산로361번길 13-8 (지월리)",
+  "colorId": "5"
+}
+[2026-04-15T09:13:03.141Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:13:04.399Z] Event created successfully: 9so691fnfcpboj9a5pfd33juqk 
+[2026-04-15T09:13:04.448Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:17:31.465Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:17:32.384Z] Creating Calendar Event {
+  "summary": "[이주형] 천안다나힐병원 - 25하 미수",
+  "description": "사업장코드: H0325\n          사업장: 천안다나힐병원\n          주소: 충청남도 천안시 동남구 터미널3길 5 (신부동)\n          담당자: 구성모 원무과장\n          연락처: 010-5671-5111\n          비고:",
+  "date": "2026-04-28",
+  "endDate": "2026-04-28",
+  "location": "충청남도 천안시 동남구 터미널3길 5 (신부동)",
+  "colorId": "5"
+}
+[2026-04-15T09:17:32.387Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-15T09:17:33.659Z] Event created successfully: 7geifpchgh2dgtp4q14d0v7nqk 
+[2026-04-15T09:17:33.709Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
