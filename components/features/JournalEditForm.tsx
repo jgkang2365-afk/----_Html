@@ -723,16 +723,17 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 등록 모드일 때 로그인 사용자 정보로 기본값 설정 (Fallback)
   useEffect(() => {
     // 등록 모드이고, 사용자 정보가 있고, 해당 필드가 아직 비어있을 때만 설정
-    // 주의: surveyInfo 로드 후 report_writer가 있으면 해당 값이 덮어쓰게 됩니다.
     if (!entry.id && user?.name) {
       setFormData((prev) => {
-        // 이미 값이 있으면 (예: surveyInfo나 직전 데이터에서 가져온 경우) 건드리지 않음
+        // [수정] k2b_sender는 예비조사 데이터가 없을 경우 공란 유지를 위해 자동 설정을 제외함
+        /* 
         if (prev.k2b_sender) return prev;
 
         const k2bSenderOptions = ["한기문", "강종구", "이주형", "배윤민", "고유빈"];
         if (k2bSenderOptions.includes(user.name)) {
           return { ...prev, k2b_sender: user.name };
         }
+        */
         return prev;
       });
     }

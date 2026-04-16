@@ -62,3 +62,12 @@
 
 ### 5-3. 타입 명세 업데이트
 - `JournalEntry` 등 시스템의 척추 역할을 하는 핵심 인터페이스가 변경될 경우, 즉시 `.planning/codebase/STRUCTURE.md`에 해당 변경 사항을 동기화하여 향후 컨텍스트 손실을 방지합니다.
+
+## 6. Data Sync & Memory Integrity
+
+### 6-1. State Update Principle
+- **원칙**: 외부 서비스(Google API 등)로부터 새로운 식별자(ID)를 발급받으면, `await updateDB()` 직후에 반드시 **현재 프로세스 내의 객체 변수(Memory State)**도 즉시 갱신해야 합니다.
+- **이유**: 갱신하지 않을 경우, 이후 실행되는 Reconciliation(찌꺼기 제거) 로직이 방금 생성된 리소스를 '식별자 없는 고아'로 오해하여 삭제하는 자폭(Self-Destruction) 버그가 발생합니다.
+
+### 6-2. Business Isolation
+- **원칙**: 동일 이름/날짜의 일정 혼선을 막기 위해, 모든 외부 이벤트에는 **사업장코드(code)**를 메타데이터나 설명란에 포함시키고, 이를 삭제/수정의 Primary Guard로 사용합니다.
