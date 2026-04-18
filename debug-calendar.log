@@ -1435,3 +1435,68 @@
 [2026-04-15T09:17:32.387Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-15T09:17:33.659Z] Event created successfully: 7geifpchgh2dgtp4q14d0v7nqk 
 [2026-04-15T09:17:33.709Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-16T22:57:01.140Z] Creating Calendar Event {
+  "summary": "[강종구] (주) 넥스파워텍 - 26상 미수",
+  "description": "사업장코드: H0249\n          사업장: (주) 넥스파워텍\n          주소: 충청남도 천안시 서북구 직산읍 군수1길 96 (군서리)\n          담당자: 정윤철 과장\n          연락처: 010-9090-8652\n          비고:",
+  "date": "2026-04-17",
+  "endDate": "2026-04-17",
+  "location": "충청남도 천안시 서북구 직산읍 군수1길 96 (군서리)",
+  "colorId": "9"
+}
+[2026-04-16T22:57:01.151Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-16T22:57:03.565Z] Event created successfully: is28snfm31c880j652ca6512i4 
+[2026-04-16T22:57:03.668Z] Deleting Calendar Event: oa5ma82g5mnhcj6u6l39p85g4g 
+[2026-04-16T22:57:03.671Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-16T22:57:04.908Z] Event deleted: oa5ma82g5mnhcj6u6l39p85g4g 
+[2026-04-16T22:57:04.977Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-16T22:58:08.117Z] Creating Calendar Event {
+  "summary": "[강종구] (주) 유성 - 26상 미수",
+  "description": "사업장코드: H0248\n          사업장: (주) 유성\n          주소: 충청남도 천안시 서북구 직산읍 군수1길 96, 1동\n          담당자: 정윤철 과장\n          연락처: 010-9090-8652\n          비고:",
+  "date": "2026-04-17",
+  "endDate": "2026-04-17",
+  "location": "충청남도 천안시 서북구 직산읍 군수1길 96, 1동",
+  "colorId": "9"
+}
+[2026-04-16T22:58:08.123Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-16T22:58:09.994Z] Event created successfully: nh3oaglh9krm1svpt40iqknvm4 
+[2026-04-16T22:58:10.073Z] Deleting Calendar Event: lb0bvijsh5pq9nl12p893aou60 
+[2026-04-16T22:58:10.077Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-16T22:58:11.270Z] Event deleted: lb0bvijsh5pq9nl12p893aou60 
+[2026-04-16T22:58:11.339Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-16T22:58:55.744Z] Creating Calendar Event {
+  "summary": "[강종구] 주식회사 유기농기계 - 26상 미수",
+  "description": "사업장코드: H0296\n          사업장: 주식회사 유기농기계\n          주소: 충청남도 천안시 서북구 직산읍 군수1길 112-16 (군서리)\n          담당자: 김상범\n          연락처: 010-9911-2859\n          비고:",
+  "date": "2026-04-17",
+  "endDate": "2026-04-17",
+  "location": "충청남도 천안시 서북구 직산읍 군수1길 112-16 (군서리)",
+  "colorId": "9"
+}
+[2026-04-16T22:58:55.752Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-16T22:58:57.585Z] Event created successfully: 2ipi9tn9pdm3qf2lvm0f5b2jnc 
+[2026-04-16T22:58:57.679Z] Deleting Calendar Event: 0in2rifnp9ch0vfc98er98siq4 
+[2026-04-16T22:58:57.685Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-16T22:58:58.897Z] Event deleted: 0in2rifnp9ch0vfc98er98siq4 
+[2026-04-16T22:58:58.985Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-18T03:49:59.231Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-18T03:50:00.401Z] Updating Calendar Event: sit5aghtr0doi2g9jpo10uthvc {
+  "summary": "[강종구] 연무마이스터고등학교 - 26상 미수",
+  "description": "사업장코드: H0466\n          사업장: 연무마이스터고등학교\n          주소: 충청남도 논산시 연무읍 연무로 268-9 (마산리, 연무대기계공고)\n          담당자: 최현준 교사\n          연락처: 010-6603-7868\n          비고:",
+  "date": "2026-04-28",
+  "endDate": "2026-04-28",
+  "location": "충청남도 논산시 연무읍 연무로 268-9 (마산리, 연무대기계공고)",
+  "colorId": "9"
+}
+[2026-04-18T03:50:00.404Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-18T03:50:02.320Z] Event updated successfully: sit5aghtr0doi2g9jpo10uthvc 
+[2026-04-18T03:50:02.361Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-18T03:50:03.260Z] Updating Calendar Event: ig0ept677qmhnmtspslbp9i9oc {
+  "summary": "[강종구] 연무마이스터고등학교 - 26상 미수",
+  "description": "사업장코드: H0466\n          사업장: 연무마이스터고등학교\n          주소: 충청남도 논산시 연무읍 연무로 268-9 (마산리, 연무대기계공고)\n          담당자: 최현준 교사\n          연락처: 010-6603-7868\n          비고:",
+  "date": "2026-04-29",
+  "endDate": "2026-04-29",
+  "location": "충청남도 논산시 연무읍 연무로 268-9 (마산리, 연무대기계공고)",
+  "colorId": "9"
+}
+[2026-04-18T03:50:03.267Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-18T03:50:05.030Z] Event updated successfully: ig0ept677qmhnmtspslbp9i9oc 
+[2026-04-18T03:50:05.034Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

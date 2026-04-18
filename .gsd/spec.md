@@ -1,25 +1,39 @@
-# [Spec] K2B 전송자(k2b_sender) 기본값 설정 규칙 수정
+# Project Specification: 측정일지 번호 부여 제외 및 기타매출 분류
 
 ## 1. 개요
-측정일지 등록 시 `k2b_sender`(K2B 전송자) 필드에 자동으로 입력되는 값의 정확성을 높이기 위해, 당해 주기 예비조사의 '보고서 담당자' 데이터만을 단일 소스로 사용하도록 로직을 강화한다.
+측정일지 등록 시 특정 상황에서 번호(공문연번, 연번, 5인 이상 연번)를 자동으로 부여하지 않고 등록할 수 있는 기능을 제공한다. 이 기능은 특정 권한을 가진 사용자에게만 허용되며, 해당 데이터는 '기타매출'로 자동 분류되어 관리된다.
 
-## 2. 주요 변경 사항
+## 2. 요구사항 (Requirements)
+- **R1. 권한 기반 노출**: '일지담당자(is_journal_manager)' 또는 '관리자' 권한이 있는 사용자에게만 번호 부여 제외 체크박스가 노출되어야 한다.
+- **R2. 번호 부여 제외**: 체크박스 선택 시, 시스템은 공문연번, 연번, 5인 이상 연번을 생성하지 않고 `NULL`로 저장한다.
+- **R3. 매출 자동 분류**: 번호 부여를 제외한 일지는 `revenue_type` 필드가 '기타매출'로 자동 설정되어야 한다. (기본값은 '측정매출')
+- **R4. 수동 수정 제한**: 번호 부여 제외 상태에서는 연번 필드들이 비활성화되거나 편집 시 `NULL`로 유지되어야 한다.
 
-### A. 전송자 자동 완성 로직 제한 (`components/features/JournalEditForm.tsx`)
-- **데이터 소스 단일화**: 당해연도/당해반기에 등록된 예비조사(`surveys`) 배열의 최신 데이터에서 `report_writer`를 추출하여 사용.
-- **과거 이력 참조 중단**: 이번 주기 이외의 과거 예비조사(`surveyInfo`), 직전 측정일지(`previousData`), 요약 정보(`summaryInfo`)를 통한 자동 완성을 제거함.
-- **로그인 사용자 기본값 제외**: 예비조사 데이터가 없을 경우 로그인한 사용자 이름을 자동으로 채워주던 Fallback 로직에서 `k2b_sender` 필드를 제외함.
+## 3. 기술 설계 (Technical Design)
 
-### B. 데이터 부재 시 처리
-- 당해 주기에 등록된 예비조사 정보가 없을 경우, `k2b_sender` 필드는 **반드시 공란(Empty)**으로 유지함.
+### 3.1 Data Model (Database)
+`measurement_journal` 테이블에 다음 필드를 추가한다:
+- `is_skip_numbering` (BOOLEAN, DEFAULT FALSE): 번호 부여 제외 플래그
+- `revenue_type` (VARCHAR(50), DEFAULT '측정매출'): 매출 구분 ('측정매출', '기타매출')
 
-## 3. 성공 DNA 및 규칙 준수 (The Joo Rule)
-- **FTF 프로토콜 준수**: [Forest] 전체 로직 분석 -> [Tree] 정밀 수정 -> [Forest] 결과 검증 3단계를 거친다.
-- **데이터 무결성**: 예비조사 등록 없이 일지 등록을 지원하지 않는 업무 프로세스에 맞춰, 잘못된 데이터가 자동 완성되어 발생하는 행정 오류를 차단한다.
+### 3.2 UI/UX (Frontend)
+- `JournalEditForm.tsx`:
+    - 로그인 사용자 정보에서 `is_journal_manager` 확인.
+    - 권한이 있는 경우 "일련번호 자동 부여 제외 (기타매출 분류)" 체크박스 표시.
+    - 체크 시 실시간으로 번호 필드 비우기 및 UI 힌트 제공.
 
-## 4. 기대 효과
-- 잘못된 전송자 정보가 입력되어 발생하는 K2B 전송 오류 방지.
-- 당해 주기 데이터 중심의 엄격한 데이터 정합성 유지.
+### 3.3 API Logic (Backend)
+- `app/api/journal/route.ts` (POST) & `app/api/journal/[id]/route.ts` (PUT/PATCH):
+    - `is_skip_numbering` 필드 수신.
+    - `is_skip_numbering`이 true인 경우 `assignAllNumbers`를 호출하지 않고 명시적으로 번호 필드를 `null`로 할당.
+    - `revenue_type`을 '기타매출'로 강제 설정.
 
-## 5. 승인 요청
-위 설계 내용에 대해 '주'님의 승인을 요청합니다. 승인 후 작업을 진행하겠습니다.
+## 4. 예외 처리
+- 번호 부여 제외된 일지에 나중에 수동으로 번호를 넣으려 할 경우, `is_skip_numbering` 플래그를 해제하도록 유도한다.
+- `UNIQUE` 제약 조건: 기존 `measurement_journal`의 유니크 제약조건(`designated_office`, `measurement_year`, `measurement_period`, `document_number`)에서 `document_number`가 NULL인 경우 PostgreSQL에서는 중복 체크가 허용되므로(NULL은 서로 다르다고 판단), 수동 번호 미부여 시 충돌 문제는 발생하지 않는다.
+
+## 5. 단계별 체크포인트 (GSD Phase)
+1. **Discuss**: 요구사항 확인 및 상세 설계 승인 (현재 단계)
+2. **Plan**: 상세 구현 계획서(PLAN.md) 작성 및 승인
+3. **Execute**: DB 마이그레이션 -> API 수정 -> UI 수정
+4. **Verify**: 단위 테스트 및 수동 검증

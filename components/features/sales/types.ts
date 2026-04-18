@@ -44,6 +44,7 @@ export interface OtherRevenue {
   designated_office: string | null;
   revenue_year: number | null;
   revenue_period: string | null;
+  source?: string;
 }
 
 export interface OfficeSummary {

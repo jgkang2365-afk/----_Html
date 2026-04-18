@@ -103,11 +103,19 @@ export const StatTables: React.FC<StatTablesProps> = ({
     let businessList: any[] = [];
 
     const filteredData = measurementRevenue.filter((item) => {
-      const officeMatch = !office
-        ? true
-        : office === "기타"
-        ? !item.designated_office || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(item.designated_office)
-        : item.designated_office === office;
+      const isOtherRevenue = item.revenue_type === '기타매출';
+      let officeMatch = false;
+      if (isOtherRevenue) {
+        officeMatch = !office || office === "기타";
+      } else {
+        const shortOfficeName = toShortName(item.designated_office || "");
+        officeMatch = !office
+          ? true
+          : office === "기타"
+          ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
+          : shortOfficeName === office;
+      }
+      
       const yearMatch = !unpaidSummaryYear || item.measurement_year === parseInt(unpaidSummaryYear);
       const periodMatch = isMatchSelection(item, unpaidSummaryPeriod);
       return officeMatch && yearMatch && periodMatch;
@@ -219,10 +227,16 @@ export const StatTables: React.FC<StatTablesProps> = ({
                   // 1. 측정비(측정일지) 집계
                   measurementRevenue
                     .filter((item) => {
-                      const shortOfficeName = toShortName(item.designated_office || "");
-                      const officeMatch = office === "기타" 
-                        ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
-                        : shortOfficeName === office;
+                      const isOtherRevenue = item.revenue_type === '기타매출';
+                      let officeMatch = false;
+                      if (isOtherRevenue) {
+                        officeMatch = (office === "기타");
+                      } else {
+                        const shortOfficeName = toShortName(item.designated_office || "");
+                        officeMatch = office === "기타" 
+                          ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
+                          : shortOfficeName === office;
+                      }
                       const yearMatch = !targetYear || item.measurement_year === targetYear;
                       const periodMatch = isMatchSelection(item, targetPeriod);
                       return officeMatch && yearMatch && periodMatch;
@@ -259,10 +273,16 @@ export const StatTables: React.FC<StatTablesProps> = ({
                     // 측정비 상/하반기 집계
                     measurementRevenue
                       .filter((item) => {
-                        const shortOfficeName = toShortName(item.designated_office || "");
-                        const officeMatch = office === "기타"
-                          ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
-                          : shortOfficeName === office;
+                        const isOtherRevenue = item.revenue_type === '기타매출';
+                        let officeMatch = false;
+                        if (isOtherRevenue) {
+                          officeMatch = (office === "기타");
+                        } else {
+                          const shortOfficeName = toShortName(item.designated_office || "");
+                          officeMatch = office === "기타"
+                            ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
+                            : shortOfficeName === office;
+                        }
                         return officeMatch && item.measurement_year === targetYear;
                       })
                       .forEach((item) => {
@@ -373,7 +393,7 @@ export const StatTables: React.FC<StatTablesProps> = ({
             </div>
           </div>
         </div>
-        <Table maxHeight="max-h-[400px]">
+        <Table>
           <TableHeader>
             <TableRow className="bg-sky-100 border-b border-sky-200 pointer-events-none">
               <TableHead rowSpan={2} className="text-center font-bold text-black border-r align-middle pl-2.5 w-[100px]">구분</TableHead>
@@ -403,10 +423,16 @@ export const StatTables: React.FC<StatTablesProps> = ({
                 const targetPeriod = unpaidSummaryPeriod;
 
                 const filtered = measurementRevenue.filter((item) => {
-                  const shortOfficeName = toShortName(item.designated_office || "");
-                  const officeMatch = office === "기타"
-                    ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
-                    : shortOfficeName === office;
+                  const isOtherRevenue = item.revenue_type === '기타매출';
+                  let officeMatch = false;
+                  if (isOtherRevenue) {
+                    officeMatch = (office === "기타");
+                  } else {
+                    const shortOfficeName = toShortName(item.designated_office || "");
+                    officeMatch = office === "기타"
+                      ? !shortOfficeName || !(DESIGNATED_OFFICES_FOR_SALES as readonly string[]).includes(shortOfficeName)
+                      : shortOfficeName === office;
+                  }
                   const yearMatch = !targetYear || item.measurement_year === targetYear;
                   const periodMatch = isMatchSelection(item, targetPeriod);
                   return officeMatch && yearMatch && periodMatch;

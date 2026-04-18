@@ -129,6 +129,7 @@ export async function PUT(
 
     // 번호 필드 변경 검증 (관리자만 직접 변경 가능)
     // isAdmin은 위에서 이미 정의됨
+    const isSkipNumbering = body.is_skip_numbering === true || body.isSkipNumbering === true;
     const requestedDocumentNumber = body.document_number;
     const requestedSequenceNumber = body.sequence_number;
     const requestedFivePlusSequence = body.five_plus_sequence;
@@ -140,7 +141,8 @@ export async function PUT(
         (requestedSequenceNumber !== undefined && requestedSequenceNumber !== existingJournal.sequence_number) ||
         (requestedFivePlusSequence !== undefined && requestedFivePlusSequence !== existingJournal.five_plus_sequence);
 
-      if (hasNumberChange) {
+      // 번호 부여 제외 모드가 "새롭게" 요청되는 경우가 아니고, 일반적인 번호 변경 시도인 경우 차단
+      if (hasNumberChange && !isSkipNumbering) {
         return NextResponse.json(
           {
             error: "번호 필드는 관리자 승인이 필요합니다. 번호 변경 요청을 사용해주세요.",
@@ -345,7 +347,8 @@ export async function PUT(
       const isNowLessThan5 = finalTotalEmployees < 5;
       const isEmployeeThresholdCrossed = wasLessThan5 !== isNowLessThan5;
 
-      if (isOfficeChanged || isYearChanged || isPeriodChanged || isEmployeeThresholdCrossed) {
+      // 번호 부여 제외 모드가 아니고, 재계산 조건이 충족된 경우
+      if (!isSkipNumbering && (isOfficeChanged || isYearChanged || isPeriodChanged || isEmployeeThresholdCrossed)) {
         console.log(`[측정일지 수정] 5인 연번 재계산 조건 충족 (지청변경:${isOfficeChanged}, 년도변경:${isYearChanged}, 주기변경:${isPeriodChanged}, 인원임계점변경:${isEmployeeThresholdCrossed}) -> 재계산 실행`);
         const { assignFivePlusSequenceNumber } = await import("@/lib/utils/number-assignment");
         finalFivePlusSequence = await assignFivePlusSequenceNumber(
@@ -357,8 +360,13 @@ export async function PUT(
       } else {
         // 그 외의 단순 수정 (연락처, 비고, 오타 수정 등) 시에는 무조건 기존 번호 보존
         finalFivePlusSequence = existingJournal.five_plus_sequence;
-        console.log(`[측정일지 수정] 5인 연번 재계산 조건 미충족 (단순 수정) -> 기존 번호(${finalFivePlusSequence}) 유지`);
+        console.log(`[측정일지 수정] 5인 연번 재계산 조건 미충족 (단순 수정 또는 번호미부여) -> 기존 번호(${finalFivePlusSequence}) 유지`);
       }
+    }
+
+    // 번호 미부여 모드인 경우 연번들을 null로 설정
+    if (isSkipNumbering) {
+      finalFivePlusSequence = null as any;
     }
 
     let finalDocumentNumber = documentNumber;
@@ -375,6 +383,7 @@ export async function PUT(
         document_number: finalDocumentNumber,
         sequence_number: finalSequenceNumber,
         five_plus_sequence: null, // 5인 이상 연번은 이미 계산했으므로 null
+        is_skip_numbering: isSkipNumbering,
       });
 
       finalDocumentNumber = assignedNumbers.document_number;
@@ -438,6 +447,8 @@ export async function PUT(
       // 기타 필드
       designated_office: normalizedDesignatedOffice, // 약칭으로 저장
       office_jurisdiction: normalizedOfficeJurisdiction, // 약칭으로 저장
+      is_skip_numbering: isSkipNumbering,
+      revenue_type: isSkipNumbering ? '기타매출' : (existingJournal.revenue_type || '측정매출'),
       updated_at: new Date().toISOString(),
       updated_by: user.name,
     };

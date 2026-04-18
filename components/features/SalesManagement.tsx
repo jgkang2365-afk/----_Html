@@ -557,6 +557,15 @@ export const SalesManagement: React.FC = () => {
 
   const handleOtherEdit = (item: OtherRevenue | null) => {
     if (item) {
+      // 만약 일표(일지) 기반 데이터라면 일지 수정 모달을 띄움
+      if (item.source === "journal") {
+        const journalItem = allMeasurementData.find(j => j.id === item.id);
+        if (journalItem) {
+          handleMeasurementEdit(journalItem);
+          return;
+        }
+      }
+
       setSelectedOther(item);
       setOtherFormData({
         item_name: item.item_name,
@@ -1193,6 +1202,7 @@ export const SalesManagement: React.FC = () => {
               content: (
                 <OtherRevenueTable
                   data={otherRevenue}
+                  onAdd={() => handleOtherEdit(null)}
                   onEdit={handleOtherEdit}
                   formatCurrency={formatCurrency}
                   otherFilters={otherFilters}

@@ -60,6 +60,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [originalYear, setOriginalYear] = useState(entry.measurement_year);
   const [originalPeriod, setOriginalPeriod] = useState(entry.measurement_period);
   const [autoFilling, setAutoFilling] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
   const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
@@ -85,6 +86,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
   // 측정 시작일 변경 감지를 위한 ref
   const prevStartDateRef = useRef<string | null>(normalizeDateForInput(entry.measurement_start_date));
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const [formData, setFormData] = useState({
     // 기본 정보
@@ -179,6 +184,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     
     // 특이사항
     special_notes: entry.special_notes || "",
+    is_skip_numbering: entry.is_skip_numbering === true,
   });
 
   // 비고 옵션 (복수 선택 가능)
@@ -379,6 +385,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 console.log('[JournalEditForm] Reference Data (최신) 활용:', ref);
 
                 if (ref.manager_name) updated.manager_name = ref.manager_name;
+                if (ref.manager_position) updated.manager_position = ref.manager_position;
                 if (ref.manager_mobile) updated.manager_mobile = ref.manager_mobile;
                 if (ref.manager_email) updated.manager_email = ref.manager_email;
                 if (ref.address) updated.address = ref.address;
@@ -391,6 +398,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   updated.business_category = ref.business_category;
                 }
                 if (ref.invoice_email) updated.invoice_email = ref.invoice_email;
+                if (ref.invoice_email_2) updated.invoice_email_2 = ref.invoice_email_2;
                 if (ref.representative_name) updated.representative_name = ref.representative_name;
                 if (ref.phone) updated.phone = ref.phone;
                 if (ref.fax) updated.fax = ref.fax;
@@ -916,6 +924,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       deposit_amount_business_2: entry.deposit_amount_business_2 || "",
       deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
       deposit_amount_national: entry.deposit_amount_national || "",
+      is_skip_numbering: entry.is_skip_numbering === true,
 
       // 전자계산서 정보 (발행처)
       invoice_business_name: entry.invoice_business_name || "",
@@ -1179,7 +1188,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(submitData),
+        body: JSON.stringify({
+          ...submitData,
+          isSkipNumbering: submitData.is_skip_numbering,
+        }),
       });
 
       let data = await response.json();
@@ -1847,62 +1859,89 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 md:col-span-2 lg:col-span-3 max-w-md">
-          <div>
-            <Input
-              label="공문연번"
-              value={formData.document_number}
-              disabled={(!isAdmin && !!entry.id) || isLockedByCompletion}
-              onChange={(e) => setFormData({ ...formData, document_number: e.target.value })}
-              className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion) ? "bg-surface-50" : "")}
-              placeholder={((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
-            />
-            {/* 일반 사용자에게만 수정 불가능함을 안내 */}
-            {!isAdmin && entry.id && (
-              <p className="text-xs text-text-500 mt-1">
-                관리자 승인 없이 수정 불가
-              </p>
-            )}
-          </div>
-          <div>
-            <Input
-              label="연번"
-              value={formData.sequence_number}
-              disabled={(!isAdmin && !!entry.id) || isLockedByCompletion}
-              onChange={(e) => setFormData({ ...formData, sequence_number: e.target.value })}
-              className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion) ? "bg-surface-50" : "")}
-              placeholder={((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
-            />
-            {!isAdmin && entry.id && (
-              <p className="text-xs text-text-500 mt-1">
-                관리자 승인 없이 수정 불가
-              </p>
-            )}
-          </div>
-          <div>
-            <div className="flex items-start gap-2">
-              <div className="flex-1">
-                <Input
-                  label="5인 이상 연번"
-                  value={formData.five_plus_sequence}
-                  disabled={(!isAdmin && !!entry.id) || isLockedByCompletion}
-                  onChange={(e) => setFormData({ ...formData, five_plus_sequence: e.target.value })}
-                  className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion) ? "bg-surface-50" : "")}
-                  placeholder={((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
-                />
-              </div>
-              {officeQuota !== null && (
-                <div className="mt-8 text-sm font-medium text-gray-500 whitespace-nowrap pt-1">
-                  / {officeQuota}
-                </div>
+        <div className="md:col-span-2 lg:col-span-3 flex flex-col xl:flex-row items-start xl:items-center gap-4 w-full">
+          <div className="grid grid-cols-3 gap-2 max-w-md w-full">
+            <div>
+              <Input
+                label="공문연번"
+                value={formData.document_number}
+                disabled={(!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering}
+                onChange={(e) => setFormData({ ...formData, document_number: e.target.value })}
+                className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering) ? "bg-surface-50" : "")}
+                placeholder={formData.is_skip_numbering ? "미부여" : (((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가" : "자동 부여")}
+              />
+              {!isAdmin && entry.id && !formData.is_skip_numbering && (
+                <p className="text-xs text-text-500 mt-1 truncate">
+                  승인 없이 수정 불가
+                </p>
               )}
             </div>
-            {!isAdmin && entry.id && (
-              <p className="text-xs text-text-500 mt-1">
-                관리자 승인 없이 수정 불가
-              </p>
-            )}
+            <div>
+              <Input
+                label="연번"
+                value={formData.sequence_number}
+                disabled={(!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering}
+                onChange={(e) => setFormData({ ...formData, sequence_number: e.target.value })}
+                className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering) ? "bg-surface-50" : "")}
+                placeholder={formData.is_skip_numbering ? "미부여" : (((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가" : "자동 부여")}
+              />
+              {!isAdmin && entry.id && !formData.is_skip_numbering && (
+                <p className="text-xs text-text-500 mt-1 truncate">
+                  승인 없이 수정 불가
+                </p>
+              )}
+            </div>
+            <div>
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <Input
+                    label="5인 이상 연번"
+                    value={formData.five_plus_sequence}
+                    disabled={(!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering}
+                    onChange={(e) => setFormData({ ...formData, five_plus_sequence: e.target.value })}
+                    className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering) ? "bg-surface-50" : "")}
+                    placeholder={formData.is_skip_numbering ? "미부여" : (((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가" : "자동 부여")}
+                  />
+                </div>
+                {officeQuota !== null && (
+                  <div className="mt-8 text-sm font-medium text-gray-400 whitespace-nowrap pt-1">
+                    / {officeQuota}
+                  </div>
+                )}
+              </div>
+              {!isAdmin && entry.id && !formData.is_skip_numbering && (
+                <p className="text-xs text-text-500 mt-1 truncate">
+                  승인 없이 수정 불가
+                </p>
+              )}
+            </div>
           </div>
+
+          {/* 번호 부여 제외 옵션 (우측 배치) */}
+          {mounted && (user?.is_journal_manager || isAdmin) && (
+            <div className="flex flex-col justify-center p-2 px-3 bg-red-50 rounded-lg border border-red-100 min-w-[260px] xl:ml-auto">
+              <Checkbox
+                id="is_skip_numbering"
+                label="일련번호 자동 부여 제외 (기타매출)"
+                checked={formData.is_skip_numbering}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setFormData({
+                    ...formData,
+                    is_skip_numbering: checked,
+                    document_number: checked ? "" : formData.document_number,
+                    sequence_number: checked ? "" : formData.sequence_number,
+                    five_plus_sequence: checked ? "" : formData.five_plus_sequence,
+                  });
+                }}
+                className="text-red-600 focus:ring-red-500 font-semibold text-xs"
+              />
+              <p className="mt-0.5 ml-6 text-[10px] text-red-600 flex items-center gap-1">
+                <span className="w-2.5 h-2.5 flex items-center justify-center bg-red-200 text-red-800 rounded-full text-[7px] font-bold">i</span>
+                미부여 시 기타매출로 자동 분류됩니다.
+              </p>
+            </div>
+          )}
         </div>
         {!isAdmin && entry.id && (
           <div className="mt-2">

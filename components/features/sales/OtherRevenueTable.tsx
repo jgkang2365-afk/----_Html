@@ -14,6 +14,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 interface OtherRevenueTableProps {
   data: OtherRevenue[];
+  onAdd: () => void;
   onEdit: (item: OtherRevenue) => void;
   formatCurrency: (amount: number | null | undefined) => string;
   otherFilters: any;
@@ -25,6 +26,7 @@ interface OtherRevenueTableProps {
 
 export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
   data,
+  onAdd,
   onEdit,
   formatCurrency,
   otherFilters,
@@ -63,6 +65,15 @@ export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
               className="w-[130px] h-9 text-sm pl-3 pr-8 py-1"
             />
           </div>
+          <Button
+            variant="primary"
+            size="sm"
+            className="h-9 text-xs ml-2 font-bold bg-primary-600 hover:bg-primary-700 shadow-sm"
+            onClick={onAdd}
+          >
+            <span className="mr-1.5 font-bold">＋</span>
+            기타 매출 등록
+          </Button>
           <Button
             variant="secondary"
             size="sm"

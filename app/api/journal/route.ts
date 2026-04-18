@@ -106,6 +106,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "개시번호는 11자리 숫자(예: 00000000000)여야 합니다." }, { status: 400 });
     }
 
+    // 번호 부여 제외 옵션 확인
+    const isSkipNumbering = body.is_skip_numbering === true || body.isSkipNumbering === true;
+
 
     const supabase = await createClient();
 
@@ -192,6 +195,7 @@ export async function POST(request: NextRequest) {
           measurement_year: measurementYear,
           measurement_period: measurementPeriod,
           total_employees: total_employees || businessData.total_employees,
+          is_skip_numbering: isSkipNumbering,
         });
 
         // body의 모든 필드를 포함한 업데이트 데이터 준비
@@ -215,6 +219,8 @@ export async function POST(request: NextRequest) {
           business_name: business_name || existingJournal.business_name,
           invoice_business_name: body.invoice_business_name || null,
           invoice_business_number: cleanToDigits(body.invoice_business_number),
+          is_skip_numbering: isSkipNumbering,
+          revenue_type: isSkipNumbering ? '기타매출' : '측정매출',
           updated_by: user.name,
           updated_at: new Date().toISOString(),
         };
@@ -359,8 +365,8 @@ export async function POST(request: NextRequest) {
     const manualFivePlusSequence = body.five_plus_sequence || null;
     const confirmDuplicate = body.confirm_duplicate === true;
 
-    // 수동 입력된 번호에 대한 중복 체크 (confirmDuplicate가 false일 경우)
-    if (!confirmDuplicate) {
+    // 수동 입력된 번호에 대한 중복 체크 (confirmDuplicate가 false일 경우 및 번호 부여 제외가 아닐 경우)
+    if (!confirmDuplicate && !isSkipNumbering) {
       // 1. 공문연번 중복 체크 (년도별 유일)
       if (manualDocumentNumber) {
         const { data: existingDoc } = await supabase
@@ -442,6 +448,7 @@ export async function POST(request: NextRequest) {
       document_number: manualDocumentNumber,
       sequence_number: manualSequenceNumber,
       five_plus_sequence: manualFivePlusSequence,
+      is_skip_numbering: isSkipNumbering,
     });
 
     // 측정일지 데이터 생성 (business_info 및 measurement_business 정보 포함)
@@ -449,6 +456,8 @@ export async function POST(request: NextRequest) {
       code,
       measurement_year: measurementYear,
       measurement_period: measurementPeriod,
+      is_skip_numbering: isSkipNumbering,
+      revenue_type: isSkipNumbering ? '기타매출' : '측정매출',
       note: note || null,
       designated_office: designatedOffice,
       document_number: assignedNumbers.document_number,
@@ -469,6 +478,7 @@ export async function POST(request: NextRequest) {
       phone: businessInfo?.phone || null,
       fax: businessInfo?.fax || null,
       business_category: body.business_category || businessData.business_category || null,
+      national_support_status: body.national_support_status || businessData.national_support_status || null,
       // measurement_business에서 담당자 정보 가져오기 (사용자 입력 값 우선)
       industrial_accident_number: cleanToDigits(body.industrial_accident_number || businessData.industrial_accident_number),
       manager_name: (() => {
