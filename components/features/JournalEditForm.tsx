@@ -1180,18 +1180,22 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         });
       }
 
+      // DB 컬럼이 아닌 내부 상태 필드 삭제 (백엔드 에러 방지)
+      delete submitData._isFromBusiness;
+      delete submitData._isFromSurvey;
+      delete submitData.office_jurisdiction_raw;
+
       const url = entry.id ? `/api/journal/${entry.id}` : "/api/journal";
       const method = entry.id ? "PUT" : "POST";
+
+      console.log(`[JournalEditForm] ${method} 요청 전송 데이터:`, submitData);
 
       let response = await fetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          ...submitData,
-          isSkipNumbering: submitData.is_skip_numbering,
-        }),
+        body: JSON.stringify(submitData),
       });
 
       let data = await response.json();

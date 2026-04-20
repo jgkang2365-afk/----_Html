@@ -1500,3 +1500,14 @@
 [2026-04-18T03:50:03.267Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-18T03:50:05.030Z] Event updated successfully: ig0ept677qmhnmtspslbp9i9oc 
 [2026-04-18T03:50:05.034Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-20T04:14:01.386Z] Creating Calendar Event {
+  "summary": "[고유빈] 만년종합정비(주)",
+  "description": "사업장코드: H0076\n          사업장: 만년종합정비(주)\n          주소: 대전광역시 서구 월드컵대로484번길 148-16 (월평동)\n          담당자: 김홍동 대표\n          연락처: 010-5405-3767\n          비고:",
+  "date": "2026-02-11",
+  "endDate": "2026-02-11",
+  "location": "대전광역시 서구 월드컵대로484번길 148-16 (월평동)",
+  "colorId": "3"
+}
+[2026-04-20T04:14:01.405Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-20T04:14:03.582Z] Event created successfully: tt8rlkassc43rhsb70n3ajkab0 
+[2026-04-20T04:14:03.771Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

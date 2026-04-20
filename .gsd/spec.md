@@ -1,39 +1,35 @@
-# Project Specification: 측정일지 번호 부여 제외 및 기타매출 분류
+# 측정일지 입금일자 저장 보류 및 런타임 오류 해결 스펙
 
 ## 1. 개요
-측정일지 등록 시 특정 상황에서 번호(공문연번, 연번, 5인 이상 연번)를 자동으로 부여하지 않고 등록할 수 있는 기능을 제공한다. 이 기능은 특정 권한을 가진 사용자에게만 허용되며, 해당 데이터는 '기타매출'로 자동 분류되어 관리된다.
+- 측정일지 수정 시 '입금일자' 관련 필드를 포함한 데이터 저장 과정에서 발생하는 런타임 오류를 해결한다.
+- 원인 분석 결과, `PUT` API에서 클라이언트로부터 전달받은 불필요한 필드(DB 컬럼이 아닌 필드)가 포함된 채로 `update` 쿼리를 실행하여 발생하는 문제로 확인됨.
 
-## 2. 요구사항 (Requirements)
-- **R1. 권한 기반 노출**: '일지담당자(is_journal_manager)' 또는 '관리자' 권한이 있는 사용자에게만 번호 부여 제외 체크박스가 노출되어야 한다.
-- **R2. 번호 부여 제외**: 체크박스 선택 시, 시스템은 공문연번, 연번, 5인 이상 연번을 생성하지 않고 `NULL`로 저장한다.
-- **R3. 매출 자동 분류**: 번호 부여를 제외한 일지는 `revenue_type` 필드가 '기타매출'로 자동 설정되어야 한다. (기본값은 '측정매출')
-- **R4. 수동 수정 제한**: 번호 부여 제외 상태에서는 연번 필드들이 비활성화되거나 편집 시 `NULL`로 유지되어야 한다.
+## 2. 주요 문제 분석
+1. **API 데이터 위변조 및 스키마 불일치**:
+   - `PUT /api/journal/[id]` API가 `...bodyWithoutNumbers`를 사용하여 클라이언트가 보낸 모든 데이터를 DB로 전달함.
+   - `_isFromBusiness`, `_isFromSurvey`, `isSkipNumbering`, `office_jurisdiction_raw` 등 DB 컬럼이 아닌 필드가 포함되어 에러 발생.
+2. **필드 누락**:
+   - `is_skip_numbering` 변경 시 `revenue_type`('측정매출' vs '기타매출')이 함께 업데이트되지 않을 가능성.
+3. **프론트엔드 중복 필드 전송**:
+   - `JournalEditForm`에서 `isSkipNumbering`(카멜케이스)과 `is_skip_numbering`(스네이크케이스)을 동시에 전송하여 혼선 초래.
 
-## 3. 기술 설계 (Technical Design)
+## 3. 해결 방안 (Proposed Changes)
 
-### 3.1 Data Model (Database)
-`measurement_journal` 테이블에 다음 필드를 추가한다:
-- `is_skip_numbering` (BOOLEAN, DEFAULT FALSE): 번호 부여 제외 플래그
-- `revenue_type` (VARCHAR(50), DEFAULT '측정매출'): 매출 구분 ('측정매출', '기타매출')
+### 3.1 Backend: `app/api/journal/[id]/route.ts`
+- `updateData`를 생성할 때 spread 연산자(`...body`) 사용을 지양하고, **명시적으로 허용된 컬럼만 포함**하도록 수정.
+- `revenue_type` 필드를 `is_skip_numbering` 상태에 맞춰 자동 갱신하도록 로직 추가.
+- `_isFromBusiness`, `_isFromSurvey`, `isSkipNumbering` 등 불필요한 필드 필터링.
 
-### 3.2 UI/UX (Frontend)
-- `JournalEditForm.tsx`:
-    - 로그인 사용자 정보에서 `is_journal_manager` 확인.
-    - 권한이 있는 경우 "일련번호 자동 부여 제외 (기타매출 분류)" 체크박스 표시.
-    - 체크 시 실시간으로 번호 필드 비우기 및 UI 힌트 제공.
+### 3.2 Frontend: `components/features/JournalEditForm.tsx`
+- API 호출 시 `isSkipNumbering` 중복 전송 제거 (데이터베이스 표준인 `is_skip_numbering`만 사용).
+- `formData` 정제 로직 강화.
 
-### 3.3 API Logic (Backend)
-- `app/api/journal/route.ts` (POST) & `app/api/journal/[id]/route.ts` (PUT/PATCH):
-    - `is_skip_numbering` 필드 수신.
-    - `is_skip_numbering`이 true인 경우 `assignAllNumbers`를 호출하지 않고 명시적으로 번호 필드를 `null`로 할당.
-    - `revenue_type`을 '기타매출'로 강제 설정.
+## 4. 품질 보증 요건 (Verification Plan)
+- [ ] 브라우저에서 측정일지 수정 폼 열기.
+- [ ] 입금일자 및 입금액 입력 후 저장 시도.
+- [ ] 네트워크 요청 본문에 불필요한 필드가 포함되지 않는지 확인.
+- [ ] Supabase에서 데이터가 정상적으로 업데이트되는지 확인.
+- [ ] `is_skip_numbering` 옵션 토글 시 `revenue_type`이 정상적으로 변경되는지 확인.
 
-## 4. 예외 처리
-- 번호 부여 제외된 일지에 나중에 수동으로 번호를 넣으려 할 경우, `is_skip_numbering` 플래그를 해제하도록 유도한다.
-- `UNIQUE` 제약 조건: 기존 `measurement_journal`의 유니크 제약조건(`designated_office`, `measurement_year`, `measurement_period`, `document_number`)에서 `document_number`가 NULL인 경우 PostgreSQL에서는 중복 체크가 허용되므로(NULL은 서로 다르다고 판단), 수동 번호 미부여 시 충돌 문제는 발생하지 않는다.
-
-## 5. 단계별 체크포인트 (GSD Phase)
-1. **Discuss**: 요구사항 확인 및 상세 설계 승인 (현재 단계)
-2. **Plan**: 상세 구현 계획서(PLAN.md) 작성 및 승인
-3. **Execute**: DB 마이그레이션 -> API 수정 -> UI 수정
-4. **Verify**: 단위 테스트 및 수동 검증
+---
+**주(Joo) 님, 위 설계 내용에 대해 승인해 주시면 실행 단계로 진입하겠습니다.**
