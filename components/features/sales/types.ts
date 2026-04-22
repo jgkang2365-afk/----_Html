@@ -29,6 +29,7 @@ export interface MeasurementRevenue {
   k2b_status: string | null;
   is_email_sent: boolean;
   last_email_sent_at: string | null;
+  industrial_accident_number?: string | null;
 }
 
 export interface OtherRevenue {
@@ -82,3 +83,17 @@ export const PERIOD_OPTIONS = [
   { value: "상반기", label: "상반기" },
   { value: "하반기", label: "하반기" },
 ];
+
+/**
+ * 국고지원금 정산 처리 상태 타입
+ */
+export type ProcessingStatus = 'idle' | 'loading' | 'success' | 'error';
+
+/**
+ * 국고지원금 정산 결과 상세 타입
+ */
+export interface ProcessingResult {
+  status: ProcessingStatus;
+  message?: string;
+}
+

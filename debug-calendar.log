@@ -1511,3 +1511,29 @@
 [2026-04-20T04:14:01.405Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-20T04:14:03.582Z] Event created successfully: tt8rlkassc43rhsb70n3ajkab0 
 [2026-04-20T04:14:03.771Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-22T12:03:27.918Z] Creating Calendar Event {
+  "summary": "[고유빈] 주식회사 세종바이오테크",
+  "description": "사업장코드: H0220\n          사업장: 주식회사 세종바이오테크\n          주소: 세종특별자치시 전동면 노장공단길 25-9 (노장리)\n          담당자: 홍다영 대리\n          연락처: 010-9953-6065\n          비고:",
+  "date": "2026-03-19",
+  "endDate": "2026-03-19",
+  "location": "세종특별자치시 전동면 노장공단길 25-9 (노장리)",
+  "colorId": "3"
+}
+[2026-04-22T12:03:27.931Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-22T12:03:29.799Z] Event created successfully: fgsi3sdg0787qagcsbbk5dkdg4 
+[2026-04-22T12:03:29.890Z] Deleting Calendar Event: 5774fv7s0uc0mvmmlt88gmlkk0 
+[2026-04-22T12:03:29.893Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-22T12:03:31.133Z] Event deleted: 5774fv7s0uc0mvmmlt88gmlkk0 
+[2026-04-22T12:03:31.221Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-22T12:04:55.089Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-22T12:04:56.175Z] Updating Calendar Event: fgsi3sdg0787qagcsbbk5dkdg4 {
+  "summary": "[고유빈] 주식회사 세종바이오테크",
+  "description": "사업장코드: H0220\n          사업장: 주식회사 세종바이오테크\n          주소: 세종특별자치시 전동면 노장공단길 25-9 (노장리)\n          담당자: 홍다영 대리\n          연락처: 010-9953-6065\n          비고:",
+  "date": "2026-03-19",
+  "endDate": "2026-03-19",
+  "location": "세종특별자치시 전동면 노장공단길 25-9 (노장리)",
+  "colorId": "3"
+}
+[2026-04-22T12:04:56.177Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-22T12:04:57.925Z] Event updated successfully: fgsi3sdg0787qagcsbbk5dkdg4 
+[2026-04-22T12:04:57.927Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

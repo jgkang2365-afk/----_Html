@@ -33,7 +33,8 @@ import { MeasurementTable } from "./sales/MeasurementTable";
 import { OtherRevenueTable } from "./sales/OtherRevenueTable";
 import { ThirdPartyTable } from "./sales/ThirdPartyTable";
 import { StatTables } from "./sales/StatTables";
-import { MeasurementRevenue, OtherRevenue, OfficeSummary, YearlySummary, SalesSummaryData } from "./sales/types";
+import { MeasurementRevenue, OtherRevenue, OfficeSummary, YearlySummary, SalesSummaryData, ProcessingResult } from "./sales/types";
+import { useUser } from "@/hooks/use-user";
 
 export const SalesManagement: React.FC = () => {
   // KST 날짜를 YYYY-MM-DD 형식으로 포맷 (toISOString은 UTC로 변환되므로 사용 금지)
@@ -62,6 +63,9 @@ export const SalesManagement: React.FC = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+
+  // 사용자 권한 정보 가져오기
+  const { user } = useUser();
 
   // 현재 활성 탭 상태 (URL 파라미터에서 가져오기, 기본값: measurement)
   const activeTab = searchParams.get("tab") || "measurement";
@@ -245,6 +249,15 @@ export const SalesManagement: React.FC = () => {
     failCount: number;
     details?: string[];
   } | null>(null);
+
+  // 국고지원금 개별 정산 상태 관리 (신호등용)
+  const [paymentProcessingResults, setPaymentProcessingResults] = useState<Record<number, ProcessingResult>>({});
+  const [paymentProcessingLogs, setPaymentProcessingLogs] = useState<any[]>([]);
+  const [isPaymentResultsModalOpen, setIsPaymentResultsModalOpen] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentTotalCount, setPaymentTotalCount] = useState(0);
+  const [paymentCurrentIndex, setPaymentCurrentIndex] = useState(0);
+  const paymentFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // 미수관리 필터 및 정렬 상태
   const [unpaidFilters, setUnpaidFilters] = useState({
@@ -1066,6 +1079,247 @@ export const SalesManagement: React.FC = () => {
     }
   };
 
+  /**
+   * 국고지원금 정산용 엑셀 양식 다운로드
+   */
+  const handleDownloadPaymentTemplate = () => {
+    const templateData = [
+      {
+        "측정년도": "2025",
+        "측정주기": "상반기",
+        "산재관리번호": "30647767230",
+        "사업장명": "(주)샘플기업",
+        "입금일": "20250620",
+        "입금액": "300,000"
+      },
+      {
+        "측정년도": "2025",
+        "측정주기": "하반기",
+        "산재관리번호": "관리번호11자리",
+        "사업장명": "참고용명칭",
+        "입금일": "YYYYMMDD",
+        "입금액": "숫자만"
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wscols = [
+      { wch: 15 }, // 측정년도
+      { wch: 15 }, // 측정주기
+      { wch: 20 }, // 산재관리번호
+      { wch: 25 }, // 사업장명
+      { wch: 15 }, // 입금일
+      { wch: 15 }, // 입금액
+    ];
+    ws["!cols"] = wscols;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "국고지원금정산양식");
+    XLSX.writeFile(wb, "국고지원금_정산_업로드_양식.xlsx");
+  };
+
+  /**
+   * 국고지원금 엑셀 파일 선택 핸들러
+   */
+  const handlePaymentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const data = event.target?.result;
+        const workbook = XLSX.read(data, { type: "binary" });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+
+        if (rows.length === 0) {
+          setError("업로드할 데이터가 없습니다.");
+          return;
+        }
+
+        // 1. 매칭되는 모든 항목 찾아서 'idle' (대기 중) 상태로 초기화하여 신호등 표시 및 로그 생성
+        const initialResults: Record<number, ProcessingResult> = {};
+        const initialLogs: any[] = [];
+        rows.forEach((row: any) => {
+          const year = row["측정년도"]?.toString().trim();
+          const period = row["측정주기"]?.toString().trim();
+          const accidentNumber = row["산재관리번호"]?.toString().trim();
+
+          if (year && period && accidentNumber) {
+            const targetItem = allMeasurementData.find(item => 
+              item.measurement_year.toString().trim() === year &&
+              isMatchSelection(item.measurement_period?.trim() || "", period || "") &&
+              item.industrial_accident_number?.toString().trim() === accidentNumber
+            );
+
+            if (targetItem) {
+              initialResults[targetItem.id] = { status: 'idle', message: '대기 중...' };
+            }
+
+            initialLogs.push({
+              year,
+              period,
+              accidentNumber,
+              businessName: targetItem?.business_name || row["사업장명"] || "알 수 없음",
+              dbId: targetItem?.id || null,
+              status: 'idle',
+              message: '대기 중...'
+            });
+          }
+        });
+
+        // 처리 상태 초기화 (대기 상태 포함)
+        setPaymentProcessingResults(initialResults);
+        setPaymentProcessingLogs(initialLogs);
+        setIsProcessingPayment(true);
+        setPaymentTotalCount(rows.length);
+        setPaymentCurrentIndex(0);
+        
+        // 순차적으로 처리 (UI 업데이트를 위해)
+        let localSuccessCount = 0;
+        let localFailCount = 0;
+
+        for (let i = 0; i < rows.length; i++) {
+          setPaymentCurrentIndex(i + 1);
+          const isSuccess = await processPaymentRow(rows[i]);
+          if (isSuccess) {
+            localSuccessCount++;
+          } else {
+            localFailCount++;
+          }
+        }
+
+        // 완료 후 데이터 새로고침
+        try {
+          await loadSalesData();
+        } catch (loadErr) {
+          console.error("Data reload failed after payment processing:", loadErr);
+        }
+        
+        // 처리 완료 알림 및 지연 후 오버레이 닫기 및 결과 모달 오픈
+        setTimeout(() => {
+          setIsProcessingPayment(false);
+          setIsPaymentResultsModalOpen(true);
+        }, 1000);
+        
+      } catch (err) {
+        console.error("Payment Excel parsing error:", err);
+        setError("엑셀 파일을 읽는 중 오류가 발생했습니다.");
+      } finally {
+        if (paymentFileInputRef.current) {
+          paymentFileInputRef.current.value = "";
+        }
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  /**
+   * 개별 행 처리 로직
+   */
+  const processPaymentRow = async (row: any) => {
+    const year = row["측정년도"]?.toString().trim();
+    const period = row["측정주기"]?.toString().trim();
+    const accidentNumber = row["산재관리번호"]?.toString().trim();
+    let depositDate = row["입금일"]?.toString().trim();
+    let depositAmountRaw = row["입금액"];
+    
+    // 콤마가 포함된 문자열일 경우 제거 후 숫자로 변환
+    const depositAmount = typeof depositAmountRaw === 'string' 
+      ? parseFloat(depositAmountRaw.replace(/,/g, "").trim()) 
+      : Number(depositAmountRaw);
+
+    if (!year || !period || !accidentNumber || !depositDate || isNaN(depositAmount)) {
+      return;
+    }
+
+    // 날짜 형식 변환 (YYYYMMDD -> YYYY-MM-DD)
+    if (depositDate.length === 8 && /^\d{8}$/.test(depositDate)) {
+      depositDate = `${depositDate.substring(0, 4)}-${depositDate.substring(4, 6)}-${depositDate.substring(6, 8)}`;
+    }
+
+    // 1. 해당 레코드 매칭 시도 (UI에 진행중 표시를 위해)
+    const targetItem = allMeasurementData.find(item => 
+      item.measurement_year.toString().trim() === year &&
+      isMatchSelection(item.measurement_period?.trim() || "", period || "") &&
+      item.industrial_accident_number?.toString().trim() === accidentNumber
+    );
+
+    if (targetItem) {
+      setPaymentProcessingResults(prev => ({
+        ...prev,
+        [targetItem.id]: { status: 'loading', message: '처리 중...' }
+      }));
+    }
+
+    setPaymentProcessingLogs(prev => prev.map(log => 
+      (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
+        ? { ...log, status: 'loading', message: '처리 중...' }
+        : log
+    ));
+
+    try {
+      const response = await fetch("/api/journal/upload/payment-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          measurement_year: targetItem ? targetItem.measurement_year : year,
+          measurement_period: targetItem ? targetItem.measurement_period : period,
+          industrial_accident_number: accidentNumber,
+          deposit_date_national: depositDate,
+          deposit_amount_national: depositAmount
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        // 성공 시
+        setPaymentProcessingResults(prev => ({
+          ...prev,
+          [result.id || targetItem?.id || 0]: { status: 'success', message: '정산 완료' }
+        }));
+        setPaymentProcessingLogs(prev => prev.map(log => 
+          (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
+            ? { ...log, status: 'success', message: '정산 완료' }
+            : log
+        ));
+        return true;
+      } else {
+        // 에러 시
+        const errId = targetItem?.id || 0;
+        const errMsg = result.error || '실패';
+        setPaymentProcessingResults(prev => ({
+          ...prev,
+          ...(errId ? { [errId]: { status: 'error', message: errMsg } } : {})
+        }));
+        setPaymentProcessingLogs(prev => prev.map(log => 
+          (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
+            ? { ...log, status: 'error', message: errMsg }
+            : log
+        ));
+        return false;
+      }
+    } catch (err: any) {
+      console.error("Row processing error:", err);
+      const networkErrMsg = `네트워크 오류: ${err.message || '알 수 없음'}`;
+      if (targetItem) {
+        setPaymentProcessingResults(prev => ({
+          ...prev,
+          [targetItem.id]: { status: 'error', message: networkErrMsg }
+        }));
+      }
+      setPaymentProcessingLogs(prev => prev.map(log => 
+        (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
+          ? { ...log, status: 'error', message: networkErrMsg }
+          : log
+      ));
+      return false;
+    }
+  };
+
   // 데이터 로컬 로딩 중에도 레이아웃 프레임을 유지하여 스크롤 점프 방지
   // if (loading) {
   //   return (
@@ -1193,6 +1447,10 @@ export const SalesManagement: React.FC = () => {
                   checkExactMatch={checkExactMatch}
                   isMatchSelection={isMatchSelection}
                   getPeriodWeight={getPeriodWeight}
+                  isJournalManager={user?.is_journal_manager || user?.role === "관리자"}
+                  onPaymentUpload={() => paymentFileInputRef.current?.click()}
+                  onDownloadPaymentTemplate={handleDownloadPaymentTemplate}
+                  processingResults={paymentProcessingResults}
                 />
               ),
             },
@@ -2691,7 +2949,138 @@ export const SalesManagement: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* 국고지원금 정산용 숨겨진 파일 입력 필드 */}
+      <input
+        type="file"
+        ref={paymentFileInputRef}
+        onChange={handlePaymentFileChange}
+        accept=".xlsx,.xls"
+        className="hidden"
+      />
       </div>
+      {/* 국고지원금 정산 결과 상세 모달 */}
+      <Modal
+        isOpen={isPaymentResultsModalOpen}
+        onClose={() => setIsPaymentResultsModalOpen(false)}
+        title="국고지원금 정산 처리 결과 상세"
+        size="xl"
+      >
+        <div className="space-y-4">
+          <div className="flex justify-between items-center bg-gray-50 p-4 rounded-lg">
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-green-500 shadow-sm" />
+                <span className="text-sm font-bold text-green-700">성공: {paymentProcessingLogs.filter(l => l.status === 'success').length}건</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500 shadow-sm" />
+                <span className="text-sm font-bold text-red-700">실패: {paymentProcessingLogs.filter(l => l.status === 'error').length}건</span>
+              </div>
+            </div>
+            <div className="text-xs text-gray-500">
+              전체 {paymentProcessingLogs.length}건 중 {paymentProcessingLogs.filter(l => l.status !== 'idle' && l.status !== 'loading').length}건 완료
+            </div>
+          </div>
+
+          <div className="max-h-[500px] overflow-y-auto border border-gray-100 rounded-xl shadow-inner bg-white">
+            <table className="w-full text-sm border-collapse">
+              <thead className="bg-gray-50/80 backdrop-blur-sm sticky top-0 z-10">
+                <tr>
+                  <th className="px-4 py-3 text-left border-b font-semibold text-gray-700">년도/주기</th>
+                  <th className="px-4 py-3 text-left border-b font-semibold text-gray-700">산재번호</th>
+                  <th className="px-4 py-3 text-left border-b font-semibold text-gray-700">사업장명</th>
+                  <th className="px-4 py-3 text-left border-b font-semibold text-gray-700 text-center">상태</th>
+                  <th className="px-4 py-3 text-left border-b font-semibold text-gray-700">결과 메시지</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {paymentProcessingLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-12 text-center text-gray-400 italic">처리 기록이 없습니다.</td>
+                  </tr>
+                ) : (
+                  paymentProcessingLogs.map((log, index) => (
+                    <tr key={index} className="hover:bg-blue-50/30 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap text-gray-600">{log.year} / {log.period}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500">{log.accidentNumber}</td>
+                      <td className="px-4 py-3 font-medium text-gray-800 truncate max-w-[180px]" title={log.businessName}>{log.businessName}</td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className={cn(
+                            "w-2.5 h-2.5 rounded-full ring-2 ring-white shadow-sm",
+                            log.status === 'success' ? "bg-green-500" :
+                            log.status === 'error' ? "bg-red-500" :
+                            log.status === 'loading' ? "bg-yellow-400 animate-pulse" :
+                            "bg-gray-300"
+                          )} />
+                          <span className={cn(
+                            "text-xs font-bold px-1.5 py-0.5 rounded",
+                            log.status === 'success' ? "text-green-700 bg-green-50" :
+                            log.status === 'error' ? "text-red-700 bg-red-50" :
+                            "text-gray-500 bg-gray-50"
+                          )}>
+                            {log.status === 'success' ? "성공" : log.status === 'error' ? "실패" : "대기"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className={cn(
+                        "px-4 py-3 text-xs",
+                        log.status === 'error' ? "text-red-600 font-medium" : "text-gray-500"
+                      )}>
+                        {log.message}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t gap-2">
+            <p className="mr-auto text-xs text-gray-400 flex items-center">
+              💡 실패한 항목의 '결과 메시지'를 확인하여 엑셀 데이터를 수정한 뒤 다시 업로드해주세요.
+            </p>
+            <Button variant="secondary" onClick={() => setIsPaymentResultsModalOpen(false)}>닫기</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 국고지원금 정산 처리 진행 상태 오버레이 */}
+      {isProcessingPayment && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white p-8 rounded-2xl shadow-2xl border border-primary-100 flex flex-col items-center gap-6 max-w-md w-full animate-in fade-in zoom-in duration-300">
+            <div className="relative w-20 h-20">
+              <div className="absolute inset-0 border-4 border-primary-100 rounded-full"></div>
+              <div 
+                className="absolute inset-0 border-4 border-primary-600 rounded-full border-t-transparent animate-spin"
+                style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%)' }}
+              ></div>
+              <div className="absolute inset-0 flex items-center justify-center font-bold text-primary-700">
+                {Math.round((paymentCurrentIndex / paymentTotalCount) * 100)}%
+              </div>
+            </div>
+            
+            <div className="text-center space-y-2">
+              <h3 className="text-xl font-bold text-gray-900">국고지원금 정산 처리 중</h3>
+              <p className="text-gray-500">
+                전체 {paymentTotalCount}건 중 {paymentCurrentIndex}번째 항목을 처리하고 있습니다.
+              </p>
+            </div>
+
+            <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+              <div 
+                className="bg-primary-600 h-full transition-all duration-300 ease-out"
+                style={{ width: `${(paymentCurrentIndex / paymentTotalCount) * 100}%` }}
+              ></div>
+            </div>
+            
+            <p className="text-sm text-primary-600 animate-pulse font-medium">
+              페이지를 나가지 마세요...
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
