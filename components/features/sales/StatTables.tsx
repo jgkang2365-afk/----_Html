@@ -96,13 +96,21 @@ export const StatTables: React.FC<StatTablesProps> = ({
 
   const handleUnpaidBusinessClick = (
     office: string | null,
-    category: "total" | "business" | "national"
+    category: "total" | "business" | "national",
+    onlyUnpaid: boolean = false
   ) => {
     const officeLabel = office ? officeLabels[office] || office : "전체";
+    const statusLabel = onlyUnpaid ? "미수" : "전체";
     let categoryLabel = "";
-    let businessList: any[] = [];
+    if (category === "total") categoryLabel = `${statusLabel} 합계`;
+    else if (category === "business") categoryLabel = `${statusLabel} 사업장`;
+    else categoryLabel = `${statusLabel} 국고`;
 
-    const filteredData = measurementRevenue.filter((item) => {
+    const targetYear = unpaidSummaryYear ? parseInt(unpaidSummaryYear) : null;
+    const targetPeriod = unpaidSummaryPeriod;
+
+    // 1. 측정일지 데이터 필터링 및 매핑
+    const filteredMeasurement = measurementRevenue.filter((item) => {
       const isOtherRevenue = item.revenue_type === '기타매출';
       let officeMatch = false;
       if (isOtherRevenue) {
@@ -116,36 +124,61 @@ export const StatTables: React.FC<StatTablesProps> = ({
           : shortOfficeName === office;
       }
       
-      const yearMatch = !unpaidSummaryYear || item.measurement_year === parseInt(unpaidSummaryYear);
-      const periodMatch = isMatchSelection(item, unpaidSummaryPeriod);
+      const yearMatch = !targetYear || item.measurement_year === targetYear;
+      const periodMatch = isMatchSelection(item, targetPeriod);
       return officeMatch && yearMatch && periodMatch;
+    }).map(item => {
+      const biz_fee = item.measurement_fee_business || 0;
+      const biz_dep = (item.deposit_amount_business || 0) + (item.deposit_amount_business_2 || 0);
+      const nat_fee = item.measurement_fee_national || 0;
+      const nat_dep = item.deposit_amount_national || 0;
+      const total_fee = biz_fee + nat_fee;
+      const total_dep = biz_dep + nat_dep;
+      
+      let unpaid = 0;
+      if (category === "total") unpaid = total_fee - total_dep;
+      else if (category === "business") unpaid = biz_fee - biz_dep;
+      else unpaid = nat_fee - nat_dep;
+
+      return { 
+        business_name: item.business_name,
+        year: item.measurement_year,
+        period: item.measurement_period,
+        biz_fee, biz_dep, 
+        nat_fee, nat_dep,
+        unpaid_amount: unpaid 
+      };
     });
 
-    if (category === "total") {
-      categoryLabel = "전체 미수금";
-      businessList = filteredData
-        .map((item) => {
-          const unpaid = (item.measurement_fee_total || 0) - (item.deposit_total || 0);
-          return { ...item, unpaid_amount: unpaid };
-        })
-        .filter((item) => item.unpaid_amount > 0);
-    } else if (category === "business") {
-      categoryLabel = "사업장 미수금";
-      businessList = filteredData
-        .map((item) => {
-          const unpaid = (item.measurement_fee_business || 0) - ((item.deposit_amount_business || 0) + (item.deposit_amount_business_2 || 0));
-          return { ...item, unpaid_amount: unpaid };
-        })
-        .filter((item) => item.unpaid_amount > 0);
-    } else {
-      categoryLabel = "국고 미수금";
-      businessList = filteredData
-        .map((item) => {
-          const unpaid = (item.measurement_fee_national || 0) - (item.deposit_amount_national || 0);
-          return { ...item, unpaid_amount: unpaid };
-        })
-        .filter((item) => item.unpaid_amount > 0);
+    // 2. 기타 매출 데이터 필터링 및 매핑 (기타 행인 경우)
+    let filteredOther: any[] = [];
+    if (!office || office === "기타") {
+      const otherDataToUse = allOtherData || otherRevenue;
+      filteredOther = otherDataToUse.filter(item => {
+        const yearMatch = !targetYear || item.revenue_year === targetYear;
+        const periodMatch = isMatchSelection(item, targetPeriod);
+        return yearMatch && periodMatch;
+      }).map(item => {
+        const amount = item.total_amount || 0;
+        const deposit = item.deposit_amount || 0;
+        const unpaid = amount - deposit;
+
+        return {
+          business_name: item.business_name,
+          year: item.revenue_year,
+          period: item.revenue_period,
+          biz_fee: amount,
+          biz_dep: deposit,
+          nat_fee: 0,
+          nat_dep: 0,
+          unpaid_amount: (category === "national" ? 0 : unpaid)
+        };
+      });
     }
+
+    const businessList = [...filteredMeasurement, ...filteredOther]
+      .filter((item) => !onlyUnpaid || item.unpaid_amount > 0)
+      .sort((a, b) => b.unpaid_amount - a.unpaid_amount);
 
     setUnpaidDetailTitle(`${officeLabel} - ${categoryLabel} 상세 내역`);
     setUnpaidDetailList(businessList);
@@ -438,9 +471,9 @@ export const StatTables: React.FC<StatTablesProps> = ({
                   return officeMatch && yearMatch && periodMatch;
                 });
 
-                let totalCount = 0, totalSubtotal = 0, totalDeposit = 0;
-                let bizCount = 0, bizSubtotal = 0, bizDeposit = 0;
-                let natCount = 0, natSubtotal = 0, natDeposit = 0;
+                let totalCount = 0, totalUnpaidCount = 0, totalSubtotal = 0, totalDeposit = 0;
+                let bizCount = 0, bizUnpaidCount = 0, bizSubtotal = 0, bizDeposit = 0;
+                let natCount = 0, natUnpaidCount = 0, natSubtotal = 0, natDeposit = 0;
 
                 filtered.forEach(item => {
                   const bFee = item.measurement_fee_business || 0;
@@ -448,9 +481,25 @@ export const StatTables: React.FC<StatTablesProps> = ({
                   const nFee = item.measurement_fee_national || 0;
                   const nDep = item.deposit_amount_national || 0;
 
-                  if (bFee > 0 || bDep > 0) { bizCount++; bizSubtotal += bFee; bizDeposit += bDep; }
-                  if (nFee > 0 || nDep > 0) { natCount++; natSubtotal += nFee; natDeposit += nDep; }
-                  if (bFee + nFee > 0 || bDep + nDep > 0) { totalCount++; totalSubtotal += (bFee + nFee); totalDeposit += (bDep + nDep); }
+                  const bUnpaid = bFee - bDep;
+                  const nUnpaid = nFee - nDep;
+                  const tUnpaid = (bFee + nFee) - (bDep + nDep);
+
+                  if (bFee > 0 || bDep > 0) { 
+                    bizCount++; 
+                    if (bUnpaid > 0) bizUnpaidCount++;
+                    bizSubtotal += bFee; bizDeposit += bDep; 
+                  }
+                  if (nFee > 0 || nDep > 0) { 
+                    natCount++; 
+                    if (nUnpaid > 0) natUnpaidCount++;
+                    natSubtotal += nFee; natDeposit += nDep; 
+                  }
+                  if (bFee + nFee > 0 || bDep + nDep > 0) { 
+                    totalCount++; 
+                    if (tUnpaid > 0) totalUnpaidCount++;
+                    totalSubtotal += (bFee + nFee); totalDeposit += (bDep + nDep); 
+                  }
                 });
 
                 // [수정] '기타' 행인 경우 기타 매출(other_revenue)의 미수금 데이터도 합산함
@@ -462,37 +511,43 @@ export const StatTables: React.FC<StatTablesProps> = ({
                     if (yearMatch && periodMatch) {
                       const amount = item.total_amount || 0;
                       const deposit = item.deposit_amount || 0;
+                      const unpaid = amount - deposit;
                       
                       totalCount++;
+                      if (unpaid > 0) totalUnpaidCount++;
                       totalSubtotal += amount;
                       totalDeposit += deposit;
                       
                       // 기타 매출은 성격상 '사업장' 미수금으로 분류
                       bizCount++;
+                      if (unpaid > 0) bizUnpaidCount++;
                       bizSubtotal += amount;
                       bizDeposit += deposit;
                     }
                   });
                 }
                 
-                return { office, label: officeLabels[office] || office, totalCount, totalSubtotal, totalDeposit, bizCount, bizSubtotal, bizDeposit, natCount, natSubtotal, natDeposit };
+                return { office, label: officeLabels[office] || office, totalCount, totalUnpaidCount, totalSubtotal, totalDeposit, bizCount, bizUnpaidCount, bizSubtotal, bizDeposit, natCount, natUnpaidCount, natSubtotal, natDeposit };
               });
 
               const totalRow = unpaidAnalysis.reduce((acc, row) => {
                 acc.totalCount += row.totalCount;
+                acc.totalUnpaidCount += row.totalUnpaidCount;
                 acc.totalSubtotal += row.totalSubtotal;
                 acc.totalDeposit += row.totalDeposit;
                 acc.bizCount += row.bizCount;
+                acc.bizUnpaidCount += row.bizUnpaidCount;
                 acc.bizSubtotal += row.bizSubtotal;
                 acc.bizDeposit += row.bizDeposit;
                 acc.natCount += row.natCount;
+                acc.natUnpaidCount += row.natUnpaidCount;
                 acc.natSubtotal += row.natSubtotal;
                 acc.natDeposit += row.natDeposit;
                 return acc;
               }, {
-                totalCount: 0, totalSubtotal: 0, totalDeposit: 0,
-                bizCount: 0, bizSubtotal: 0, bizDeposit: 0,
-                natCount: 0, natSubtotal: 0, natDeposit: 0
+                totalCount: 0, totalUnpaidCount: 0, totalSubtotal: 0, totalDeposit: 0,
+                bizCount: 0, bizUnpaidCount: 0, bizSubtotal: 0, bizDeposit: 0,
+                natCount: 0, natUnpaidCount: 0, natSubtotal: 0, natDeposit: 0
               });
 
               return (
@@ -503,17 +558,29 @@ export const StatTables: React.FC<StatTablesProps> = ({
                       <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
                       합계
                     </TableCell>
-                    <TableCell className="text-center font-bold text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(null, "total")}>{totalRow.totalCount}</TableCell>
+                    <TableCell className="text-center font-bold">
+                      <span className="text-red-600 cursor-pointer underline hover:text-red-800" onClick={() => handleUnpaidBusinessClick(null, "total", true)}>{totalRow.totalUnpaidCount}</span>
+                      <span className="mx-1 text-gray-400">/</span>
+                      <span className="text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(null, "total", false)}>{totalRow.totalCount}</span>
+                    </TableCell>
                     <TableCell className="text-right font-bold">{formatCurrency(totalRow.totalSubtotal)}</TableCell>
                     <TableCell className="text-right font-bold">{formatCurrency(totalRow.totalDeposit)}</TableCell>
                     <TableCell className="text-right font-bold text-warning-600 border-r-2">{formatCurrency(totalRow.totalSubtotal - totalRow.totalDeposit)}</TableCell>
                     
-                    <TableCell className="text-center font-bold text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(null, "business")}>{totalRow.bizCount}</TableCell>
+                    <TableCell className="text-center font-bold">
+                      <span className="text-red-600 cursor-pointer underline hover:text-red-800" onClick={() => handleUnpaidBusinessClick(null, "business", true)}>{totalRow.bizUnpaidCount}</span>
+                      <span className="mx-1 text-gray-400">/</span>
+                      <span className="text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(null, "business", false)}>{totalRow.bizCount}</span>
+                    </TableCell>
                     <TableCell className="text-right font-bold">{formatCurrency(totalRow.bizSubtotal)}</TableCell>
                     <TableCell className="text-right font-bold">{formatCurrency(totalRow.bizDeposit)}</TableCell>
                     <TableCell className="text-right font-bold text-warning-600 border-r-2">{formatCurrency(totalRow.bizSubtotal - totalRow.bizDeposit)}</TableCell>
                     
-                    <TableCell className="text-center font-bold text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(null, "national")}>{totalRow.natCount}</TableCell>
+                    <TableCell className="text-center font-bold">
+                      <span className="text-red-600 cursor-pointer underline hover:text-red-800" onClick={() => handleUnpaidBusinessClick(null, "national", true)}>{totalRow.natUnpaidCount}</span>
+                      <span className="mx-1 text-gray-400">/</span>
+                      <span className="text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(null, "national", false)}>{totalRow.natCount}</span>
+                    </TableCell>
                     <TableCell className="text-right font-bold">{formatCurrency(totalRow.natSubtotal)}</TableCell>
                     <TableCell className="text-right font-bold">{formatCurrency(totalRow.natDeposit)}</TableCell>
                     <TableCell className="text-right font-bold text-warning-600">{formatCurrency(totalRow.natSubtotal - totalRow.natDeposit)}</TableCell>
@@ -525,17 +592,29 @@ export const StatTables: React.FC<StatTablesProps> = ({
                         <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
                         {row.label}
                       </TableCell>
-                      <TableCell className="text-center text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(row.office, "total")}>{row.totalCount}</TableCell>
+                      <TableCell className="text-center">
+                        <span className="text-red-600 cursor-pointer underline hover:text-red-800" onClick={() => handleUnpaidBusinessClick(row.office, "total", true)}>{row.totalUnpaidCount}</span>
+                        <span className="mx-1 text-gray-400">/</span>
+                        <span className="text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(row.office, "total", false)}>{row.totalCount}</span>
+                      </TableCell>
                       <TableCell className="text-right">{formatCurrency(row.totalSubtotal)}</TableCell>
                       <TableCell className="text-right">{formatCurrency(row.totalDeposit)}</TableCell>
                       <TableCell className="text-right font-bold text-warning-600 border-r-2">{formatCurrency(row.totalSubtotal - row.totalDeposit)}</TableCell>
                       
-                      <TableCell className="text-center text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(row.office, "business")}>{row.bizCount}</TableCell>
+                      <TableCell className="text-center">
+                        <span className="text-red-600 cursor-pointer underline hover:text-red-800" onClick={() => handleUnpaidBusinessClick(row.office, "business", true)}>{row.bizUnpaidCount}</span>
+                        <span className="mx-1 text-gray-400">/</span>
+                        <span className="text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(row.office, "business", false)}>{row.bizCount}</span>
+                      </TableCell>
                       <TableCell className="text-right">{formatCurrency(row.bizSubtotal)}</TableCell>
                       <TableCell className="text-right">{formatCurrency(row.bizDeposit)}</TableCell>
                       <TableCell className="text-right font-bold text-warning-600 border-r-2">{formatCurrency(row.bizSubtotal - row.bizDeposit)}</TableCell>
                       
-                      <TableCell className="text-center text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(row.office, "national")}>{row.natCount}</TableCell>
+                      <TableCell className="text-center">
+                        <span className="text-red-600 cursor-pointer underline hover:text-red-800" onClick={() => handleUnpaidBusinessClick(row.office, "national", true)}>{row.natUnpaidCount}</span>
+                        <span className="mx-1 text-gray-400">/</span>
+                        <span className="text-blue-600 cursor-pointer underline hover:text-blue-800" onClick={() => handleUnpaidBusinessClick(row.office, "national", false)}>{row.natCount}</span>
+                      </TableCell>
                       <TableCell className="text-right">{formatCurrency(row.natSubtotal)}</TableCell>
                       <TableCell className="text-right">{formatCurrency(row.natDeposit)}</TableCell>
                       <TableCell className="text-right font-bold text-warning-600">{formatCurrency(row.natSubtotal - row.natDeposit)}</TableCell>
@@ -550,30 +629,38 @@ export const StatTables: React.FC<StatTablesProps> = ({
 
       {/* 미수금 상세 내역 모달 */}
       <Modal isOpen={isUnpaidDetailModalOpen} onClose={() => setIsUnpaidDetailModalOpen(false)} title={unpaidDetailTitle} size="xl">
-        <Table maxHeight="max-h-[500px]">
-          <TableHeader>
-            <TableRow className="bg-sky-100 border-b-2 border-sky-200 pointer-events-none">
-              <TableHead className="w-[200px] text-left pl-2.5">사업장명</TableHead>
-              <TableHead className="text-center">년도</TableHead>
-              <TableHead className="text-center">주기</TableHead>
-              <TableHead className="text-right">미수금액</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {unpaidDetailList.map((item, idx) => (
-              <TableRow key={idx} className="group relative hover:bg-blue-50/40 transition-colors growable-row">
-                <TableCell className="relative pl-2.5">
-                  {/* 표준 블루 인디케이터 바 */}
-                  <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
-                  {item.business_name}
-                </TableCell>
-                <TableCell className="text-center">{item.measurement_year}</TableCell>
-                <TableCell className="text-center">{item.measurement_period}</TableCell>
-                <TableCell className="text-right text-warning-600 font-bold">{formatCurrency(item.unpaid_amount)}원</TableCell>
+        <div className="w-full">
+          <Table maxHeight="max-h-[60vh]">
+            <TableHeader className="sticky top-0 z-10 shadow-sm">
+              <TableRow className="bg-sky-100 border-b-2 border-sky-200 pointer-events-none">
+                <TableHead className="w-[200px] text-left pl-2.5 whitespace-normal break-all">사업장명</TableHead>
+                <TableHead className="text-center w-[80px] whitespace-nowrap">년도</TableHead>
+                <TableHead className="text-center w-[100px] whitespace-nowrap">주기</TableHead>
+                <TableHead className="text-right whitespace-nowrap">사업장 부담</TableHead>
+                <TableHead className="text-right whitespace-nowrap">국고 부담</TableHead>
+                <TableHead className="text-right whitespace-nowrap">입금액</TableHead>
+                <TableHead className="text-right whitespace-nowrap">미수금</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {unpaidDetailList.map((item, idx) => (
+                <TableRow key={idx} className="group relative hover:bg-blue-50/40 transition-colors growable-row">
+                  <TableCell className="relative pl-2.5 whitespace-normal break-all leading-tight">
+                    {/* 표준 블루 인디케이터 바 */}
+                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                    {item.business_name}
+                  </TableCell>
+                  <TableCell className="text-center whitespace-nowrap">{item.year}</TableCell>
+                  <TableCell className="text-center whitespace-nowrap">{item.period}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap">{formatCurrency(item.biz_fee)}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap">{formatCurrency(item.nat_fee)}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap">{formatCurrency(item.biz_dep + item.nat_dep)}</TableCell>
+                  <TableCell className="text-right text-warning-600 font-bold whitespace-nowrap">{formatCurrency(item.unpaid_amount)}원</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </Modal>
     </>
   );
