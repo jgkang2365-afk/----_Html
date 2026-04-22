@@ -429,7 +429,7 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="w-[80px]">작업</TableHead>
+                            <TableHead className="w-[80px] text-center">관리</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -550,13 +550,13 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                                       : "-"}
                                   </TableCell>
                                   <TableCell>
-                                    <Button
-                                      variant="secondary"
-                                      size="sm"
-                                      onClick={() => handleMeasurementEdit(item)}
-                                    >
-                                      수정
-                                    </Button>
+                                     <Button
+                                       variant="secondary"
+                                       size="sm"
+                                       onClick={() => handleMeasurementEdit(item)}
+                                     >
+                                       관리
+                                     </Button>
                                   </TableCell>
                                 </TableRow>
                               );

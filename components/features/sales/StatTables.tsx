@@ -144,6 +144,7 @@ export const StatTables: React.FC<StatTablesProps> = ({
         business_name: item.business_name,
         year: item.measurement_year,
         period: item.measurement_period,
+        representative_name: item.representative_name,
         biz_fee, biz_dep, 
         nat_fee, nat_dep,
         unpaid_amount: unpaid 
@@ -164,9 +165,10 @@ export const StatTables: React.FC<StatTablesProps> = ({
         const unpaid = amount - deposit;
 
         return {
-          business_name: item.business_name,
+          business_name: item.item_name || (item as any).business_name, // OtherRevenue는 item_name 사용
           year: item.revenue_year,
           period: item.revenue_period,
+          representative_name: item.representative_name,
           biz_fee: amount,
           biz_dep: deposit,
           nat_fee: 0,
@@ -633,7 +635,8 @@ export const StatTables: React.FC<StatTablesProps> = ({
           <Table maxHeight="max-h-[60vh]">
             <TableHeader className="sticky top-0 z-10 shadow-sm">
               <TableRow className="bg-sky-100 border-b-2 border-sky-200 pointer-events-none">
-                <TableHead className="w-[200px] text-left pl-2.5 whitespace-normal break-all">사업장명</TableHead>
+                <TableHead className="w-[180px] text-left pl-2.5 whitespace-normal break-all">사업장명/품명</TableHead>
+                <TableHead className="text-center w-[100px] whitespace-nowrap">대표자</TableHead>
                 <TableHead className="text-center w-[80px] whitespace-nowrap">년도</TableHead>
                 <TableHead className="text-center w-[100px] whitespace-nowrap">주기</TableHead>
                 <TableHead className="text-right whitespace-nowrap">사업장 부담</TableHead>
@@ -650,6 +653,7 @@ export const StatTables: React.FC<StatTablesProps> = ({
                     <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
                     {item.business_name}
                   </TableCell>
+                  <TableCell className="text-center whitespace-nowrap">{item.representative_name || "-"}</TableCell>
                   <TableCell className="text-center whitespace-nowrap">{item.year}</TableCell>
                   <TableCell className="text-center whitespace-nowrap">{item.period}</TableCell>
                   <TableCell className="text-right whitespace-nowrap">{formatCurrency(item.biz_fee)}</TableCell>

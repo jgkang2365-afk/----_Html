@@ -263,15 +263,15 @@ export const SalesManagement: React.FC = () => {
   const [unpaidFilters, setUnpaidFilters] = useState({
     type: "", // 구분: "measurement" | "other" | ""
     name: "", // 사업장명/품명
-    year: initialYear, // 매출년도
-    period: initialPeriod, // 측정주기
+    year: "", // 매출년도 (미수관리는 전체 년도 기본)
+    period: "", // 측정주기 (미수관리는 전체 주기 기본)
     designatedOffice: "", // 지정한계_관할지청
     hasDepositDate: "", // 입금일 여부: "yes" | "no" | ""
   });
   const [unpaidSort, setUnpaidSort] = useState<{
     column: string;
     direction: "asc" | "desc";
-  }>({ column: "year", direction: "desc" });
+  }>({ column: "unpaid", direction: "desc" });
 
   // 기타 매출 필터 및 정렬 상태
   const [otherFilters, setOtherFilters] = useState({
@@ -1507,7 +1507,7 @@ export const SalesManagement: React.FC = () => {
                             <TableHead className="w-[130px] bg-primary-50/50">발행처 사업자 (변경)</TableHead>
                             <TableHead className="w-[120px] text-right">측정비(사업장)</TableHead>
                             <TableHead className="w-[90px] text-center">입금상태</TableHead>
-                            <TableHead className="w-[80px] text-center">작업</TableHead>
+                            <TableHead className="w-[80px] text-center">관리</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1577,7 +1577,7 @@ export const SalesManagement: React.FC = () => {
                                         }
                                       }}
                                     >
-                                      보기
+                                      관리
                                     </Button>
                                   </TableCell>
                                 </TableRow>
@@ -1609,10 +1609,11 @@ export const SalesManagement: React.FC = () => {
                   unpaid: number;
                   depositDate: string | null;
                   designatedOffice: string | null;
+                  representative: string | null;
                 }> = [];
 
                 // 측정비 미수금 항목 추가
-                measurementRevenue.forEach((item) => {
+                allMeasurementData.forEach((item) => {
                   const total = parseFloat(item.measurement_fee_total?.toString() || "0");
                   const deposit = parseFloat(item.deposit_total?.toString() || "0");
                   const unpaid = total - deposit;
@@ -1630,12 +1631,13 @@ export const SalesManagement: React.FC = () => {
                       unpaid: unpaid,
                       depositDate: item.deposit_date_business || item.deposit_date_national || null,
                       designatedOffice: item.designated_office || null,
+                      representative: item.representative_name || null,
                     });
                   }
                 });
 
                 // 기타 매출 미수금 항목 추가
-                otherRevenue.forEach((item) => {
+                allOtherData.forEach((item) => {
                   const total = parseFloat(item.total_amount?.toString() || "0");
                   const deposit = parseFloat(item.deposit_amount?.toString() || "0");
                   const unpaid = total - deposit;
@@ -1651,6 +1653,7 @@ export const SalesManagement: React.FC = () => {
                       unpaid: unpaid,
                       depositDate: item.deposit_date || null,
                       designatedOffice: item.designated_office || null,
+                      representative: item.representative_name || null,
                     });
                   }
                 });
@@ -1740,26 +1743,48 @@ export const SalesManagement: React.FC = () => {
                           </div>
                         )}
                       </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 text-xs font-semibold"
-                        onClick={() => {
-                          const initial = {
-                            type: "",
-                            name: "",
-                            year: "",
-                            period: "",
-                            designatedOffice: "",
-                            hasDepositDate: "",
-                          };
-                          setUnpaidFilters(initial);
-                          // setDebouncedUnpaidFilters(initial); // Removed as debounce logic was removed
-                          setUnpaidSort({ column: "unpaid", direction: "desc" });
-                        }}
-                      >
-                        필터 초기화
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {activeTab !== "unpaid" && (user?.is_journal_manager || user?.role === "관리자") && (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            className="h-8 text-xs px-3 bg-green-600 hover:bg-green-700 border-none"
+                            onClick={() => paymentFileInputRef.current?.click()}
+                          >
+                            국고지원금 업로드
+                          </Button>
+                        )}
+                        {activeTab !== "unpaid" && (user?.is_journal_manager || user?.role === "관리자") && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 text-xs px-3"
+                            onClick={handleDownloadPaymentTemplate}
+                          >
+                            📥 양식 다운로드
+                          </Button>
+                        )}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-8 text-xs font-semibold"
+                          onClick={() => {
+                            const initial = {
+                              type: "",
+                              name: "",
+                              year: "",
+                              period: "",
+                              designatedOffice: "",
+                              hasDepositDate: "",
+                            };
+                            setUnpaidFilters(initial);
+                            // setDebouncedUnpaidFilters(initial); // Removed as debounce logic was removed
+                            setUnpaidSort({ column: "unpaid", direction: "desc" });
+                          }}
+                        >
+                          필터 초기화
+                        </Button>
+                      </div>
                     </div>
                     <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden">
                       <Table className="table-fixed" maxHeight="max-h-[calc(100vh-350px)]">
@@ -1805,6 +1830,12 @@ export const SalesManagement: React.FC = () => {
                                   options={[{ value: "", label: "전체" }, ...officeOptions]}
                                   className="text-sm h-8 py-1 px-2 text-center"
                                 />
+                              </div>
+                            </TableHead>
+                            <TableHead className="w-[120px]">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-center font-bold">대표자</div>
+                                <div className="h-8 flex items-center justify-center text-xs text-text-400">-</div>
                               </div>
                             </TableHead>
                             <TableHead className="w-[300px]">
@@ -1929,7 +1960,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="w-[80px]">작업</TableHead>
+                            <TableHead className="w-[80px] text-center">관리</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1961,6 +1992,7 @@ export const SalesManagement: React.FC = () => {
                                       </span>
                                     </TableCell>
                                     <TableCell>{item.designatedOffice || "-"}</TableCell>
+                                    <TableCell className="text-center font-medium">{item.representative || "-"}</TableCell>
                                     <TableCell className="font-medium truncate max-w-[280px]" title={item.name}>{item.name}</TableCell>
                                     <TableCell>{item.year}</TableCell>
                                     <TableCell>{item.period}</TableCell>
@@ -1979,15 +2011,16 @@ export const SalesManagement: React.FC = () => {
                                       {formatCurrency(item.unpaid)}원
                                     </TableCell>
                                     <TableCell>
-                                      {item.type === "measurement" && item.measurementId && item.code ? (
+                                      {item.type === "measurement" && item.measurementId ? (
                                         <Button
                                           variant="secondary"
                                           size="sm"
                                           onClick={async () => {
                                             try {
-                                              // 측정일지 데이터 가져오기
+                                              // 측정일지 데이터 가져오기 (code가 없어도 ID로 찾을 수 있도록 API 호출 파라미터 조정)
+                                              const searchParam = item.code ? `code=${encodeURIComponent(item.code)}` : `id=${item.measurementId}`;
                                               const response = await fetch(
-                                                `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
+                                                `/api/journal/search?${searchParam}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
                                                 { cache: 'no-store' }
                                               );
                                               if (response.ok) {
@@ -2008,7 +2041,7 @@ export const SalesManagement: React.FC = () => {
                                             }
                                           }}
                                         >
-                                          수정
+                                          관리
                                         </Button>
                                       ) : (
                                         <span className="text-text-400 text-sm">-</span>
@@ -2675,7 +2708,7 @@ export const SalesManagement: React.FC = () => {
               setIsJournalModalOpen(false);
               setSelectedJournalEntry(null);
             }}
-            title="매출관리 수정"
+            title="매출/측정일지 관리"
             size="3xl"
             headerActions={
               <div className="flex gap-2">
@@ -2685,7 +2718,7 @@ export const SalesManagement: React.FC = () => {
                   disabled={isJournalFormSubmitting}
                   className="min-w-[80px]"
                 >
-                  {isJournalFormSubmitting ? <LoadingSpinner size="sm" /> : "수정"}
+                  {isJournalFormSubmitting ? <LoadingSpinner size="sm" /> : "저장"}
                 </Button>
                 <Button
                   variant="secondary"

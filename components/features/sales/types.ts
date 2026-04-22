@@ -29,7 +29,8 @@ export interface MeasurementRevenue {
   k2b_status: string | null;
   is_email_sent: boolean;
   last_email_sent_at: string | null;
-  industrial_accident_number?: string | null;
+  industrial_accident_number: string | null;
+  revenue_type?: string | null;
 }
 
 export interface OtherRevenue {
@@ -45,6 +46,7 @@ export interface OtherRevenue {
   designated_office: string | null;
   revenue_year: number | null;
   revenue_period: string | null;
+  representative_name?: string | null;
   source?: string;
 }
 

@@ -132,7 +132,7 @@ export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
                   <TableCell className="py-3 px-4 text-sm text-gray-600 truncate max-w-[150px]">{item.notes || "-"}</TableCell>
                   <TableCell className="text-center py-3 px-3">
                     <Button variant="secondary" size="sm" onClick={() => onEdit(item)} className="px-2 py-1 text-xs">
-                      수정
+                      관리
                     </Button>
                   </TableCell>
                 </TableRow>

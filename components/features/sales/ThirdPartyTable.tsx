@@ -56,7 +56,7 @@ export const ThirdPartyTable: React.FC<ThirdPartyTableProps> = ({
               <TableHead className="w-[130px] bg-primary-50/50">발행처 사업자 (변경)</TableHead>
               <TableHead className="w-[120px] text-right">측정비(사업장)</TableHead>
               <TableHead className="w-[90px] text-center">입금상태</TableHead>
-              <TableHead className="w-[80px] text-center">작업</TableHead>
+              <TableHead className="w-[80px] text-center">관리</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -100,7 +100,7 @@ export const ThirdPartyTable: React.FC<ThirdPartyTableProps> = ({
                     </TableCell>
                     <TableCell className="text-center py-3">
                       <Button variant="secondary" size="sm" onClick={() => onEdit(item)} className="h-7 text-[11px] px-2">
-                        일지수정
+                        관리
                       </Button>
                     </TableCell>
                   </TableRow>

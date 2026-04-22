@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false })
       .order("id", { ascending: false })
-      .limit(10000)
+      .limit(50000)
       .not("business_name", "ilike", "%번외%");
 
     // 기타 매출은 전체 데이터를 테이블에 표시해야 하므로 전체 컬럼을 선택합니다.
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
       .order("revenue_year", { ascending: false })
       .order("revenue_period", { ascending: false })
       .order("id", { ascending: false })
-      .limit(10000);
+      .limit(50000);
 
     // 공통 필터 적용 함수
     const applyFilters = (query: any, isOther: boolean = false, excludeYear: boolean = false, includeSearch: boolean = true) => {
@@ -114,7 +114,8 @@ export async function GET(request: NextRequest) {
     let measurementDataQuery = supabase
       .from("measurement_journal")
       .select("*", { count: "exact" })
-      .not("business_name", "ilike", "%번외%");
+      .not("business_name", "ilike", "%번외%")
+      .or("revenue_type.is.null,revenue_type.neq.기타매출");
 
     // 필터 적용 (목록용 - 검색 포함)
     measurementDataQuery = applyFilters(measurementDataQuery);
@@ -352,13 +353,11 @@ export async function GET(request: NextRequest) {
 
     // 5. 최종 리스트 필터링 및 매핑 (사용자 요청: 기타매출 일지는 기타 탭으로 이동)
     // 측정비 탭에서는 '기타매출' 제외
-    const finalMeasurementRevenue = (measurementRevenue || []).filter(
-      (item: any) => item.revenue_type !== "기타매출"
-    );
+    const finalMeasurementRevenue = measurementRevenue || [];
 
     // 기타 탭에는 '기타매출'로 분류된 측정일지 항목을 매핑해서 추가
-    const journalBasedOtherItems = (measurementRevenue || []).filter(
-      (item: any) => item.revenue_type === "기타매출"
+    const journalBasedOtherItems = (allMeasurementForSummary || []).filter(
+      (item: any) => item.revenue_type === "기타매출" && (!year || item.measurement_year === parseInt(year)) && (!measurementPeriod || item.measurement_period === measurementPeriod)
     ).map((item: any) => ({
       id: item.id,
       item_name: item.business_name, // 사업장명 그대로 사용
@@ -372,6 +371,7 @@ export async function GET(request: NextRequest) {
       designated_office: item.designated_office,
       revenue_year: item.measurement_year,
       revenue_period: item.measurement_period,
+      representative_name: item.representative_name,
       source: "journal", // 프론트엔드 구분용
     }));
 
@@ -404,8 +404,8 @@ export async function GET(request: NextRequest) {
       })),
       summary: { byOffice: officeSummary, byYear: yearlySummary },
       pagination: { 
-        totalCount: finalMeasurementRevenue.length, 
-        totalPages: Math.ceil(finalMeasurementRevenue.length / limit), 
+        totalCount: totalCount || 0, 
+        totalPages: Math.ceil((totalCount || 0) / limit), 
         currentPage: page, 
         pageSize: limit 
       }
