@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     // 2. 해당 데이터 조회 (5개 항목 매칭용)
     const { data: journals, error: fetchError } = await supabase
       .from("measurement_journal")
-      .select("id, measurement_fee_national, national_support_status")
+      .select("id, measurement_fee_national, national_support_status, deposit_amount_business, deposit_amount_business_2")
       .eq("measurement_year", measurement_year)
       .eq("measurement_period", measurement_period)
       .eq("industrial_accident_number", industrial_accident_number);
@@ -68,11 +68,16 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. 업데이트 수행
+    const biz1 = Number(journal.deposit_amount_business || 0);
+    const biz2 = Number(journal.deposit_amount_business_2 || 0);
+    const newTotal = biz1 + biz2 + excelFee;
+
     const { error: updateError } = await supabase
       .from("measurement_journal")
       .update({
         deposit_date_national,
         deposit_amount_national: excelFee,
+        deposit_total: newTotal,
         updated_at: new Date().toISOString(),
         updated_by: user.name
       })
