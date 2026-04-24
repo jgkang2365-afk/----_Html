@@ -109,14 +109,15 @@ export async function syncBusinessData(
         }
     }
 
-    // 4. 전회 측정일/주기 (measurement_journal) - 과거 5개 주기 역순 탐색
+    // 4. 전회 측정일/주기 및 업종 (measurement_journal) - 과거 5개 주기 역순 탐색
     // 이미 값이 있어도 '전회' 정보를 정확히 가져오기 위해 조회 필요할 수 있음
     // 하지만 여기서는 '값이 없는 경우'를 우선으로 함.
-    if (!result.previous_measurement_date) {
+    let journalCategory: string | null = null;
+    if (!result.previous_measurement_date || !result.business_category) {
         // 한 번의 쿼리로 5개 주기 데이터를 모두 가져와서 정렬
         const { data: journals } = await supabase
             .from("measurement_journal")
-            .select("measurement_year, measurement_period, measurement_end_date, measurement_start_date")
+            .select("measurement_year, measurement_period, measurement_end_date, measurement_start_date, business_category")
             .eq("code", code)
             .in("measurement_year", periods.map(p => p.year))
             .not("measurement_end_date", "is", null) // 날짜가 있는 것만
@@ -126,16 +127,32 @@ export async function syncBusinessData(
         // 로직상 정확한 역순 정렬을 위해 JS에서 처리 권장
         if (journals && journals.length > 0) {
             // periods 순서대로 매칭되는 첫 번째 찾기
-            for (const p of periods) {
+            for (let i = 0; i < periods.length; i++) {
+                const p = periods[i];
                 const match = journals.find((j: any) => j.measurement_year === p.year && j.measurement_period === p.period);
                 if (match) {
-                    result.previous_measurement_date = match.measurement_end_date || match.measurement_start_date;
-                    result.previous_measurement_period = match.measurement_period; // "상반기" or "하반기"
-                    break;
+                    if (!result.previous_measurement_date) {
+                        result.previous_measurement_date = match.measurement_end_date || match.measurement_start_date;
+                        result.previous_measurement_period = match.measurement_period; // "상반기" or "하반기"
+                    }
+                    // 2순위: 최근 3주기 이내의 일지 데이터에서 업종 추출
+                    if (i < 3 && !journalCategory && match.business_category) {
+                        journalCategory = match.business_category;
+                    }
+                    if (result.previous_measurement_date && journalCategory) break;
                 }
             }
         }
     }
+
+    // 4.5. [1순위] 측정 대상 사업장 정보 (measurement_target_business) - 업종 분류 기초 데이터
+    const { data: targetData } = await supabase
+        .from("measurement_target_business")
+        .select("business_category")
+        .eq("code", code)
+        .eq("year", targetYear)
+        .eq("period", targetPeriod)
+        .single();
 
     // 5. 기본 정보 (business_info) - 최신 1건
     const { data: bInfo } = await supabase
@@ -170,8 +187,15 @@ export async function syncBusinessData(
     }
 
     if (!result.business_category) {
-        if (mbData?.business_category) result.business_category = mbData.business_category;
-        else if (bInfo?.business_category) result.business_category = bInfo.business_category;
+        // 1순위: measurement_target_business
+        if (targetData?.business_category) {
+            result.business_category = targetData.business_category;
+        } 
+        // 2순위: measurement_journal (직전 3주기)
+        else if (journalCategory) {
+            result.business_category = journalCategory;
+        }
+        // 1, 2순위가 없으면 무조건 null (하위 호환성 로직 삭제)
     }
 
     if (!result.manager_name) {

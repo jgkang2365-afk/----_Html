@@ -39,7 +39,11 @@ graph TD
 1.  **Ingestion**: `lib/sync/excel-sync.ts`를 통해 로컬 엑셀 파일을 읽어 `measurement_business` 및 `business_info` 테이블로 동기화.
 2.  **Processing**: 동기화된 데이터를 바탕으로 `measurement_journal`을 생성하거나 빈 필드를 'Latest Wins' 원칙에 따라 보정.
 3.  **Automation**: 작성된 측정일지 데이터를 기반으로 Selenium을 구동하여 K2B 고용노동부 전산망에 자동 입력.
-4.  **Reporting**: Google Calendar 및 대시보드 통계를 통해 성과 및 정합성 검증.
+4.  **Industry Classification Logic**: 업종 분류(business_category)는 다음 우선순위에 따라 결정됨:
+    - 1순위: `measurement_target_business`의 값
+    - 2순위: 값이 없을 경우, `measurement_journal`의 과거 기록 (최대 3주기 전까지 조회)
+    - 3순위: 위 데이터가 모두 없을 경우, 사용자 "선택" (수동 입력)
+5.  **Reporting**: Google Calendar 및 대시보드 통계를 통해 성과 및 정합성 검증.
 
 ## 3. 핵심 설계 원칙
 
