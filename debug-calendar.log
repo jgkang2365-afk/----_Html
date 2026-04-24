@@ -1537,3 +1537,174 @@
 [2026-04-22T12:04:56.177Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-22T12:04:57.925Z] Event updated successfully: fgsi3sdg0787qagcsbbk5dkdg4 
 [2026-04-22T12:04:57.927Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:33:45.666Z] Creating Calendar Event {
+  "summary": "[이주형] 롯데건설(주)이촌현대아파트 리모델링현장",
+  "description": "사업장코드: H0231\n          사업장: 롯데건설(주)이촌현대아파트 리모델링현장\n          주소: 서울특별시 용산구 이촌로 303 (이촌동, 현대아파트)\n          담당자: 미지정\n          연락처: 02-798-8646\n          비고:",
+  "date": "2026-01-22",
+  "endDate": "2026-01-22",
+  "location": "서울특별시 용산구 이촌로 303 (이촌동, 현대아파트)",
+  "colorId": "3"
+}
+[2026-04-24T01:33:45.671Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:33:47.407Z] Event created successfully: ke8r3ugbalhiusastplg3ot9g4 
+[2026-04-24T01:33:47.447Z] Deleting Calendar Event: a1oumn61pb67tdv1hgp1q72s6o 
+[2026-04-24T01:33:47.449Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:33:48.507Z] Event deleted: a1oumn61pb67tdv1hgp1q72s6o 
+[2026-04-24T01:33:48.553Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:50:50.184Z] Creating Calendar Event {
+  "summary": "[강종구] 아산모터스",
+  "description": "사업장코드: H0239\n          사업장: 아산모터스\n          주소: 충청남도 아산시 곡교천로 159 (온천동)\n          담당자: 심한주 대표\n          연락처: 010-8978-9809\n          비고:",
+  "date": "2026-02-04",
+  "endDate": "2026-02-04",
+  "location": "충청남도 아산시 곡교천로 159 (온천동)",
+  "colorId": "3"
+}
+[2026-04-24T01:50:50.187Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:50:51.900Z] Event created successfully: 0e8lcfvl977h4rfur3ni7t4al8 
+[2026-04-24T01:50:51.933Z] Deleting Calendar Event: 4o4jofv6mtk0si9nfugfs6dq3o 
+[2026-04-24T01:50:51.934Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:50:53.150Z] Event deleted: 4o4jofv6mtk0si9nfugfs6dq3o 
+[2026-04-24T01:50:53.192Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:00.819Z] Creating Calendar Event {
+  "summary": "[강종구] 아산현대서비스 주식회사",
+  "description": "사업장코드: H0240\n          사업장: 아산현대서비스 주식회사\n          주소: 충청남도 아산시 온천대로 1790-9 (남동)\n          담당자: 황중현 실장\n          연락처: 010-7396-2674\n          비고:",
+  "date": "2026-02-04",
+  "endDate": "2026-02-04",
+  "location": "충청남도 아산시 온천대로 1790-9 (남동)",
+  "colorId": "3"
+}
+[2026-04-24T01:51:00.821Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:03.091Z] Event created successfully: 6nb1eummbk7iur17bk5leeui38 
+[2026-04-24T01:51:03.138Z] Deleting Calendar Event: aqtpnnl2skhiqipm5dckcpf6uo 
+[2026-04-24T01:51:03.140Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:04.272Z] Event deleted: aqtpnnl2skhiqipm5dckcpf6uo 
+[2026-04-24T01:51:04.313Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:15.869Z] Creating Calendar Event {
+  "summary": "[강종구] 케이지모빌리티아산서비스센터 주식회사",
+  "description": "사업장코드: H0270\n          사업장: 케이지모빌리티아산서비스센터 주식회사\n          주소: 충청남도 아산시 신리길 6 (신동)\n          담당자: 정명용 과장\n          연락처: 010-5433-5278\n          비고:",
+  "date": "2026-02-04",
+  "endDate": "2026-02-04",
+  "location": "충청남도 아산시 신리길 6 (신동)",
+  "colorId": "3"
+}
+[2026-04-24T01:51:15.870Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:17.607Z] Event created successfully: ermnib6ge40ncdnkko50bf3d8k 
+[2026-04-24T01:51:17.646Z] Deleting Calendar Event: ggqfj7bdg2donikvtnpiu7oid4 
+[2026-04-24T01:51:17.647Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:18.906Z] Event deleted: ggqfj7bdg2donikvtnpiu7oid4 
+[2026-04-24T01:51:18.942Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:29.790Z] Creating Calendar Event {
+  "summary": "[고유빈] 중부모터스(주)토요타 천안아산",
+  "description": "사업장코드: H0442\n          사업장: 중부모터스(주)토요타 천안아산\n          주소: 충청남도 천안시 서북구 번영로 627 (업성동)\n          담당자: 전호인\n          연락처: 010-9085-0458\n          비고:",
+  "date": "2026-02-10",
+  "endDate": "2026-02-10",
+  "location": "충청남도 천안시 서북구 번영로 627 (업성동)",
+  "colorId": "3"
+}
+[2026-04-24T01:51:29.792Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:31.525Z] Event created successfully: go4c739kfkaoe7cdinp380mp4c 
+[2026-04-24T01:51:31.562Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:51.271Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:52.314Z] Updating Calendar Event: 0e8lcfvl977h4rfur3ni7t4al8 {
+  "summary": "[강종구] 아산모터스",
+  "description": "사업장코드: H0239\n          사업장: 아산모터스\n          주소: 충청남도 아산시 곡교천로 159 (온천동)\n          담당자: 심한주 대표\n          연락처: 010-8978-9809\n          비고:",
+  "date": "2026-02-04",
+  "endDate": "2026-02-04",
+  "location": "충청남도 아산시 곡교천로 159 (온천동)",
+  "colorId": "3"
+}
+[2026-04-24T01:51:52.316Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T01:51:54.147Z] Event updated successfully: 0e8lcfvl977h4rfur3ni7t4al8 
+[2026-04-24T01:51:54.148Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:01:47.125Z] Creating Calendar Event {
+  "summary": "[고유빈] 대전특장공업 - 26상 미수",
+  "description": "사업장코드: H0182\n          사업장: 대전특장공업\n          주소: 대전광역시 대덕구 신탄진로 349 (와동)\n          담당자: 이기영 부장\n          연락처: 010-8825-6004\n          비고:",
+  "date": "2026-02-05",
+  "endDate": "2026-02-05",
+  "location": "대전광역시 대덕구 신탄진로 349 (와동)",
+  "colorId": "3"
+}
+[2026-04-24T02:01:47.127Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:01:48.717Z] Event created successfully: 6ga56hg78javknlncr25bvipko 
+[2026-04-24T02:01:48.761Z] Deleting Calendar Event: fr92l8cgjbhajtnnr1ihki0ln8 
+[2026-04-24T02:01:48.762Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:01:49.881Z] Event deleted: fr92l8cgjbhajtnnr1ihki0ln8 
+[2026-04-24T02:01:49.930Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:06.582Z] Creating Calendar Event {
+  "summary": "[배윤민] (주)프라임엔시스템  CHA6 ESS Construction - 26상 미수 / P5, N5",
+  "description": "사업장코드: H0447\n          사업장: (주)프라임엔시스템  CHA6 ESS Construction\n          주소: 충청남도 천안시 서북구 입장면 용정도하길 181 (용정리)\n          담당자: 이석재 책임\n          연락처: 010-9218-2086\n          비고: P5, N5",
+  "date": "2026-02-27",
+  "endDate": "2026-02-27",
+  "location": "충청남도 천안시 서북구 입장면 용정도하길 181 (용정리)",
+  "colorId": "3"
+}
+[2026-04-24T02:02:06.584Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:08.128Z] Event created successfully: c0rua6ojev3qqcthoqtg8sqn34 
+[2026-04-24T02:02:08.166Z] Deleting Calendar Event: dqrmllipf613r1rcf8fsb74bvs 
+[2026-04-24T02:02:08.168Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:09.303Z] Event deleted: dqrmllipf613r1rcf8fsb74bvs 
+[2026-04-24T02:02:09.337Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:19.347Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:20.423Z] Updating Calendar Event: qvc92aducfokdauqrqni6fnlqo {
+  "summary": "[이주형] (유)백상 충남 장애인가족 힐링 센터 조성공사",
+  "description": "사업장코드: H0452\n          사업장: (유)백상 충남 장애인가족 힐링 센터 조성공사\n          주소: 주소 미입력\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-03-09",
+  "endDate": "2026-03-09",
+  "location": "",
+  "colorId": "3"
+}
+[2026-04-24T02:02:20.424Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:22.290Z] Event updated successfully: qvc92aducfokdauqrqni6fnlqo 
+[2026-04-24T02:02:22.292Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:29.492Z] Creating Calendar Event {
+  "summary": "[이주형] 일주산업개발(주) 비하동 임대형 기숙사(1부지) 신축",
+  "description": "사업장코드: H0453\n          사업장: 일주산업개발(주) 비하동 임대형 기숙사(1부지) 신축\n          주소: 주소 미입력\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-04-07",
+  "endDate": "2026-04-07",
+  "location": "",
+  "colorId": "5"
+}
+[2026-04-24T02:02:29.494Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:30.980Z] Event created successfully: t2t96o0lnj5p7cl7untk6497jc 
+[2026-04-24T02:02:31.018Z] Deleting Calendar Event: ij04epl40uc9t5ridht3ijpkb8 
+[2026-04-24T02:02:31.020Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:32.133Z] Event deleted: ij04epl40uc9t5ridht3ijpkb8 
+[2026-04-24T02:02:32.171Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:37.647Z] Creating Calendar Event {
+  "summary": "[이주형] 일주산업개발(주) 비하동 임대형 기숙사(2부지) 신축",
+  "description": "사업장코드: H0454\n          사업장: 일주산업개발(주) 비하동 임대형 기숙사(2부지) 신축\n          주소: 주소 미입력\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-04-07",
+  "endDate": "2026-04-07",
+  "location": "",
+  "colorId": "5"
+}
+[2026-04-24T02:02:37.648Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:39.109Z] Event created successfully: 5vlcgpk51pks9s5g788qn5svpc 
+[2026-04-24T02:02:39.144Z] Deleting Calendar Event: 6695ra9nl6q05pe4ib7m6pdtkc 
+[2026-04-24T02:02:39.145Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:40.350Z] Event deleted: 6695ra9nl6q05pe4ib7m6pdtkc 
+[2026-04-24T02:02:40.392Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:47.833Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:48.954Z] Updating Calendar Event: qvc92aducfokdauqrqni6fnlqo {
+  "summary": "[이주형] (유)백상 충남 장애인가족 힐링 센터 조성공사",
+  "description": "사업장코드: H0452\n          사업장: (유)백상 충남 장애인가족 힐링 센터 조성공사\n          주소: 주소 미입력\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-03-09",
+  "endDate": "2026-03-09",
+  "location": "",
+  "colorId": "3"
+}
+[2026-04-24T02:02:48.958Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:02:50.709Z] Event updated successfully: qvc92aducfokdauqrqni6fnlqo 
+[2026-04-24T02:02:50.710Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:03:10.067Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:03:11.164Z] Updating Calendar Event: c0rua6ojev3qqcthoqtg8sqn34 {
+  "summary": "[배윤민] (주)프라임엔시스템  CHA6 ESS Construction - 26상 미수 / P5, N5",
+  "description": "사업장코드: H0447\n          사업장: (주)프라임엔시스템  CHA6 ESS Construction\n          주소: 충청남도 천안시 서북구 입장면 용정도하길 181 (용정리)\n          담당자: 이석재 책임\n          연락처: 010-9218-2086\n          비고: P5, N5",
+  "date": "2026-02-27",
+  "endDate": "2026-02-27",
+  "location": "충청남도 천안시 서북구 입장면 용정도하길 181 (용정리)",
+  "colorId": "3"
+}
+[2026-04-24T02:03:11.165Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-24T02:03:13.078Z] Event updated successfully: c0rua6ojev3qqcthoqtg8sqn34 
+[2026-04-24T02:03:13.079Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

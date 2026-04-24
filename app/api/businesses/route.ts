@@ -286,7 +286,7 @@ export async function GET(request: NextRequest) {
         business_number: businessNumber,
         total_employees: totalEmployees,
         manager_phone: phone,
-        business_category: businessCategory,
+        business_category: /^\d+$/.test(String(businessCategory)) ? `⚠️ 수정필요(${businessCategory})` : businessCategory,
         national_support_status: nationalSupportStatus,
         representative_name: representativeName,
         industrial_accident_number: industrialAccidentNumber,
@@ -339,10 +339,16 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    let updatePayload = {
+    let updatePayload: any = {
       ...updates,
       updated_at: new Date().toISOString()
     };
+
+    // [The Joo Rule] 수동 업데이트 시에도 숫자형 업종분류 차단
+    if (updates.business_category && /^\d+$/.test(String(updates.business_category))) {
+      console.warn(`[API] 수동 숫자 업종분류 차단됨: ${updates.business_category}`);
+      delete updatePayload.business_category; // 잘못된 데이터는 무시하고 다른 필드만 저장
+    }
 
     // [New Feature] Auto-calculate office_jurisdiction if address is being updated
     if (updates.hasOwnProperty('address')) {

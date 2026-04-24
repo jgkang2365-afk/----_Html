@@ -19,6 +19,28 @@ const normalizeNationalSupportStatus = (val: any): string | null => {
   return s || null;
 };
 
+// [The Joo Rule] 업종분류 정규화 함수 (숫자 유입 방지 및 마스터 목록 검증)
+const normalizeBusinessCategory = (val: any, validCategories: string[]): string | null => {
+  if (val === undefined || val === null) return null;
+  const s = String(val).trim();
+  
+  if (!s || s === "선택") return null;
+
+  // 1. 숫자만 있는 경우(KSIC 코드 등) 무조건 차단
+  if (/^\d+$/.test(s)) {
+    console.warn(`[Sync] 숫자 업종분류 차단됨: ${s}`);
+    return null;
+  }
+  
+  // 2. 유효한 카테고리 목록에 있는지 확인 (마스터 테이블 기반)
+  if (validCategories.length > 0 && !validCategories.includes(s)) {
+    console.warn(`[Sync] 미등록 업종분류 차단됨: ${s}`);
+    return null;
+  }
+  
+  return s;
+};
+
 export interface SyncResult {
   success: boolean;
   file_name: string;
@@ -448,7 +470,14 @@ function findColumnValue(row: any, columnNames: string[]): any {
 }
 
 
-function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, headerRowIndex?: number, fileName?: string, rawArrayData?: any[]): any[] {
+function parseMeasurementBusiness(
+  data: any[], 
+  worksheet?: XLSX.WorkSheet, 
+  headerRowIndex?: number, 
+  fileName?: string, 
+  rawArrayData?: any[],
+  validCategories: string[] = []
+): any[] {
   // [초강력 디버깅] 전체 데이터에서 H0433 값 찾기 (파싱 시작 전)
   console.log("================ START H0433 SCAN ================");
   let foundH0433InAnyColumn = false;
@@ -687,7 +716,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       completion_status: normalizedStatus,
       measurer: row["계획담당자"] || row["주관담당자"] || null,
       national_support_status: normalizeNationalSupportStatus(row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3]),
-      business_category: businessCategory,
+      business_category: normalizeBusinessCategory(businessCategory, validCategories),
     };
 
     // [NEW] 지청별/업종별 예외 발행일 로직 (대전/천안지청 & 공업사)
@@ -1408,6 +1437,11 @@ export async function syncMeasurementBusiness(
   try {
     const supabase = externalSupabaseClient || await createClient();
 
+    // [New] 유효 업종분류 목록 미리 조회 (동적 검증용)
+    const { data: catData } = await supabase.from("business_category").select("name");
+    const validCategories = (catData || []).map(c => c.name);
+    console.log(`[Sync] 유효 업종분류 목록 로드됨: ${validCategories.length}개`);
+
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let targetPath: string | Buffer | undefined = filePath;
     let fileBuffer: Buffer | undefined;
@@ -1645,7 +1679,7 @@ export async function syncMeasurementBusiness(
       console.error("[측정사업장 동기화] Excel 파일에서 데이터를 읽을 수 없습니다!");
     }
 
-    const parsedData = parseMeasurementBusiness(excelData, worksheet, headerRowIndex, storageFileName || fileName, rawArrayData);
+    const parsedData = parseMeasurementBusiness(excelData, worksheet, headerRowIndex, storageFileName || fileName, rawArrayData, validCategories);
 
     // [NEW] 변경 내역 비교를 위한 최신 측정사업장 데이터 조회 (올바른 위치로 이동)
     // parsedData가 준비된 후, allRows 생성 및 비교 직전 수행
