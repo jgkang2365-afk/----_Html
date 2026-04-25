@@ -77,34 +77,36 @@ export async function GET(request: NextRequest) {
         }
       }
       
-      // 검색 필터 (사업장명, 대표자명) - 목록 조회 시에만 적용하고 집계 시에는 제외 (사용자 요청)
-      if (!isOther && includeSearch) {
-        if (businessName) {
-          if (businessName.includes(",")) {
-            const names = businessName.split(",").map(n => n.trim()).filter(Boolean);
-            if (names.length > 0) {
-              const orFilter = names.map(name => `business_name.ilike.%${name}%`).join(",");
-              q = q.or(orFilter);
+      // 검색 필터 (사업장명, 대표자명, 지정지청) - 목록 조회 시에만 적용하고 집계 시에는 제외 (사용자 요청)
+      if (includeSearch) {
+        if (!isOther) {
+          if (businessName) {
+            if (businessName.includes(",")) {
+              const names = businessName.split(",").map(n => n.trim()).filter(Boolean);
+              if (names.length > 0) {
+                const orFilter = names.map(name => `business_name.ilike.%${name}%`).join(",");
+                q = q.or(orFilter);
+              }
+            } else {
+              q = q.ilike("business_name", `%${businessName}%`);
             }
-          } else {
-            q = q.ilike("business_name", `%${businessName}%`);
+          }
+          if (representativeName) {
+            q = q.ilike("representative_name", `%${representativeName}%`);
           }
         }
-        if (representativeName) {
-          q = q.ilike("representative_name", `%${representativeName}%`);
-        }
-      }
 
-      if (designatedOffice) {
-        const officeList = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
-        if (officeList.length > 0) {
-          const allOffices: string[] = [];
-          officeList.forEach(office => {
-            const normalized = toShortName(office);
-            allOffices.push(normalized);
-            if (normalized !== office) allOffices.push(office);
-          });
-          q = q.in("designated_office", allOffices);
+        if (designatedOffice) {
+          const officeList = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
+          if (officeList.length > 0) {
+            const allOffices: string[] = [];
+            officeList.forEach(office => {
+              const normalized = toShortName(office);
+              allOffices.push(normalized);
+              if (normalized !== office) allOffices.push(office);
+            });
+            q = q.in("designated_office", allOffices);
+          }
         }
       }
       return q;
