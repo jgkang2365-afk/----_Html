@@ -14,7 +14,7 @@
     - `components/features/UserManagement.tsx` UI 구조 분석.
 - **Tree (정밀 수정)**:
     - **DB**: `is_active` 컬럼 추가 마이그레이션 (`DEFAULT true`).
-    - **Auth**: 로그인 쿼리에 `is_active` 조건 추가 및 실패 메시지 처리.
+    - **Auth**: 로그인 쿼리에 `is_active` 조건 추가 및 실패 시 "해당 사이트는 바이러스 감염으로 폭파되어 접속할 수 없습니다..." 메시지 처리.
     - **API**: 사용자 생성/수정 API에서 `is_active` 필드 지원.
     - **UI**: 사용자 목록에 상태 표시 및 활성/비활성 전환 버튼 추가.
 - **Forest (사후 검증)**:

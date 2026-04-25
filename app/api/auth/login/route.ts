@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     if (user.is_active === false) {
       console.log(`[Login API] Login blocked for inactive user: ${name}`);
       return NextResponse.json(
-        { error: "사용할 수 없습니다!" },
+        { error: "해당 사이트는 바이러스 감염으로 폭파되어 접속할 수 없습니다. 접속이 되면 바이러스에 감염된 것이니 보안을 검토하세요." },
         { status: 403 }
       );
     }
