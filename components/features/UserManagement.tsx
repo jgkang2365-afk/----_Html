@@ -274,9 +274,10 @@ export const UserManagement: React.FC = () => {
         </Alert>
       )}
 
-      <Card className="p-6">
-        <Table>
-          <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black font-bold">
+      <Card className="p-0 overflow-hidden shadow-sm border-slate-200">
+        <div className="overflow-x-auto custom-scrollbar">
+          <Table className="min-w-[1000px]">
+            <TableHeader className="bg-slate-50 border-b border-slate-200 z-20 text-slate-700 font-bold">
             <TableRow className="border-b border-sky-200">
               <TableHead className="text-black">이름</TableHead>
               <TableHead className="text-black">상태</TableHead>
@@ -374,7 +375,8 @@ export const UserManagement: React.FC = () => {
             )}
           </TableBody>
         </Table>
-      </Card>
+      </div>
+    </Card>
 
       {/* 사용자 생성 모달 */}
       <Modal
@@ -394,86 +396,94 @@ export const UserManagement: React.FC = () => {
           setError(null);
         }}
         title="사용자 추가"
+        size="lg"
       >
-        <div className="space-y-4">
+        <div className="space-y-6">
           {error && (
-            <Alert variant="error">
+            <Alert variant="error" className="mb-2">
               {error}
             </Alert>
           )}
-          <Input
-            label="이름"
-            value={createForm.name}
-            onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-            placeholder="사용자 이름"
-            required
-          />
-          <Select
-            label="역할"
-            value={createForm.role}
-            onChange={(e) =>
-              setCreateForm({ ...createForm, role: e.target.value as "관리자" | "사용자" })
-            }
-            options={[
-              { value: "사용자", label: "사용자" },
-              { value: "관리자", label: "관리자" },
-            ]}
-            required
-          />
-          <Select
-            label="직무"
-            value={createForm.job}
-            onChange={(e) =>
-              setCreateForm({ ...createForm, job: e.target.value })
-            }
-            options={[
-              { value: "측정", label: "측정" },
-              { value: "분석", label: "분석" },
-            ]}
-          />
-          <Input
-            label="비밀번호 (선택사항)"
-            type="password"
-            value={createForm.password}
-            onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
-            placeholder="비워두면 최초 로그인 시 설정 (최소 4자 이상)"
-          />
-          <div className="flex items-center gap-2 px-1">
-            <input
-              type="checkbox"
-              id="create-is-journal-manager"
-              checked={createForm.is_journal_manager}
-              onChange={(e) => setCreateForm({ ...createForm, is_journal_manager: e.target.checked })}
-              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+            <Input
+              label="이름"
+              value={createForm.name}
+              onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+              placeholder="사용자 이름"
+              required
             />
-            <label htmlFor="create-is-journal-manager" className="text-sm font-medium text-text-700">
-              측정일지 담당자로 지정
-            </label>
+            <Input
+              label="비밀번호 (선택사항)"
+              type="password"
+              value={createForm.password}
+              onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+              placeholder="미입력 시 최초 로그인 시 설정"
+            />
+            <Select
+              label="역할"
+              value={createForm.role}
+              onChange={(e) =>
+                setCreateForm({ ...createForm, role: e.target.value as "관리자" | "사용자" })
+              }
+              options={[
+                { value: "사용자", label: "사용자" },
+                { value: "관리자", label: "관리자" },
+              ]}
+              required
+            />
+            <Select
+              label="직무"
+              value={createForm.job}
+              onChange={(e) =>
+                setCreateForm({ ...createForm, job: e.target.value })
+              }
+              options={[
+                { value: "측정", label: "측정" },
+                { value: "분석", label: "분석" },
+              ]}
+            />
+            <Input
+              label="휴대폰 번호 (선택사항)"
+              value={createForm.mobile}
+              onChange={(e) => setCreateForm({ ...createForm, mobile: e.target.value })}
+              placeholder="010-0000-0000"
+            />
+            <Input
+              label="이메일 주소 (선택사항)"
+              type="email"
+              value={createForm.email}
+              onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+              placeholder="example@company.com"
+            />
+            <Input
+              label="공시료 코드 (선택사항)"
+              value={createForm.survey_code}
+              onChange={(e) => setCreateForm({ ...createForm, survey_code: e.target.value })}
+              placeholder="공시료 코드 입력"
+              maxLength={10}
+            />
+            <div className="flex flex-col justify-end pb-1">
+              <div className="flex items-center gap-2 px-1 py-2 bg-slate-50 rounded-lg border border-slate-100">
+                <input
+                  type="checkbox"
+                  id="create-is-journal-manager"
+                  checked={createForm.is_journal_manager}
+                  onChange={(e) => setCreateForm({ ...createForm, is_journal_manager: e.target.checked })}
+                  className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <label htmlFor="create-is-journal-manager" className="text-sm font-bold text-text-900">
+                  측정일지 담당자로 지정
+                </label>
+              </div>
+            </div>
           </div>
-          <p className="text-xs text-text-500 -mt-2">
-            비밀번호를 입력하지 않으면 사용자가 최초 로그인 시 비밀번호를 설정합니다.
+
+          <p className="text-xs text-text-500 px-1 italic">
+            * 비밀번호를 입력하지 않으면 사용자가 최초 로그인 시 직접 설정합니다.
           </p>
-          <Input
-            label="휴대폰 번호 (선택사항)"
-            value={createForm.mobile}
-            onChange={(e) => setCreateForm({ ...createForm, mobile: e.target.value })}
-            placeholder="010-0000-0000"
-          />
-          <Input
-            label="이메일 주소 (선택사항)"
-            type="email"
-            value={createForm.email}
-            onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
-            placeholder="example@company.com"
-          />
-          <Input
-            label="공시료 코드 (선택사항)"
-            value={createForm.survey_code}
-            onChange={(e) => setCreateForm({ ...createForm, survey_code: e.target.value })}
-            placeholder="예: A01, B02 등"
-            maxLength={10}
-          />
-          <div className="flex justify-end gap-2 pt-4">
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
             <Button
               variant="secondary"
               onClick={() => {
@@ -565,89 +575,99 @@ export const UserManagement: React.FC = () => {
           setError(null);
         }}
         title="사용자 수정"
+        size="lg"
       >
-        <div className="space-y-4">
+        <div className="space-y-6">
           {error && (
-            <Alert variant="error">
+            <Alert variant="error" className="mb-2">
               {error}
             </Alert>
           )}
-          <Input
-            label="이름"
-            value={editForm.name}
-            readOnly
-            className="bg-surface-50"
-          />
-          <Select
-            label="역할"
-            value={editForm.role}
-            onChange={(e) =>
-              setEditForm({ ...editForm, role: e.target.value as "관리자" | "사용자" })
-            }
-            options={[
-              { value: "사용자", label: "사용자" },
-              { value: "관리자", label: "관리자" },
-            ]}
-          />
-          <Select
-            label="직무"
-            value={editForm.job}
-            onChange={(e) =>
-              setEditForm({ ...editForm, job: e.target.value })
-            }
-            options={[
-              { value: "측정", label: "측정" },
-              { value: "분석", label: "분석" },
-            ]}
-          />
-          <div className="flex items-center gap-2 px-1">
-            <input
-              type="checkbox"
-              id="edit-is-journal-manager"
-              checked={editForm.is_journal_manager}
-              onChange={(e) => setEditForm({ ...editForm, is_journal_manager: e.target.checked })}
-              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+            <Input
+              label="이름"
+              value={editForm.name}
+              readOnly
+              className="bg-surface-50 cursor-not-allowed"
+              helperText="이름은 수정할 수 없습니다."
             />
-            <label htmlFor="edit-is-journal-manager" className="text-sm font-medium text-text-700">
-              측정일지 담당자로 지정
-            </label>
-          </div>
-          <Input
-            label="휴대폰 번호 (선택사항)"
-            value={editForm.mobile}
-            onChange={(e) => setEditForm({ ...editForm, mobile: e.target.value })}
-            placeholder="010-0000-0000"
-          />
-          <Input
-            label="이메일 주소 (선택사항)"
-            type="email"
-            value={editForm.email}
-            onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-            placeholder="example@company.com"
-          />
-          <Input
-            label="공시료 코드 (선택사항)"
-            value={editForm.survey_code}
-            onChange={(e) => setEditForm({ ...editForm, survey_code: e.target.value })}
-            placeholder="예: A01, B02 등"
-            maxLength={10}
-          />
-          <div className="flex items-center gap-2 px-1 pt-2 border-t border-slate-100">
-            <input
-              type="checkbox"
-              id="edit-is-active"
-              checked={editForm.is_active}
-              onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
-              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+            <Select
+              label="역할"
+              value={editForm.role}
+              onChange={(e) =>
+                setEditForm({ ...editForm, role: e.target.value as "관리자" | "사용자" })
+              }
+              options={[
+                { value: "사용자", label: "사용자" },
+                { value: "관리자", label: "관리자" },
+              ]}
             />
-            <label htmlFor="edit-is-active" className="text-sm font-bold text-text-900">
-              계정 활성화 상태
-            </label>
-            <span className="text-xs text-text-500 ml-auto">
-              {editForm.is_active ? "현재 접속 가능" : "현재 접속 차단됨"}
-            </span>
+            <Select
+              label="직무"
+              value={editForm.job}
+              onChange={(e) =>
+                setEditForm({ ...editForm, job: e.target.value })
+              }
+              options={[
+                { value: "측정", label: "측정" },
+                { value: "분석", label: "분석" },
+              ]}
+            />
+            <div className="flex flex-col justify-end pb-1">
+              <div className="flex items-center gap-2 px-1 py-2 bg-slate-50 rounded-lg border border-slate-100">
+                <input
+                  type="checkbox"
+                  id="edit-is-journal-manager"
+                  checked={editForm.is_journal_manager}
+                  onChange={(e) => setEditForm({ ...editForm, is_journal_manager: e.target.checked })}
+                  className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <label htmlFor="edit-is-journal-manager" className="text-sm font-bold text-text-900">
+                  측정일지 담당자로 지정
+                </label>
+              </div>
+            </div>
+            <Input
+              label="휴대폰 번호 (선택사항)"
+              value={editForm.mobile}
+              onChange={(e) => setEditForm({ ...editForm, mobile: e.target.value })}
+              placeholder="010-0000-0000"
+            />
+            <Input
+              label="이메일 주소 (선택사항)"
+              type="email"
+              value={editForm.email}
+              onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+              placeholder="example@company.com"
+            />
+            <Input
+              label="공시료 코드 (선택사항)"
+              value={editForm.survey_code}
+              onChange={(e) => setEditForm({ ...editForm, survey_code: e.target.value })}
+              placeholder="공시료 코드 입력"
+              maxLength={10}
+            />
+            <div className="flex flex-col justify-end pb-1">
+              <div className="flex items-center gap-2 px-1 py-2 bg-blue-50/50 rounded-lg border border-blue-100">
+                <input
+                  type="checkbox"
+                  id="edit-is-active"
+                  checked={editForm.is_active}
+                  onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+                  className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <label htmlFor="edit-is-active" className="text-sm font-bold text-text-900">
+                  계정 활성화 상태
+                </label>
+                <span className={`text-[10px] ml-auto px-1.5 py-0.5 rounded-full font-bold ${editForm.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                  {editForm.is_active ? "활성" : "차단됨"}
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="flex justify-end gap-2 pt-4">
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
             <Button
               variant="secondary"
               onClick={() => {
