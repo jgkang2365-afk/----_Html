@@ -14,11 +14,11 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // 예비조사 목록 조회
+    // 예비조사 목록 조회 (순번 기준 오름차순 정렬)
     const { data: surveys, error } = await supabase
       .from("preliminary_survey")
       .select("*")
-      .order("measurement_date", { ascending: false });
+      .order("sequence_number", { ascending: true, nullsFirst: false });
 
     if (error) {
       console.error("예비조사 목록 조회 오류:", error);
@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
 
     // 엑셀 데이터 준비
     const excelData = (surveys || []).map((survey) => ({
+      순번: survey.sequence_number || "",
       코드: survey.code || "",
       측정일: survey.measurement_date
         ? new Date(survey.measurement_date).toLocaleDateString("ko-KR")
