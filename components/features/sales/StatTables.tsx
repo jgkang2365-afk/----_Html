@@ -630,12 +630,18 @@ export const StatTables: React.FC<StatTablesProps> = ({
       </Card>
 
       {/* 미수금 상세 내역 모달 */}
-      <Modal isOpen={isUnpaidDetailModalOpen} onClose={() => setIsUnpaidDetailModalOpen(false)} title={unpaidDetailTitle} size="xl">
+      <Modal 
+        isOpen={isUnpaidDetailModalOpen} 
+        onClose={() => setIsUnpaidDetailModalOpen(false)} 
+        title={unpaidDetailTitle} 
+        size="3xl"
+        resizable={true}
+      >
         <div className="w-full">
-          <Table maxHeight="max-h-[60vh]">
+          <Table maxHeight="max-h-[60vh]" className="min-w-[900px]">
             <TableHeader className="sticky top-0 z-10 shadow-sm">
               <TableRow className="bg-sky-100 border-b-2 border-sky-200 pointer-events-none">
-                <TableHead className="w-[180px] text-left pl-2.5 whitespace-normal break-all">사업장명/품명</TableHead>
+                <TableHead className="w-[250px] text-left pl-2.5">사업장명/품명</TableHead>
                 <TableHead className="text-center w-[100px] whitespace-nowrap">대표자</TableHead>
                 <TableHead className="text-center w-[80px] whitespace-nowrap">년도</TableHead>
                 <TableHead className="text-center w-[100px] whitespace-nowrap">주기</TableHead>
@@ -648,7 +654,10 @@ export const StatTables: React.FC<StatTablesProps> = ({
             <TableBody>
               {unpaidDetailList.map((item, idx) => (
                 <TableRow key={idx} className="group relative hover:bg-blue-50/40 transition-colors growable-row">
-                  <TableCell className="relative pl-2.5 whitespace-normal break-all leading-tight">
+                  <TableCell 
+                    className="relative pl-2.5 leading-tight truncate max-w-[250px]" 
+                    title={item.business_name}
+                  >
                     {/* 표준 블루 인디케이터 바 */}
                     <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
                     {item.business_name}
