@@ -843,6 +843,7 @@ export default function SurveyPage() {
                             </button>
                           </div>
                         </th>
+                        <th className="px-2 py-3 text-center w-[90px]">코드</th>
                         <th className="px-2 py-3 text-center w-[60px]">년도</th>
                         <th className="px-2 py-3 text-center w-[60px]">주기</th>
                         <th className="px-2 py-3 text-center w-[90px]">
@@ -892,6 +893,7 @@ export default function SurveyPage() {
                             <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
                             {survey.sequence_number || "-"}
                           </td>
+                          <td className="px-2 py-2 text-center text-xs">{survey.code}</td>
                           <td className="px-2 py-2 text-center">{survey.year || "-"}</td>
                           <td className="px-2 py-2 text-center">{survey.period || "-"}</td>
                           <td className="px-2 py-2 text-center">
@@ -905,7 +907,7 @@ export default function SurveyPage() {
                           <td className="px-2 py-2 text-center text-xs">
                             {survey.measurement_weekdays || calculateMeasurementWeekdays(survey.measurement_date, survey.end_date) || "-"}
                           </td>
-                          <td className="px-2 py-2 font-medium truncate max-w-[200px]" title={survey.business_name}>{survey.business_name}</td>
+                          <td className="px-2 py-2 font-medium truncate max-w-[150px]" title={survey.business_name}>{survey.business_name}</td>
                           <td className="px-2 py-2 text-center">{survey.business_number || "-"}</td>
                           <td className="px-2 py-2 text-center text-xs truncate max-w-[100px]" title={survey.measurer || ""}>{survey.measurer || "-"}</td>
                           <td className="px-2 py-2 text-center text-xs">{survey.survey_code || "-"}</td>

@@ -1708,3 +1708,28 @@
 [2026-04-24T02:03:11.165Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-24T02:03:13.078Z] Event updated successfully: c0rua6ojev3qqcthoqtg8sqn34 
 [2026-04-24T02:03:13.079Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-25T11:08:50.004Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-25T11:08:51.249Z] Updating Calendar Event: 5u1f33vv9rj7jkdq0s9n87uefo {
+  "summary": "[이주형] 주식회사 협성솔루션",
+  "description": "사업장코드: H0126\n          사업장: 주식회사 협성솔루션\n          주소: 충청남도 천안시 서북구 입장면 위례성로 1898-41 (양대리)\n          담당자: 전우영 차장\n          연락처: 010-4299-3284\n          비고:",
+  "date": "2026-04-27",
+  "endDate": "2026-04-27",
+  "location": "충청남도 천안시 서북구 입장면 위례성로 1898-41 (양대리)",
+  "colorId": "5"
+}
+[2026-04-25T11:08:51.256Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-25T11:08:53.117Z] Event updated successfully: 5u1f33vv9rj7jkdq0s9n87uefo 
+[2026-04-25T11:08:53.122Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-25T11:15:16.374Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-25T11:20:59.786Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-25T11:21:00.845Z] Updating Calendar Event: sit5aghtr0doi2g9jpo10uthvc {
+  "summary": "[강종구] 연무마이스터고등학교 - 26상 미수 / N17, P17",
+  "description": "사업장코드: H0466\n          사업장: 연무마이스터고등학교\n          주소: 충청남도 논산시 연무읍 연무로 268-9 (마산리, 연무대기계공고)\n          담당자: 최현준 교사\n          연락처: 010-6603-7868\n          비고: N17, P17",
+  "date": "2026-04-28",
+  "endDate": "2026-04-28",
+  "location": "충청남도 논산시 연무읍 연무로 268-9 (마산리, 연무대기계공고)",
+  "colorId": "9"
+}
+[2026-04-25T11:21:00.849Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-25T11:21:02.659Z] Event updated successfully: sit5aghtr0doi2g9jpo10uthvc 
+[2026-04-25T11:21:02.660Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
