@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     const { data: users, error } = await supabase
       .from("users")
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, created_at, updated_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_active, created_at, updated_at")
       .order("name", { ascending: true });
 
     if (error) {
@@ -119,8 +119,9 @@ export async function POST(request: NextRequest) {
         mobile: mobile || null,
         email: email || null,
         is_journal_manager: !!is_journal_manager,
+        is_active: true,
       })
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, created_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_active, created_at")
       .single();
 
     if (insertError) {

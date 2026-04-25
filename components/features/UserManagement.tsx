@@ -26,6 +26,7 @@ interface User {
   mobile?: string | null;
   email?: string | null;
   is_journal_manager: boolean;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +68,7 @@ export const UserManagement: React.FC = () => {
     mobile: "",
     email: "",
     is_journal_manager: false,
+    is_active: true,
   });
 
   // 삭제 확인 모달
@@ -190,6 +192,7 @@ export const UserManagement: React.FC = () => {
           mobile: editForm.mobile || null,
           email: editForm.email || null,
           is_journal_manager: !!editForm.is_journal_manager,
+          is_active: !!editForm.is_active,
         }),
       });
 
@@ -210,6 +213,7 @@ export const UserManagement: React.FC = () => {
         mobile: "",
         email: "",
         is_journal_manager: false,
+        is_active: true,
       });
       fetchUsers();
     } catch (err) {
@@ -274,7 +278,8 @@ export const UserManagement: React.FC = () => {
         <Table>
           <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black font-bold">
             <TableRow className="border-b border-sky-200">
-              <TableHead className="w-[100px] pl-2.5 text-black">이름</TableHead>
+              <TableHead className="text-black">이름</TableHead>
+              <TableHead className="text-black">상태</TableHead>
               <TableHead className="text-black">역활</TableHead>
               <TableHead className="text-black">직무</TableHead>
               <TableHead className="text-center text-black">일지담당</TableHead>
@@ -288,17 +293,24 @@ export const UserManagement: React.FC = () => {
           <TableBody>
             {users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-text-500 py-8">
+                <TableCell colSpan={10} className="text-center text-text-500 py-8">
                   등록된 사용자가 없습니다.
                 </TableCell>
               </TableRow>
             ) : (
               users.map((user) => (
-                <TableRow key={user.id} className="hover:bg-blue-50/40 group relative growable-row transition-colors border-b border-slate-100">
+                <TableRow key={user.id} className={`hover:bg-blue-50/40 group relative growable-row transition-colors border-b border-slate-100 ${!user.is_active ? "bg-slate-50 text-slate-400" : ""}`}>
                   <TableCell className="w-[100px] font-medium pl-2.5 relative">
                     {/* 표준 블루 인디케이터 바 */}
-                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                    <div className={`absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none ${!user.is_active ? "bg-slate-400" : ""}`} />
                     {user.name}
+                  </TableCell>
+                  <TableCell>
+                    {user.is_active ? (
+                      <span className="text-green-600 font-medium">활성</span>
+                    ) : (
+                      <span className="text-slate-400">중지</span>
+                    )}
                   </TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>{user.job || "-"}</TableCell>
@@ -328,6 +340,7 @@ export const UserManagement: React.FC = () => {
                             mobile: user.mobile || "",
                             email: user.email || "",
                             is_journal_manager: !!user.is_journal_manager,
+                            is_active: user.is_active !== false,
                           });
                           setShowEditModal(true);
                         }}
@@ -547,6 +560,7 @@ export const UserManagement: React.FC = () => {
             mobile: "",
             email: "",
             is_journal_manager: false,
+            is_active: true,
           });
           setError(null);
         }}
@@ -618,6 +632,21 @@ export const UserManagement: React.FC = () => {
             placeholder="예: A01, B02 등"
             maxLength={10}
           />
+          <div className="flex items-center gap-2 px-1 pt-2 border-t border-slate-100">
+            <input
+              type="checkbox"
+              id="edit-is-active"
+              checked={editForm.is_active}
+              onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+            />
+            <label htmlFor="edit-is-active" className="text-sm font-bold text-text-900">
+              계정 활성화 상태
+            </label>
+            <span className="text-xs text-text-500 ml-auto">
+              {editForm.is_active ? "현재 접속 가능" : "현재 접속 차단됨"}
+            </span>
+          </div>
           <div className="flex justify-end gap-2 pt-4">
             <Button
               variant="secondary"
@@ -632,6 +661,7 @@ export const UserManagement: React.FC = () => {
                   mobile: "",
                   email: "",
                   is_journal_manager: false,
+                  is_active: true,
                 });
                 setError(null);
               }}
