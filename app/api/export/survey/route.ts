@@ -32,12 +32,8 @@ export async function GET(request: NextRequest) {
     const excelData = (surveys || []).map((survey) => ({
       순번: survey.sequence_number || "",
       코드: survey.code || "",
-      측정일: survey.measurement_date
-        ? new Date(survey.measurement_date).toLocaleDateString("ko-KR")
-        : "",
-      종료일: survey.end_date
-        ? new Date(survey.end_date).toLocaleDateString("ko-KR")
-        : "",
+      측정일: survey.measurement_date || "",
+      종료일: survey.end_date || "",
       측정요일: survey.measurement_weekdays || "",
       사업장명: survey.business_name || "",
       측정자: survey.measurer || "",
@@ -47,10 +43,10 @@ export async function GET(request: NextRequest) {
       실측정자: survey.actual_measurer || "",
       보고서담당: survey.report_writer || "",
       생성일시: survey.created_at
-        ? new Date(survey.created_at).toLocaleString("ko-KR")
+        ? new Date(new Date(survey.created_at).getTime() + 9 * 60 * 60 * 1000).toISOString().replace("T", " ").split(".")[0]
         : "",
       수정일시: survey.updated_at
-        ? new Date(survey.updated_at).toLocaleString("ko-KR")
+        ? new Date(new Date(survey.updated_at).getTime() + 9 * 60 * 60 * 1000).toISOString().replace("T", " ").split(".")[0]
         : "",
     }));
 
