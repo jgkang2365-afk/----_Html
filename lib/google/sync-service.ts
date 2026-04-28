@@ -17,7 +17,7 @@ export async function syncBusinessToCalendar(
   period: string
 ) {
     // [잠시 중단] 캘린더 동기화 기능을 잠시 중단합니다. (필요 시 true -> false로 변경)
-    const IS_DISABLED = true;
+    const IS_DISABLED = false;
     if (IS_DISABLED) {
         console.log(`[Sync Service] Calendar sync is temporarily disabled. Skipping ${code}.`);
         return { success: true, message: "Calendar sync disabled" };

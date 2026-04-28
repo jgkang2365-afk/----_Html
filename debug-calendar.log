@@ -1733,3 +1733,376 @@
 [2026-04-25T11:21:00.849Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-25T11:21:02.659Z] Event updated successfully: sit5aghtr0doi2g9jpo10uthvc 
 [2026-04-25T11:21:02.660Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:40.096Z] Creating Calendar Event {
+  "summary": "[이주형] 원광건설(주) 국립환경과학원 바이오매스 시험동 건립 건축공사 - 26상 미수",
+  "description": "사업장코드: H0469\n          사업장: 원광건설(주) 국립환경과학원 바이오매스 시험동 건립 건축공사\n          주소: 인천광역시 서구 환경로 42 (오류동)\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-04-27",
+  "endDate": "2026-04-27",
+  "location": "인천광역시 서구 환경로 42 (오류동)",
+  "colorId": "5"
+}
+[2026-04-28T11:02:40.115Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:42.098Z] Event created successfully: 0v91u7logtha3vibiplhr30bkc 
+[2026-04-28T11:02:42.207Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:44.440Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:45.202Z] Updating Calendar Event: lvm74tt9r4ikepo794ftj4jdag {
+  "summary": "[한기문] 호산테크(주) - 26상 미수",
+  "description": "사업장코드: H0404\n          사업장: 호산테크(주)\n          주소: 경기도 안성시 미양면 안성맞춤대로 571-66 (보체리)\n          담당자: 최규남 차장\n          연락처: 010-5040-7080\n          비고:",
+  "date": "2026-04-27",
+  "endDate": "2026-04-27",
+  "location": "경기도 안성시 미양면 안성맞춤대로 571-66 (보체리)",
+  "colorId": "10"
+}
+[2026-04-28T11:02:45.203Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:47.161Z] Event updated successfully: lvm74tt9r4ikepo794ftj4jdag 
+[2026-04-28T11:02:47.163Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:49.189Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:49.934Z] Updating Calendar Event: sit5aghtr0doi2g9jpo10uthvc {
+  "summary": "[강종구] 연무마이스터고등학교 - 26상 미수 / N17, P17",
+  "description": "사업장코드: H0466\n          사업장: 연무마이스터고등학교\n          주소: 충청남도 논산시 연무읍 연무로 268-9 (마산리, 연무대기계공고)\n          담당자: 최현준 교사\n          연락처: 010-6603-7868\n          비고: N17, P17",
+  "date": "2026-04-28",
+  "endDate": "2026-04-28",
+  "location": "충청남도 논산시 연무읍 연무로 268-9 (마산리, 연무대기계공고)",
+  "colorId": "9"
+}
+[2026-04-28T11:02:49.936Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:52.150Z] Event updated successfully: sit5aghtr0doi2g9jpo10uthvc 
+[2026-04-28T11:02:52.151Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:54.071Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:54.738Z] Updating Calendar Event: 7geifpchgh2dgtp4q14d0v7nqk {
+  "summary": "[고유빈] 천안다나힐병원 - 26상/25하 미수",
+  "description": "사업장코드: H0325\n          사업장: 천안다나힐병원\n          주소: 충청남도 천안시 동남구 터미널3길 5 (신부동)\n          담당자: 구성모 원무과장\n          연락처: 010-5671-5111\n          비고:",
+  "date": "2026-04-28",
+  "endDate": "2026-04-28",
+  "location": "충청남도 천안시 동남구 터미널3길 5 (신부동)",
+  "colorId": "7"
+}
+[2026-04-28T11:02:54.740Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:56.803Z] Event updated successfully: 7geifpchgh2dgtp4q14d0v7nqk 
+[2026-04-28T11:02:56.804Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:02:58.724Z] Creating Calendar Event {
+  "summary": "[이주형] 주식회사 협성솔루션 - 26상 미수",
+  "description": "사업장코드: H0126\n          사업장: 주식회사 협성솔루션\n          주소: 충청남도 천안시 서북구 입장면 위례성로 1898-41 (양대리)\n          담당자: 전우영 차장\n          연락처: 010-4299-3284\n          비고:",
+  "date": "2026-04-28",
+  "endDate": "2026-04-28",
+  "location": "충청남도 천안시 서북구 입장면 위례성로 1898-41 (양대리)",
+  "colorId": "5"
+}
+[2026-04-28T11:02:58.726Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:03:00.028Z] Event created successfully: 65kuu8adaiu5grjsddmi2a0qcc 
+[2026-04-28T11:03:00.071Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:03:00.926Z] Deleting Calendar Event: 5u1f33vv9rj7jkdq0s9n87uefo 
+[2026-04-28T11:03:00.927Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:03:02.104Z] Event deleted: 5u1f33vv9rj7jkdq0s9n87uefo 
+[2026-04-28T11:07:16.752Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:07:17.817Z] Updating Calendar Event: g4rmfp1uqcou4ksp368komcets {
+  "summary": "[배윤민] 정안레미콘아스콘 주식회사 - 26상 미수",
+  "description": "사업장코드: H0284\n          사업장: 정안레미콘아스콘 주식회사\n          주소: 충청남도 천안시 동남구 광덕면 대평교길 48 (대평리)\n          담당자: 이현래 이사\n          연락처: 010-3749-7517\n          비고:",
+  "date": "2026-04-13",
+  "endDate": "2026-04-13",
+  "location": "충청남도 천안시 동남구 광덕면 대평교길 48 (대평리)",
+  "colorId": "3"
+}
+[2026-04-28T11:07:17.819Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:07:19.749Z] Event updated successfully: g4rmfp1uqcou4ksp368komcets 
+[2026-04-28T11:07:19.751Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:07:20.807Z] Creating Calendar Event {
+  "summary": "[배윤민] (주)한마 - 26상 미수",
+  "description": "사업장코드: H0150\n          사업장: (주)한마\n          주소: 충청남도 당진시 면천면 산업단지길 31 (문봉리)\n          담당자: 강병영 대표\n          연락처: 010-8777-9355\n          비고:",
+  "date": "2026-04-03",
+  "endDate": "2026-04-03",
+  "location": "충청남도 당진시 면천면 산업단지길 31 (문봉리)",
+  "colorId": "3"
+}
+[2026-04-28T11:07:20.810Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:07:22.152Z] Event created successfully: ai8lmo2bit4cesms491ukl82jo 
+[2026-04-28T11:07:22.281Z] Deleting Calendar Event: ghcvko4v0j2b04gu40iif4f4nc 
+[2026-04-28T11:07:22.282Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:07:23.408Z] Event deleted: ghcvko4v0j2b04gu40iif4f4nc 
+[2026-04-28T11:07:23.492Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:19.241Z] Creating Calendar Event {
+  "summary": "[강종구] 오다금속 주식회사 - 26상 미수",
+  "description": "사업장코드: H0253\n          사업장: 오다금속 주식회사\n          주소: 경기도 화성시 송산면 송산서로239번길 45-33 (지화리)\n          담당자: 김청미\n          연락처: 010-2286-8023\n          비고:",
+  "date": "2026-04-02",
+  "endDate": "2026-04-02",
+  "location": "경기도 화성시 송산면 송산서로239번길 45-33 (지화리)",
+  "colorId": "3"
+}
+[2026-04-28T11:09:19.245Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:20.785Z] Event created successfully: d2qdagrdm30t52hvjro4kffc8s 
+[2026-04-28T11:09:20.870Z] Deleting Calendar Event: 1jjf8tip0c01opaqaemcv0tmso 
+[2026-04-28T11:09:20.871Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:21.934Z] Event deleted: 1jjf8tip0c01opaqaemcv0tmso 
+[2026-04-28T11:09:22.016Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:24.363Z] Creating Calendar Event {
+  "summary": "[강종구] 주식회사 대승금속",
+  "description": "사업장코드: H0159\n          사업장: 주식회사 대승금속\n          주소: 경기도 화성시 송산면 송산서로239번길 45-35 (지화리)\n          담당자: 한희순 과장\n          연락처: 010-8823-4256\n          비고:",
+  "date": "2026-04-02",
+  "endDate": "2026-04-02",
+  "location": "경기도 화성시 송산면 송산서로239번길 45-35 (지화리)",
+  "colorId": "3"
+}
+[2026-04-28T11:09:24.365Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:25.566Z] Event created successfully: lkme6ml86n8gmjhlntgoe0mstk 
+[2026-04-28T11:09:25.643Z] Deleting Calendar Event: jkks7luujufmtqiklmivph8ffg 
+[2026-04-28T11:09:25.644Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:26.745Z] Event deleted: jkks7luujufmtqiklmivph8ffg 
+[2026-04-28T11:09:26.819Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:28.927Z] Creating Calendar Event {
+  "summary": "[강종구] 경인단조",
+  "description": "사업장코드: H0160\n          사업장: 경인단조\n          주소: 경기도 화성시 송산면 송산서로239번길 45-35 (지화리)\n          담당자: 한희순 과장\n          연락처: 010-8823-4256\n          비고:",
+  "date": "2026-04-02",
+  "endDate": "2026-04-02",
+  "location": "경기도 화성시 송산면 송산서로239번길 45-35 (지화리)",
+  "colorId": "3"
+}
+[2026-04-28T11:09:28.928Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:30.279Z] Event created successfully: 7ra3el8e5cl0efrmvau3it1t98 
+[2026-04-28T11:09:30.359Z] Deleting Calendar Event: 2es99q5djj28f9fa93pcgd0qc8 
+[2026-04-28T11:09:30.360Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:31.452Z] Event deleted: 2es99q5djj28f9fa93pcgd0qc8 
+[2026-04-28T11:09:31.513Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:33.621Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:34.405Z] Updating Calendar Event: 8o4glp720a694gn3fe878prlgo {
+  "summary": "[강종구] (주) 현대자동차충청써비스 - 26상 미수",
+  "description": "사업장코드: H0226\n          사업장: (주) 현대자동차충청써비스\n          주소: 충청남도 아산시 곡교천로125번길 35 (실옥동)\n          담당자: 김사론\n          연락처: 010-7138-1537\n          비고:",
+  "date": "2026-04-07",
+  "endDate": "2026-04-07",
+  "location": "충청남도 아산시 곡교천로125번길 35 (실옥동)",
+  "colorId": "3"
+}
+[2026-04-28T11:09:34.406Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:36.443Z] Event updated successfully: 8o4glp720a694gn3fe878prlgo 
+[2026-04-28T11:09:36.445Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:38.693Z] Creating Calendar Event {
+  "summary": "[고유빈] 천공엔지니어링 주식회사",
+  "description": "사업장코드: H0246\n          사업장: 천공엔지니어링 주식회사\n          주소: 충청남도 천안시 동남구 풍세면 미죽1길 63 (미죽리)\n          담당자: 김방재 대표\n          연락처: 010-6422-8906\n          비고:",
+  "date": "2026-03-31",
+  "endDate": "2026-03-31",
+  "location": "충청남도 천안시 동남구 풍세면 미죽1길 63 (미죽리)",
+  "colorId": "3"
+}
+[2026-04-28T11:09:38.694Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:40.000Z] Event created successfully: 5oashf3vsoajejte6ffflngl0s 
+[2026-04-28T11:09:40.047Z] Deleting Calendar Event: 8tcge67g2a5ildsrmqovdtkj50 
+[2026-04-28T11:09:40.049Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:09:41.229Z] Event deleted: 8tcge67g2a5ildsrmqovdtkj50 
+[2026-04-28T11:09:41.271Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:15.141Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:16.153Z] Updating Calendar Event: g4rmfp1uqcou4ksp368komcets {
+  "summary": "[배윤민] 정안레미콘아스콘 주식회사 - 26상 미수",
+  "description": "사업장코드: H0284\n          사업장: 정안레미콘아스콘 주식회사\n          주소: 충청남도 천안시 동남구 광덕면 대평교길 48 (대평리)\n          담당자: 이현래 이사\n          연락처: 010-3749-7517\n          비고:",
+  "date": "2026-04-13",
+  "endDate": "2026-04-13",
+  "location": "충청남도 천안시 동남구 광덕면 대평교길 48 (대평리)",
+  "colorId": "3"
+}
+[2026-04-28T11:13:16.154Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:17.821Z] Event updated successfully: g4rmfp1uqcou4ksp368komcets 
+[2026-04-28T11:13:17.822Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:19.933Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:20.612Z] Updating Calendar Event: 8o4glp720a694gn3fe878prlgo {
+  "summary": "[강종구] (주) 현대자동차충청써비스 - 26상 미수",
+  "description": "사업장코드: H0226\n          사업장: (주) 현대자동차충청써비스\n          주소: 충청남도 아산시 곡교천로125번길 35 (실옥동)\n          담당자: 김사론\n          연락처: 010-7138-1537\n          비고:",
+  "date": "2026-04-07",
+  "endDate": "2026-04-07",
+  "location": "충청남도 아산시 곡교천로125번길 35 (실옥동)",
+  "colorId": "3"
+}
+[2026-04-28T11:13:20.614Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:22.452Z] Event updated successfully: 8o4glp720a694gn3fe878prlgo 
+[2026-04-28T11:13:22.456Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:24.609Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:25.339Z] Updating Calendar Event: ird233fmhrm9sr0gn6n6qlrnd4 {
+  "summary": "[한기문] 주식회사 드림티엔에스 - 26상 미수",
+  "description": "사업장코드: H0093\n          사업장: 주식회사 드림티엔에스\n          주소: 대전광역시 유성구 테크노2로 215 (탑립동)\n          담당자: 정민 부장\n          연락처: 010-4463-8000\n          비고:",
+  "date": "2026-04-06",
+  "endDate": "2026-04-06",
+  "location": "대전광역시 유성구 테크노2로 215 (탑립동)",
+  "colorId": "3"
+}
+[2026-04-28T11:13:25.341Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:27.117Z] Event updated successfully: ird233fmhrm9sr0gn6n6qlrnd4 
+[2026-04-28T11:13:27.119Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:29.285Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:30.095Z] Updating Calendar Event: 5oashf3vsoajejte6ffflngl0s {
+  "summary": "[고유빈] 천공엔지니어링 주식회사",
+  "description": "사업장코드: H0246\n          사업장: 천공엔지니어링 주식회사\n          주소: 충청남도 천안시 동남구 풍세면 미죽1길 63 (미죽리)\n          담당자: 김방재 대표\n          연락처: 010-6422-8906\n          비고:",
+  "date": "2026-03-31",
+  "endDate": "2026-03-31",
+  "location": "충청남도 천안시 동남구 풍세면 미죽1길 63 (미죽리)",
+  "colorId": "3"
+}
+[2026-04-28T11:13:30.096Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:31.948Z] Event updated successfully: 5oashf3vsoajejte6ffflngl0s 
+[2026-04-28T11:13:31.950Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:34.232Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:34.914Z] Updating Calendar Event: d2qdagrdm30t52hvjro4kffc8s {
+  "summary": "[강종구] 오다금속 주식회사 - 26상 미수",
+  "description": "사업장코드: H0253\n          사업장: 오다금속 주식회사\n          주소: 경기도 화성시 송산면 송산서로239번길 45-33 (지화리)\n          담당자: 김청미\n          연락처: 010-2286-8023\n          비고:",
+  "date": "2026-04-02",
+  "endDate": "2026-04-02",
+  "location": "경기도 화성시 송산면 송산서로239번길 45-33 (지화리)",
+  "colorId": "3"
+}
+[2026-04-28T11:13:34.916Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:36.554Z] Event updated successfully: d2qdagrdm30t52hvjro4kffc8s 
+[2026-04-28T11:13:36.556Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:38.542Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:39.300Z] Updating Calendar Event: ai8lmo2bit4cesms491ukl82jo {
+  "summary": "[배윤민] (주)한마 - 26상 미수",
+  "description": "사업장코드: H0150\n          사업장: (주)한마\n          주소: 충청남도 당진시 면천면 산업단지길 31 (문봉리)\n          담당자: 강병영 대표\n          연락처: 010-8777-9355\n          비고:",
+  "date": "2026-04-03",
+  "endDate": "2026-04-03",
+  "location": "충청남도 당진시 면천면 산업단지길 31 (문봉리)",
+  "colorId": "3"
+}
+[2026-04-28T11:13:39.303Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:40.927Z] Event updated successfully: ai8lmo2bit4cesms491ukl82jo 
+[2026-04-28T11:13:40.928Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:43.057Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:43.840Z] Updating Calendar Event: 7ra3el8e5cl0efrmvau3it1t98 {
+  "summary": "[강종구] 경인단조",
+  "description": "사업장코드: H0160\n          사업장: 경인단조\n          주소: 경기도 화성시 송산면 송산서로239번길 45-35 (지화리)\n          담당자: 한희순 과장\n          연락처: 010-8823-4256\n          비고:",
+  "date": "2026-04-02",
+  "endDate": "2026-04-02",
+  "location": "경기도 화성시 송산면 송산서로239번길 45-35 (지화리)",
+  "colorId": "3"
+}
+[2026-04-28T11:13:43.841Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:45.679Z] Event updated successfully: 7ra3el8e5cl0efrmvau3it1t98 
+[2026-04-28T11:13:45.682Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:47.702Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:48.395Z] Updating Calendar Event: lkme6ml86n8gmjhlntgoe0mstk {
+  "summary": "[강종구] 주식회사 대승금속",
+  "description": "사업장코드: H0159\n          사업장: 주식회사 대승금속\n          주소: 경기도 화성시 송산면 송산서로239번길 45-35 (지화리)\n          담당자: 한희순 과장\n          연락처: 010-8823-4256\n          비고:",
+  "date": "2026-04-02",
+  "endDate": "2026-04-02",
+  "location": "경기도 화성시 송산면 송산서로239번길 45-35 (지화리)",
+  "colorId": "3"
+}
+[2026-04-28T11:13:48.396Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:50.279Z] Event updated successfully: lkme6ml86n8gmjhlntgoe0mstk 
+[2026-04-28T11:13:50.282Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:52.290Z] Creating Calendar Event {
+  "summary": "[배윤민] (주)정인모터스 - 판1, 도1 / 주소 이전됨",
+  "description": "사업장코드: H0098\n          사업장: (주)정인모터스\n          주소: 대전광역시 중구 유등천동로324번길 66\n          담당자: 이건문 공장장\n          연락처: 010-3993-7890\n          비고: 판1, 도1 / 주소 이전됨",
+  "date": "2026-04-07",
+  "endDate": "2026-04-07",
+  "location": "대전광역시 중구 유등천동로324번길 66",
+  "colorId": "3"
+}
+[2026-04-28T11:13:52.292Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:53.688Z] Event created successfully: h8qvkv3if16a7p3htq8g1atrj4 
+[2026-04-28T11:13:53.770Z] Deleting Calendar Event: 8aath04ajr1ra2fi6d1e7ilees 
+[2026-04-28T11:13:53.772Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:13:54.879Z] Event deleted: 8aath04ajr1ra2fi6d1e7ilees 
+[2026-04-28T11:13:54.924Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:24.271Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:25.267Z] Updating Calendar Event: g4rmfp1uqcou4ksp368komcets {
+  "summary": "[배윤민] 정안레미콘아스콘 주식회사 - 26상 미수",
+  "description": "사업장코드: H0284\n          사업장: 정안레미콘아스콘 주식회사\n          주소: 충청남도 천안시 동남구 광덕면 대평교길 48 (대평리)\n          담당자: 이현래 이사\n          연락처: 010-3749-7517\n          비고:",
+  "date": "2026-04-13",
+  "endDate": "2026-04-13",
+  "location": "충청남도 천안시 동남구 광덕면 대평교길 48 (대평리)",
+  "colorId": "3"
+}
+[2026-04-28T11:14:25.270Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:26.926Z] Event updated successfully: g4rmfp1uqcou4ksp368komcets 
+[2026-04-28T11:14:26.928Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:29.007Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:29.700Z] Updating Calendar Event: 8o4glp720a694gn3fe878prlgo {
+  "summary": "[강종구] (주) 현대자동차충청써비스 - 26상 미수",
+  "description": "사업장코드: H0226\n          사업장: (주) 현대자동차충청써비스\n          주소: 충청남도 아산시 곡교천로125번길 35 (실옥동)\n          담당자: 김사론\n          연락처: 010-7138-1537\n          비고:",
+  "date": "2026-04-07",
+  "endDate": "2026-04-07",
+  "location": "충청남도 아산시 곡교천로125번길 35 (실옥동)",
+  "colorId": "3"
+}
+[2026-04-28T11:14:29.702Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:31.304Z] Event updated successfully: 8o4glp720a694gn3fe878prlgo 
+[2026-04-28T11:14:31.307Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:33.397Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:34.130Z] Updating Calendar Event: ird233fmhrm9sr0gn6n6qlrnd4 {
+  "summary": "[한기문] 주식회사 드림티엔에스 - 26상 미수",
+  "description": "사업장코드: H0093\n          사업장: 주식회사 드림티엔에스\n          주소: 대전광역시 유성구 테크노2로 215 (탑립동)\n          담당자: 정민 부장\n          연락처: 010-4463-8000\n          비고:",
+  "date": "2026-04-06",
+  "endDate": "2026-04-06",
+  "location": "대전광역시 유성구 테크노2로 215 (탑립동)",
+  "colorId": "3"
+}
+[2026-04-28T11:14:34.133Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:35.734Z] Event updated successfully: ird233fmhrm9sr0gn6n6qlrnd4 
+[2026-04-28T11:14:35.736Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:37.949Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:38.752Z] Updating Calendar Event: 5oashf3vsoajejte6ffflngl0s {
+  "summary": "[고유빈] 천공엔지니어링 주식회사",
+  "description": "사업장코드: H0246\n          사업장: 천공엔지니어링 주식회사\n          주소: 충청남도 천안시 동남구 풍세면 미죽1길 63 (미죽리)\n          담당자: 김방재 대표\n          연락처: 010-6422-8906\n          비고:",
+  "date": "2026-03-31",
+  "endDate": "2026-03-31",
+  "location": "충청남도 천안시 동남구 풍세면 미죽1길 63 (미죽리)",
+  "colorId": "3"
+}
+[2026-04-28T11:14:38.753Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:40.441Z] Event updated successfully: 5oashf3vsoajejte6ffflngl0s 
+[2026-04-28T11:14:40.444Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:42.523Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:43.164Z] Updating Calendar Event: d2qdagrdm30t52hvjro4kffc8s {
+  "summary": "[강종구] 오다금속 주식회사 - 26상 미수",
+  "description": "사업장코드: H0253\n          사업장: 오다금속 주식회사\n          주소: 경기도 화성시 송산면 송산서로239번길 45-33 (지화리)\n          담당자: 김청미\n          연락처: 010-2286-8023\n          비고:",
+  "date": "2026-04-02",
+  "endDate": "2026-04-02",
+  "location": "경기도 화성시 송산면 송산서로239번길 45-33 (지화리)",
+  "colorId": "3"
+}
+[2026-04-28T11:14:43.166Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:45.001Z] Event updated successfully: d2qdagrdm30t52hvjro4kffc8s 
+[2026-04-28T11:14:45.002Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:46.882Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:47.588Z] Updating Calendar Event: ai8lmo2bit4cesms491ukl82jo {
+  "summary": "[배윤민] (주)한마 - 26상 미수",
+  "description": "사업장코드: H0150\n          사업장: (주)한마\n          주소: 충청남도 당진시 면천면 산업단지길 31 (문봉리)\n          담당자: 강병영 대표\n          연락처: 010-8777-9355\n          비고:",
+  "date": "2026-04-03",
+  "endDate": "2026-04-03",
+  "location": "충청남도 당진시 면천면 산업단지길 31 (문봉리)",
+  "colorId": "3"
+}
+[2026-04-28T11:14:47.589Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:49.357Z] Event updated successfully: ai8lmo2bit4cesms491ukl82jo 
+[2026-04-28T11:14:49.358Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:51.415Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:52.234Z] Updating Calendar Event: 7ra3el8e5cl0efrmvau3it1t98 {
+  "summary": "[강종구] 경인단조",
+  "description": "사업장코드: H0160\n          사업장: 경인단조\n          주소: 경기도 화성시 송산면 송산서로239번길 45-35 (지화리)\n          담당자: 한희순 과장\n          연락처: 010-8823-4256\n          비고:",
+  "date": "2026-04-02",
+  "endDate": "2026-04-02",
+  "location": "경기도 화성시 송산면 송산서로239번길 45-35 (지화리)",
+  "colorId": "3"
+}
+[2026-04-28T11:14:52.235Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:53.701Z] Event updated successfully: 7ra3el8e5cl0efrmvau3it1t98 
+[2026-04-28T11:14:53.702Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:55.663Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:56.350Z] Updating Calendar Event: lkme6ml86n8gmjhlntgoe0mstk {
+  "summary": "[강종구] 주식회사 대승금속",
+  "description": "사업장코드: H0159\n          사업장: 주식회사 대승금속\n          주소: 경기도 화성시 송산면 송산서로239번길 45-35 (지화리)\n          담당자: 한희순 과장\n          연락처: 010-8823-4256\n          비고:",
+  "date": "2026-04-02",
+  "endDate": "2026-04-02",
+  "location": "경기도 화성시 송산면 송산서로239번길 45-35 (지화리)",
+  "colorId": "3"
+}
+[2026-04-28T11:14:56.352Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:57.904Z] Event updated successfully: lkme6ml86n8gmjhlntgoe0mstk 
+[2026-04-28T11:14:57.905Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:14:59.908Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:15:00.641Z] Updating Calendar Event: h8qvkv3if16a7p3htq8g1atrj4 {
+  "summary": "[배윤민] (주)정인모터스 - 판1, 도1 / 주소 이전됨",
+  "description": "사업장코드: H0098\n          사업장: (주)정인모터스\n          주소: 대전광역시 중구 유등천동로324번길 66\n          담당자: 이건문 공장장\n          연락처: 010-3993-7890\n          비고: 판1, 도1 / 주소 이전됨",
+  "date": "2026-04-07",
+  "endDate": "2026-04-07",
+  "location": "대전광역시 중구 유등천동로324번길 66",
+  "colorId": "3"
+}
+[2026-04-28T11:15:00.643Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-04-28T11:15:02.254Z] Event updated successfully: h8qvkv3if16a7p3htq8g1atrj4 
+[2026-04-28T11:15:02.255Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
