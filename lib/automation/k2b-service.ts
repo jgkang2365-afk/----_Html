@@ -180,17 +180,25 @@ export class K2BService {
      * 7. 파일명들을 큰따옴표+공백으로 연결하여 붙여넣기
      * 8. pyautogui.press('enter')
      */
+    /**
+     * PowerShell EncodedCommand를 사용하여 특수문자/따옴표 포함 텍스트를 클립보드에 안전하게 설정
+     */
+    private setClipboard(text: string) {
+        // .NET 메서드를 사용하는 PowerShell 명령 생성
+        const command = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText(([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${Buffer.from(text, 'utf8').toString('base64')}'))))`;
+        // PowerShell에 명령 전달
+        execSync(`powershell -command "${command}"`);
+    }
+
     private sendMultipleFilesViaDialog(drawingFolder: string, jpgFiles: string[]) {
         // 1. Alt+D → 주소창 이동
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%d')"`);
         execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`);
 
         // 2-4. 폴더 경로를 클립보드에 복사 후 붙여넣기 → Enter
-        // 경로에 특수문자가 있을 수 있으므로 싱글 쿼테이션만 이스케이프 처리
-        const safeFolder = drawingFolder.replace(/'/g, "''");
-        execSync(`powershell -command "Set-Clipboard -Value '${safeFolder}'"`);
+        this.setClipboard(drawingFolder);
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 2500"`); // 폴더 이동 대기 시간 소폭 증설 (네트워크 드라이브 대비)
+        execSync(`powershell -command "Start-Sleep -Milliseconds 2500"`); // 폴더 이동 대기
 
         // 5. Alt+N → 파일명 입력란 이동
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%n')"`);
@@ -199,9 +207,8 @@ export class K2BService {
         // 6. 모든 파일명을 큰따옴표로 묶고 공백으로 연결
         const filenamesStr = jpgFiles.map(f => `"${f}"`).join(' ');
         
-        // 클립보드에 파일명 넣기 (이스케이프 오류 수정: \" 가 실제 문자로 들어가지 않도록)
-        const safeFilenamesStr = filenamesStr.replace(/'/g, "''");
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText('${safeFilenamesStr}')"`);
+        // 클립보드에 파일명 넣기 (Encoded 방식으로 따옴표 완벽 보존)
+        this.setClipboard(filenamesStr);
 
         // 7. Ctrl+V → 붙여넣기 후 Enter
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 2000; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
