@@ -183,23 +183,30 @@ export class K2BService {
     private sendMultipleFilesViaDialog(drawingFolder: string, jpgFiles: string[]) {
         // 1. Alt+D → 주소창 이동
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%d')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`); // time.sleep(1)
+        execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`);
 
         // 2-4. 폴더 경로를 클립보드에 복사 후 붙여넣기 → Enter
-        execSync(`powershell -command "Set-Clipboard -Value '${drawingFolder.replace(/'/g, "''")}'"`);
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 1500"`); // time.sleep(1.5) 폴더 이동 대기
+        // 경로에 특수문자가 있을 수 있으므로 더 안전한 방식으로 복사
+        const escapedFolder = drawingFolder.replace(/'/g, "''");
+        execSync(`powershell -command "Set-Clipboard -Value '${escapedFolder}'"`);
+        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
+        execSync(`powershell -command "Start-Sleep -Milliseconds 2000"`); // 폴더 이동 대기
 
         // 5. Alt+N → 파일명 입력란 이동
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%n')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 500"`); // time.sleep(0.5)
+        execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`);
 
         // 6. 모든 파일명을 큰따옴표로 묶고 공백으로 연결
+        // 파일명에 공백이 있으므로 반드시 큰따옴표가 필요함.
         const filenamesStr = jpgFiles.map(f => `"${f}"`).join(' ');
-        execSync(`powershell -command "Set-Clipboard -Value '${filenamesStr.replace(/'/g, "''")}'"`);
+        
+        // PowerShell에서 인코딩 문제 없이 클립보드에 설정하기 위해 Base64 방식 고려 또는 더 단순한 인용 방식 사용
+        // 여기서는 가장 확실한 .NET 메서드 직접 호출 방식을 사용합니다.
+        const escapedFilenames = filenamesStr.replace(/"/g, '\"');
+        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText('${escapedFilenames}')"`);
 
         // 7. Ctrl+V → 붙여넣기 후 Enter
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
+        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 1500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
     }
 
     /**
@@ -313,7 +320,7 @@ export class K2BService {
                     // XML 등록 확인 팝업 클릭
                     try {
                         const confirmBtn = await this.driver.wait(
-                            until.elementLocated(By.xpath('//*[@id="mainframe_VFrameSet_MainFrame_[1] 건을 업로드 하시겠습니까 ?_form_div_Btn_btn_confirmTextBoxElement"]/div')),
+                            until.elementLocated(By.xpath('//div[contains(@id, "btn_confirmTextBoxElement")]/div')),
                             20000
                         );
                         await confirmBtn.click();

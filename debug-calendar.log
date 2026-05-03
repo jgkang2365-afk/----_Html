@@ -2106,3 +2106,99 @@
 [2026-04-28T11:15:00.643Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-04-28T11:15:02.254Z] Event updated successfully: h8qvkv3if16a7p3htq8g1atrj4 
 [2026-04-28T11:15:02.255Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:23:06.664Z] Creating Calendar Event {
+  "summary": "[강종구] (주)엘에스티 - 26상 미수 / P4",
+  "description": "사업장코드: H0307\n          사업장: (주)엘에스티\n          주소: 충청남도 천안시 서북구 직산읍 4산단4로 60, C동 1호 (모시리)\n          담당자: 박기상 부장\n          연락처: 010-8964-7234\n          비고: P4",
+  "date": "2026-04-09",
+  "endDate": "2026-04-09",
+  "location": "충청남도 천안시 서북구 직산읍 4산단4로 60, C동 1호 (모시리)",
+  "colorId": "3"
+}
+[2026-05-03T05:23:06.670Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:23:08.192Z] Event created successfully: hu3f4oeba5f7veglk7e5rbs9eo 
+[2026-05-03T05:23:08.275Z] Deleting Calendar Event: p59h455vmj6n4eu17af1a7g2ro 
+[2026-05-03T05:23:08.278Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:23:09.451Z] Event deleted: p59h455vmj6n4eu17af1a7g2ro 
+[2026-05-03T05:23:09.523Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:23:54.508Z] Creating Calendar Event {
+  "summary": "[배윤민] 일성건설(주) 삭선~원북간 상하수도관 이설공사 - 26상 미수 / N4, P4",
+  "description": "사업장코드: H0368\n          사업장: 일성건설(주) 삭선~원북간 상하수도관 이설공사\n          주소: 충청남도 태안군 태안읍 삭선길 505 (삭선리)\n          담당자: 최승현 안전팀장\n          연락처: 010-4616-5408\n          비고: N4, P4",
+  "date": "2026-04-08",
+  "endDate": "2026-04-08",
+  "location": "충청남도 태안군 태안읍 삭선길 505 (삭선리)",
+  "colorId": "3"
+}
+[2026-05-03T05:23:54.510Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:23:56.051Z] Event created successfully: 1lf7oqsvlc3b94s4s6jro6rer8 
+[2026-05-03T05:23:56.124Z] Deleting Calendar Event: kksq9h6raals3me6aclliqaob4 
+[2026-05-03T05:23:56.126Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:23:57.235Z] Event deleted: kksq9h6raals3me6aclliqaob4 
+[2026-05-03T05:23:57.277Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:24:42.902Z] Creating Calendar Event {
+  "summary": "[강종구] 일성건설(주) 태안발전본부 공업용수관로(삭선~원북) 이설공사 - 26상 미수 / N6, P6",
+  "description": "사업장코드: H0346\n          사업장: 일성건설(주) 태안발전본부 공업용수관로(삭선~원북) 이설공사\n          주소: 충청남도 태안군 태안읍 원이로 77 (삭선리)\n          담당자: 최승현 안전팀장\n          연락처: 010-4616-5408\n          비고: N6, P6",
+  "date": "2026-04-08",
+  "endDate": "2026-04-08",
+  "location": "충청남도 태안군 태안읍 원이로 77 (삭선리)",
+  "colorId": "3"
+}
+[2026-05-03T05:24:42.905Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:24:44.392Z] Event created successfully: u44tbnqriuotnv5nf2bmdak7kg 
+[2026-05-03T05:24:44.454Z] Deleting Calendar Event: s4ugamgm5d5rat6p3jui5ua0hc 
+[2026-05-03T05:24:44.456Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:24:45.479Z] Event deleted: s4ugamgm5d5rat6p3jui5ua0hc 
+[2026-05-03T05:24:45.558Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:25:30.558Z] Creating Calendar Event {
+  "summary": "[강종구] 일성건설(주)삭선~원북 지방도 확포장공사 - 26상 미수 / N8, P8",
+  "description": "사업장코드: H0213\n          사업장: 일성건설(주)삭선~원북 지방도 확포장공사\n          주소: 충청남도 태안군 태안읍 원이로 77 (삭선리)\n          담당자: 최승현 안전팀장\n          연락처: 010-4616-5408\n          비고: N8, P8",
+  "date": "2026-04-08",
+  "endDate": "2026-04-08",
+  "location": "충청남도 태안군 태안읍 원이로 77 (삭선리)",
+  "colorId": "3"
+}
+[2026-05-03T05:25:30.560Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:25:31.989Z] Event created successfully: l6mluun545gle6ms0q567vct6g 
+[2026-05-03T05:25:32.044Z] Deleting Calendar Event: 7b06krtif6efq2i9qag29tou40 
+[2026-05-03T05:25:32.046Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:25:33.081Z] Event deleted: 7b06krtif6efq2i9qag29tou40 
+[2026-05-03T05:25:33.137Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:26:18.136Z] Creating Calendar Event {
+  "summary": "[강종구] 주식회사 브이에스테크",
+  "description": "사업장코드: H0209\n          사업장: 주식회사 브이에스테크\n          주소: 충청남도 천안시 서북구 성환읍 연암로 149 (수향리)\n          담당자: 이명근 대표\n          연락처: 010-4577-7000\n          비고:",
+  "date": "2026-04-10",
+  "endDate": "2026-04-10",
+  "location": "충청남도 천안시 서북구 성환읍 연암로 149 (수향리)",
+  "colorId": "3"
+}
+[2026-05-03T05:26:18.138Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:26:19.647Z] Event created successfully: rpbrvu8bsol6otokrmom68fgdg 
+[2026-05-03T05:26:19.694Z] Deleting Calendar Event: 7rj3av6v29hh10na0o5foc4gek 
+[2026-05-03T05:26:19.696Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:26:20.854Z] Event deleted: 7rj3av6v29hh10na0o5foc4gek 
+[2026-05-03T05:26:20.890Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:27:05.272Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:27:06.222Z] Updating Calendar Event: pri9f7mgrjekglrilk5ng9t2os {
+  "summary": "[강종구] 주식회사 에코리치 - 26상 미수",
+  "description": "사업장코드: H0276\n          사업장: 주식회사 에코리치\n          주소: 충청북도 청주시 청원구 오창읍 두릉유리로 50-1 (성재리)\n          담당자: 김민정 팀장\n          연락처: 010-9115-3925\n          비고:",
+  "date": "2026-04-14",
+  "endDate": "2026-04-14",
+  "location": "충청북도 청주시 청원구 오창읍 두릉유리로 50-1 (성재리)",
+  "colorId": "3"
+}
+[2026-05-03T05:27:06.225Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:27:08.039Z] Event updated successfully: pri9f7mgrjekglrilk5ng9t2os 
+[2026-05-03T05:27:08.040Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:28:02.240Z] Creating Calendar Event {
+  "summary": "[강종구] 주식회사 엘에스이 - 26상 미수 / P13",
+  "description": "사업장코드: H0242\n          사업장: 주식회사 엘에스이\n          주소: 충청남도 천안시 서북구 직산읍 4산단6길 22 (신갈리)\n          담당자: 박기상 부장\n          연락처: 010-8964-7234\n          비고: P13",
+  "date": "2026-04-09",
+  "endDate": "2026-04-09",
+  "location": "충청남도 천안시 서북구 직산읍 4산단6길 22 (신갈리)",
+  "colorId": "9"
+}
+[2026-05-03T05:28:02.242Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:28:03.798Z] Event created successfully: fat2bcvc0alk4cah3509ac3oqo 
+[2026-05-03T05:28:03.832Z] Deleting Calendar Event: k279ub447rm23167prto18osqk 
+[2026-05-03T05:28:03.833Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:28:04.928Z] Event deleted: k279ub447rm23167prto18osqk 
+[2026-05-03T05:28:04.964Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
