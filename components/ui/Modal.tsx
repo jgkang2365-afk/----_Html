@@ -73,6 +73,30 @@ export const Modal: React.FC<ModalProps> = ({
     };
   }, [isOpen]);
 
+  // 브라우저 뒤로가기 버튼 대응 (모바일 내비게이션 개선)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // 모달이 열릴 때 히스토리 스택에 가상 상태 추가
+    window.history.pushState({ modalOpen: true }, "");
+
+    const handlePopState = () => {
+      // 뒤로가기가 발생하면 모달 닫기
+      onClose();
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      // 수동으로 모달이 닫힌 경우(X 버튼, 배경 클릭 등) 히스토리 스택 정리
+      // 브라우저 뒤로가기로 닫힌 경우에는 이미 상태가 넘어갔으므로 실행되지 않음
+      if (window.history.state?.modalOpen) {
+        window.history.back();
+      }
+    };
+  }, [isOpen, onClose]);
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen) {

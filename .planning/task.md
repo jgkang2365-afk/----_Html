@@ -1,13 +1,11 @@
-# Task List: 캘린더 자동화 시스템 재가동 및 데이터 업데이트
+# Phase: 모달 내비게이션 개선 (Mobile Back Button)
 
-## Milestone 1: 시스템 활성화 및 기초 데이터 동기화
-- [x] `lib/google/sync-service.ts` 활성화 (`IS_DISABLED = false`) <!-- id: 0 -->
-- [x] 엑셀 파일 DB 동기화 실행 (`syncAllFiles`) <!-- id: 1 -->
+## status
+- [x] Modal.tsx 분석 및 History API 연동 설계
+- [x] History API 연동 구현 (pushState, popstate)
+- [x] 수동 닫기 시 히스토리 정리 로직 구현
+- [ ] 최종 검증 및 사후 분석
 
-## Milestone 2: 4/24~4/28 데이터 캘린더 반영
-- [x] 대상 기간 데이터 추출 (2026-04-24 ~ 2026-04-28) <!-- id: 2 -->
-- [x] 캘린더 강제 동기화 스크립트 실행 <!-- id: 3 -->
-
-## Milestone 3: 오류 처리 및 최종 검증
-- [x] 403/404 오류 대응 로직 점검 <!-- id: 4 -->
-- [x] 동기화 결과 로그 확인 <!-- id: 5 -->
+## todos
+- [x] `components/ui/Modal.tsx` 수정
+- [ ] 로컬 테스트 (뒤로가기 시뮬레이션)

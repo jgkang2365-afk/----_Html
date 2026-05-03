@@ -5,7 +5,7 @@ async function testApi() {
     const url = `http://localhost:3000/api/report-processing?year=2026&period=상반기&search=${encodeURIComponent(search)}`;
     try {
         const res = await fetch(url);
-        const data = await res.json();
+        const data: any = await res.json();
         console.log(`API Response for ${search}:`);
         data.records.forEach((r: any) => {
             console.log(`- ${r.business_name} (${r.code}): K2B Status: ${r.k2b_status}, Date: ${r.k2b_send_date}`);
