@@ -2202,3 +2202,29 @@
 [2026-05-03T05:28:03.833Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-05-03T05:28:04.928Z] Event deleted: k279ub447rm23167prto18osqk 
 [2026-05-03T05:28:04.964Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:42:39.974Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:42:40.967Z] Updating Calendar Event: fat2bcvc0alk4cah3509ac3oqo {
+  "summary": "[강종구] 주식회사 엘에스이 - 26상 미수 / P13",
+  "description": "사업장코드: H0242\n          사업장: 주식회사 엘에스이\n          주소: 충청남도 천안시 서북구 직산읍 4산단6길 22 (신갈리)\n          담당자: 박기상 부장\n          연락처: 010-8964-7234\n          비고: P13",
+  "date": "2026-04-09",
+  "endDate": "2026-04-09",
+  "location": "충청남도 천안시 서북구 직산읍 4산단6길 22 (신갈리)",
+  "colorId": "9"
+}
+[2026-05-03T05:42:40.970Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:42:42.809Z] Event updated successfully: fat2bcvc0alk4cah3509ac3oqo 
+[2026-05-03T05:42:42.811Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:43:37.882Z] Creating Calendar Event {
+  "summary": "[강종구] 콜러벤처스인크 천안지점 - 26상 미수",
+  "description": "사업장코드: H0405\n          사업장: 콜러벤처스인크 천안지점\n          주소: 충청남도 천안시 서북구 직산읍 부송3길 61, B동 202호 (부송리, 노비타)\n          담당자: 전우진 프로\n          연락처: 010-5491-1412\n          비고:",
+  "date": "2026-04-10",
+  "endDate": "2026-04-10",
+  "location": "충청남도 천안시 서북구 직산읍 부송3길 61, B동 202호 (부송리, 노비타)",
+  "colorId": "9"
+}
+[2026-05-03T05:43:37.883Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:43:39.238Z] Event created successfully: m1it199a0kd8jr9alls2b3grro 
+[2026-05-03T05:43:39.297Z] Deleting Calendar Event: sfs7dg5urmd8ii2258k3v5qq7g 
+[2026-05-03T05:43:39.301Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-03T05:43:40.504Z] Event deleted: sfs7dg5urmd8ii2258k3v5qq7g 
+[2026-05-03T05:43:40.571Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

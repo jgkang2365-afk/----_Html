@@ -186,27 +186,25 @@ export class K2BService {
         execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`);
 
         // 2-4. 폴더 경로를 클립보드에 복사 후 붙여넣기 → Enter
-        // 경로에 특수문자가 있을 수 있으므로 더 안전한 방식으로 복사
-        const escapedFolder = drawingFolder.replace(/'/g, "''");
-        execSync(`powershell -command "Set-Clipboard -Value '${escapedFolder}'"`);
+        // 경로에 특수문자가 있을 수 있으므로 싱글 쿼테이션만 이스케이프 처리
+        const safeFolder = drawingFolder.replace(/'/g, "''");
+        execSync(`powershell -command "Set-Clipboard -Value '${safeFolder}'"`);
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 2000"`); // 폴더 이동 대기
+        execSync(`powershell -command "Start-Sleep -Milliseconds 2500"`); // 폴더 이동 대기 시간 소폭 증설 (네트워크 드라이브 대비)
 
         // 5. Alt+N → 파일명 입력란 이동
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%n')"`);
         execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`);
 
         // 6. 모든 파일명을 큰따옴표로 묶고 공백으로 연결
-        // 파일명에 공백이 있으므로 반드시 큰따옴표가 필요함.
         const filenamesStr = jpgFiles.map(f => `"${f}"`).join(' ');
         
-        // PowerShell에서 인코딩 문제 없이 클립보드에 설정하기 위해 Base64 방식 고려 또는 더 단순한 인용 방식 사용
-        // 여기서는 가장 확실한 .NET 메서드 직접 호출 방식을 사용합니다.
-        const escapedFilenames = filenamesStr.replace(/"/g, '\"');
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText('${escapedFilenames}')"`);
+        // 클립보드에 파일명 넣기 (이스케이프 오류 수정: \" 가 실제 문자로 들어가지 않도록)
+        const safeFilenamesStr = filenamesStr.replace(/'/g, "''");
+        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText('${safeFilenamesStr}')"`);
 
         // 7. Ctrl+V → 붙여넣기 후 Enter
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 1500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
+        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 2000; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
     }
 
     /**
