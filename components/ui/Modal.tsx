@@ -73,6 +73,11 @@ export const Modal: React.FC<ModalProps> = ({
     };
   }, [isOpen]);
 
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   // 브라우저 뒤로가기 버튼 대응 (모바일 내비게이션 개선)
   useEffect(() => {
     if (!isOpen) return;
@@ -82,7 +87,7 @@ export const Modal: React.FC<ModalProps> = ({
 
     const handlePopState = () => {
       // 뒤로가기가 발생하면 모달 닫기
-      onClose();
+      onCloseRef.current();
     };
 
     window.addEventListener("popstate", handlePopState);
@@ -95,18 +100,18 @@ export const Modal: React.FC<ModalProps> = ({
         window.history.back();
       }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen) {
-        onClose();
+        onCloseRef.current();
       }
     };
 
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   // 드래그(이동) 및 리사이즈 이벤트 처리
   useEffect(() => {
