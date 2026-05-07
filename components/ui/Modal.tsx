@@ -47,6 +47,7 @@ export const Modal: React.FC<ModalProps> = ({
   const [isResizing, setIsResizing] = useState(false);
   const [modalSize, setModalSize] = useState<{ width: number | string; height: number | string }>({ width: "", height: "" });
   const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const [isTouch, setIsTouch] = useState(false);
 
   const modalRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -115,55 +116,60 @@ export const Modal: React.FC<ModalProps> = ({
 
   // 드래그(이동) 및 리사이즈 이벤트 처리
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
       if (isDragging) {
-        const newX = e.clientX - dragStart.x;
-        const newY = e.clientY - dragStart.y;
+        const newX = clientX - dragStart.x;
+        const newY = clientY - dragStart.y;
 
-        // 화면 경계 체크
-        if (modalRef.current) {
-          const modalRect = modalRef.current.getBoundingClientRect();
-          const maxX = (window.innerWidth - modalRect.width) / 2;
-          const maxY = (window.innerHeight - modalRect.height) / 2;
-
-          // 너무 벗어나지 않게 (화면의 90% 정도까지만 허용)
-          const boundX = (window.innerWidth / 2) + (modalRect.width / 2) - 50;
-          const boundY = (window.innerHeight / 2) + (modalRect.height / 2) - 50;
-
-          setPosition({
-            x: newX, // 자유롭게 이동하되 화면 밖으로 완전히 사라지지 않게 제한하는 로직은 복잡해질 수 있어 일단 자유 이동 허용하거나 필요시 제한
-            y: newY,
-          });
-        }
+        setPosition({
+          x: newX,
+          y: newY,
+        });
       } else if (isResizing) {
-        const deltaX = e.clientX - resizeStart.x;
-        const deltaY = e.clientY - resizeStart.y;
+        // 리사이징 중에는 스크롤 방지
+        if (e.cancelable) e.preventDefault();
+        
+        const deltaX = clientX - resizeStart.x;
+        const deltaY = clientY - resizeStart.y;
 
         setModalSize({
-          width: Math.max(300, resizeStart.width + deltaX), // 최소 너비 300px
-          height: Math.max(200, resizeStart.height + deltaY), // 최소 높이 200px
+          width: Math.max(300, resizeStart.width + deltaX),
+          height: Math.max(200, resizeStart.height + deltaY),
         });
       }
     };
 
-    const handleMouseUp = () => {
+    const handleEnd = () => {
       setIsDragging(false);
       setIsResizing(false);
+      setIsTouch(false);
       document.body.style.userSelect = "";
     };
 
     if (isDragging || isResizing) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
+      if (isTouch) {
+        document.addEventListener("touchmove", handleMove, { passive: false });
+        document.addEventListener("touchend", handleEnd);
+        document.addEventListener("touchcancel", handleEnd);
+      } else {
+        document.addEventListener("mousemove", handleMove);
+        document.addEventListener("mouseup", handleEnd);
+      }
       document.body.style.userSelect = "none";
     };
 
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.userSelect = ""; // cleanup 시 복구
+      document.removeEventListener("mousemove", handleMove);
+      document.removeEventListener("mouseup", handleEnd);
+      document.removeEventListener("touchmove", handleMove);
+      document.removeEventListener("touchend", handleEnd);
+      document.removeEventListener("touchcancel", handleEnd);
+      document.body.style.userSelect = "";
     };
-  }, [isDragging, dragStart, isResizing, resizeStart]);
+  }, [isDragging, dragStart, isResizing, resizeStart, isTouch]);
 
   const handleHeaderMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     // 닫기 버튼이나 다른 상호작용 요소를 클릭한 경우 드래그 방지
@@ -179,7 +185,7 @@ export const Modal: React.FC<ModalProps> = ({
   };
 
   const handleResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation(); // 모달 드래그 방지
+    e.stopPropagation();
     if (modalRef.current) {
       const rect = modalRef.current.getBoundingClientRect();
       setResizeStart({
@@ -188,9 +194,28 @@ export const Modal: React.FC<ModalProps> = ({
         width: rect.width,
         height: rect.height,
       });
+      setIsTouch(false);
       setIsResizing(true);
+      setModalSize({
+        width: rect.width,
+        height: rect.height,
+      });
+    }
+  };
 
-      // 리사이즈 시작 시 현재 크기를 명시적으로 설정하여 transition 꼬임 방지
+  const handleResizeTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (modalRef.current && e.touches.length > 0) {
+      const rect = modalRef.current.getBoundingClientRect();
+      const touch = e.touches[0];
+      setResizeStart({
+        x: touch.clientX,
+        y: touch.clientY,
+        width: rect.width,
+        height: rect.height,
+      });
+      setIsTouch(true);
+      setIsResizing(true);
       setModalSize({
         width: rect.width,
         height: rect.height,
@@ -314,8 +339,9 @@ export const Modal: React.FC<ModalProps> = ({
         {/* 리사이즈 핸들 */}
         {resizable && (
           <div
-            className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize z-20 flex items-center justify-center"
+            className="absolute bottom-0 right-0 w-8 h-8 cursor-nwse-resize z-20 flex items-center justify-center sm:w-6 sm:h-6"
             onMouseDown={handleResizeMouseDown}
+            onTouchStart={handleResizeTouchStart}
           >
             {/* 핸들 아이콘 (우측 하단 코너 표시) */}
             <svg
