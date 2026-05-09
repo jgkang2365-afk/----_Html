@@ -31,6 +31,8 @@
 - **Server-Side Rendering (SSR)**: Used for initial page loads and SEO.
 - **Client-Side Interactivity**: Used for complex forms and graphs (vis.js).
 - **Hybrid Data Source**: Combines relational DB (Supabase) with static/exported data (Excel).
+- **ID-Based Background Fetch**: Modals now prioritize ID-based direct API calls (`/api/journal/[id]`) over list-state objects to ensure data integrity and latest state.
+- **Real-time Business Logic**: Complex calculations (e.g., measurement fee summation) are enforced via client-side `useEffect` and re-validated server-side during `PATCH` operations.
 
 ## 4. Entry Points
 - **Web**: `app/page.tsx` (Main entry).

@@ -24,3 +24,11 @@
 - **Issue**: Presence of `google-credentials.json` and `.env.local` in the workspace.
 - **Impact**: Risk of accidental exposure.
 - **Action**: Ensure these are strictly excluded from version control and handled via secure environment variables in production.
+
+## 6. Print Layout Parity (Medium)
+- **Issue**: Discrepancies between modal interactive views and printed outputs due to CSS grid breakpoints and print media queries.
+- **Goal**: Standardize on `print:` utility classes and low-level breakpoints (`sm:`) for complex forms that require A4 horizontal alignment.
+
+## 7. Modal Data Integrity (Medium)
+- **Issue**: Potential race conditions when modals open with cached list-state data while background fetches for details are still in flight.
+- **Goal**: Implement visual loading states during background fetch and ensure the `key` prop protects component state during prop updates.
