@@ -84,6 +84,7 @@ interface SummaryEntry {
   k2b_sender: string | null;
   measurement_fee_business: number | null;
   measurement_fee_national: number | null;
+  measurement_fee_total: number | null; // 합계 필드 추가
   special_notes: string | null;
   completion_status: string;
   target_measurement_date: string | null;
@@ -299,6 +300,7 @@ export const SummaryTable: React.FC = () => {
       k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
       measurement_fee_business: entry.measurement_fee_business || null,
       measurement_fee_national: entry.measurement_fee_national || null,
+      measurement_fee_total: entry.measurement_fee_total || null, // 합계 초기값 바인딩
       national_support_status: entry.national_support_status || "",
       office_jurisdiction: entry.office_jurisdiction || "",
       special_notes: entry.special_notes || "",
@@ -325,6 +327,31 @@ export const SummaryTable: React.FC = () => {
     };
     fetchPreviousData();
   };
+
+  // [New] 측정비 합계 자동 계산 로직 (JournalEditForm과 동기화 및 방어 코드 강화)
+  useEffect(() => {
+    try {
+      const getSafeNumber = (val: any) => {
+        if (!val && val !== 0) return 0;
+        const str = String(val).replace(/,/g, "").trim();
+        const num = parseFloat(str);
+        return isNaN(num) ? 0 : num;
+      };
+
+      const bizFee = getSafeNumber(editFormData.measurement_fee_business);
+      const natFee = getSafeNumber(editFormData.measurement_fee_national);
+      const isNA = editFormData.national_support_status === "비대상";
+      
+      const total = isNA ? bizFee : (bizFee + natFee);
+      
+      const currentTotalStr = parseCurrency(editFormData.measurement_fee_total);
+      if (currentTotalStr !== total.toString()) {
+        setEditFormData(prev => ({ ...prev, measurement_fee_total: total }));
+      }
+    } catch (e) {
+      console.error('[SummaryTable] 측정비 계산 오류:', e);
+    }
+  }, [editFormData.measurement_fee_business, editFormData.measurement_fee_national, editFormData.national_support_status]);
 
   // 수정 저장
   const handleSave = async () => {
@@ -370,6 +397,12 @@ export const SummaryTable: React.FC = () => {
         saveData.measurement_fee_national = parsed ? parseFloat(parsed) : null;
       }
 
+      // 저장 전 합계 재계산 (DB 데이터 일관성 보장)
+      const biz = parseFloat(parseCurrency(saveData.measurement_fee_business)) || 0;
+      const nat = parseFloat(parseCurrency(saveData.measurement_fee_national)) || 0;
+      const isNA = saveData.national_support_status === "비대상";
+      saveData.measurement_fee_total = isNA ? biz : (biz + nat);
+
       const response = await fetch(`/api/summary/${selectedEntry.journal_id}`, {
         method: "PATCH",
         headers: {
@@ -412,7 +445,7 @@ export const SummaryTable: React.FC = () => {
   const PrintPreviewPortal = () => {
     if (typeof window === "undefined") return null;
 
-    const selectedEntries = results.filter(r => selectedIds.has(r.id));
+    const selectedEntries = results.filter((r: SummaryEntry) => selectedIds.has(r.id));
 
     return createPortal(
       <div className="fixed inset-0 z-[100] bg-white overflow-auto" role="dialog" aria-modal="true">
@@ -450,7 +483,7 @@ export const SummaryTable: React.FC = () => {
 
         {/* 인쇄 내용 (화면 및 출력 모두 보임) */}
         <div className="p-8 print:p-0 space-y-8 print:space-y-0 bg-slate-100 print:bg-white min-h-screen">
-          {selectedEntries.map((entry, index) => (
+          {selectedEntries.map((entry: SummaryEntry, index: number) => (
             <div
               key={entry.id}
               className="break-after-page page-break-always bg-white p-8 rounded-lg shadow-sm print:shadow-none print:rounded-none print:p-10 max-w-[210mm] mx-auto print:max-w-none"
@@ -492,7 +525,7 @@ export const SummaryTable: React.FC = () => {
                         {(() => {
                           // 1. 정확히 일치하는 주기 검색
                           let quota = quotas.find(
-                            (q) =>
+                            (q: any) =>
                               q.year === entry.measurement_year &&
                               q.period === entry.measurement_period &&
                               q.office_name === entry.designated_office
@@ -502,7 +535,7 @@ export const SummaryTable: React.FC = () => {
                           if (!quota && entry.measurement_period.includes('(수시)')) {
                             const basePeriod = entry.measurement_period.replace('(수시)', '');
                             quota = quotas.find(
-                              (q) =>
+                              (q: any) =>
                                 q.year === entry.measurement_year &&
                                 q.period === basePeriod &&
                                 q.office_name === entry.designated_office
@@ -800,15 +833,31 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정비 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정비 정보</h4>
-                  <div className="grid grid-cols-4 gap-4 w-full px-1">
+                  <div className="grid grid-cols-1 md:grid-cols-5 print:grid-cols-5 gap-2 w-full px-1">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         전자계산서 발행일
                       </label>
                       <Input
-                        type="date"
-                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black"
+                        type="text"
+                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black text-center"
                         value={normalizeDateForInput(entry.electronic_invoice_date)}
+                        disabled
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정비(합계)
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-center"
+                        type="text"
+                        value={formatCurrency(
+                          entry.measurement_fee_total || 
+                          (entry.national_support_status === "비대상" 
+                            ? (entry.measurement_fee_business || 0) 
+                            : (entry.measurement_fee_business || 0) + (entry.measurement_fee_national || 0))
+                        )}
                         disabled
                       />
                     </div>
@@ -817,18 +866,8 @@ export const SummaryTable: React.FC = () => {
                         측정비(사업장)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-left"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-center"
                         value={formatCurrency(entry.measurement_fee_business)}
-                        disabled
-                      />
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        국고
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
-                        value={entry.national_support_status || ""}
                         disabled
                       />
                     </div>
@@ -837,8 +876,18 @@ export const SummaryTable: React.FC = () => {
                         측정비(국고)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-left"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-center"
                         value={formatCurrency(entry.measurement_fee_national)}
+                        disabled
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        국고
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white text-center"
+                        value={entry.national_support_status || ""}
                         disabled
                       />
                     </div>
@@ -850,9 +899,9 @@ export const SummaryTable: React.FC = () => {
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">특이사항</h4>
                   <div className="p-1">
                     <div className="w-full h-32 p-3 border rounded-lg bg-white text-base md:text-sm shadow-sm font-bold text-black overflow-y-auto whitespace-pre-wrap">
-                      {(entry.special_notes || "").split('\n').map((line, i) => (
+                      {(entry.special_notes || "").split('\n').map((line: string, i: number) => (
                         <div key={i} className={line.trim().startsWith('[데이터 불일치]') ? "text-red-600 font-bold" : ""}>
-                          {line.split(/(\[\[.*?\]\])/).map((part, index) => {
+                          {line.split(/(\[\[.*?\]\])/).map((part: string, index: number) => {
                             if (part.startsWith('[[') && part.endsWith(']]')) {
                               return (
                                 <span key={index} className="bg-yellow-300 text-black font-extrabold px-0.5 rounded-sm mx-0.5 print:bg-yellow-300 print:text-black">
@@ -1429,7 +1478,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정시작일
@@ -1490,7 +1539,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 사업장 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">사업장 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-12 print:grid-cols-12 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 print:grid-cols-12 gap-3 md:gap-4">
                     <div className="md:col-span-6 print:col-span-6 p-1">
                       <label className="block text-sm font-bold text-text-800 mb-1.5 ml-0.5 print:text-base">
                         사업장명 *
@@ -1613,7 +1662,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 담당자 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">담당자 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         담당자명
@@ -1710,7 +1759,7 @@ export const SummaryTable: React.FC = () => {
                 {/* K2B 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">K2B 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         K2B 발송일
@@ -1754,15 +1803,15 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정비 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정비 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-5 print:grid-cols-5 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         전자계산서 발행일
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
-                        type="date"
-                        value={normalizeDateForInput(editFormData.electronic_invoice_date)}
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center"
+                        type="text"
+                        value={editFormData.electronic_invoice_date || ""}
                         onChange={(e) =>
                           setEditFormData({ ...editFormData, electronic_invoice_date: e.target.value })
                         }
@@ -1770,10 +1819,27 @@ export const SummaryTable: React.FC = () => {
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정비(합계)
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center"
+                        type="text"
+                        value={formatCurrency(
+                          editFormData.measurement_fee_total || 
+                          (editFormData.national_support_status === "비대상" 
+                            ? (parseFloat(parseCurrency(editFormData.measurement_fee_business)) || 0)
+                            : (parseFloat(parseCurrency(editFormData.measurement_fee_business)) || 0) + (parseFloat(parseCurrency(editFormData.measurement_fee_national)) || 0))
+                        )}
+                        readOnly
+                        placeholder="자동 계산됨"
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정비(사업장)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center"
                         type="text"
                         value={formatCurrency(editFormData.measurement_fee_business)}
                         onChange={(e) => {
@@ -1788,28 +1854,10 @@ export const SummaryTable: React.FC = () => {
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        국고
-                      </label>
-                      <Select
-                        className="h-11 md:h-10 py-2 text-base md:text-sm shadow-sm text-center"
-                        value={editFormData.national_support_status || ""}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setEditFormData({ ...editFormData, national_support_status: value || "" });
-                        }}
-                        options={[
-                          { value: "", label: "선택" },
-                          { value: "대상", label: "대상" },
-                          { value: "비대상", label: "비대상" },
-                        ]}
-                      />
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정비(국고)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center"
                         type="text"
                         value={formatCurrency(editFormData.measurement_fee_national)}
                         onChange={(e) => {
@@ -1819,7 +1867,31 @@ export const SummaryTable: React.FC = () => {
                             measurement_fee_national: parsed ? parseFloat(parsed) : null,
                           });
                         }}
-                        placeholder="숫자만 입력"
+                        disabled={editFormData.national_support_status === "비대상"}
+                        placeholder={editFormData.national_support_status === "비대상" ? "-" : "숫자만 입력"}
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        국고
+                      </label>
+                      <Select
+                        className="h-11 md:h-10 py-2 text-base md:text-sm shadow-sm text-center"
+                        value={editFormData.national_support_status || ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          const newData = { ...editFormData, national_support_status: value || "" };
+                          // [New] 비대상 선택 시 국고 측정비 초기화
+                          if (value === "비대상") {
+                            newData.measurement_fee_national = null;
+                          }
+                          setEditFormData(newData);
+                        }}
+                        options={[
+                          { value: "", label: "선택" },
+                          { value: "대상", label: "대상" },
+                          { value: "비대상", label: "비대상" },
+                        ]}
                       />
                     </div>
                   </div>

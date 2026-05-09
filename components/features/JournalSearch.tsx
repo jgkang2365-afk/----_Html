@@ -358,38 +358,39 @@ export const JournalSearch: React.FC = () => {
   };
 
   const handleSelectJournal = async (entry: JournalEntry) => {
-    // 측정일지 ID가 있으면 최신 데이터를 불러옴 (캐시 무시)
+    if (!entry) return;
+
+    // 1. 즉시 상태 업데이트하여 모달 오픈 (빠른 응답성)
+    setSelectedEntry(entry);
+    setIsModalOpen(true);
+
+    // 2. 백그라운드에서 최신 데이터 패치 (상세 정보 보완)
     if (entry.id) {
       try {
-        // 캐시를 무시하고 최신 데이터를 가져오기 위해 timestamp 추가 (menuType=registration 추가)
         const timestamp = new Date().getTime();
-        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(entry.code || '')}&measurementYear=${entry.measurement_year}&measurementPeriod=${entry.measurement_period}&menuType=registration&_t=${timestamp}`, {
+        // ID 기반 직접 조회로 변경하여 더 정확하고 빠른 데이터 확보
+        const response = await fetch(`/api/journal/${entry.id}?_t=${timestamp}`, {
           cache: 'no-store',
         });
+        
         if (response.ok) {
-          const data = await response.json();
-          const latestJournal = data.results?.find((j: JournalEntry) => j.id === entry.id);
-          if (latestJournal) {
-            // 검색 결과 목록도 업데이트
+          const latestJournal = await response.json();
+          
+          if (latestJournal && latestJournal.id === entry.id) {
+            // 검색 결과 목록 조용히 업데이트
             setResults((prevResults) => {
-              const updatedResults = prevResults.map((r) =>
+              return prevResults.map((r) =>
                 r.id === latestJournal.id ? latestJournal : r
               );
-              return updatedResults;
             });
+            // 모달 안의 상세 데이터(selectedEntry) 조용히 업데이트
             setSelectedEntry(latestJournal);
-            setIsModalOpen(true);
-            return;
           }
         }
       } catch (err) {
-        console.error("측정일지 최신 데이터 조회 오류:", err);
-        // 오류가 발생하면 기존 entry 사용
+        console.error("[JournalSearch] 백그라운드 데이터 갱신 실패:", err);
       }
     }
-    // 최신 데이터를 불러오지 못했거나 ID가 없으면 기존 entry 사용
-    setSelectedEntry(entry);
-    setIsModalOpen(true);
   };
 
   const handleModalClose = () => {
@@ -1266,6 +1267,7 @@ export const JournalSearch: React.FC = () => {
                           </TableCell>
                           <TableCell className="text-center text-xs py-1 px-1">
                             <Button
+                              type="button"
                               variant="secondary"
                               size="sm"
                               onClick={() => handleSelectJournal(entry)}
@@ -1610,9 +1612,10 @@ export const JournalSearch: React.FC = () => {
                             </TableCell>
                             <TableCell>
                               <Button
+                                type="button"
                                 variant="secondary"
                                 size="sm"
-                                onClick={() => handleSelectJournal(entry)}
+                                 onClick={() => handleSelectJournal(entry)}
                                 className="shadow-sm h-7 px-1.5 text-xs"
                               >
                                 선택

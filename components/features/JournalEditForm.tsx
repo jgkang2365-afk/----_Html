@@ -238,70 +238,56 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     return value.replace(/,/g, "");
   };
 
-  // 측정비 합계 자동 계산
+  // 측정비 합계 자동 계산 (방어 로직 강화)
   useEffect(() => {
-    // 국고지원 여부가 "비대상"인 경우 사업장만으로 계산
-    if (formData.national_support_status === "비대상") {
-      const business = parseFloat(parseCurrency(formData.measurement_fee_business)) || 0;
-      setFormData((prev) => ({
-        ...prev,
-        measurement_fee_total: business > 0 ? business.toString() : "",
-      }));
-    } else {
-      const business = parseFloat(parseCurrency(formData.measurement_fee_business)) || 0;
-      const national = parseFloat(parseCurrency(formData.measurement_fee_national)) || 0;
-      const total = business + national;
-      if (total > 0 || formData.measurement_fee_business || formData.measurement_fee_national) {
-        setFormData((prev) => ({
-          ...prev,
-          measurement_fee_total: total > 0 ? total.toString() : "",
-        }));
+    try {
+      const getSafeNumber = (val: any) => {
+        if (!val && val !== 0) return 0;
+        const str = String(val).replace(/,/g, "").trim();
+        const num = parseFloat(str);
+        return isNaN(num) ? 0 : num;
+      };
+
+      const businessFeeCalc = getSafeNumber(formData?.measurement_fee_business);
+      const nationalFeeCalc = getSafeNumber(formData?.measurement_fee_national);
+      
+      const isNA = formData?.national_support_status === "비대상";
+      const total = isNA ? businessFeeCalc : (businessFeeCalc + nationalFeeCalc);
+      
+      const currentTotalStr = parseCurrency(formData?.measurement_fee_total);
+      if (currentTotalStr !== total.toString()) {
+        setFormData(prev => prev ? ({ ...prev, measurement_fee_total: total.toString() }) : prev);
       }
+    } catch (e) {
+      console.error('[JournalEditForm] 측정비 계산 오류:', e);
     }
-  }, [formData.measurement_fee_business, formData.measurement_fee_national, formData.national_support_status]);
+  }, [formData?.measurement_fee_business, formData?.measurement_fee_national, formData?.national_support_status]);
 
   // 입금액 합계 자동 계산 (로직 개선)
   useEffect(() => {
-    const getNumber = (val: any) => {
-      if (!val) return 0;
-      // 콤마 제거 및 공백 제거 후 파싱
-      const str = String(val).replace(/,/g, "").trim();
-      const num = parseFloat(str);
-      return isNaN(num) ? 0 : num;
-    };
+    try {
+      const getNumber = (val: any) => {
+        if (!val) return 0;
+        const str = String(val).replace(/,/g, "").trim();
+        const num = parseFloat(str);
+        return isNaN(num) ? 0 : num;
+      };
 
-    const business = getNumber(formData.deposit_amount_business);
-    const business2 = getNumber(formData.deposit_amount_business_2);
-    const national = getNumber(formData.deposit_amount_national);
+      const business = getNumber(formData?.deposit_amount_business);
+      const business2 = getNumber(formData?.deposit_amount_business_2);
+      const national = getNumber(formData?.deposit_amount_national);
 
-    const isNA = formData.national_support_status === "비대상";
+      const isNA = formData?.national_support_status === "비대상";
+      const total = isNA ? (business + business2) : (business + business2 + national);
+      const newTotalStr = total > 0 ? total.toString() : "";
 
-    // 국고지원이 비대상이면 국고 금액 제외하고 합산
-    const total = isNA ? (business + business2) : (business + business2 + national);
-
-    const newTotalStr = total > 0 ? total.toString() : "";
-
-    // 현재 값(문자열 변환)과 다를 때만 업데이트 (무한 루프 방지)
-    if (String(formData.deposit_total || "") !== newTotalStr) {
-      if (total > 0 || formData.deposit_amount_business || formData.deposit_amount_business_2 || (!isNA && formData.deposit_amount_national)) {
-        console.log('[JournalEditForm] 입금액 합계 자동 갱신:', {
-          기존합계: formData.deposit_total,
-          신규합계: newTotalStr,
-          상세: { business, business2, national, isNA }
-        });
-        setFormData((prev) => ({
-          ...prev,
-          deposit_total: newTotalStr,
-        }));
+      if (String(formData?.deposit_total || "") !== newTotalStr) {
+        setFormData(prev => prev ? ({ ...prev, deposit_total: newTotalStr }) : prev);
       }
+    } catch (e) {
+      console.error('[JournalEditForm] 입금액 자동 계산 오류:', e);
     }
-  }, [
-    formData.deposit_amount_business,
-    formData.deposit_amount_business_2,
-    formData.deposit_amount_national,
-    formData.national_support_status,
-    formData.deposit_total
-  ]);
+  }, [formData?.deposit_amount_business, formData?.deposit_amount_business_2, formData?.deposit_amount_national, formData?.national_support_status]);
 
   // 국고지원 여부가 "비대상"일 때 국고 관련 필드 초기화
   useEffect(() => {
@@ -941,7 +927,25 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // entry 변경 시 ref도 업데이트
     prevStartDateRef.current = normalizeDateForInput(entry.measurement_start_date);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry.id, entry.note, entry.code, entry.measurement_year, entry.measurement_period, entry.measurement_start_date, entry.business_category]); // entry의 주요 필드가 변경될 때 전체 재초기화
+  }, [
+    entry.id, 
+    entry.note, 
+    entry.code, 
+    entry.measurement_year, 
+    entry.measurement_period, 
+    entry.measurement_start_date, 
+    entry.business_category,
+    entry.measurement_fee_total,
+    entry.measurement_fee_business,
+    entry.measurement_fee_national,
+    entry.deposit_total,
+    entry.total_employees,
+    entry.completion_status,
+    entry.national_support_status,
+    entry.manager_name,
+    entry.manager_mobile,
+    entry.manager_email
+  ]); // entry의 주요 필드가 변경될 때 전체 재초기화
 
   // 주소 변경 시 자동으로 소재지 관할청과 지정한계_관할지청 업데이트
   const handleAddressChange = async (newAddress: string) => {
@@ -1598,20 +1602,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           label="측정비(합계)"
           type="text"
           value={formatCurrency(formData.measurement_fee_total)}
-          onChange={(e) => {
-            const parsed = parseCurrency(e.target.value);
-            setFormData({ ...formData, measurement_fee_total: parsed });
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              const inputs = e.currentTarget.form?.querySelectorAll("input");
-              const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-              if (inputs && currentIndex < inputs.length - 1) {
-                inputs[currentIndex + 1].focus();
-              }
-            }
-          }}
           disabled
           className="bg-surface-50"
           placeholder="자동 계산됩니다"
