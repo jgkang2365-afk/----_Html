@@ -1610,6 +1610,7 @@ export const SalesManagement: React.FC = () => {
                   depositDate: string | null;
                   designatedOffice: string | null;
                   representative: string | null;
+                  unpaidType?: "both" | "business" | "national";
                 }> = [];
 
                 // 측정비 미수금 항목 추가
@@ -1618,6 +1619,26 @@ export const SalesManagement: React.FC = () => {
                   const deposit = parseFloat(item.deposit_total?.toString() || "0");
                   const unpaid = total - deposit;
                   if (unpaid > 0) {
+                    // 미수금 성격 판단 로직
+                    const feeBusiness = parseFloat(item.measurement_fee_business?.toString() || "0");
+                    const feeNational = parseFloat(item.measurement_fee_national?.toString() || "0");
+                    const depositBusiness1 = parseFloat(item.deposit_amount_business?.toString() || "0");
+                    const depositBusiness2 = parseFloat(item.deposit_amount_business_2?.toString() || "0");
+                    const depositBusiness = depositBusiness1 + depositBusiness2;
+                    const depositNational = parseFloat(item.deposit_amount_national?.toString() || "0");
+                    
+                    const unpaidBusiness = feeBusiness - depositBusiness;
+                    const unpaidNational = feeNational - depositNational;
+                    
+                    let unpaidType: "both" | "business" | "national" | undefined;
+                    if (unpaidBusiness > 0 && unpaidNational > 0) {
+                      unpaidType = "both";
+                    } else if (unpaidBusiness > 0 && unpaidNational <= 0) {
+                      unpaidType = "business";
+                    } else if (unpaidBusiness <= 0 && unpaidNational > 0) {
+                      unpaidType = "national";
+                    }
+
                     unpaidItems.push({
                       id: `measurement-${item.id}`,
                       measurementId: item.id,
@@ -1632,6 +1653,7 @@ export const SalesManagement: React.FC = () => {
                       depositDate: item.deposit_date_business || item.deposit_date_national || null,
                       designatedOffice: item.designated_office || null,
                       representative: item.representative_name || null,
+                      unpaidType: unpaidType,
                     });
                   }
                 });
@@ -2007,7 +2029,15 @@ export const SalesManagement: React.FC = () => {
                                     >
                                       {item.depositDate ? formatDateYYYYMMDD(item.depositDate) : "미입금"}
                                     </TableCell>
-                                    <TableCell className="text-right text-warning-600 font-semibold">
+                                    <TableCell className={cn(
+                                      "text-right font-semibold",
+                                      item.type === "measurement" ? (
+                                        item.unpaidType === "both" ? "text-red-600" :
+                                        item.unpaidType === "business" ? "text-blue-600" :
+                                        item.unpaidType === "national" ? "text-black" :
+                                        "text-warning-600"
+                                      ) : "text-warning-600"
+                                    )}>
                                       {formatCurrency(item.unpaid)}원
                                     </TableCell>
                                     <TableCell>
