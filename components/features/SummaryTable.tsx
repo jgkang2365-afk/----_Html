@@ -572,8 +572,8 @@ export const SummaryTable: React.FC = () => {
                            if (surveys.length === 0) return entry.measurer || "-";
                            const names = new Set<string>();
                            surveys.forEach(s => {
-                             if (s.actual_measurer) {
-                               s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                             if (s.measurer) {
+                               s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
                              }
                            });
                            if (names.size === 0) return entry.measurer || "-";
@@ -1182,7 +1182,7 @@ export const SummaryTable: React.FC = () => {
                             {(() => {
                                const names = new Set<string>();
                                (entry.all_surveys || []).forEach(s => {
-                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                                 if (s.measurer) s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
                                });
                                return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.measurer || "-");
                             })()}
@@ -1295,7 +1295,7 @@ export const SummaryTable: React.FC = () => {
                             {(() => {
                                const names = new Set<string>();
                                (entry.all_surveys || []).forEach(s => {
-                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                                 if (s.measurer) s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
                                });
                                return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.measurer || "-");
                             })()}
@@ -1451,8 +1451,8 @@ export const SummaryTable: React.FC = () => {
                          if (surveys.length === 0) return selectedEntry.measurer || "-";
                          const names = new Set<string>();
                          surveys.forEach(s => {
-                           if (s.actual_measurer) {
-                             s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                           if (s.measurer) {
+                             s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
                            }
                          });
                          if (names.size === 0) return selectedEntry.measurer || "-";

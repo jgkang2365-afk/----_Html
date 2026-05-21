@@ -16,7 +16,7 @@ export async function syncBusinessSchedule(
   // 1. 해당 프로젝트(코드/년도/주기)의 모든 예비조사 데이터 재조회
   const { data: allSurveys, error: fetchError } = await supabase
     .from("preliminary_survey")
-    .select("measurement_date, actual_measurer")
+    .select("measurement_date, measurer")
     .eq("code", code)
     .eq("year", year)
     .eq("period", period)
@@ -42,8 +42,8 @@ export async function syncBusinessSchedule(
     // 측정자(협력자) 합집합 추출 및 중복 제거
     const collaboratorSet = new Set<string>();
     allSurveys.forEach((s) => {
-      if (s.actual_measurer) {
-        s.actual_measurer.split(",").forEach((m: string) => {
+      if (s.measurer) {
+        s.measurer.split(",").forEach((m: string) => {
           const trimmed = m.trim();
           if (trimmed) collaboratorSet.add(trimmed);
         });

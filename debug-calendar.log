@@ -2744,3 +2744,15 @@
 [2026-05-18T05:34:01.073Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-05-18T05:34:02.741Z] Event updated successfully: 04mdqni419nk115vulv8n2546g 
 [2026-05-18T05:34:02.744Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-21T05:15:08.635Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-21T05:15:10.250Z] Updating Calendar Event: 8mj7tup78rcp1r6m9qcurttrfo {
+  "summary": "[이주형] 범일건설(주) 명인제약(주) 발안2공장 고형제동 증축공사 - 26상 미수 / P:2",
+  "description": "사업장코드: H0406\n          사업장: 범일건설(주) 명인제약(주) 발안2공장 고형제동 증축공사\n          주소: 경기도 화성시 향남읍 제약단지로 50 (하길리)\n          담당자: 손기호 부장\n          연락처: 010-5237-7921\n          비고: P:2",
+  "date": "2026-05-21",
+  "endDate": "2026-05-21",
+  "location": "경기도 화성시 향남읍 제약단지로 50 (하길리)",
+  "colorId": "5"
+}
+[2026-05-21T05:15:10.258Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-05-21T05:15:12.089Z] Event updated successfully: 8mj7tup78rcp1r6m9qcurttrfo 
+[2026-05-21T05:15:12.094Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

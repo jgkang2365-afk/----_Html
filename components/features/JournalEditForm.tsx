@@ -554,8 +554,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 // 3. 측정자 통합 (모든 일자의 측정자 합집합)
                 const allMeasurers = new Set<string>();
                 surveys.forEach((s: any) => {
-                  if (s.actual_measurer) {
-                    s.actual_measurer.split(',').forEach((m: string) => {
+                  if (s.measurer) {
+                    s.measurer.split(',').forEach((m: string) => {
                       const trimmed = m.trim();
                       if (trimmed) allMeasurers.add(trimmed);
                     });
