@@ -409,7 +409,7 @@ export const SalesManagement: React.FC = () => {
     setDepositStartDate(start);
     setDepositEndDate(end);
     setActiveQuickDate(type);
-    
+
     // 퀵 버튼 클릭 시 특정 년도/주기 필터를 해제하여 전체 검색이 가능하도록 함
     setDepositYear("");
     setDepositPeriod("");
@@ -440,7 +440,7 @@ export const SalesManagement: React.FC = () => {
       const params = new URLSearchParams();
       params.append("page", page.toString());
       params.append("limit", pageSize.toString());
-      
+
       // 검색 필터 적용 (측정비 탭 기준)
       if (activeTab === "measurement") {
         if (measurementFilters.year) params.append("year", measurementFilters.year);
@@ -448,7 +448,7 @@ export const SalesManagement: React.FC = () => {
         if (measurementFilters.representativeName) params.append("representativeName", measurementFilters.representativeName);
         if (measurementFilters.period) params.append("measurementPeriod", measurementFilters.period);
         if (measurementFilters.designatedOffice) params.append("designatedOffice", measurementFilters.designatedOffice);
-        
+
         // 정렬 적용
         params.append("sortColumn", measurementSort.column);
         params.append("sortDirection", measurementSort.direction);
@@ -459,7 +459,7 @@ export const SalesManagement: React.FC = () => {
         // 기타 매출 필터 적용
         if (otherFilters.year) params.append("year", otherFilters.year);
         if (otherFilters.period) params.append("measurementPeriod", otherFilters.period);
-        
+
         // 정렬 적용
         params.append("sortColumn", otherSort.column);
         params.append("sortDirection", otherSort.direction);
@@ -482,29 +482,29 @@ export const SalesManagement: React.FC = () => {
       }
 
       const result = await response.json();
-      
+
       if (result.success !== false) {
         setMeasurementRevenue(result.measurementRevenue || []);
         setAllMeasurementData(result.allMeasurementData || []);
-        
+
         const filteredOtherRevenue = (result.otherRevenue || []).filter(
           (item: OtherRevenue) => !deletedOtherIds.has(item.id)
         );
         const filteredAllOtherData = (result.allOtherData || []).filter(
           (item: OtherRevenue) => !deletedOtherIds.has(item.id)
         );
-        
+
         setOtherRevenue(filteredOtherRevenue);
         setAllOtherData(filteredAllOtherData);
         setSummary(result.summary || null);
-        
+
         // 페이지네이션 정보 업데이트
         if (result.pagination) {
           setTotalCount(result.pagination.totalCount);
           setTotalPages(result.pagination.totalPages);
           setCurrentPage(result.pagination.currentPage);
         }
-        
+
         setSelectedOtherIds([]);
       } else {
         setError(result.error || "매출 데이터를 불러오는 중 오류가 발생했습니다.");
@@ -521,10 +521,10 @@ export const SalesManagement: React.FC = () => {
       setLoading(false);
     }
   }, [
-    deletedOtherIds, pageSize, activeTab, 
+    deletedOtherIds, pageSize, activeTab,
     measurementFilters, unpaidFilters, otherFilters,
     depositYear, depositPeriod,
-    yearlySummaryYear, yearlySummaryPeriod, 
+    yearlySummaryYear, yearlySummaryPeriod,
     unpaidSummaryYear, unpaidSummaryPeriod
   ]);
 
@@ -632,8 +632,6 @@ export const SalesManagement: React.FC = () => {
 
     // 4. 요청하신 템플릿 형태로 본문 구성
     const formatAmt = formatCurrency(totalUnpaidAmount);
-    const origin = typeof window !== 'undefined' ? window.location.origin : "";
-    const bankCopyLink = origin ? `${origin}/bank_copy.png` : "";
     const smsBody = `안녕하십니까!
 한결작업환경컨설팅입니다.
 
@@ -641,7 +639,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
 
 확인해 보시고, 입금 부탁드립니다.
 
-감사합니다.${bankCopyLink ? `\n\n(통장사본 이미지 링크: ${bankCopyLink})` : ""}`;
+감사합니다.`;
 
     setUnpaidSmsData({
       businessName: targetItem.name,
@@ -656,19 +654,44 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
   // 통장사본 이미지 클립보드 복사 함수
   const copyBankCopyImage = async () => {
     try {
-      const response = await fetch('/bank_copy.png');
-      const blob = await response.blob();
-      
-      // Clipboard API를 사용하여 이미지 복사
+      // 1. 가벼운 JPG 이미지를 불러옵니다 (서버 저장소 용량 최적화)
+      const img = new Image();
+      img.src = '/bank_copy.jpg';
+
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error("이미지 로드 실패"));
+      });
+
+      // 2. 메모리 상의 Canvas에 이미지를 그립니다
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) throw new Error("Canvas 컨텍스트 생성 실패");
+      ctx.drawImage(img, 0, 0);
+
+      // 3. 브라우저 호환성을 위해 메모리 상에서 PNG Blob으로 변환
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((b) => {
+          if (b) resolve(b);
+          else reject(new Error("Blob 변환 실패"));
+        }, 'image/png'); // 여기서 강제로 PNG 형식을 지정하여 호환성 해결
+      });
+
+      // 4. Clipboard API를 통해 PNG 형식으로 클립보드에 쓰기
       await navigator.clipboard.write([
         new ClipboardItem({
-          [blob.type]: blob
+          'image/png': blob
         })
       ]);
-      alert("통장사본 이미지가 클립보드에 복사되었습니다.\n\n⚠️ 주의: 현재 웹 화면의 [문자 메시지 내용] 입력창에는 이미지가 붙여넣어지지 않습니다.\n\n아래 [문자 전송하기] 버튼을 누른 후 실제 스마트폰 문자 앱이나 카카오톡 등 전송할 메신저 창의 입력 상자에 붙여넣기(Ctrl+V 또는 길게 누르기)를 하시면 통장 사본이 정상 첨부됩니다.");
+
+      alert("통장사본 이미지가 클립보드에 복사되었습니다.\n\n⚠️ 전송할 메신저 창의 입력 상자에 붙여넣기(Ctrl+V)를 하시면 정상 첨부됩니다.");
+
     } catch (error) {
       console.error("이미지 클립보드 복사 실패:", error);
-      alert("이미지 복사에 실패했습니다. 브라우저가 클립보드 이미지 복사를 지원하지 않거나 오류가 발생했습니다. 직접 다운로드하여 첨부해주세요.");
+      alert("이미지 복사에 실패했습니다. 브라우저 권한을 확인해주세요.");
     }
   };
 
@@ -1268,7 +1291,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
           const accidentNumber = row["산재관리번호"]?.toString().trim();
 
           if (year && period && accidentNumber) {
-            const targetItem = allMeasurementData.find(item => 
+            const targetItem = allMeasurementData.find(item =>
               item.measurement_year.toString().trim() === year &&
               isMatchSelection(item.measurement_period?.trim() || "", period || "") &&
               item.industrial_accident_number?.toString().trim() === accidentNumber
@@ -1296,7 +1319,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
         setIsProcessingPayment(true);
         setPaymentTotalCount(rows.length);
         setPaymentCurrentIndex(0);
-        
+
         // 순차적으로 처리 (UI 업데이트를 위해)
         let localSuccessCount = 0;
         let localFailCount = 0;
@@ -1317,13 +1340,13 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
         } catch (loadErr) {
           console.error("Data reload failed after payment processing:", loadErr);
         }
-        
+
         // 처리 완료 알림 및 지연 후 오버레이 닫기 및 결과 모달 오픈
         setTimeout(() => {
           setIsProcessingPayment(false);
           setIsPaymentResultsModalOpen(true);
         }, 1000);
-        
+
       } catch (err) {
         console.error("Payment Excel parsing error:", err);
         setError("엑셀 파일을 읽는 중 오류가 발생했습니다.");
@@ -1345,10 +1368,10 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
     const accidentNumber = row["산재관리번호"]?.toString().trim();
     let depositDate = row["입금일"]?.toString().trim();
     let depositAmountRaw = row["입금액"];
-    
+
     // 콤마가 포함된 문자열일 경우 제거 후 숫자로 변환
-    const depositAmount = typeof depositAmountRaw === 'string' 
-      ? parseFloat(depositAmountRaw.replace(/,/g, "").trim()) 
+    const depositAmount = typeof depositAmountRaw === 'string'
+      ? parseFloat(depositAmountRaw.replace(/,/g, "").trim())
       : Number(depositAmountRaw);
 
     if (!year || !period || !accidentNumber || !depositDate || isNaN(depositAmount)) {
@@ -1361,7 +1384,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
     }
 
     // 1. 해당 레코드 매칭 시도 (UI에 진행중 표시를 위해)
-    const targetItem = allMeasurementData.find(item => 
+    const targetItem = allMeasurementData.find(item =>
       item.measurement_year.toString().trim() === year &&
       isMatchSelection(item.measurement_period?.trim() || "", period || "") &&
       item.industrial_accident_number?.toString().trim() === accidentNumber
@@ -1374,7 +1397,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
       }));
     }
 
-    setPaymentProcessingLogs(prev => prev.map(log => 
+    setPaymentProcessingLogs(prev => prev.map(log =>
       (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
         ? { ...log, status: 'loading', message: '처리 중...' }
         : log
@@ -1401,7 +1424,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
           ...prev,
           [result.id || targetItem?.id || 0]: { status: 'success', message: '정산 완료' }
         }));
-        setPaymentProcessingLogs(prev => prev.map(log => 
+        setPaymentProcessingLogs(prev => prev.map(log =>
           (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
             ? { ...log, status: 'success', message: '정산 완료' }
             : log
@@ -1415,7 +1438,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
           ...prev,
           ...(errId ? { [errId]: { status: 'error', message: errMsg } } : {})
         }));
-        setPaymentProcessingLogs(prev => prev.map(log => 
+        setPaymentProcessingLogs(prev => prev.map(log =>
           (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
             ? { ...log, status: 'error', message: errMsg }
             : log
@@ -1431,7 +1454,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
           [targetItem.id]: { status: 'error', message: networkErrMsg }
         }));
       }
-      setPaymentProcessingLogs(prev => prev.map(log => 
+      setPaymentProcessingLogs(prev => prev.map(log =>
         (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
           ? { ...log, status: 'error', message: networkErrMsg }
           : log
@@ -1470,1711 +1493,1711 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
 
       <div className={cn("space-y-4 transition-all duration-300", loading ? "opacity-50 grayscale-[20%] pointer-events-none blur-[1px]" : "opacity-100")}>
 
-      <div className="flex justify-between items-start mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-text-900 mb-2">매출관리</h1>
-          <p className="text-text-700">측정비와 기타 매출을 관리하고 집계할 수 있습니다.</p>
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-text-900 mb-2">매출관리</h1>
+            <p className="text-text-700">측정비와 기타 매출을 관리하고 집계할 수 있습니다.</p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+              onClick={handleDownloadTemplate}
+            >
+              <span className="mr-2">📥</span>
+              양식 다운로드
+            </Button>
+            <Button
+              variant="secondary"
+              className="bg-white border-primary-200 text-primary-700 hover:bg-primary-50"
+              onClick={() => setIsMeasurementUploadModalOpen(true)}
+            >
+              <span className="mr-2">📊</span>
+              측정비 일괄 업로드
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            className="bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
-            onClick={handleDownloadTemplate}
-          >
-            <span className="mr-2">📥</span>
-            양식 다운로드
-          </Button>
-          <Button
-            variant="secondary"
-            className="bg-white border-primary-200 text-primary-700 hover:bg-primary-50"
-            onClick={() => setIsMeasurementUploadModalOpen(true)}
-          >
-            <span className="mr-2">📊</span>
-            측정비 일괄 업로드
-          </Button>
-        </div>
-      </div>
 
 
-      {error && <Alert variant="error">{error}</Alert>}
+        {error && <Alert variant="error">{error}</Alert>}
 
-      {/* 매출 집계 및 상세 모달 (추출된 컴포넌트) */}
-      <SalesSummary
-        summary={summary}
-        salesSummaryYear={salesSummaryYear}
-        setSalesSummaryYear={setSalesSummaryYear}
-        yearOptions={yearOptions}
-        measurementRevenue={measurementRevenue}
-        formatCurrency={formatCurrency}
-      />
-
-      {/* 년도별 집계 및 미수금 현황 */}
-      {summary && (
-        <StatTables
+        {/* 매출 집계 및 상세 모달 (추출된 컴포넌트) */}
+        <SalesSummary
           summary={summary}
-          measurementRevenue={allMeasurementData}
-          otherRevenue={otherRevenue}
-          allOtherData={allOtherData}
-          formatCurrency={formatCurrency}
+          salesSummaryYear={salesSummaryYear}
+          setSalesSummaryYear={setSalesSummaryYear}
           yearOptions={yearOptions}
-          yearlySummaryYear={yearlySummaryYear}
-          setYearlySummaryYear={setYearlySummaryYear}
-          yearlySummaryPeriod={yearlySummaryPeriod}
-          setYearlySummaryPeriod={setYearlySummaryPeriod}
-          unpaidSummaryYear={unpaidSummaryYear}
-          setUnpaidSummaryYear={setUnpaidSummaryYear}
-          unpaidSummaryPeriod={unpaidSummaryPeriod}
-          setUnpaidSummaryPeriod={setUnpaidSummaryPeriod}
+          measurementRevenue={measurementRevenue}
+          formatCurrency={formatCurrency}
         />
-      )}
 
-      {/* 매출 관리 탭 */}
-      <Card className="p-4">
-        <h2 className="text-lg font-semibold text-text-900 mb-4">매출 상세 현황</h2>
-        <Tab
-          activeTab={activeTab}
-          onTabChange={handleTabChange}
-          items={[
-            {
-              id: "measurement",
-              label: "측정비",
-              content: (
-                <MeasurementTable
-                  measurementRevenue={measurementRevenue}
-                  measurementFilters={measurementFilters}
-                  setMeasurementFilters={setMeasurementFilters}
-                  measurementSort={measurementSort}
-                  setMeasurementSort={setMeasurementSort}
-                  localBusinessName={localBusinessName}
-                  setLocalBusinessName={setLocalBusinessName}
-                  localRepresentativeName={localRepresentativeName}
-                  setLocalRepresentativeName={setLocalRepresentativeName}
-                  yearOptions={yearOptions}
-                  periodOptions={periodOptions}
-                  officeOptions={officeOptions}
-                  totalCount={totalCount}
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  setCurrentPage={setCurrentPage}
-                  loading={loading}
-                  isMeasurementFiltering={isMeasurementFiltering}
-                  formatCurrency={formatCurrency}
-                  formatDateYYYYMMDD={formatDateYYYYMMDD}
-                  setMeasurementDepositDetailItem={setMeasurementDepositDetailItem}
-                  setIsMeasurementDepositDetailModalOpen={setIsMeasurementDepositDetailModalOpen}
-                  handleMeasurementEdit={handleMeasurementEdit}
-                  checkSearchMatch={checkSearchMatch}
-                  checkExactMatch={checkExactMatch}
-                  isMatchSelection={isMatchSelection}
-                  getPeriodWeight={getPeriodWeight}
-                  isJournalManager={user?.is_journal_manager || user?.role === "관리자"}
-                  onPaymentUpload={() => paymentFileInputRef.current?.click()}
-                  onDownloadPaymentTemplate={handleDownloadPaymentTemplate}
-                  processingResults={paymentProcessingResults}
-                />
-              ),
-            },
-            {
-              id: "other",
-              label: "기타",
-              content: (
-                <OtherRevenueTable
-                  data={otherRevenue}
-                  onAdd={() => handleOtherEdit(null)}
-                  onEdit={handleOtherEdit}
-                  formatCurrency={formatCurrency}
-                  otherFilters={otherFilters}
-                  setOtherFilters={setOtherFilters}
-                  yearOptions={yearOptions}
-                  periodOptions={periodOptions}
-                  loading={loading}
-                />
-              ),
-            },
-            {
-              id: "third_party",
-              label: "타업체 발행 현황",
-              content: (() => {
-                // 타업체 발행 건만 필터링 (발행처 정보가 입력되었고, 원래 정보와 다른 건)
-                // 현재 페이지 데이터가 아닌 전체 데이터(allMeasurementData)를 기준으로 필터링하여 모든 내역을 표시
-                const thirdPartyItems = allMeasurementData.filter(item => 
-                  (item.invoice_business_number && item.invoice_business_number !== item.business_number) ||
-                  (item.invoice_business_name && item.invoice_business_name !== item.business_name)
-                );
+        {/* 년도별 집계 및 미수금 현황 */}
+        {summary && (
+          <StatTables
+            summary={summary}
+            measurementRevenue={allMeasurementData}
+            otherRevenue={otherRevenue}
+            allOtherData={allOtherData}
+            formatCurrency={formatCurrency}
+            yearOptions={yearOptions}
+            yearlySummaryYear={yearlySummaryYear}
+            setYearlySummaryYear={setYearlySummaryYear}
+            yearlySummaryPeriod={yearlySummaryPeriod}
+            setYearlySummaryPeriod={setYearlySummaryPeriod}
+            unpaidSummaryYear={unpaidSummaryYear}
+            setUnpaidSummaryYear={setUnpaidSummaryYear}
+            unpaidSummaryPeriod={unpaidSummaryPeriod}
+            setUnpaidSummaryPeriod={setUnpaidSummaryPeriod}
+          />
+        )}
 
-                return (
-                  <div className="mt-4">
-                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4 flex items-start gap-3">
-                      <div className="bg-blue-500 text-white rounded-full p-1 mt-0.5">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="text-sm text-blue-800 font-medium">타업체 발행 현황 안내</p>
-                        <p className="text-xs text-blue-600 mt-1">측정일지에 등록된 사업장과 다른 사업자번호 또는 상호로 계산서를 발행한 내역입니다. 입금 확인 시 발행처 정보를 활용하세요.</p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden shadow-sm">
-                      <Table className="table-fixed">
-                        <TableHeader>
-                          <TableRow className="bg-surface-50">
-                            <TableHead className="w-[100px]">발행일</TableHead>
-                            <TableHead className="w-[200px]">사업장명 (원래)</TableHead>
-                            <TableHead className="w-[130px]">사업자번호 (원래)</TableHead>
-                            <TableHead className="w-[200px] border-l border-primary-100 bg-primary-50/50">발행처 상호 (변경)</TableHead>
-                            <TableHead className="w-[130px] bg-primary-50/50">발행처 사업자 (변경)</TableHead>
-                            <TableHead className="w-[120px] text-right">측정비(사업장)</TableHead>
-                            <TableHead className="w-[90px] text-center">입금상태</TableHead>
-                            <TableHead className="w-[80px] text-center">관리</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {thirdPartyItems.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={8} className="text-center text-text-500 py-16">
-                                <div className="flex flex-col items-center gap-2">
-                                  <span className="text-3xl">📄</span>
-                                  <p>타업체로 발행된 내역이 발견되지 않았습니다.</p>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            thirdPartyItems.map((item) => {
-                              const total = parseFloat(item.measurement_fee_business?.toString() || "0");
-                              const deposit = parseFloat(((item.deposit_amount_business || 0) + (item.deposit_amount_business_2 || 0)).toString());
-                              const isFullyPaid = total > 0 && deposit >= total;
-                              
-                              return (
-                                <TableRow key={item.id} className="hover:bg-surface-50 transition-colors">
-                                  <TableCell className="text-sm text-text-600">
-                                    {item.electronic_invoice_date ? formatDateYYYYMMDD(item.electronic_invoice_date) : "-"}
-                                  </TableCell>
-                                  <TableCell className="font-medium truncate text-text-700" title={item.business_name}>
-                                    {item.business_name}
-                                  </TableCell>
-                                  <TableCell className="text-xs text-text-400">
-                                    {formatBusinessNumber(item.business_number)}
-                                  </TableCell>
-                                  <TableCell className="font-bold text-primary-700 border-l border-primary-50 truncate" title={item.invoice_business_name || item.business_name}>
-                                    {item.invoice_business_name || item.business_name}
-                                  </TableCell>
-                                  <TableCell className="font-bold text-primary-700">
-                                    {formatBusinessNumber(item.invoice_business_number) || "-"}
-                                  </TableCell>
-                                  <TableCell className="text-right font-semibold text-text-800">
-                                    {formatCurrency(total)}원
-                                  </TableCell>
-                                  <TableCell className="text-center">
-                                    {isFullyPaid ? (
-                                      <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold">완납</span>
-                                    ) : (
-                                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">미납</span>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-center">
-                                    <Button
-                                      variant="secondary"
-                                      size="sm"
-                                      className="h-7 text-[10px] px-2"
-                                      onClick={async () => {
-                                        try {
-                                          const response = await fetch(
-                                            `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.measurement_year}&measurementPeriod=${encodeURIComponent(item.measurement_period)}&_t=${new Date().getTime()}`,
-                                            { cache: 'no-store' }
-                                          );
-                                          if (response.ok) {
-                                            const data = await response.json();
-                                            const journal = data.results?.find((j: any) => j.id === item.id);
-                                            if (journal) {
-                                              setSelectedJournalEntry(journal);
-                                              setIsJournalModalOpen(true);
-                                            }
-                                          }
-                                        } catch (err) {
-                                          console.error("조회 오류:", err);
-                                        }
-                                      }}
-                                    >
-                                      관리
-                                    </Button>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                );
-              })(),
-            },
-            {
-              id: "unpaid",
-              label: "미수관리",
-              content: (() => {
-                // 미수금이 있는 항목들을 통합하여 계산
-                const unpaidItems: Array<{
-                  id: string;
-                  measurementId?: number; // 측정일지 ID (측정비인 경우)
-                  code?: string; // 측정일지 code (측정비인 경우)
-                  type: "measurement" | "other";
-                  name: string;
-                  year: number;
-                  period: string;
-                  revenue: number;
-                  deposit: number;
-                  unpaid: number;
-                  depositDate: string | null;
-                  designatedOffice: string | null;
-                  representative: string | null;
-                  unpaidType?: "both" | "business" | "national";
-                  phone: string | null;
-                }> = [];
-
-                // 측정비 미수금 항목 추가
-                allMeasurementData.forEach((item) => {
-                  const total = parseFloat(item.measurement_fee_total?.toString() || "0");
-                  const deposit = parseFloat(item.deposit_total?.toString() || "0");
-                  const unpaid = total - deposit;
-                  if (unpaid > 0) {
-                    // 미수금 성격 판단 로직
-                    const feeBusiness = parseFloat(item.measurement_fee_business?.toString() || "0");
-                    const feeNational = parseFloat(item.measurement_fee_national?.toString() || "0");
-                    const depositBusiness1 = parseFloat(item.deposit_amount_business?.toString() || "0");
-                    const depositBusiness2 = parseFloat(item.deposit_amount_business_2?.toString() || "0");
-                    const depositBusiness = depositBusiness1 + depositBusiness2;
-                    const depositNational = parseFloat(item.deposit_amount_national?.toString() || "0");
-                    
-                    const unpaidBusiness = feeBusiness - depositBusiness;
-                    const unpaidNational = feeNational - depositNational;
-                    
-                    let unpaidType: "both" | "business" | "national" | undefined;
-                    if (unpaidBusiness > 0 && unpaidNational > 0) {
-                      unpaidType = "both";
-                    } else if (unpaidBusiness > 0 && unpaidNational <= 0) {
-                      unpaidType = "business";
-                    } else if (unpaidBusiness <= 0 && unpaidNational > 0) {
-                      unpaidType = "national";
-                    }
-
-                    unpaidItems.push({
-                      id: `measurement-${item.id}`,
-                      measurementId: item.id,
-                      code: item.code,
-                      type: "measurement",
-                      name: item.business_name,
-                      year: item.measurement_year,
-                      period: item.measurement_period,
-                      revenue: total,
-                      deposit: deposit,
-                      unpaid: unpaid,
-                      depositDate: item.deposit_date_business || item.deposit_date_national || null,
-                      designatedOffice: item.designated_office || null,
-                      representative: item.representative_name || null,
-                      unpaidType: unpaidType,
-                      phone: item.manager_mobile || null,
-                    });
-                  }
-                });
-
-                // 기타 매출 미수금 항목 추가
-                allOtherData.forEach((item) => {
-                  const total = parseFloat(item.total_amount?.toString() || "0");
-                  const deposit = parseFloat(item.deposit_amount?.toString() || "0");
-                  const unpaid = total - deposit;
-                  if (unpaid > 0) {
-                    unpaidItems.push({
-                      id: `other-${item.id}`,
-                      type: "other",
-                      name: item.item_name,
-                      year: item.revenue_year || 0,
-                      period: item.revenue_period || "",
-                      revenue: total,
-                      deposit: deposit,
-                      unpaid: unpaid,
-                      depositDate: item.deposit_date || null,
-                      designatedOffice: item.designated_office || null,
-                      representative: item.representative_name || null,
-                      phone: null,
-                    });
-                  }
-                });
-
-                // 필터링 적용
-                let filteredItems = unpaidItems.filter((item) => {
-                  if (unpaidFilters.type && item.type !== unpaidFilters.type) return false;
-                  if (unpaidFilters.name && !checkSearchMatch(item.name, unpaidFilters.name)) return false;
-                  if (unpaidFilters.year && !checkExactMatch(item.year, unpaidFilters.year)) return false;
-                  if (unpaidFilters.period && !isMatchSelection(item.period, unpaidFilters.period)) return false;
-                  if (unpaidFilters.designatedOffice && !checkExactMatch(item.designatedOffice, unpaidFilters.designatedOffice)) return false;
-                  if (unpaidFilters.hasDepositDate === "yes" && !item.depositDate) return false;
-                  if (unpaidFilters.hasDepositDate === "no" && item.depositDate) return false;
-                  return true;
-                });
-
-                // 정렬 적용
-                filteredItems.sort((a, b) => {
-                  let result = 0;
-                  let aValue: any = a[unpaidSort.column as keyof typeof a];
-                  let bValue: any = b[unpaidSort.column as keyof typeof b];
-
-                  // 문자열 비교
-                  if (typeof aValue === "string" && typeof bValue === "string") {
-                    aValue = aValue.toLowerCase();
-                    bValue = bValue.toLowerCase();
-                  }
-
-                  // null 처리
-                  if (aValue === null || aValue === undefined) aValue = "";
-                  if (bValue === null || bValue === undefined) bValue = "";
-
-                  if (aValue > bValue) result = unpaidSort.direction === "asc" ? 1 : -1;
-                  else if (aValue < bValue) result = unpaidSort.direction === "asc" ? -1 : 1;
-
-                  if (result !== 0) return result;
-
-                  // 2차 정렬: 년도 내림차순 (DESC)
-                  if (a.year !== b.year) {
-                    return b.year - a.year;
-                  }
-
-                  // 3차 정렬: 주기 내림차순 (하반기 > 상반기)
-                  const aWeight = getPeriodWeight(a.period);
-                  const bWeight = getPeriodWeight(b.period);
-                  return bWeight - aWeight;
-                });
-
-                // 미수금 합계 계산
-                const totalUnpaid = filteredItems.reduce((sum, item) => sum + item.unpaid, 0);
-
-                // 정렬 아이콘 컴포넌트
-                const SortIcon = ({ column }: { column: string }) => {
-                  if (unpaidSort.column !== column) {
-                    return <span className="text-text-400 text-xs ml-1">↕</span>;
-                  }
-                  return (
-                    <span className="text-primary-600 text-xs ml-1">
-                      {unpaidSort.direction === "asc" ? "↑" : "↓"}
-                    </span>
+        {/* 매출 관리 탭 */}
+        <Card className="p-4">
+          <h2 className="text-lg font-semibold text-text-900 mb-4">매출 상세 현황</h2>
+          <Tab
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+            items={[
+              {
+                id: "measurement",
+                label: "측정비",
+                content: (
+                  <MeasurementTable
+                    measurementRevenue={measurementRevenue}
+                    measurementFilters={measurementFilters}
+                    setMeasurementFilters={setMeasurementFilters}
+                    measurementSort={measurementSort}
+                    setMeasurementSort={setMeasurementSort}
+                    localBusinessName={localBusinessName}
+                    setLocalBusinessName={setLocalBusinessName}
+                    localRepresentativeName={localRepresentativeName}
+                    setLocalRepresentativeName={setLocalRepresentativeName}
+                    yearOptions={yearOptions}
+                    periodOptions={periodOptions}
+                    officeOptions={officeOptions}
+                    totalCount={totalCount}
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    setCurrentPage={setCurrentPage}
+                    loading={loading}
+                    isMeasurementFiltering={isMeasurementFiltering}
+                    formatCurrency={formatCurrency}
+                    formatDateYYYYMMDD={formatDateYYYYMMDD}
+                    setMeasurementDepositDetailItem={setMeasurementDepositDetailItem}
+                    setIsMeasurementDepositDetailModalOpen={setIsMeasurementDepositDetailModalOpen}
+                    handleMeasurementEdit={handleMeasurementEdit}
+                    checkSearchMatch={checkSearchMatch}
+                    checkExactMatch={checkExactMatch}
+                    isMatchSelection={isMatchSelection}
+                    getPeriodWeight={getPeriodWeight}
+                    isJournalManager={user?.is_journal_manager || user?.role === "관리자"}
+                    onPaymentUpload={() => paymentFileInputRef.current?.click()}
+                    onDownloadPaymentTemplate={handleDownloadPaymentTemplate}
+                    processingResults={paymentProcessingResults}
+                  />
+                ),
+              },
+              {
+                id: "other",
+                label: "기타",
+                content: (
+                  <OtherRevenueTable
+                    data={otherRevenue}
+                    onAdd={() => handleOtherEdit(null)}
+                    onEdit={handleOtherEdit}
+                    formatCurrency={formatCurrency}
+                    otherFilters={otherFilters}
+                    setOtherFilters={setOtherFilters}
+                    yearOptions={yearOptions}
+                    periodOptions={periodOptions}
+                    loading={loading}
+                  />
+                ),
+              },
+              {
+                id: "third_party",
+                label: "타업체 발행 현황",
+                content: (() => {
+                  // 타업체 발행 건만 필터링 (발행처 정보가 입력되었고, 원래 정보와 다른 건)
+                  // 현재 페이지 데이터가 아닌 전체 데이터(allMeasurementData)를 기준으로 필터링하여 모든 내역을 표시
+                  const thirdPartyItems = allMeasurementData.filter(item =>
+                    (item.invoice_business_number && item.invoice_business_number !== item.business_number) ||
+                    (item.invoice_business_name && item.invoice_business_name !== item.business_name)
                   );
-                };
 
-                // 정렬 핸들러
-                const handleSort = (column: string) => {
-                  if (unpaidSort.column === column) {
-                    setUnpaidSort({
-                      column,
-                      direction: unpaidSort.direction === "asc" ? "desc" : "asc",
-                    });
-                  } else {
-                    setUnpaidSort({ column, direction: "desc" });
-                  }
-                };
-
-                return (
-                  <div className="mt-4">
-                    <div className="sticky top-[-1px] z-40 bg-white py-3 flex justify-between items-center border-b border-surface-100 mb-2">
-                      <div className="flex items-center gap-3">
-                        <div className="text-sm font-medium text-text-700">
-                          검색 결과: <span className="text-primary-600 font-bold">{filteredItems.length}</span>건 <span className="text-text-400 font-normal ml-1">(전체 {unpaidItems.length}건)</span>
+                  return (
+                    <div className="mt-4">
+                      <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4 flex items-start gap-3">
+                        <div className="bg-blue-500 text-white rounded-full p-1 mt-0.5">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
                         </div>
-                        {isUnpaidFiltering && (
-                          <div className="flex items-center gap-2 text-xs text-primary-500 animate-pulse">
-                            <LoadingSpinner className="w-3 h-3" />
-                            <span>검색 중...</span>
-                          </div>
-                        )}
+                        <div>
+                          <p className="text-sm text-blue-800 font-medium">타업체 발행 현황 안내</p>
+                          <p className="text-xs text-blue-600 mt-1">측정일지에 등록된 사업장과 다른 사업자번호 또는 상호로 계산서를 발행한 내역입니다. 입금 확인 시 발행처 정보를 활용하세요.</p>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {activeTab !== "unpaid" && (user?.is_journal_manager || user?.role === "관리자") && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            className="h-8 text-xs px-3 bg-green-600 hover:bg-green-700 border-none"
-                            onClick={() => paymentFileInputRef.current?.click()}
-                          >
-                            국고지원금 업로드
-                          </Button>
-                        )}
-                        {activeTab !== "unpaid" && (user?.is_journal_manager || user?.role === "관리자") && (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="h-8 text-xs px-3"
-                            onClick={handleDownloadPaymentTemplate}
-                          >
-                            📥 양식 다운로드
-                          </Button>
-                        )}
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="h-8 text-xs font-semibold"
-                          onClick={() => {
-                            const initial = {
-                              type: "",
-                              name: "",
-                              year: "",
-                              period: "",
-                              designatedOffice: "",
-                              hasDepositDate: "",
-                            };
-                            setUnpaidFilters(initial);
-                            // setDebouncedUnpaidFilters(initial); // Removed as debounce logic was removed
-                            setUnpaidSort({ column: "unpaid", direction: "desc" });
-                          }}
-                        >
-                          필터 초기화
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden">
-                      <Table className="table-fixed" maxHeight="max-h-[calc(100vh-350px)]">
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[80px]">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("type")}
-                                >
-                                  구분
-                                  <SortIcon column="type" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.type}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, type: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    { value: "measurement", label: "측정비" },
-                                    { value: "other", label: "기타" },
-                                  ]}
-                                  className="text-sm h-8 py-1 px-2 text-center"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead className="w-[100px]">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("designatedOffice")}
-                                >
-                                  지정지청
-                                  <SortIcon column="designatedOffice" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.designatedOffice}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
-                                  }
-                                  options={[{ value: "", label: "전체" }, ...officeOptions]}
-                                  className="text-sm h-8 py-1 px-2 text-center"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead className="w-[120px]">
-                              <div className="space-y-1">
-                                <div className="flex items-center justify-center font-bold">대표자</div>
-                                <div className="h-8 flex items-center justify-center text-xs text-text-400">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="w-[300px]">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("name")}
-                                >
-                                  사업장명/품명
-                                  <SortIcon column="name" />
-                                </div>
-                                <Input
-                                  value={localUnpaidName}
-                                  onChange={(e) => setLocalUnpaidName(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      setUnpaidFilters({ ...unpaidFilters, name: localUnpaidName });
-                                    }
-                                  }}
-                                  onBlur={() => {
-                                    setUnpaidFilters({ ...unpaidFilters, name: localUnpaidName });
-                                  }}
-                                  placeholder="검색..."
-                                  className="text-xs h-8 text-center"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead className="w-[80px]">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("year")}
-                                >
-                                  매출년도
-                                  <SortIcon column="year" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.year}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, year: e.target.value })
-                                  }
-                                  options={[{ value: "", label: "전체" }, ...yearOptions]}
-                                  className="text-sm h-8 py-1 px-2 text-center"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead className="w-[80px]">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("period")}
-                                >
-                                  측정주기
-                                  <SortIcon column="period" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.period}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, period: e.target.value })
-                                  }
-                                  options={periodOptions}
-                                  className="text-sm h-8 py-1 px-2 text-center"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right w-[120px]">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("revenue")}
-                                >
-                                  매출금액
-                                  <SortIcon column="revenue" />
-                                </div>
-                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right w-[120px]">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("deposit")}
-                                >
-                                  입금액
-                                  <SortIcon column="deposit" />
-                                </div>
-                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="w-[120px]">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("depositDate")}
-                                >
-                                  입금일
-                                  <SortIcon column="depositDate" />
-                                </div>
-                                <Select
-                                  value={unpaidFilters.hasDepositDate}
-                                  onChange={(e) =>
-                                    setUnpaidFilters({ ...unpaidFilters, hasDepositDate: e.target.value })
-                                  }
-                                  options={[
-                                    { value: "", label: "전체" },
-                                    { value: "yes", label: "입금일 있음" },
-                                    { value: "no", label: "입금일 없음" },
-                                  ]}
-                                  className="text-sm h-8 py-1 px-2 text-center"
-                                />
-                              </div>
-                            </TableHead>
-                            <TableHead className="text-right w-[120px]">
-                              <div className="space-y-1">
-                                <div
-                                  className="flex items-center justify-center cursor-pointer hover:text-primary-600"
-                                  onClick={() => handleSort("unpaid")}
-                                >
-                                  미수금
-                                  <SortIcon column="unpaid" />
-                                </div>
-                                <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
-                              </div>
-                            </TableHead>
-                            <TableHead className="w-[180px] text-center">관리</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredItems.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={10} className="text-center text-text-500 py-8">
-                                {unpaidItems.length === 0
-                                  ? "미수금이 있는 항목이 없습니다."
-                                  : "필터 조건에 맞는 항목이 없습니다."}
-                              </TableCell>
+
+                      <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden shadow-sm">
+                        <Table className="table-fixed">
+                          <TableHeader>
+                            <TableRow className="bg-surface-50">
+                              <TableHead className="w-[100px]">발행일</TableHead>
+                              <TableHead className="w-[200px]">사업장명 (원래)</TableHead>
+                              <TableHead className="w-[130px]">사업자번호 (원래)</TableHead>
+                              <TableHead className="w-[200px] border-l border-primary-100 bg-primary-50/50">발행처 상호 (변경)</TableHead>
+                              <TableHead className="w-[130px] bg-primary-50/50">발행처 사업자 (변경)</TableHead>
+                              <TableHead className="w-[120px] text-right">측정비(사업장)</TableHead>
+                              <TableHead className="w-[90px] text-center">입금상태</TableHead>
+                              <TableHead className="w-[80px] text-center">관리</TableHead>
                             </TableRow>
-                          ) : (
-                            <>
-                              {filteredItems.map((item) => {
-                                const hasNoDepositDate = !item.depositDate;
+                          </TableHeader>
+                          <TableBody>
+                            {thirdPartyItems.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={8} className="text-center text-text-500 py-16">
+                                  <div className="flex flex-col items-center gap-2">
+                                    <span className="text-3xl">📄</span>
+                                    <p>타업체로 발행된 내역이 발견되지 않았습니다.</p>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              thirdPartyItems.map((item) => {
+                                const total = parseFloat(item.measurement_fee_business?.toString() || "0");
+                                const deposit = parseFloat(((item.deposit_amount_business || 0) + (item.deposit_amount_business_2 || 0)).toString());
+                                const isFullyPaid = total > 0 && deposit >= total;
+
                                 return (
-                                  <TableRow
-                                    key={item.id}
-                                    className={hasNoDepositDate ? "bg-warning-50" : ""}
-                                  >
-                                    <TableCell>
-                                      <span
-                                        className={`px-2 py-1 rounded text-xs ${item.type === "measurement"
-                                          ? "bg-primary-100 text-primary-700"
-                                          : "bg-secondary-100 text-secondary-700"
-                                          }`}
-                                      >
-                                        {item.type === "measurement" ? "측정비" : "기타"}
-                                      </span>
+                                  <TableRow key={item.id} className="hover:bg-surface-50 transition-colors">
+                                    <TableCell className="text-sm text-text-600">
+                                      {item.electronic_invoice_date ? formatDateYYYYMMDD(item.electronic_invoice_date) : "-"}
                                     </TableCell>
-                                    <TableCell>{item.designatedOffice || "-"}</TableCell>
-                                    <TableCell className="text-center font-medium">{item.representative || "-"}</TableCell>
-                                    <TableCell className="font-medium truncate max-w-[280px]" title={item.name}>{item.name}</TableCell>
-                                    <TableCell>{item.year}</TableCell>
-                                    <TableCell>{item.period}</TableCell>
-                                    <TableCell className="text-right">
-                                      {formatCurrency(item.revenue)}원
+                                    <TableCell className="font-medium truncate text-text-700" title={item.business_name}>
+                                      {item.business_name}
                                     </TableCell>
-                                    <TableCell className="text-right">
-                                      {formatCurrency(item.deposit)}원
+                                    <TableCell className="text-xs text-text-400">
+                                      {formatBusinessNumber(item.business_number)}
                                     </TableCell>
-                                    <TableCell
-                                      className={hasNoDepositDate ? "text-warning-600 font-semibold" : ""}
-                                    >
-                                      {item.depositDate ? formatDateYYYYMMDD(item.depositDate) : "미입금"}
+                                    <TableCell className="font-bold text-primary-700 border-l border-primary-50 truncate" title={item.invoice_business_name || item.business_name}>
+                                      {item.invoice_business_name || item.business_name}
                                     </TableCell>
-                                    <TableCell className={cn(
-                                      "text-right font-semibold",
-                                      item.type === "measurement" ? (
-                                        item.unpaidType === "both" ? "text-red-600" :
-                                        item.unpaidType === "business" ? "text-blue-600" :
-                                        item.unpaidType === "national" ? "text-black" :
-                                        "text-warning-600"
-                                      ) : "text-warning-600"
-                                    )}>
-                                      {formatCurrency(item.unpaid)}원
+                                    <TableCell className="font-bold text-primary-700">
+                                      {formatBusinessNumber(item.invoice_business_number) || "-"}
+                                    </TableCell>
+                                    <TableCell className="text-right font-semibold text-text-800">
+                                      {formatCurrency(total)}원
                                     </TableCell>
                                     <TableCell className="text-center">
-                                      <div className="flex justify-center items-center gap-1.5">
-                                        {item.type === "measurement" && item.measurementId ? (
-                                          <>
-                                            <Button
-                                              variant="secondary"
-                                              size="sm"
-                                              onClick={async () => {
-                                                try {
-                                                  // 측정일지 데이터 가져오기 (code가 없어도 ID로 찾을 수 있도록 API 호출 파라미터 조정)
-                                                  const searchParam = item.code ? `code=${encodeURIComponent(item.code)}` : `id=${item.measurementId}`;
-                                                  const response = await fetch(
-                                                    `/api/journal/search?${searchParam}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
-                                                    { cache: 'no-store' }
-                                                  );
-                                                  if (response.ok) {
-                                                    const data = await response.json();
-                                                    const journal = data.results?.find((j: any) => j.id === item.measurementId);
-                                                    if (journal) {
-                                                      setSelectedJournalEntry(journal);
-                                                      setIsJournalModalOpen(true);
-                                                    } else {
-                                                      setError("측정일지를 찾을 수 없습니다.");
-                                                    }
-                                                  } else {
-                                                    setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
-                                                  }
-                                                } catch (err) {
-                                                  console.error("측정일지 조회 오류:", err);
-                                                  setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
-                                                }
-                                              }}
-                                            >
-                                              관리
-                                            </Button>
-
-                                            {user?.role === "관리자" && (
-                                              isValidMobileNumber(item.phone) ? (
-                                                <Button
-                                                  variant="primary"
-                                                  size="sm"
-                                                  className="bg-primary-600 hover:bg-primary-700 border-none text-white text-xs px-2.5 h-8 font-semibold"
-                                                  onClick={() => handleOpenUnpaidSmsModal(item)}
-                                                >
-                                                  안내문자
-                                                </Button>
-                                              ) : (
-                                                <div className="relative group inline-block">
-                                                  <Button
-                                                    variant="primary"
-                                                    size="sm"
-                                                    className="bg-gray-200 border-none text-gray-400 text-xs px-2.5 h-8 font-semibold cursor-not-allowed"
-                                                    disabled
-                                                  >
-                                                    안내문자
-                                                  </Button>
-                                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 hidden group-hover:block bg-gray-800 text-white text-xs py-1 px-2.5 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none transition-all">
-                                                    담당자 연락처 없음
-                                                  </div>
-                                                </div>
-                                              )
-                                            )}
-                                          </>
-                                        ) : (
-                                          <span className="text-text-400 text-sm">-</span>
-                                        )}
-                                      </div>
+                                      {isFullyPaid ? (
+                                        <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold">완납</span>
+                                      ) : (
+                                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">미납</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="text-center">
+                                      <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        className="h-7 text-[10px] px-2"
+                                        onClick={async () => {
+                                          try {
+                                            const response = await fetch(
+                                              `/api/journal/search?code=${encodeURIComponent(item.code || '')}&measurementYear=${item.measurement_year}&measurementPeriod=${encodeURIComponent(item.measurement_period)}&_t=${new Date().getTime()}`,
+                                              { cache: 'no-store' }
+                                            );
+                                            if (response.ok) {
+                                              const data = await response.json();
+                                              const journal = data.results?.find((j: any) => j.id === item.id);
+                                              if (journal) {
+                                                setSelectedJournalEntry(journal);
+                                                setIsJournalModalOpen(true);
+                                              }
+                                            }
+                                          } catch (err) {
+                                            console.error("조회 오류:", err);
+                                          }
+                                        }}
+                                      >
+                                        관리
+                                      </Button>
                                     </TableCell>
                                   </TableRow>
                                 );
-                              })}
-                              <TableRow className="bg-surface-50">
-                                <TableCell colSpan={8} className="text-right font-semibold">
-                                  미수금 합계
-                                </TableCell>
-                                <TableCell className="text-right font-bold text-warning-600 text-lg">
-                                  {formatCurrency(totalUnpaid)}원
-                                </TableCell>
-                                <TableCell>{""}</TableCell>
-                              </TableRow>
-                            </>
-                          )}
-                        </TableBody>
-                      </Table>
+                              })
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
-                  </div>
-                );
-              })(),
-            },
-            {
-              id: "period-deposit",
-              label: "기간별 입금 현황",
-              content: (() => {
-                // 입금 내역 통합
-                interface UnifiedDeposit {
-                  id: string;
-                  date: string;
-                  category: string;
-                  name: string;
-                  representative: string | null;
-                  amount: number;
-                  notes: string;
-                  designatedOffice: string | null;
-                  year: number | null;
-                  period: string | null;
-                }
+                  );
+                })(),
+              },
+              {
+                id: "unpaid",
+                label: "미수관리",
+                content: (() => {
+                  // 미수금이 있는 항목들을 통합하여 계산
+                  const unpaidItems: Array<{
+                    id: string;
+                    measurementId?: number; // 측정일지 ID (측정비인 경우)
+                    code?: string; // 측정일지 code (측정비인 경우)
+                    type: "measurement" | "other";
+                    name: string;
+                    year: number;
+                    period: string;
+                    revenue: number;
+                    deposit: number;
+                    unpaid: number;
+                    depositDate: string | null;
+                    designatedOffice: string | null;
+                    representative: string | null;
+                    unpaidType?: "both" | "business" | "national";
+                    phone: string | null;
+                  }> = [];
 
-                const unifiedDeposits: UnifiedDeposit[] = [];
+                  // 측정비 미수금 항목 추가
+                  allMeasurementData.forEach((item) => {
+                    const total = parseFloat(item.measurement_fee_total?.toString() || "0");
+                    const deposit = parseFloat(item.deposit_total?.toString() || "0");
+                    const unpaid = total - deposit;
+                    if (unpaid > 0) {
+                      // 미수금 성격 판단 로직
+                      const feeBusiness = parseFloat(item.measurement_fee_business?.toString() || "0");
+                      const feeNational = parseFloat(item.measurement_fee_national?.toString() || "0");
+                      const depositBusiness1 = parseFloat(item.deposit_amount_business?.toString() || "0");
+                      const depositBusiness2 = parseFloat(item.deposit_amount_business_2?.toString() || "0");
+                      const depositBusiness = depositBusiness1 + depositBusiness2;
+                      const depositNational = parseFloat(item.deposit_amount_national?.toString() || "0");
 
-                // 1. 측정비 사업장 입금 (1차, 2차)
-                allMeasurementData.forEach(item => {
-                  // 1차 입금
-                  if (item.deposit_date_business && item.deposit_amount_business) {
-                    unifiedDeposits.push({
-                      id: `meas-biz-${item.id}`,
-                      date: item.deposit_date_business,
-                      category: "측정비(사업장)",
-                      name: item.business_name,
-                      representative: item.representative_name,
-                      amount: item.deposit_amount_business,
-                      notes: `${item.measurement_year}년 ${item.measurement_period}`,
-                      designatedOffice: item.designated_office,
-                      year: item.measurement_year,
-                      period: item.measurement_period,
-                    });
-                  }
+                      const unpaidBusiness = feeBusiness - depositBusiness;
+                      const unpaidNational = feeNational - depositNational;
 
-                  // 2차 입금
-                  if (item.deposit_date_business_2 && item.deposit_amount_business_2) {
-                    unifiedDeposits.push({
-                      id: `meas-biz2-${item.id}`,
-                      date: item.deposit_date_business_2,
-                      category: "측정비(사업장)",
-                      name: item.business_name,
-                      representative: item.representative_name,
-                      amount: item.deposit_amount_business_2,
-                      notes: `${item.measurement_year}년 ${item.measurement_period} (2차)`,
-                      designatedOffice: item.designated_office,
-                      year: item.measurement_year,
-                      period: item.measurement_period,
-                    });
-                  }
-                });
+                      let unpaidType: "both" | "business" | "national" | undefined;
+                      if (unpaidBusiness > 0 && unpaidNational > 0) {
+                        unpaidType = "both";
+                      } else if (unpaidBusiness > 0 && unpaidNational <= 0) {
+                        unpaidType = "business";
+                      } else if (unpaidBusiness <= 0 && unpaidNational > 0) {
+                        unpaidType = "national";
+                      }
 
-                // 2. 측정비 국고 입금
-                allMeasurementData.forEach(item => {
-                  if (item.deposit_date_national && item.deposit_amount_national) {
-                    unifiedDeposits.push({
-                      id: `meas-nat-${item.id}`,
-                      date: item.deposit_date_national,
-                      category: "측정비(국고)",
-                      name: item.business_name,
-                      representative: item.representative_name,
-                      amount: item.deposit_amount_national,
-                      notes: `${item.measurement_year}년 ${item.measurement_period}`,
-                      designatedOffice: item.designated_office,
-                      year: item.measurement_year,
-                      period: item.measurement_period,
-                    });
-                  }
-                });
+                      unpaidItems.push({
+                        id: `measurement-${item.id}`,
+                        measurementId: item.id,
+                        code: item.code,
+                        type: "measurement",
+                        name: item.business_name,
+                        year: item.measurement_year,
+                        period: item.measurement_period,
+                        revenue: total,
+                        deposit: deposit,
+                        unpaid: unpaid,
+                        depositDate: item.deposit_date_business || item.deposit_date_national || null,
+                        designatedOffice: item.designated_office || null,
+                        representative: item.representative_name || null,
+                        unpaidType: unpaidType,
+                        phone: item.manager_mobile || null,
+                      });
+                    }
+                  });
 
-                // 3. 기타 매출 입금
-                allOtherData.forEach(item => {
-                  if (item.deposit_date && item.deposit_amount) {
-                    unifiedDeposits.push({
-                      id: `other-${item.id}`,
-                      date: item.deposit_date,
-                      category: "기타 매출",
-                      name: item.item_name,
-                      representative: null,
-                      amount: item.deposit_amount,
-                      notes: item.notes || "",
-                      designatedOffice: item.designated_office,
-                      year: item.revenue_year,
-                      period: item.revenue_period,
-                    });
-                  }
-                });
+                  // 기타 매출 미수금 항목 추가
+                  allOtherData.forEach((item) => {
+                    const total = parseFloat(item.total_amount?.toString() || "0");
+                    const deposit = parseFloat(item.deposit_amount?.toString() || "0");
+                    const unpaid = total - deposit;
+                    if (unpaid > 0) {
+                      unpaidItems.push({
+                        id: `other-${item.id}`,
+                        type: "other",
+                        name: item.item_name,
+                        year: item.revenue_year || 0,
+                        period: item.revenue_period || "",
+                        revenue: total,
+                        deposit: deposit,
+                        unpaid: unpaid,
+                        depositDate: item.deposit_date || null,
+                        designatedOffice: item.designated_office || null,
+                        representative: item.representative_name || null,
+                        phone: null,
+                      });
+                    }
+                  });
 
-                // 필터링 적용
-                const filteredDeposits = unifiedDeposits.filter(item => {
-                  const itemDateOnly = item.date.substring(0, 10);
-                  const startDateMatch = !depositStartDate || itemDateOnly >= depositStartDate;
-                  const endDateMatch = !depositEndDate || itemDateOnly <= depositEndDate;
-                  const dateMatch = startDateMatch && endDateMatch;
-                  const officeMatch = checkExactMatch(item.designatedOffice, depositOffice);
-                  const yearMatch = checkExactMatch(item.year, depositYear);
-                  const periodMatch = isMatchSelection(item.period || null, depositPeriod);
-                  const categoryMatch = !depositCategory || item.category === depositCategory;
-                  const businessNameMatch = checkSearchMatch(item.name, depositBusinessName);
+                  // 필터링 적용
+                  let filteredItems = unpaidItems.filter((item) => {
+                    if (unpaidFilters.type && item.type !== unpaidFilters.type) return false;
+                    if (unpaidFilters.name && !checkSearchMatch(item.name, unpaidFilters.name)) return false;
+                    if (unpaidFilters.year && !checkExactMatch(item.year, unpaidFilters.year)) return false;
+                    if (unpaidFilters.period && !isMatchSelection(item.period, unpaidFilters.period)) return false;
+                    if (unpaidFilters.designatedOffice && !checkExactMatch(item.designatedOffice, unpaidFilters.designatedOffice)) return false;
+                    if (unpaidFilters.hasDepositDate === "yes" && !item.depositDate) return false;
+                    if (unpaidFilters.hasDepositDate === "no" && item.depositDate) return false;
+                    return true;
+                  });
 
-                  return dateMatch && officeMatch && yearMatch && periodMatch && categoryMatch && businessNameMatch;
-                });
+                  // 정렬 적용
+                  filteredItems.sort((a, b) => {
+                    let result = 0;
+                    let aValue: any = a[unpaidSort.column as keyof typeof a];
+                    let bValue: any = b[unpaidSort.column as keyof typeof b];
 
-                // 날짜순 정렬 (최신순)
-                filteredDeposits.sort((a, b) => b.date.localeCompare(a.date));
+                    // 문자열 비교
+                    if (typeof aValue === "string" && typeof bValue === "string") {
+                      aValue = aValue.toLowerCase();
+                      bValue = bValue.toLowerCase();
+                    }
 
-                const totalDepositAmount = filteredDeposits.reduce((sum, item) => sum + item.amount, 0);
+                    // null 처리
+                    if (aValue === null || aValue === undefined) aValue = "";
+                    if (bValue === null || bValue === undefined) bValue = "";
 
-                return (
-                  <div className="mt-4">
-                    <div className="bg-white p-6 border border-surface-200 rounded-xl mb-6 shadow-md">
-                      <div className="flex flex-nowrap items-end gap-x-2 overflow-x-auto pb-2 scrollbar-hide">
-                        {/* 1. 매출년도 */}
-                        <div className="flex flex-col gap-1 shrink-0">
-                          <label className="text-sm font-bold text-text-800 ml-1">매출년도</label>
-                          <Select
-                            value={depositYear}
-                            onChange={(e) => setDepositYear(e.target.value)}
-                            options={[{ value: "", label: "전체" }, ...yearOptions]}
-                            className="w-28 h-10 text-sm font-medium text-center py-2"
-                          />
-                        </div>
+                    if (aValue > bValue) result = unpaidSort.direction === "asc" ? 1 : -1;
+                    else if (aValue < bValue) result = unpaidSort.direction === "asc" ? -1 : 1;
 
-                        {/* 2. 주기 */}
-                        <div className="flex flex-col gap-1 shrink-0">
-                          <label className="text-sm font-bold text-text-800 ml-1">주기</label>
-                          <Select
-                            value={depositPeriod}
-                            onChange={(e) => setDepositPeriod(e.target.value)}
-                            options={periodOptions}
-                            className="w-24 h-10 text-sm font-medium text-center py-2"
-                          />
-                        </div>
+                    if (result !== 0) return result;
 
-                        {/* 3. 지정지청 */}
-                        <div className="flex flex-col gap-1 shrink-0">
-                          <label className="text-sm font-bold text-text-800 ml-1">지정지청</label>
-                          <Select
-                            value={depositOffice}
-                            onChange={(e) => setDepositOffice(e.target.value)}
-                            options={[{ value: "", label: "전체" }, ...officeOptions]}
-                            className="w-28 h-10 text-sm font-medium text-center py-2"
-                          />
-                        </div>
+                    // 2차 정렬: 년도 내림차순 (DESC)
+                    if (a.year !== b.year) {
+                      return b.year - a.year;
+                    }
 
-                        {/* 4. 매출 구분 */}
-                        <div className="flex flex-col gap-1 shrink-0">
-                          <label className="text-sm font-bold text-text-800 ml-1">매출 구분</label>
-                          <Select
-                            value={depositCategory}
-                            onChange={(e) => setDepositCategory(e.target.value)}
-                            options={[
-                              { value: "", label: "전체 매출" },
-                              { value: "측정비(사업장)", label: "측정비(사업장)" },
-                              { value: "측정비(국고)", label: "측정비(국고)" },
-                              { value: "기타 매출", label: "기타 매출" },
-                            ]}
-                            className="w-32 h-10 text-sm font-medium text-center py-2"
-                          />
-                        </div>
+                    // 3차 정렬: 주기 내림차순 (하반기 > 상반기)
+                    const aWeight = getPeriodWeight(a.period);
+                    const bWeight = getPeriodWeight(b.period);
+                    return bWeight - aWeight;
+                  });
 
-                        {/* 5. 입금 기간 */}
-                        <div className="flex flex-col gap-1 shrink-0">
-                          <label className="text-sm font-bold text-text-800 ml-1">입금 기간</label>
-                          <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-lg border border-gray-200">
-                            <div className="flex items-center gap-1">
-                              <Input
-                                type="date"
-                                value={depositStartDate}
-                                onChange={(e) => {
-                                  setDepositStartDate(e.target.value);
-                                  setActiveQuickDate(null);
-                                }}
-                                className="w-[135px] h-9 text-sm font-bold"
-                              />
-                              <span className="text-text-400 font-bold text-lg">~</span>
-                              <Input
-                                type="date"
-                                value={depositEndDate}
-                                onChange={(e) => {
-                                  setDepositEndDate(e.target.value);
-                                  setActiveQuickDate(null);
-                                }}
-                                className="w-[135px] h-9 text-sm font-bold"
-                              />
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => {
-                                  setDepositStartDate("");
-                                  setDepositEndDate("");
-                                  setActiveQuickDate(null);
-                                }}
-                                className="h-9 px-2 text-gray-400 hover:text-red-500 bg-transparent border-none shadow-none"
-                                title="기간 초기화"
-                              >
-                                ✕
-                              </Button>
-                            </div>
-                            <div className="flex items-center gap-1 border-l pl-2">
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => handleQuickDateSelect("yesterday")}
-                                className={cn(
-                                  "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
-                                  activeQuickDate === "yesterday"
-                                    ? "bg-slate-600 text-white border-slate-700 hover:bg-slate-700"
-                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                                )}
-                              >
-                                전일
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => handleQuickDateSelect("today")}
-                                className={cn(
-                                  "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
-                                  activeQuickDate === "today"
-                                    ? "bg-amber-500 text-white border-amber-600 hover:bg-amber-600"
-                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                                )}
-                              >
-                                금일
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => handleQuickDateSelect("week")}
-                                className={cn(
-                                  "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
-                                  activeQuickDate === "week"
-                                    ? "bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600"
-                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                                )}
-                              >
-                                1주
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => handleQuickDateSelect("month")}
-                                className={cn(
-                                  "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
-                                  activeQuickDate === "month"
-                                    ? "bg-rose-500 text-white border-rose-600 hover:bg-rose-600"
-                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                                )}
-                              >
-                                1개월
-                              </Button>
-                            </div>
+                  // 미수금 합계 계산
+                  const totalUnpaid = filteredItems.reduce((sum, item) => sum + item.unpaid, 0);
+
+                  // 정렬 아이콘 컴포넌트
+                  const SortIcon = ({ column }: { column: string }) => {
+                    if (unpaidSort.column !== column) {
+                      return <span className="text-text-400 text-xs ml-1">↕</span>;
+                    }
+                    return (
+                      <span className="text-primary-600 text-xs ml-1">
+                        {unpaidSort.direction === "asc" ? "↑" : "↓"}
+                      </span>
+                    );
+                  };
+
+                  // 정렬 핸들러
+                  const handleSort = (column: string) => {
+                    if (unpaidSort.column === column) {
+                      setUnpaidSort({
+                        column,
+                        direction: unpaidSort.direction === "asc" ? "desc" : "asc",
+                      });
+                    } else {
+                      setUnpaidSort({ column, direction: "desc" });
+                    }
+                  };
+
+                  return (
+                    <div className="mt-4">
+                      <div className="sticky top-[-1px] z-40 bg-white py-3 flex justify-between items-center border-b border-surface-100 mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className="text-sm font-medium text-text-700">
+                            검색 결과: <span className="text-primary-600 font-bold">{filteredItems.length}</span>건 <span className="text-text-400 font-normal ml-1">(전체 {unpaidItems.length}건)</span>
                           </div>
+                          {isUnpaidFiltering && (
+                            <div className="flex items-center gap-2 text-xs text-primary-500 animate-pulse">
+                              <LoadingSpinner className="w-3 h-3" />
+                              <span>검색 중...</span>
+                            </div>
+                          )}
                         </div>
-
-                        {/* 6. 사업장명 / 품명 */}
-                        <div className="flex flex-col gap-1 w-[200px] shrink-0">
-                          <label className="text-sm font-bold text-text-800 ml-1">검색</label>
-                          <Input
-                            placeholder="사업장명/품명..."
-                            value={localDepositBusinessName}
-                            onChange={(e) => setLocalDepositBusinessName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                setDepositBusinessName(localDepositBusinessName);
-                              }
-                            }}
-                            onBlur={() => {
-                              setDepositBusinessName(localDepositBusinessName);
-                            }}
-                            className="h-10 text-sm font-medium px-3"
-                          />
-                        </div>
-
-                        <div className="flex items-center gap-3 ml-auto shrink-0">
+                        <div className="flex items-center gap-2">
+                          {activeTab !== "unpaid" && (user?.is_journal_manager || user?.role === "관리자") && (
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              className="h-8 text-xs px-3 bg-green-600 hover:bg-green-700 border-none"
+                              onClick={() => paymentFileInputRef.current?.click()}
+                            >
+                              국고지원금 업로드
+                            </Button>
+                          )}
+                          {activeTab !== "unpaid" && (user?.is_journal_manager || user?.role === "관리자") && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-8 text-xs px-3"
+                              onClick={handleDownloadPaymentTemplate}
+                            >
+                              📥 양식 다운로드
+                            </Button>
+                          )}
                           <Button
                             variant="secondary"
                             size="sm"
-                            className="h-10 text-xs font-semibold px-3"
+                            className="h-8 text-xs font-semibold"
                             onClick={() => {
-                              setDepositYear("");
-                              setDepositPeriod("");
-                              setDepositOffice("");
-                              setDepositCategory("");
-                              setDepositStartDate("");
-                              setDepositEndDate("");
-                              setDepositBusinessName("");
-                              setLocalDepositBusinessName("");
-                              setActiveQuickDate(null);
+                              const initial = {
+                                type: "",
+                                name: "",
+                                year: "",
+                                period: "",
+                                designatedOffice: "",
+                                hasDepositDate: "",
+                              };
+                              setUnpaidFilters(initial);
+                              // setDebouncedUnpaidFilters(initial); // Removed as debounce logic was removed
+                              setUnpaidSort({ column: "unpaid", direction: "desc" });
                             }}
                           >
                             필터 초기화
                           </Button>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden">
+                        <Table className="table-fixed" maxHeight="max-h-[calc(100vh-350px)]">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-[80px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("type")}
+                                  >
+                                    구분
+                                    <SortIcon column="type" />
+                                  </div>
+                                  <Select
+                                    value={unpaidFilters.type}
+                                    onChange={(e) =>
+                                      setUnpaidFilters({ ...unpaidFilters, type: e.target.value })
+                                    }
+                                    options={[
+                                      { value: "", label: "전체" },
+                                      { value: "measurement", label: "측정비" },
+                                      { value: "other", label: "기타" },
+                                    ]}
+                                    className="text-sm h-8 py-1 px-2 text-center"
+                                  />
+                                </div>
+                              </TableHead>
+                              <TableHead className="w-[100px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("designatedOffice")}
+                                  >
+                                    지정지청
+                                    <SortIcon column="designatedOffice" />
+                                  </div>
+                                  <Select
+                                    value={unpaidFilters.designatedOffice}
+                                    onChange={(e) =>
+                                      setUnpaidFilters({ ...unpaidFilters, designatedOffice: e.target.value })
+                                    }
+                                    options={[{ value: "", label: "전체" }, ...officeOptions]}
+                                    className="text-sm h-8 py-1 px-2 text-center"
+                                  />
+                                </div>
+                              </TableHead>
+                              <TableHead className="w-[120px]">
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-center font-bold">대표자</div>
+                                  <div className="h-8 flex items-center justify-center text-xs text-text-400">-</div>
+                                </div>
+                              </TableHead>
+                              <TableHead className="w-[300px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("name")}
+                                  >
+                                    사업장명/품명
+                                    <SortIcon column="name" />
+                                  </div>
+                                  <Input
+                                    value={localUnpaidName}
+                                    onChange={(e) => setLocalUnpaidName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        setUnpaidFilters({ ...unpaidFilters, name: localUnpaidName });
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      setUnpaidFilters({ ...unpaidFilters, name: localUnpaidName });
+                                    }}
+                                    placeholder="검색..."
+                                    className="text-xs h-8 text-center"
+                                  />
+                                </div>
+                              </TableHead>
+                              <TableHead className="w-[80px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("year")}
+                                  >
+                                    매출년도
+                                    <SortIcon column="year" />
+                                  </div>
+                                  <Select
+                                    value={unpaidFilters.year}
+                                    onChange={(e) =>
+                                      setUnpaidFilters({ ...unpaidFilters, year: e.target.value })
+                                    }
+                                    options={[{ value: "", label: "전체" }, ...yearOptions]}
+                                    className="text-sm h-8 py-1 px-2 text-center"
+                                  />
+                                </div>
+                              </TableHead>
+                              <TableHead className="w-[80px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("period")}
+                                  >
+                                    측정주기
+                                    <SortIcon column="period" />
+                                  </div>
+                                  <Select
+                                    value={unpaidFilters.period}
+                                    onChange={(e) =>
+                                      setUnpaidFilters({ ...unpaidFilters, period: e.target.value })
+                                    }
+                                    options={periodOptions}
+                                    className="text-sm h-8 py-1 px-2 text-center"
+                                  />
+                                </div>
+                              </TableHead>
+                              <TableHead className="text-right w-[120px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center justify-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("revenue")}
+                                  >
+                                    매출금액
+                                    <SortIcon column="revenue" />
+                                  </div>
+                                  <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
+                                </div>
+                              </TableHead>
+                              <TableHead className="text-right w-[120px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center justify-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("deposit")}
+                                  >
+                                    입금액
+                                    <SortIcon column="deposit" />
+                                  </div>
+                                  <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
+                                </div>
+                              </TableHead>
+                              <TableHead className="w-[120px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("depositDate")}
+                                  >
+                                    입금일
+                                    <SortIcon column="depositDate" />
+                                  </div>
+                                  <Select
+                                    value={unpaidFilters.hasDepositDate}
+                                    onChange={(e) =>
+                                      setUnpaidFilters({ ...unpaidFilters, hasDepositDate: e.target.value })
+                                    }
+                                    options={[
+                                      { value: "", label: "전체" },
+                                      { value: "yes", label: "입금일 있음" },
+                                      { value: "no", label: "입금일 없음" },
+                                    ]}
+                                    className="text-sm h-8 py-1 px-2 text-center"
+                                  />
+                                </div>
+                              </TableHead>
+                              <TableHead className="text-right w-[120px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center justify-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("unpaid")}
+                                  >
+                                    미수금
+                                    <SortIcon column="unpaid" />
+                                  </div>
+                                  <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
+                                </div>
+                              </TableHead>
+                              <TableHead className="w-[180px] text-center">관리</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredItems.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={10} className="text-center text-text-500 py-8">
+                                  {unpaidItems.length === 0
+                                    ? "미수금이 있는 항목이 없습니다."
+                                    : "필터 조건에 맞는 항목이 없습니다."}
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              <>
+                                {filteredItems.map((item) => {
+                                  const hasNoDepositDate = !item.depositDate;
+                                  return (
+                                    <TableRow
+                                      key={item.id}
+                                      className={hasNoDepositDate ? "bg-warning-50" : ""}
+                                    >
+                                      <TableCell>
+                                        <span
+                                          className={`px-2 py-1 rounded text-xs ${item.type === "measurement"
+                                            ? "bg-primary-100 text-primary-700"
+                                            : "bg-secondary-100 text-secondary-700"
+                                            }`}
+                                        >
+                                          {item.type === "measurement" ? "측정비" : "기타"}
+                                        </span>
+                                      </TableCell>
+                                      <TableCell>{item.designatedOffice || "-"}</TableCell>
+                                      <TableCell className="text-center font-medium">{item.representative || "-"}</TableCell>
+                                      <TableCell className="font-medium truncate max-w-[280px]" title={item.name}>{item.name}</TableCell>
+                                      <TableCell>{item.year}</TableCell>
+                                      <TableCell>{item.period}</TableCell>
+                                      <TableCell className="text-right">
+                                        {formatCurrency(item.revenue)}원
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        {formatCurrency(item.deposit)}원
+                                      </TableCell>
+                                      <TableCell
+                                        className={hasNoDepositDate ? "text-warning-600 font-semibold" : ""}
+                                      >
+                                        {item.depositDate ? formatDateYYYYMMDD(item.depositDate) : "미입금"}
+                                      </TableCell>
+                                      <TableCell className={cn(
+                                        "text-right font-semibold",
+                                        item.type === "measurement" ? (
+                                          item.unpaidType === "both" ? "text-red-600" :
+                                            item.unpaidType === "business" ? "text-blue-600" :
+                                              item.unpaidType === "national" ? "text-black" :
+                                                "text-warning-600"
+                                        ) : "text-warning-600"
+                                      )}>
+                                        {formatCurrency(item.unpaid)}원
+                                      </TableCell>
+                                      <TableCell className="text-center">
+                                        <div className="flex justify-center items-center gap-1.5">
+                                          {item.type === "measurement" && item.measurementId ? (
+                                            <>
+                                              <Button
+                                                variant="secondary"
+                                                size="sm"
+                                                onClick={async () => {
+                                                  try {
+                                                    // 측정일지 데이터 가져오기 (code가 없어도 ID로 찾을 수 있도록 API 호출 파라미터 조정)
+                                                    const searchParam = item.code ? `code=${encodeURIComponent(item.code)}` : `id=${item.measurementId}`;
+                                                    const response = await fetch(
+                                                      `/api/journal/search?${searchParam}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
+                                                      { cache: 'no-store' }
+                                                    );
+                                                    if (response.ok) {
+                                                      const data = await response.json();
+                                                      const journal = data.results?.find((j: any) => j.id === item.measurementId);
+                                                      if (journal) {
+                                                        setSelectedJournalEntry(journal);
+                                                        setIsJournalModalOpen(true);
+                                                      } else {
+                                                        setError("측정일지를 찾을 수 없습니다.");
+                                                      }
+                                                    } else {
+                                                      setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
+                                                    }
+                                                  } catch (err) {
+                                                    console.error("측정일지 조회 오류:", err);
+                                                    setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
+                                                  }
+                                                }}
+                                              >
+                                                관리
+                                              </Button>
 
-                          {/* 입금 건수 */}
-                          <div className="bg-blue-600 px-4 py-2 rounded-xl shadow-lg shadow-blue-100 flex flex-col items-center justify-center min-w-[100px]">
-                            <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.1em] mb-0.5">입금 건수</div>
-                            <div className="text-xl font-black text-white">
-                              {filteredDeposits.length}<span className="text-xs font-normal ml-1 text-white/80">건</span>
+                                              {user?.role === "관리자" && (
+                                                isValidMobileNumber(item.phone) ? (
+                                                  <Button
+                                                    variant="primary"
+                                                    size="sm"
+                                                    className="bg-primary-600 hover:bg-primary-700 border-none text-white text-xs px-2.5 h-8 font-semibold"
+                                                    onClick={() => handleOpenUnpaidSmsModal(item)}
+                                                  >
+                                                    안내문자
+                                                  </Button>
+                                                ) : (
+                                                  <div className="relative group inline-block">
+                                                    <Button
+                                                      variant="primary"
+                                                      size="sm"
+                                                      className="bg-gray-200 border-none text-gray-400 text-xs px-2.5 h-8 font-semibold cursor-not-allowed"
+                                                      disabled
+                                                    >
+                                                      안내문자
+                                                    </Button>
+                                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 hidden group-hover:block bg-gray-800 text-white text-xs py-1 px-2.5 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none transition-all">
+                                                      담당자 연락처 없음
+                                                    </div>
+                                                  </div>
+                                                )
+                                              )}
+                                            </>
+                                          ) : (
+                                            <span className="text-text-400 text-sm">-</span>
+                                          )}
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                                <TableRow className="bg-surface-50">
+                                  <TableCell colSpan={8} className="text-right font-semibold">
+                                    미수금 합계
+                                  </TableCell>
+                                  <TableCell className="text-right font-bold text-warning-600 text-lg">
+                                    {formatCurrency(totalUnpaid)}원
+                                  </TableCell>
+                                  <TableCell>{""}</TableCell>
+                                </TableRow>
+                              </>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  );
+                })(),
+              },
+              {
+                id: "period-deposit",
+                label: "기간별 입금 현황",
+                content: (() => {
+                  // 입금 내역 통합
+                  interface UnifiedDeposit {
+                    id: string;
+                    date: string;
+                    category: string;
+                    name: string;
+                    representative: string | null;
+                    amount: number;
+                    notes: string;
+                    designatedOffice: string | null;
+                    year: number | null;
+                    period: string | null;
+                  }
+
+                  const unifiedDeposits: UnifiedDeposit[] = [];
+
+                  // 1. 측정비 사업장 입금 (1차, 2차)
+                  allMeasurementData.forEach(item => {
+                    // 1차 입금
+                    if (item.deposit_date_business && item.deposit_amount_business) {
+                      unifiedDeposits.push({
+                        id: `meas-biz-${item.id}`,
+                        date: item.deposit_date_business,
+                        category: "측정비(사업장)",
+                        name: item.business_name,
+                        representative: item.representative_name,
+                        amount: item.deposit_amount_business,
+                        notes: `${item.measurement_year}년 ${item.measurement_period}`,
+                        designatedOffice: item.designated_office,
+                        year: item.measurement_year,
+                        period: item.measurement_period,
+                      });
+                    }
+
+                    // 2차 입금
+                    if (item.deposit_date_business_2 && item.deposit_amount_business_2) {
+                      unifiedDeposits.push({
+                        id: `meas-biz2-${item.id}`,
+                        date: item.deposit_date_business_2,
+                        category: "측정비(사업장)",
+                        name: item.business_name,
+                        representative: item.representative_name,
+                        amount: item.deposit_amount_business_2,
+                        notes: `${item.measurement_year}년 ${item.measurement_period} (2차)`,
+                        designatedOffice: item.designated_office,
+                        year: item.measurement_year,
+                        period: item.measurement_period,
+                      });
+                    }
+                  });
+
+                  // 2. 측정비 국고 입금
+                  allMeasurementData.forEach(item => {
+                    if (item.deposit_date_national && item.deposit_amount_national) {
+                      unifiedDeposits.push({
+                        id: `meas-nat-${item.id}`,
+                        date: item.deposit_date_national,
+                        category: "측정비(국고)",
+                        name: item.business_name,
+                        representative: item.representative_name,
+                        amount: item.deposit_amount_national,
+                        notes: `${item.measurement_year}년 ${item.measurement_period}`,
+                        designatedOffice: item.designated_office,
+                        year: item.measurement_year,
+                        period: item.measurement_period,
+                      });
+                    }
+                  });
+
+                  // 3. 기타 매출 입금
+                  allOtherData.forEach(item => {
+                    if (item.deposit_date && item.deposit_amount) {
+                      unifiedDeposits.push({
+                        id: `other-${item.id}`,
+                        date: item.deposit_date,
+                        category: "기타 매출",
+                        name: item.item_name,
+                        representative: null,
+                        amount: item.deposit_amount,
+                        notes: item.notes || "",
+                        designatedOffice: item.designated_office,
+                        year: item.revenue_year,
+                        period: item.revenue_period,
+                      });
+                    }
+                  });
+
+                  // 필터링 적용
+                  const filteredDeposits = unifiedDeposits.filter(item => {
+                    const itemDateOnly = item.date.substring(0, 10);
+                    const startDateMatch = !depositStartDate || itemDateOnly >= depositStartDate;
+                    const endDateMatch = !depositEndDate || itemDateOnly <= depositEndDate;
+                    const dateMatch = startDateMatch && endDateMatch;
+                    const officeMatch = checkExactMatch(item.designatedOffice, depositOffice);
+                    const yearMatch = checkExactMatch(item.year, depositYear);
+                    const periodMatch = isMatchSelection(item.period || null, depositPeriod);
+                    const categoryMatch = !depositCategory || item.category === depositCategory;
+                    const businessNameMatch = checkSearchMatch(item.name, depositBusinessName);
+
+                    return dateMatch && officeMatch && yearMatch && periodMatch && categoryMatch && businessNameMatch;
+                  });
+
+                  // 날짜순 정렬 (최신순)
+                  filteredDeposits.sort((a, b) => b.date.localeCompare(a.date));
+
+                  const totalDepositAmount = filteredDeposits.reduce((sum, item) => sum + item.amount, 0);
+
+                  return (
+                    <div className="mt-4">
+                      <div className="bg-white p-6 border border-surface-200 rounded-xl mb-6 shadow-md">
+                        <div className="flex flex-nowrap items-end gap-x-2 overflow-x-auto pb-2 scrollbar-hide">
+                          {/* 1. 매출년도 */}
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <label className="text-sm font-bold text-text-800 ml-1">매출년도</label>
+                            <Select
+                              value={depositYear}
+                              onChange={(e) => setDepositYear(e.target.value)}
+                              options={[{ value: "", label: "전체" }, ...yearOptions]}
+                              className="w-28 h-10 text-sm font-medium text-center py-2"
+                            />
+                          </div>
+
+                          {/* 2. 주기 */}
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <label className="text-sm font-bold text-text-800 ml-1">주기</label>
+                            <Select
+                              value={depositPeriod}
+                              onChange={(e) => setDepositPeriod(e.target.value)}
+                              options={periodOptions}
+                              className="w-24 h-10 text-sm font-medium text-center py-2"
+                            />
+                          </div>
+
+                          {/* 3. 지정지청 */}
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <label className="text-sm font-bold text-text-800 ml-1">지정지청</label>
+                            <Select
+                              value={depositOffice}
+                              onChange={(e) => setDepositOffice(e.target.value)}
+                              options={[{ value: "", label: "전체" }, ...officeOptions]}
+                              className="w-28 h-10 text-sm font-medium text-center py-2"
+                            />
+                          </div>
+
+                          {/* 4. 매출 구분 */}
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <label className="text-sm font-bold text-text-800 ml-1">매출 구분</label>
+                            <Select
+                              value={depositCategory}
+                              onChange={(e) => setDepositCategory(e.target.value)}
+                              options={[
+                                { value: "", label: "전체 매출" },
+                                { value: "측정비(사업장)", label: "측정비(사업장)" },
+                                { value: "측정비(국고)", label: "측정비(국고)" },
+                                { value: "기타 매출", label: "기타 매출" },
+                              ]}
+                              className="w-32 h-10 text-sm font-medium text-center py-2"
+                            />
+                          </div>
+
+                          {/* 5. 입금 기간 */}
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <label className="text-sm font-bold text-text-800 ml-1">입금 기간</label>
+                            <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-lg border border-gray-200">
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="date"
+                                  value={depositStartDate}
+                                  onChange={(e) => {
+                                    setDepositStartDate(e.target.value);
+                                    setActiveQuickDate(null);
+                                  }}
+                                  className="w-[135px] h-9 text-sm font-bold"
+                                />
+                                <span className="text-text-400 font-bold text-lg">~</span>
+                                <Input
+                                  type="date"
+                                  value={depositEndDate}
+                                  onChange={(e) => {
+                                    setDepositEndDate(e.target.value);
+                                    setActiveQuickDate(null);
+                                  }}
+                                  className="w-[135px] h-9 text-sm font-bold"
+                                />
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => {
+                                    setDepositStartDate("");
+                                    setDepositEndDate("");
+                                    setActiveQuickDate(null);
+                                  }}
+                                  className="h-9 px-2 text-gray-400 hover:text-red-500 bg-transparent border-none shadow-none"
+                                  title="기간 초기화"
+                                >
+                                  ✕
+                                </Button>
+                              </div>
+                              <div className="flex items-center gap-1 border-l pl-2">
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => handleQuickDateSelect("yesterday")}
+                                  className={cn(
+                                    "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
+                                    activeQuickDate === "yesterday"
+                                      ? "bg-slate-600 text-white border-slate-700 hover:bg-slate-700"
+                                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                                  )}
+                                >
+                                  전일
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => handleQuickDateSelect("today")}
+                                  className={cn(
+                                    "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
+                                    activeQuickDate === "today"
+                                      ? "bg-amber-500 text-white border-amber-600 hover:bg-amber-600"
+                                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                                  )}
+                                >
+                                  금일
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => handleQuickDateSelect("week")}
+                                  className={cn(
+                                    "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
+                                    activeQuickDate === "week"
+                                      ? "bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600"
+                                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                                  )}
+                                >
+                                  1주
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => handleQuickDateSelect("month")}
+                                  className={cn(
+                                    "h-8 px-2 font-bold transition-all rounded text-xs border shadow-none",
+                                    activeQuickDate === "month"
+                                      ? "bg-rose-500 text-white border-rose-600 hover:bg-rose-600"
+                                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                                  )}
+                                >
+                                  1개월
+                                </Button>
+                              </div>
                             </div>
                           </div>
 
-                          {/* 합계 금액 */}
-                          <div className="bg-primary-600 px-5 py-2 rounded-xl shadow-lg shadow-primary-100 flex flex-col items-center justify-center min-w-[160px]">
-                            <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.1em] mb-0.5">총 입금 합계</div>
-                            <div className="text-xl font-black text-white">
-                              {formatCurrency(totalDepositAmount)}<span className="text-sm font-normal ml-1">원</span>
+                          {/* 6. 사업장명 / 품명 */}
+                          <div className="flex flex-col gap-1 w-[200px] shrink-0">
+                            <label className="text-sm font-bold text-text-800 ml-1">검색</label>
+                            <Input
+                              placeholder="사업장명/품명..."
+                              value={localDepositBusinessName}
+                              onChange={(e) => setLocalDepositBusinessName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  setDepositBusinessName(localDepositBusinessName);
+                                }
+                              }}
+                              onBlur={() => {
+                                setDepositBusinessName(localDepositBusinessName);
+                              }}
+                              className="h-10 text-sm font-medium px-3"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-3 ml-auto shrink-0">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-10 text-xs font-semibold px-3"
+                              onClick={() => {
+                                setDepositYear("");
+                                setDepositPeriod("");
+                                setDepositOffice("");
+                                setDepositCategory("");
+                                setDepositStartDate("");
+                                setDepositEndDate("");
+                                setDepositBusinessName("");
+                                setLocalDepositBusinessName("");
+                                setActiveQuickDate(null);
+                              }}
+                            >
+                              필터 초기화
+                            </Button>
+
+                            {/* 입금 건수 */}
+                            <div className="bg-blue-600 px-4 py-2 rounded-xl shadow-lg shadow-blue-100 flex flex-col items-center justify-center min-w-[100px]">
+                              <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.1em] mb-0.5">입금 건수</div>
+                              <div className="text-xl font-black text-white">
+                                {filteredDeposits.length}<span className="text-xs font-normal ml-1 text-white/80">건</span>
+                              </div>
+                            </div>
+
+                            {/* 합계 금액 */}
+                            <div className="bg-primary-600 px-5 py-2 rounded-xl shadow-lg shadow-primary-100 flex flex-col items-center justify-center min-w-[160px]">
+                              <div className="text-[10px] text-white/80 font-black uppercase tracking-[0.1em] mb-0.5">총 입금 합계</div>
+                              <div className="text-xl font-black text-white">
+                                {formatCurrency(totalDepositAmount)}<span className="text-sm font-normal ml-1">원</span>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="rounded-xl border border-surface-200 min-h-[500px] bg-white overflow-hidden shadow-lg">
-                      <Table className="table-fixed" maxHeight="max-h-[calc(100vh-420px)]">
-                        <TableHeader>
-                          <TableRow className="bg-surface-50">
-                            <TableHead className="!font-bold py-4 !text-slate-900 !text-sm !text-left !pl-2.5 w-[120px]">지정지청</TableHead>
-                            <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[250px]">사업장명 / 품명</TableHead>
-                            <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm !text-left !pl-4 w-[120px]">대표자</TableHead>
-                            <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[120px]">매출 구분</TableHead>
-                            <TableHead className="!text-left !pl-4 !font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[120px]">입금일</TableHead>
-                            <TableHead className="!text-right !font-bold py-4 !text-slate-900 border-l border-surface-100 !px-8 !text-sm w-[150px]">입금액</TableHead>
-                            <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[200px]">비고</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredDeposits.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={7} className="text-center text-text-400 py-32 text-lg italic">
-                                조건에 맞는 입금 내역이 없습니다.
-                              </TableCell>
+                      <div className="rounded-xl border border-surface-200 min-h-[500px] bg-white overflow-hidden shadow-lg">
+                        <Table className="table-fixed" maxHeight="max-h-[calc(100vh-420px)]">
+                          <TableHeader>
+                            <TableRow className="bg-surface-50">
+                              <TableHead className="!font-bold py-4 !text-slate-900 !text-sm !text-left !pl-2.5 w-[120px]">지정지청</TableHead>
+                              <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[250px]">사업장명 / 품명</TableHead>
+                              <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm !text-left !pl-4 w-[120px]">대표자</TableHead>
+                              <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[120px]">매출 구분</TableHead>
+                              <TableHead className="!text-left !pl-4 !font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[120px]">입금일</TableHead>
+                              <TableHead className="!text-right !font-bold py-4 !text-slate-900 border-l border-surface-100 !px-8 !text-sm w-[150px]">입금액</TableHead>
+                              <TableHead className="!font-bold py-4 !text-slate-900 border-l border-surface-100 !text-sm w-[200px]">비고</TableHead>
                             </TableRow>
-                          ) : (
-                            filteredDeposits.map((item) => (
-                              <TableRow
-                                key={item.id}
-                                className="group hover:bg-blue-50/40 transition-colors border-b last:border-0 h-14 cursor-default relative"
-                              >
-                                <TableCell className="!text-slate-800 !font-medium !text-left !pl-2.5 relative !py-3">
-                                  {/* 표준 블루 인디케이터 바 - 텍스트와 찰떡같이 밀착 */}
-                                  <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-                                  {item.designatedOffice || "-"}
+                          </TableHeader>
+                          <TableBody>
+                            {filteredDeposits.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={7} className="text-center text-text-400 py-32 text-lg italic">
+                                  조건에 맞는 입금 내역이 없습니다.
                                 </TableCell>
-                                <TableCell className="!font-bold !text-slate-900 !text-base truncate max-w-[230px] !py-3" title={item.name}>{item.name}</TableCell>
-                                <TableCell className="!text-slate-700 !font-medium !text-left !pl-4 !py-3">{item.representative || "-"}</TableCell>
-                                <TableCell>
-                                  <span className={`px-3 py-1 rounded-lg text-xs font-black
-                                    ${item.category.includes("사업장") ? "bg-blue-100 text-blue-700" :
-                                      item.category.includes("국고") ? "bg-emerald-100 text-emerald-700" :
-                                        "bg-amber-100 text-amber-700"}`}>
-                                    {item.category}
-                                  </span>
-                                </TableCell>
-                                <TableCell className="!text-left !pl-4 !font-semibold !text-slate-600 !py-3">{formatDateYYYYMMDD(item.date)}</TableCell>
-                                <TableCell className="text-right font-black text-primary-700 px-8 text-lg">
-                                  {formatCurrency(item.amount)}
-                                </TableCell>
-                                <TableCell className="text-text-900 font-medium truncate max-w-[250px]" title={item.notes}>{item.notes}</TableCell>
                               </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
+                            ) : (
+                              filteredDeposits.map((item) => (
+                                <TableRow
+                                  key={item.id}
+                                  className="group hover:bg-blue-50/40 transition-colors border-b last:border-0 h-14 cursor-default relative"
+                                >
+                                  <TableCell className="!text-slate-800 !font-medium !text-left !pl-2.5 relative !py-3">
+                                    {/* 표준 블루 인디케이터 바 - 텍스트와 찰떡같이 밀착 */}
+                                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                                    {item.designatedOffice || "-"}
+                                  </TableCell>
+                                  <TableCell className="!font-bold !text-slate-900 !text-base truncate max-w-[230px] !py-3" title={item.name}>{item.name}</TableCell>
+                                  <TableCell className="!text-slate-700 !font-medium !text-left !pl-4 !py-3">{item.representative || "-"}</TableCell>
+                                  <TableCell>
+                                    <span className={`px-3 py-1 rounded-lg text-xs font-black
+                                    ${item.category.includes("사업장") ? "bg-blue-100 text-blue-700" :
+                                        item.category.includes("국고") ? "bg-emerald-100 text-emerald-700" :
+                                          "bg-amber-100 text-amber-700"}`}>
+                                      {item.category}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell className="!text-left !pl-4 !font-semibold !text-slate-600 !py-3">{formatDateYYYYMMDD(item.date)}</TableCell>
+                                  <TableCell className="text-right font-black text-primary-700 px-8 text-lg">
+                                    {formatCurrency(item.amount)}
+                                  </TableCell>
+                                  <TableCell className="text-text-900 font-medium truncate max-w-[250px]" title={item.notes}>{item.notes}</TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
-                  </div>
-                );
-              })(),
-            },
-          ]}
-        />
-      </Card >
+                  );
+                })(),
+              },
+            ]}
+          />
+        </Card >
 
-      {/* 기타 매출 등록/수정 모달 */}
-      < Modal
-        isOpen={isOtherModalOpen}
-        onClose={() => {
-          setIsOtherModalOpen(false);
-          setSelectedOther(null);
-          setOtherFormData({});
-        }}
-        title={selectedOther ? "기타 매출 수정" : "기타 매출 등록"}
-      >
-        <div className="space-y-4">
-          {/* 1. 매출년도, 매출주기 */}
-          <div className="grid grid-cols-2 gap-4">
+        {/* 기타 매출 등록/수정 모달 */}
+        < Modal
+          isOpen={isOtherModalOpen}
+          onClose={() => {
+            setIsOtherModalOpen(false);
+            setSelectedOther(null);
+            setOtherFormData({});
+          }}
+          title={selectedOther ? "기타 매출 수정" : "기타 매출 등록"}
+        >
+          <div className="space-y-4">
+            {/* 1. 매출년도, 매출주기 */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-text-700 mb-1">
+                  매출년도
+                </label>
+                <Select
+                  value={otherFormData.revenue_year?.toString() || ""}
+                  onChange={(e) =>
+                    setOtherFormData({
+                      ...otherFormData,
+                      revenue_year: e.target.value ? parseInt(e.target.value) : null,
+                    })
+                  }
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const nextInput = document.getElementById("item-name-input");
+                      nextInput?.focus();
+                    }
+                  }}
+                  options={[{ value: "", label: "선택" }, ...yearOptions]}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-text-700 mb-1">
+                  매출주기
+                </label>
+                <Select
+                  value={otherFormData.revenue_period || ""}
+                  onChange={(e) =>
+                    setOtherFormData({ ...otherFormData, revenue_period: e.target.value })
+                  }
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const nextInput = document.getElementById("item-name-input");
+                      nextInput?.focus();
+                    }
+                  }}
+                  options={[{ value: "", label: "선택" }, ...periodOptions.filter((opt) => opt.value !== "")]}
+                />
+              </div>
+            </div>
+
+            {/* 2. 품명 */}
             <div>
               <label className="block text-sm font-medium text-text-700 mb-1">
-                매출년도
+                품명 <span className="text-error-500">*</span>
               </label>
-              <Select
-                value={otherFormData.revenue_year?.toString() || ""}
+              <Input
+                id="item-name-input"
+                value={otherFormData.item_name || ""}
                 onChange={(e) =>
-                  setOtherFormData({
-                    ...otherFormData,
-                    revenue_year: e.target.value ? parseInt(e.target.value) : null,
-                  })
+                  setOtherFormData({ ...otherFormData, item_name: e.target.value })
                 }
                 onKeyPress={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    const nextInput = document.getElementById("item-name-input");
+                    const nextInput = document.getElementById("supply-amount-input");
                     nextInput?.focus();
                   }
                 }}
-                options={[{ value: "", label: "선택" }, ...yearOptions]}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-700 mb-1">
-                매출주기
-              </label>
-              <Select
-                value={otherFormData.revenue_period || ""}
-                onChange={(e) =>
-                  setOtherFormData({ ...otherFormData, revenue_period: e.target.value })
-                }
-                onKeyPress={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const nextInput = document.getElementById("item-name-input");
-                    nextInput?.focus();
-                  }
-                }}
-                options={[{ value: "", label: "선택" }, ...periodOptions.filter((opt) => opt.value !== "")]}
-              />
-            </div>
-          </div>
-
-          {/* 2. 품명 */}
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-1">
-              품명 <span className="text-error-500">*</span>
-            </label>
-            <Input
-              id="item-name-input"
-              value={otherFormData.item_name || ""}
-              onChange={(e) =>
-                setOtherFormData({ ...otherFormData, item_name: e.target.value })
-              }
-              onKeyPress={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const nextInput = document.getElementById("supply-amount-input");
-                  nextInput?.focus();
-                }
-              }}
-              required
-            />
-          </div>
-
-          {/* 3. 공급가액, 부가세, 합계금액(합계는 공급가액+부가세 자동집계) */}
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-700 mb-1">
-                공급가액
-              </label>
-              <Input
-                id="supply-amount-input"
-                type="text"
-                value={formatNumberInput(otherFormData.supply_amount)}
-                onChange={(e) => {
-                  const supply = parseNumberInput(e.target.value);
-                  const vat = otherFormData.vat_amount || 0;
-                  setOtherFormData({
-                    ...otherFormData,
-                    supply_amount: supply,
-                    total_amount: supply !== null ? supply + vat : 0,
-                  });
-                }}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const nextInput = document.getElementById("vat-amount-input");
-                    nextInput?.focus();
-                  }
-                }}
-                className="text-right"
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-700 mb-1">
-                부가세
-              </label>
-              <Input
-                id="vat-amount-input"
-                type="text"
-                value={formatNumberInput(otherFormData.vat_amount)}
-                onChange={(e) => {
-                  const vat = parseNumberInput(e.target.value);
-                  const supply = otherFormData.supply_amount || 0;
-                  setOtherFormData({
-                    ...otherFormData,
-                    vat_amount: vat,
-                    total_amount: vat !== null ? supply + vat : 0,
-                  });
-                }}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const nextInput = document.getElementById("invoice-date-input");
-                    nextInput?.focus();
-                  }
-                }}
-                className="text-right"
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-700 mb-1">
-                합계금액 <span className="text-error-500">*</span>
-              </label>
-              <Input
-                type="text"
-                value={formatNumberInput(otherFormData.total_amount)}
-                readOnly
-                className="bg-surface-50 text-right"
                 required
               />
             </div>
-          </div>
 
-          {/* 4. 계산서 발행일 */}
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-1">
-              계산서 발행일
-            </label>
-            <Input
-              id="invoice-date-input"
-              type="date"
-              value={normalizeDateForInput(otherFormData.invoice_date)}
-              onChange={(e) =>
-                setOtherFormData({ ...otherFormData, invoice_date: e.target.value })
-              }
-              onKeyPress={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const nextInput = document.getElementById("deposit-date-input");
-                  nextInput?.focus();
-                }
-              }}
-            />
-          </div>
-
-          {/* 6. 입금일, 입금액 */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-700 mb-1">
-                입금일
-              </label>
-              <Input
-                id="deposit-date-input"
-                type="date"
-                value={normalizeDateForInput(otherFormData.deposit_date)}
-                onChange={(e) =>
-                  setOtherFormData({ ...otherFormData, deposit_date: e.target.value })
-                }
-                onKeyPress={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const nextInput = document.getElementById("deposit-amount-input");
-                    nextInput?.focus();
-                  }
-                }}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-700 mb-1">
-                입금액
-              </label>
-              <Input
-                id="deposit-amount-input"
-                type="text"
-                value={formatNumberInput(otherFormData.deposit_amount)}
-                onChange={(e) => {
-                  const value = parseNumberInput(e.target.value);
-                  setOtherFormData({ ...otherFormData, deposit_amount: value });
-                }}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const nextInput = document.getElementById("notes-input");
-                    nextInput?.focus();
-                  }
-                }}
-                className="text-right"
-                placeholder="0"
-              />
-            </div>
-          </div>
-
-          {/* 7. 비고 */}
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-1">비고</label>
-            <Input
-              id="notes-input"
-              value={otherFormData.notes || ""}
-              onChange={(e) =>
-                setOtherFormData({ ...otherFormData, notes: e.target.value })
-              }
-              onKeyPress={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleOtherSave();
-                }
-              }}
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setIsOtherModalOpen(false);
-                setSelectedOther(null);
-                setOtherFormData({});
-              }}
-            >
-              취소
-            </Button>
-            <Button variant="primary" onClick={handleOtherSave} disabled={saving} className="min-w-[80px]">
-              {saving ? <LoadingSpinner size="sm" /> : "저장"}
-            </Button>
-          </div>
-        </div>
-      </Modal >
-
-      {/* 측정일지 수정 모달 */}
-      {
-        selectedJournalEntry && (
-          <Modal
-            isOpen={isJournalModalOpen}
-            onClose={() => {
-              setIsJournalModalOpen(false);
-              setSelectedJournalEntry(null);
-            }}
-            title="매출/측정일지 관리"
-            size="3xl"
-            headerActions={
-              <div className="flex gap-2">
-                <Button
-                  type="submit"
-                  form="journal-edit-form"
-                  disabled={isJournalFormSubmitting}
-                  className="min-w-[80px]"
-                >
-                  {isJournalFormSubmitting ? <LoadingSpinner size="sm" /> : "저장"}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setIsJournalModalOpen(false);
-                    setSelectedJournalEntry(null);
+            {/* 3. 공급가액, 부가세, 합계금액(합계는 공급가액+부가세 자동집계) */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-text-700 mb-1">
+                  공급가액
+                </label>
+                <Input
+                  id="supply-amount-input"
+                  type="text"
+                  value={formatNumberInput(otherFormData.supply_amount)}
+                  onChange={(e) => {
+                    const supply = parseNumberInput(e.target.value);
+                    const vat = otherFormData.vat_amount || 0;
+                    setOtherFormData({
+                      ...otherFormData,
+                      supply_amount: supply,
+                      total_amount: supply !== null ? supply + vat : 0,
+                    });
                   }}
-                  disabled={isJournalFormSubmitting}
-                >
-                  취소
-                </Button>
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const nextInput = document.getElementById("vat-amount-input");
+                      nextInput?.focus();
+                    }
+                  }}
+                  className="text-right"
+                  placeholder="0"
+                />
               </div>
-            }
-          >
-            <JournalEditForm
-              entry={selectedJournalEntry}
-              mode="sales"
+              <div>
+                <label className="block text-sm font-medium text-text-700 mb-1">
+                  부가세
+                </label>
+                <Input
+                  id="vat-amount-input"
+                  type="text"
+                  value={formatNumberInput(otherFormData.vat_amount)}
+                  onChange={(e) => {
+                    const vat = parseNumberInput(e.target.value);
+                    const supply = otherFormData.supply_amount || 0;
+                    setOtherFormData({
+                      ...otherFormData,
+                      vat_amount: vat,
+                      total_amount: vat !== null ? supply + vat : 0,
+                    });
+                  }}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const nextInput = document.getElementById("invoice-date-input");
+                      nextInput?.focus();
+                    }
+                  }}
+                  className="text-right"
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-text-700 mb-1">
+                  합계금액 <span className="text-error-500">*</span>
+                </label>
+                <Input
+                  type="text"
+                  value={formatNumberInput(otherFormData.total_amount)}
+                  readOnly
+                  className="bg-surface-50 text-right"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* 4. 계산서 발행일 */}
+            <div>
+              <label className="block text-sm font-medium text-text-700 mb-1">
+                계산서 발행일
+              </label>
+              <Input
+                id="invoice-date-input"
+                type="date"
+                value={normalizeDateForInput(otherFormData.invoice_date)}
+                onChange={(e) =>
+                  setOtherFormData({ ...otherFormData, invoice_date: e.target.value })
+                }
+                onKeyPress={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const nextInput = document.getElementById("deposit-date-input");
+                    nextInput?.focus();
+                  }
+                }}
+              />
+            </div>
+
+            {/* 6. 입금일, 입금액 */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-text-700 mb-1">
+                  입금일
+                </label>
+                <Input
+                  id="deposit-date-input"
+                  type="date"
+                  value={normalizeDateForInput(otherFormData.deposit_date)}
+                  onChange={(e) =>
+                    setOtherFormData({ ...otherFormData, deposit_date: e.target.value })
+                  }
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const nextInput = document.getElementById("deposit-amount-input");
+                      nextInput?.focus();
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-text-700 mb-1">
+                  입금액
+                </label>
+                <Input
+                  id="deposit-amount-input"
+                  type="text"
+                  value={formatNumberInput(otherFormData.deposit_amount)}
+                  onChange={(e) => {
+                    const value = parseNumberInput(e.target.value);
+                    setOtherFormData({ ...otherFormData, deposit_amount: value });
+                  }}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const nextInput = document.getElementById("notes-input");
+                      nextInput?.focus();
+                    }
+                  }}
+                  className="text-right"
+                  placeholder="0"
+                />
+              </div>
+            </div>
+
+            {/* 7. 비고 */}
+            <div>
+              <label className="block text-sm font-medium text-text-700 mb-1">비고</label>
+              <Input
+                id="notes-input"
+                value={otherFormData.notes || ""}
+                onChange={(e) =>
+                  setOtherFormData({ ...otherFormData, notes: e.target.value })
+                }
+                onKeyPress={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleOtherSave();
+                  }
+                }}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setIsOtherModalOpen(false);
+                  setSelectedOther(null);
+                  setOtherFormData({});
+                }}
+              >
+                취소
+              </Button>
+              <Button variant="primary" onClick={handleOtherSave} disabled={saving} className="min-w-[80px]">
+                {saving ? <LoadingSpinner size="sm" /> : "저장"}
+              </Button>
+            </div>
+          </div>
+        </Modal >
+
+        {/* 측정일지 수정 모달 */}
+        {
+          selectedJournalEntry && (
+            <Modal
+              isOpen={isJournalModalOpen}
               onClose={() => {
                 setIsJournalModalOpen(false);
                 setSelectedJournalEntry(null);
               }}
-              setIsSubmitting={setIsJournalFormSubmitting}
-              onSuccess={async (savedJournalId) => {
-                setIsJournalModalOpen(false);
-                setSelectedJournalEntry(null);
-                // 데이터 다시 불러오기
-                await loadSalesData();
-              }}
-            />
-          </Modal>
-        )
-      }
-
-      {/* Excel 업로드 모달 */}
-      <Modal
-        isOpen={isUploadModalOpen}
-        onClose={handleUploadModalClose}
-        title="기타매출 Excel 업로드"
-        size="lg"
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-text-700 mb-2">
-              Excel 파일 선택
-            </label>
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileChange}
-              className="block w-full text-sm text-text-600 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 cursor-pointer"
-              disabled={uploadLoading}
-            />
-            {uploadFile && (
-              <p className="mt-2 text-sm text-text-600">선택된 파일: {uploadFile.name}</p>
-            )}
-          </div>
-
-          {uploadError && (
-            <Alert variant="error">{uploadError}</Alert>
-          )}
-
-          {uploadResult && (
-            <Alert variant={uploadResult.success ? "success" : "warning"}>
-              <div className="space-y-2">
-                <p className="font-semibold">{uploadResult.message}</p>
-                {uploadResult.errors && uploadResult.errors.length > 0 && (
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-sm font-medium">
-                      오류 상세 ({uploadResult.errorCount}건)
-                    </summary>
-                    <ul className="mt-2 ml-4 list-disc space-y-1 text-sm max-h-60 overflow-y-auto">
-                      {uploadResult.errors.map((error, index) => (
-                        <li key={index}>{error}</li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-              </div>
-            </Alert>
-          )}
-
-          <div className="flex justify-end gap-2 pt-4">
-            <Button
-              variant={uploadResult && !uploadLoading ? "primary" : "secondary"}
-              onClick={handleUploadModalClose}
+              title="매출/측정일지 관리"
+              size="3xl"
+              headerActions={
+                <div className="flex gap-2">
+                  <Button
+                    type="submit"
+                    form="journal-edit-form"
+                    disabled={isJournalFormSubmitting}
+                    className="min-w-[80px]"
+                  >
+                    {isJournalFormSubmitting ? <LoadingSpinner size="sm" /> : "저장"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setIsJournalModalOpen(false);
+                      setSelectedJournalEntry(null);
+                    }}
+                    disabled={isJournalFormSubmitting}
+                  >
+                    취소
+                  </Button>
+                </div>
+              }
             >
-              닫기
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleUpload}
-              disabled={!uploadFile || uploadLoading || !!(uploadResult && !uploadLoading)}
-            >
-              {uploadLoading ? "업로드 중..." : "업로드"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+              <JournalEditForm
+                entry={selectedJournalEntry}
+                mode="sales"
+                onClose={() => {
+                  setIsJournalModalOpen(false);
+                  setSelectedJournalEntry(null);
+                }}
+                setIsSubmitting={setIsJournalFormSubmitting}
+                onSuccess={async (savedJournalId) => {
+                  setIsJournalModalOpen(false);
+                  setSelectedJournalEntry(null);
+                  // 데이터 다시 불러오기
+                  await loadSalesData();
+                }}
+              />
+            </Modal>
+          )
+        }
 
-      {/* 측정비 입금액 상세 모달 */}
-      <Modal
-        isOpen={isMeasurementDepositDetailModalOpen}
-        onClose={() => setIsMeasurementDepositDetailModalOpen(false)}
-        title="입금액 상세"
-        size="lg"
-      >
-        {measurementDepositDetailItem && (
+        {/* Excel 업로드 모달 */}
+        <Modal
+          isOpen={isUploadModalOpen}
+          onClose={handleUploadModalClose}
+          title="기타매출 Excel 업로드"
+          size="lg"
+        >
           <div className="space-y-4">
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-700">사업장명</label>
-                  <p className="text-base font-semibold">{measurementDepositDetailItem.business_name}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">측정년도</label>
-                  <p className="text-base">{measurementDepositDetailItem.measurement_year}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">측정주기</label>
-                  <p className="text-base">{measurementDepositDetailItem.measurement_period}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">입금액 합계</label>
-                  <p className="text-base font-semibold text-primary-600">
-                    {formatCurrency(measurementDepositDetailItem.deposit_total || 0)}원
-                  </p>
-                </div>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-text-700 mb-2">
+                Excel 파일 선택
+              </label>
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileChange}
+                className="block w-full text-sm text-text-600 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 cursor-pointer"
+                disabled={uploadLoading}
+              />
+              {uploadFile && (
+                <p className="mt-2 text-sm text-text-600">선택된 파일: {uploadFile.name}</p>
+              )}
             </div>
 
-            <div className="border-t pt-4">
-              <h3 className="text-lg font-semibold mb-3">측정비(사업장)</h3>
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-700">입금일자</label>
-                  <p className="text-base">
-                    {measurementDepositDetailItem.deposit_date_business
-                      ? formatDateYYYYMMDD(measurementDepositDetailItem.deposit_date_business)
-                      : "-"}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">입금액</label>
-                  <p className="text-base font-semibold">
-                    {formatCurrency(measurementDepositDetailItem.deposit_amount_business || 0)}원
-                  </p>
-                </div>
-              </div>
-            </div>
+            {uploadError && (
+              <Alert variant="error">{uploadError}</Alert>
+            )}
 
-            <div className="border-t pt-4">
-              <h3 className="text-lg font-semibold mb-3">측정비(국고)</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-700">입금일자</label>
-                  <p className="text-base">
-                    {measurementDepositDetailItem.deposit_date_national
-                      ? formatDateYYYYMMDD(measurementDepositDetailItem.deposit_date_national)
-                      : "-"}
-                  </p>
+            {uploadResult && (
+              <Alert variant={uploadResult.success ? "success" : "warning"}>
+                <div className="space-y-2">
+                  <p className="font-semibold">{uploadResult.message}</p>
+                  {uploadResult.errors && uploadResult.errors.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-sm font-medium">
+                        오류 상세 ({uploadResult.errorCount}건)
+                      </summary>
+                      <ul className="mt-2 ml-4 list-disc space-y-1 text-sm max-h-60 overflow-y-auto">
+                        {uploadResult.errors.map((error, index) => (
+                          <li key={index}>{error}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">입금액</label>
-                  <p className="text-base font-semibold">
-                    {formatCurrency(measurementDepositDetailItem.deposit_amount_national || 0)}원
-                  </p>
-                </div>
-              </div>
-            </div>
+              </Alert>
+            )}
 
-            <div className="flex justify-end pt-4 border-t">
-              <Button onClick={() => setIsMeasurementDepositDetailModalOpen(false)}>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant={uploadResult && !uploadLoading ? "primary" : "secondary"}
+                onClick={handleUploadModalClose}
+              >
                 닫기
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleUpload}
+                disabled={!uploadFile || uploadLoading || !!(uploadResult && !uploadLoading)}
+              >
+                {uploadLoading ? "업로드 중..." : "업로드"}
               </Button>
             </div>
           </div>
-        )}
-      </Modal>
+        </Modal>
 
-      {/* 측정비 일괄 업로드 모달 (부분 업데이트) */}
-      <Modal
-        isOpen={isMeasurementUploadModalOpen}
-        onClose={handleMeasurementUploadModalClose}
-        title="측정비 일괄 업로드 (부분 업데이트)"
-        size="lg"
-        resizable={true}
-      >
-        <div className="space-y-4">
-          <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800 mb-4">
-            <h4 className="font-bold mb-2">📌 업로드 안내</h4>
-            <ul className="list-disc ml-4 space-y-1">
-              <li><strong>식별자(필수):</strong> 코드, 측정년도, 측정주기가 반드시 일치해야 업데이트됩니다.</li>
-              <li><strong>부분 업데이트:</strong> 엑셀 파일에 값이 <strong>입력된 셀만 업데이트</strong>되며, 비어있는 셀은 기존 값을 유지합니다.</li>
-              <li><strong>업데이트 가능 항목:</strong> 측정비(사업장/국고), 입금일/입금액(사업장/국고), 전자계산서 발행일, 계산서 이메일 등</li>
-            </ul>
-          </div>
-
-          <div className="flex justify-end mb-4">
-            <Button
-              variant="secondary"
-              className="text-sm py-1 px-3"
-              onClick={handleDownloadTemplate}
-            >
-              📥 양식 다운로드
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-text-700">Excel 파일 선택</label>
-            <Input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleMeasurementUploadFileChange}
-              className="block w-full text-sm text-text-600 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 cursor-pointer"
-              disabled={measurementUploadLoading}
-            />
-            {measurementUploadFile && (
-              <p className="mt-2 text-sm text-text-600">선택된 파일: {measurementUploadFile.name}</p>
-            )}
-          </div>
-
-          {measurementUploadError && (
-            <Alert variant="error">{measurementUploadError}</Alert>
-          )}
-
-          {measurementUploadResult && (
-            <Alert variant={measurementUploadResult.success ? "success" : "warning"}>
-              <div className="space-y-2">
-                <p className="font-semibold">{measurementUploadResult.message}</p>
-                {measurementUploadResult.details && measurementUploadResult.details.length > 0 && (
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-sm font-medium">
-                      상세 결과 ({measurementUploadResult.failCount}건 오류)
-                    </summary>
-                    <ul className="mt-2 ml-4 list-disc space-y-1 text-sm max-h-60 overflow-y-auto">
-                      {measurementUploadResult.details.map((msg, index) => (
-                        <li key={index}>{msg}</li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
+        {/* 측정비 입금액 상세 모달 */}
+        <Modal
+          isOpen={isMeasurementDepositDetailModalOpen}
+          onClose={() => setIsMeasurementDepositDetailModalOpen(false)}
+          title="입금액 상세"
+          size="lg"
+        >
+          {measurementDepositDetailItem && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">사업장명</label>
+                    <p className="text-base font-semibold">{measurementDepositDetailItem.business_name}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">측정년도</label>
+                    <p className="text-base">{measurementDepositDetailItem.measurement_year}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">측정주기</label>
+                    <p className="text-base">{measurementDepositDetailItem.measurement_period}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">입금액 합계</label>
+                    <p className="text-base font-semibold text-primary-600">
+                      {formatCurrency(measurementDepositDetailItem.deposit_total || 0)}원
+                    </p>
+                  </div>
+                </div>
               </div>
-            </Alert>
+
+              <div className="border-t pt-4">
+                <h3 className="text-lg font-semibold mb-3">측정비(사업장)</h3>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">입금일자</label>
+                    <p className="text-base">
+                      {measurementDepositDetailItem.deposit_date_business
+                        ? formatDateYYYYMMDD(measurementDepositDetailItem.deposit_date_business)
+                        : "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">입금액</label>
+                    <p className="text-base font-semibold">
+                      {formatCurrency(measurementDepositDetailItem.deposit_amount_business || 0)}원
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h3 className="text-lg font-semibold mb-3">측정비(국고)</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">입금일자</label>
+                    <p className="text-base">
+                      {measurementDepositDetailItem.deposit_date_national
+                        ? formatDateYYYYMMDD(measurementDepositDetailItem.deposit_date_national)
+                        : "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">입금액</label>
+                    <p className="text-base font-semibold">
+                      {formatCurrency(measurementDepositDetailItem.deposit_amount_national || 0)}원
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4 border-t">
+                <Button onClick={() => setIsMeasurementDepositDetailModalOpen(false)}>
+                  닫기
+                </Button>
+              </div>
+            </div>
           )}
+        </Modal>
 
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button
-              variant="secondary"
-              onClick={handleMeasurementUploadModalClose}
-            >
-              닫기
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleMeasurementUpload}
-              disabled={!measurementUploadFile || measurementUploadLoading}
-            >
-              {measurementUploadLoading ? "업로드 중..." : "업로드"}
-            </Button>
+        {/* 측정비 일괄 업로드 모달 (부분 업데이트) */}
+        <Modal
+          isOpen={isMeasurementUploadModalOpen}
+          onClose={handleMeasurementUploadModalClose}
+          title="측정비 일괄 업로드 (부분 업데이트)"
+          size="lg"
+          resizable={true}
+        >
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800 mb-4">
+              <h4 className="font-bold mb-2">📌 업로드 안내</h4>
+              <ul className="list-disc ml-4 space-y-1">
+                <li><strong>식별자(필수):</strong> 코드, 측정년도, 측정주기가 반드시 일치해야 업데이트됩니다.</li>
+                <li><strong>부분 업데이트:</strong> 엑셀 파일에 값이 <strong>입력된 셀만 업데이트</strong>되며, 비어있는 셀은 기존 값을 유지합니다.</li>
+                <li><strong>업데이트 가능 항목:</strong> 측정비(사업장/국고), 입금일/입금액(사업장/국고), 전자계산서 발행일, 계산서 이메일 등</li>
+              </ul>
+            </div>
+
+            <div className="flex justify-end mb-4">
+              <Button
+                variant="secondary"
+                className="text-sm py-1 px-3"
+                onClick={handleDownloadTemplate}
+              >
+                📥 양식 다운로드
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-text-700">Excel 파일 선택</label>
+              <Input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleMeasurementUploadFileChange}
+                className="block w-full text-sm text-text-600 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 cursor-pointer"
+                disabled={measurementUploadLoading}
+              />
+              {measurementUploadFile && (
+                <p className="mt-2 text-sm text-text-600">선택된 파일: {measurementUploadFile.name}</p>
+              )}
+            </div>
+
+            {measurementUploadError && (
+              <Alert variant="error">{measurementUploadError}</Alert>
+            )}
+
+            {measurementUploadResult && (
+              <Alert variant={measurementUploadResult.success ? "success" : "warning"}>
+                <div className="space-y-2">
+                  <p className="font-semibold">{measurementUploadResult.message}</p>
+                  {measurementUploadResult.details && measurementUploadResult.details.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-sm font-medium">
+                        상세 결과 ({measurementUploadResult.failCount}건 오류)
+                      </summary>
+                      <ul className="mt-2 ml-4 list-disc space-y-1 text-sm max-h-60 overflow-y-auto">
+                        {measurementUploadResult.details.map((msg, index) => (
+                          <li key={index}>{msg}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              </Alert>
+            )}
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button
+                variant="secondary"
+                onClick={handleMeasurementUploadModalClose}
+              >
+                닫기
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleMeasurementUpload}
+                disabled={!measurementUploadFile || measurementUploadLoading}
+              >
+                {measurementUploadLoading ? "업로드 중..." : "업로드"}
+              </Button>
+            </div>
           </div>
-        </div>
-      </Modal>
+        </Modal>
 
-      {/* 국고지원금 정산용 숨겨진 파일 입력 필드 */}
-      <input
-        type="file"
-        ref={paymentFileInputRef}
-        onChange={handlePaymentFileChange}
-        accept=".xlsx,.xls"
-        className="hidden"
-      />
+        {/* 국고지원금 정산용 숨겨진 파일 입력 필드 */}
+        <input
+          type="file"
+          ref={paymentFileInputRef}
+          onChange={handlePaymentFileChange}
+          accept=".xlsx,.xls"
+          className="hidden"
+        />
       </div>
       {/* 국고지원금 정산 결과 상세 모달 */}
       <Modal
@@ -3227,15 +3250,15 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
                           <div className={cn(
                             "w-2.5 h-2.5 rounded-full ring-2 ring-white shadow-sm",
                             log.status === 'success' ? "bg-green-500" :
-                            log.status === 'error' ? "bg-red-500" :
-                            log.status === 'loading' ? "bg-yellow-400 animate-pulse" :
-                            "bg-gray-300"
+                              log.status === 'error' ? "bg-red-500" :
+                                log.status === 'loading' ? "bg-yellow-400 animate-pulse" :
+                                  "bg-gray-300"
                           )} />
                           <span className={cn(
                             "text-xs font-bold px-1.5 py-0.5 rounded",
                             log.status === 'success' ? "text-green-700 bg-green-50" :
-                            log.status === 'error' ? "text-red-700 bg-red-50" :
-                            "text-gray-500 bg-gray-50"
+                              log.status === 'error' ? "text-red-700 bg-red-50" :
+                                "text-gray-500 bg-gray-50"
                           )}>
                             {log.status === 'success' ? "성공" : log.status === 'error' ? "실패" : "대기"}
                           </span>
@@ -3269,7 +3292,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
           <div className="bg-white p-8 rounded-2xl shadow-2xl border border-primary-100 flex flex-col items-center gap-6 max-w-md w-full animate-in fade-in zoom-in duration-300">
             <div className="relative w-20 h-20">
               <div className="absolute inset-0 border-4 border-primary-100 rounded-full"></div>
-              <div 
+              <div
                 className="absolute inset-0 border-4 border-primary-600 rounded-full border-t-transparent animate-spin"
                 style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%)' }}
               ></div>
@@ -3277,7 +3300,7 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
                 {Math.round((paymentCurrentIndex / paymentTotalCount) * 100)}%
               </div>
             </div>
-            
+
             <div className="text-center space-y-2">
               <h3 className="text-xl font-bold text-gray-900">국고지원금 정산 처리 중</h3>
               <p className="text-gray-500">
@@ -3286,12 +3309,12 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
             </div>
 
             <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-              <div 
+              <div
                 className="bg-primary-600 h-full transition-all duration-300 ease-out"
                 style={{ width: `${(paymentCurrentIndex / paymentTotalCount) * 100}%` }}
               ></div>
             </div>
-            
+
             <p className="text-sm text-primary-600 animate-pulse font-medium">
               페이지를 나가지 마세요...
             </p>
@@ -3344,41 +3367,6 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
               />
             </div>
 
-            {/* 통장사본 다운로드 및 안내 가이드 */}
-            <div className="bg-primary-50 border border-primary-100 rounded-xl p-4 space-y-3.5">
-              <div className="flex items-start gap-2.5">
-                <div className="text-primary-600 mt-0.5">
-                  <span className="text-lg">💡</span>
-                </div>
-                <div className="text-xs text-primary-800 space-y-1">
-                  <p className="font-bold">통장사본 이미지 발송 안내</p>
-                  <p className="leading-relaxed">모바일 기기에서 <strong>[문자 전송하기]</strong>를 클릭하면 자동으로 문자 작성 창이 열립니다. 이때 웹페이지 입력창이 아닌, 새로 열린 실제 휴대폰 문자 앱이나 카카오톡 입력창에 붙여넣기(길게 누르기)를 하거나, 다운로드한 이미지를 문자 앱의 갤러리(사진첩)에서 선택하여 첨부해 주세요.</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 bg-white p-3 rounded-lg border border-primary-200 justify-between shadow-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">📄</span>
-                  <span className="text-xs font-semibold text-text-700">한결작업환경컨설팅_통장사본.png</span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={copyBankCopyImage}
-                    className="text-xs font-bold text-primary-600 hover:text-primary-700 bg-primary-50 hover:bg-primary-100 px-3.5 py-2 rounded-lg transition-colors border border-primary-200"
-                  >
-                    📋 이미지 복사
-                  </button>
-                  <a
-                    href="/bank_copy.png"
-                    download="한결작업환경컨설팅_통장사본.png"
-                    className="text-xs font-bold text-primary-600 hover:text-primary-700 bg-primary-100 hover:bg-primary-200 px-3.5 py-2 rounded-lg transition-colors border border-primary-200"
-                  >
-                    다운로드
-                  </a>
-                </div>
-              </div>
-            </div>
-
             <div className="flex justify-end gap-2 pt-3 border-t border-surface-200">
               <Button
                 variant="secondary"
@@ -3387,16 +3375,13 @@ ${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니�
               >
                 취소
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  navigator.clipboard.writeText(unpaidSmsData.smsBody);
-                  alert("문자 내용이 클립보드에 복사되었습니다.");
-                }}
-                className="px-4 py-2 border-primary-500 text-primary-700 hover:bg-primary-50 text-xs font-semibold"
+              <button
+                type="button"
+                onClick={copyBankCopyImage}
+                className="inline-flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-lg text-xs transition-colors shadow-sm"
               >
-                📋 복사하기
-              </Button>
+                📋 이미지 복사
+              </button>
               <a
                 href={`sms:${unpaidSmsData.phone.replace(/[-\s]/g, "")}?body=${encodeURIComponent(unpaidSmsData.smsBody)}`}
                 onClick={(e) => {
