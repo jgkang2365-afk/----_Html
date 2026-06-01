@@ -31,6 +31,7 @@ export interface MeasurementRevenue {
   last_email_sent_at: string | null;
   industrial_accident_number: string | null;
   revenue_type?: string | null;
+  manager_mobile?: string | null;
 }
 
 export interface OtherRevenue {

@@ -208,6 +208,16 @@ export const SalesManagement: React.FC = () => {
   }>>([]);
   const [unpaidBusinessModalTitle, setUnpaidBusinessModalTitle] = useState<string>("");
 
+  // 미수금 안내 문자 관련 모달 상태
+  const [isUnpaidSmsModalOpen, setIsUnpaidSmsModalOpen] = useState(false);
+  const [unpaidSmsData, setUnpaidSmsData] = useState<{
+    businessName: string;
+    phone: string;
+    smsBody: string;
+    unpaidTotal: number;
+    periodsText: string;
+  } | null>(null);
+
   // 기타 매출 모달 상태
   const [isOtherModalOpen, setIsOtherModalOpen] = useState(false);
   const [selectedOther, setSelectedOther] = useState<OtherRevenue | null>(null);
@@ -550,6 +560,95 @@ export const SalesManagement: React.FC = () => {
   const formatCurrency = (amount: number | null | undefined): string => {
     if (amount === null || amount === undefined) return "0";
     return new Intl.NumberFormat("ko-KR").format(amount);
+  };
+
+  // 휴대폰 번호 유효성 검사 헬퍼 함수 (한국 휴대폰 번호 형식에 한함)
+  const isValidMobileNumber = (num: string | null | undefined): boolean => {
+    if (!num) return false;
+    const cleanNum = num.replace(/[-\s]/g, "");
+    const mobilePattern = /^01[016789]\d{7,8}$/;
+    return mobilePattern.test(cleanNum);
+  };
+
+  // 미수금 안내문자 모달 열기 및 자동 취합 핸들러
+  const handleOpenUnpaidSmsModal = (targetItem: any) => {
+    // 1. targetItem.name(사업장명)과 동일한 모든 측정비 미수 건(측정비 > 입금액)을 수집
+    const unpaidJournals = allMeasurementData.filter(item => {
+      if (item.business_name !== targetItem.name) return false;
+      if (item.revenue_type === "기타매출") return false; // 기타매출 일지는 매출관리에서 제외
+
+      const feeBusiness = parseFloat(item.measurement_fee_business?.toString() || "0");
+      const depositBusiness1 = parseFloat(item.deposit_amount_business?.toString() || "0");
+      const depositBusiness2 = parseFloat(item.deposit_amount_business_2?.toString() || "0");
+      const unpaidBusiness = feeBusiness - (depositBusiness1 + depositBusiness2);
+
+      return unpaidBusiness > 0;
+    });
+
+    if (unpaidJournals.length === 0) {
+      alert("해당 업체의 측정비 미수 내역을 찾을 수 없습니다.");
+      return;
+    }
+
+    // 2. 미수금액 합산 및 주기 목록 수집
+    let totalUnpaidAmount = 0;
+    const unpaidPeriods: { year: number; period: string }[] = [];
+    let representativePhone = "";
+
+    unpaidJournals.forEach(item => {
+      const feeBusiness = parseFloat(item.measurement_fee_business?.toString() || "0");
+      const depositBusiness1 = parseFloat(item.deposit_amount_business?.toString() || "0");
+      const depositBusiness2 = parseFloat(item.deposit_amount_business_2?.toString() || "0");
+      const unpaidBusiness = feeBusiness - (depositBusiness1 + depositBusiness2);
+
+      totalUnpaidAmount += unpaidBusiness;
+      unpaidPeriods.push({ year: item.measurement_year, period: item.measurement_period });
+
+      // 유효한 휴대폰 번호가 존재할 경우 대표 번호로 등록
+      if (item.manager_mobile && isValidMobileNumber(item.manager_mobile) && !representativePhone) {
+        representativePhone = item.manager_mobile;
+      }
+    });
+
+    // 3. 년도/주기 목록 정렬 및 중복 제거 (오래된 순 정렬)
+    unpaidPeriods.sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      const aWeight = getPeriodWeight(a.period);
+      const bWeight = getPeriodWeight(b.period);
+      return aWeight - bWeight;
+    });
+
+    const periodStrings = unpaidPeriods.map(p => `${p.year}년 ${p.period}`);
+    const uniquePeriods = Array.from(new Set(periodStrings));
+
+    let periodsText = "";
+    if (uniquePeriods.length === 1) {
+      periodsText = uniquePeriods[0];
+    } else if (uniquePeriods.length === 2) {
+      periodsText = `${uniquePeriods[0]}와 ${uniquePeriods[1]}`;
+    } else {
+      periodsText = uniquePeriods.join(", ");
+    }
+
+    // 4. 요청하신 템플릿 형태로 본문 구성
+    const formatAmt = formatCurrency(totalUnpaidAmount);
+    const smsBody = `안녕하십니까!
+한결작업환경컨설팅입니다.
+
+${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니다.
+
+확인해 보시고, 입금 부탁드립니다.
+
+감사합니다.`;
+
+    setUnpaidSmsData({
+      businessName: targetItem.name,
+      phone: representativePhone || targetItem.phone || "",
+      smsBody: smsBody,
+      unpaidTotal: totalUnpaidAmount,
+      periodsText: periodsText
+    });
+    setIsUnpaidSmsModalOpen(true);
   };
 
   // 천단위 콤마 포맷팅 (입력용)
@@ -1611,6 +1710,7 @@ export const SalesManagement: React.FC = () => {
                   designatedOffice: string | null;
                   representative: string | null;
                   unpaidType?: "both" | "business" | "national";
+                  phone: string | null;
                 }> = [];
 
                 // 측정비 미수금 항목 추가
@@ -1654,6 +1754,7 @@ export const SalesManagement: React.FC = () => {
                       designatedOffice: item.designated_office || null,
                       representative: item.representative_name || null,
                       unpaidType: unpaidType,
+                      phone: item.manager_mobile || null,
                     });
                   }
                 });
@@ -1676,6 +1777,7 @@ export const SalesManagement: React.FC = () => {
                       depositDate: item.deposit_date || null,
                       designatedOffice: item.designated_office || null,
                       representative: item.representative_name || null,
+                      phone: null,
                     });
                   }
                 });
@@ -1982,7 +2084,7 @@ export const SalesManagement: React.FC = () => {
                                 <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                               </div>
                             </TableHead>
-                            <TableHead className="w-[80px] text-center">관리</TableHead>
+                            <TableHead className="w-[180px] text-center">관리</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2040,42 +2142,73 @@ export const SalesManagement: React.FC = () => {
                                     )}>
                                       {formatCurrency(item.unpaid)}원
                                     </TableCell>
-                                    <TableCell>
-                                      {item.type === "measurement" && item.measurementId ? (
-                                        <Button
-                                          variant="secondary"
-                                          size="sm"
-                                          onClick={async () => {
-                                            try {
-                                              // 측정일지 데이터 가져오기 (code가 없어도 ID로 찾을 수 있도록 API 호출 파라미터 조정)
-                                              const searchParam = item.code ? `code=${encodeURIComponent(item.code)}` : `id=${item.measurementId}`;
-                                              const response = await fetch(
-                                                `/api/journal/search?${searchParam}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
-                                                { cache: 'no-store' }
-                                              );
-                                              if (response.ok) {
-                                                const data = await response.json();
-                                                const journal = data.results?.find((j: any) => j.id === item.measurementId);
-                                                if (journal) {
-                                                  setSelectedJournalEntry(journal);
-                                                  setIsJournalModalOpen(true);
-                                                } else {
-                                                  setError("측정일지를 찾을 수 없습니다.");
+                                    <TableCell className="text-center">
+                                      <div className="flex justify-center items-center gap-1.5">
+                                        {item.type === "measurement" && item.measurementId ? (
+                                          <>
+                                            <Button
+                                              variant="secondary"
+                                              size="sm"
+                                              onClick={async () => {
+                                                try {
+                                                  // 측정일지 데이터 가져오기 (code가 없어도 ID로 찾을 수 있도록 API 호출 파라미터 조정)
+                                                  const searchParam = item.code ? `code=${encodeURIComponent(item.code)}` : `id=${item.measurementId}`;
+                                                  const response = await fetch(
+                                                    `/api/journal/search?${searchParam}&measurementYear=${item.year}&measurementPeriod=${encodeURIComponent(item.period || '')}&_t=${new Date().getTime()}`,
+                                                    { cache: 'no-store' }
+                                                  );
+                                                  if (response.ok) {
+                                                    const data = await response.json();
+                                                    const journal = data.results?.find((j: any) => j.id === item.measurementId);
+                                                    if (journal) {
+                                                      setSelectedJournalEntry(journal);
+                                                      setIsJournalModalOpen(true);
+                                                    } else {
+                                                      setError("측정일지를 찾을 수 없습니다.");
+                                                    }
+                                                  } else {
+                                                    setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
+                                                  }
+                                                } catch (err) {
+                                                  console.error("측정일지 조회 오류:", err);
+                                                  setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
                                                 }
-                                              } else {
-                                                setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
-                                              }
-                                            } catch (err) {
-                                              console.error("측정일지 조회 오류:", err);
-                                              setError("측정일지 데이터를 불러오는 중 오류가 발생했습니다.");
-                                            }
-                                          }}
-                                        >
-                                          관리
-                                        </Button>
-                                      ) : (
-                                        <span className="text-text-400 text-sm">-</span>
-                                      )}
+                                              }}
+                                            >
+                                              관리
+                                            </Button>
+
+                                            {user?.role === "관리자" && (
+                                              isValidMobileNumber(item.phone) ? (
+                                                <Button
+                                                  variant="primary"
+                                                  size="sm"
+                                                  className="bg-primary-600 hover:bg-primary-700 border-none text-white text-xs px-2.5 h-8 font-semibold"
+                                                  onClick={() => handleOpenUnpaidSmsModal(item)}
+                                                >
+                                                  안내문자
+                                                </Button>
+                                              ) : (
+                                                <div className="relative group inline-block">
+                                                  <Button
+                                                    variant="primary"
+                                                    size="sm"
+                                                    className="bg-gray-200 border-none text-gray-400 text-xs px-2.5 h-8 font-semibold cursor-not-allowed"
+                                                    disabled
+                                                  >
+                                                    안내문자
+                                                  </Button>
+                                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 hidden group-hover:block bg-gray-800 text-white text-xs py-1 px-2.5 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none transition-all">
+                                                    담당자 연락처 없음
+                                                  </div>
+                                                </div>
+                                              )
+                                            )}
+                                          </>
+                                        ) : (
+                                          <span className="text-text-400 text-sm">-</span>
+                                        )}
+                                      </div>
                                     </TableCell>
                                   </TableRow>
                                 );
@@ -3144,6 +3277,112 @@ export const SalesManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 미수금 안내문자 전송 상세 모달 */}
+      <Modal
+        isOpen={isUnpaidSmsModalOpen}
+        onClose={() => setIsUnpaidSmsModalOpen(false)}
+        title="미수금 안내 문자 발송"
+        size="md"
+      >
+        {unpaidSmsData && (
+          <div className="space-y-5">
+            <div className="bg-surface-50 p-4 rounded-xl space-y-2 border border-surface-200 shadow-sm">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-text-500 font-medium">사업장명</span>
+                <span className="text-text-900 font-bold">{unpaidSmsData.businessName}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-text-500 font-medium">미수 합계 금액</span>
+                <span className="text-warning-600 font-extrabold text-base">{formatCurrency(unpaidSmsData.unpaidTotal)}원</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-text-500 font-medium">미수 대상 주기</span>
+                <span className="text-text-700 font-semibold">{unpaidSmsData.periodsText}</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-sm font-semibold text-text-700">수신번호 (담당자 휴대폰)</label>
+              <Input
+                value={unpaidSmsData.phone}
+                onChange={(e) => setUnpaidSmsData({ ...unpaidSmsData, phone: e.target.value })}
+                placeholder="휴대폰 번호를 입력하세요"
+                className="w-full font-mono text-sm py-2"
+              />
+              <p className="text-xxs text-text-400">※ 모바일 전송 및 복사를 위해 연락처를 직접 수정할 수 있습니다.</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-sm font-semibold text-text-700">문자 메시지 내용</label>
+              <textarea
+                value={unpaidSmsData.smsBody}
+                onChange={(e) => setUnpaidSmsData({ ...unpaidSmsData, smsBody: e.target.value })}
+                rows={9}
+                className="w-full p-3.5 text-sm border border-surface-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 font-sans leading-relaxed resize-none bg-surface-50 focus:bg-white transition-colors"
+              />
+            </div>
+
+            {/* 통장사본 다운로드 및 안내 가이드 */}
+            <div className="bg-primary-50 border border-primary-100 rounded-xl p-4 space-y-3.5">
+              <div className="flex items-start gap-2.5">
+                <div className="text-primary-600 mt-0.5">
+                  <span className="text-lg">💡</span>
+                </div>
+                <div className="text-xs text-primary-800 space-y-1">
+                  <p className="font-bold">통장사본 이미지 발송 안내</p>
+                  <p className="leading-relaxed">모바일 기기에서 <strong>[문자 전송하기]</strong>를 클릭하면 자동으로 문자 작성 창이 열립니다. 이때 아래 다운로드한 통장사본 이미지를 문자 앱의 갤러리(사진첩)에서 선택하여 함께 첨부하여 보내주시면 됩니다.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 bg-white p-3 rounded-lg border border-primary-200 justify-between shadow-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">📄</span>
+                  <span className="text-xs font-semibold text-text-700">한결작업환경컨설팅_통장사본.png</span>
+                </div>
+                <a
+                  href="/bank_copy.png"
+                  download="한결작업환경컨설팅_통장사본.png"
+                  className="text-xs font-bold text-primary-600 hover:text-primary-700 bg-primary-100 hover:bg-primary-200 px-3.5 py-2 rounded-lg transition-colors border border-primary-200"
+                >
+                  다운로드
+                </a>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-surface-200">
+              <Button
+                variant="secondary"
+                onClick={() => setIsUnpaidSmsModalOpen(false)}
+                className="px-4 py-2 text-xs"
+              >
+                취소
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  navigator.clipboard.writeText(unpaidSmsData.smsBody);
+                  alert("문자 내용이 클립보드에 복사되었습니다.");
+                }}
+                className="px-4 py-2 border-primary-500 text-primary-700 hover:bg-primary-50 text-xs font-semibold"
+              >
+                📋 복사하기
+              </Button>
+              <a
+                href={`sms:${unpaidSmsData.phone.replace(/[-\s]/g, "")}?body=${encodeURIComponent(unpaidSmsData.smsBody)}`}
+                onClick={(e) => {
+                  if (!unpaidSmsData.phone.trim()) {
+                    e.preventDefault();
+                    alert("수신번호를 입력해주세요.");
+                  }
+                }}
+                className="inline-flex items-center justify-center bg-primary-600 hover:bg-primary-700 text-white font-semibold px-4 py-2 rounded-lg text-xs transition-colors shadow-sm"
+              >
+                💬 문자 전송하기 (모바일)
+              </a>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
