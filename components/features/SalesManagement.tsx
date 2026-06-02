@@ -635,7 +635,7 @@ export const SalesManagement: React.FC = () => {
     const smsBody = `안녕하십니까!
 한결작업환경컨설팅입니다.
 
-${periodsText} 작업환경측정 수수수료 미수금 ${formatAmt}원 입니다.
+${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 입니다.
 
 확인해 보시고, 입금 부탁드립니다.
 
