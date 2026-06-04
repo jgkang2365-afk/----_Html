@@ -610,15 +610,15 @@ export const SalesManagement: React.FC = () => {
       }
     });
 
-    // 3. 미수 일지 및 년도/주기 목록 정렬 (오래된 순 정렬)
-    unpaidJournals.sort((a, b) => {
-      if (a.measurement_year !== b.measurement_year) return a.measurement_year - b.measurement_year;
-      const aWeight = getPeriodWeight(a.measurement_period);
-      const bWeight = getPeriodWeight(b.measurement_period);
+    // 3. 년도/주기 목록 정렬 및 중복 제거 (오래된 순 정렬)
+    unpaidPeriods.sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      const aWeight = getPeriodWeight(a.period);
+      const bWeight = getPeriodWeight(b.period);
       return aWeight - bWeight;
     });
 
-    const periodStrings = unpaidJournals.map(item => `${item.measurement_year}년 ${item.measurement_period}`);
+    const periodStrings = unpaidPeriods.map(p => `${p.year}년 ${p.period}`);
     const uniquePeriods = Array.from(new Set(periodStrings));
 
     let periodsText = "";
@@ -630,42 +630,14 @@ export const SalesManagement: React.FC = () => {
       periodsText = uniquePeriods.join(", ");
     }
 
-    // 전자계산서 발행일 목록 생성 (YYYY.MM.DD 포맷 변환 및 조건별 분기)
-    const invoiceDateLines: string[] = [];
-    unpaidJournals.forEach(item => {
-      const year = item.measurement_year;
-      const period = item.measurement_period;
-      const date1 = item.electronic_invoice_date;
-      const date2 = item.electronic_invoice_date_2;
-
-      const formattedDate1 = date1 ? date1.replace(/-/g, ".") : "";
-      const formattedDate2 = date2 ? date2.replace(/-/g, ".") : "";
-
-      if (date1 && date2) {
-        invoiceDateLines.push(`- ${year}년 ${period} (1차) : ${formattedDate1}`);
-        invoiceDateLines.push(`- ${year}년 ${period} (2차) : ${formattedDate2}`);
-      } else if (date1) {
-        invoiceDateLines.push(`- ${year}년 ${period} : ${formattedDate1}`);
-      } else if (date2) {
-        invoiceDateLines.push(`- ${year}년 ${period} : ${formattedDate2}`);
-      }
-    });
-
-    // 발행일 목록이 있을 경우에만 참고 블록 추가
-    let invoiceInfoSection = "";
-    if (invoiceDateLines.length > 0) {
-      invoiceInfoSection = `\n[참고] 전자계산서 발행일\n${invoiceDateLines.join("\n")}\n`;
-    } else {
-      invoiceInfoSection = "\n";
-    }
-
     // 4. 요청하신 템플릿 형태로 본문 구성
     const formatAmt = formatCurrency(totalUnpaidAmount);
     const smsBody = `안녕하십니까!
 한결작업환경컨설팅입니다.
 
 ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 입니다.
-${invoiceInfoSection}
+
+
 확인해 보시고, 입금 부탁드립니다.
 
 은 행 명 : 우리은행
@@ -2255,31 +2227,29 @@ ${invoiceInfoSection}
                                                 관리
                                               </Button>
 
-                                              {user?.role === "관리자" && (
-                                                isValidMobileNumber(item.phone) ? (
+                                              {isValidMobileNumber(item.phone) ? (
+                                                <Button
+                                                  variant="primary"
+                                                  size="sm"
+                                                  className="bg-primary-600 hover:bg-primary-700 border-none text-white text-xs px-2.5 h-8 font-semibold"
+                                                  onClick={() => handleOpenUnpaidSmsModal(item)}
+                                                >
+                                                  안내문자
+                                                </Button>
+                                              ) : (
+                                                <div className="relative group inline-block">
                                                   <Button
                                                     variant="primary"
                                                     size="sm"
-                                                    className="bg-primary-600 hover:bg-primary-700 border-none text-white text-xs px-2.5 h-8 font-semibold"
-                                                    onClick={() => handleOpenUnpaidSmsModal(item)}
+                                                    className="bg-gray-200 border-none text-gray-400 text-xs px-2.5 h-8 font-semibold cursor-not-allowed"
+                                                    disabled
                                                   >
                                                     안내문자
                                                   </Button>
-                                                ) : (
-                                                  <div className="relative group inline-block">
-                                                    <Button
-                                                      variant="primary"
-                                                      size="sm"
-                                                      className="bg-gray-200 border-none text-gray-400 text-xs px-2.5 h-8 font-semibold cursor-not-allowed"
-                                                      disabled
-                                                    >
-                                                      안내문자
-                                                    </Button>
-                                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 hidden group-hover:block bg-gray-800 text-white text-xs py-1 px-2.5 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none transition-all">
-                                                      담당자 연락처 없음
-                                                    </div>
+                                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 hidden group-hover:block bg-gray-800 text-white text-xs py-1 px-2.5 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none transition-all">
+                                                    담당자 연락처 없음
                                                   </div>
-                                                )
+                                                </div>
                                               )}
                                             </>
                                           ) : (
