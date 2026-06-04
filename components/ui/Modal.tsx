@@ -255,10 +255,10 @@ export const Modal: React.FC<ModalProps> = ({
           "relative bg-white rounded-2xl shadow-2xl flex flex-col ring-1 ring-slate-900/5",
           "w-full sm:w-auto", // 모바일에서는 전체 너비 사용
           !modalSize.width && sizes[size],
-          !modalSize.height && "max-h-[90vh] sm:max-h-[85vh]", // 모바일에서 좀 더 높게
+          !modalSize.height && "max-h-[95vh] sm:max-h-[92vh]", // 모바일과 데스크톱 최대 높이 한도 상향
           isDragging && "cursor-move",
           // 리사이즈 중일 때는 transition 제거하여 부드럽게
-          (isDragging || isResizing) ? "transition-none" : "animate-scale-up transition-transform duration-200 ease-out"
+          isDragging ? "transition-transform duration-75 ease-out" : (isResizing ? "transition-none" : "animate-scale-up transition-transform duration-200 ease-out")
         )}
         style={{
           transform: `translate(${position.x}px, ${position.y}px)`,

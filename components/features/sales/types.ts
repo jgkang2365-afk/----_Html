@@ -32,6 +32,8 @@ export interface MeasurementRevenue {
   industrial_accident_number: string | null;
   revenue_type?: string | null;
   manager_mobile?: string | null;
+  manager_name?: string | null;
+  manager_position?: string | null;
 }
 
 export interface OtherRevenue {

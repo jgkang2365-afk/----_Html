@@ -216,6 +216,10 @@ export const SalesManagement: React.FC = () => {
     smsBody: string;
     unpaidTotal: number;
     periodsText: string;
+    managerName?: string;
+    managerPosition?: string;
+    representativeName?: string;
+    unpaidDetails?: { year: number; period: string; unpaidAmount: number }[];
   } | null>(null);
 
   // 기타 매출 모달 상태
@@ -593,7 +597,11 @@ export const SalesManagement: React.FC = () => {
     // 2. 미수금액 합산 및 주기 목록 수집
     let totalUnpaidAmount = 0;
     const unpaidPeriods: { year: number; period: string }[] = [];
+    const unpaidDetails: { year: number; period: string; unpaidAmount: number }[] = [];
     let representativePhone = "";
+    let representativeManagerName = "";
+    let representativeManagerPosition = "";
+    let representativeName = "";
 
     unpaidJournals.forEach(item => {
       const feeBusiness = parseFloat(item.measurement_fee_business?.toString() || "0");
@@ -603,10 +611,24 @@ export const SalesManagement: React.FC = () => {
 
       totalUnpaidAmount += unpaidBusiness;
       unpaidPeriods.push({ year: item.measurement_year, period: item.measurement_period });
+      unpaidDetails.push({
+        year: item.measurement_year,
+        period: item.measurement_period,
+        unpaidAmount: unpaidBusiness
+      });
 
-      // 유효한 휴대폰 번호가 존재할 경우 대표 번호로 등록
+      // 유효한 휴대폰 번호가 존재할 경우 대표 번호 및 담당자 정보 등록
       if (item.manager_mobile && isValidMobileNumber(item.manager_mobile) && !representativePhone) {
         representativePhone = item.manager_mobile;
+      }
+      if (item.manager_name && !representativeManagerName) {
+        representativeManagerName = item.manager_name;
+      }
+      if (item.manager_position && !representativeManagerPosition) {
+        representativeManagerPosition = item.manager_position;
+      }
+      if (item.representative_name && !representativeName) {
+        representativeName = item.representative_name;
       }
     });
 
@@ -679,7 +701,11 @@ ${invoiceInfoSection}
       phone: representativePhone || targetItem.phone || "",
       smsBody: smsBody,
       unpaidTotal: totalUnpaidAmount,
-      periodsText: periodsText
+      periodsText: periodsText,
+      managerName: representativeManagerName,
+      managerPosition: representativeManagerPosition,
+      representativeName: representativeName,
+      unpaidDetails: unpaidDetails
     });
     setIsUnpaidSmsModalOpen(true);
   };
@@ -3358,23 +3384,50 @@ ${invoiceInfoSection}
         isOpen={isUnpaidSmsModalOpen}
         onClose={() => setIsUnpaidSmsModalOpen(false)}
         title="미수금 안내 문자 발송"
-        size="md"
+        size="lg"
       >
         {unpaidSmsData && (
           <div className="space-y-5">
-            <div className="bg-surface-50 p-4 rounded-xl space-y-2 border border-surface-200 shadow-sm">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-text-500 font-medium">사업장명</span>
-                <span className="text-text-900 font-bold">{unpaidSmsData.businessName}</span>
+            <div className="bg-surface-50 p-4 rounded-xl border border-surface-200 shadow-sm space-y-2.5 text-xs text-text-700">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-text-500">사업장명 :</span>
+                <span className="text-primary-700 font-extrabold text-sm">{unpaidSmsData.businessName}</span>
+                <span className="text-surface-300 px-1">|</span>
+                <span className="font-semibold text-text-500">대표자 :</span>
+                <span className="text-text-900 font-bold">{unpaidSmsData.representativeName || "정보 없음"}</span>
               </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-text-500 font-medium">미수 합계 금액</span>
-                <span className="text-warning-600 font-extrabold text-base">{formatCurrency(unpaidSmsData.unpaidTotal)}원</span>
+              <div className="flex items-center gap-6 flex-wrap">
+                <div>
+                  <span className="font-semibold text-text-500">담당자 :</span>
+                  <span className="text-text-900 font-bold ml-1">{unpaidSmsData.managerName || "정보 없음"}</span>
+                </div>
+                <div>
+                  <span className="font-semibold text-text-500">직위 :</span>
+                  <span className="text-text-900 font-bold ml-1">{unpaidSmsData.managerPosition || "정보 없음"}</span>
+                </div>
+                <div>
+                  <span className="font-semibold text-text-500">연락처 :</span>
+                  <span className="text-text-900 font-bold ml-1 font-mono">{unpaidSmsData.phone || "정보 없음"}</span>
+                </div>
               </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-text-500 font-medium">미수 대상 주기</span>
-                <span className="text-text-700 font-semibold">{unpaidSmsData.periodsText}</span>
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <span className="font-semibold text-text-500">미수 합계 :</span>
+                <span className="text-red-600 font-extrabold text-sm">{formatCurrency(unpaidSmsData.unpaidTotal)}원</span>
               </div>
+              {unpaidSmsData.unpaidDetails && unpaidSmsData.unpaidDetails.length > 0 && (
+                <div className="flex items-center gap-1 text-text-500 font-medium text-xxs flex-wrap pt-2 border-t border-surface-200/60">
+                  <span className="text-text-400 font-bold mr-1">-</span>
+                  {unpaidSmsData.unpaidDetails.map((detail, index) => (
+                    <React.Fragment key={index}>
+                      {index > 0 && <span className="text-surface-300 px-3 font-normal">|</span>}
+                      <span>
+                        {detail.year}년 {detail.period} :{" "}
+                        <span className="text-text-900 font-bold">{formatCurrency(detail.unpaidAmount)}원</span>
+                      </span>
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -3393,7 +3446,7 @@ ${invoiceInfoSection}
               <textarea
                 value={unpaidSmsData.smsBody}
                 onChange={(e) => setUnpaidSmsData({ ...unpaidSmsData, smsBody: e.target.value })}
-                rows={9}
+                rows={16}
                 className="w-full p-3.5 text-sm border border-surface-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 font-sans leading-relaxed resize-none bg-surface-50 focus:bg-white transition-colors"
               />
             </div>
