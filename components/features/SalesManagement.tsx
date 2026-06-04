@@ -676,9 +676,7 @@ export const SalesManagement: React.FC = () => {
     // 발행일 목록이 있을 경우에만 참고 블록 추가
     let invoiceInfoSection = "";
     if (invoiceDateLines.length > 0) {
-      invoiceInfoSection = `\n[참고] 전자계산서 발행일\n${invoiceDateLines.join("\n")}\n`;
-    } else {
-      invoiceInfoSection = "\n";
+      invoiceInfoSection = "\r\n\r\n[참고] 전자계산서 발행일\r\n" + invoiceDateLines.join("\r\n");
     }
 
     // 4. 요청하신 템플릿 형태로 본문 구성
@@ -686,15 +684,13 @@ export const SalesManagement: React.FC = () => {
     const smsBody = `안녕하십니까!
 한결작업환경컨설팅입니다.
 
-${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 입니다.
-${invoiceInfoSection}
-확인해 보시고, 입금 부탁드립니다.
+${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 확인해 보시고, 입금 부탁드립니다.
 
 은 행 명 : 우리은행
 계좌번호 : 1005-604-374610
 예 금 주 : 주식회사 한결작업환경컨설팅
 
-감사합니다.`;
+감사합니다.${invoiceInfoSection}`;
 
     setUnpaidSmsData({
       businessName: targetItem.name,
