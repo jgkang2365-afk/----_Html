@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { createClient } from '@/lib/supabase/server';
+import { unstable_noStore as noStore } from 'next/cache';
 
 /**
  * 보고서 처리용 목록 조회 API
  */
 export async function GET(req: NextRequest) {
+    noStore();
     try {
         const { searchParams } = new URL(req.url);
         const year = searchParams.get('year');
@@ -83,7 +85,11 @@ export async function GET(req: NextRequest) {
             };
         });
 
-        return NextResponse.json({ records: mergedData });
+        const response = NextResponse.json({ records: mergedData });
+        response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        response.headers.set('Pragma', 'no-cache');
+        response.headers.set('Expires', '0');
+        return response;
 
 
     } catch (error) {

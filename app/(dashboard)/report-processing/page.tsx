@@ -54,7 +54,7 @@ export default function ReportProcessingPage() {
         else setLoading(true);
 
         try {
-            const res = await fetch(`/api/report-processing?year=${filters.year}&period=${filters.period}&search=${filters.search}`);
+            const res = await fetch(`/api/report-processing?year=${filters.year}&period=${filters.period}&search=${filters.search}&t=${Date.now()}`);
             const data = await res.json();
             if (res.ok) {
                 // 구분(정규/추가) 데이터 부여
