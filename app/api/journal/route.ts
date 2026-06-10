@@ -503,6 +503,7 @@ export async function POST(request: NextRequest) {
       electronic_invoice_date_2: body.electronic_invoice_date_2 || null,
       invoice_business_name: body.invoice_business_name || null,
       invoice_business_number: cleanToDigits(body.invoice_business_number),
+      national_support_status: body.national_support_status || businessData.national_support_status || null,
       // 특이사항 (body에서 가져오기)
       special_notes: body.special_notes || null,
       completion_status: "미완료",

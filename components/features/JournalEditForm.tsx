@@ -692,14 +692,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         // 이미 값이 있으면 (예: surveyInfo나 직전 데이터에서 가져온 경우) 건드리지 않음
         if (prev.k2b_sender) return prev;
 
-        const k2bSenderOptions = ["한기문", "강종구", "이주형", "배윤민", "고유빈"];
+        // 측정 시작일 기준으로 전송자 목록 분기
+        const startDate = prev.measurement_start_date || entry.measurement_start_date;
+        const isAfterChange = !startDate || startDate >= "2026-06-09";
+        const k2bSenderOptions = isAfterChange
+          ? ["한기문", "강종구", "이주형", "김민영", "고유빈"]
+          : ["한기문", "강종구", "이주형", "배윤민", "고유빈"];
+
         if (k2bSenderOptions.includes(user.name)) {
           return { ...prev, k2b_sender: user.name };
         }
         return prev;
       });
     }
-  }, [entry.id, user?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [entry.id, user?.name, formData.measurement_start_date, entry.measurement_start_date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 수정 모드일 때 건강디딤돌 신청결과 값 가져오기 (국고지원 여부만)
   useEffect(() => {

@@ -141,6 +141,7 @@ export async function syncBusinessToCalendar(
       const colorMap: { [key: string]: string } = {
         '한기문': '10', // Basil
         '배윤민': '6',  // Tangerine
+        '김민영': '6',  // Tangerine (배윤민 대리 계승)
         '강종구': '9',  // Blueberry
         '이주형': '5',  // Banana
         '고유빈': '7',  // Peacock

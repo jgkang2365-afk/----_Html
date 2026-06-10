@@ -15,7 +15,7 @@ import {
 } from "@/lib/utils/date-utils";
 import { normalizeForDateInput, isValidDateString } from "@/lib/utils/date-validator";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
-import { MEASURER_LIST, getSurveyCode } from "@/lib/utils/survey-code";
+import { MEASURER_LIST, getSurveyCode, getMeasurerList } from "@/lib/utils/survey-code";
 
 // 예비조사자 조합 목록
 const PRELIMINARY_SURVEYOR_OPTIONS = [
@@ -26,6 +26,28 @@ const PRELIMINARY_SURVEYOR_OPTIONS = [
   "한기문, 배윤민",
   "이주형, 고유빈",
 ];
+
+// 예비조사자 조합 목록 획득 함수 (측정일별 분기)
+const getPreliminarySurveyorOptions = (dateStr?: string | null) => {
+  if (dateStr && dateStr >= "2026-06-09") {
+    return [
+      "이태환",
+      "한기문",
+      "이태환, 강종구",
+      "이주형",
+      "한기문, 김민영",
+      "이주형, 고유빈",
+    ];
+  }
+  return [
+    "이태환",
+    "한기문",
+    "이태환, 강종구",
+    "이주형",
+    "한기문, 배윤민",
+    "이주형, 고유빈",
+  ];
+};
 
 interface BusinessInfo {
   code: string;
@@ -230,7 +252,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
         // 먼저 전체 값이 조합 목록 중 하나와 일치하는지 확인
         let matchedOptions: string[] = [];
-        PRELIMINARY_SURVEYOR_OPTIONS.forEach((option) => {
+        const preliminaryOptions = getPreliminarySurveyorOptions(normalizedMeasurementDate);
+        preliminaryOptions.forEach((option) => {
           const normalizedOption = normalizeValue(option);
           if (normalizedOption === normalizedSavedValue) {
             matchedOptions.push(option);
@@ -240,7 +263,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         // 일치하는 조합이 없으면, 저장된 값을 콤마로 분리하여 각각이 조합 목록에 있는지 확인
         if (matchedOptions.length === 0 && savedValue.includes(",")) {
           const parts = savedValue.split(",").map(s => s.trim()).filter(Boolean);
-          PRELIMINARY_SURVEYOR_OPTIONS.forEach((option) => {
+          preliminaryOptions.forEach((option) => {
             const normalizedOption = normalizeValue(option);
             // 조합의 각 부분이 저장된 값의 부분과 일치하는지 확인
             const optionParts = option.split(",").map(s => s.trim());
@@ -379,6 +402,61 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     // HTML5 date input: 날짜 선택 도구 사용 시 완전한 값, 수동 입력 시 부분 값도 올 수 있음
     // 완전한 YYYY-MM-DD 형식일 때만 저장, 부분 입력은 무시 (브라우저가 처리하도록)
     if (value && isValidDateString(value)) {
+      const prevDate = formData.measurement_date;
+      const isPrevAfter = prevDate && prevDate >= "2026-06-09";
+      const isNewAfter = value >= "2026-06-09";
+
+      // 배윤민 ↔ 김민영 스왑 상태값 계산
+      let nextSelectedMeasurers = [...selectedMeasurers];
+      let nextActualMeasurers = [...actualMeasurers];
+      let nextReportWriter = reportWriter;
+      let nextPreliminarySurveyors = [...preliminarySurveyors];
+
+      const hasSwapped = prevDate && isPrevAfter !== isNewAfter;
+
+      if (hasSwapped) {
+        if (isNewAfter) {
+          // 배윤민 -> 김민영
+          if (nextSelectedMeasurers.includes("배윤민")) {
+            nextSelectedMeasurers = nextSelectedMeasurers.filter((m) => m !== "배윤민");
+            if (!nextSelectedMeasurers.includes("김민영")) nextSelectedMeasurers.push("김민영");
+          }
+          if (nextActualMeasurers.includes("배윤민")) {
+            nextActualMeasurers = nextActualMeasurers.filter((m) => m !== "배윤민");
+            if (!nextActualMeasurers.includes("김민영")) nextActualMeasurers.push("김민영");
+          }
+          if (nextReportWriter === "배윤민") {
+            nextReportWriter = "김민영";
+          }
+          if (nextPreliminarySurveyors.includes("한기문, 배윤민")) {
+            nextPreliminarySurveyors = nextPreliminarySurveyors.filter((p) => p !== "한기문, 배윤민");
+            if (!nextPreliminarySurveyors.includes("한기문, 김민영")) nextPreliminarySurveyors.push("한기문, 김민영");
+          }
+        } else {
+          // 김민영 -> 배윤민
+          if (nextSelectedMeasurers.includes("김민영")) {
+            nextSelectedMeasurers = nextSelectedMeasurers.filter((m) => m !== "김민영");
+            if (!nextSelectedMeasurers.includes("배윤민")) nextSelectedMeasurers.push("배윤민");
+          }
+          if (nextActualMeasurers.includes("김민영")) {
+            nextActualMeasurers = nextActualMeasurers.filter((m) => m !== "김민영");
+            if (!nextActualMeasurers.includes("배윤민")) nextActualMeasurers.push("배윤민");
+          }
+          if (nextReportWriter === "김민영") {
+            nextReportWriter = "배윤민";
+          }
+          if (nextPreliminarySurveyors.includes("한기문, 김민영")) {
+            nextPreliminarySurveyors = nextPreliminarySurveyors.filter((p) => p !== "한기문, 김민영");
+            if (!nextPreliminarySurveyors.includes("한기문, 배윤민")) nextPreliminarySurveyors.push("한기문, 배윤민");
+          }
+        }
+
+        setSelectedMeasurers(nextSelectedMeasurers);
+        setActualMeasurers(nextActualMeasurers);
+        setReportWriter(nextReportWriter);
+        setPreliminarySurveyors(nextPreliminarySurveyors);
+      }
+
       setFormData((prev) => {
         const updated = { ...prev, measurement_date: value };
 
@@ -393,13 +471,33 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           updateMeasurementWeekdays(value, currentEndDate);
         }
 
+        // 스왑 발생 시 폼 데이터 문자열도 업데이트
+        if (hasSwapped) {
+          updated.measurer = nextSelectedMeasurers.join(", ");
+          updated.preliminary_surveyor = nextPreliminarySurveyors.join(", ");
+          updated.actual_measurer = nextActualMeasurers.join(", ");
+          updated.report_writer = nextReportWriter;
+
+          // 공시료 코드 자동 재부여
+          let surveyCode = "";
+          if (nextSelectedMeasurers.length > 0) {
+            const firstMeasurer = nextSelectedMeasurers[0];
+            const user = users.find((u) => u.name === firstMeasurer);
+            if (user && user.survey_code) {
+              surveyCode = user.survey_code;
+            } else {
+              surveyCode = getSurveyCode(firstMeasurer, value) || "";
+            }
+          }
+          updated.survey_code = surveyCode;
+        }
+
         return updated;
       });
     } else if (!value) {
       // 빈 값일 때는 빈 문자열로 저장
       setFormData((prev) => ({ ...prev, measurement_date: "" }));
     }
-    // 부분 입력(value가 있지만 유효하지 않음)은 무시 - 브라우저가 처리하도록
   };
 
   // 종료일 입력 처리
@@ -466,13 +564,14 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
   // 측정자 선택 처리
   // 측정자별 예비조사자 매핑
-  const getPreliminarySurveyorByMeasurer = (measurer: string): string | null => {
+  const getPreliminarySurveyorByMeasurer = (measurer: string, dateStr?: string | null): string | null => {
     const mapping: Record<string, string> = {
       "이태환": "이태환",
       "한기문": "한기문",
       "이주형": "이주형",
       "강종구": "이태환, 강종구",
       "배윤민": "한기문, 배윤민",
+      "김민영": "한기문, 김민영",
       "고유빈": "이주형, 고유빈",
     };
     return mapping[measurer] || null;
@@ -499,7 +598,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         surveyCode = user.survey_code;
       } else {
         // 없으면 기존 로직 사용
-        surveyCode = getSurveyCode(firstMeasurer) || "";
+        surveyCode = getSurveyCode(firstMeasurer, formData.measurement_date) || "";
       }
     }
 
@@ -507,7 +606,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
     // 측정자 선택/해제에 따라 예비조사자 자동 설정
     let updatedPreliminarySurveyors = [...preliminarySurveyors];
-    const correspondingPreliminarySurveyor = getPreliminarySurveyorByMeasurer(measurer);
+    const correspondingPreliminarySurveyor = getPreliminarySurveyorByMeasurer(measurer, formData.measurement_date);
 
     if (correspondingPreliminarySurveyor) {
       if (isAdding) {
@@ -683,6 +782,10 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     }
   };
 
+  // 동적으로 적용될 측정자 및 예비조사 조합 목록 계산
+  const currentMeasurerList = getMeasurerList(formData.measurement_date);
+  const currentPreliminarySurveyorOptions = getPreliminarySurveyorOptions(formData.measurement_date);
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div ref={topRef} /> {/* 스크롤 타겟 */}
@@ -824,7 +927,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
               측정자 (복수 선택 가능)
             </label>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              {MEASURER_LIST.map((measurer) => (
+              {currentMeasurerList.map((measurer) => (
                 <Checkbox
                   key={measurer}
                   label={measurer}
@@ -853,7 +956,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
               예비조사자 (복수 선택 가능)
             </label>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              {PRELIMINARY_SURVEYOR_OPTIONS.map((option) => (
+              {currentPreliminarySurveyorOptions.map((option) => (
                 <div
                   key={option}
                   className={`p-2 rounded-md border transition-colors cursor-pointer ${preliminarySurveyors.includes(option)
@@ -878,7 +981,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
               실측정자 (복수 선택 가능)
             </label>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              {MEASURER_LIST.map((measurer) => (
+              {currentMeasurerList.map((measurer) => (
                 <div
                   key={measurer}
                   className={`p-2 rounded-md border transition-colors cursor-pointer ${actualMeasurers.includes(measurer)
@@ -903,7 +1006,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
               보고서 담당 (단수 선택)
             </label>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              {MEASURER_LIST.map((measurer) => (
+              {currentMeasurerList.map((measurer) => (
                 <div
                   key={measurer}
                   className={`p-2 rounded-md border transition-colors cursor-pointer ${reportWriter === measurer
