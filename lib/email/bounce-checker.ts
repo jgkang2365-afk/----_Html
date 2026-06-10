@@ -1,3 +1,4 @@
+// @ts-ignore
 import { ImapFlow } from 'imapflow';
 import { createClient } from "@/lib/supabase/server";
 
