@@ -136,3 +136,9 @@ E. 매출관리
   3) 신규 입사한 신수빈 님(분석 직무)은 측정 담당자 목록 노출 제외 처리.
   4) 수정 모달에서 측정일을 06/09 전후로 이동 시 배윤민 대리와 김민영 주임의 정보(측정자, 실측정자, 보고서담당, 예비조사조합, 공시료코드)를 자동으로 상호 스왑.
   5) 측정일지 K2B 전송자 기본값 및 구글 캘린더 Tangerine('6') 색상 매핑 김민영 주임 계승 적용.
+
+버전 1.1.1 (2026-06-10)
+- Git 병합 충돌 해결 및 타입 컴파일 오류 수정:
+  1) SurveyForm 및 MeasurementTargetBusinessManagement 모달 내 단일/다중 일정 탭 병합 충돌 해소.
+  2) route.ts 내 중복 national_support_status 정의 제거 및 UserManagement.tsx 타입 프롭(helperText) 수정으로 TS2322/TS1117 빌드 차단 에러 최종 해결.
+  3) tsconfig.json exclude에 scratch, tmp, scripts 폴더를 추가하여 컴파일 노이즈 최소화.
