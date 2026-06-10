@@ -34,7 +34,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { role, survey_code, job, mobile, email, is_journal_manager } = body;
+    const { role, survey_code, job, mobile, email, is_journal_manager, is_active } = body;
 
     if (role && !["관리자", "사용자"].includes(role)) {
       return NextResponse.json(
@@ -48,7 +48,7 @@ export async function PATCH(
     // 사용자 존재 확인
     const { data: user, error: userError } = await supabase
       .from("users")
-      .select("id, name")
+      .select("id, name, is_active")
       .eq("id", userId)
       .single();
 
@@ -66,9 +66,10 @@ export async function PATCH(
         mobile: mobile || null,
         email: email || null,
         is_journal_manager: !!is_journal_manager,
+        ...(is_active !== undefined && { is_active }),
       })
       .eq("id", userId)
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, updated_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_active, updated_at")
       .single();
 
     if (updateError) {
@@ -138,12 +139,26 @@ export async function DELETE(
       return NextResponse.json({ error: "사용자를 찾을 수 없습니다." }, { status: 404 });
     }
 
-    // 사용자 삭제
+    // 1. 관련 데이터 수동 연쇄 삭제 (외래 키 제약 조건 오류 방지)
+    // measurement_target_business 테이블의 담당자(measurer_id) 연결 해제
+    await supabase
+      .from("measurement_target_business")
+      .update({ measurer_id: null })
+      .eq("measurer_id", userId);
+
+    // quota_memos 테이블 삭제
+    await supabase.from("quota_memos").delete().eq("user_id", userId);
+    
+    // notifications 테이블 삭제 (이미 CASCADE 설정되어 있을 수 있으나 안전을 위해 수행)
+    await supabase.from("notifications").delete().eq("user_id", userId);
+
+    // 2. 사용자 삭제
     const { error: deleteError } = await supabase.from("users").delete().eq("id", userId);
 
     if (deleteError) {
+      console.error("Delete user database error:", deleteError);
       return NextResponse.json(
-        { error: "사용자 삭제에 실패했습니다." },
+        { error: `사용자 삭제에 실패했습니다: ${deleteError.message}` },
         { status: 500 }
       );
     }

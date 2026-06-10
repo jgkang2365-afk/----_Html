@@ -537,11 +537,13 @@ export default function SurveyPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-12 text-center bg-surface-50">
-                      <Checkbox
-                        checked={selectedBusinessCodes.size === businesses.length && businesses.length > 0}
-                        onChange={toggleAllSelection}
-                      />
+                    <TableHead className="w-[45px] bg-surface-50 pl-2.5">
+                      <div className="flex items-center">
+                        <Checkbox
+                          checked={selectedBusinessCodes.size === businesses.length && businesses.length > 0}
+                          onChange={toggleAllSelection}
+                        />
+                      </div>
                     </TableHead>
                     <TableHead className="bg-surface-50">코드</TableHead>
                     <TableHead className="bg-surface-50">사업자번호</TableHead>
@@ -554,12 +556,16 @@ export default function SurveyPage() {
                 </TableHeader>
                 <TableBody>
                   {businesses.map((business) => (
-                    <TableRow key={business.code} className={`hover:bg-surface-50 ${selectedBusinessCodes.has(business.code) ? 'bg-indigo-50/50' : ''}`}>
-                      <TableCell className="text-center">
-                        <Checkbox
-                          checked={selectedBusinessCodes.has(business.code)}
-                          onChange={() => toggleBusinessSelection(business.code)}
-                        />
+                    <TableRow key={business.code} className={`hover:bg-surface-50 group relative growable-row ${selectedBusinessCodes.has(business.code) ? 'bg-indigo-50/50' : ''}`}>
+                      <TableCell className="w-[45px] text-left pl-2.5 relative">
+                        {/* 표준 블루 인디케이터 바 */}
+                        <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                        <div className="flex items-center">
+                          <Checkbox
+                            checked={selectedBusinessCodes.has(business.code)}
+                            onChange={() => toggleBusinessSelection(business.code)}
+                          />
+                        </div>
                       </TableCell>
                       <TableCell className="font-medium">{business.code}</TableCell>
                       <TableCell>{business.business_number || "-"}</TableCell>
@@ -821,10 +827,10 @@ export default function SurveyPage() {
               <div className="rounded-lg border border-surface-200 overflow-hidden">
                 <div className="h-[calc(100vh-280px)] overflow-y-auto border-t border-slate-200">
                   <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 sticky top-0 z-10 text-xs uppercase font-semibold text-slate-500">
+                    <thead className="bg-slate-50 sticky top-0 z-10 text-sm font-medium text-slate-500">
                       <tr>
-                        <th className="px-2 py-3 text-center w-[60px]">
-                          <div className="flex items-center justify-center gap-1">
+                        <th className="px-2 py-3 text-left w-[55px] pl-2.5">
+                          <div className="flex items-center gap-1">
                             <span>순번</span>
                             <button
                               onClick={() => setSortConfig(prev => ({
@@ -837,6 +843,7 @@ export default function SurveyPage() {
                             </button>
                           </div>
                         </th>
+                        <th className="px-2 py-3 text-left w-[90px] pl-2.5">코드</th>
                         <th className="px-2 py-3 text-center w-[60px]">년도</th>
                         <th className="px-2 py-3 text-center w-[60px]">주기</th>
                         <th className="px-2 py-3 text-center w-[90px]">
@@ -880,35 +887,40 @@ export default function SurveyPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {sortedSurveys.map((survey) => (
-                        <tr key={survey.id} className="hover:bg-slate-50/50">
-                          <td className="px-2 py-2 text-center">{survey.sequence_number || "-"}</td>
-                          <td className="px-2 py-2 text-center">{survey.year || "-"}</td>
-                          <td className="px-2 py-2 text-center">{survey.period || "-"}</td>
-                          <td className="px-2 py-2 text-center">
+                        <tr key={survey.id} className="hover:bg-slate-50/50 group relative growable-row">
+                          <td className="px-2 py-2 text-left w-[55px] pl-2.5 font-medium">
+                            {/* 표준 호버 인디케이터 바 */}
+                            <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                            {survey.sequence_number || "-"}
+                          </td>
+                          <td className="px-2 py-2 text-left font-medium w-[90px] pl-2.5 truncate" title={survey.code}>{survey.code}</td>
+                          <td className="px-2 py-2 text-center font-medium">{survey.year || "-"}</td>
+                          <td className="px-2 py-2 text-center font-medium">{survey.period || "-"}</td>
+                          <td className="px-2 py-2 text-center font-medium">
                             {survey.measurement_date
                               ? formatDateYYYYMMDD(new Date(survey.measurement_date))
                               : "-"}
                           </td>
-                          <td className="px-2 py-2 text-center">
+                          <td className="px-2 py-2 text-center font-medium">
                             {survey.end_date ? formatDateYYYYMMDD(new Date(survey.end_date)) : "-"}
                           </td>
-                          <td className="px-2 py-2 text-center text-xs">
+                          <td className="px-2 py-2 text-center font-medium">
                             {survey.measurement_weekdays || calculateMeasurementWeekdays(survey.measurement_date, survey.end_date) || "-"}
                           </td>
-                          <td className="px-2 py-2 font-medium truncate max-w-[200px]" title={survey.business_name}>{survey.business_name}</td>
-                          <td className="px-2 py-2 text-center">{survey.business_number || "-"}</td>
-                          <td className="px-2 py-2 text-center text-xs truncate max-w-[100px]" title={survey.measurer || ""}>{survey.measurer || "-"}</td>
-                          <td className="px-2 py-2 text-center text-xs">{survey.survey_code || "-"}</td>
-                          <td className="px-2 py-2 text-center text-xs truncate max-w-[130px]" title={survey.preliminary_surveyor || ""}>{survey.preliminary_surveyor || "-"}</td>
-                          <td className="px-2 py-2 text-center text-xs truncate max-w-[100px]" title={survey.actual_measurer || ""}>{survey.actual_measurer || "-"}</td>
-                          <td className="px-2 py-2 text-center text-xs truncate max-w-[100px]" title={survey.report_writer || ""}>{survey.report_writer || "-"}</td>
+                          <td className="px-2 py-2 font-medium truncate max-w-[150px]" title={survey.business_name}>{survey.business_name}</td>
+                          <td className="px-2 py-2 text-center font-medium">{survey.business_number || "-"}</td>
+                          <td className="px-2 py-2 text-center font-medium truncate max-w-[100px]" title={survey.measurer || ""}>{survey.measurer || "-"}</td>
+                          <td className="px-2 py-2 text-center font-medium">{survey.survey_code || "-"}</td>
+                          <td className="px-2 py-2 text-center font-medium truncate max-w-[130px]" title={survey.preliminary_surveyor || ""}>{survey.preliminary_surveyor || "-"}</td>
+                          <td className="px-2 py-2 text-center font-medium truncate max-w-[100px]" title={survey.actual_measurer || ""}>{survey.actual_measurer || "-"}</td>
+                          <td className="px-2 py-2 text-center font-medium truncate max-w-[100px]" title={survey.report_writer || ""}>{survey.report_writer || "-"}</td>
                           <td className="px-2 py-2 text-center">
                             <div className="flex gap-1 justify-center whitespace-nowrap">
                               <Button
                                 variant="secondary"
                                 size="sm"
                                 onClick={() => handleEditSurvey(survey)}
-                                className="h-7 px-2 text-xs"
+                                className="h-7 px-2"
                               >
                                 수정
                               </Button>
@@ -916,7 +928,7 @@ export default function SurveyPage() {
                                 variant="secondary"
                                 size="sm"
                                 onClick={() => handleDeleteSurvey(survey.id)}
-                                className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                                className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
                               >
                                 삭제
                               </Button>

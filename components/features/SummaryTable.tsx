@@ -52,6 +52,7 @@ interface SummaryEntry {
   five_plus_sequence: string | null; // 수정 불가
   measurement_start_date: string | null;
   measurement_end_date: string | null;
+  measurement_days: number | null;
   measurer: string | null;
   preliminary_surveyor: string | null;
   actual_measurer: string | null;
@@ -83,11 +84,13 @@ interface SummaryEntry {
   k2b_sender: string | null;
   measurement_fee_business: number | null;
   measurement_fee_national: number | null;
+  measurement_fee_total: number | null; // 합계 필드 추가
   special_notes: string | null;
   completion_status: string;
   target_measurement_date: string | null;
   created_at: string;
   updated_at: string;
+  all_surveys?: any[]; // [New] 다중 일자 지원을 위한 연관 예비조사 목록
 }
 
 export const SummaryTable: React.FC = () => {
@@ -260,9 +263,23 @@ export const SummaryTable: React.FC = () => {
   // 수정 모달 열기
   const handleEdit = (entry: SummaryEntry) => {
     setSelectedEntry(entry);
+    // 기존 데이터에 측정일수가 없는 경우, 연관된 모든 예비조사 일자를 기준으로 자동 산출
+    let calculatedDays = entry.measurement_days || null;
+    if (!calculatedDays && entry.all_surveys && entry.all_surveys.length > 0) {
+      const uniqueDates = new Set(
+        entry.all_surveys
+          .map(s => s.measurement_date)
+          .filter(Boolean)
+      );
+      if (uniqueDates.size > 0) {
+        calculatedDays = uniqueDates.size;
+      }
+    }
+
     setEditFormData({
       measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
       measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
+      measurement_days: calculatedDays,
       measurer: entry.measurer || "",
       business_name: entry.business_name || "",
       total_employees: entry.total_employees || null,
@@ -283,6 +300,7 @@ export const SummaryTable: React.FC = () => {
       k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
       measurement_fee_business: entry.measurement_fee_business || null,
       measurement_fee_national: entry.measurement_fee_national || null,
+      measurement_fee_total: entry.measurement_fee_total || null, // 합계 초기값 바인딩
       national_support_status: entry.national_support_status || "",
       office_jurisdiction: entry.office_jurisdiction || "",
       special_notes: entry.special_notes || "",
@@ -309,6 +327,31 @@ export const SummaryTable: React.FC = () => {
     };
     fetchPreviousData();
   };
+
+  // [New] 측정비 합계 자동 계산 로직 (JournalEditForm과 동기화 및 방어 코드 강화)
+  useEffect(() => {
+    try {
+      const getSafeNumber = (val: any) => {
+        if (!val && val !== 0) return 0;
+        const str = String(val).replace(/,/g, "").trim();
+        const num = parseFloat(str);
+        return isNaN(num) ? 0 : num;
+      };
+
+      const bizFee = getSafeNumber(editFormData.measurement_fee_business);
+      const natFee = getSafeNumber(editFormData.measurement_fee_national);
+      const isNA = editFormData.national_support_status === "비대상";
+      
+      const total = isNA ? bizFee : (bizFee + natFee);
+      
+      const currentTotalStr = parseCurrency(editFormData.measurement_fee_total);
+      if (currentTotalStr !== total.toString()) {
+        setEditFormData(prev => ({ ...prev, measurement_fee_total: total }));
+      }
+    } catch (e) {
+      console.error('[SummaryTable] 측정비 계산 오류:', e);
+    }
+  }, [editFormData.measurement_fee_business, editFormData.measurement_fee_national, editFormData.national_support_status]);
 
   // 수정 저장
   const handleSave = async () => {
@@ -354,6 +397,12 @@ export const SummaryTable: React.FC = () => {
         saveData.measurement_fee_national = parsed ? parseFloat(parsed) : null;
       }
 
+      // 저장 전 합계 재계산 (DB 데이터 일관성 보장)
+      const biz = parseFloat(parseCurrency(saveData.measurement_fee_business)) || 0;
+      const nat = parseFloat(parseCurrency(saveData.measurement_fee_national)) || 0;
+      const isNA = saveData.national_support_status === "비대상";
+      saveData.measurement_fee_total = isNA ? biz : (biz + nat);
+
       const response = await fetch(`/api/summary/${selectedEntry.journal_id}`, {
         method: "PATCH",
         headers: {
@@ -396,7 +445,7 @@ export const SummaryTable: React.FC = () => {
   const PrintPreviewPortal = () => {
     if (typeof window === "undefined") return null;
 
-    const selectedEntries = results.filter(r => selectedIds.has(r.id));
+    const selectedEntries = results.filter((r: SummaryEntry) => selectedIds.has(r.id));
 
     return createPortal(
       <div className="fixed inset-0 z-[100] bg-white overflow-auto" role="dialog" aria-modal="true">
@@ -434,7 +483,7 @@ export const SummaryTable: React.FC = () => {
 
         {/* 인쇄 내용 (화면 및 출력 모두 보임) */}
         <div className="p-8 print:p-0 space-y-8 print:space-y-0 bg-slate-100 print:bg-white min-h-screen">
-          {selectedEntries.map((entry, index) => (
+          {selectedEntries.map((entry: SummaryEntry, index: number) => (
             <div
               key={entry.id}
               className="break-after-page page-break-always bg-white p-8 rounded-lg shadow-sm print:shadow-none print:rounded-none print:p-10 max-w-[210mm] mx-auto print:max-w-none"
@@ -476,7 +525,7 @@ export const SummaryTable: React.FC = () => {
                         {(() => {
                           // 1. 정확히 일치하는 주기 검색
                           let quota = quotas.find(
-                            (q) =>
+                            (q: any) =>
                               q.year === entry.measurement_year &&
                               q.period === entry.measurement_period &&
                               q.office_name === entry.designated_office
@@ -486,7 +535,7 @@ export const SummaryTable: React.FC = () => {
                           if (!quota && entry.measurement_period.includes('(수시)')) {
                             const basePeriod = entry.measurement_period.replace('(수시)', '');
                             quota = quotas.find(
-                              (q) =>
+                              (q: any) =>
                                 q.year === entry.measurement_year &&
                                 q.period === basePeriod &&
                                 q.office_name === entry.designated_office
@@ -500,16 +549,36 @@ export const SummaryTable: React.FC = () => {
                     <div className="p-1">
                       <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
                       <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                        {entry.preliminary_surveyor || "-"}
-                        {entry.survey_code && (
-                          <span className="text-text-500 ml-1.5 font-normal">({entry.survey_code})</span>
-                        )}
+                        {(() => {
+                           const surveys = entry.all_surveys || [];
+                           if (surveys.length === 0) return entry.preliminary_surveyor || "-";
+                           const surveyor = entry.preliminary_surveyor || "-";
+                           const codes = surveys
+                             .filter(s => s.measurement_date && s.survey_code)
+                             .map(s => surveys.length === 1 
+                              ? s.survey_code 
+                              : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
+                            )
+                             .join(", ");
+                           return codes ? `${surveyor} (${codes})` : surveyor;
+                        })()}
                       </div>
                     </div>
                     <div className="p-1">
                       <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
                       <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                        {entry.measurer || "-"}
+                         {(() => {
+                           const surveys = entry.all_surveys || [];
+                           if (surveys.length === 0) return entry.measurer || "-";
+                           const names = new Set<string>();
+                           surveys.forEach(s => {
+                             if (s.measurer) {
+                               s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                             }
+                           });
+                           if (names.size === 0) return entry.measurer || "-";
+                           return Array.from(names).sort().join(", ");
+                        })()}
                       </div>
                     </div>
                     <div className="p-1">
@@ -526,7 +595,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정시작일
@@ -554,6 +623,17 @@ export const SummaryTable: React.FC = () => {
                         disabled
                       />
                     </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정일수
+                      </label>
+                      <Input
+                        type="number"
+                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-primary-600"
+                        value={entry.measurement_days || ""}
+                        disabled
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -576,7 +656,7 @@ export const SummaryTable: React.FC = () => {
                         대표자명
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.representative_name || ""}
                         disabled
                       />
@@ -586,7 +666,7 @@ export const SummaryTable: React.FC = () => {
                         총인원
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         type="number"
                         value={entry.total_employees || ""}
                         disabled
@@ -597,7 +677,7 @@ export const SummaryTable: React.FC = () => {
                         사업자번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={formatBusinessNumber(entry.business_number)}
                         disabled
                       />
@@ -607,7 +687,7 @@ export const SummaryTable: React.FC = () => {
                         산재관리번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.industrial_accident_number || ""}
                         disabled
                       />
@@ -617,7 +697,7 @@ export const SummaryTable: React.FC = () => {
                         개시번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.commencement_number || ""}
                         disabled
                       />
@@ -627,7 +707,7 @@ export const SummaryTable: React.FC = () => {
                         주소
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.address || ""}
                         disabled
                       />
@@ -637,7 +717,7 @@ export const SummaryTable: React.FC = () => {
                         전화번호
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.phone || ""}
                         disabled
                       />
@@ -647,7 +727,7 @@ export const SummaryTable: React.FC = () => {
                         팩스
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.fax || ""}
                         disabled
                       />
@@ -664,7 +744,7 @@ export const SummaryTable: React.FC = () => {
                         담당자명
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.manager_name || ""}
                         disabled
                       />
@@ -674,7 +754,7 @@ export const SummaryTable: React.FC = () => {
                         직책
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.manager_position || ""}
                         disabled
                       />
@@ -684,7 +764,7 @@ export const SummaryTable: React.FC = () => {
                         휴대폰
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.manager_mobile || ""}
                         disabled
                       />
@@ -694,7 +774,7 @@ export const SummaryTable: React.FC = () => {
                         이메일
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.manager_email || ""}
                         disabled
                       />
@@ -704,7 +784,7 @@ export const SummaryTable: React.FC = () => {
                         계산서 이메일
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.invoice_email || ""}
                         disabled
                       />
@@ -732,7 +812,7 @@ export const SummaryTable: React.FC = () => {
                         K2B 발송자
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.report_writer ? entry.report_writer.split(',')[0].trim() : (entry.k2b_sender || "")}
                         disabled
                       />
@@ -742,7 +822,7 @@ export const SummaryTable: React.FC = () => {
                         소재지 관할청
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
                         value={entry.office_jurisdiction || ""}
                         disabled
                       />
@@ -753,15 +833,31 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정비 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정비 정보</h4>
-                  <div className="grid grid-cols-4 gap-4 w-full px-1">
+                  <div className="grid grid-cols-1 md:grid-cols-5 print:grid-cols-5 gap-2 w-full px-1">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         전자계산서 발행일
                       </label>
                       <Input
-                        type="date"
-                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black"
+                        type="text"
+                        className="h-11 md:h-10 text-base md:text-sm bg-white font-bold text-black text-center"
                         value={normalizeDateForInput(entry.electronic_invoice_date)}
+                        disabled
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정비(합계)
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-center"
+                        type="text"
+                        value={formatCurrency(
+                          entry.measurement_fee_total || 
+                          (entry.national_support_status === "비대상" 
+                            ? (entry.measurement_fee_business || 0) 
+                            : (entry.measurement_fee_business || 0) + (entry.measurement_fee_national || 0))
+                        )}
                         disabled
                       />
                     </div>
@@ -770,18 +866,8 @@ export const SummaryTable: React.FC = () => {
                         측정비(사업장)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-left"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-center"
                         value={formatCurrency(entry.measurement_fee_business)}
-                        disabled
-                      />
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        국고
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black"
-                        value={entry.national_support_status || ""}
                         disabled
                       />
                     </div>
@@ -790,8 +876,18 @@ export const SummaryTable: React.FC = () => {
                         측정비(국고)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-left"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-white font-bold text-black text-center"
                         value={formatCurrency(entry.measurement_fee_national)}
+                        disabled
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        국고
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white text-center"
+                        value={entry.national_support_status || ""}
                         disabled
                       />
                     </div>
@@ -803,9 +899,9 @@ export const SummaryTable: React.FC = () => {
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">특이사항</h4>
                   <div className="p-1">
                     <div className="w-full h-32 p-3 border rounded-lg bg-white text-base md:text-sm shadow-sm font-bold text-black overflow-y-auto whitespace-pre-wrap">
-                      {(entry.special_notes || "").split('\n').map((line, i) => (
+                      {(entry.special_notes || "").split('\n').map((line: string, i: number) => (
                         <div key={i} className={line.trim().startsWith('[데이터 불일치]') ? "text-red-600 font-bold" : ""}>
-                          {line.split(/(\[\[.*?\]\])/).map((part, index) => {
+                          {line.split(/(\[\[.*?\]\])/).map((part: string, index: number) => {
                             if (part.startsWith('[[') && part.endsWith(']]')) {
                               return (
                                 <span key={index} className="bg-yellow-300 text-black font-extrabold px-0.5 rounded-sm mx-0.5 print:bg-yellow-300 print:text-black">
@@ -987,11 +1083,11 @@ export const SummaryTable: React.FC = () => {
               <>
                 {/* 데스크톱 테이블 뷰 (768px 이상) */}
                 <div className="hidden md:block">
-                  <Table maxHeight="max-h-[calc(100vh-300px)]">
-                    <TableHeader>
+                  <Table maxHeight="max-h-[calc(100vh-320px)]">
+                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black">
                       <TableRow>
-                        <TableHead className="w-8 text-center bg-surface-50 p-0">
-                          <div className="flex justify-center">
+                        <TableHead className="w-[45px] text-center p-0 pl-2.5">
+                          <div className="flex justify-center items-center h-full">
                             <input
                               type="checkbox"
                               className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 h-4 w-4"
@@ -1000,46 +1096,54 @@ export const SummaryTable: React.FC = () => {
                             />
                           </div>
                         </TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">측정년도</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">측정주기</TableHead>
-                        <TableHead className="w-[200px] text-xs bg-surface-50">사업장명</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">공문연번</TableHead>
-                        <TableHead className="w-12 text-center text-xs bg-surface-50">연번</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50 px-1">5인이상</TableHead>
-                        <TableHead className="w-20 text-center text-xs bg-surface-50">측정시작일</TableHead>
-                        <TableHead className="w-20 text-center text-xs bg-surface-50">측정종료일</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">측정자</TableHead>
-                        <TableHead className="w-16 text-center text-xs bg-surface-50">예비조사자</TableHead>
-                        <TableHead className="w-16 text-center text-xs bg-surface-50">실측정자</TableHead>
-                        <TableHead className="w-16 text-center text-xs bg-surface-50">보고서 담당</TableHead>
-                        <TableHead className="w-14 text-center text-xs bg-surface-50">완료여부</TableHead>
-                        <TableHead className="w-12 text-center text-xs bg-surface-50">작업</TableHead>
+                        <TableHead className="w-20 !text-left !pl-2.5 text-xs font-bold text-slate-800">측정년도</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정주기</TableHead>
+                        <TableHead className="w-[220px] text-left text-xs font-bold text-slate-800">사업장명</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">공문연번</TableHead>
+                        <TableHead className="w-16 text-center text-xs font-bold text-slate-800">연번</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">5인이상</TableHead>
+                        <TableHead className="w-24 text-center text-xs font-bold text-slate-800">측정시작일</TableHead>
+                        <TableHead className="w-24 text-center text-xs font-bold text-slate-800">측정종료일</TableHead>
+                        <TableHead className="w-12 text-center text-xs font-bold text-slate-800">일수</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정자</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">예비조사자</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">실측정자</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">보고서 담당</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">완료여부</TableHead>
+                        <TableHead className="w-16 text-center text-xs font-bold text-slate-800">작업</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {results.map((entry) => (
-                        <TableRow key={entry.id} className="hover:bg-slate-50/50">
-                          <TableCell className="p-1 text-center">
-                            <input
-                              type="checkbox"
-                              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 h-4 w-4"
-                              checked={selectedIds.has(entry.id)}
-                              onChange={(e) => handleSelect(entry.id, e.target.checked)}
-                            />
+                        <TableRow 
+                          key={entry.id} 
+                          className="hover:bg-blue-50/40 border-b border-slate-100 last:border-0 group relative growable-row transition-colors"
+                        >
+                          <TableCell className="w-[45px] py-3 pl-2.5 relative">
+                            <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                            <div className="flex items-center">
+                              <input
+                                type="checkbox"
+                                className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 h-4 w-4 cursor-pointer"
+                                checked={selectedIds.has(entry.id)}
+                                onChange={(e) => handleSelect(entry.id, e.target.checked)}
+                              />
+                            </div>
                           </TableCell>
-                          <TableCell className="p-1 text-center text-xs font-medium">{entry.measurement_year}</TableCell>
-                          <TableCell className="p-1 text-center text-xs">{entry.measurement_period}</TableCell>
-                          <TableCell className="p-1 font-medium text-xs truncate max-w-[200px]" title={entry.business_name}>{entry.business_name}</TableCell>
-                          <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
+                          <TableCell className="w-20 !text-left !pl-2.5 text-xs text-slate-600 font-medium py-3 px-1">{entry.measurement_year}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.measurement_period}</TableCell>
+                          <TableCell className="w-[220px] text-left font-bold text-xs py-3 px-1 truncate max-w-[220px]" title={entry.business_name}>
+                            {entry.business_name}
+                          </TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {entry.document_number || "-"}
                           </TableCell>
-                          <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
+                          <TableCell className="w-16 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {entry.sequence_number || "-"}
                           </TableCell>
-                          <TableCell className="p-1 bg-surface-50 font-mono text-center text-xs">
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
                             {entry.five_plus_sequence || "-"}
                             {(() => {
-                              // 1. 정확히 일치하는 주기 검색
                               let quota = quotas.find(
                                 (q) =>
                                   q.year === entry.measurement_year &&
@@ -1047,7 +1151,6 @@ export const SummaryTable: React.FC = () => {
                                   q.office_name === entry.designated_office
                               );
 
-                              // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
                               if (!quota && entry.measurement_period && entry.measurement_period.includes('(수시)')) {
                                 const basePeriod = entry.measurement_period.replace('(수시)', '');
                                 quota = quotas.find(
@@ -1061,38 +1164,58 @@ export const SummaryTable: React.FC = () => {
                               return quota ? <span className="text-gray-400 text-[10px] ml-1">/ {quota.quota}</span> : null;
                             })()}
                           </TableCell>
-                          <TableCell className="p-1 text-center text-xs">
-                            {entry.measurement_start_date
-                              ? formatDateYYYYMMDD(entry.measurement_start_date)
-                              : "-"}
+                          <TableCell className="w-24 text-center text-xs text-slate-600 font-medium py-3 px-1">
+                            {entry.measurement_start_date ? formatDateYYYYMMDD(entry.measurement_start_date) : "-"}
                           </TableCell>
-                          <TableCell className="p-1 text-center text-xs">
-                            {entry.measurement_end_date
-                              ? formatDateYYYYMMDD(entry.measurement_end_date)
-                              : "-"}
+                          <TableCell className="w-24 text-center text-xs text-slate-600 font-medium py-3 px-1">
+                            {entry.measurement_end_date ? formatDateYYYYMMDD(entry.measurement_end_date) : "-"}
                           </TableCell>
-                          <TableCell className="p-1 text-center text-xs text-text-600">{entry.measurer || "-"}</TableCell>
-                          <TableCell className="p-1 text-center text-xs text-text-600">{entry.preliminary_surveyor || "-"}</TableCell>
-                          <TableCell className="p-1 text-center text-xs text-text-600">{entry.actual_measurer || "-"}</TableCell>
-                          <TableCell className="p-1 text-center text-xs text-text-600">{entry.report_writer || "-"}</TableCell>
-                          <TableCell className="p-1 text-center">
+                          <TableCell className="w-12 text-center text-xs text-slate-600 font-medium py-3 px-1">
+                            {entry.measurement_days || (() => {
+                              const surveys = entry.all_surveys || [];
+                              if (surveys.length === 0) return "-";
+                              const uniqueDates = new Set(surveys.map(s => s.measurement_date).filter(Boolean));
+                              return uniqueDates.size > 0 ? uniqueDates.size : "-";
+                            })()}
+                          </TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
+                            {(() => {
+                               const names = new Set<string>();
+                               (entry.all_surveys || []).forEach(s => {
+                                 if (s.measurer) s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                               });
+                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.measurer || "-");
+                            })()}
+                          </TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.preliminary_surveyor || "-"}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
+                            {(() => {
+                               const names = new Set<string>();
+                               (entry.all_surveys || []).forEach(s => {
+                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                               });
+                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.actual_measurer || "-");
+                            })()}
+                          </TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.report_writer || "-"}</TableCell>
+                          <TableCell className="w-20 text-center py-3 px-1">
                             <span
-                              className={`px-1.5 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${entry.completion_status === "완료"
-                                ? "bg-success-100 text-success-700"
-                                : "bg-warning-100 text-warning-700"
+                              className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap shadow-sm border ${entry.completion_status === "완료"
+                                ? "bg-green-100 text-green-700 border-green-200"
+                                : "bg-orange-50 text-orange-600 border-orange-100"
                                 }`}
                             >
                               {entry.completion_status}
                             </span>
                           </TableCell>
-                          <TableCell className="p-1 text-center">
+                          <TableCell className="w-16 text-center py-3 px-1">
                             <Button
                               variant="secondary"
                               size="sm"
                               onClick={() => handleEdit(entry)}
-                              className={`h-7 px-1.5 text-xs ${entry.completion_status === "완료"
-                                ? ""
-                                : "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border-yellow-200"
+                              className={`h-7 px-2 text-[11px] font-bold shadow-sm transition-all duration-200 ${entry.completion_status === "완료"
+                                ? "bg-white hover:bg-slate-50 border-slate-200"
+                                : "bg-amber-100 hover:bg-amber-200 text-amber-900 border-amber-200"
                                 }`}
                             >
                               {entry.completion_status === "완료" ? "조회" : "수정"}
@@ -1146,19 +1269,57 @@ export const SummaryTable: React.FC = () => {
                       <div className="grid grid-cols-2 gap-y-2.5 gap-x-4 text-sm mt-4 p-3 bg-surface-50 rounded-lg">
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">공문연번</span>
-                          <p className="font-mono text-xs font-bold text-text-800">{entry.document_number || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">{entry.document_number || "-"}</p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">연번</span>
-                          <p className="font-mono text-xs font-bold text-text-800">{entry.sequence_number || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">{entry.sequence_number || "-"}</p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">5인 이상 연번</span>
+                          <p className="text-xs font-medium text-slate-600">{entry.five_plus_sequence || "-"}</p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">측정일수</span>
+                          <p className="text-xs font-medium text-slate-600">
+                            {entry.measurement_days || (() => {
+                              const surveys = entry.all_surveys || [];
+                              const uniqueDates = new Set(surveys.map(s => s.measurement_date).filter(Boolean));
+                              return uniqueDates.size > 0 ? `${uniqueDates.size}일` : "-";
+                            })()}
+                          </p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">측정자</span>
-                          <p className="font-medium text-text-700">{entry.measurer || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">
+                            {(() => {
+                               const names = new Set<string>();
+                               (entry.all_surveys || []).forEach(s => {
+                                 if (s.measurer) s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                               });
+                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.measurer || "-");
+                            })()}
+                          </p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">예비조사자</span>
+                          <p className="text-xs font-medium text-slate-600">{entry.preliminary_surveyor || "-"}</p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">실측정자</span>
+                          <p className="text-xs font-medium text-slate-600">
+                            {(() => {
+                               const names = new Set<string>();
+                               (entry.all_surveys || []).forEach(s => {
+                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                               });
+                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.actual_measurer || "-");
+                            })()}
+                          </p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">보고서 담당</span>
-                          <p className="font-medium text-text-700">{entry.report_writer || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">{entry.report_writer || "-"}</p>
                         </div>
                       </div>
 
@@ -1226,19 +1387,19 @@ export const SummaryTable: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
-                    <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
                       {selectedEntry.document_number || "-"}
                     </div>
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">연번</label>
-                    <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
                       {selectedEntry.sequence_number || "-"}
                     </div>
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
-                    <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
                       {selectedEntry.five_plus_sequence || "-"}
                       {(() => {
                         // 1. 정확히 일치하는 주기 검색
@@ -1266,22 +1427,42 @@ export const SummaryTable: React.FC = () => {
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
-                    <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                      {selectedEntry.preliminary_surveyor || "-"}
-                      {selectedEntry.survey_code && (
-                        <span className="text-text-500 ml-1.5 font-normal">({selectedEntry.survey_code})</span>
-                      )}
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
+                      {(() => {
+                         const surveys = selectedEntry.all_surveys || [];
+                         if (surveys.length === 0) return selectedEntry.preliminary_surveyor || "-";
+                         const surveyor = selectedEntry.preliminary_surveyor || "-";
+                         const codes = surveys
+                           .filter(s => s.measurement_date && s.survey_code)
+                           .map(s => surveys.length === 1 
+                            ? s.survey_code 
+                            : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
+                          )
+                           .join(", ");
+                         return codes ? `${surveyor} (${codes})` : surveyor;
+                      })()}
                     </div>
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
-                    <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                      {selectedEntry.measurer || "-"}
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
+                       {(() => {
+                         const surveys = selectedEntry.all_surveys || [];
+                         if (surveys.length === 0) return selectedEntry.measurer || "-";
+                         const names = new Set<string>();
+                         surveys.forEach(s => {
+                           if (s.measurer) {
+                             s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                           }
+                         });
+                         if (names.size === 0) return selectedEntry.measurer || "-";
+                         return Array.from(names).sort().join(", ");
+                      })()}
                     </div>
                   </div>
                   <div className="p-1">
                     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">보고서 담당</label>
-                    <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
+                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
                       {selectedEntry.report_writer || "-"}
                     </div>
                   </div>
@@ -1297,14 +1478,14 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정시작일
                       </label>
                       <Input
                         type="date"
-                        className="h-11 md:h-10 text-base md:text-sm"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-semibold font-medium md:text-text-900 text-slate-600"
                         value={normalizeDateForInput(editFormData.measurement_start_date)}
                         onChange={(e) => {
                           const startDate = e.target.value;
@@ -1325,12 +1506,29 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         type="date"
-                        className="h-11 md:h-10 text-base md:text-sm"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-semibold font-medium md:text-text-900 text-slate-600"
                         value={normalizeDateForInput(editFormData.measurement_end_date)}
                         onChange={(e) =>
                           setEditFormData({
                             ...editFormData,
                             measurement_end_date: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정일수
+                      </label>
+                      <Input
+                        type="number"
+                        className="h-11 md:h-10 text-base md:text-sm font-bold text-primary-600"
+                        placeholder="일수 입력"
+                        value={editFormData.measurement_days || ""}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            measurement_days: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
                       />
@@ -1341,7 +1539,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 사업장 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">사업장 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-12 print:grid-cols-12 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 print:grid-cols-12 gap-3 md:gap-4">
                     <div className="md:col-span-6 print:col-span-6 p-1">
                       <label className="block text-sm font-bold text-text-800 mb-1.5 ml-0.5 print:text-base">
                         사업장명 *
@@ -1464,7 +1662,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 담당자 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">담당자 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         담당자명
@@ -1561,7 +1759,7 @@ export const SummaryTable: React.FC = () => {
                 {/* K2B 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">K2B 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         K2B 발송일
@@ -1605,15 +1803,15 @@ export const SummaryTable: React.FC = () => {
                 {/* 측정비 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">측정비 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-5 print:grid-cols-5 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         전자계산서 발행일
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
-                        type="date"
-                        value={normalizeDateForInput(editFormData.electronic_invoice_date)}
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center"
+                        type="text"
+                        value={editFormData.electronic_invoice_date || ""}
                         onChange={(e) =>
                           setEditFormData({ ...editFormData, electronic_invoice_date: e.target.value })
                         }
@@ -1621,10 +1819,27 @@ export const SummaryTable: React.FC = () => {
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        측정비(합계)
+                      </label>
+                      <Input
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center"
+                        type="text"
+                        value={formatCurrency(
+                          editFormData.measurement_fee_total || 
+                          (editFormData.national_support_status === "비대상" 
+                            ? (parseFloat(parseCurrency(editFormData.measurement_fee_business)) || 0)
+                            : (parseFloat(parseCurrency(editFormData.measurement_fee_business)) || 0) + (parseFloat(parseCurrency(editFormData.measurement_fee_national)) || 0))
+                        )}
+                        readOnly
+                        placeholder="자동 계산됨"
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정비(사업장)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center"
                         type="text"
                         value={formatCurrency(editFormData.measurement_fee_business)}
                         onChange={(e) => {
@@ -1639,30 +1854,10 @@ export const SummaryTable: React.FC = () => {
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        국고
-                      </label>
-                      <Select
-                        className="h-11 md:h-10 py-2 text-base md:text-sm shadow-sm text-center"
-                        value={editFormData.national_support_status || ""}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          // "대상"을 "지원"으로 변환
-                          const convertedValue = value === "대상" ? "지원" : value;
-                          setEditFormData({ ...editFormData, national_support_status: convertedValue || "" });
-                        }}
-                        options={[
-                          { value: "", label: "선택" },
-                          { value: "지원", label: "지원" },
-                          { value: "비대상", label: "비대상" },
-                        ]}
-                      />
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         측정비(국고)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center"
                         type="text"
                         value={formatCurrency(editFormData.measurement_fee_national)}
                         onChange={(e) => {
@@ -1672,7 +1867,31 @@ export const SummaryTable: React.FC = () => {
                             measurement_fee_national: parsed ? parseFloat(parsed) : null,
                           });
                         }}
-                        placeholder="숫자만 입력"
+                        disabled={editFormData.national_support_status === "비대상"}
+                        placeholder={editFormData.national_support_status === "비대상" ? "-" : "숫자만 입력"}
+                      />
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                        국고
+                      </label>
+                      <Select
+                        className="h-11 md:h-10 py-2 text-base md:text-sm shadow-sm text-center"
+                        value={editFormData.national_support_status || ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          const newData = { ...editFormData, national_support_status: value || "" };
+                          // [New] 비대상 선택 시 국고 측정비 초기화
+                          if (value === "비대상") {
+                            newData.measurement_fee_national = null;
+                          }
+                          setEditFormData(newData);
+                        }}
+                        options={[
+                          { value: "", label: "선택" },
+                          { value: "대상", label: "대상" },
+                          { value: "비대상", label: "비대상" },
+                        ]}
                       />
                     </div>
                   </div>

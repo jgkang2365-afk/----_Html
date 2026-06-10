@@ -14,6 +14,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 interface OtherRevenueTableProps {
   data: OtherRevenue[];
+  onAdd: () => void;
   onEdit: (item: OtherRevenue) => void;
   formatCurrency: (amount: number | null | undefined) => string;
   otherFilters: any;
@@ -25,6 +26,7 @@ interface OtherRevenueTableProps {
 
 export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
   data,
+  onAdd,
   onEdit,
   formatCurrency,
   otherFilters,
@@ -64,6 +66,15 @@ export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
             />
           </div>
           <Button
+            variant="primary"
+            size="sm"
+            className="h-9 text-xs ml-2 font-bold bg-primary-600 hover:bg-primary-700 shadow-sm"
+            onClick={onAdd}
+          >
+            <span className="mr-1.5 font-bold">＋</span>
+            기타 매출 등록
+          </Button>
+          <Button
             variant="secondary"
             size="sm"
             className="h-9 text-xs ml-1"
@@ -77,8 +88,8 @@ export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
       <div className="overflow-x-auto border rounded-xl shadow-md bg-white">
         <Table maxHeight="max-h-[600px]">
           <TableHeader>
-            <TableRow className="bg-sky-100 hover:bg-sky-100 border-b-2 border-sky-200">
-              <TableHead className="text-center font-bold py-3 px-3 text-black w-[60px]">연번</TableHead>
+            <TableRow className="bg-sky-100 border-b-2 border-sky-200 pointer-events-none">
+              <TableHead className="text-center font-bold py-3 px-3 text-black w-[60px] pl-2.5">연번</TableHead>
               <TableHead className="font-bold py-3 px-4 text-black">항목명</TableHead>
               <TableHead className="text-center font-bold py-3 px-3 text-black w-[100px]">매출년도</TableHead>
               <TableHead className="text-center font-bold py-3 px-3 text-black w-[100px]">매출주기</TableHead>
@@ -101,8 +112,12 @@ export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
               </TableRow>
             ) : (
               data.map((item, index) => (
-                <TableRow key={item.id} className="hover:bg-blue-50/30 transition-colors border-b border-gray-100">
-                  <TableCell className="text-center py-3 px-3 text-gray-600">{index + 1}</TableCell>
+                <TableRow key={item.id} className="hover:bg-blue-50/40 transition-colors border-b border-gray-100 group relative growable-row">
+                  <TableCell className="w-[60px] text-center py-3 px-3 text-gray-600 pl-2.5 relative">
+                    {/* 표준 블루 인디케이터 바 */}
+                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                    {index + 1}
+                  </TableCell>
                   <TableCell className="py-3 px-4 font-medium text-black">{item.item_name}</TableCell>
                   <TableCell className="text-center py-3 px-3 text-black">{item.revenue_year || "-"}</TableCell>
                   <TableCell className="text-center py-3 px-3 text-black">{item.revenue_period || "-"}</TableCell>
@@ -117,7 +132,7 @@ export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
                   <TableCell className="py-3 px-4 text-sm text-gray-600 truncate max-w-[150px]">{item.notes || "-"}</TableCell>
                   <TableCell className="text-center py-3 px-3">
                     <Button variant="secondary" size="sm" onClick={() => onEdit(item)} className="px-2 py-1 text-xs">
-                      수정
+                      관리
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -125,8 +140,12 @@ export const OtherRevenueTable: React.FC<OtherRevenueTableProps> = ({
             )}
             {/* 현재 페이지 합계 행 추가 */}
             {data.length > 0 && (
-              <TableRow className="bg-slate-50 border-t-2 border-slate-200 sticky bottom-0 z-10 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
-                <TableCell colSpan={5} className="text-center font-bold text-slate-700 py-3">현재 페이지 합계</TableCell>
+              <TableRow className="bg-slate-50 border-t-2 border-slate-200 sticky bottom-0 z-10 shadow-[0_-2px_4px_rgba(0,0,0,0.05)] group relative growable-row">
+                <TableCell colSpan={5} className="text-center font-bold text-slate-700 py-3 pl-2.5 relative">
+                  {/* 표준 블루 인디케이터 바 */}
+                  <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                  현재 페이지 합계
+                </TableCell>
                 <TableCell className="text-right font-bold text-slate-700">
                   {formatCurrency(data.reduce((sum, item) => sum + (item.supply_amount || 0), 0))}원
                 </TableCell>

@@ -93,6 +93,22 @@ export async function getBestReferenceData(
         }
     }
 
+    // 2-c. [2순위용] 최근 3주기 이력에서 업종 분류 조회 (Target에 없을 경우를 대비)
+    let journalCategory: string | null = null;
+    const { data: recentJournals } = await supabase
+        .from("measurement_journal")
+        .select("business_category, measurement_year, measurement_period")
+        .eq("code", code)
+        .order("measurement_year", { ascending: false })
+        .order("measurement_period", { ascending: false })
+        .limit(3);
+    
+    if (recentJournals && recentJournals.length > 0) {
+        // 유효한 첫 번째 업종 분류를 찾음
+        const match = recentJournals.find(j => j.business_category);
+        if (match) journalCategory = match.business_category;
+    }
+
     // 3. 데이터 병합 (계획 + 마스터)
     if (targetMatch || masterData) {
         const target = targetMatch ? mapTargetBusinessToRef(targetMatch) : {};
@@ -102,7 +118,9 @@ export async function getBestReferenceData(
 
         // A. 계획 테이블이 권위 있는 필드 (국고지원, 업종분류)
         mergedData.national_support_status = target.national_support_status || master.national_support_status;
-        mergedData.business_category = target.business_category || master.business_category;
+        
+        // 업종분류 우선순위: 1. Target -> 2. Journal(3주기) -> 3. null (Master 차단)
+        mergedData.business_category = target.business_category || journalCategory || null;
 
         // B. 측정사업장(Master)이 권위 있는 필드 (담당자, 계산서 정보, 개시번호, 총인원 등)
         mergedData.manager_name = master.manager_name || target.manager_name;

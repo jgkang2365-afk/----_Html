@@ -335,11 +335,20 @@ export async function assignAllNumbers(journalData: {
   document_number?: string | null;
   sequence_number?: string | null;
   five_plus_sequence?: string | null;
+  is_skip_numbering?: boolean;
 }): Promise<{
-  document_number: string;
-  sequence_number: string;
-  five_plus_sequence: string;
+  document_number: string | null;
+  sequence_number: string | null;
+  five_plus_sequence: string | null;
 }> {
+  // 번호 부여 제외 옵션이 활성화된 경우 null 반환
+  if (journalData.is_skip_numbering) {
+    return {
+      document_number: null,
+      sequence_number: null,
+      five_plus_sequence: null,
+    };
+  }
   // 약칭으로 정규화 (기존 전체명과 호환) - Trim Input
   const normalizedOffice = toShortName(String(journalData.designated_office).trim());
 

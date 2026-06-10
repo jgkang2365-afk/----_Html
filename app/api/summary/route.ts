@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
     if (codes.length > 0) {
       const { data: biData, error: biError } = await supabase
         .from("business_info")
-        .select("code, representative_name, commencement_number, total_employees")
+        .select("code, representative_name, total_employees")
         .in("code", codes);
 
       if (biError) {
@@ -197,38 +197,26 @@ export async function GET(request: NextRequest) {
 
     // 예비조사 정보를 조인하여 요약 데이터 생성
     const summaryData = (journals || []).map((journal: any) => {
-      // 해당 측정일지의 년도와 주기에 맞는 예비조사 찾기
-      const journalYear = journal.measurement_year;
-      const journalPeriod = journal.measurement_period; // "상반기" or "하반기"
+      const mb = journal.code ? mbMap.get(journal.code) : null;
+      const bi = journal.code ? biMap.get(journal.code) : null;
 
-      // 해당 코드의 모든 예비조사 필터링
+      // 해당 코드의 모든 예비조사 필터링 (다중 일자 지원을 위해 목록 전체 유지)
       const businessSurveys = surveys.filter(s => s.code === journal.code);
 
-      // 기간이 일치하는 예비조사 찾기
-      let survey = businessSurveys.find(s => {
+      // 현재 저널의 주기(year, period)와 일치하는 예비조사만 필터링
+      const relatedSurveys = businessSurveys.filter(s => {
         if (!s.measurement_date) return false;
         const sDate = new Date(s.measurement_date);
         const sYear = sDate.getFullYear();
         const sMonth = sDate.getMonth() + 1;
         const sPeriod = sMonth <= 6 ? "상반기" : "하반기";
-
-        return sYear === journalYear && (journalPeriod.includes(sPeriod));
+        return sYear === journal.measurement_year && (journal.measurement_period.includes(sPeriod));
       });
 
-      // 만약 기간 일치 항목이 없으면 가장 최근 것 사용 (기존 로직 주석 처리 또는 제거)
-      // 변경(2025.02.21): 과거 데이터(24년, 25년 초)가 표시되어 혼동을 주는 문제로 인해 일치하는 주기가 없으면 null 처리
-      // if (!survey && businessSurveys.length > 0) {
-      //   survey = businessSurveys.sort((a, b) =>
-      //     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      //   )[0];
-      // }
-
-      const mb = journal.code ? mbMap.get(journal.code) : null;
-      const bi = journal.code ? biMap.get(journal.code) : null;
+      // 기존 UI 호환성을 위한 대표 survey (첫 번째 항목)
+      const survey = relatedSurveys.length > 0 ? relatedSurveys[0] : null;
 
       // Find target for National Support Status fallback
-      // Strict match on code, year, period
-      // 1. Strict match on code, year, period
       let target = targets.find(t =>
         t.code === journal.code &&
         t.year === journal.measurement_year &&
@@ -244,22 +232,23 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      // Priority: Journal > Target
       const nationalSupportStatus = journal.national_support_status || target?.national_support_status || null;
 
       return {
         id: journal.id,
         journal_id: journal.id,
         survey_id: survey?.id || null,
+        all_surveys: relatedSurveys, // [New] 연관된 모든 예비조사 목록 추가
         code: journal.code,
         measurement_year: journal.measurement_year,
         measurement_period: journal.measurement_period,
         note: journal.note,
-        document_number: journal.document_number, // 수정 불가
-        sequence_number: journal.sequence_number, // 수정 불가
-        five_plus_sequence: journal.five_plus_sequence, // 수정 불가
+        document_number: journal.document_number,
+        sequence_number: journal.sequence_number,
+        five_plus_sequence: journal.five_plus_sequence,
         measurement_start_date: journal.measurement_start_date,
         measurement_end_date: journal.measurement_end_date,
+        measurement_days: journal.measurement_days,
         measurer: journal.measurer,
         preliminary_surveyor: survey?.preliminary_surveyor || null,
         actual_measurer: survey?.actual_measurer || null,
@@ -269,9 +258,9 @@ export async function GET(request: NextRequest) {
         survey_end_date: survey?.end_date || null,
         survey_measurement_weekdays: survey?.measurement_weekdays || null,
         office_jurisdiction: journal.office_jurisdiction,
-        designated_office: journal.designated_office ? toShortName(journal.designated_office) : null, // 약칭으로 변환
+        designated_office: journal.designated_office ? toShortName(journal.designated_office) : null,
         business_name: journal.business_name,
-        representative_name: journal.representative_name || mb?.representative_name || bi?.representative_name || null, // 대표자명 우선순위: Journal > MB > BI
+        representative_name: journal.representative_name || mb?.representative_name || bi?.representative_name || null,
         total_employees: (() => {
           const val = journal.total_employees ?? mb?.total_employees ?? bi?.total_employees;
           if (val === null || val === undefined) return null;
@@ -280,13 +269,13 @@ export async function GET(request: NextRequest) {
         })(),
         business_number: journal.business_number,
         industrial_accident_number: journal.industrial_accident_number,
-        commencement_number: journal.commencement_number || mb?.commencement_number || bi?.commencement_number || null, // 개시번호는 빈 문자열일 수 있으므로 || 유지 또는 취사선택
+        commencement_number: journal.commencement_number || mb?.commencement_number || bi?.commencement_number || null,
         national_support_status: nationalSupportStatus,
-        manager_name: journal.manager_name || mb?.manager_name || null, // 담당자명 fallback
-        manager_position: journal.manager_position || mb?.manager_position || null, // 직위 fallback
-        manager_mobile: journal.manager_mobile || mb?.manager_mobile || null, // 휴대폰 fallback
-        manager_email: journal.manager_email || mb?.manager_email || null, // 이메일 fallback
-        invoice_email: journal.invoice_email || mb?.invoice_email || null, // 계산서 이메일 fallback
+        manager_name: journal.manager_name || mb?.manager_name || null,
+        manager_position: journal.manager_position || mb?.manager_position || null,
+        manager_mobile: journal.manager_mobile || mb?.manager_mobile || null,
+        manager_email: journal.manager_email || mb?.manager_email || null,
+        invoice_email: journal.invoice_email || mb?.invoice_email || null,
         invoice_email_2: journal.invoice_email_2,
         address: journal.address,
         phone: journal.phone,

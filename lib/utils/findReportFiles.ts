@@ -36,6 +36,8 @@ export function findReportFiles(options: {
         const basePath = join(storageRoot, `${year}년`, semester);
 
         if (!fs.existsSync(basePath)) {
+            console.warn(`[findReportFiles] 경로를 찾을 수 없습니다: ${basePath}`);
+            console.log(`[findReportFiles] 현재 STORAGE_ROOT: ${storageRoot}`);
             return { report: null, invoice: null, dataFile: null, drawings: [], drawingFolderPath: '' };
         }
 

@@ -8,6 +8,7 @@ interface User {
   email: string;
   name: string;
   role: "관리자" | "사용자";
+  is_journal_manager?: boolean;
 }
 
 export function useUser() {

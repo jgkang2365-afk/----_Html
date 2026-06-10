@@ -8,6 +8,14 @@ import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
+import {
+    Table,
+    TableHeader,
+    TableBody,
+    TableRow,
+    TableHead,
+    TableCell,
+} from "@/components/ui/Table";
 import { toShortName } from "@/lib/constants/designated-offices";
 import * as XLSX from "xlsx";
 
@@ -39,6 +47,8 @@ interface BusinessEntry {
     future_measurement_period: number | null; // 향후 측정주기
     future_measurement_date: string | null;
     measurement_date: string | null;
+    measurement_end_date: string | null; // 다중일자 종료일
+    daily_staff: any | null; // 일자별 배정 정보 (JSONB)
     notes: string | null;
     updated_at?: string;
     measurement_month?: string | null;
@@ -67,9 +77,9 @@ const OFFICE_OPTIONS = [
 // Status Options Update
 const STATUS_OPTIONS = [
     { value: "전체", label: "전체" },
-    { value: "확정", label: "확정" }, // 실시 -> 확정
-    { value: "미확정", label: "미확정" }, // 미실시 -> 미확정
-    { value: "종료", label: "종료" } // 거래종료 -> 종료
+    { value: "실시", label: "실시" },
+    { value: "미실시", label: "미실시" },
+    { value: "거래종료", label: "거래종료" }
 ];
 
 const MANAGER_OPTIONS = [
@@ -314,14 +324,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         if (filters.isRegistered !== "전체") {
             result = result.filter(item => {
                 const status = item.is_registered_text;
-                if (filters.isRegistered === '확정') {
-                    return status === '확정' || status === '실시';
+                if (filters.isRegistered === '실시') {
+                    return status === '실시' || status === '확정';
                 }
-                if (filters.isRegistered === '미확정') {
-                    return status === '미확정' || status === '미실시' || !status;
+                if (filters.isRegistered === '미실시') {
+                    return status === '미실시' || status === '미확정' || !status;
                 }
-                if (filters.isRegistered === '종료') {
-                    return status === '종료' || status === '거래종료';
+                if (filters.isRegistered === '거래종료') {
+                    return status === '거래종료' || status === '종료' || status === '거래 종료';
                 }
                 return status === filters.isRegistered;
             });
@@ -338,9 +348,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         // Custom Sort: 1. Status (Unconfirmed > Confirmed > Terminated), 2. Month (Asc)
         result.sort((a, b) => {
             const getStatusPriority = (status: string | null) => {
-                if (status === '미확정' || status === '미실시' || !status) return 1;
-                if (status === '확정' || status === '실시') return 2;
-                if (status === '종료' || status === '거래종료') return 3;
+                if (status === '미실시' || status === '미확정' || !status) return 1;
+                if (status === '실시' || status === '확정') return 2;
+                if (status === '거래종료' || status === '종료' || status === '거래 종료') return 3;
                 return 4;
             };
 
@@ -372,7 +382,35 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const handleEditClick = (item: BusinessEntry) => {
         setEditingItem(item);
-        setEditForm({ ...item });
+        
+        // 1일 측정인 경우 보고서 담당자를 측정자에 강제 포함 (데이터 정합성 유지)
+        let initialForm = { ...item };
+        const totalDays = item.daily_staff?.length || 1;
+        
+        if (totalDays === 1 && item.measurer_id) {
+            const measurerName = measurers.find(m => m.id === item.measurer_id)?.name;
+            if (measurerName) {
+                if (!item.daily_staff || item.daily_staff.length === 0) {
+                    // 단일 일자 모드
+                    const collabs = item.collaborators ? item.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
+                    if (!collabs.includes(measurerName)) {
+                        collabs.push(measurerName);
+                        initialForm.collaborators = collabs.join(",");
+                    }
+                } else {
+                    // 다중 일자 UI지만 1일인 경우
+                    const entry = item.daily_staff[0];
+                    let collabs = entry.collaborators || [];
+                    if (!collabs.includes(measurerName)) {
+                        const newDailyStaff = [...item.daily_staff];
+                        newDailyStaff[0] = { ...entry, collaborators: [...collabs, measurerName] };
+                        initialForm.daily_staff = newDailyStaff;
+                    }
+                }
+            }
+        }
+        
+        setEditForm(initialForm);
         setIsEditModalOpen(true);
     };
 
@@ -395,12 +433,20 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     'business_name', 'business_category', 'address',
                     'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
                     'manager_name', 'manager_mobile', 'phone',
-                    'management_status', 'notes', 'measurement_date', 'future_measurement_period',
-                    'future_measurement_date', 'measurer_id', 'period', 'collaborators'
+                    'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
+                    'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff'
                 ];
 
                 const sanitized: any = {};
-                if (raw.is_registered_text !== undefined) sanitized.is_registered = raw.is_registered_text;
+
+                // UI '실시' -> DB '실시'
+                if (raw.is_registered_text !== undefined) {
+                    sanitized.is_registered = (raw.is_registered_text === '확정' || raw.is_registered_text === '실시') ? '실시' : 
+                                             (raw.is_registered_text === '미확정' || raw.is_registered_text === '미실시') ? '미실시' :
+                                             (raw.is_registered_text === '종료' || raw.is_registered_text === '거래종료' || raw.is_registered_text === '거래 종료') ? '거래종료' :
+                                             raw.is_registered_text;
+                }
+
                 if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
                 if (raw.manager_phone !== undefined) sanitized.phone = raw.manager_phone;
 
@@ -412,9 +458,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         sanitized[key] = (raw as any)[key];
                     }
                 });
-
-                if (sanitized.measurement_date === "") sanitized.measurement_date = null;
-                if (sanitized.future_measurement_date === "") sanitized.future_measurement_date = null;
 
                 return sanitized;
             };
@@ -466,8 +509,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
         const updates: Partial<BusinessEntry> = { measurement_date: newDate || null };
         if (newDate) {
-            updates.is_registered = "확정";
-            updates.is_registered_text = "확정";
+            updates.is_registered = "실시";
+            updates.is_registered_text = "실시";
         }
         saveChanges(item.code, updates);
     };
@@ -484,13 +527,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "No": idx + 1,
             "년도": item.year,
             "주기": item.period,
-            "지정지청": item.designated_office,
+            "지정지청": item.designated_office || toShortName(item.office_jurisdiction || ""),
             "사업장명": item.business_name,
             "소재지": item.address,
-            "계획진행": item.is_registered_text === '실시' ? '확정' : item.is_registered_text === '미실시' ? '미확정' : item.is_registered_text,
+            "실시여부": item.is_registered_text === '확정' || item.is_registered_text === '실시' ? '실시' : item.is_registered_text === '미확정' || item.is_registered_text === '미실시' ? '미실시' : item.is_registered_text === '종료' || item.is_registered_text === '거래종료' ? '거래종료' : item.is_registered_text || '미실시',
             "국고결과": item.national_support_status,
             "계획담당": item.plan_manager,
             "업종분류": item.business_category,
+            "담당자명": item.manager_name || "",
+            "휴대폰": item.manager_mobile || "",
+            "전화번호": item.phone || item.manager_phone || "",
             "보고서 담당": item.measurer_id ? measurerMap.get(item.measurer_id) || "" : "",
             "향후측정주기": item.future_measurement_period ? (item.future_measurement_period === 6 ? "6개월" : item.future_measurement_period === 12 ? "1년" : item.future_measurement_period + "개월") : "-",
             "비고": item.notes
@@ -579,8 +625,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     // Grid Column Template
-    // 18 Columns: No(50), 주기(60), 실시여부(80), 국고(60), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 확정일(110), 비고(80), 관리(40)
-    const gridTemplateCols = "50px 60px 80px 60px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
+    // 18 Columns: No(50), 주기(60), 실시여부(80), 국고(60), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 실시일(110), 비고(80), 관리(40)
+    const gridTemplateCols = "45px 60px 80px 60px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
 
     return (
         <div className="p-4 w-full min-w-[1400px]">
@@ -638,7 +684,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 />
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">확정일</span>
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">실시일</span>
                                 <Input
                                     type="date"
                                     value={filters.confirmedDate || ""}
@@ -714,10 +760,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     </div>
 
                     {/* Grid Header Row */}
-                    <div className="bg-surface-50 font-medium text-sm text-slate-600 grid items-center text-center border border-slate-200" style={{ gridTemplateColumns: gridTemplateCols }}>
-                        <div className="py-3">No</div>
+                    <div className="bg-sky-100 font-bold text-sm text-black grid items-center text-center border-x border-t border-slate-200 border-b-2 border-sky-200 pointer-events-none" style={{ gridTemplateColumns: gridTemplateCols }}>
+                        <div className="py-3 text-center">No</div>
                         <div className="py-3">주기</div>
-                        <div className="py-3">계획진행</div>
+                        <div className="py-3">실시여부</div>
                         <div className="py-3">국고</div>
                         <div className="py-3">계획담당</div>
                         <div className="py-3 px-2">업종분류</div>
@@ -730,7 +776,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="py-3">예정월</div>
                         <div className="py-3">예정일</div>
                         <div className="py-3">보고서 담당</div>
-                        <div className="py-3">확정일</div>
+                        <div className="py-3">실시일</div>
                         <div className="py-3">비고</div>
                         <div className="py-3">관리</div>
                     </div>
@@ -746,60 +792,64 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     ) : filteredData.length === 0 ? (
                         <div className="h-40 flex items-center justify-center text-text-500">데이터가 없습니다.</div>
                     ) : (
-                        filteredData.map((item, index) => (
-                            <div key={`${item.code}-${index}`} className="group hover:bg-surface-50 grid items-center text-sm text-slate-700 py-1" style={{ gridTemplateColumns: gridTemplateCols }}>
-                                <div className="text-center">{index + 1}</div>
-                                <div className={`text-center text-xs ${item.period.includes("(수시)") ? "text-red-600 font-bold" : ""}`}>
+                        filteredData.map((item, index) => {
+                            const isTerminated = item.is_registered_text === '거래종료' || item.is_registered_text === '종료';
+                            return (
+                                <div key={`${item.code}-${index}`} className={`group relative hover:bg-blue-50/40 grid items-center text-sm text-slate-700 py-1.5 transition-all duration-150 border-b border-slate-100 last:border-0 growable-row ${isTerminated ? 'opacity-50 grayscale-[0.3]' : ''}`} style={{ gridTemplateColumns: gridTemplateCols }}>
+                                    {/* 표준 호버 인디케이터 바 */}
+                                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+
+                                <div className="text-center font-medium">{index + 1}</div>
+                                <div className={`text-left text-xs ${item.period.includes("(수시)") ? "text-red-600 font-bold" : ""}`}>
                                     {item.period}
                                 </div>
-                                <div className="text-center">
-                                    <select
-                                        className={`w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 text-center cursor-pointer ${(item.is_registered_text === '확정' || item.is_registered_text === '실시') ? 'bg-green-100 text-green-700' :
-                                            (item.is_registered_text === '미확정' || item.is_registered_text === '미실시') ? 'bg-yellow-100 text-yellow-800' :
-                                                item.is_registered_text === '종료' ? 'bg-red-100 text-red-700' :
-                                                    'bg-gray-100'
-                                            }`}
-                                        value={
-                                            item.is_registered_text === '실시' ? '확정' :
-                                                item.is_registered_text === '미실시' ? '미확정' :
-                                                    item.is_registered_text === '거래종료' ? '종료' :
-                                                        item.is_registered_text || '미확정'
-                                        }
-                                        onChange={(e) => {
-                                            const newVal = e.target.value;
-                                            const updates: Partial<BusinessEntry> = {
-                                                is_registered: newVal,
-                                                is_registered_text: newVal
-                                            };
-                                            saveChanges(item.code, updates);
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <option value="미확정" className="bg-white text-black">미확정</option>
-                                        <option value="확정" className="bg-white text-black">확정</option>
-                                        <option value="종료" className="bg-white text-black">종료</option>
-                                    </select>
-                                </div>
-                                <div className="text-center text-xs">{item.national_support_status}</div>
-                                <div className="text-center text-xs">{item.plan_manager}</div>
-                                <div className="px-2 text-center text-xs break-words break-keep" title={item.business_category || ""}>{item.business_category}</div>
-                                <div className="px-2 text-left font-medium break-words break-keep pl-4" title={item.business_name}>{item.business_name}</div>
-                                <div className="px-2 text-left text-xs leading-tight break-words break-keep pl-4">{item.address}</div>
-                                <div className="text-center text-xs">{toShortName(item.office_jurisdiction || "")}</div>
-                                <div className="text-center">
+                                    <div className="px-1 text-left">
+                                        <select
+                                            className={`w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 px-1 cursor-pointer ${(item.is_registered_text === '실시' || item.is_registered_text === '확정') ? 'bg-green-100 text-green-700 font-medium' :
+                                                (item.is_registered_text === '미실시' || item.is_registered_text === '미확정' || !item.is_registered_text) ? 'bg-yellow-100 text-yellow-800 font-medium' :
+                                                    (item.is_registered_text === '거래종료' || item.is_registered_text === '종료' || item.is_registered_text === '거래 종료') ? 'bg-red-50 text-red-500 font-medium border-red-100' :
+                                                        'bg-gray-100'
+                                                }`}
+                                            value={
+                                                (item.is_registered_text === '확정' || item.is_registered_text === '실시') ? '실시' :
+                                                    (item.is_registered_text === '미확정' || item.is_registered_text === '미실시' || !item.is_registered_text) ? '미실시' :
+                                                        (item.is_registered_text === '종료' || item.is_registered_text === '거래종료' || item.is_registered_text === '거래 종료') ? '거래종료' :
+                                                            '미실시'
+                                            }
+                                            onChange={(e) => {
+                                                const newVal = e.target.value;
+                                                saveChanges(item.code, {
+                                                    is_registered_text: newVal
+                                                });
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            style={{ textAlignLast: "left" }}
+                                        >
+                                            <option value="미실시" className="bg-white text-black">미실시</option>
+                                            <option value="실시" className="bg-white text-black">실시</option>
+                                            <option value="거래종료" className="bg-white text-black">거래종료</option>
+                                        </select>
+                                    </div>
+                                <div className="text-left text-xs px-1">{item.national_support_status || "-"}</div>
+                                <div className="text-left text-xs px-1">{item.plan_manager || "-"}</div>
+                                <div className="px-1 text-left text-xs break-words break-keep" title={item.business_category || ""}>{item.business_category || "-"}</div>
+                                <div className="px-1 text-left font-medium break-words break-keep" title={item.business_name}>{item.business_name}</div>
+                                <div className="px-1 text-left text-xs leading-tight break-words break-keep">{item.address}</div>
+                                <div className="text-left text-xs px-1">{toShortName(item.office_jurisdiction || "")}</div>
+                                <div className="text-left px-1">
                                     {(() => {
                                         const businessCount = item.unpaid_count || 0;
                                         const nationalCount = item.national_unpaid_count || 0;
 
-                                        if (businessCount === 0 && nationalCount === 0) return null;
+                                        if (businessCount === 0 && nationalCount === 0) return "-";
 
-                                        let textColor = "text-black";
-                                        if (businessCount > 0) textColor = "text-red-600 font-bold underline";
-                                        else if (nationalCount > 0) textColor = "text-blue-600 font-bold underline";
+                                        let textColor = "text-black text-xs";
+                                        if (businessCount > 0) textColor = "text-red-600 font-bold underline text-xs";
+                                        else if (nationalCount > 0) textColor = "text-blue-600 font-bold underline text-xs";
 
                                         return (
                                             <span
-                                                className={`text-xs cursor-pointer ${textColor}`}
+                                                className={`cursor-pointer ${textColor}`}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     setSelectedUnpaidBusinessName(item.business_name);
@@ -813,12 +863,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         );
                                     })()}
                                 </div>
-                                <div className="text-center text-xs">{item.previous_measurement_date}</div>
-                                <div className="text-center text-xs font-medium text-blue-600">
+                                <div className="text-left text-xs px-1">{item.previous_measurement_date || "-"}</div>
+                                <div className="text-left text-xs font-medium text-blue-600 px-1">
                                     {formatCycle(item.future_measurement_period)}
                                 </div>
-                                <div className="text-center text-xs">{item.measurement_month ? `${item.measurement_month}` : '-'}</div>
-                                <div className="text-center text-xs text-slate-500">
+                                <div className="text-left text-xs px-1">{item.measurement_month ? `${item.measurement_month}월` : '-'}</div>
+                                <div className="text-left text-xs text-slate-500 px-1">
                                     {item.future_measurement_date || calculateScheduledDate(item.previous_measurement_date, item.future_measurement_period || 6)}
                                 </div>
                                 <div className="px-1">
@@ -842,23 +892,31 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         );
                                     })()}
                                 </div>
-                                <div className="px-1">
-                                    <input
-                                        type="date"
-                                        className="w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 bg-transparent text-center"
-                                        defaultValue={item.measurement_date || ""}
-                                        onBlur={(e) => {
-                                            const newVal = e.target.value;
-                                            if (newVal !== (item.measurement_date || "")) {
-                                                const newStatus = newVal ? '확정' : '미확정';
-                                                saveChanges(item.code, {
-                                                    measurement_date: newVal || null,
-                                                    is_registered: newStatus,
-                                                    is_registered_text: newStatus
-                                                });
-                                            }
-                                        }}
-                                    />
+                                <div className="px-1 text-center">
+                                    <div className="flex flex-col gap-0.5">
+                                        <input
+                                            type="date"
+                                            className="w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 bg-transparent text-center"
+                                            defaultValue={item.measurement_date || ""}
+                                            onBlur={(e) => {
+                                                const newVal = e.target.value;
+                                                if (newVal !== (item.measurement_date || "")) {
+                                                    const newStatus = newVal ? '실시' : '미실시';
+                                                    saveChanges(item.code, {
+                                                        measurement_date: newVal || null,
+                                                        measurement_end_date: newVal || null,
+                                                        is_registered_text: newStatus
+                                                    });
+                                                }
+                                            }}
+                                        />
+                                        {/* [The Joo Rule] Guard Logic: 시작일이 없으면 종료일 섹션 자체를 렌더링하지 않음 (찌꺼기 방지) */}
+                                        {(item.measurement_date && item.measurement_end_date && item.measurement_end_date !== item.measurement_date) && (
+                                            <div className="text-[10px] text-slate-400 font-medium">
+                                                ~ {item.measurement_end_date}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="px-1">
                                     <input
@@ -879,13 +937,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     />
                                 </div>
                                 <div className="text-center">
-                                    <button onClick={() => handleEditClick(item)} className="p-1 hover:bg-surface-200 rounded text-text-500">✎</button>
+                                    <button onClick={() => handleEditClick(item)} className="p-1 hover:bg-surface-200 rounded text-slate-500">✎</button>
                                 </div>
                             </div>
-                        ))
-                    )}
-                </div>
+                        );
+                    })
+                )}
             </div>
+        </div>
 
             {/* Modals ... */}
             <Modal isOpen={isExcelModalOpen} onClose={() => setIsExcelModalOpen(false)} title="측정 대상 사업장 엑셀 업로드">
@@ -991,133 +1050,247 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <div className="flex items-center gap-2">
                                     <select
                                         className={`block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm h-10 px-3
-                                            ${editForm.is_registered_text === '확정' ? 'bg-green-100 text-green-700' :
-                                                editForm.is_registered_text === '미확정' ? 'bg-yellow-100 text-yellow-800' :
-                                                    editForm.is_registered_text === '종료' ? 'bg-red-100 text-red-700' : 'bg-white'}`}
-                                        value={editForm.is_registered_text || "미확정"}
+                                            ${(editForm.is_registered_text === '확정' || editForm.is_registered_text === '실시') ? 'bg-green-100 text-green-700' :
+                                                (editForm.is_registered_text === '미확정' || editForm.is_registered_text === '미실시') ? 'bg-yellow-100 text-yellow-800' :
+                                                    (editForm.is_registered_text === '종료' || editForm.is_registered_text === '거래종료') ? 'bg-red-50 text-red-500' : 'bg-white'}`}
+                                        value={
+                                            (editForm.is_registered_text === '확정' || editForm.is_registered_text === '실시') ? '실시' :
+                                                (editForm.is_registered_text === '미확정' || editForm.is_registered_text === '미실시' || !editForm.is_registered_text) ? '미실시' :
+                                                    (editForm.is_registered_text === '종료' || editForm.is_registered_text === '거래종료' || editForm.is_registered_text === '거래 종료') ? '거래종료' :
+                                                        '미실시'
+                                        }
                                         onChange={(e) => setEditForm(prev => ({ ...prev, is_registered_text: e.target.value }))}
                                     >
-                                        <option value="확정" className="bg-white text-black">확정</option>
-                                        <option value="미확정" className="bg-white text-black">미확정</option>
-                                        <option value="종료" className="bg-white text-black">종료</option>
+                                        <option value="미실시" className="bg-white text-black">미실시</option>
+                                        <option value="실시" className="bg-white text-black">실시</option>
+                                        <option value="거래종료" className="bg-white text-black">거래종료</option>
                                     </select>
                                 </div>
-                                <p className="text-xs text-slate-500 mt-1">* &apos;종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
+                                <p className="text-xs text-slate-500 mt-1">* &apos;거래종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
-                                <Select
-                                    options={[
-                                        { value: "", label: "선택" },
-                                        { value: "대상", label: "대상" },
-                                        { value: "비대상", label: "비대상" }
-                                    ]}
-                                    value={editForm.national_support_status || ""}
-                                    onChange={(e) => setEditForm(prev => ({ ...prev, national_support_status: e.target.value }))}
-                                    className="w-full text-center"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">향후 측정주기 (개월)</label>
-                                <Select
-                                    options={[
-                                        { value: "", label: "선택" },
-                                        { value: "6", label: "6" },
-                                        { value: "12", label: "12" }
-                                    ]}
-                                    value={editForm.future_measurement_period?.toString() || ""}
-                                    onChange={(e) => setEditForm(prev => ({ ...prev, future_measurement_period: e.target.value ? parseInt(e.target.value) : null }))}
-                                    className="w-full text-center"
-                                />
-                            </div>
-                            <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">금회예정일</label>
-                                    <Input type="date" value={editForm.future_measurement_date || ""} onChange={(e) => {
-                                        const val = e.target.value;
-                                        setEditForm(prev => {
-                                            const updated = {
+                                       {/* 다중 일자 배정 섹션 */}
+                            <div className="col-span-2 space-y-4">
+                                <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-2">
+                                    <label className="text-sm font-bold text-slate-800">측정 일정 및 인력 배정</label>
+                                    <Button 
+                                        type="button" 
+                                        variant="secondary" 
+                                        className="h-7 text-xs px-2"
+                                        onClick={() => {
+                                            const currentStaff = editForm.daily_staff || [];
+                                            const newDate = ""; 
+                                            setEditForm(prev => ({
                                                 ...prev,
-                                                future_measurement_date: val
-                                            };
-                                            const prevTargetDate = prev.measurement_date || prev.future_measurement_date;
-                                            const newTargetDate = prev.measurement_date || val;
-                                            swapBaeAndKim(prevTargetDate, newTargetDate, updated);
-                                            return updated;
-                                        });
-                                    }} />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">확정일</label>
-                                <Input type="date" value={editForm.measurement_date || ""} onChange={(e) => {
-                                    const val = e.target.value;
-                                    setEditForm(prev => {
-                                        const updated = {
-                                            ...prev,
-                                            measurement_date: val,
-                                            is_registered_text: val ? '확정' : '미확정'
-                                        };
-                                        const prevTargetDate = prev.measurement_date || prev.future_measurement_date;
-                                        const newTargetDate = val || prev.future_measurement_date;
-                                        swapBaeAndKim(prevTargetDate, newTargetDate, updated);
-                                        return updated;
-                                    });
-                                }} />
-                            </div>
-                            {(() => {
-                                const targetDate = editForm.measurement_date || editForm.future_measurement_date;
-                                const isAfter = !targetDate || targetDate >= "2026-06-09";
-                                const currentMeasurers = measurers.filter(u => 
-                                    isAfter ? u.name !== "배윤민" : u.name !== "김민영"
-                                );
-                                return (
-                                    <>
+                                                daily_staff: [...currentStaff, { date: newDate, measurer_id: prev.measurer_id || null, collaborators: prev.collaborators ? prev.collaborators.split(",") : [] }]
+                                            }));
+                                        }}
+                                    >
+                                        + 일자 추가
+                                    </Button>
+                                </div>
+
+                                {(!(editForm.daily_staff) || (editForm.daily_staff.length === 0)) ? (
+                                    /* 기존 단일 일자 UI 유지 (이질감 최소화) */
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1 text-slate-700">실시일</label>
+                                            <Input type="date" value={editForm.measurement_date || ""} onChange={(e) => {
+                                                const val = e.target.value;
+                                                setEditForm(prev => {
+                                                    const updated = {
+                                                        ...prev,
+                                                        measurement_date: val,
+                                                        measurement_end_date: val,
+                                                        is_registered_text: val ? '실시' : '미실시'
+                                                    };
+                                                    const prevTargetDate = prev.measurement_date || prev.future_measurement_date;
+                                                    const newTargetDate = val || prev.future_measurement_date;
+                                                    swapBaeAndKim(prevTargetDate, newTargetDate, updated);
+                                                    return updated;
+                                                });
+                                            }} />
+                                        </div>
                                         <div>
                                             <label className="block text-sm font-medium mb-1 text-slate-700">보고서 담당자</label>
-                                            <Select
-                                                options={[
-                                                    { value: "", label: "선택" },
-                                                    ...currentMeasurers.map(m => ({ value: m.id.toString(), label: m.name }))
-                                                ]}
-                                                value={editForm.measurer_id?.toString() || ""}
-                                                onChange={(e) => setEditForm(prev => ({ ...prev, measurer_id: e.target.value ? parseInt(e.target.value) : null }))}
-                                            />
+                                            {(() => {
+                                                const targetDate = editForm.measurement_date || editForm.future_measurement_date;
+                                                const isAfter = !targetDate || targetDate >= "2026-06-09";
+                                                const currentMeasurers = measurers.filter(u => 
+                                                    isAfter ? u.name !== "배윤민" : u.name !== "김민영"
+                                                );
+                                                return (
+                                                    <Select
+                                                        options={[
+                                                            { value: "", label: "선택" },
+                                                            ...currentMeasurers.map(m => ({ value: m.id.toString(), label: m.name }))
+                                                        ]}
+                                                        value={editForm.measurer_id?.toString() || ""}
+                                                        onChange={(e) => {
+                                                            const newId = e.target.value ? parseInt(e.target.value) : null;
+                                                            const newName = currentMeasurers.find(m => m.id === newId)?.name;
+                                                            setEditForm(prev => {
+                                                                const collaborators = prev.collaborators ? prev.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
+                                                                let newCollabs = [...collaborators];
+                                                                if (newName && !newCollabs.includes(newName)) {
+                                                                    newCollabs.push(newName);
+                                                                }
+                                                                return { ...prev, measurer_id: newId, collaborators: newCollabs.join(",") };
+                                                            });
+                                                        }}
+                                                    />
+                                                );
+                                            })()}
                                         </div>
                                         <div className="col-span-2">
-                                            <label className="block text-sm font-medium mb-2 text-slate-700">협력자 (복수 선택)</label>
+                                            <label className="block text-sm font-medium mb-2 text-slate-700">측정자 (복수 선택)</label>
                                             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 p-3 bg-white border border-slate-200 rounded-md">
-                                                {currentMeasurers.map(m => {
-                                                    // 보고서 담당자는 협력자에서 제외하거나 비활성화 (요구사항: 담당자 외 협력자)
-                                                    const isReportWriter = editForm.measurer_id === m.id;
-                                                    const collaborators = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()) : [];
-                                                    const isChecked = collaborators.includes(m.name);
-
-                                                    return (
-                                                        <label key={m.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 ${isReportWriter ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={isChecked && !isReportWriter}
-                                                                disabled={isReportWriter}
-                                                                onChange={(e) => {
-                                                                    const checked = e.target.checked;
-                                                                    let newCollabs = [...collaborators];
-                                                                    if (checked) {
-                                                                        if (!newCollabs.includes(m.name)) newCollabs.push(m.name);
-                                                                    } else {
-                                                                        newCollabs = newCollabs.filter(c => c !== m.name);
-                                                                    }
-                                                                    setEditForm(prev => ({ ...prev, collaborators: newCollabs.join(",") }));
-                                                                }}
-                                                                className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                                                            />
-                                                            <span className="text-sm text-slate-700">{m.name}</span>
-                                                        </label>
+                                                {(() => {
+                                                    const targetDate = editForm.measurement_date || editForm.future_measurement_date;
+                                                    const isAfter = !targetDate || targetDate >= "2026-06-09";
+                                                    const currentMeasurers = measurers.filter(u => 
+                                                        isAfter ? u.name !== "배윤민" : u.name !== "김민영"
                                                     );
-                                                })}
+                                                    return currentMeasurers.map(m => {
+                                                        const collaborators = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()) : [];
+                                                        const isChecked = collaborators.includes(m.name);
+                                                        const isReportWriter = m.id === editForm.measurer_id;
+                                                        return (
+                                                            <label key={m.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 ${isReportWriter ? "bg-blue-50/50" : ""}`}>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isChecked || isReportWriter}
+                                                                    disabled={isReportWriter}
+                                                                    onChange={(e) => {
+                                                                        if (isReportWriter) return;
+                                                                        const checked = e.target.checked;
+                                                                        let newCollabs = [...collaborators];
+                                                                        if (checked) {
+                                                                            if (!newCollabs.includes(m.name)) newCollabs.push(m.name);
+                                                                        } else {
+                                                                            newCollabs = newCollabs.filter(c => c !== m.name);
+                                                                        }
+                                                                        setEditForm(prev => ({ ...prev, collaborators: newCollabs.join(",") }));
+                                                                    }}
+                                                                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-70 disabled:cursor-not-allowed"
+                                                                />
+                                                                <span className={`text-sm ${isReportWriter ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
+                                                                    {m.name}
+                                                                    {isReportWriter && <span className="ml-1 text-[10px] bg-blue-100 px-1 rounded">담당</span>}
+                                                                </span>
+                                                            </label>
+                                                        );
+                                                    });
+                                                })()}
                                             </div>
                                         </div>
-                                    </>
-                                );
-                            })()}
+                                    </div>
+                                ) : (
+                                    /* 다중 일자 UI (동적 생성) */
+                                    <div className="space-y-4">
+                                        {(editForm.daily_staff as any[]).map((entry, idx) => {
+                                            const dayMeasurers = (() => {
+                                                const targetDate = entry.date || editForm.future_measurement_date;
+                                                const isAfter = !targetDate || targetDate >= "2026-06-09";
+                                                return measurers.filter(u => isAfter ? u.name !== "배윤민" : u.name !== "김민영");
+                                            })();
+
+                                            return (
+                                                <Card key={idx} className="p-3 bg-white border-slate-200 relative group">
+                                                    <button 
+                                                        type="button"
+                                                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                                        onClick={() => {
+                                                            const newList = [...(editForm.daily_staff as any[])];
+                                                            newList.splice(idx, 1);
+                                                            setEditForm(prev => ({ ...prev, daily_staff: newList.length > 0 ? newList : null }));
+                                                        }}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div>
+                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">측정일 {idx + 1}</label>
+                                                            <Input type="date" value={entry.date || ""} onChange={(e) => {
+                                                                const newList = [...(editForm.daily_staff as any[])];
+                                                                newList[idx].date = e.target.value;
+                                                                // Update measurement_date (start) and measurement_end_date (end)
+                                                                const sortedDates = newList.map(d => d.date).filter(Boolean).sort();
+                                                                setEditForm(prev => ({ 
+                                                                    ...prev, 
+                                                                    daily_staff: newList,
+                                                                    measurement_date: sortedDates[0] || null,
+                                                                    measurement_end_date: sortedDates[sortedDates.length - 1] || null
+                                                                }));
+                                                            }} />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">보고서 담당(코드)</label>
+                                                            <Select
+                                                                options={[
+                                                                    { value: "", label: "선택" },
+                                                                    ...dayMeasurers.map(m => ({ value: m.id.toString(), label: m.name }))
+                                                                ]}
+                                                                value={entry.measurer_id?.toString() || (idx === 0 ? editForm.measurer_id?.toString() : "")}
+                                                                onChange={(e) => {
+                                                                    const newId = e.target.value ? parseInt(e.target.value) : null;
+                                                                    const newName = dayMeasurers.find(m => m.id === newId)?.name;
+                                                                    const newList = [...(editForm.daily_staff as any[])];
+                                                                    newList[idx].measurer_id = newId;
+
+                                                                    // 2일 이상 측정인 경우 보고서 담당자 선택 시 기본으로 측정자에도 체크 (수정 가능)
+                                                                    if (newName) {
+                                                                        let collabs = newList[idx].collaborators || [];
+                                                                        if (!collabs.includes(newName)) {
+                                                                            collabs.push(newName);
+                                                                            newList[idx].collaborators = [...collabs];
+                                                                        }
+                                                                    }
+
+                                                                    setEditForm(prev => ({ ...prev, daily_staff: newList }));
+                                                                }}
+                                                            />
+                                                        </div>
+                                                        <div className="col-span-2">
+                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">측정자</label>
+                                                            <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
+                                                                {dayMeasurers.map(m => {
+                                                                    const isChecked = entry.collaborators?.includes(m.name);
+                                                                    const isReportWriter = m.id === (entry.measurer_id || (idx === 0 ? editForm.measurer_id : null));
+                                                                    const isLocked = isReportWriter && (editForm.daily_staff as any[]).length === 1;
+
+                                                                    return (
+                                                                        <label key={m.id} className={`flex items-center gap-1.5 cursor-pointer p-0.5 rounded ${isLocked ? "bg-blue-50/50" : ""}`}>
+                                                                            <input 
+                                                                                type="checkbox"
+                                                                                checked={isChecked || isLocked || false}
+                                                                                disabled={isLocked}
+                                                                                onChange={(e) => {
+                                                                                    if (isLocked) return;
+                                                                                    const newList = [...(editForm.daily_staff as any[])];
+                                                                                    let collabs = newList[idx].collaborators || [];
+                                                                                    if (e.target.checked) collabs.push(m.name);
+                                                                                    else collabs = collabs.filter((c: string) => c !== m.name);
+                                                                                    newList[idx].collaborators = Array.from(new Set(collabs));
+                                                                                    setEditForm(prev => ({ ...prev, daily_staff: newList }));
+                                                                                }}
+                                                                                className="w-3.5 h-3.5 rounded disabled:opacity-70 disabled:cursor-not-allowed"
+                                                                            />
+                                                                            <span className={`text-xs ${isLocked ? "text-blue-700 font-semibold" : "text-slate-600"}`}>
+                                                                                {m.name}
+                                                                                {isLocked && <span className="ml-1 text-[9px] bg-blue-100 px-1 rounded">담당</span>}
+                                                                            </span>
+                                                                        </label>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </Card>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 
@@ -1245,45 +1418,48 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 </form>
             </Modal>
 
-            {/* Unpaid Details Modal */}
             <Modal
                 isOpen={isUnpaidModalOpen}
                 onClose={() => setIsUnpaidModalOpen(false)}
                 title={`미수 내역 (${selectedUnpaidBusinessName})`}
             >
                 <div className="bg-white p-4 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-                    <table className="w-full text-sm text-left border-collapse">
-                        <thead className="bg-gray-100 text-gray-700">
-                            <tr>
-                                <th className="p-2 border">년도</th>
-                                <th className="p-2 border">주기</th>
-                                <th className="p-2 border">계산서 발행일</th>
-                                <th className="p-2 border text-right">미수금액(사업장)</th>
-                                <th className="p-2 border text-right">미수금액(국고)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {selectedUnpaidDetails.length > 0 ? (
-                                selectedUnpaidDetails.map((detail: any, idx: number) => (
-                                    <tr key={idx} className="border-b hover:bg-gray-50">
-                                        <td className="p-2 border text-center">{detail.year}</td>
-                                        <td className="p-2 border text-center">{detail.period}</td>
-                                        <td className="p-2 border text-center">{detail.invoiceDate || "-"}</td>
-                                        <td className="p-2 border text-right font-medium text-red-600">
-                                            {detail.unpaidBusiness ? detail.unpaidBusiness.toLocaleString() + "원" : "-"}
-                                        </td>
-                                        <td className="p-2 border text-right font-medium text-blue-600">
-                                            {detail.unpaidNational ? detail.unpaidNational.toLocaleString() + "원" : "-"}
-                                        </td>
-                                    </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={5} className="p-4 text-center text-gray-500">미수 내역이 없습니다.</td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+                    <div className="rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                        <Table>
+                            <TableHeader className="bg-slate-50">
+                                <TableRow>
+                                    <TableHead className="w-16 text-center text-xs font-bold text-slate-800">년도</TableHead>
+                                    <TableHead className="w-20 text-center text-xs font-bold text-slate-800">주기</TableHead>
+                                    <TableHead className="text-center text-xs font-bold text-slate-800">계산서 발행일</TableHead>
+                                    <TableHead className="w-32 text-right text-xs font-bold text-slate-800">미수금액(사업장)</TableHead>
+                                    <TableHead className="w-32 text-right text-xs font-bold text-slate-800">미수금액(국고)</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {selectedUnpaidDetails.length > 0 ? (
+                                    selectedUnpaidDetails.map((detail: any, idx: number) => (
+                                        <TableRow key={idx} className="hover:bg-slate-50 border-b border-slate-100 last:border-0 growable-row">
+                                            <TableCell className="text-center text-xs py-2.5">{detail.year}</TableCell>
+                                            <TableCell className="text-center text-xs py-2.5">{detail.period}</TableCell>
+                                            <TableCell className="text-center text-xs py-2.5 text-slate-500">{detail.invoiceDate || "-"}</TableCell>
+                                            <TableCell className="text-right text-xs font-bold text-red-600 py-2.5">
+                                                {detail.unpaidBusiness ? detail.unpaidBusiness.toLocaleString() + "원" : "-"}
+                                            </TableCell>
+                                            <TableCell className="text-right text-xs font-bold text-blue-600 py-2.5">
+                                                {detail.unpaidNational ? detail.unpaidNational.toLocaleString() + "원" : "-"}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="p-8 text-center text-slate-400 text-sm">
+                                            미수 내역이 없습니다.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
                 </div>
                 <div className="bg-white p-4 rounded-b-lg border-t flex justify-end">
                     <Button onClick={() => setIsUnpaidModalOpen(false)} variant="secondary">닫기</Button>

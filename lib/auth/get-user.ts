@@ -23,7 +23,7 @@ export async function getUser() {
 
     const { data: userData, error: userError } = await supabase
       .from("users")
-      .select("id, name, role, job, survey_code, k2b_id")
+      .select("id, name, role, job, survey_code, k2b_id, is_journal_manager")
       .eq("id", session.userId)
       .limit(1)
       .maybeSingle();
@@ -46,6 +46,7 @@ export async function getUser() {
       job: userData.job,
       survey_code: userData.survey_code,
       k2b_id: userData.k2b_id,
+      is_journal_manager: !!userData.is_journal_manager,
     };
   } catch (error) {
     console.error("[getUser] 함수 오류:", error);

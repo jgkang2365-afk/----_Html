@@ -48,15 +48,15 @@ export const ThirdPartyTable: React.FC<ThirdPartyTableProps> = ({
       <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white overflow-hidden shadow-sm">
         <Table maxHeight="max-h-[calc(100vh-400px)]">
           <TableHeader>
-            <TableRow className="bg-surface-50">
-              <TableHead className="w-[100px]">발행일</TableHead>
+            <TableRow className="bg-sky-100 border-b-2 border-sky-200 pointer-events-none">
+              <TableHead className="w-[90px] text-left pl-2.5">발행일</TableHead>
               <TableHead className="w-[200px]">사업장명 (원래)</TableHead>
               <TableHead className="w-[130px]">사업자번호 (원래)</TableHead>
               <TableHead className="w-[200px] border-l border-primary-100 bg-primary-50/50">발행처 상호 (변경)</TableHead>
               <TableHead className="w-[130px] bg-primary-50/50">발행처 사업자 (변경)</TableHead>
               <TableHead className="w-[120px] text-right">측정비(사업장)</TableHead>
               <TableHead className="w-[90px] text-center">입금상태</TableHead>
-              <TableHead className="w-[80px] text-center">작업</TableHead>
+              <TableHead className="w-[80px] text-center">관리</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -76,8 +76,10 @@ export const ThirdPartyTable: React.FC<ThirdPartyTableProps> = ({
                 const isPaid = fee > 0 && deposit >= fee;
 
                 return (
-                  <TableRow key={item.id} className="hover:bg-gray-50/50 transition-colors">
-                    <TableCell className="text-center py-3">
+                  <TableRow key={item.id} className="hover:bg-blue-50/40 transition-colors group relative growable-row">
+                    <TableCell className="w-[90px] text-left py-3 pl-2.5 relative">
+                      {/* 표준 블루 인디케이터 바 */}
+                      <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
                       {item.electronic_invoice_date ? formatDate(item.electronic_invoice_date) : "-"}
                     </TableCell>
                     <TableCell className="py-3 font-medium">{item.business_name}</TableCell>
@@ -98,7 +100,7 @@ export const ThirdPartyTable: React.FC<ThirdPartyTableProps> = ({
                     </TableCell>
                     <TableCell className="text-center py-3">
                       <Button variant="secondary" size="sm" onClick={() => onEdit(item)} className="h-7 text-[11px] px-2">
-                        일지수정
+                        관리
                       </Button>
                     </TableCell>
                   </TableRow>

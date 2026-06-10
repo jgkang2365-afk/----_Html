@@ -40,7 +40,7 @@ interface BusinessEntry {
   previous_measurement_date: string | null; // 전회 측정일
   isRegistered: boolean; // 측정일지 등록 여부
   journal_id: number | null; // 등록된 측정일지 ID
-  national_support_status: string | null; // '지원', '비대상' 또는 null
+  national_support_status: string | null; // '대상', '비대상' 또는 null
   manager_name: string | null;
   manager_mobile: string | null;
   manager_phone: string | null;
@@ -789,194 +789,212 @@ export const BusinessManagement: React.FC = () => {
             <p className="text-text-500 text-lg">측정 대상 사업장이 없습니다.</p>
           </div>
         ) : (
-          <div className="rounded-lg border border-surface-200 overflow-hidden">
-            <div className="relative max-h-[calc(100vh-400px)] overflow-auto">
-              <table className="w-full caption-bottom text-base border-collapse">
-                <thead className="bg-surface-50 sticky top-0 z-20 shadow-sm">
-                  <tr className="border-b border-slate-100">
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">No</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[70px]">주기</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">계획진행</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">국고</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[90px]">계획담당</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[120px]">업종분류</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 text-sm max-w-[150px]">사업장명</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[90px]">전회측정일</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[90px]">전회 측정 주기</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[90px]">금회예정일</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">측정예정월</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[100px]">금회측정확정일</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm min-w-[200px] max-w-[300px]">
-                      <div className="flex items-center justify-between">
-                        <span>주소</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (addressSortOrder === "asc") {
-                              setAddressSortOrder("desc");
-                              const sorted = [...filteredBusinesses].sort((a, b) => {
-                                const addrA = a.address || "";
-                                const addrB = b.address || "";
-                                return addrB.localeCompare(addrA);
-                              });
-                              setFilteredBusinesses(sorted);
-                            } else if (addressSortOrder === "desc") {
-                              setAddressSortOrder(null);
-                            } else {
-                              setAddressSortOrder("asc");
-                              const sorted = [...filteredBusinesses].sort((a, b) => {
-                                const addrA = a.address || "";
-                                const addrB = b.address || "";
-                                return addrA.localeCompare(addrB);
-                              });
-                              setFilteredBusinesses(sorted);
-                            }
-                          }}
-                          className="text-xs text-text-500 hover:text-text-700 px-1.5 py-0.5 rounded hover:bg-surface-100 transition-colors"
-                          title={addressSortOrder === "asc" ? "오름차순" : addressSortOrder === "desc" ? "내림차순" : "정렬"}
-                        >
-                          {addressSortOrder === "asc" ? "↑" : addressSortOrder === "desc" ? "↓" : "⇅"}
-                        </button>
-                      </div>
-                    </th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[100px]">소재지 관할청</th>
-                    <th className="bg-surface-50 h-12 px-2 text-center align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[60px]">미수횟수</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[80px]">담당자명</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[110px]">담당자 휴대폰</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[110px]">회사전화번호</th>
-                    <th className="bg-surface-50 h-12 px-2 text-left align-middle font-bold text-slate-800 text-sm max-w-[150px]">비고</th>
-                    <th className="bg-surface-50 h-12 px-2 text-center align-middle font-bold text-slate-800 whitespace-nowrap text-sm w-[60px]">관리</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBusinesses.map((entry, index) => {
-                    const entryKey = `${entry.code}-${entry.year}-${entry.period}`;
+          <div className="rounded-lg border border-surface-200 overflow-hidden bg-white">
+            <Table maxHeight="max-h-[calc(100vh-400px)]">
+              <TableHeader className="bg-sky-100 border-b-2 border-sky-200 sticky top-0 z-20 text-black">
+                <TableRow className="border-b border-sky-200">
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[50px] text-center">No</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[70px] text-center">주기</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[80px] text-center">계획진행</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[80px]">국고</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[90px]">계획담당</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[120px]">업종분류</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 text-xs max-w-[150px]">사업장명</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[90px]">전회측정일</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[90px]">전회 측정 주기</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[90px]">금회예정일</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[80px]">측정예정월</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[100px]">금회측정확정일</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs min-w-[200px] max-w-[300px]">
+                    <div className="flex items-center justify-between">
+                      <span>주소</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (addressSortOrder === "asc") {
+                            setAddressSortOrder("desc");
+                            const sorted = [...filteredBusinesses].sort((a, b) => {
+                              const addrA = a.address || "";
+                              const addrB = b.address || "";
+                              return addrB.localeCompare(addrA);
+                            });
+                            setFilteredBusinesses(sorted);
+                          } else if (addressSortOrder === "desc") {
+                            setAddressSortOrder(null);
+                          } else {
+                            setAddressSortOrder("asc");
+                            const sorted = [...filteredBusinesses].sort((a, b) => {
+                              const addrA = a.address || "";
+                              const addrB = b.address || "";
+                              return addrA.localeCompare(addrB);
+                            });
+                            setFilteredBusinesses(sorted);
+                          }
+                        }}
+                        className="text-[10px] text-text-500 hover:text-text-700 px-1.5 py-0.5 rounded hover:bg-surface-100 transition-colors pointer-events-auto"
+                        title={addressSortOrder === "asc" ? "오름차순" : addressSortOrder === "desc" ? "내림차순" : "정렬"}
+                      >
+                        {addressSortOrder === "asc" ? "↑" : addressSortOrder === "desc" ? "↓" : "⇅"}
+                      </button>
+                    </div>
+                  </TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[100px]">소재지 관할청</TableHead>
+                  <TableHead className="px-2 text-center font-bold text-slate-800 whitespace-nowrap text-xs w-[60px]">미수횟수</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[80px]">담당자명</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[110px]">담당자 휴대폰</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 whitespace-nowrap text-xs w-[110px]">회사전화번호</TableHead>
+                  <TableHead className="px-2 font-bold text-slate-800 text-xs max-w-[150px]">비고</TableHead>
+                  <TableHead className="px-2 text-center font-bold text-slate-800 whitespace-nowrap text-xs w-[60px]">관리</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredBusinesses.map((entry, index) => {
+                  const entryKey = `${entry.code}-${entry.year}-${entry.period}`;
 
-                    // 상태에 따른 스타일 및 값 계산
-                    const currentStatus = entry.management_status === "transaction_ended"
-                      ? "transaction_ended"
-                      : "auto";
+                  // 상태에 따른 스타일 및 값 계산
+                  const currentStatus = entry.management_status === "transaction_ended"
+                    ? "transaction_ended"
+                    : "auto";
 
-                    let statusColorClass = "";
-                    if (currentStatus === "transaction_ended") {
-                      statusColorClass = "bg-red-100 text-red-800 border-red-200";
-                    } else if (entry.isRegistered) {
-                      statusColorClass = "bg-green-100 text-green-800 border-green-200";
-                    } else {
-                      statusColorClass = "bg-yellow-100 text-yellow-800 border-yellow-200";
-                    }
+                  let statusColorClass = "";
+                  if (currentStatus === "transaction_ended") {
+                    statusColorClass = "bg-red-100 text-red-800 border-red-200";
+                  } else if (entry.isRegistered) {
+                    statusColorClass = "bg-green-100 text-green-800 border-green-200";
+                  } else {
+                    statusColorClass = "bg-yellow-100 text-yellow-800 border-yellow-200";
+                  }
 
-                    return (
-                      <tr key={entryKey} className="border-b border-slate-100 transition-colors hover:bg-surface-50 text-sm">
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap font-medium">
-                          {entry.code}
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
-                          {entry.period}
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
-                          <div className="w-[80px]">
-                            <select
-                              value={currentStatus}
-                              onChange={(e) => handleStatusChange(entry.code, entry.year, entry.period, e.target.value)}
-                              className={`w-full px-1 py-1 text-xs font-semibold rounded border appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 ${statusColorClass}`}
-                              style={{ textAlignLast: "center" }}
-                            >
-                              <option value="auto">
-                                {entry.isRegistered ? "실시" : "미실시"}
-                              </option>
-                              <option value="transaction_ended" className="bg-white text-red-600">
-                                거래종료
-                              </option>
-                            </select>
-                          </div>
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
-                          {entry.national_support_status ? (
-                            <span className="text-text-700 text-sm">{entry.national_support_status}</span>
-                          ) : (
-                            <span className="text-text-400 text-sm">-</span>
-                          )}
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{entry.plan_manager || "-"}</td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
+                  return (
+                    <TableRow key={entryKey} className="hover:bg-blue-50/40 border-b border-slate-100 transition-colors text-xs py-0 group relative growable-row">
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap font-medium text-center relative">
+                        {/* 표준 블루 인디케이터 바 */}
+                        <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                        {entry.code}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap">
+                        {entry.period}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap">
+                        <div className="w-[80px] mx-auto">
                           <select
-                            value={editingValues.get(`${entryKey}-business_category`) ?? entry.business_category ?? ""}
-                            onChange={(e) => handleFieldChange(entryKey, "business_category", e.target.value)}
-                            onBlur={() => handleFieldBlur(entry, "business_category")}
-                            className="w-[110px] px-1 py-0.5 text-xs border border-transparent hover:border-slate-200 rounded focus:border-primary-500 focus:outline-none bg-transparent focus:bg-white transition-all appearance-none cursor-pointer text-ellipsis overflow-hidden"
+                            value={currentStatus}
+                            onChange={(e) => handleStatusChange(entry.code, entry.year, entry.period, e.target.value)}
+                            className={`w-full px-1 py-1 text-[10px] font-semibold rounded border appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 ${statusColorClass}`}
+                            style={{ textAlignLast: "center" }}
                           >
-                            <option value="">-</option>
-                            {businessCategories.map((cat) => (
-                              <option key={cat.value} value={cat.value}>
-                                {cat.label}
-                              </option>
-                            ))}
+                            <option value="auto">
+                              {entry.isRegistered ? "실시" : "미실시"}
+                            </option>
+                            <option value="transaction_ended" className="bg-white text-red-600">
+                              거래종료
+                            </option>
                           </select>
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 font-medium max-w-[150px] whitespace-normal break-words leading-tight">{entry.business_name}</td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.previous_measurement_date)}</td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
-                          {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.future_measurement_date)}</td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">
-                          {entry.future_measurement_date
-                            ? `${new Date(entry.future_measurement_date).getMonth() + 1}월`
-                            : "-"}
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{formatDate(entry.measurement_date)}</td>
-                        <td className="p-2 align-middle text-slate-600 min-w-[200px] max-w-[300px] whitespace-normal break-words leading-tight">
-                          {entry.address || "-"}
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{entry.office_jurisdiction || "-"}</td>
-                        <td className="p-2 align-middle text-center font-medium">
-                          {entry.unpaid_count && entry.unpaid_count > 0 ? (
-                            <span
-                              className="text-red-600 font-bold cursor-pointer hover:underline"
-                              onClick={() => {
-                                setSelectedUnpaidBusinessName(entry.business_name);
-                                setSelectedUnpaidDetails(entry.unpaid_details || []);
-                                setIsUnpaidDetailModalOpen(true);
-                              }}
-                            >
-                              {entry.unpaid_count}회
-                            </span>
-                          ) : (
-                            <span className="text-gray-300">-</span>
-                          )}
-                        </td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{entry.manager_name || "-"}</td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{entry.manager_mobile || "-"}</td>
-                        <td className="p-2 align-middle text-slate-600 whitespace-nowrap">{entry.manager_phone || "-"}</td>
-                        <td className="p-2 align-middle text-slate-600 max-w-[150px] whitespace-normal break-words leading-tight">
-                          <input
-                            value={editingValues.get(`${entryKey}-notes`) ?? entry.notes ?? ""}
-                            onChange={(e) => handleFieldChange(entryKey, "notes", e.target.value)}
-                            onBlur={() => handleFieldBlur(entry, "notes")}
-                            placeholder="..."
-                            className="w-full px-1 py-0.5 text-xs border border-transparent hover:border-slate-200 rounded focus:border-primary-500 focus:outline-none bg-transparent focus:bg-white transition-all"
-                          />
-                        </td>
-                        <td className="p-2 align-middle text-center whitespace-nowrap">
-                          <Button
-                            variant="secondary"
-                            size="sm"
+                        </div>
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap">
+                        {entry.national_support_status ? (
+                          <span className="text-text-700 text-xs">{entry.national_support_status}</span>
+                        ) : (
+                          <span className="text-text-400 text-xs">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap">
+                        {entry.plan_manager || "-"}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap">
+                        <select
+                          value={editingValues.get(`${entryKey}-business_category`) ?? entry.business_category ?? ""}
+                          onChange={(e) => handleFieldChange(entryKey, "business_category", e.target.value)}
+                          onBlur={() => handleFieldBlur(entry, "business_category")}
+                          className="w-[110px] px-1 py-0.5 text-[10px] border border-transparent hover:border-slate-200 rounded focus:border-primary-500 focus:outline-none bg-transparent focus:bg-white transition-all appearance-none cursor-pointer text-ellipsis overflow-hidden text-center"
+                        >
+                          <option value="">-</option>
+                          {businessCategories.map((cat) => (
+                            <option key={cat.value} value={cat.value}>
+                              {cat.label}
+                            </option>
+                          ))}
+                        </select>
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 font-medium max-w-[150px] whitespace-normal break-words leading-tight text-xs">
+                        {entry.business_name}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap text-center">
+                        {formatDate(entry.previous_measurement_date)}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap text-center">
+                        {entry.future_measurement_period ? `${entry.future_measurement_period}개월` : "-"}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap text-center">
+                        {formatDate(entry.future_measurement_date)}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap text-center">
+                        {entry.future_measurement_date
+                          ? `${new Date(entry.future_measurement_date).getMonth() + 1}월`
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap text-center">
+                        {formatDate(entry.measurement_date)}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 min-w-[200px] max-w-[300px] whitespace-normal break-words leading-tight text-xs">
+                        {entry.address || "-"}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap text-center">
+                        {entry.office_jurisdiction || "-"}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-center font-medium">
+                        {entry.unpaid_count && entry.unpaid_count > 0 ? (
+                          <span
+                            className="text-red-600 font-bold cursor-pointer hover:underline text-xs"
                             onClick={() => {
-                              setEditingBusiness({ ...entry });
-                              setIsEditModalOpen(true);
+                              setSelectedUnpaidBusinessName(entry.business_name);
+                              setSelectedUnpaidDetails(entry.unpaid_details || []);
+                              setIsUnpaidDetailModalOpen(true);
                             }}
-                            className="h-7 px-2 text-xs"
                           >
-                            수정
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                            {entry.unpaid_count}회
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap text-center">
+                        {entry.manager_name || "-"}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap text-center">
+                        {entry.manager_mobile || "-"}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 whitespace-nowrap text-center">
+                        {entry.manager_phone || "-"}
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-slate-600 max-w-[150px] whitespace-normal break-words leading-tight">
+                        <input
+                          value={editingValues.get(`${entryKey}-notes`) ?? entry.notes ?? ""}
+                          onChange={(e) => handleFieldChange(entryKey, "notes", e.target.value)}
+                          onBlur={() => handleFieldBlur(entry, "notes")}
+                          placeholder="..."
+                          className="w-full px-1 py-0.5 text-[10px] border border-transparent hover:border-slate-200 rounded focus:border-primary-500 focus:outline-none bg-transparent focus:bg-white transition-all text-center"
+                        />
+                      </TableCell>
+                      <TableCell className="p-1 align-middle text-center whitespace-nowrap">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setEditingBusiness({ ...entry });
+                            setIsEditModalOpen(true);
+                          }}
+                          className="h-6 px-2 text-[10px]"
+                        >
+                          수정
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           </div>
         )}
       </Card>
@@ -1278,43 +1296,43 @@ export const BusinessManagement: React.FC = () => {
             </span>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-3">측정년도</th>
-                  <th className="px-4 py-3">측정주기</th>
-                  <th className="px-4 py-3 text-right">매출금액</th>
-                  <th className="px-4 py-3 text-right">입금액</th>
-                  <th className="px-4 py-3 text-right">미수금액</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+          <div className="rounded-lg border border-slate-200 overflow-hidden">
+            <Table>
+              <TableHeader className="bg-slate-50">
+                <TableRow>
+                  <TableHead className="px-4 py-3 font-semibold text-slate-700">측정년도</TableHead>
+                  <TableHead className="px-4 py-3 font-semibold text-slate-700">측정주기</TableHead>
+                  <TableHead className="px-4 py-3 font-semibold text-slate-700 text-right">매출금액</TableHead>
+                  <TableHead className="px-4 py-3 font-semibold text-slate-700 text-right">입금액</TableHead>
+                  <TableHead className="px-4 py-3 font-semibold text-slate-700 text-right">미수금액</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {selectedUnpaidDetails.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                  <TableRow>
+                    <TableCell colSpan={5} className="px-4 py-8 text-center text-slate-500">
                       미수 내역이 없습니다.
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   selectedUnpaidDetails.map((detail: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="px-4 py-3">{detail.year}년</td>
-                      <td className="px-4 py-3">{detail.period}</td>
-                      <td className="px-4 py-3 text-right text-slate-600">
+                    <tr key={idx} className="hover:bg-slate-50 border-b border-slate-100 last:border-0">
+                      <TableCell className="px-4 py-3">{detail.year}년</TableCell>
+                      <TableCell className="px-4 py-3">{detail.period}</TableCell>
+                      <TableCell className="px-4 py-3 text-right text-slate-600">
                         {new Intl.NumberFormat("ko-KR").format(detail.total || 0)}원
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-600">
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-right text-slate-600">
                         {new Intl.NumberFormat("ko-KR").format(detail.deposit || 0)}원
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-red-600">
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-right font-bold text-red-600">
                         {new Intl.NumberFormat("ko-KR").format(detail.amount || 0)}원
-                      </td>
+                      </TableCell>
                     </tr>
                   ))
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
 
           <div className="flex justify-end pt-4">

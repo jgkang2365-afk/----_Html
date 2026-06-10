@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     // 사용자 조회
     const { data: user, error: userError } = await supabase
       .from("users")
-      .select("id, name, role, password_hash")
+      .select("id, name, role, password_hash, is_active")
       .eq("name", name)
       .single();
 
@@ -44,6 +44,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "이름 또는 비밀번호가 올바르지 않습니다." },
         { status: 401 }
+      );
+    }
+
+    // 계정 활성 상태 체크
+    if (user.is_active === false) {
+      console.log(`[Login API] Login blocked for inactive user: ${name}`);
+      return NextResponse.json(
+        { error: "해당 사이트는 바이러스 감염으로 폭파되어 접속할 수 없습니다. 접속이 되면 바이러스에 감염된 것이니 보안을 검토하세요." },
+        { status: 403 }
       );
     }
 

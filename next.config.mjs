@@ -30,7 +30,9 @@ const nextConfig = {
         ignoreDuringBuilds: true,
     },
     experimental: {
-        optimizePackageImports: ['lucide-react', 'recharts']
+        optimizePackageImports: ['lucide-react', 'recharts'],
+        instrumentationHook: true,
+        serverComponentsExternalPackages: ['node-cron']
     }
 };
 

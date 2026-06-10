@@ -7,7 +7,39 @@ import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/server";
 import { join } from "path";
 import { readFileSync, existsSync } from "fs";
-import { getKSTISOString, getKSTYear } from "@/lib/utils/date-utils";
+import { getKSTISOString, getKSTYear, getNextWorkingDay } from "@/lib/utils/date-utils";
+
+// [The Joo Rule] 국고지원 상태값 정규화 함수
+const normalizeNationalSupportStatus = (val: any): string | null => {
+  if (val === undefined || val === null) return null;
+  const s = String(val).trim();
+  // 정규화 규칙: ["지원", "지원대상", "대상"] -> "대상", ["미지원", "비대상"] -> "비대상"
+  if (s === "지원" || s === "지원대상" || s === "대상") return "대상";
+  if (s === "미지원" || s === "비대상") return "비대상";
+  return s || null;
+};
+
+// [The Joo Rule] 업종분류 정규화 함수 (숫자 유입 방지 및 마스터 목록 검증)
+const normalizeBusinessCategory = (val: any, validCategories: string[]): string | null => {
+  if (val === undefined || val === null) return null;
+  const s = String(val).trim();
+  
+  if (!s || s === "선택") return null;
+
+  // 1. 숫자만 있는 경우(KSIC 코드 등) 무조건 차단
+  if (/^\d+$/.test(s)) {
+    console.warn(`[Sync] 숫자 업종분류 차단됨: ${s}`);
+    return null;
+  }
+  
+  // 2. 유효한 카테고리 목록에 있는지 확인 (마스터 테이블 기반)
+  if (validCategories.length > 0 && !validCategories.includes(s)) {
+    console.warn(`[Sync] 미등록 업종분류 차단됨: ${s}`);
+    return null;
+  }
+  
+  return s;
+};
 
 export interface SyncResult {
   success: boolean;
@@ -108,12 +140,21 @@ function readExcelFile(filePathOrBuffer: string | Buffer, fileName?: string): an
       return { data, worksheet, headerRowIndex: 1, rawArrayData }; // headerRowIndex: 1 = 두 번째 행 (0-based)
     } else {
       // 기본 동작: 첫 번째 행을 헤더로 인식
+      const headerIndex = 0;
       const data = XLSX.utils.sheet_to_json(worksheet, {
         defval: null,
         raw: false
       });
       console.log(`[Excel Read] Standard read. Total rows parsed: ${data.length}`);
-      return data;
+
+      // [Raw Data Fetch] 절대 인덱스 파싱을 위해 항상 가져옴
+      const rawArrayData = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: null,
+        raw: false
+      });
+
+      return { data, worksheet, headerRowIndex: headerIndex, rawArrayData };
     }
   } catch (error) {
     const filePathStr = typeof filePathOrBuffer === "string" ? filePathOrBuffer : (fileName || "Buffer");
@@ -429,7 +470,14 @@ function findColumnValue(row: any, columnNames: string[]): any {
 }
 
 
-function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, headerRowIndex?: number, fileName?: string, rawArrayData?: any[]): any[] {
+function parseMeasurementBusiness(
+  data: any[], 
+  worksheet?: XLSX.WorkSheet, 
+  headerRowIndex?: number, 
+  fileName?: string, 
+  rawArrayData?: any[],
+  validCategories: string[] = []
+): any[] {
   // [초강력 디버깅] 전체 데이터에서 H0433 값 찾기 (파싱 시작 전)
   console.log("================ START H0433 SCAN ================");
   let foundH0433InAnyColumn = false;
@@ -644,29 +692,52 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
 
     let businessCategory = findColumnValue(row, ["업종분류", "업종"]);
 
+    // [Robust Mapping] rawArrayData를 사용하여 빈 칸에 상관없이 절대 인덱스로 추출
+    // XLSX.utils.sheet_to_json(..., {header: headerRowIndex}) 사용 시 
+    // data[0]은 실제 엑셀의 headerRowIndex + 1 행에 해당함.
+    const startOffset = (headerRowIndex !== undefined ? headerRowIndex : 0) + 1;
+    const rawRow = rawArrayData && rawArrayData[dataIndex + startOffset] ? rawArrayData[dataIndex + startOffset] : null;
+
     const baseData: any = {
       code: String(codeValue || "").trim(),
       year: rowYear,
       period: normalizedPeriod,
-      business_name: String(row["사업장명"] || rowValues[5] || "").trim(),
+      business_name: String(row["사업장명"] || (rawRow ? rawRow[5] : rowValues[5]) || "").trim(),
       business_number: row["사업자번호"] ? String(row["사업자번호"]).replace(/[^\d]/g, "").trim() : null,
-      total_employees: row["총인원"] ? parseInt(String(row["총인원"]), 10) : null,
-      address: row["주소"] || rowValues[12] || null,
-      office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || rowValues[13] || null,
+      total_employees: row["총인원"] || (rawRow ? rawRow[13] : rowValues[13]) ? parseInt(String(row["총인원"] || (rawRow ? rawRow[13] : rowValues[13])), 10) : null,
+      address: row["주소"] || (rawRow ? rawRow[8] : null) || null,           // I열 (인덱스 8)
+      office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || (rawRow ? rawRow[9] : null) || null, // J열 (인덱스 9)
+      phone: row["전화번호"] || (rawRow ? rawRow[11] : rowValues[11]) || null, // L열 (인덱스 11)
+      fax: row["FAX"] || (rawRow ? rawRow[12] : rowValues[12]) || null,        // M열 (인덱스 12)
       measurement_start_date: startDate || null,
       measurement_end_date: endDate || null,
       measurement_date: measurementDate || null,
       future_measurement_date: futureMeasurementDate || null,
       completion_status: normalizedStatus,
       measurer: row["계획담당자"] || row["주관담당자"] || null,
-      national_support_status: row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3] || null,
-      business_category: businessCategory,
+      national_support_status: normalizeNationalSupportStatus(row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3]),
+      business_category: normalizeBusinessCategory(businessCategory, validCategories),
     };
+
+    // [NEW] 지청별/업종별 예외 발행일 로직 (대전/천안지청 & 공업사)
+    // 규칙: 전자계산서 발행일(billing_date)을 측정일 익일(워킹데이 기준)로 자동 기록
+    const officeStr = String(baseData.office_jurisdiction || "");
+    const categoryStr = String(baseData.business_category || "");
+    
+    if ((officeStr.includes("대전") || officeStr.includes("천안")) && categoryStr.includes("공업사")) {
+      // [Check] 2026-04-11(금일)부터 적용, 소급적용하지 않음
+      if (baseData.measurement_date && baseData.measurement_date >= "2026-04-11") {
+        // measurement_date는 이미 YYYY-MM-DD 형식
+        baseData.electronic_invoice_date = getNextWorkingDay(baseData.measurement_date);
+        console.log(`[Exception Billing] ${baseData.business_name} (${baseData.code}): ${baseData.measurement_date} -> ${baseData.electronic_invoice_date}`);
+      }
+    }
 
     const optionalFields: any = {};
     const managerName = row["담당자명"] || row["담당자"] || row["담당자 성명"] || null;
     const managerPosition = row["직위"] || row["담당자 직위"] || null;
     let managerMobile: string | null = null;
+    let managerPhone: string | null = null; // [NEW] BM열 (담당자 직통전화)
 
     // 담당자 휴대폰 (워크시트 직접 접근)
     const actualHeaderRowIndex = headerRowIndex !== undefined ? headerRowIndex : 0;
@@ -686,6 +757,19 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
       const mobilePattern = /^01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}$/;
       const looseMobilePattern = /^\d{2,3}[-\s.]?\d{3,4}[-\s.]?\d{4}$/;
       let selectedMobile: string | null = null;
+      let selectedManagerPhone: string | null = null;
+
+      // BM열 (인덱스 64): 담당자 전화번호 (직통전화)
+      // rawRow를 최우선으로 사용 하여 빈 칸 밀림 방지
+      if (rawRow && rawRow[64] !== undefined && rawRow[64] !== null) {
+        selectedManagerPhone = String(rawRow[64]).trim();
+      } else {
+        const bmCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: 64 });
+        const bmCell = worksheet[bmCellAddress];
+        if (bmCell && bmCell.v !== undefined && bmCell.v !== null) {
+          selectedManagerPhone = String(bmCell.v).trim();
+        }
+      }
 
       if (foundValues[62] && (mobilePattern.test(foundValues[62]) || looseMobilePattern.test(foundValues[62]))) {
         selectedMobile = foundValues[62];
@@ -698,6 +782,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
         selectedMobile = foundValues[62];
       }
       if (selectedMobile) managerMobile = selectedMobile;
+      if (selectedManagerPhone) managerPhone = selectedManagerPhone;
     }
 
     // Fallback logic for mobile
@@ -787,6 +872,7 @@ function parseMeasurementBusiness(data: any[], worksheet?: XLSX.WorkSheet, heade
     if (managerName) optionalFields.manager_name = managerName;
     if (managerPosition) optionalFields.manager_position = managerPosition;
     optionalFields.manager_mobile = managerMobile;
+    if (managerPhone) optionalFields.manager_phone = managerPhone;
     if (managerEmail) optionalFields.manager_email = managerEmail;
     if (invoiceEmail) optionalFields.invoice_email = invoiceEmail;
     if (finalSanjae) optionalFields.industrial_accident_number = finalSanjae;
@@ -1351,6 +1437,11 @@ export async function syncMeasurementBusiness(
   try {
     const supabase = externalSupabaseClient || await createClient();
 
+    // [New] 유효 업종분류 목록 미리 조회 (동적 검증용)
+    const { data: catData } = await supabase.from("business_category").select("name");
+    const validCategories = (catData || []).map(c => c.name);
+    console.log(`[Sync] 유효 업종분류 목록 로드됨: ${validCategories.length}개`);
+
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let targetPath: string | Buffer | undefined = filePath;
     let fileBuffer: Buffer | undefined;
@@ -1588,7 +1679,7 @@ export async function syncMeasurementBusiness(
       console.error("[측정사업장 동기화] Excel 파일에서 데이터를 읽을 수 없습니다!");
     }
 
-    const parsedData = parseMeasurementBusiness(excelData, worksheet, headerRowIndex, storageFileName || fileName, rawArrayData);
+    const parsedData = parseMeasurementBusiness(excelData, worksheet, headerRowIndex, storageFileName || fileName, rawArrayData, validCategories);
 
     // [NEW] 변경 내역 비교를 위한 최신 측정사업장 데이터 조회 (올바른 위치로 이동)
     // parsedData가 준비된 후, allRows 생성 및 비교 직전 수행
@@ -1638,6 +1729,7 @@ export async function syncMeasurementBusiness(
     const baseFields = [
       "code", "year", "period", "business_name", "business_number",
       "total_employees", "address", "office_jurisdiction",
+      "phone", "fax",
       "measurement_start_date", "measurement_end_date",
       "completion_status", "measurer",
       "measurement_date", "future_measurement_date",
@@ -1645,7 +1737,7 @@ export async function syncMeasurementBusiness(
     ];
 
     const optionalFields = [
-      "manager_name", "manager_position", "manager_mobile",
+      "manager_name", "manager_position", "manager_mobile", "manager_phone",
       "manager_email", "invoice_email", "industrial_accident_number",
       "representative_name", "future_measurement_period", "commencement_number"
     ];
@@ -1706,12 +1798,15 @@ export async function syncMeasurementBusiness(
       { key: 'business_name', label: '사업장명' },
       { key: 'business_number', label: '사업자번호' },
       { key: 'representative_name', label: '대표자' },
+      { key: 'phone', label: '전화번호' },
+      { key: 'fax', label: '팩스' },
       { key: 'industrial_accident_number', label: '산재관리번호' },
       { key: 'commencement_number', label: '개시번호' },
       { key: 'total_employees', label: '총인원' },
       { key: 'office_jurisdiction', label: '소재지관할청' },
       { key: 'manager_name', label: '담당자' },
       { key: 'manager_mobile', label: '휴대번호' },
+      { key: 'manager_phone', label: '직통번호' },
       { key: 'manager_email', label: '이메일' },
     ];
 
@@ -1826,7 +1921,8 @@ export async function syncMeasurementBusiness(
           "total_employees", "address", "office_jurisdiction", "designated_office",
           "measurement_start_date", "measurement_end_date", "completion_status", "measurer",
           "future_measurement_date", "measurement_date", "future_measurement_period",
-          "manager_name", "manager_mobile", "manager_phone", "notes", "business_category"
+          "manager_name", "manager_mobile", "manager_phone", "manager_email", "notes", "business_category",
+          "industrial_accident_number", "commencement_number", "fax", "representative_name", "national_support_status"
         ];
 
         targetRows = allRows.map(row => {
@@ -2137,100 +2233,91 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
 
         // 우선순위: measurement_business -> business_info
 
+        // [LATEST WINS] 최신성 유지 원칙에 따라 기존 데이터 존재 여부와 상관없이 최신 정보로 항상 갱신(Overwrite)
+        // 단, 엑셀에 데이터가 있을 때만 덮어씀 (데이터 유실 방지)
+
         // 1. 담당자 휴대폰 (manager_mobile)
-        if (!journal.manager_mobile) {
-          if (mbRow?.manager_mobile) {
-            updateData.manager_mobile = mbRow.manager_mobile;
-            needsUpdate = true;
-          } else if (bRow?.manager_contact) {
-            // business_info에는 manager_mobile 대신 manager_contact(연락처)가 있음
-            updateData.manager_mobile = bRow.manager_contact;
-            needsUpdate = true;
-          }
+        if (mbRow?.manager_mobile) {
+          updateData.manager_mobile = mbRow.manager_mobile;
+          needsUpdate = true;
+        } else if (bRow?.manager_contact) {
+          updateData.manager_mobile = bRow.manager_contact;
+          needsUpdate = true;
         }
 
         // 2. 담당자명 (manager_name)
-        if (!journal.manager_name) {
-          if (mbRow?.manager_name) {
-            updateData.manager_name = mbRow.manager_name;
-            needsUpdate = true;
-          } else if (bRow?.manager_name) {
-            updateData.manager_name = bRow.manager_name;
-            needsUpdate = true;
-          }
+        if (mbRow?.manager_name) {
+          updateData.manager_name = mbRow.manager_name;
+          needsUpdate = true;
+        } else if (bRow?.manager_name) {
+          updateData.manager_name = bRow.manager_name;
+          needsUpdate = true;
         }
 
         // 3. 주소 (address)
-        if (!journal.address) {
-          if (mbRow?.address) {
-            updateData.address = mbRow.address;
-            needsUpdate = true;
-          } else if (bRow?.address) {
-            updateData.address = bRow.address;
-            needsUpdate = true;
-          }
+        if (mbRow?.address) {
+          updateData.address = mbRow.address;
+          needsUpdate = true;
+        } else if (bRow?.address) {
+          updateData.address = bRow.address;
+          needsUpdate = true;
         }
 
         // 4. 사업자번호 (business_number)
-        if (!journal.business_number) {
-          if (mbRow?.business_number) {
-            updateData.business_number = mbRow.business_number;
-            needsUpdate = true;
-          } else if (bRow?.business_number) {
-            updateData.business_number = bRow.business_number;
-            needsUpdate = true;
-          }
+        if (mbRow?.business_number) {
+          updateData.business_number = mbRow.business_number;
+          needsUpdate = true;
+        } else if (bRow?.business_number) {
+          updateData.business_number = bRow.business_number;
+          needsUpdate = true;
         }
 
-        // 5. 전화번호 (phone) - business_info의 phone
-        if (!journal.phone) {
-          if (bRow?.phone) {
-            updateData.phone = bRow.phone;
-            needsUpdate = true;
-          }
+        // 5. 전화번호 (phone)
+        if (bRow?.phone) {
+          updateData.phone = bRow.phone;
+          needsUpdate = true;
         }
 
         // 6. 근로자수 (total_employees)
-        if (!journal.total_employees && mbRow?.total_employees) {
+        if (mbRow?.total_employees) {
           updateData.total_employees = mbRow.total_employees;
           needsUpdate = true;
         }
 
         // 7. 업종분류 (business_category)
-        if (!journal.business_category && mbRow?.business_category) {
+        if (mbRow?.business_category) {
           updateData.business_category = mbRow.business_category;
           needsUpdate = true;
         }
 
         // 8. 사업장명 (business_name)
-        if (!journal.business_name) {
-          if (mbRow?.business_name) {
-            updateData.business_name = mbRow.business_name;
-            needsUpdate = true;
-          } else if (bRow?.business_name) {
-            updateData.business_name = bRow.business_name;
-            needsUpdate = true;
-          }
+        if (mbRow?.business_name) {
+          updateData.business_name = mbRow.business_name;
+          needsUpdate = true;
+        } else if (bRow?.business_name) {
+          updateData.business_name = bRow.business_name;
+          needsUpdate = true;
         }
 
         // 9. 산재관리번호 (industrial_accident_number)
-        if (!journal.industrial_accident_number) {
-          if (mbRow?.industrial_accident_number) {
-            updateData.industrial_accident_number = mbRow.industrial_accident_number;
-            needsUpdate = true;
-          }
+        if (mbRow?.industrial_accident_number) {
+          updateData.industrial_accident_number = mbRow.industrial_accident_number;
+          needsUpdate = true;
         }
 
         // 10. 개시번호 (commencement_number)
-        if (!journal.commencement_number) {
-          // measurement_business나 business_info에 개시번호 필드가 있다면 업데이트
-          if (mbRow?.commencement_number) {
-            updateData.commencement_number = mbRow.commencement_number;
-            needsUpdate = true;
-          } else if (bRow?.commencement_number) {
-            updateData.commencement_number = bRow.commencement_number;
-            needsUpdate = true;
-          }
+        if (mbRow?.commencement_number) {
+          updateData.commencement_number = mbRow.commencement_number;
+          needsUpdate = true;
+        } else if (bRow?.commencement_number) {
+          updateData.commencement_number = bRow.commencement_number;
+          needsUpdate = true;
+        }
+
+        // 11. 국고지원 상태 (national_support_status) - [The Joo Rule] 최신 정보로 덮어쓰기
+        if (mbRow?.national_support_status) {
+          updateData.national_support_status = mbRow.national_support_status;
+          needsUpdate = true;
         }
 
         if (needsUpdate) {

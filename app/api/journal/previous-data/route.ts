@@ -193,7 +193,16 @@ export async function GET(request: NextRequest) {
 
     // 여기서는 기존 로직(previousJournal 중심)을 유지하되, fallback으로 referenceData를 적극 활용하도록 수정
 
-    // 예비조사 정보 조회 (같은 code의 가장 최근 예비조사)
+    // 예비조사 정보 조회 (해당 연도/주기 전체 목록)
+    const { data: periodSurveys } = await supabase
+      .from("preliminary_survey")
+      .select("preliminary_surveyor, measurer, survey_code, actual_measurer, report_writer, measurement_date")
+      .eq("code", code)
+      .eq("year", measurementYear)
+      .eq("period", period)
+      .order("measurement_date", { ascending: true });
+
+    // 전반적인 fallback을 위해 가장 최근 것도 필요할 수 있음 (기존 호환성)
     const { data: latestSurvey } = await supabase
       .from("preliminary_survey")
       .select("preliminary_surveyor, measurer, survey_code, actual_measurer, report_writer, measurement_date")
@@ -202,6 +211,8 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    const surveys = periodSurveys || [];
 
     // 국고지원 상태 결정 우선순위:
     // 1. national_support_application 테이블
@@ -328,6 +339,7 @@ export async function GET(request: NextRequest) {
       nationalSupportStatus,
       summaryInfo,
       surveyInfo,
+      surveys, // 해당 기간의 모든 예비조사 목록
       referenceData, // 프론트엔드에서 자동 완성에 사용됨
       source: previousJournal ? {
         year: previousJournal.measurement_year,

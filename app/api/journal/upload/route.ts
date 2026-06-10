@@ -364,9 +364,9 @@ export async function POST(request: NextRequest) {
             부여된_5인이상연번: assignedNumbers.five_plus_sequence,
           });
 
-          documentNumber = documentNumber || assignedNumbers.document_number;
-          sequenceNumber = sequenceNumber || assignedNumbers.sequence_number;
-          fivePlusSequence = fivePlusSequence || assignedNumbers.five_plus_sequence;
+          documentNumber = documentNumber || assignedNumbers.document_number || "";
+          sequenceNumber = sequenceNumber || assignedNumbers.sequence_number || "";
+          fivePlusSequence = fivePlusSequence || assignedNumbers.five_plus_sequence || "";
         }
 
         // 측정일지 데이터 생성
@@ -410,14 +410,16 @@ export async function POST(request: NextRequest) {
           measurement_fee_total: parseNumber(row["측정비(합계)"] || row["measurement_fee_total"]),
           measurement_fee_business: parseNumber(row["측정비(사업장)"] || row["measurement_fee_business"]),
           measurement_fee_national: parseNumber(row["측정비(국고)"] || row["measurement_fee_national"]),
-          deposit_total: parseNumber(row["입금액(합계)"] || row["deposit_total"]),
           deposit_date_business: parseDate(row["입금일(사업장)"] || row["deposit_date_business"]),
           deposit_amount_business: parseNumber(row["입금액(사업장)"] || row["deposit_amount_business"]),
           deposit_date_national: parseDate(row["입금일(국고)"] || row["deposit_date_national"]),
           deposit_amount_national: parseNumber(row["입금액(국고)"] || row["deposit_amount_national"]),
+          deposit_total: 
+            (parseNumber(row["입금액(사업장)"] || row["deposit_amount_business"]) || 0) + 
+            (parseNumber(row["입금액(국고)"] || row["deposit_amount_national"]) || 0),
           special_notes: String(row["특이사항"] || row["special_notes"] || "").trim() || null,
-          created_by: user.name,
-          updated_by: user.name,
+          created_by: user?.name || "시스템",
+          updated_by: user?.name || "시스템",
         };
 
         // 측정일지 생성

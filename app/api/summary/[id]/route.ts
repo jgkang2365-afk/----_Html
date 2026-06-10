@@ -62,14 +62,13 @@ export async function PATCH(
     if (updateData.national_support_status === "" || updateData.national_support_status === undefined) {
       updateData.national_support_status = null;
     } else {
-      // 프론트엔드에서 '대상'으로 올 수 있으므로 '지원'으로 변환 (제약조건: '지원', '비대상')
+      // [The Joo Rule] '대상', '비대상'으로 정규화
       const status = String(updateData.national_support_status).trim();
-      if (status === "대상" || status === "지원") {
-        updateData.national_support_status = "지원";
-      } else if (status === "비대상") {
+      if (status === "대상" || status === "지원" || status === "지원대상") {
+        updateData.national_support_status = "대상";
+      } else if (status === "비대상" || status === "미지원") {
         updateData.national_support_status = "비대상";
       } else {
-        // 그 외 유효하지 않은 값은 null 또는 기본적으로 비대상 등으로 처리할 수 있으나 여기선 null 설정
         updateData.national_support_status = null;
       }
     }
@@ -153,6 +152,7 @@ export async function PATCH(
       'designated_office',
       'measurement_start_date',
       'measurement_end_date',
+      'measurement_days',
       'completion_status',
       'measurer',
       'office_jurisdiction',

@@ -29,6 +29,11 @@ export interface MeasurementRevenue {
   k2b_status: string | null;
   is_email_sent: boolean;
   last_email_sent_at: string | null;
+  industrial_accident_number: string | null;
+  revenue_type?: string | null;
+  manager_mobile?: string | null;
+  manager_name?: string | null;
+  manager_position?: string | null;
 }
 
 export interface OtherRevenue {
@@ -44,6 +49,8 @@ export interface OtherRevenue {
   designated_office: string | null;
   revenue_year: number | null;
   revenue_period: string | null;
+  representative_name?: string | null;
+  source?: string;
 }
 
 export interface OfficeSummary {
@@ -81,3 +88,17 @@ export const PERIOD_OPTIONS = [
   { value: "상반기", label: "상반기" },
   { value: "하반기", label: "하반기" },
 ];
+
+/**
+ * 국고지원금 정산 처리 상태 타입
+ */
+export type ProcessingStatus = 'idle' | 'loading' | 'success' | 'error';
+
+/**
+ * 국고지원금 정산 결과 상세 타입
+ */
+export interface ProcessingResult {
+  status: ProcessingStatus;
+  message?: string;
+}
+

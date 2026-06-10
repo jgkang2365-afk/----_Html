@@ -13,7 +13,24 @@ interface SyncResult {
     manager_name: string | null;
     manager_mobile: string | null;
     phone: string | null;
+    fax: string | null;
+    business_number: string | null;
+    industrial_accident_number: string | null;
     office_jurisdiction: string | null;
+    status: string | null; // New field for standardized status
+}
+
+/**
+ * [The Joo Rule] 사업장 상태값 정규화
+ * '확정' -> '실시', '미확정' -> '미실시', '종료' -> '거래종료'
+ */
+export function normalizeBusinessStatus(val: any): string {
+    if (!val) return "미실시";
+    const s = String(val).trim();
+    if (s === "확정" || s === "실시" || s === "완료") return "실시";
+    if (s === "미확정" || s === "미실시" || s === "대기") return "미실시";
+    if (s === "종료" || s === "거래종료" || s === "거래 종료") return "거래종료";
+    return s;
 }
 
 /**
@@ -62,7 +79,11 @@ export async function syncBusinessData(
         manager_name: baseData.manager_name || null,
         manager_mobile: baseData.manager_mobile || null,
         phone: baseData.phone || null,
+        fax: baseData.fax || null,
+        business_number: baseData.business_number || null,
+        industrial_accident_number: baseData.industrial_accident_number || null,
         office_jurisdiction: baseData.office_jurisdiction || null,
+        status: normalizeBusinessStatus(baseData.status),
     };
 
     // 1. 필요한 필드가 모두 채워져 있으면 바로 리턴 (최적화)
@@ -88,14 +109,15 @@ export async function syncBusinessData(
         }
     }
 
-    // 4. 전회 측정일/주기 (measurement_journal) - 과거 5개 주기 역순 탐색
+    // 4. 전회 측정일/주기 및 업종 (measurement_journal) - 과거 5개 주기 역순 탐색
     // 이미 값이 있어도 '전회' 정보를 정확히 가져오기 위해 조회 필요할 수 있음
     // 하지만 여기서는 '값이 없는 경우'를 우선으로 함.
-    if (!result.previous_measurement_date) {
+    let journalCategory: string | null = null;
+    if (!result.previous_measurement_date || !result.business_category) {
         // 한 번의 쿼리로 5개 주기 데이터를 모두 가져와서 정렬
         const { data: journals } = await supabase
             .from("measurement_journal")
-            .select("measurement_year, measurement_period, measurement_end_date, measurement_start_date")
+            .select("measurement_year, measurement_period, measurement_end_date, measurement_start_date, business_category")
             .eq("code", code)
             .in("measurement_year", periods.map(p => p.year))
             .not("measurement_end_date", "is", null) // 날짜가 있는 것만
@@ -105,21 +127,37 @@ export async function syncBusinessData(
         // 로직상 정확한 역순 정렬을 위해 JS에서 처리 권장
         if (journals && journals.length > 0) {
             // periods 순서대로 매칭되는 첫 번째 찾기
-            for (const p of periods) {
+            for (let i = 0; i < periods.length; i++) {
+                const p = periods[i];
                 const match = journals.find((j: any) => j.measurement_year === p.year && j.measurement_period === p.period);
                 if (match) {
-                    result.previous_measurement_date = match.measurement_end_date || match.measurement_start_date;
-                    result.previous_measurement_period = match.measurement_period; // "상반기" or "하반기"
-                    break;
+                    if (!result.previous_measurement_date) {
+                        result.previous_measurement_date = match.measurement_end_date || match.measurement_start_date;
+                        result.previous_measurement_period = match.measurement_period; // "상반기" or "하반기"
+                    }
+                    // 2순위: 최근 3주기 이내의 일지 데이터에서 업종 추출
+                    if (i < 3 && !journalCategory && match.business_category) {
+                        journalCategory = match.business_category;
+                    }
+                    if (result.previous_measurement_date && journalCategory) break;
                 }
             }
         }
     }
 
+    // 4.5. [1순위] 측정 대상 사업장 정보 (measurement_target_business) - 업종 분류 기초 데이터
+    const { data: targetData } = await supabase
+        .from("measurement_target_business")
+        .select("business_category")
+        .eq("code", code)
+        .eq("year", targetYear)
+        .eq("period", targetPeriod)
+        .single();
+
     // 5. 기본 정보 (business_info) - 최신 1건
     const { data: bInfo } = await supabase
         .from("business_info")
-        .select("address1, address2, phone, manager_name, business_category, office_jurisdiction")
+        .select("address1, address2, phone, fax, manager_name, business_category, office_jurisdiction, business_number, industrial_accident_number")
         .eq("code", code)
         .single();
 
@@ -128,7 +166,7 @@ export async function syncBusinessData(
     // 여기서는 '최신' 정보를 가져오기 위해 역순 정렬
     const { data: mbData } = await supabase
         .from("measurement_business")
-        .select("business_name, address, manager_name, manager_mobile, business_category, future_measurement_period")
+        .select("business_name, address, manager_name, manager_mobile, business_category, future_measurement_period, industrial_accident_number, business_number, fax")
         .eq("code", code)
         .order("year", { ascending: false }) // 최신 년도
         .order("period", { ascending: false })
@@ -149,8 +187,15 @@ export async function syncBusinessData(
     }
 
     if (!result.business_category) {
-        if (mbData?.business_category) result.business_category = mbData.business_category;
-        else if (bInfo?.business_category) result.business_category = bInfo.business_category;
+        // 1순위: measurement_target_business
+        if (targetData?.business_category) {
+            result.business_category = targetData.business_category;
+        } 
+        // 2순위: measurement_journal (직전 3주기)
+        else if (journalCategory) {
+            result.business_category = journalCategory;
+        }
+        // 1, 2순위가 없으면 무조건 null (하위 호환성 로직 삭제)
     }
 
     if (!result.manager_name) {
@@ -164,6 +209,21 @@ export async function syncBusinessData(
 
     if (!result.phone && bInfo?.phone) {
         result.phone = bInfo.phone;
+    }
+
+    if (!result.fax) {
+        if (mbData?.fax) result.fax = mbData.fax;
+        else if (bInfo?.fax) result.fax = bInfo.fax;
+    }
+
+    if (!result.business_number) {
+        if (mbData?.business_number) result.business_number = mbData.business_number;
+        else if (bInfo?.business_number) result.business_number = bInfo.business_number;
+    }
+
+    if (!result.industrial_accident_number) {
+        if (mbData?.industrial_accident_number) result.industrial_accident_number = mbData.industrial_accident_number;
+        else if (bInfo?.industrial_accident_number) result.industrial_accident_number = bInfo.industrial_accident_number;
     }
 
     if (!result.office_jurisdiction) {

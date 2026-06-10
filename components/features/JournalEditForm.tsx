@@ -25,6 +25,7 @@ interface JournalEntry {
   completion_status: string;
   measurement_start_date: string | null;
   measurement_end_date: string | null;
+  measurement_days: number | null;
   measurer: string | null;
   business_category?: string | null;
   invoice_email_2?: string;
@@ -59,6 +60,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [originalYear, setOriginalYear] = useState(entry.measurement_year);
   const [originalPeriod, setOriginalPeriod] = useState(entry.measurement_period);
   const [autoFilling, setAutoFilling] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
   const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
@@ -85,6 +87,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 측정 시작일 변경 감지를 위한 ref
   const prevStartDateRef = useRef<string | null>(normalizeDateForInput(entry.measurement_start_date));
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [formData, setFormData] = useState({
     // 기본 정보
     code: entry.code,
@@ -92,7 +98,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     measurement_period: entry.measurement_period,
     // note 필드에서 비고 체크박스 옵션에 해당하는 값만 필터링
     note: (() => {
-      const validNoteValues = ["최초실시", "고시물질", "공정 수시변경", "소음 85 이상", "전회 미실시", "타기관 신규"];
+      const validNoteValues = ["최초실시", "고시물질", "공정 변경", "공정 수시변경", "소음 85 이상", "전회 미실시", "타기관 신규"];
       if (!entry.note) {
         console.log('[JournalEditForm] 초기화: entry.note가 없음');
         return [];
@@ -101,16 +107,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         const noteString = entry.note.trim();
         const splitNotes = noteString.split(',').map(n => n.trim()).filter(Boolean);
 
-        const foundNotes = splitNotes.filter(note => {
-          if (note.includes(':')) return false;
-          return validNoteValues.includes(note);
-        });
+        const foundNotes = splitNotes
+          .map(n => (n === "공정 수시변경" ? "공정 변경" : n)) // 이전 명칭 호환성 유지
+          .filter(note => {
+            if (note.includes(':')) return false;
+            return validNoteValues.includes(note);
+          });
 
         // 초기 상태 설정 시 원본 텍스트(체크박스 이외의 텍스트) 추출은 건너뜀 (useEffect에서 처리)
         return foundNotes;
       }
       if (Array.isArray(entry.note)) {
-        return entry.note.filter(note => validNoteValues.includes(String(note)));
+        return entry.note
+          .map(n => (n === "공정 수시변경" ? "공정 변경" : String(n))) // 이전 명칭 호환성 유지
+          .filter(note => validNoteValues.includes(String(note)));
       }
       return [];
     })(),
@@ -123,6 +133,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // 측정 정보
     measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
     measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
+    measurement_days: entry.measurement_days || "",
     measurer: entry.measurer || "",
     completion_status: entry.completion_status || "미완료",
 
@@ -173,13 +184,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     
     // 특이사항
     special_notes: entry.special_notes || "",
+    is_skip_numbering: entry.is_skip_numbering === true,
   });
 
   // 비고 옵션 (복수 선택 가능)
   const noteOptions = [
     { value: "최초실시", label: "최초실시" },
     { value: "고시물질", label: "고시물질" },
-    { value: "공정 수시변경", label: "공정 수시변경" },
+    { value: "공정 변경", label: "공정 변경" },
     { value: "소음 85 이상", label: "소음 85 이상" },
     { value: "전회 미실시", label: "전회 미실시" },
     { value: "타기관 신규", label: "타기관 신규" },
@@ -199,7 +211,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 국고지원 여부 옵션
   const nationalSupportOptions = [
     { value: "", label: "선택" },
-    { value: "지원", label: "지원" },
+    { value: "대상", label: "대상" },
     { value: "비대상", label: "비대상" },
   ];
 
@@ -226,70 +238,56 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     return value.replace(/,/g, "");
   };
 
-  // 측정비 합계 자동 계산
+  // 측정비 합계 자동 계산 (방어 로직 강화)
   useEffect(() => {
-    // 국고지원 여부가 "비대상"인 경우 사업장만으로 계산
-    if (formData.national_support_status === "비대상") {
-      const business = parseFloat(parseCurrency(formData.measurement_fee_business)) || 0;
-      setFormData((prev) => ({
-        ...prev,
-        measurement_fee_total: business > 0 ? business.toString() : "",
-      }));
-    } else {
-      const business = parseFloat(parseCurrency(formData.measurement_fee_business)) || 0;
-      const national = parseFloat(parseCurrency(formData.measurement_fee_national)) || 0;
-      const total = business + national;
-      if (total > 0 || formData.measurement_fee_business || formData.measurement_fee_national) {
-        setFormData((prev) => ({
-          ...prev,
-          measurement_fee_total: total > 0 ? total.toString() : "",
-        }));
+    try {
+      const getSafeNumber = (val: any) => {
+        if (!val && val !== 0) return 0;
+        const str = String(val).replace(/,/g, "").trim();
+        const num = parseFloat(str);
+        return isNaN(num) ? 0 : num;
+      };
+
+      const businessFeeCalc = getSafeNumber(formData?.measurement_fee_business);
+      const nationalFeeCalc = getSafeNumber(formData?.measurement_fee_national);
+      
+      const isNA = formData?.national_support_status === "비대상";
+      const total = isNA ? businessFeeCalc : (businessFeeCalc + nationalFeeCalc);
+      
+      const currentTotalStr = parseCurrency(formData?.measurement_fee_total);
+      if (currentTotalStr !== total.toString()) {
+        setFormData(prev => prev ? ({ ...prev, measurement_fee_total: total.toString() }) : prev);
       }
+    } catch (e) {
+      console.error('[JournalEditForm] 측정비 계산 오류:', e);
     }
-  }, [formData.measurement_fee_business, formData.measurement_fee_national, formData.national_support_status]);
+  }, [formData?.measurement_fee_business, formData?.measurement_fee_national, formData?.national_support_status]);
 
   // 입금액 합계 자동 계산 (로직 개선)
   useEffect(() => {
-    const getNumber = (val: any) => {
-      if (!val) return 0;
-      // 콤마 제거 및 공백 제거 후 파싱
-      const str = String(val).replace(/,/g, "").trim();
-      const num = parseFloat(str);
-      return isNaN(num) ? 0 : num;
-    };
+    try {
+      const getNumber = (val: any) => {
+        if (!val) return 0;
+        const str = String(val).replace(/,/g, "").trim();
+        const num = parseFloat(str);
+        return isNaN(num) ? 0 : num;
+      };
 
-    const business = getNumber(formData.deposit_amount_business);
-    const business2 = getNumber(formData.deposit_amount_business_2);
-    const national = getNumber(formData.deposit_amount_national);
+      const business = getNumber(formData?.deposit_amount_business);
+      const business2 = getNumber(formData?.deposit_amount_business_2);
+      const national = getNumber(formData?.deposit_amount_national);
 
-    const isNA = formData.national_support_status === "비대상";
+      const isNA = formData?.national_support_status === "비대상";
+      const total = isNA ? (business + business2) : (business + business2 + national);
+      const newTotalStr = total > 0 ? total.toString() : "";
 
-    // 국고지원이 비대상이면 국고 금액 제외하고 합산
-    const total = isNA ? (business + business2) : (business + business2 + national);
-
-    const newTotalStr = total > 0 ? total.toString() : "";
-
-    // 현재 값(문자열 변환)과 다를 때만 업데이트 (무한 루프 방지)
-    if (String(formData.deposit_total || "") !== newTotalStr) {
-      if (total > 0 || formData.deposit_amount_business || formData.deposit_amount_business_2 || (!isNA && formData.deposit_amount_national)) {
-        console.log('[JournalEditForm] 입금액 합계 자동 갱신:', {
-          기존합계: formData.deposit_total,
-          신규합계: newTotalStr,
-          상세: { business, business2, national, isNA }
-        });
-        setFormData((prev) => ({
-          ...prev,
-          deposit_total: newTotalStr,
-        }));
+      if (String(formData?.deposit_total || "") !== newTotalStr) {
+        setFormData(prev => prev ? ({ ...prev, deposit_total: newTotalStr }) : prev);
       }
+    } catch (e) {
+      console.error('[JournalEditForm] 입금액 자동 계산 오류:', e);
     }
-  }, [
-    formData.deposit_amount_business,
-    formData.deposit_amount_business_2,
-    formData.deposit_amount_national,
-    formData.national_support_status,
-    formData.deposit_total
-  ]);
+  }, [formData?.deposit_amount_business, formData?.deposit_amount_business_2, formData?.deposit_amount_national, formData?.national_support_status]);
 
   // 국고지원 여부가 "비대상"일 때 국고 관련 필드 초기화
   useEffect(() => {
@@ -373,6 +371,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 console.log('[JournalEditForm] Reference Data (최신) 활용:', ref);
 
                 if (ref.manager_name) updated.manager_name = ref.manager_name;
+                if (ref.manager_position) updated.manager_position = ref.manager_position;
                 if (ref.manager_mobile) updated.manager_mobile = ref.manager_mobile;
                 if (ref.manager_email) updated.manager_email = ref.manager_email;
                 if (ref.address) updated.address = ref.address;
@@ -385,6 +384,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   updated.business_category = ref.business_category;
                 }
                 if (ref.invoice_email) updated.invoice_email = ref.invoice_email;
+                if (ref.invoice_email_2) updated.invoice_email_2 = ref.invoice_email_2;
                 if (ref.representative_name) updated.representative_name = ref.representative_name;
                 if (ref.phone) updated.phone = ref.phone;
                 if (ref.fax) updated.fax = ref.fax;
@@ -509,44 +509,75 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               // 등록 모드: 기존 값이 없을 때만 가져오기
               // 수정 모드: 기존 값이 없을 때만 가져오기 (건강디딤돌 신청결과 우선)
               if (data.nationalSupportStatus) {
-                updated.national_support_status = prev.national_support_status || data.nationalSupportStatus || "";
+                const statusFromData = data.nationalSupportStatus;
+                // "지원" -> "대상" 정규화
+                const normalizedStatus = statusFromData === "지원" ? "대상" : statusFromData;
+                updated.national_support_status = prev.national_support_status || normalizedStatus || "";
               }
 
               // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)
-              if (data.surveyInfo) {
-                setSurveyInfo(data.surveyInfo);
-                console.log('[JournalEditForm] 예비조사 정보 확인:', {
-                  report_writer: data.surveyInfo.report_writer,
-                  measurer: data.surveyInfo.measurer,
-                  기존_k2b_sender: prev.k2b_sender,
+              if (data.surveys && data.surveys.length > 0) {
+                const surveys = data.surveys;
+                // surveys 배열을 surveyInfo 상태에 저장 (상세 표시용)
+                setSurveyInfo(surveys);
+                
+                console.log('[JournalEditForm] 다중 예비조사 정보 확인:', {
+                  count: surveys.length,
+                  dates: surveys.map((s: any) => s.measurement_date)
                 });
 
-                // 측정자 (예비조사의 measurer가 있으면 사용)
-                if (data.surveyInfo.measurer) {
-                  updated.measurer = prev.measurer || data.surveyInfo.measurer;
-                }
-
-                // K2B 전송자 (예비조사의 report_writer가 있으면 기본값으로 설정, 최우선)
-                // report_writer는 콤마 구분 문자열일 수 있으므로 첫 번째 값만 사용
-                if (data.surveyInfo.report_writer) {
-                  // 콤마로 구분된 경우 첫 번째 값만 사용
-                  const reportWriterValue = data.surveyInfo.report_writer.split(',').map((w: string) => w.trim()).filter(Boolean)[0] || data.surveyInfo.report_writer.trim();
-
-                  // 예비조사 정보가 있으면 최우선으로 사용 (로그인 사용자 이름이나 기존 DB 값보다 우선)
-                  if (reportWriterValue) {
-                    updated.k2b_sender = reportWriterValue;
-                    console.log('[JournalEditForm] 예비조사 정보(report_writer)로 K2B 전송자 강제 덮어쓰기:', reportWriterValue);
+                // 1. 측정 시작일/종료일 계산 (전체 기간 합산)
+                const validDates = surveys
+                  .map((s: any) => s.measurement_date)
+                  .filter(Boolean)
+                  .sort();
+                
+                if (validDates.length > 0) {
+                  const startDate = validDates[0];
+                  const endDate = validDates[validDates.length - 1];
+                  
+                  // 기존 값이 없을 때만 자동 설정
+                  if (!prev.measurement_start_date) {
+                    updated.measurement_start_date = normalizeDateForInput(startDate);
                   }
-                }
-
-                // 측정 시작일 (예비조사의 measurement_date가 있으면 기본값으로 설정)
-                if (data.surveyInfo.measurement_date && !prev.measurement_start_date) {
-                  updated.measurement_start_date = normalizeDateForInput(data.surveyInfo.measurement_date);
-                  // 측정 종료일도 비어있으면 측정 시작일과 동일하게 설정
                   if (!prev.measurement_end_date) {
-                    updated.measurement_end_date = normalizeDateForInput(data.surveyInfo.measurement_date);
+                    updated.measurement_end_date = normalizeDateForInput(endDate);
+                  }
+                  
+                  // 2. 측정일수 계산 (중복 없는 고유 날짜 수)
+                  const uniqueDates = new Set(validDates);
+                  if (!prev.measurement_days) {
+                    updated.measurement_days = uniqueDates.size;
                   }
                 }
+
+                // 3. 측정자 통합 (모든 일자의 측정자 합집합)
+                const allMeasurers = new Set<string>();
+                surveys.forEach((s: any) => {
+                  if (s.measurer) {
+                    s.measurer.split(',').forEach((m: string) => {
+                      const trimmed = m.trim();
+                      if (trimmed) allMeasurers.add(trimmed);
+                    });
+                  }
+                });
+
+                if (allMeasurers.size > 0 && !prev.measurer) {
+                  updated.measurer = Array.from(allMeasurers).join(', ');
+                }
+
+                // 4. K2B 전송자 (가장 마지막 날짜의 보고서 담당자 사용)
+                const lastSurvey = surveys[surveys.length - 1];
+                if (lastSurvey.report_writer) {
+                  const reportWriterValue = lastSurvey.report_writer.split(',').map((w: string) => w.trim()).filter(Boolean)[0] || lastSurvey.report_writer.trim();
+                  if (reportWriterValue && !prev.k2b_sender) {
+                    updated.k2b_sender = reportWriterValue;
+                  }
+                }
+              } else if (data.surveyInfo) {
+                // 구형 로직 지원 (surveys가 없는 경우)
+                setSurveyInfo(data.surveyInfo);
+                // ... 생략 (surveys 로직으로 대체됨)
               }
 
               // K2B 전송자 fallback: 예비조사 정보가 없을 때만 직전 측정일지나 요약 정보 사용
@@ -686,10 +717,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 등록 모드일 때 로그인 사용자 정보로 기본값 설정 (Fallback)
   useEffect(() => {
     // 등록 모드이고, 사용자 정보가 있고, 해당 필드가 아직 비어있을 때만 설정
-    // 주의: surveyInfo 로드 후 report_writer가 있으면 해당 값이 덮어쓰게 됩니다.
     if (!entry.id && user?.name) {
       setFormData((prev) => {
-        // 이미 값이 있으면 (예: surveyInfo나 직전 데이터에서 가져온 경우) 건드리지 않음
+        // [수정] k2b_sender는 예비조사 데이터가 없을 경우 공란 유지를 위해 자동 설정을 제외함
+        /* 
         if (prev.k2b_sender) return prev;
 
         // 측정 시작일 기준으로 전송자 목록 분기
@@ -702,6 +733,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         if (k2bSenderOptions.includes(user.name)) {
           return { ...prev, k2b_sender: user.name };
         }
+        */
         return prev;
       });
     }
@@ -725,13 +757,15 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               setFormData((prev) => {
                 // 기존 값이 없거나 빈 문자열일 때만 건강디딤돌 신청결과 값으로 채우기
                 if (!prev.national_support_status || prev.national_support_status === "") {
+                  // "지원" -> "대상" 정합성 확보
+                  const normalizedStatus = data.nationalSupportStatus === "지원" ? "대상" : data.nationalSupportStatus;
                   console.log('[JournalEditForm] 수정 모드: 건강디딤돌 신청결과 값으로 국고지원 여부 설정', {
                     기존값: prev.national_support_status,
-                    신청결과값: data.nationalSupportStatus,
+                    신청결과값: normalizedStatus,
                   });
                   return {
                     ...prev,
-                    national_support_status: data.nationalSupportStatus,
+                    national_support_status: normalizedStatus,
                   };
                 }
                 return prev;
@@ -838,6 +872,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       // 측정 정보
       measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
       measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
+      measurement_days: entry.measurement_days || "",
       measurer: entry.measurer || "",
       completion_status: entry.completion_status || "미완료",
 
@@ -881,6 +916,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       deposit_amount_business_2: entry.deposit_amount_business_2 || "",
       deposit_date_national: normalizeDateForInput(entry.deposit_date_national),
       deposit_amount_national: entry.deposit_amount_national || "",
+      is_skip_numbering: entry.is_skip_numbering === true,
 
       // 전자계산서 정보 (발행처)
       invoice_business_name: entry.invoice_business_name || "",
@@ -897,7 +933,25 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // entry 변경 시 ref도 업데이트
     prevStartDateRef.current = normalizeDateForInput(entry.measurement_start_date);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry.id, entry.note, entry.code, entry.measurement_year, entry.measurement_period, entry.measurement_start_date, entry.business_category]); // entry의 주요 필드가 변경될 때 전체 재초기화
+  }, [
+    entry.id, 
+    entry.note, 
+    entry.code, 
+    entry.measurement_year, 
+    entry.measurement_period, 
+    entry.measurement_start_date, 
+    entry.business_category,
+    entry.measurement_fee_total,
+    entry.measurement_fee_business,
+    entry.measurement_fee_national,
+    entry.deposit_total,
+    entry.total_employees,
+    entry.completion_status,
+    entry.national_support_status,
+    entry.manager_name,
+    entry.manager_mobile,
+    entry.manager_email
+  ]); // entry의 주요 필드가 변경될 때 전체 재초기화
 
   // 주소 변경 시 자동으로 소재지 관할청과 지정한계_관할지청 업데이트
   const handleAddressChange = async (newAddress: string) => {
@@ -968,8 +1022,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         const updates: any = {};
         let hasUpdates = false;
 
-        // 1. 비고: '공정 수시변경' 자동 체크
-        const NOTE_VALUE = "공정 수시변경";
+        // 1. 비고: '공정 변경' 자동 체크 (기존 '공정 수시변경')
+        const NOTE_VALUE = "공정 변경";
         const currentNotes = Array.isArray(prev.note) ? [...prev.note] : (prev.note ? [String(prev.note)] : []);
 
         if (!currentNotes.includes(NOTE_VALUE)) {
@@ -1008,21 +1062,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         }
         return prev;
       });
-    } else {
-      // 대전/천안 공업사가 아니면 전자계산서 발행일 비우기
-      if (formData.electronic_invoice_date) {
-        setFormData(prev => ({ ...prev, electronic_invoice_date: "" }));
-      }
-      
-      // 비고에서 '공정 수시변경' 제거 (선택사항이나 일관성을 위해)
-      const NOTE_VALUE = "공정 수시변경";
-      const currentNotes = Array.isArray(formData.note) ? [...formData.note] : (formData.note ? [String(formData.note)] : []);
-      if (currentNotes.includes(NOTE_VALUE)) {
-        setFormData(prev => ({
-          ...prev,
-          note: currentNotes.filter(n => n !== NOTE_VALUE)
-        }));
-      }
     }
 
     // ref 업데이트
@@ -1128,6 +1167,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       if (submitData.deposit_amount_business_2) {
         submitData.deposit_amount_business_2 = parseFloat(parseCurrency(String(submitData.deposit_amount_business_2)));
       }
+      if (submitData.measurement_days) {
+        submitData.measurement_days = parseInt(String(submitData.measurement_days)) || null;
+      }
 
       // 입금액 합계 재계산 (비동기 상태 업데이트 지연 방지 및 사업장2 포함 보장)
       const calcBus = typeof submitData.deposit_amount_business === 'number' ? submitData.deposit_amount_business : 0;
@@ -1148,8 +1190,15 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         });
       }
 
+      // DB 컬럼이 아닌 내부 상태 필드 삭제 (백엔드 에러 방지)
+      delete submitData._isFromBusiness;
+      delete submitData._isFromSurvey;
+      delete submitData.office_jurisdiction_raw;
+
       const url = entry.id ? `/api/journal/${entry.id}` : "/api/journal";
       const method = entry.id ? "PUT" : "POST";
+
+      console.log(`[JournalEditForm] ${method} 요청 전송 데이터:`, submitData);
 
       let response = await fetch(url, {
         method,
@@ -1559,20 +1608,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           label="측정비(합계)"
           type="text"
           value={formatCurrency(formData.measurement_fee_total)}
-          onChange={(e) => {
-            const parsed = parseCurrency(e.target.value);
-            setFormData({ ...formData, measurement_fee_total: parsed });
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              const inputs = e.currentTarget.form?.querySelectorAll("input");
-              const currentIndex = Array.from(inputs || []).indexOf(e.currentTarget);
-              if (inputs && currentIndex < inputs.length - 1) {
-                inputs[currentIndex + 1].focus();
-              }
-            }
-          }}
           disabled
           className="bg-surface-50"
           placeholder="자동 계산됩니다"
@@ -1824,62 +1859,89 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 md:col-span-2 lg:col-span-3 max-w-md">
-          <div>
-            <Input
-              label="공문연번"
-              value={formData.document_number}
-              disabled={(!isAdmin && !!entry.id) || isLockedByCompletion}
-              onChange={(e) => setFormData({ ...formData, document_number: e.target.value })}
-              className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion) ? "bg-surface-50" : "")}
-              placeholder={((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
-            />
-            {/* 일반 사용자에게만 수정 불가능함을 안내 */}
-            {!isAdmin && entry.id && (
-              <p className="text-xs text-text-500 mt-1">
-                관리자 승인 없이 수정 불가
-              </p>
-            )}
-          </div>
-          <div>
-            <Input
-              label="연번"
-              value={formData.sequence_number}
-              disabled={(!isAdmin && !!entry.id) || isLockedByCompletion}
-              onChange={(e) => setFormData({ ...formData, sequence_number: e.target.value })}
-              className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion) ? "bg-surface-50" : "")}
-              placeholder={((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
-            />
-            {!isAdmin && entry.id && (
-              <p className="text-xs text-text-500 mt-1">
-                관리자 승인 없이 수정 불가
-              </p>
-            )}
-          </div>
-          <div>
-            <div className="flex items-start gap-2">
-              <div className="flex-1">
-                <Input
-                  label="5인 이상 연번"
-                  value={formData.five_plus_sequence}
-                  disabled={(!isAdmin && !!entry.id) || isLockedByCompletion}
-                  onChange={(e) => setFormData({ ...formData, five_plus_sequence: e.target.value })}
-                  className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion) ? "bg-surface-50" : "")}
-                  placeholder={((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가 (승인 필요)" : "자동 부여됩니다"}
-                />
-              </div>
-              {officeQuota !== null && (
-                <div className="mt-8 text-sm font-medium text-gray-500 whitespace-nowrap pt-1">
-                  / {officeQuota}
-                </div>
+        <div className="md:col-span-2 lg:col-span-3 flex flex-col xl:flex-row items-start xl:items-center gap-4 w-full">
+          <div className="grid grid-cols-3 gap-2 max-w-md w-full">
+            <div>
+              <Input
+                label="공문연번"
+                value={formData.document_number}
+                disabled={(!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering}
+                onChange={(e) => setFormData({ ...formData, document_number: e.target.value })}
+                className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering) ? "bg-surface-50" : "")}
+                placeholder={formData.is_skip_numbering ? "미부여" : (((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가" : "자동 부여")}
+              />
+              {!isAdmin && entry.id && !formData.is_skip_numbering && (
+                <p className="text-xs text-text-500 mt-1 truncate">
+                  승인 없이 수정 불가
+                </p>
               )}
             </div>
-            {!isAdmin && entry.id && (
-              <p className="text-xs text-text-500 mt-1">
-                관리자 승인 없이 수정 불가
-              </p>
-            )}
+            <div>
+              <Input
+                label="연번"
+                value={formData.sequence_number}
+                disabled={(!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering}
+                onChange={(e) => setFormData({ ...formData, sequence_number: e.target.value })}
+                className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering) ? "bg-surface-50" : "")}
+                placeholder={formData.is_skip_numbering ? "미부여" : (((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가" : "자동 부여")}
+              />
+              {!isAdmin && entry.id && !formData.is_skip_numbering && (
+                <p className="text-xs text-text-500 mt-1 truncate">
+                  승인 없이 수정 불가
+                </p>
+              )}
+            </div>
+            <div>
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <Input
+                    label="5인 이상 연번"
+                    value={formData.five_plus_sequence}
+                    disabled={(!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering}
+                    onChange={(e) => setFormData({ ...formData, five_plus_sequence: e.target.value })}
+                    className={cn("font-bold", ((!isAdmin && !!entry.id) || isLockedByCompletion || formData.is_skip_numbering) ? "bg-surface-50" : "")}
+                    placeholder={formData.is_skip_numbering ? "미부여" : (((!isAdmin && !!entry.id) || isLockedByCompletion) ? "변경 불가" : "자동 부여")}
+                  />
+                </div>
+                {officeQuota !== null && (
+                  <div className="mt-8 text-sm font-medium text-gray-400 whitespace-nowrap pt-1">
+                    / {officeQuota}
+                  </div>
+                )}
+              </div>
+              {!isAdmin && entry.id && !formData.is_skip_numbering && (
+                <p className="text-xs text-text-500 mt-1 truncate">
+                  승인 없이 수정 불가
+                </p>
+              )}
+            </div>
           </div>
+
+          {/* 번호 부여 제외 옵션 (우측 배치) */}
+          {mounted && (user?.is_journal_manager || isAdmin) && (
+            <div className="flex flex-col justify-center p-2 px-3 bg-red-50 rounded-lg border border-red-100 min-w-[260px] xl:ml-auto">
+              <Checkbox
+                id="is_skip_numbering"
+                label="일련번호 자동 부여 제외 (기타매출)"
+                checked={formData.is_skip_numbering}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setFormData({
+                    ...formData,
+                    is_skip_numbering: checked,
+                    document_number: checked ? "" : formData.document_number,
+                    sequence_number: checked ? "" : formData.sequence_number,
+                    five_plus_sequence: checked ? "" : formData.five_plus_sequence,
+                  });
+                }}
+                className="text-red-600 focus:ring-red-500 font-semibold text-xs"
+              />
+              <p className="mt-0.5 ml-6 text-[10px] text-red-600 flex items-center gap-1">
+                <span className="w-2.5 h-2.5 flex items-center justify-center bg-red-200 text-red-800 rounded-full text-[7px] font-bold">i</span>
+                미부여 시 기타매출로 자동 분류됩니다.
+              </p>
+            </div>
+          )}
         </div>
         {!isAdmin && entry.id && (
           <div className="mt-2">
@@ -1966,7 +2028,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
         측정 정보
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Input
           label="측정 시작일"
           type="date"
@@ -1982,7 +2044,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               return updated;
             });
           }}
-          className="max-w-[200px]"
         />
         <Input
           label="측정 종료일"
@@ -1991,7 +2052,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           onChange={(e) =>
             setFormData({ ...formData, measurement_end_date: e.target.value })
           }
-          className="max-w-[200px]"
+        />
+        <Input
+          label="측정일수"
+          type="number"
+          value={formData.measurement_days}
+          onChange={(e) => setFormData({ ...formData, measurement_days: parseInt(e.target.value) || 0 })}
+          placeholder="일수"
         />
         <Input
           label="측정자"
@@ -2054,27 +2121,71 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const renderSurveyInfo = () => {
     if (!surveyInfo) return null;
 
+    // surveyInfo가 배열인 경우(신규 로직)와 단일 객체인 경우(기존 로직) 모두 대응
+    const surveys = Array.isArray(surveyInfo) ? surveyInfo : [surveyInfo];
+    if (surveys.length === 0) return null;
+
+    // 통합 데이터 계산
+    const surveyors = new Set<string>();
+    const actualMeasurers = new Set<string>();
+    const reportWriters = new Set<string>();
+    
+    // 날짜별 공시료 코드 집계 (예: "4/21: B, 4/22: C")
+    const codeByDate = surveys
+      .filter(s => s.measurement_date && s.survey_code)
+      .map(s => {
+        // 측정일수가 1일이면 날짜 표시 생략 (사용자 요청)
+        if (surveys.length === 1) {
+          return s.survey_code;
+        }
+        const date = new Date(s.measurement_date);
+        const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
+        return `${dateStr}: ${s.survey_code}`;
+      })
+      .join(', ');
+
+    surveys.forEach(s => {
+      if (s.preliminary_surveyor) s.preliminary_surveyor.split(',').forEach((name: string) => surveyors.add(name.trim()));
+      if (s.actual_measurer) s.actual_measurer.split(',').forEach((name: string) => actualMeasurers.add(name.trim()));
+      if (s.report_writer) s.report_writer.split(',').forEach((name: string) => reportWriters.add(name.trim()));
+    });
+
     return (
       <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
-        <h3 className="text-lg font-bold text-blue-900 mb-4 pb-2 border-b-2 border-primary-500">
-          예비조사 정보 (참고용)
-        </h3>
+        <div className="flex items-center justify-between mb-4 pb-2 border-b border-blue-100">
+          <h3 className="text-lg font-bold text-blue-900">
+            예비조사 정보 (참고용)
+          </h3>
+          {surveys.length > 1 && (
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+              집계됨 ({surveys.length}일)
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">예비조사자</label>
-            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.preliminary_surveyor || "-"}</div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">예비조사자</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
+              {Array.from(surveyors).join(', ') || "-"}
+            </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">공시료 코드</label>
-            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.survey_code || "-"}</div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">공시료 코드</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-bold h-9 flex items-center shadow-sm">
+              {codeByDate || surveys[0]?.survey_code || "-"}
+            </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">실측정자</label>
-            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.actual_measurer || "-"}</div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">실측정자</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
+              {Array.from(actualMeasurers).join(', ') || "-"}
+            </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">보고서 담당</label>
-            <div className="p-2 bg-white rounded-md border border-gray-300 text-sm">{surveyInfo.report_writer || "-"}</div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">보고서 담당</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
+              {Array.from(reportWriters).join(', ') || "-"}
+            </div>
           </div>
         </div>
       </div>

@@ -23,26 +23,41 @@ export class K2BService {
      */
     async init() {
         // Next.js 환경에서 selenium-manager.exe 경로 설정
-        const managerPath = path.resolve(process.cwd(), 'node_modules', 'selenium-webdriver', 'bin', 'windows', 'selenium-manager.exe');
+        const managerPath = process.env.SE_MANAGER_PATH || path.resolve(process.cwd(), 'node_modules', 'selenium-webdriver', 'bin', 'windows', 'selenium-manager.exe');
         if (fs.existsSync(managerPath)) {
             process.env.SE_MANAGER_PATH = managerPath;
             console.log(`[K2B] Selenium Manager Path: ${managerPath}`);
         }
 
         const options = new chrome.Options();
-        options.addArguments('--start-maximized'); // 브라우저 최대화 (파이썬 동일)
+        
+        // 서버 구동 환경 대응: 화면 크기 및 headless 설정
+        const isHeadless = process.env.K2B_HEADLESS === 'true';
+        if (isHeadless) {
+            console.log('[K2B] 헤드리스 모드(Headless)로 브라우저를 구동합니다.');
+            options.addArguments('--headless=new');
+        } else {
+            options.addArguments('--start-maximized');
+        }
+
         options.addArguments('--no-sandbox');
         options.addArguments('--disable-dev-shm-usage');
-        // detach 옵션: 스크립트 종료 후에도 브라우저 유지
+        options.addArguments('--disable-gpu'); // 서버 환경에서 그래픽 가속 비활성화
+        
+        // detach 옵션: 스크립트 종료 후에도 브라우저 유지 (헤드리스가 아닐 때만 유의미)
         options.excludeSwitches('enable-automation');
 
+        console.log('[K2B] 크롬 드라이버 빌드를 시작합니다...');
         this.driver = await new Builder()
             .forBrowser('chrome')
             .setChromeOptions(options)
             .build();
 
-        // 한번 더 최대화 호출 (안전장치)
-        await this.driver.manage().window().maximize();
+        if (!isHeadless) {
+            // 한번 더 최대화 호출 (안전장치)
+            await this.driver.manage().window().maximize();
+        }
+        console.log('[K2B] 크롬 드라이버 초기화 완료.');
     }
 
     /**
@@ -61,6 +76,7 @@ export class K2BService {
         if (!this.driver) throw new Error('Driver not initialized');
 
         // Step 0: K2B 접속
+        console.log('[K2B] 사이트 접속 중: https://k2b.kosha.or.kr/index.do');
         await this.driver.get('https://k2b.kosha.or.kr/index.do');
         await this.driver.sleep(2000); // time.sleep(2)
 
@@ -112,6 +128,7 @@ export class K2BService {
             until.elementLocated(By.css('#mainframe_VFrameSet_LoginFrame_form_div_Login_div_box_btn_loginTextBoxElement > div')),
             20000
         );
+        console.log(`[K2B] 로그인 시도 중... (ID: ${loginId})`);
         await loginBtn.click();
 
         // 로그인 성공 확인 (WebDriverWait 20초)
@@ -130,6 +147,7 @@ export class K2BService {
         }
 
         // '파일전송(신)' 버튼 클릭 (WebDriverWait 5초)
+        console.log("[K2B] 로그인 성공. '파일전송(신)' 메뉴로 이동합니다.");
         const fileTransferBtn = await this.driver.wait(
             until.elementLocated(By.xpath("//div[text()='파일전송(신)']")),
             5000
@@ -162,26 +180,38 @@ export class K2BService {
      * 7. 파일명들을 큰따옴표+공백으로 연결하여 붙여넣기
      * 8. pyautogui.press('enter')
      */
+    /**
+     * PowerShell EncodedCommand를 사용하여 특수문자/따옴표 포함 텍스트를 클립보드에 안전하게 설정
+     */
+    private setClipboard(text: string) {
+        // .NET 메서드를 사용하는 PowerShell 명령 생성
+        const command = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText(([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${Buffer.from(text, 'utf8').toString('base64')}'))))`;
+        // PowerShell에 명령 전달
+        execSync(`powershell -command "${command}"`);
+    }
+
     private sendMultipleFilesViaDialog(drawingFolder: string, jpgFiles: string[]) {
         // 1. Alt+D → 주소창 이동
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%d')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`); // time.sleep(1)
+        execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`);
 
         // 2-4. 폴더 경로를 클립보드에 복사 후 붙여넣기 → Enter
-        execSync(`powershell -command "Set-Clipboard -Value '${drawingFolder.replace(/'/g, "''")}'"`);
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 1500"`); // time.sleep(1.5) 폴더 이동 대기
+        this.setClipboard(drawingFolder);
+        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
+        execSync(`powershell -command "Start-Sleep -Milliseconds 2500"`); // 폴더 이동 대기
 
         // 5. Alt+N → 파일명 입력란 이동
         execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%n')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 500"`); // time.sleep(0.5)
+        execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`);
 
         // 6. 모든 파일명을 큰따옴표로 묶고 공백으로 연결
         const filenamesStr = jpgFiles.map(f => `"${f}"`).join(' ');
-        execSync(`powershell -command "Set-Clipboard -Value '${filenamesStr.replace(/'/g, "''")}'"`);
+        
+        // 클립보드에 파일명 넣기 (Encoded 방식으로 따옴표 완벽 보존)
+        this.setClipboard(filenamesStr);
 
         // 7. Ctrl+V → 붙여넣기 후 Enter
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
+        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 2000; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
     }
 
     /**
@@ -295,7 +325,7 @@ export class K2BService {
                     // XML 등록 확인 팝업 클릭
                     try {
                         const confirmBtn = await this.driver.wait(
-                            until.elementLocated(By.xpath('//*[@id="mainframe_VFrameSet_MainFrame_[1] 건을 업로드 하시겠습니까 ?_form_div_Btn_btn_confirmTextBoxElement"]/div')),
+                            until.elementLocated(By.xpath('//div[contains(@id, "btn_confirmTextBoxElement")]/div')),
                             20000
                         );
                         await confirmBtn.click();

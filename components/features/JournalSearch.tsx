@@ -33,6 +33,7 @@ interface JournalEntry {
   completion_status: string;
   measurement_start_date: string | null;
   measurement_end_date: string | null;
+  measurement_days: number | null;
   measurer: string | null;
   document_number?: string | null;
   sequence_number?: string | null;
@@ -165,9 +166,31 @@ export const JournalSearch: React.FC = () => {
     errors?: string[];
   } | null>(null);
 
-  // 페이지 로드 시 초기 검색 실행 (최신 자료 표시)
+  // 페이지 로드 시 초기 검색 실행 (URL 파라미터 우선, 없으면 로컬 스토리지)
   useEffect(() => {
-    // 1. 로컬 스토리지에서 검색 조건 복원
+    // 1. URL 파라미터 확인 (우선순위 1)
+    const codeParam = searchParamsUrl.get("code");
+    const nameParam = searchParamsUrl.get("businessName");
+    const yearParam = searchParamsUrl.get("year");
+    const periodParam = searchParamsUrl.get("period");
+    const autoOpenParam = searchParamsUrl.get("autoOpen") === "true";
+
+    if (codeParam || nameParam) {
+      const newParams = {
+        ...searchParams,
+        code: codeParam || "",
+        businessName: nameParam || "",
+        measurementYear: yearParam || searchParams.measurementYear || (new Date().getFullYear()).toString(),
+        measurementPeriod: periodParam || searchParams.measurementPeriod || "",
+      };
+      setSearchParams(newParams);
+      
+      // URL 파라미터가 있을 경우 즉시 검색 (검색어 상태 업데이트가 비동기이므로 직접 전달)
+      handleSearch(newParams, autoOpenParam);
+      return;
+    }
+
+    // 2. 로컬 스토리지에서 검색 조건 복원
     const savedParams = localStorage.getItem("journal_search_params");
     if (savedParams) {
       try {
@@ -179,11 +202,6 @@ export const JournalSearch: React.FC = () => {
     }
 
     if (activeTab === "search") {
-      // 복원된 조건으로 검색 실행 (약간의 지연 필요할 수 있음 - useEffect 의존성 고려)
-      // 여기서는 handleSearch를 호출하지만, searchParams 상태 업데이트가 비동기라 
-      // 초기값으로 검색될 수 있음. 
-      // 완벽한 복원을 위해서는 searchParams가 업데이트된 후 검색해야 함.
-      // 일단은 기본 동작 유지 (빈 값이면 전체 검색)
       handleSearch();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -231,34 +249,35 @@ export const JournalSearch: React.FC = () => {
   // 지정한계_관할지청 옵션 (필터/등록용)
   const designatedOfficeOptions = DESIGNATED_OFFICE_OPTIONS;
 
-  const handleSearch = async () => {
-    console.log("측정일지 검색 버튼 클릭됨", searchParams);
+  const handleSearch = async (overrideParams?: typeof searchParams, autoOpen: boolean = false) => {
+    const currentParams = overrideParams || searchParams;
+    console.log("측정일지 검색 실행", currentParams);
     setLoading(true);
     setError(null);
     setHasSearched(true);
 
     try {
       const params = new URLSearchParams();
-      if (searchParams.code) {
-        params.append("code", searchParams.code);
+      if (currentParams.code) {
+        params.append("code", currentParams.code);
       }
-      if (searchParams.measurementYear) {
-        params.append("measurementYear", searchParams.measurementYear);
+      if (currentParams.measurementYear) {
+        params.append("measurementYear", currentParams.measurementYear);
       }
-      if (searchParams.measurementPeriod) {
-        params.append("measurementPeriod", searchParams.measurementPeriod);
+      if (currentParams.measurementPeriod) {
+        params.append("measurementPeriod", currentParams.measurementPeriod);
       }
-      if (searchParams.businessName) {
-        params.append("businessName", searchParams.businessName);
+      if (currentParams.businessName) {
+        params.append("businessName", currentParams.businessName);
       }
-      if (searchParams.designatedOffice) {
-        params.append("designatedOffice", searchParams.designatedOffice);
+      if (currentParams.designatedOffice) {
+        params.append("designatedOffice", currentParams.designatedOffice);
       }
-      if (searchParams.address) {
-        params.append("address", searchParams.address);
+      if (currentParams.address) {
+        params.append("address", currentParams.address);
       }
-      if (searchParams.measurementDate) {
-        params.append("measurementDate", searchParams.measurementDate);
+      if (currentParams.measurementDate) {
+        params.append("measurementDate", currentParams.measurementDate);
       }
 
       params.append("menuType", "registration"); // 등록 현황 화면임을 API에 전달 (공문연번 정렬용)
@@ -305,6 +324,11 @@ export const JournalSearch: React.FC = () => {
         const deduplicatedResults = Array.from(seenKeys.values());
 
         setResults(deduplicatedResults);
+
+        // 결과가 1건이고 autoOpen이 true인 경우 자동으로 모달 팝업
+        if (autoOpen && deduplicatedResults.length === 1) {
+          handleSelectJournal(deduplicatedResults[0]);
+        }
       } else {
         setError((data && data.error) || "검색 중 오류가 발생했습니다.");
         setResults([]);
@@ -334,38 +358,39 @@ export const JournalSearch: React.FC = () => {
   };
 
   const handleSelectJournal = async (entry: JournalEntry) => {
-    // 측정일지 ID가 있으면 최신 데이터를 불러옴 (캐시 무시)
+    if (!entry) return;
+
+    // 1. 즉시 상태 업데이트하여 모달 오픈 (빠른 응답성)
+    setSelectedEntry(entry);
+    setIsModalOpen(true);
+
+    // 2. 백그라운드에서 최신 데이터 패치 (상세 정보 보완)
     if (entry.id) {
       try {
-        // 캐시를 무시하고 최신 데이터를 가져오기 위해 timestamp 추가 (menuType=registration 추가)
         const timestamp = new Date().getTime();
-        const response = await fetch(`/api/journal/search?code=${encodeURIComponent(entry.code || '')}&measurementYear=${entry.measurement_year}&measurementPeriod=${entry.measurement_period}&menuType=registration&_t=${timestamp}`, {
+        // ID 기반 직접 조회로 변경하여 더 정확하고 빠른 데이터 확보
+        const response = await fetch(`/api/journal/${entry.id}?_t=${timestamp}`, {
           cache: 'no-store',
         });
+        
         if (response.ok) {
-          const data = await response.json();
-          const latestJournal = data.results?.find((j: JournalEntry) => j.id === entry.id);
-          if (latestJournal) {
-            // 검색 결과 목록도 업데이트
+          const latestJournal = await response.json();
+          
+          if (latestJournal && latestJournal.id === entry.id) {
+            // 검색 결과 목록 조용히 업데이트
             setResults((prevResults) => {
-              const updatedResults = prevResults.map((r) =>
+              return prevResults.map((r) =>
                 r.id === latestJournal.id ? latestJournal : r
               );
-              return updatedResults;
             });
+            // 모달 안의 상세 데이터(selectedEntry) 조용히 업데이트
             setSelectedEntry(latestJournal);
-            setIsModalOpen(true);
-            return;
           }
         }
       } catch (err) {
-        console.error("측정일지 최신 데이터 조회 오류:", err);
-        // 오류가 발생하면 기존 entry 사용
+        console.error("[JournalSearch] 백그라운드 데이터 갱신 실패:", err);
       }
     }
-    // 최신 데이터를 불러오지 못했거나 ID가 없으면 기존 entry 사용
-    setSelectedEntry(entry);
-    setIsModalOpen(true);
   };
 
   const handleModalClose = () => {
@@ -470,6 +495,7 @@ export const JournalSearch: React.FC = () => {
       completion_status: "미완료",
       measurement_start_date: null,
       measurement_end_date: null,
+      measurement_days: null,
       measurer: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -1150,107 +1176,110 @@ export const JournalSearch: React.FC = () => {
                   <p className="text-text-500 text-lg">검색 결과가 없습니다.</p>
                 </div>
               ) : (
-                <div className="rounded-lg border border-surface-200 overflow-hidden">
-                  <div className="max-h-[calc(100vh-500px)] overflow-y-auto overflow-x-auto">
-                    <table className="w-full caption-bottom text-base">
-                      <thead className="bg-slate-50/90 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60 sticky top-0 z-10">
-                        <tr className="border-b border-slate-100">
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-16 whitespace-nowrap sticky top-0 z-10">코드</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">측정년도</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">측정주기</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-24 whitespace-nowrap sticky top-0 z-10">지정지청</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-left align-middle font-bold text-slate-800 w-[200px] whitespace-nowrap sticky top-0 z-10">사업장명</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-left align-middle font-bold text-slate-800 w-[260px] whitespace-nowrap sticky top-0 z-10">주소</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">공문연번</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">연번</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">5인 이상 연번</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">총인원</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-28 whitespace-nowrap sticky top-0 z-10">측정시작일</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">담당자</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-32 whitespace-nowrap sticky top-0 z-10">담당자 휴대폰</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-20 whitespace-nowrap sticky top-0 z-10">측정자</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-16 whitespace-nowrap sticky top-0 z-10">완료여부</th>
-                          <th className="bg-slate-50/90 backdrop-blur h-12 px-2 text-center align-middle font-bold text-slate-800 w-16 whitespace-nowrap sticky top-0 z-10">작업</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {results.map((entry) => (
-                          <tr key={entry.id || `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`} className="border-b border-slate-100 transition-colors hover:bg-slate-50/50">
-                            <td className="p-1 align-middle font-medium text-center text-xs">{entry.code}</td>
-                            <td className="p-1 align-middle font-medium text-center text-xs">{entry.measurement_year}</td>
-                            <td className={`p-1 align-middle text-center text-xs ${entry.measurement_period.includes("(수시)") ? "text-red-500 font-bold" : ""}`}>{entry.measurement_period}</td>
-                            <td className="p-1 align-middle text-center text-xs">{entry.designated_office}</td>
-                            <td className="p-1 align-middle font-medium truncate max-w-[180px] text-xs" title={entry.business_name}>{entry.business_name}</td>
-                            <td className="p-1 align-middle text-text-600 max-w-[300px] text-xs leading-tight break-keep" title={entry.address}>
-                              <div className="line-clamp-2">
-                                {entry.address || "-"}
-                              </div>
-                            </td>
-                            <td className="p-1 align-middle text-center text-xs">{entry.document_number || "-"}</td>
-                            <td className="p-1 align-middle text-center text-xs">{entry.sequence_number || "-"}</td>
-                            <td className="p-1 align-middle text-center text-xs">
-                              {entry.five_plus_sequence ? (
-                                <span>
-                                  {entry.five_plus_sequence}
-                                  {(() => {
-                                    // 1. 정확히 일치하는 주기 검색
-                                    let quota = quotas.find(
+                <div className="rounded-lg border border-surface-200 overflow-hidden bg-white">
+                  <Table maxHeight="max-h-[calc(100vh-500px)]">
+                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black">
+                      <TableRow>
+                        <TableHead className="w-[55px] text-left text-xs font-bold text-slate-800 pl-2.5">코드</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정년도</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정주기</TableHead>
+                        <TableHead className="w-24 text-center text-xs font-bold text-slate-800">지정지청</TableHead>
+                        <TableHead className="w-[180px] text-left text-xs font-bold text-slate-800">사업장명</TableHead>
+                        <TableHead className="w-[260px] text-left text-xs font-bold text-slate-800">주소</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">공문연번</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">연번</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">5인이상</TableHead>
+                        <TableHead className="w-16 text-center text-xs font-bold text-slate-800">총인원</TableHead>
+                        <TableHead className="w-28 text-center text-xs font-bold text-slate-800">측정시작일</TableHead>
+                        <TableHead className="w-12 text-center text-xs font-bold text-slate-800">일수</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">담당자</TableHead>
+                        <TableHead className="w-32 text-center text-xs font-bold text-slate-800">휴대폰</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정자</TableHead>
+                        <TableHead className="w-16 text-center text-xs font-bold text-slate-800">완료</TableHead>
+                        <TableHead className="w-16 text-center text-xs font-bold text-slate-800">작업</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {results.map((entry) => (
+                        <TableRow 
+                          key={entry.id || `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`} 
+                          className="hover:bg-blue-50/40 border-b border-slate-100 last:border-0 group relative growable-row"
+                        >
+                          <TableCell className="w-[55px] text-left text-xs py-2 px-1 font-medium pl-2.5 relative">
+                            {/* 표준 블루 인디케이터 바 */}
+                            <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                            {entry.code}
+                          </TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1 font-medium">{entry.measurement_year}</TableCell>
+                          <TableCell className={`text-center text-xs py-1 px-1 ${entry.measurement_period.includes("(수시)") ? "text-red-500 font-bold" : ""}`}>
+                            {entry.measurement_period}
+                          </TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1">{entry.designated_office}</TableCell>
+                          <TableCell className="text-left text-xs py-1 px-1 font-medium truncate max-w-[170px]" title={entry.business_name}>
+                            {entry.business_name}
+                          </TableCell>
+                          <TableCell className="text-left text-xs py-1 px-1 text-slate-600 max-w-[250px] leading-tight break-keep" title={entry.address}>
+                            <div className="line-clamp-2">{entry.address || "-"}</div>
+                          </TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1">{entry.document_number || "-"}</TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1">{entry.sequence_number || "-"}</TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1">
+                            {entry.five_plus_sequence ? (
+                              <span>
+                                {entry.five_plus_sequence}
+                                {(() => {
+                                  let quota = quotas.find(
+                                    (q) =>
+                                      q.year === entry.measurement_year &&
+                                      q.period === entry.measurement_period &&
+                                      q.office_name === entry.designated_office
+                                  );
+
+                                  if (!quota && entry.measurement_period && entry.measurement_period.includes('(수시)')) {
+                                    const basePeriod = entry.measurement_period.replace('(수시)', '');
+                                    quota = quotas.find(
                                       (q) =>
                                         q.year === entry.measurement_year &&
-                                        q.period === entry.measurement_period &&
+                                        q.period === basePeriod &&
                                         q.office_name === entry.designated_office
                                     );
+                                  }
 
-                                    // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
-                                    if (!quota && entry.measurement_period && entry.measurement_period.includes('(수시)')) {
-                                      const basePeriod = entry.measurement_period.replace('(수시)', '');
-                                      quota = quotas.find(
-                                        (q) =>
-                                          q.year === entry.measurement_year &&
-                                          q.period === basePeriod &&
-                                          q.office_name === entry.designated_office
-                                      );
-                                    }
-
-                                    return quota ? <span className="text-gray-400 text-[10px] ml-1">/ {quota.quota}</span> : null;
-                                  })()}
-                                </span>
-                              ) : (
-                                "-"
-                              )}
-                            </td>
-                            <td className={`p-1 align-middle text-center text-xs ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : ''}`}>
-                              {entry.total_employees || "-"}
-                            </td>
-                            <td className="p-1 align-middle text-center text-xs">{formatDate(entry.measurement_start_date)}</td>
-                            <td className="p-1 align-middle text-center text-xs">{entry.manager_name || "-"}</td>
-                            <td className="p-1 align-middle text-center text-xs">{entry.manager_mobile || "-"}</td>
-                            <td className="p-1 align-middle text-text-600 text-center text-xs">{entry.measurer || "-"}</td>
-                            <td className="p-1 align-middle text-center">
-                              <span
-                                className={`px-1.5 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${entry.completion_status === "완료"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-yellow-100 text-yellow-800"
-                                  }`}
-                              >
-                                {entry.completion_status}
+                                  return quota ? <span className="text-gray-400 text-[10px] ml-1">/ {quota.quota}</span> : null;
+                                })()}
                               </span>
-                            </td>
-                            <td className="p-1 align-middle text-center">
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => handleSelectJournal(entry)}
-                                className={`shadow-sm h-7 px-1.5 text-xs ${entry.id ? "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border border-yellow-200" : ""}`}
-                              >
-                                {entry.id ? "수정" : "등록"}
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                            ) : (
+                              "-"
+                            )}
+                          </TableCell>
+                          <TableCell className={`text-center text-xs py-1 px-1 ${entry.total_employees !== null && entry.total_employees !== undefined && entry.total_employees < 5 ? 'bg-purple-100' : ''}`}>
+                            {entry.total_employees || "-"}
+                          </TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1">{formatDate(entry.measurement_start_date)}</TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1 font-bold text-primary-600">{entry.measurement_days || "-"}</TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1">{entry.manager_name || "-"}</TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1">{entry.manager_mobile || "-"}</TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1 text-text-600 font-medium">{entry.measurer || "-"}</TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1">
+                            <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${entry.completion_status === "완료" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}>
+                              {entry.completion_status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center text-xs py-1 px-1">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleSelectJournal(entry)}
+                              className={`shadow-sm h-7 px-1.5 text-xs ${entry.id ? "bg-yellow-100 hover:bg-yellow-200 text-yellow-900 border border-yellow-200" : ""}`}
+                            >
+                              {entry.id ? "수정" : "등록"}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               )}
             </Card>
@@ -1413,9 +1442,9 @@ export const JournalSearch: React.FC = () => {
               ) : (
                 <div className="rounded-lg border border-surface-200">
                   <Table maxHeight="max-h-[calc(100vh-300px)]">
-                    <TableHeader>
+                    <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black">
                       <TableRow>
-                        <TableHead className="bg-surface-50 w-8">
+                        <TableHead className="w-8">
                           <Checkbox
                             checked={
                               filteredJournals.length > 0 &&
@@ -1427,16 +1456,16 @@ export const JournalSearch: React.FC = () => {
                             disabled={filteredJournals.filter((entry) => entry.id !== null).length === 0}
                           />
                         </TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">
+                        <TableHead className="w-12 text-center text-xs text-black font-bold">
                           순번
                         </TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">코드</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정년도</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정주기</TableHead>
-                        <TableHead className="bg-surface-50 w-14 text-center text-xs">지정지청</TableHead>
-                        <TableHead className="bg-surface-50 w-[180px] text-xs">사업장명</TableHead>
-                        <TableHead className="bg-surface-50 w-[300px] text-xs">주소</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">
+                        <TableHead className="w-16 !text-left !pl-2.5 text-xs">코드</TableHead>
+                        <TableHead className="w-16 text-center text-xs">측정년도</TableHead>
+                        <TableHead className="w-16 text-center text-xs">측정주기</TableHead>
+                        <TableHead className="w-14 text-center text-xs">지정지청</TableHead>
+                        <TableHead className="w-[180px] text-xs font-bold text-slate-800">사업장명</TableHead>
+                        <TableHead className="w-[300px] text-xs font-bold text-slate-800">주소</TableHead>
+                        <TableHead className="w-12 text-center text-xs">
                           <div className="flex items-center justify-center gap-1">
                             <span>공문연번</span>
                             <button
@@ -1463,15 +1492,16 @@ export const JournalSearch: React.FC = () => {
                             </button>
                           </div>
                         </TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">연번</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs px-1">5인이상</TableHead>
-                        <TableHead className="bg-surface-50 w-10 text-center text-xs">총인원</TableHead>
-                        <TableHead className="bg-surface-50 w-20 text-center text-xs">측정 시작일</TableHead>
-                        <TableHead className="bg-surface-50 w-14 text-center text-xs">담당자</TableHead>
-                        <TableHead className="bg-surface-50 w-20 text-center text-xs">담당자 휴대폰</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">측정자</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">완료여부</TableHead>
-                        <TableHead className="bg-surface-50 w-12 text-center text-xs">작업</TableHead>
+                        <TableHead className="w-12 text-center text-xs">연번</TableHead>
+                        <TableHead className="w-12 text-center text-xs px-1">5인이상</TableHead>
+                        <TableHead className="w-10 text-center text-xs">총인원</TableHead>
+                        <TableHead className="w-20 text-center text-xs">측정 시작일</TableHead>
+                        <TableHead className="w-10 text-center text-xs">일수</TableHead>
+                        <TableHead className="w-14 text-center text-xs">담당자</TableHead>
+                        <TableHead className="w-20 text-center text-xs">담당자 휴대폰</TableHead>
+                        <TableHead className="w-12 text-center text-xs">측정자</TableHead>
+                        <TableHead className="w-12 text-center text-xs">완료여부</TableHead>
+                        <TableHead className="w-12 text-center text-xs">작업</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1484,9 +1514,12 @@ export const JournalSearch: React.FC = () => {
                               entry.id ||
                               `${entry.code}-${entry.measurement_year}-${entry.measurement_period}`
                             }
-                            className="hover:bg-surface-50"
+                            className="hover:bg-blue-50/40 group relative transition-colors"
                           >
-                            <TableCell>
+                            <TableCell className="relative">
+                              {/* 표준 블루 인디케이터 바 */}
+                              <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                              
                               {entry.id !== null ? (
                                 <Checkbox
                                   checked={isSelected}
@@ -1504,7 +1537,7 @@ export const JournalSearch: React.FC = () => {
                             <TableCell className="text-center text-xs">
                               {index + 1}
                             </TableCell>
-                            <TableCell className="font-mono text-xs text-center">
+                            <TableCell className="font-mono text-xs !text-left !pl-2.5">
                               {entry.code}
                             </TableCell>
                             <TableCell className="font-medium text-center text-xs">
@@ -1561,6 +1594,7 @@ export const JournalSearch: React.FC = () => {
                               {entry.total_employees || "-"}
                             </TableCell>
                             <TableCell className="text-center text-xs">{formatDate(entry.measurement_start_date)}</TableCell>
+                            <TableCell className="text-center text-xs font-bold text-primary-600">{entry.measurement_days || "-"}</TableCell>
                             <TableCell className="text-center text-xs">{entry.manager_name || "-"}</TableCell>
                             <TableCell className="text-center text-xs">{entry.manager_mobile || "-"}</TableCell>
                             <TableCell className="text-text-600 text-center text-xs">
@@ -1578,9 +1612,10 @@ export const JournalSearch: React.FC = () => {
                             </TableCell>
                             <TableCell>
                               <Button
+                                type="button"
                                 variant="secondary"
                                 size="sm"
-                                onClick={() => handleSelectJournal(entry)}
+                                 onClick={() => handleSelectJournal(entry)}
                                 className="shadow-sm h-7 px-1.5 text-xs"
                               >
                                 선택

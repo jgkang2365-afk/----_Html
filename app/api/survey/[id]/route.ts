@@ -146,80 +146,52 @@ export async function PUT(
         { status: 500 }
       );
     }
-    // 예비조사 수정 후 measurement_journal의 measurer 동기화
-    if (code && actual_measurer) {
-      const surveyYear = year ? parseInt(year) : null;
-      const surveyPeriod = period || null;
-
-      if (surveyYear && surveyPeriod) {
-        const { error: journalUpdateError } = await supabase
-          .from("measurement_journal")
-          .update({ measurer: actual_measurer })
-          .eq("code", code)
-          .eq("measurement_year", surveyYear)
-          .ilike("measurement_period", `%${surveyPeriod.replace('(수시)', '').replace('수시(', '').replace(')', '')}%`);
-
-        if (journalUpdateError) {
-          console.error("measurement_journal measurer 동기화 오류:", journalUpdateError);
-        }
+    // [The Joo Rule] Full Re-calculation: 모든 일정을 다시 계산하여 사업장 목록 및 일지 동기화
+    if (code && year && period) {
+      try {
+        const { syncBusinessSchedule } = await import("@/lib/utils/survey-sync");
+        await syncBusinessSchedule(supabase, code, year, period);
+      } catch (syncError) {
+        console.error("[Full Re-Sync] Failed in PUT:", syncError);
       }
     }
 
-    // 예비조사 수정 후 measurement_target_business 테이블의 measurement_date 업데이트
-    if (code) {
-      // 해당 코드의 가장 최근 예비조사의 측정일을 사용
-      const { data: latestSurvey, error: latestSurveyError } = await supabase
-        .from("preliminary_survey")
-        .select("measurement_date")
-        .eq("code", code)
-        .not("measurement_date", "is", null)
-        .order("measurement_date", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    // [The Joo Rule] Business Name Sync
+    try {
+      await supabase
+        .from("measurement_target_business")
+        .update({
+          business_name: business_name
+        })
+        .eq("code", code);
+    } catch (nameSyncError) {
+      console.error("Business name sync error:", nameSyncError);
+    }
 
-      if (!latestSurveyError && latestSurvey?.measurement_date) {
-        // measurement_target_business 테이블에서 해당 코드의 모든 레코드 업데이트
-        const { error: updateError } = await supabase
+    // === [Calendar Sync] 예비조사 수정 시 캘린더 이벤트 자동 업데이트 ===
+    if (code && year && period) {
+      try {
+        const { syncBusinessToCalendar } = await import("@/lib/google/sync-service");
 
+        // 최신 상태의 사업장 마스터 정보 조회
+        const { data: targetBiz } = await supabase
           .from("measurement_target_business")
-          .update({
-            measurement_date: latestSurvey.measurement_date,
-            business_name: business_name // [New Feature] Sync Business Name
-          })
-          .eq("code", code);
+          .select("is_registered, measurement_date")
+          .eq("code", code)
+          .maybeSingle();
 
-        if (updateError) {
-          console.error("measurement_target_business 측정일 업데이트 오류:", updateError);
-          // 오류가 발생해도 예비조사 수정은 성공한 것으로 처리
+        const isConfirmedBiz = targetBiz && (targetBiz.is_registered === "확정" || targetBiz.is_registered === "실시");
+        
+        // 2026-02-23 이후 데이터 또는 정식 연동 대상에 대해 동기화 실행
+        const isTargetDate = targetBiz?.measurement_date === "2026-01-12" ||
+          (targetBiz?.measurement_date ? new Date(targetBiz.measurement_date) >= new Date("2026-02-23") : false);
+
+        if (isConfirmedBiz && isTargetDate) {
+          await syncBusinessToCalendar(supabase, code, year, period);
+          console.log(`[Survey Sync] Calendar sync triggered for ${code} on PUT`);
         }
-
-        // === [Calendar Sync] 예비조사 수정 시 캘린더 이벤트 자동 업데이트 ===
-        try {
-          const { syncBusinessToCalendar } = await import("@/lib/google/sync-service");
-
-          // 해당 코드의 measurement_target_business 조회
-          const { data: targetBiz } = await supabase
-            .from("measurement_target_business")
-            .select("google_event_id, measurer_id, measurement_date, address, manager_mobile, manager_name, phone, notes, is_registered")
-            .eq("code", code)
-            .order("year", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          // [수정] 2026년 2월 23일부터 정식 연동 (1/12은 테스트 완료 건으로 예외 허용)
-          const isTargetDate = targetBiz?.measurement_date === "2026-01-12" ||
-            (targetBiz?.measurement_date ? new Date(targetBiz.measurement_date) >= new Date("2026-02-23") : false);
-
-          const isConfirmedBiz = targetBiz && (targetBiz.is_registered === "확정" || targetBiz.is_registered === "실시");
-
-          if (isConfirmedBiz && targetBiz.google_event_id && targetBiz.measurement_date && isTargetDate) {
-            await syncBusinessToCalendar(supabase, code, year!, period!);
-            console.log(`[Survey Sync] Calendar sync triggered for ${code}`);
-          }
-        } catch (calErr) {
-          console.error("[Survey->Calendar] Calendar sync error:", calErr);
-          // 캘린더 오류가 발생해도 예비조사 수정은 성공으로 처리
-        }
+      } catch (calErr) {
+        console.error("[Survey->Calendar] Calendar sync error:", calErr);
       }
     }
 
@@ -274,10 +246,10 @@ export async function DELETE(
 
     const supabase = await createClient();
 
-    // 삭제할 예비조사의 순번 및 코드 조회
+    // 삭제할 예비조사의 정보 조회 (동기화용)
     const { data: surveyToDelete, error: selectError } = await supabase
       .from("preliminary_survey")
-      .select("sequence_number, code")
+      .select("sequence_number, code, year, period, google_event_id")
       .eq("id", parseInt(id))
       .single();
 
@@ -286,6 +258,17 @@ export async function DELETE(
         { error: "삭제할 예비조사를 찾을 수 없습니다.", details: selectError?.message },
         { status: 404 }
       );
+    }
+
+    // [Calendar Sync] 연동된 구글 캘린더 이벤트 삭제
+    if (surveyToDelete.google_event_id) {
+      try {
+        const { deleteSurveyEvent } = await import("@/lib/google/calendar");
+        await deleteSurveyEvent(surveyToDelete.google_event_id);
+        console.log(`[Survey Sync] Deleted associated calendar event: ${surveyToDelete.google_event_id}`);
+      } catch (calErr) {
+        console.error("[Survey Sync] Failed to delete calendar event:", calErr);
+      }
     }
 
     const deletedSequenceNumber = surveyToDelete.sequence_number;
@@ -309,32 +292,18 @@ export async function DELETE(
     // 순번 재정렬 (측정일 기준)
     await reassignSequenceNumbers(supabase);
 
-    // 예비조사 삭제 후 measurement_target_business 테이블의 measurement_date 업데이트
-    if (deletedCode) {
-      // 해당 코드의 가장 최근 예비조사의 측정일을 사용 (삭제 후 남은 것 중)
-      const { data: latestSurvey, error: latestSurveyError } = await supabase
-        .from("preliminary_survey")
-        .select("measurement_date")
-        .eq("code", deletedCode)
-        .not("measurement_date", "is", null)
-        .order("measurement_date", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!latestSurveyError) {
-        // measurement_target_business 테이블에서 해당 코드의 모든 레코드 업데이트
-        // latestSurvey가 null이면 (더 이상 예비조사가 없으면) measurement_date를 null로 설정
-        const { error: updateError } = await supabase
-          .from("measurement_target_business")
-          .update({
-            measurement_date: latestSurvey?.measurement_date || null
-          })
-          .eq("code", deletedCode);
-
-        if (updateError) {
-          console.error("measurement_target_business 측정일 업데이트 오류:", updateError);
-          // 오류가 발생해도 예비조사 삭제는 성공한 것으로 처리
-        }
+    // [The Joo Rule] Full Re-calculation: 모든 일정을 다시 계산하여 사업장 목록 및 일지 동기화
+    if (deletedCode && surveyToDelete.year && surveyToDelete.period) {
+      try {
+        const { syncBusinessSchedule } = await import("@/lib/utils/survey-sync");
+        await syncBusinessSchedule(supabase, deletedCode, surveyToDelete.year, surveyToDelete.period);
+        
+        // [Calendar Sync] 삭제 후 전체 정합성 복구 (Successful Null)
+        const { syncBusinessToCalendar } = await import("@/lib/google/sync-service");
+        await syncBusinessToCalendar(supabase, deletedCode, surveyToDelete.year, surveyToDelete.period);
+        console.log(`[Survey Sync] Final calendar reconciliation triggered for ${deletedCode} after deletion`);
+      } catch (syncError) {
+        console.error("[Full Re-Sync] Failed in DELETE:", syncError);
       }
     }
 

@@ -37,11 +37,11 @@ export async function GET(request: NextRequest) {
     // StatTables 컴포넌트에서 미수금 상세 분석 등을 위해 추가 컬럼이 필요하므로 포함합니다.
     let measurementSummaryQuery = supabase
       .from("measurement_journal")
-      .select("id, business_name, business_number, designated_office, measurement_year, measurement_period, measurement_start_date, measurement_fee_total, deposit_total, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national, k2b_send_date, k2b_status, is_email_sent, last_email_sent_at, invoice_business_name, invoice_business_number, electronic_invoice_date, electronic_invoice_date_2, invoice_email, invoice_email_2, deposit_date_business, deposit_date_business_2, deposit_date_national")
+      .select("id, business_name, representative_name, business_number, industrial_accident_number, designated_office, measurement_year, measurement_period, measurement_start_date, measurement_fee_total, deposit_total, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national, k2b_send_date, k2b_status, is_email_sent, last_email_sent_at, invoice_business_name, invoice_business_number, electronic_invoice_date, electronic_invoice_date_2, invoice_email, invoice_email_2, deposit_date_business, deposit_date_business_2, deposit_date_national, revenue_type, manager_mobile, manager_name, manager_position")
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false })
       .order("id", { ascending: false })
-      .limit(10000)
+      .limit(50000)
       .not("business_name", "ilike", "%번외%");
 
     // 기타 매출은 전체 데이터를 테이블에 표시해야 하므로 전체 컬럼을 선택합니다.
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
       .order("revenue_year", { ascending: false })
       .order("revenue_period", { ascending: false })
       .order("id", { ascending: false })
-      .limit(10000);
+      .limit(50000);
 
     // 공통 필터 적용 함수
     const applyFilters = (query: any, isOther: boolean = false, excludeYear: boolean = false, includeSearch: boolean = true) => {
@@ -77,34 +77,36 @@ export async function GET(request: NextRequest) {
         }
       }
       
-      // 검색 필터 (사업장명, 대표자명) - 목록 조회 시에만 적용하고 집계 시에는 제외 (사용자 요청)
-      if (!isOther && includeSearch) {
-        if (businessName) {
-          if (businessName.includes(",")) {
-            const names = businessName.split(",").map(n => n.trim()).filter(Boolean);
-            if (names.length > 0) {
-              const orFilter = names.map(name => `business_name.ilike.%${name}%`).join(",");
-              q = q.or(orFilter);
+      // 검색 필터 (사업장명, 대표자명, 지정지청) - 목록 조회 시에만 적용하고 집계 시에는 제외 (사용자 요청)
+      if (includeSearch) {
+        if (!isOther) {
+          if (businessName) {
+            if (businessName.includes(",")) {
+              const names = businessName.split(",").map(n => n.trim()).filter(Boolean);
+              if (names.length > 0) {
+                const orFilter = names.map(name => `business_name.ilike.%${name}%`).join(",");
+                q = q.or(orFilter);
+              }
+            } else {
+              q = q.ilike("business_name", `%${businessName}%`);
             }
-          } else {
-            q = q.ilike("business_name", `%${businessName}%`);
+          }
+          if (representativeName) {
+            q = q.ilike("representative_name", `%${representativeName}%`);
           }
         }
-        if (representativeName) {
-          q = q.ilike("representative_name", `%${representativeName}%`);
-        }
-      }
 
-      if (designatedOffice) {
-        const officeList = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
-        if (officeList.length > 0) {
-          const allOffices: string[] = [];
-          officeList.forEach(office => {
-            const normalized = toShortName(office);
-            allOffices.push(normalized);
-            if (normalized !== office) allOffices.push(office);
-          });
-          q = q.in("designated_office", allOffices);
+        if (designatedOffice) {
+          const officeList = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
+          if (officeList.length > 0) {
+            const allOffices: string[] = [];
+            officeList.forEach(office => {
+              const normalized = toShortName(office);
+              allOffices.push(normalized);
+              if (normalized !== office) allOffices.push(office);
+            });
+            q = q.in("designated_office", allOffices);
+          }
         }
       }
       return q;
@@ -114,7 +116,8 @@ export async function GET(request: NextRequest) {
     let measurementDataQuery = supabase
       .from("measurement_journal")
       .select("*", { count: "exact" })
-      .not("business_name", "ilike", "%번외%");
+      .not("business_name", "ilike", "%번외%")
+      .or("revenue_type.is.null,revenue_type.neq.기타매출");
 
     // 필터 적용 (목록용 - 검색 포함)
     measurementDataQuery = applyFilters(measurementDataQuery);
@@ -206,10 +209,18 @@ export async function GET(request: NextRequest) {
       const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
       
       if (isSelectedYear && isSelectedPeriod) {
-        officeSummary[officeKey].measurementRevenue += revenue;
-        officeSummary[officeKey].measurementTotal += revenue;
-        officeSummary[officeKey].measurementDeposit += deposit;
-        officeSummary[officeKey].measurementUnpaid += (revenue - deposit);
+        // '기타매출'로 분류된 일지는 기타 매출 집계로 편입
+        if (item.revenue_type === '기타매출') {
+          officeSummary[officeKey].otherRevenue += revenue;
+          officeSummary[officeKey].otherTotal += revenue;
+          officeSummary[officeKey].otherDeposit += deposit;
+          officeSummary[officeKey].otherUnpaid += (revenue - deposit);
+        } else {
+          officeSummary[officeKey].measurementRevenue += revenue;
+          officeSummary[officeKey].measurementTotal += revenue;
+          officeSummary[officeKey].measurementDeposit += deposit;
+          officeSummary[officeKey].measurementUnpaid += (revenue - deposit);
+        }
       }
     });
 
@@ -273,16 +284,28 @@ export async function GET(request: NextRequest) {
       const revenue = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
       const deposit = parseFloat(item.deposit_total?.toString() || "0") || 0;
       
-      yearlySummary[year][period].measurementRevenue += revenue;
-      yearlySummary[year][period].measurementTotal += revenue;
-      yearlySummary[year][period].measurementDeposit += deposit;
-      yearlySummary[year][period].measurementUnpaid += (revenue - deposit);
-      
-      // 전체 합계(total)에도 추가
-      yearlySummary[year].total.measurementRevenue += revenue;
-      yearlySummary[year].total.measurementTotal += revenue;
-      yearlySummary[year].total.measurementDeposit += deposit;
-      yearlySummary[year].total.measurementUnpaid += (revenue - deposit);
+      if (item.revenue_type === '기타매출') {
+        // '기타매출'로 분류된 일지는 기타 매출 항목으로 집계
+        yearlySummary[year][period].otherRevenue += revenue;
+        yearlySummary[year][period].otherTotal += revenue;
+        yearlySummary[year][period].otherDeposit += deposit;
+        yearlySummary[year][period].otherUnpaid += (revenue - deposit);
+        
+        yearlySummary[year].total.otherRevenue += revenue;
+        yearlySummary[year].total.otherTotal += revenue;
+        yearlySummary[year].total.otherDeposit += deposit;
+        yearlySummary[year].total.otherUnpaid += (revenue - deposit);
+      } else {
+        yearlySummary[year][period].measurementRevenue += revenue;
+        yearlySummary[year][period].measurementTotal += revenue;
+        yearlySummary[year][period].measurementDeposit += deposit;
+        yearlySummary[year][period].measurementUnpaid += (revenue - deposit);
+        
+        yearlySummary[year].total.measurementRevenue += revenue;
+        yearlySummary[year].total.measurementTotal += revenue;
+        yearlySummary[year].total.measurementDeposit += deposit;
+        yearlySummary[year].total.measurementUnpaid += (revenue - deposit);
+      }
     });
 
     (allOtherForSummary || []).forEach((item: any) => {
@@ -330,9 +353,42 @@ export async function GET(request: NextRequest) {
       });
     });
 
+    // 5. 최종 리스트 필터링 및 매핑 (사용자 요청: 기타매출 일지는 기타 탭으로 이동)
+    // 측정비 탭에서는 '기타매출' 제외
+    const finalMeasurementRevenue = measurementRevenue || [];
+
+    // 기타 탭에는 '기타매출'로 분류된 측정일지 항목을 매핑해서 추가
+    const journalBasedOtherItems = (allMeasurementForSummary || []).filter(
+      (item: any) => item.revenue_type === "기타매출" && (!year || item.measurement_year === parseInt(year)) && (!measurementPeriod || item.measurement_period === measurementPeriod)
+    ).map((item: any) => ({
+      id: item.id,
+      item_name: item.business_name, // 사업장명 그대로 사용
+      invoice_date: item.electronic_invoice_date || item.electronic_invoice_date_2,
+      supply_amount: item.measurement_fee_total,
+      vat_amount: 0,
+      total_amount: item.measurement_fee_total || 0,
+      deposit_date: item.deposit_date_business || item.deposit_date_national,
+      deposit_amount: item.deposit_total,
+      notes: item.notes || "",
+      designated_office: item.designated_office,
+      revenue_year: item.measurement_year,
+      revenue_period: item.measurement_period,
+      representative_name: item.representative_name,
+      source: "journal", // 프론트엔드 구분용
+    }));
+
+    const finalOtherRevenue = [
+      ...(otherRevenue || []),
+      ...journalBasedOtherItems
+    ].sort((a, b) => {
+      // 년도/주기 역순 정렬 유지
+      if (b.revenue_year !== a.revenue_year) return (b.revenue_year || 0) - (a.revenue_year || 0);
+      return (b.revenue_period || "").localeCompare(a.revenue_period || "");
+    });
+
     return NextResponse.json({
       success: true,
-      measurementRevenue: (measurementRevenue || []).map((item: any) => ({
+      measurementRevenue: finalMeasurementRevenue.map((item: any) => ({
         ...item,
         designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
       })),
@@ -344,12 +400,17 @@ export async function GET(request: NextRequest) {
         ...item,
         designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
       })),
-      otherRevenue: (otherRevenue || []).map((item: any) => ({
+      otherRevenue: finalOtherRevenue.map((item: any) => ({
         ...item,
         designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
       })),
       summary: { byOffice: officeSummary, byYear: yearlySummary },
-      pagination: { totalCount: totalCount || 0, totalPages: Math.ceil((totalCount || 0) / limit), currentPage: page, pageSize: limit }
+      pagination: { 
+        totalCount: totalCount || 0, 
+        totalPages: Math.ceil((totalCount || 0) / limit), 
+        currentPage: page, 
+        pageSize: limit 
+      }
     }, { status: 200 });
 
   } catch (error: any) {

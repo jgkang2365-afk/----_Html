@@ -10,13 +10,22 @@ const DEBUG_LOG_PATH = path.join(process.cwd(), 'debug-calendar.log');
 
 function logDebug(message: string, data?: any) {
     const timestamp = new Date().toISOString();
-    const logMsg = `[${timestamp}] ${message} ${data ? JSON.stringify(data) : ''}\n`;
+    // Error 객체인 경우 상세 정보 추출
+    let logData = data;
+    if (data instanceof Error) {
+        logData = {
+            message: data.message,
+            stack: data.stack,
+            ...(data as any)
+        };
+    }
+    const logMsg = `[${timestamp}] ${message} ${logData ? JSON.stringify(logData, null, 2) : ''}\n`;
     try {
-        fs.appendFileSync(DEBUG_LOG_PATH, logMsg);
+        fs.appendFileSync(DEBUG_LOG_PATH, logMsg, { encoding: 'utf8' });
     } catch (e) {
         console.error("Failed to write to debug log", e);
     }
-    console.log(message, data);
+    console.log(message, logData);
 }
 
 /**
@@ -247,5 +256,35 @@ export async function deleteSurveyEvent(eventId: string) {
     } catch (error) {
         logDebug('Error deleting Google Calendar event:', error);
         return false;
+    }
+}
+/**
+ * 특정 기간의 구글 캘린더 일정 목록 조회
+ * @param timeMin 시작 시점 (ISO String)
+ * @param timeMax 종료 시점 (ISO String)
+ * @param q 검색어 (옵션)
+ */
+export async function listEvents(timeMin: string, timeMax: string, q?: string) {
+    const calendarId = process.env.GOOGLE_CALENDAR_ID;
+    if (!calendarId) return [];
+
+    try {
+        const authClient = await getAuthClient();
+        const calendar = google.calendar({ version: 'v3', auth: authClient as any });
+
+        const response = await calendar.events.list({
+            calendarId,
+            timeMin,
+            timeMax,
+            q,
+            singleEvents: true,
+            orderBy: 'startTime',
+            maxResults: 2500 // 충분히 큰 값으로 설정
+        });
+
+        return response.data.items || [];
+    } catch (error) {
+        logDebug('Error listing Google Calendar events:', error);
+        return [];
     }
 }

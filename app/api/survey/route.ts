@@ -605,37 +605,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 예비조사 등록 후 measurement_target_business 테이블의 measurement_date 업데이트
+    // [The Joo Rule] Full Re-calculation: 모든 일정을 다시 계산하여 사업장 목록 및 일지 동기화
     if (code) {
-      // 해당 코드의 모든 년도/반기 조합에 대해 측정일 업데이트
-      // 가장 최근 예비조사의 측정일을 사용
-      const { data: latestSurvey, error: latestSurveyError } = await supabase
-        .from("preliminary_survey")
-        .select("measurement_date")
-        .eq("code", code)
-        .not("measurement_date", "is", null)
-        .order("measurement_date", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!latestSurveyError && latestSurvey?.measurement_date) {
-        // measurement_target_business 테이블에서 해당 코드의 모든 레코드 업데이트
-        const { error: updateError } = await supabase
-          .from("measurement_target_business")
-          .update({
-            measurement_date: latestSurvey.measurement_date
-          })
-          .eq("code", code);
-
-        if (updateError) {
-          console.error("measurement_target_business 측정일 업데이트 오류:", updateError);
-          // 오류가 발생해도 예비조사 등록은 성공한 것으로 처리 (경고만 표시)
-        }
+      try {
+        const { syncBusinessSchedule } = await import("@/lib/utils/survey-sync");
+        const syncYear = year ? parseInt(year) : 2026;
+        const syncPeriod = period || "상반기";
+        await syncBusinessSchedule(supabase, code, syncYear, syncPeriod);
+      } catch (syncError) {
+        console.error("[Full Re-Sync] Failed in POST:", syncError);
       }
     }
 
     // 순번 재정렬 (측정일 기준)
     await reassignSequenceNumbers(supabase);
+
+    // 구글 캘린더 동기화 (다중 일자 반영)
+    try {
+      const { syncBusinessToCalendar } = await import("@/lib/google/sync-service");
+      const syncYear = year ? parseInt(year) : 2026;
+      const syncPeriod = period || "상반기";
+      if (code) {
+        await syncBusinessToCalendar(supabase, code, syncYear, syncPeriod);
+        console.log(`[Survey Sync] Calendar sync triggered for ${code} on POST`);
+      }
+    } catch (syncError) {
+      console.error("[Survey Sync] Calendar sync failed in POST:", syncError);
+    }
 
     // 재정렬된 최신 정보 조회 (순번이 변경되었을 수 있으므로)
     const { data: updatedSurvey } = await supabase

@@ -129,6 +129,7 @@ export async function PUT(
 
     // 번호 필드 변경 검증 (관리자만 직접 변경 가능)
     // isAdmin은 위에서 이미 정의됨
+    const isSkipNumbering = body.is_skip_numbering === true || body.isSkipNumbering === true;
     const requestedDocumentNumber = body.document_number;
     const requestedSequenceNumber = body.sequence_number;
     const requestedFivePlusSequence = body.five_plus_sequence;
@@ -140,7 +141,8 @@ export async function PUT(
         (requestedSequenceNumber !== undefined && requestedSequenceNumber !== existingJournal.sequence_number) ||
         (requestedFivePlusSequence !== undefined && requestedFivePlusSequence !== existingJournal.five_plus_sequence);
 
-      if (hasNumberChange) {
+      // 번호 부여 제외 모드가 "새롭게" 요청되는 경우가 아니고, 일반적인 번호 변경 시도인 경우 차단
+      if (hasNumberChange && !isSkipNumbering) {
         return NextResponse.json(
           {
             error: "번호 필드는 관리자 승인이 필요합니다. 번호 변경 요청을 사용해주세요.",
@@ -336,7 +338,6 @@ export async function PUT(
       // 2. 측정년도가 변경되었거나
       // 3. 측정주기가 변경되었거나
       // 4. 총인원이 5인 미만 <-> 5인 이상으로 교차(Threshold 크로스)된 경우에만 재계산
-
       const isOfficeChanged = existingJournal.designated_office !== finalDesignatedOffice;
       const isYearChanged = existingJournal.measurement_year !== finalMeasurementYear;
       const isPeriodChanged = existingJournal.measurement_period !== finalMeasurementPeriod;
@@ -345,7 +346,8 @@ export async function PUT(
       const isNowLessThan5 = finalTotalEmployees < 5;
       const isEmployeeThresholdCrossed = wasLessThan5 !== isNowLessThan5;
 
-      if (isOfficeChanged || isYearChanged || isPeriodChanged || isEmployeeThresholdCrossed) {
+      // 번호 부여 제외 모드가 아니고, 재계산 조건이 충족된 경우
+      if (!isSkipNumbering && (isOfficeChanged || isYearChanged || isPeriodChanged || isEmployeeThresholdCrossed)) {
         console.log(`[측정일지 수정] 5인 연번 재계산 조건 충족 (지청변경:${isOfficeChanged}, 년도변경:${isYearChanged}, 주기변경:${isPeriodChanged}, 인원임계점변경:${isEmployeeThresholdCrossed}) -> 재계산 실행`);
         const { assignFivePlusSequenceNumber } = await import("@/lib/utils/number-assignment");
         finalFivePlusSequence = await assignFivePlusSequenceNumber(
@@ -357,8 +359,13 @@ export async function PUT(
       } else {
         // 그 외의 단순 수정 (연락처, 비고, 오타 수정 등) 시에는 무조건 기존 번호 보존
         finalFivePlusSequence = existingJournal.five_plus_sequence;
-        console.log(`[측정일지 수정] 5인 연번 재계산 조건 미충족 (단순 수정) -> 기존 번호(${finalFivePlusSequence}) 유지`);
+        console.log(`[측정일지 수정] 5인 연번 재계산 조건 미충족 (단순 수정 또는 번호미부여) -> 기존 번호(${finalFivePlusSequence}) 유지`);
       }
+    }
+
+    // 번호 미부여 모드인 경우 연번들을 null로 설정
+    if (isSkipNumbering) {
+      finalFivePlusSequence = null as any;
     }
 
     let finalDocumentNumber = documentNumber;
@@ -375,6 +382,7 @@ export async function PUT(
         document_number: finalDocumentNumber,
         sequence_number: finalSequenceNumber,
         five_plus_sequence: null, // 5인 이상 연번은 이미 계산했으므로 null
+        is_skip_numbering: isSkipNumbering,
       });
 
       finalDocumentNumber = assignedNumbers.document_number;
@@ -387,19 +395,18 @@ export async function PUT(
       ? (fullNameToShortName(body.office_jurisdiction) || body.office_jurisdiction)
       : existingJournal.office_jurisdiction;
 
-    // 업데이트 데이터 준비 (번호 필드는 제외하고, 자동으로 설정)
-    const { document_number, sequence_number, five_plus_sequence, designated_office, office_jurisdiction, ...bodyWithoutNumbers } = body;
+    // 9. 최종 업데이트 준비 (Latest Wins 정책 + 스키마 정제)
+    // 클라이언트로부터 오는 필드 중 DB 컬럼이 아닌 데이터(_isFromBusiness, isSkipNumbering 등)를 명시적으로 걸러냄
 
-    // manager_name 정제 (이름에 직위가 포함된 경우 제거)
-    if (bodyWithoutNumbers.manager_name && bodyWithoutNumbers.manager_position) {
-      const tName = bodyWithoutNumbers.manager_name.trim();
-      const tPos = bodyWithoutNumbers.manager_position.trim();
-      if (tPos && tName.endsWith(tPos)) {
-        bodyWithoutNumbers.manager_name = tName.slice(0, -tPos.length).trim();
-      }
-    }
+    // 번호 필드와 특수 처리 필드 제외하고 나머지 추출
+    const { 
+      document_number, sequence_number, five_plus_sequence, 
+      designated_office, office_jurisdiction, 
+      isSkipNumbering: _isNotUsed, _isFromBusiness, _isFromSurvey, confirm_duplicate, office_jurisdiction_raw,
+      ...bodyClean
+    } = body;
 
-    // 필드 길이 제한 적용 (데이터베이스 제약조건 준수)
+    // 필드 길이 제한 적용 유틸리티
     const truncateField = (value: any, maxLength: number, fieldName?: string): any => {
       if (value === null || value === undefined) return value;
       if (typeof value === 'string' && value.length > maxLength) {
@@ -409,33 +416,86 @@ export async function PUT(
       return value;
     };
 
-    // 필드별 길이 제한 적용
+    // DB 스키마에 정의된 필드들만 선택적으로 구성
     const updateData: any = {
-      ...bodyWithoutNumbers,
-      // VARCHAR(50) 제한 필드들 (기존 값이 있으면 유지, 없으면 새 값 사용)
-      code: truncateField(bodyWithoutNumbers.code ?? existingJournal.code, 50, 'code'),
-      note: truncateField(bodyWithoutNumbers.note ?? existingJournal.note, 500, 'note'),
-      industrial_accident_number: cleanToDigits(bodyWithoutNumbers.industrial_accident_number ?? existingJournal.industrial_accident_number),
-      commencement_number: cleanToDigits(bodyWithoutNumbers.commencement_number ?? existingJournal.commencement_number),
-      // VARCHAR(20) 제한 필드들
-      business_number: cleanToDigits(bodyWithoutNumbers.business_number ?? existingJournal.business_number),
-      phone: truncateField(bodyWithoutNumbers.phone ?? existingJournal.phone, 20, 'phone'),
-      fax: truncateField(bodyWithoutNumbers.fax ?? existingJournal.fax, 20, 'fax'),
-      manager_mobile: truncateField(bodyWithoutNumbers.manager_mobile ?? existingJournal.manager_mobile, 20, 'manager_mobile'),
-      // VARCHAR(10) 제한 필드들
+      // 기본 정보
+      code: truncateField(bodyClean.code ?? existingJournal.code, 50, 'code'),
+      measurement_year: finalMeasurementYear,
+      measurement_period: finalMeasurementPeriod,
+      total_employees: finalTotalEmployees,
+      note: truncateField(bodyClean.note ?? existingJournal.note, 500, 'note'),
+      
+      // 번호 정보
+      document_number: truncateField(finalDocumentNumber, 20, 'document_number'),
       sequence_number: truncateField(finalSequenceNumber, 10, 'sequence_number'),
       five_plus_sequence: truncateField(finalFivePlusSequence, 10, 'five_plus_sequence'),
-      // VARCHAR(20) 제한 필드 (공문연번)
-      document_number: truncateField(finalDocumentNumber, 20, 'document_number'),
-      // VARCHAR(200) 제한 필드 (업종)
-      business_category: bodyWithoutNumbers.business_category !== undefined ? truncateField(bodyWithoutNumbers.business_category, 200, 'business_category') : existingJournal.business_category,
-      // VARCHAR(255) 제한 필드 (계산서 발행처 상호)
-      invoice_business_name: truncateField(bodyWithoutNumbers.invoice_business_name ?? existingJournal.invoice_business_name, 255, 'invoice_business_name'),
-      // VARCHAR(20) 제한 필드 (계산서 발행처 사업자번호) 기초 데이터 클리닝 적용
-      invoice_business_number: cleanToDigits(bodyWithoutNumbers.invoice_business_number ?? existingJournal.invoice_business_number),
-      // 기타 필드
-      designated_office: normalizedDesignatedOffice, // 약칭으로 저장
-      office_jurisdiction: normalizedOfficeJurisdiction, // 약칭으로 저장
+      is_skip_numbering: isSkipNumbering,
+      revenue_type: isSkipNumbering ? '기타매출' : '측정매출',
+
+      // 사업장 정보
+      business_name: bodyClean.business_name ?? existingJournal.business_name,
+      address: bodyClean.address ?? existingJournal.address,
+      business_number: cleanToDigits(bodyClean.business_number ?? existingJournal.business_number),
+      industrial_accident_number: cleanToDigits(bodyClean.industrial_accident_number ?? existingJournal.industrial_accident_number),
+      commencement_number: cleanToDigits(bodyClean.commencement_number ?? existingJournal.commencement_number),
+      representative_name: bodyClean.representative_name ?? existingJournal.representative_name,
+      phone: truncateField(bodyClean.phone ?? existingJournal.phone, 20, 'phone'),
+      fax: truncateField(bodyClean.fax ?? existingJournal.fax, 20, 'fax'),
+      business_category: truncateField(bodyClean.business_category ?? existingJournal.business_category, 200, 'business_category'),
+      national_support_status: bodyClean.national_support_status ?? existingJournal.national_support_status,
+      
+      // 담당자 정보
+      manager_name: (() => {
+        let name = bodyClean.manager_name ?? existingJournal.manager_name;
+        const position = bodyClean.manager_position ?? existingJournal.manager_position;
+        if (name && position) {
+          const tName = name.trim();
+          const tPos = position.trim();
+          if (tName.endsWith(tPos)) {
+            return tName.slice(0, -tPos.length).trim();
+          }
+        }
+        return name;
+      })(),
+      manager_position: bodyClean.manager_position ?? existingJournal.manager_position,
+      manager_mobile: truncateField(bodyClean.manager_mobile ?? existingJournal.manager_mobile, 20, 'manager_mobile'),
+      manager_email: bodyClean.manager_email ?? existingJournal.manager_email,
+
+      // 측정 정보
+      measurement_start_date: bodyClean.measurement_start_date !== undefined ? bodyClean.measurement_start_date : existingJournal.measurement_start_date,
+      measurement_end_date: bodyClean.measurement_end_date !== undefined ? bodyClean.measurement_end_date : existingJournal.measurement_end_date,
+      measurement_days: bodyClean.measurement_days !== undefined ? (parseInt(String(bodyClean.measurement_days)) || null) : existingJournal.measurement_days,
+      measurer: bodyClean.measurer !== undefined ? bodyClean.measurer : existingJournal.measurer,
+      completion_status: bodyClean.completion_status !== undefined ? bodyClean.completion_status : existingJournal.completion_status,
+
+      // K2B/계산서 정보
+      k2b_send_date: bodyClean.k2b_send_date !== undefined ? bodyClean.k2b_send_date : existingJournal.k2b_send_date,
+      k2b_sender: bodyClean.k2b_sender !== undefined ? bodyClean.k2b_sender : existingJournal.k2b_sender,
+      invoice_email: bodyClean.invoice_email !== undefined ? bodyClean.invoice_email : existingJournal.invoice_email,
+      invoice_email_2: bodyClean.invoice_email_2 !== undefined ? bodyClean.invoice_email_2 : existingJournal.invoice_email_2,
+      electronic_invoice_date: bodyClean.electronic_invoice_date !== undefined ? bodyClean.electronic_invoice_date : existingJournal.electronic_invoice_date,
+      electronic_invoice_date_2: bodyClean.electronic_invoice_date_2 !== undefined ? bodyClean.electronic_invoice_date_2 : existingJournal.electronic_invoice_date_2,
+      invoice_business_name: truncateField(bodyClean.invoice_business_name !== undefined ? bodyClean.invoice_business_name : existingJournal.invoice_business_name, 255, 'invoice_business_name'),
+      invoice_business_number: cleanToDigits(bodyClean.invoice_business_number !== undefined ? bodyClean.invoice_business_number : existingJournal.invoice_business_number),
+
+      // 측정비 정보
+      measurement_fee_total: bodyClean.measurement_fee_total !== undefined ? bodyClean.measurement_fee_total : existingJournal.measurement_fee_total,
+      measurement_fee_business: bodyClean.measurement_fee_business !== undefined ? bodyClean.measurement_fee_business : existingJournal.measurement_fee_business,
+      measurement_fee_national: bodyClean.measurement_fee_national !== undefined ? bodyClean.measurement_fee_national : existingJournal.measurement_fee_national,
+
+      // 입금 정보
+      deposit_date_business: bodyClean.deposit_date_business !== undefined ? bodyClean.deposit_date_business : existingJournal.deposit_date_business,
+      deposit_amount_business: bodyClean.deposit_amount_business !== undefined ? bodyClean.deposit_amount_business : existingJournal.deposit_amount_business,
+      deposit_date_business_2: bodyClean.deposit_date_business_2 !== undefined ? bodyClean.deposit_date_business_2 : existingJournal.deposit_date_business_2,
+      deposit_amount_business_2: bodyClean.deposit_amount_business_2 !== undefined ? bodyClean.deposit_amount_business_2 : existingJournal.deposit_amount_business_2,
+      deposit_date_national: bodyClean.deposit_date_national !== undefined ? bodyClean.deposit_date_national : existingJournal.deposit_date_national,
+      deposit_amount_national: bodyClean.deposit_amount_national !== undefined ? bodyClean.deposit_amount_national : existingJournal.deposit_amount_national,
+      deposit_total: bodyClean.deposit_total !== undefined ? bodyClean.deposit_total : existingJournal.deposit_total,
+
+      // 기타
+      office_jurisdiction: normalizedOfficeJurisdiction,
+      designated_office: normalizedDesignatedOffice,
+      special_notes: bodyClean.special_notes ?? existingJournal.special_notes,
       updated_at: new Date().toISOString(),
       updated_by: user.name,
     };

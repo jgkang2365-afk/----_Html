@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { cn } from "@/lib/utils";
 import { MeasurementRevenue } from "./types";
 
 interface MeasurementTableProps {
@@ -41,6 +42,11 @@ interface MeasurementTableProps {
   checkExactMatch: (target: any, search: string) => boolean;
   isMatchSelection: (target: any, search: string) => boolean;
   getPeriodWeight: (period: string) => number;
+  // 신규 추가 props
+  isJournalManager?: boolean;
+  onPaymentUpload?: () => void;
+  onDownloadPaymentTemplate?: () => void;
+  processingResults?: Record<number, import("./types").ProcessingResult>;
 }
 
 export const MeasurementTable: React.FC<MeasurementTableProps> = ({
@@ -71,6 +77,10 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
   checkExactMatch,
   isMatchSelection,
   getPeriodWeight,
+  isJournalManager,
+  onPaymentUpload,
+  onDownloadPaymentTemplate,
+  processingResults = {},
 }) => {
   // 필터링 적용
                 let filteredMeasurement = measurementRevenue.filter((item) => {
@@ -169,33 +179,55 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                           </div>
                         )}
                       </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={() => {
-                          const initial = {
-                            businessName: "",
-                            representativeName: "",
-                            year: "",
-                            period: "",
-                            designatedOffice: "",
-                            hasInvoiceDate: "",
-                          };
-                          setMeasurementFilters(initial);
-                          // 로컬 상태 동기화는 useEffect에서 처리됨
-                          // setDebouncedMeasurementFilters(initial); // Removed as debounce logic was removed
-                          setMeasurementSort({ column: "measurement_fee_total", direction: "desc" });
-                        }}
-                      >
-                        필터 초기화
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {isJournalManager && (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            className="h-8 text-xs px-3 bg-green-600 hover:bg-green-700 border-none"
+                            onClick={onPaymentUpload}
+                          >
+                            국고지원금 업로드
+                          </Button>
+                        )}
+                        {isJournalManager && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 text-xs px-3"
+                            onClick={onDownloadPaymentTemplate}
+                          >
+                            📥 양식 다운로드
+                          </Button>
+                        )}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => {
+                            const initial = {
+                              businessName: "",
+                              representativeName: "",
+                              year: "",
+                              period: "",
+                              designatedOffice: "",
+                              hasInvoiceDate: "",
+                            };
+                            setMeasurementFilters(initial);
+                            // 로컬 상태 동기화는 useEffect에서 처리됨
+                            // setDebouncedMeasurementFilters(initial); // Removed as debounce logic was removed
+                            setMeasurementSort({ column: "measurement_fee_total", direction: "desc" });
+                          }}
+                        >
+                          필터 초기화
+                        </Button>
+                      </div>
                     </div>
                     <div className="rounded-lg border border-surface-200 min-h-[500px] bg-white">
                       <Table className="table-fixed" maxHeight="max-h-[calc(100vh-350px)]">
                         <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[100px]">
+                          <TableRow className="bg-sky-100 border-b-2 border-sky-200">
+                            <TableHead className="w-[80px] pl-2.5">
                               <div className="space-y-1">
                                 <div
                                   className="flex items-center cursor-pointer hover:text-primary-600"
@@ -210,7 +242,7 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                                     setMeasurementFilters({ ...measurementFilters, year: e.target.value })
                                   }
                                   options={[{ value: "", label: "전체" }, ...yearOptions]}
-                                  className="text-sm h-8 py-1 px-2 text-center"
+                                  className="text-sm h-8 py-1 px-2 text-left"
                                 />
                               </div>
                             </TableHead>
@@ -298,7 +330,7 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                                     setMeasurementFilters({ ...measurementFilters, designatedOffice: e.target.value })
                                   }
                                   options={officeOptions}
-                                  className="text-sm h-8 py-1 px-2 text-center"
+                                  className="text-sm h-8 py-1 px-2 text-left"
                                 />
                               </div>
                             </TableHead>
@@ -397,7 +429,7 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                                 />
                               </div>
                             </TableHead>
-                            <TableHead className="w-[80px]">작업</TableHead>
+                            <TableHead className="w-[80px] text-center">관리</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -413,8 +445,29 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                               const deposit = parseFloat(item.deposit_total?.toString() || "0");
                               const unpaid = total - deposit;
                               return (
-                                <TableRow key={item.id}>
-                                  <TableCell>{item.measurement_year}</TableCell>
+                                  <TableRow key={item.id} className="group relative hover:bg-blue-50/40 transition-colors growable-row">
+                                    <TableCell className="w-[100px] pl-3 relative">
+                                      <div className="flex items-center gap-2.5">
+                                        {/* 처리 상태 신호등 */}
+                                        {processingResults[item.id] && (
+                                          <div 
+                                            className={cn(
+                                              "w-3 h-3 rounded-full flex-shrink-0 shadow-sm",
+                                              processingResults[item.id].status === 'success' ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]" :
+                                              processingResults[item.id].status === 'error' ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]" :
+                                              processingResults[item.id].status === 'loading' ? "bg-yellow-400 animate-pulse" :
+                                              "bg-gray-300"
+                                            )}
+                                            title={processingResults[item.id].message}
+                                          />
+                                        )}
+                                        <span className="font-medium">{item.measurement_year}</span>
+                                      </div>
+                                      
+                                      {/* 표준 블루 인디케이터 바 */}
+                                      <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                                    </TableCell>
+
                                   <TableCell>{item.measurement_period}</TableCell>
                                   <TableCell className="font-medium truncate max-w-[200px]" title={item.business_name}>{item.business_name}</TableCell>
                                   <TableCell>{item.representative_name}</TableCell>
@@ -497,13 +550,13 @@ export const MeasurementTable: React.FC<MeasurementTableProps> = ({
                                       : "-"}
                                   </TableCell>
                                   <TableCell>
-                                    <Button
-                                      variant="secondary"
-                                      size="sm"
-                                      onClick={() => handleMeasurementEdit(item)}
-                                    >
-                                      수정
-                                    </Button>
+                                     <Button
+                                       variant="secondary"
+                                       size="sm"
+                                       onClick={() => handleMeasurementEdit(item)}
+                                     >
+                                       관리
+                                     </Button>
                                   </TableCell>
                                 </TableRow>
                               );
