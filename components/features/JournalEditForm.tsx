@@ -1115,6 +1115,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       }
     }
 
+    try {
       // 전자계산서 발행일이 YY-MM-DD 형식이면 YYYY-MM-DD로 자동 복원
       const normalizedFormData = { ...formData };
       if (normalizedFormData.electronic_invoice_date) {
