@@ -585,13 +585,15 @@ export const UserManagement: React.FC = () => {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-            <Input
-              label="이름"
-              value={editForm.name}
-              readOnly
-              className="bg-surface-50 cursor-not-allowed"
-              helperText="이름은 수정할 수 없습니다."
-            />
+            <div>
+              <Input
+                label="이름"
+                value={editForm.name}
+                readOnly
+                className="bg-surface-50 cursor-not-allowed"
+              />
+              <p className="text-xs text-slate-500 mt-1">이름은 수정할 수 없습니다.</p>
+            </div>
             <Select
               label="역할"
               value={editForm.role}

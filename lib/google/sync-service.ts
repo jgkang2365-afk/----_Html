@@ -87,7 +87,7 @@ export async function syncBusinessToCalendar(
 
     // 4. 각 일정별 동기화 수행
     const colorMap: { [key: string]: string } = {
-      '한기문': '10', '배윤민': '6', '강종구': '9', '이주형': '5', '고유빈': '7',
+      '한기문': '10', '배윤민': '6', '김민영': '6', '강종구': '9', '이주형': '5', '고유빈': '7',
     };
 
     for (const survey of validSurveys) {
