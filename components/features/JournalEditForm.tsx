@@ -1667,9 +1667,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               onChange={(e) =>
                 setFormData({ ...formData, invoice_email: e.target.value })
               }
+              className="email-mono-font"
             />
             {previousEmails.invoice_email && (
-              <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousEmails.invoice_email}`}>
+              <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousEmails.invoice_email}`}>
                 전회: {previousEmails.invoice_email}
               </div>
             )}
@@ -1690,9 +1691,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               onChange={(e) =>
                 setFormData({ ...formData, invoice_email_2: e.target.value })
               }
+              className="email-mono-font"
             />
             {previousEmails.invoice_email_2 && (
-              <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousEmails.invoice_email_2}`}>
+              <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousEmails.invoice_email_2}`}>
                 전회: {previousEmails.invoice_email_2}
               </div>
             )}
@@ -1741,9 +1743,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             value={formData.invoice_email}
             onChange={(e) => setFormData({ ...formData, invoice_email: e.target.value })}
             placeholder="이메일 입력"
+            className="email-mono-font"
           />
           {previousEmails.invoice_email && (
-            <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousEmails.invoice_email}`}>
+            <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousEmails.invoice_email}`}>
               전회: {previousEmails.invoice_email}
             </div>
           )}
@@ -2101,9 +2104,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             onChange={(e) =>
               setFormData({ ...formData, manager_email: e.target.value })
             }
+            className="email-mono-font"
           />
           {previousEmails.manager_email && (
-            <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousEmails.manager_email}`}>
+            <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousEmails.manager_email}`}>
               전회: {previousEmails.manager_email}
             </div>
           )}

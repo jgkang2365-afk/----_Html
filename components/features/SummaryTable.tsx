@@ -774,7 +774,7 @@ export const SummaryTable: React.FC = () => {
                         이메일
                       </label>
                       <Input
-                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
                         value={entry.manager_email || ""}
                         disabled
                       />
@@ -784,7 +784,7 @@ export const SummaryTable: React.FC = () => {
                         계산서 이메일
                       </label>
                       <Input
-                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
+                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
                         value={entry.invoice_email || ""}
                         disabled
                       />
@@ -1704,7 +1704,7 @@ export const SummaryTable: React.FC = () => {
                         담당자 이메일
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
                         type="email"
                         value={editFormData.manager_email || ""}
                         onChange={(e) =>
@@ -1712,7 +1712,7 @@ export const SummaryTable: React.FC = () => {
                         }
                       />
                       {previousData?.manager_email && (
-                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousData.manager_email}`}>
+                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.manager_email}`}>
                           전회: {previousData.manager_email}
                         </div>
                       )}
@@ -1722,7 +1722,7 @@ export const SummaryTable: React.FC = () => {
                         계산서 메일(1)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
                         type="email"
                         value={editFormData.invoice_email || ""}
                         onChange={(e) =>
@@ -1730,7 +1730,7 @@ export const SummaryTable: React.FC = () => {
                         }
                       />
                       {previousData?.invoice_email && (
-                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousData.invoice_email}`}>
+                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email}`}>
                           전회: {previousData.invoice_email}
                         </div>
                       )}
@@ -1740,7 +1740,7 @@ export const SummaryTable: React.FC = () => {
                         계산서 메일(2)
                       </label>
                       <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                        className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
                         type="email"
                         value={editFormData.invoice_email_2 || ""}
                         onChange={(e) =>
@@ -1748,7 +1748,7 @@ export const SummaryTable: React.FC = () => {
                         }
                       />
                       {previousData?.invoice_email_2 && (
-                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousData.invoice_email_2}`}>
+                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email_2}`}>
                           전회: {previousData.invoice_email_2}
                         </div>
                       )}
