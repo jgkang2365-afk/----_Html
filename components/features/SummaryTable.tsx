@@ -382,6 +382,14 @@ export const SummaryTable: React.FC = () => {
       // 저장할 데이터 준비 (빈 문자열을 null로 변환)
       const saveData = { ...editFormData };
 
+      // 전자계산서 발행일이 YY-MM-DD 형식이면 YYYY-MM-DD로 자동 복원
+      if (saveData.electronic_invoice_date) {
+        const matchShort = saveData.electronic_invoice_date.trim().match(/^(\d{2})-(\d{2})-(\d{2})/);
+        if (matchShort && saveData.electronic_invoice_date.trim().length === 8) {
+          saveData.electronic_invoice_date = `20${saveData.electronic_invoice_date.trim()}`;
+        }
+      }
+
       // national_support_status 빈 문자열을 null로 변환
       if (saveData.national_support_status === "") {
         saveData.national_support_status = null;
@@ -1808,14 +1816,44 @@ export const SummaryTable: React.FC = () => {
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         전자계산서 발행일
                       </label>
-                      <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center"
-                        type="text"
-                        value={editFormData.electronic_invoice_date || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, electronic_invoice_date: e.target.value })
-                        }
-                      />
+                      <div className="relative flex items-center">
+                        <Input
+                          className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
+                          type="text"
+                          placeholder="YY-MM-DD"
+                          value={formatToYYMMDD(editFormData.electronic_invoice_date)}
+                          onChange={(e) =>
+                            setEditFormData({ ...editFormData, electronic_invoice_date: e.target.value })
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            const container = e.currentTarget.parentElement;
+                            const hiddenDateInput = container?.querySelector('input[type="date"]') as HTMLInputElement;
+                            if (hiddenDateInput) {
+                              if (typeof hiddenDateInput.showPicker === 'function') {
+                                hiddenDateInput.showPicker();
+                              } else {
+                                hiddenDateInput.click();
+                              }
+                            }
+                          }}
+                          className="absolute right-2.5 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                        <input
+                          type="date"
+                          className="absolute opacity-0 pointer-events-none w-0 h-0"
+                          value={normalizeDateForInput(editFormData.electronic_invoice_date)}
+                          onChange={(e) =>
+                            setEditFormData({ ...editFormData, electronic_invoice_date: e.target.value })
+                          }
+                        />
+                      </div>
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
@@ -1921,4 +1959,14 @@ export const SummaryTable: React.FC = () => {
       {isBulkPrintMode && <PrintPreviewPortal />}
     </>
   );
+};
+
+// 날짜 값을 YY-MM-DD 형식으로 변환하는 도우미 함수
+const formatToYYMMDD = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return "";
+  const match = dateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return `${match[1].slice(2)}-${match[2]}-${match[3]}`;
+  }
+  return dateStr;
 };

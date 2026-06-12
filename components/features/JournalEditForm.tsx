@@ -1115,11 +1115,25 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       }
     }
 
-    try {
+      // 전자계산서 발행일이 YY-MM-DD 형식이면 YYYY-MM-DD로 자동 복원
+      const normalizedFormData = { ...formData };
+      if (normalizedFormData.electronic_invoice_date) {
+        const matchShort = String(normalizedFormData.electronic_invoice_date).trim().match(/^(\d{2})-(\d{2})-(\d{2})/);
+        if (matchShort && String(normalizedFormData.electronic_invoice_date).trim().length === 8) {
+          normalizedFormData.electronic_invoice_date = `20${String(normalizedFormData.electronic_invoice_date).trim()}`;
+        }
+      }
+      if (normalizedFormData.electronic_invoice_date_2) {
+        const matchShort2 = String(normalizedFormData.electronic_invoice_date_2).trim().match(/^(\d{2})-(\d{2})-(\d{2})/);
+        if (matchShort2 && String(normalizedFormData.electronic_invoice_date_2).trim().length === 8) {
+          normalizedFormData.electronic_invoice_date_2 = `20${String(normalizedFormData.electronic_invoice_date_2).trim()}`;
+        }
+      }
+
       // 데이터 정리 (빈 문자열을 null로 변환)
       const submitData: any = {};
-      Object.keys(formData).forEach((key) => {
-        const value = formData[key as keyof typeof formData];
+      Object.keys(normalizedFormData).forEach((key) => {
+        const value = normalizedFormData[key as keyof typeof normalizedFormData];
 
         // note 필드는 배열을 콤마로 구분된 문자열로 변환
         if (key === 'note') {
@@ -1681,14 +1695,49 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               </div>
             )}
           </div>
-          <Input
-            label="전자계산서 발행일"
-            type="date"
-            value={normalizeDateForInput(formData.electronic_invoice_date)}
-            onChange={(e) =>
-              setFormData({ ...formData, electronic_invoice_date: e.target.value })
-            }
-          />
+          <div className="p-1">
+            <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+              전자계산서 발행일
+            </label>
+            <div className="relative flex items-center">
+              <Input
+                className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
+                type="text"
+                placeholder="YY-MM-DD"
+                value={formatToYYMMDD(formData.electronic_invoice_date)}
+                onChange={(e) =>
+                  setFormData({ ...formData, electronic_invoice_date: e.target.value })
+                }
+              />
+              <button
+                type="button"
+                onClick={(e) => {
+                  const container = e.currentTarget.parentElement;
+                  const hiddenDateInput = container?.querySelector('input[type="date"]') as HTMLInputElement;
+                  if (hiddenDateInput) {
+                    if (typeof hiddenDateInput.showPicker === 'function') {
+                      hiddenDateInput.showPicker();
+                    } else {
+                      hiddenDateInput.click();
+                    }
+                  }
+                }}
+                className="absolute right-2.5 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </button>
+              <input
+                type="date"
+                className="absolute opacity-0 pointer-events-none w-0 h-0"
+                value={normalizeDateForInput(formData.electronic_invoice_date)}
+                onChange={(e) =>
+                  setFormData({ ...formData, electronic_invoice_date: e.target.value })
+                }
+              />
+            </div>
+          </div>
           <div className="flex flex-col gap-1">
             <Input
               label="계산서 메일2"
@@ -1705,14 +1754,49 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               </div>
             )}
           </div>
-          <Input
-            label="전자계산서 발행일2"
-            type="date"
-            value={normalizeDateForInput(formData.electronic_invoice_date_2)}
-            onChange={(e) =>
-              setFormData({ ...formData, electronic_invoice_date_2: e.target.value })
-            }
-          />
+          <div className="p-1">
+            <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+              전자계산서 발행일2
+            </label>
+            <div className="relative flex items-center">
+              <Input
+                className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
+                type="text"
+                placeholder="YY-MM-DD"
+                value={formatToYYMMDD(formData.electronic_invoice_date_2)}
+                onChange={(e) =>
+                  setFormData({ ...formData, electronic_invoice_date_2: e.target.value })
+                }
+              />
+              <button
+                type="button"
+                onClick={(e) => {
+                  const container = e.currentTarget.parentElement;
+                  const hiddenDateInput = container?.querySelector('input[type="date"]') as HTMLInputElement;
+                  if (hiddenDateInput) {
+                    if (typeof hiddenDateInput.showPicker === 'function') {
+                      hiddenDateInput.showPicker();
+                    } else {
+                      hiddenDateInput.click();
+                    }
+                  }
+                }}
+                className="absolute right-2.5 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </button>
+              <input
+                type="date"
+                className="absolute opacity-0 pointer-events-none w-0 h-0"
+                value={normalizeDateForInput(formData.electronic_invoice_date_2)}
+                onChange={(e) =>
+                  setFormData({ ...formData, electronic_invoice_date_2: e.target.value })
+                }
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2254,7 +2338,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           </>
         )
       }
+      {/* 인쇄 미리보기 포탈 (조건부 렌더링) */}
     </form >
   );
+};
+
+// 날짜 값을 YY-MM-DD 형식으로 변환하는 도우미 함수
+const formatToYYMMDD = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return "";
+  const match = dateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return `${match[1].slice(2)}-${match[2]}-${match[3]}`;
+  }
+  return dateStr;
 };
 
