@@ -67,9 +67,6 @@ body {
   line-height: 1.4 !important;
   overflow: visible !important;
 }
-input.email-mono-font {
-  padding-bottom: 2px !important;
-}
 
 /* 인쇄 스타일 */
 @media print {
@@ -205,9 +202,6 @@ input.email-mono-font {
     -webkit-appearance: none !important;
     box-shadow: none !important;
     overflow: visible !important;
-  }
-  input.email-mono-font {
-    padding-bottom: 2px !important;
   }
 
   select {

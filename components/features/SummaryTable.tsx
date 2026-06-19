@@ -1707,7 +1707,7 @@ export const SummaryTable: React.FC = () => {
                         }
                       />
                     </div>
-                    <div className="p-1">
+                    <div className="p-1 relative pb-5">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         담당자 이메일
                       </label>
@@ -1720,12 +1720,12 @@ export const SummaryTable: React.FC = () => {
                         }
                       />
                       {previousData?.manager_email && (
-                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.manager_email}`}>
+                        <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.manager_email}`}>
                           전회: {previousData.manager_email}
                         </div>
                       )}
                     </div>
-                    <div className="p-1">
+                    <div className="p-1 relative pb-5">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         계산서 메일(1)
                       </label>
@@ -1738,12 +1738,12 @@ export const SummaryTable: React.FC = () => {
                         }
                       />
                       {previousData?.invoice_email && (
-                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email}`}>
+                        <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email}`}>
                           전회: {previousData.invoice_email}
                         </div>
                       )}
                     </div>
-                    <div className="p-1">
+                    <div className="p-1 relative pb-5">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         계산서 메일(2)
                       </label>
@@ -1756,7 +1756,7 @@ export const SummaryTable: React.FC = () => {
                         }
                       />
                       {previousData?.invoice_email_2 && (
-                        <div className="mt-1 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email_2}`}>
+                        <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email_2}`}>
                           전회: {previousData.invoice_email_2}
                         </div>
                       )}
@@ -1816,7 +1816,7 @@ export const SummaryTable: React.FC = () => {
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         전자계산서 발행일
                       </label>
-                      <div className="relative flex items-center">
+                      <div className="relative">
                         <Input
                           className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
                           type="text"
@@ -1839,7 +1839,7 @@ export const SummaryTable: React.FC = () => {
                               }
                             }
                           }}
-                          className="absolute right-2.5 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />

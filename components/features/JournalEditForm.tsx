@@ -1680,7 +1680,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           )}
         </div>
         <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-2 pt-4 border-t border-dashed border-gray-300">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 relative pb-5">
             <Input
               label="계산서 메일"
               type="email"
@@ -1691,18 +1691,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               className="email-mono-font"
             />
             {previousEmails.invoice_email && (
-              <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousEmails.invoice_email}`}>
+              <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email}`}>
                 전회: {previousEmails.invoice_email}
               </div>
             )}
           </div>
-          <div className="p-1">
-            <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+          <div className="flex flex-col gap-1 pb-5">
+            <label className="block text-sm font-medium text-text-700 mb-1">
               전자계산서 발행일
             </label>
-            <div className="relative flex items-center">
+            <div className="relative">
               <Input
-                className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
+                className="text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
                 type="text"
                 placeholder="YY-MM-DD"
                 value={formatToYYMMDD(formData.electronic_invoice_date)}
@@ -1723,7 +1723,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                     }
                   }
                 }}
-                className="absolute right-2.5 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -1739,7 +1739,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               />
             </div>
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 relative pb-5">
             <Input
               label="계산서 메일2"
               type="email"
@@ -1750,18 +1750,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               className="email-mono-font"
             />
             {previousEmails.invoice_email_2 && (
-              <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousEmails.invoice_email_2}`}>
+              <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email_2}`}>
                 전회: {previousEmails.invoice_email_2}
               </div>
             )}
           </div>
-          <div className="p-1">
-            <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+          <div className="flex flex-col gap-1 pb-5">
+            <label className="block text-sm font-medium text-text-700 mb-1">
               전자계산서 발행일2
             </label>
-            <div className="relative flex items-center">
+            <div className="relative">
               <Input
-                className="h-11 md:h-10 text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
+                className="text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
                 type="text"
                 placeholder="YY-MM-DD"
                 value={formatToYYMMDD(formData.electronic_invoice_date_2)}
@@ -1782,7 +1782,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                     }
                   }
                 }}
-                className="absolute right-2.5 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
