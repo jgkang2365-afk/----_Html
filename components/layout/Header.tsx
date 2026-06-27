@@ -137,7 +137,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                 size="sm"
                 className="h-9 w-9 p-0 rounded-full bg-white border border-surface-100 hover:bg-primary-50 text-primary-600 shadow-sm"
                 onClick={() => setIsMemoOpen(true)}
-                title="지청 메모장"
+                title="메모장"
               >
                 <MessageSquare size={20} />
               </Button>

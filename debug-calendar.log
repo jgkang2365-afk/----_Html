@@ -923,3 +923,27 @@
 [2026-06-12T06:54:36.524Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-06-12T06:54:38.331Z] Event updated successfully: pjq58tlkaks3q8ego2onokrmt8 
 [2026-06-12T06:54:38.335Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-06-25T06:37:48.226Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-06-25T06:37:49.257Z] Updating Calendar Event: formf8aga5l5heddic3slpbv7o {
+  "summary": "[강종구, 고유빈] (주)경동원 아산공장 - 26상 미수 / N21, A9",
+  "description": "사업장코드: H0217\n          사업장: (주)경동원 아산공장\n          주소: 충청남도 아산시 영인면 아산호로 331 (백석포리)\n          담당자: 임상윤 매니저\n          연락처: 010-9734-5108\n          비고: N21, A9",
+  "date": "2026-05-29",
+  "endDate": "2026-05-29",
+  "location": "충청남도 아산시 영인면 아산호로 331 (백석포리)",
+  "colorId": "9"
+}
+[2026-06-25T06:37:49.261Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-06-25T06:37:51.261Z] Event updated successfully: formf8aga5l5heddic3slpbv7o 
+[2026-06-25T06:37:51.265Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-06-25T06:38:07.972Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-06-25T06:38:08.875Z] Updating Calendar Event: formf8aga5l5heddic3slpbv7o {
+  "summary": "[강종구, 고유빈] (주)경동원 아산공장 - 26상 미수 / N21, A9",
+  "description": "사업장코드: H0217\n          사업장: (주)경동원 아산공장\n          주소: 충청남도 아산시 영인면 아산호로 331 (백석포리)\n          담당자: 임상윤 매니저\n          연락처: 010-9734-5108\n          비고: N21, A9",
+  "date": "2026-05-29",
+  "endDate": "2026-05-29",
+  "location": "충청남도 아산시 영인면 아산호로 331 (백석포리)",
+  "colorId": "3"
+}
+[2026-06-25T06:38:08.880Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-06-25T06:38:10.860Z] Event updated successfully: formf8aga5l5heddic3slpbv7o 
+[2026-06-25T06:38:10.862Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
