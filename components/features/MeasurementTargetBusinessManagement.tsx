@@ -249,7 +249,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 code: "",
                 business_name: "",
                 address: "",
-                plan_manager: ""
+                plan_manager: "",
+                national_support_status: ""
             });
             fetchData();
         } catch (error) {
@@ -1405,6 +1406,18 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         options={PLAN_MANAGER_EDIT_OPTIONS}
                                         value={addForm.plan_manager || ""}
                                         onChange={(e) => setAddForm(prev => ({ ...prev, plan_manager: e.target.value }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
+                                    <Select
+                                        options={[
+                                            { value: "", label: "선택" },
+                                            { value: "대상", label: "대상" },
+                                            { value: "비대상", label: "비대상" }
+                                        ]}
+                                        value={addForm.national_support_status || ""}
+                                        onChange={(e) => setAddForm(prev => ({ ...prev, national_support_status: e.target.value }))}
                                     />
                                 </div>
                             </div>
