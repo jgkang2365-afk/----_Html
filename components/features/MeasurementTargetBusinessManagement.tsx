@@ -1367,12 +1367,22 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     <label className="block text-sm font-medium mb-1 text-slate-700">
                                         사업장 코드 <span className="text-red-500">*</span>
                                     </label>
-                                    <Input
-                                        value={addForm.code || ""}
-                                        onChange={(e) => setAddForm(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                                        placeholder="예: H0001 (중복 불가)"
-                                        required
-                                    />
+                                    <div className="flex items-center">
+                                        <span className="inline-flex items-center px-3 py-2 rounded-l-md border border-r-0 border-slate-300 bg-slate-100 text-slate-700 font-bold text-sm select-none">
+                                            H
+                                        </span>
+                                        <Input
+                                            value={(addForm.code || "").replace(/^H/, "")}
+                                            onChange={(e) => {
+                                                const nums = e.target.value.replace(/[^0-9]/g, "").slice(0, 4);
+                                                setAddForm(prev => ({ ...prev, code: nums ? `H${nums}` : "" }));
+                                            }}
+                                            className="rounded-l-none"
+                                            placeholder="0001 (숫자 4자리)"
+                                            maxLength={4}
+                                            required
+                                        />
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1 text-slate-700">
