@@ -61,6 +61,13 @@ body {
   align-items: center;
 }
 
+/* 이메일 입력창 및 텍스트 가독성 개선용 고정폭 폰트 */
+.email-mono-font {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+  line-height: 1.4 !important;
+  overflow: visible !important;
+}
+
 /* 인쇄 스타일 */
 @media print {
   @page {

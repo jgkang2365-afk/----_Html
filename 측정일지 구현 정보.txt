@@ -142,3 +142,8 @@ E. 매출관리
   1) SurveyForm 및 MeasurementTargetBusinessManagement 모달 내 단일/다중 일정 탭 병합 충돌 해소.
   2) route.ts 내 중복 national_support_status 정의 제거 및 UserManagement.tsx 타입 프롭(helperText) 수정으로 TS2322/TS1117 빌드 차단 에러 최종 해결.
   3) tsconfig.json exclude에 scratch, tmp, scripts 폴더를 추가하여 컴파일 노이즈 최소화.
+
+버전 1.1.2 (2026-06-12)
+- 측정정보 요약 및 측정비 정보 내 전자계산서 발행일 표시 형식 수정 및 빌드 에러 해결:
+  1) 전자계산서 발행일의 표시 형식을 YY-MM-DD 형식으로 정상 작동하도록 수정.
+  2) JournalEditForm 내 누락된 try 블록을 복원하여 webpack 빌드 오류 해결.

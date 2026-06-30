@@ -131,22 +131,66 @@ export class K2BService {
         console.log(`[K2B] 로그인 시도 중... (ID: ${loginId})`);
         await loginBtn.click();
 
-        // 로그인 성공 확인 (WebDriverWait 20초)
-        await this.driver.wait(until.titleContains('K2B'), 20000);
+        // 로그인 성공 확인 (성공 시 '파일전송(신)' 메뉴가 나타나고, 실패 시 로그인 실패 팝업이 나타남)
+        let success = false;
+        let loginErrorMessage = '';
+        const maxAttempts = 20; // 최대 10초 대기 (500ms * 20)
 
-        // 내부 화면 팝업 닫기 (1개)
+        for (let i = 0; i < maxAttempts; i++) {
+            // 1. 로그인 실패 팝업 감지
+            try {
+                const errorElements = await this.driver.findElements(By.css('div[id*="_form_tea_message"]'));
+                if (errorElements.length > 0) {
+                    const errorText = await errorElements[0].getText();
+                    if (errorText.trim()) {
+                        loginErrorMessage = errorText.trim();
+                        // 팝업의 확인 버튼을 눌러 닫기 시도
+                        const confirmBtns = await this.driver.findElements(By.css('div[id*="_form_btn_confirm"]'));
+                        if (confirmBtns.length > 0) {
+                            await confirmBtns[0].click();
+                        }
+                        break;
+                    }
+                }
+            } catch (e) {
+                // 에러 무시
+            }
+
+            // 2. 로그인 성공 감지 ('파일전송(신)' 메뉴 노출 여부)
+            try {
+                const fileTransferBtn = await this.driver.findElements(By.xpath("//div[text()='파일전송(신)']"));
+                if (fileTransferBtn.length > 0) {
+                    success = true;
+                    break;
+                }
+            } catch (e) {
+                // 에러 무시
+            }
+
+            await this.driver.sleep(500);
+        }
+
+        if (loginErrorMessage) {
+            throw new Error(`로그인 실패: ${loginErrorMessage}`);
+        }
+
+        if (!success) {
+            throw new Error('K2B 로그인 대기 시간 초과 또는 성공 화면으로의 전환이 실패했습니다.');
+        }
+
+        // 내부 화면 팝업 닫기 (메인 진입 후 뜨는 공지 등 팝업이 있다면 처리)
         try {
             const innerPopupBtn = await this.driver.wait(
                 until.elementLocated(By.css('div#mainframe_VFrameSet_MainFrame_form_div_popup_363_btn_closeTextBoxElement > div')),
                 3000
             );
             await innerPopupBtn.click();
-            await this.driver.sleep(1000); // time.sleep(1)
+            await this.driver.sleep(1000);
         } catch (e) {
             // 팝업이 없으면 무시
         }
 
-        // '파일전송(신)' 버튼 클릭 (WebDriverWait 5초)
+        // '파일전송(신)' 버튼 클릭
         console.log("[K2B] 로그인 성공. '파일전송(신)' 메뉴로 이동합니다.");
         const fileTransferBtn = await this.driver.wait(
             until.elementLocated(By.xpath("//div[text()='파일전송(신)']")),

@@ -554,7 +554,7 @@ export async function POST(request: NextRequest) {
     await checkPermission("journal:write");
 
     const body = await request.json();
-    const { code, year, period, business_name, address, plan_manager } = body;
+    const { code, year, period, business_name, address, plan_manager, national_support_status } = body;
 
     // Validation
     if (!code || !year || !period || !business_name) {
@@ -599,6 +599,7 @@ export async function POST(request: NextRequest) {
         address: address || null,
         office_jurisdiction: officeJurisdiction, // 자동 할당
         plan_manager: plan_manager || null,
+        national_support_status: national_support_status || null,
         is_registered: "미실시", // Default
         created_at: new Date().toISOString()
       })
