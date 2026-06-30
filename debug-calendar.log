@@ -811,3 +811,17 @@
 [2026-06-10T12:19:04.938Z] Updating Calendar Event: oel480tif7u4j136lue398oph8 {"summary":"[강종구, 김민영]천안공업고등학교","description":"사업장: 천안공업고등학교\n          주소: 충청남도 천안시 동남구 성황5길 17 (신부동, 천안공업고등학교)\n          담당자: 정두영\n          연락처: 010-4174-2079\n          비고:","date":"2026-07-16","location":"충청남도 천안시 동남구 성황5길 17 (신부동, 천안공업고등학교)","colorId":"9"}
 [2026-06-10T12:19:04.940Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
 [2026-06-10T12:19:06.751Z] Event updated successfully: oel480tif7u4j136lue398oph8 
+[2026-06-30T09:50:50.612Z] Creating Calendar Event {
+  "summary": "[고유빈] 명성자동차공업사",
+  "description": "사업장코드: H0043\n          사업장: 명성자동차공업사\n          주소: 대전광역시 대덕구 대전로 1433 (읍내동)\n          담당자: 김기범 대표\n          연락처: 010-3903-2987\n          비고:",
+  "date": "2026-02-09",
+  "endDate": "2026-02-09",
+  "location": "대전광역시 대덕구 대전로 1433 (읍내동)",
+  "colorId": "3"
+}
+[2026-06-30T09:50:50.620Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-06-30T09:50:52.382Z] Event created successfully: q3j5bjp913iemnb4k4p6iv2ab4 
+[2026-06-30T09:50:52.423Z] Deleting Calendar Event: lmpm78omeab7ckdraldgv9tca8 
+[2026-06-30T09:50:52.424Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
+[2026-06-30T09:50:53.686Z] Event deleted: lmpm78omeab7ckdraldgv9tca8 
+[2026-06-30T09:50:53.722Z] Using credentials from file: C:\Users\USER\Desktop\cursor\측정일지_html\google-credentials.json 
