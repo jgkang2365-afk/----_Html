@@ -44,13 +44,13 @@ export class BounceChecker {
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
                 
-                // imapflow search query
+                // imapflow 검색 쿼리
                 const messages = await client.search({
                     from: 'navermail_noreply@navercorp.com',
                     since: yesterday
                 });
 
-                if (messages.length === 0) {
+                if (!messages || messages.length === 0) {
                     console.log("[BounceChecker] 최근 24시간 내 반송 메일이 없습니다.");
                 } else {
                     console.log(`[BounceChecker] ${messages.length}개의 후보 메일 발견.`);

@@ -277,6 +277,7 @@ export const SalesManagement: React.FC = () => {
   const [unpaidFilters, setUnpaidFilters] = useState({
     type: "", // 구분: "measurement" | "other" | ""
     name: "", // 사업장명/품명
+    representativeName: "", // 대표자명
     year: "", // 매출년도 (미수관리는 전체 년도 기본)
     period: "", // 측정주기 (미수관리는 전체 주기 기본)
     designatedOffice: "", // 지정한계_관할지청
@@ -341,6 +342,7 @@ export const SalesManagement: React.FC = () => {
   const [localBusinessName, setLocalBusinessName] = useState("");
   const [localRepresentativeName, setLocalRepresentativeName] = useState("");
   const [localUnpaidName, setLocalUnpaidName] = useState("");
+  const [localUnpaidRepresentativeName, setLocalUnpaidRepresentativeName] = useState("");
   const [localDepositBusinessName, setLocalDepositBusinessName] = useState("");
 
   // 입금 현황 필터 동기화 (Blur/Enter 시 업데이트되므로 디바운싱 제거)
@@ -356,7 +358,8 @@ export const SalesManagement: React.FC = () => {
   // 미수관리 필터 동기화
   useEffect(() => {
     if (unpaidFilters.name === "") setLocalUnpaidName("");
-  }, [unpaidFilters.name]);
+    if (unpaidFilters.representativeName === "") setLocalUnpaidRepresentativeName("");
+  }, [unpaidFilters.name, unpaidFilters.representativeName]);
 
   // 기타 매출 디바운싱 효과 (유지)
   useEffect(() => {
@@ -384,6 +387,7 @@ export const SalesManagement: React.FC = () => {
       if (otherFilters.period) localStorage.setItem("sales_last_other_period", otherFilters.period);
       if (unpaidFilters.year) localStorage.setItem("sales_last_unpaid_year", unpaidFilters.year);
       if (unpaidFilters.period) localStorage.setItem("sales_last_unpaid_period", unpaidFilters.period);
+      if (unpaidFilters.representativeName) localStorage.setItem("sales_last_unpaid_representative", unpaidFilters.representativeName);
     }
   }, [measurementFilters, otherFilters, unpaidFilters, activeTab]);
 
@@ -545,10 +549,12 @@ export const SalesManagement: React.FC = () => {
     activeTab,
     measurementFilters.year,
     measurementFilters.businessName,
+    measurementFilters.representativeName,
     measurementFilters.period,
     measurementFilters.designatedOffice,
     unpaidFilters.year,
     unpaidFilters.period,
+    unpaidFilters.representativeName,
     otherFilters.year,
     otherFilters.period,
     yearlySummaryYear,
@@ -1885,6 +1891,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                   let filteredItems = unpaidItems.filter((item) => {
                     if (unpaidFilters.type && item.type !== unpaidFilters.type) return false;
                     if (unpaidFilters.name && !checkSearchMatch(item.name, unpaidFilters.name)) return false;
+                    if (unpaidFilters.representativeName && !checkSearchMatch(item.representative, unpaidFilters.representativeName)) return false;
                     if (unpaidFilters.year && !checkExactMatch(item.year, unpaidFilters.year)) return false;
                     if (unpaidFilters.period && !isMatchSelection(item.period, unpaidFilters.period)) return false;
                     if (unpaidFilters.designatedOffice && !checkExactMatch(item.designatedOffice, unpaidFilters.designatedOffice)) return false;
@@ -1995,6 +2002,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                               const initial = {
                                 type: "",
                                 name: "",
+                                representativeName: "",
                                 year: "",
                                 period: "",
                                 designatedOffice: "",
@@ -2057,8 +2065,27 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                               </TableHead>
                               <TableHead className="w-[120px]">
                                 <div className="space-y-1">
-                                  <div className="flex items-center justify-center font-bold">대표자</div>
-                                  <div className="h-8 flex items-center justify-center text-xs text-text-400">-</div>
+                                  <div
+                                    className="flex items-center justify-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("representative")}
+                                  >
+                                    대표자
+                                    <SortIcon column="representative" />
+                                  </div>
+                                  <Input
+                                    value={localUnpaidRepresentativeName}
+                                    onChange={(e) => setLocalUnpaidRepresentativeName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        setUnpaidFilters({ ...unpaidFilters, representativeName: localUnpaidRepresentativeName });
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      setUnpaidFilters({ ...unpaidFilters, representativeName: localUnpaidRepresentativeName });
+                                    }}
+                                    placeholder="검색..."
+                                    className="text-xs h-8 text-center"
+                                  />
                                 </div>
                               </TableHead>
                               <TableHead className="w-[300px]">
