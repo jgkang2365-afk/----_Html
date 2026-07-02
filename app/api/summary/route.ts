@@ -185,7 +185,7 @@ export async function GET(request: NextRequest) {
     if (codes.length > 0) {
       const { data: targetData, error: targetError } = await supabase
         .from("measurement_target_business")
-        .select("code, year, period, national_support_status, measurement_date")
+        .select("code, year, period, national_support_status, measurement_date, plan_manager")
         .in("code", codes);
 
       if (targetError) {
@@ -293,6 +293,7 @@ export async function GET(request: NextRequest) {
         special_notes: journal.special_notes,
         completion_status: journal.completion_status,
         target_measurement_date: target?.measurement_date || null,
+        plan_manager: target?.plan_manager || null,
         created_at: journal.created_at,
         updated_at: journal.updated_at,
       };
