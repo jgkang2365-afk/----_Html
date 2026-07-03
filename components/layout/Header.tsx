@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -57,6 +57,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const unreadCount = notifications.filter(n => !n.is_read).length;
   const [isMemoOpen, setIsMemoOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   const fetchNotifications = async () => {
     try {
@@ -81,10 +82,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         body: JSON.stringify(id ? { id } : { all: true }),
       });
       if (res.ok) {
-        const updated = await fetchNotifications();
-        if (updated && updated.filter((n: Notification) => !n.is_read).length === 0) {
-          setShowNotifications(false);
-        }
+        await fetchNotifications();
       }
     } catch (err) {
       console.error("알림 읽음 처리 에러:", err);
@@ -98,6 +96,43 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
       return () => clearInterval(interval);
     }
   }, [user]);
+
+  // 안 읽은 알림이 없을 경우 2초 후에 자동으로 팝오버를 닫는 타이머
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const unreadNotifications = notifications.filter(n => !n.is_read);
+
+    if (showNotifications && unreadNotifications.length === 0) {
+      timer = setTimeout(() => {
+        setShowNotifications(false);
+      }, 2000);
+    }
+
+    return () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [showNotifications, notifications]);
+
+  // 알림 팝오버 외부 클릭 시 닫기
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        notificationRef.current &&
+        !notificationRef.current.contains(event.target as Node)
+      ) {
+        setShowNotifications(false);
+      }
+    };
+
+    if (showNotifications) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showNotifications]);
 
   useEffect(() => {
     if (!loading) {
@@ -148,7 +183,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                 <MessageSquare size={20} />
               </Button>
 
-              <div className="relative">
+              <div className="relative" ref={notificationRef}>
                 <Button
                 variant="secondary"
                 size="sm"
@@ -166,8 +201,8 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
               {/* 알림 드롭다운 */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-surface-100 overflow-hidden animate-in fade-in zoom-in duration-200">
-                  <div className="p-3 border-b border-surface-100 flex items-center justify-between bg-surface-50/50">
+                <div className="absolute right-0 mt-2 w-80 bg-[#fffdeb] rounded-lg shadow-xl border border-yellow-200 overflow-hidden animate-in fade-in zoom-in duration-200">
+                  <div className="p-3 border-b border-yellow-200 flex items-center justify-between bg-[#fef3c7]/60">
                     <span className="text-sm font-bold text-text-900">알림</span>
                     {unreadCount > 0 && (
                       <button
@@ -180,7 +215,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                   </div>
                   <div className="max-h-96 overflow-y-auto no-scrollbar">
                     {notifications.filter(n => !n.is_read).length === 0 ? (
-                      <div className="p-8 text-center text-sm text-text-400">
+                      <div className="p-8 text-center text-sm text-text-500">
                         표시할 새로운 알림이 없습니다.
                       </div>
                     ) : (
@@ -189,7 +224,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                         .map((noti) => (
                           <div
                             key={noti.id}
-                            className="p-3 border-b border-surface-50 transition-colors hover:bg-surface-50 cursor-default group"
+                            className="p-3 border-b border-yellow-100 transition-colors hover:bg-[#fef3c7]/50 cursor-default group"
                           >
                             <div className="flex justify-between gap-2">
                               <p

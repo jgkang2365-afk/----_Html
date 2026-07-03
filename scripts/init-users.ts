@@ -17,27 +17,50 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function initUsers() {
-    const name = "admin";
-    const password = "adminpassword"; // 초기 비밀번호, 나중에 변경 권장
     const salt = await bcrypt.genSalt(10);
-    const hash = await bcrypt.hash(password, salt);
 
-    console.log(`Initializing user: ${name}...`);
+    // 1. 기존 admin 계정 생성
+    const adminName = "admin";
+    const adminPassword = "adminpassword"; // 초기 비밀번호, 나중에 변경 권장
+    const adminHash = await bcrypt.hash(adminPassword, salt);
 
-    const { data, error } = await supabase
+    console.log(`사용자 초기화 진행 중: ${adminName}...`);
+
+    const { error: adminError } = await supabase
         .from('users')
         .upsert({
-            name: name,
-            password_hash: hash,
+            name: adminName,
+            password_hash: adminHash,
             role: '관리자',
             job: '측정'
-        }, { onConflict: 'name' })
-        .select();
+        }, { onConflict: 'name' });
 
-    if (error) {
-        console.error("Error initializing user:", error);
+    if (adminError) {
+        console.error(`사용자 초기화 실패 (${adminName}):`, adminError);
     } else {
-        console.log(`User initialized successfully: ${name}`);
+        console.log(`사용자 초기화 성공: ${adminName}`);
+    }
+
+    // 2. 테스트용 test 계정 생성
+    const testName = "test";
+    const testPassword = "@0000@"; // 사용자 요청 테스트 비밀번호
+    const testHash = await bcrypt.hash(testPassword, salt);
+
+    console.log(`사용자 초기화 진행 중: ${testName}...`);
+
+    const { error: testError } = await supabase
+        .from('users')
+        .upsert({
+            name: testName,
+            password_hash: testHash,
+            role: '관리자',
+            job: '측정'
+        }, { onConflict: 'name' });
+
+    if (testError) {
+        console.error(`사용자 초기화 실패 (${testName}):`, testError);
+    } else {
+        console.log(`사용자 초기화 성공: ${testName}`);
     }
 }
 
