@@ -20,7 +20,7 @@ const navItems: NavItem[] = [
   { href: "/journal", label: "측정일지", icon: "📋" },
   { href: "/summary", label: "측정정보 요약", icon: "📄" },
   { href: "/custom-reports", label: "맞춤형 보고서 추출", icon: "⚙️" },
-  { href: "/report-processing", label: "보고서 처리", icon: "📧", adminOnly: true },
+  { href: "/report-processing", label: "보고서 처리", icon: "📧" },
   { href: "/businesses/national-support", label: "건강디딤돌 신청결과", icon: "🏥" },
   { href: "/sales", label: "매출관리", icon: "💰" },
 ];
