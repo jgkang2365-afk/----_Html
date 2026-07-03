@@ -201,7 +201,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
               {/* 알림 드롭다운 */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-[#fffdeb] rounded-lg shadow-xl border border-yellow-200 overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="absolute right-0 mt-2 w-80 bg-[#fffdeb] rounded-lg shadow-xl border border-yellow-200 overflow-hidden animate-in fade-in zoom-in duration-200 z-50">
                   <div className="p-3 border-b border-yellow-200 flex items-center justify-between bg-[#fef3c7]/60">
                     <span className="text-sm font-bold text-text-900">알림</span>
                     {unreadCount > 0 && (
