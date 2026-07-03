@@ -78,6 +78,53 @@ export default function ReportProcessingPage() {
         fetchRecords();
     }, [filters.year, filters.period]);
 
+    // 백그라운드 작업 상태 실시간 모니터링 헬퍼
+    const monitorJob = (jobId: string, jobType: 'email' | 'k2b') => {
+        const startTime = Date.now();
+        let notifiedProcessing = false;
+
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/report-processing/job-status?id=${jobId}`);
+                if (!res.ok) return;
+
+                const data = await res.json();
+                const status = data.status;
+                const errorMsg = data.errorMessage;
+
+                // 1. 상태가 processing으로 전환되었을 때 알림
+                if (status === 'processing' && !notifiedProcessing) {
+                    toast.info(`[${jobType === 'email' ? '이메일' : 'K2B'}] 사내 PC에서 백그라운드 작업을 시작했습니다.`);
+                    notifiedProcessing = true;
+                }
+
+                // 2. 완료 또는 실패 시 감시 종료 및 목록 새로고침
+                if (status === 'success') {
+                    toast.success(`[${jobType === 'email' ? '이메일' : 'K2B'}] 백그라운드 작업이 완료되었습니다.`);
+                    clearInterval(interval);
+                    fetchRecords(); // 목록 새로고침
+                } else if (status === 'failed') {
+                    toast.error(`[${jobType === 'email' ? '이메일' : 'K2B'}] 백그라운드 작업 실패: ${errorMsg || '알 수 없는 오류'}`);
+                    clearInterval(interval);
+                    fetchRecords(); // 목록 새로고침
+                }
+
+                // 3. 1분이 지났는데도 여전히 pending 이면 미구동 경고
+                const elapsedSeconds = (Date.now() - startTime) / 1000;
+                if (status === 'pending' && elapsedSeconds >= 60) {
+                    toast.error(
+                        `[로컬 서버 미구동] 전송 요청이 접수되었으나 1분 동안 처리되지 않았습니다. 사내 로컬 컴퓨터의 개발 서버가 켜져 있는지 확인해 주세요.`,
+                        { duration: 10000 }
+                    );
+                    clearInterval(interval);
+                }
+
+            } catch (err) {
+                console.error("작업 상태 모니터링 오류:", err);
+            }
+        }, 5000);
+    };
+
     // 메일 발송 처리 (합산 발송 로직 포함)
     const handleSendEmails = async () => {
         if (selectedKeys.length === 0) {
@@ -112,47 +159,33 @@ export default function ReportProcessingPage() {
 
         const targetGroups = Object.values(groups);
 
-        if (!confirm(`${targetGroups.length}개 업체에 보고서 메일을 전송하시겠습니까?\n(선택 항목: ${selectedRecords.length}개, 합산 발송 적용됨)`)) return;
+        if (!confirm(`${targetGroups.length}개 업체에 보고서 메일을 백그라운드 전송하시겠습니까?\n(선택 항목: ${selectedRecords.length}개, 합산 발송 적용됨)`)) return;
 
         setProcessing(true);
-        let successCount = 0;
-        let failCount = 0;
+        setProcessingMessage('전송 요청을 등록하는 중...');
 
         try {
-            for (let i = 0; i < targetGroups.length; i++) {
-                const target = targetGroups[i];
-                setProcessingMessage(`[${i + 1}/${targetGroups.length}] ${target.business_name} 메일 발송 중...`);
+            const res = await fetch('/api/report-processing/queue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    job_type: 'email',
+                    targets: targetGroups
+                })
+            });
 
-                const res = await fetch('/api/report-processing/send-email', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ targets: [target] })
-                });
+            const data = await res.json();
 
-                const data = await res.json();
-
-                if (res.ok && data.results && data.results[0]?.success) {
-                    successCount++;
-                } else {
-                    failCount++;
-                }
-
-                if (i < targetGroups.length - 1) {
-                    setProcessingMessage(`[${i + 1}/${targetGroups.length}] ${target.business_name} 완료. 1초 대기 중...`);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-            }
-
-            if (failCount === 0) {
-                toast.success(`${successCount}개 업체 발송 성공 (합산 발송 완료)`);
+            if (res.ok && data.jobId) {
+                toast.success('이메일 발송 요청이 등록되었습니다. 사내 로컬 컴퓨터에서 백그라운드로 발송됩니다.');
+                setSelectedKeys([]);
+                // 백그라운드 모니터링 개시
+                monitorJob(data.jobId, 'email');
             } else {
-                toast.warning(`${successCount}개 성공, ${failCount}개 실패`);
+                toast.error(data.error || '이메일 발송 요청 등록 실패');
             }
-
-            fetchRecords();
-            setSelectedKeys([]);
         } catch (error) {
-            toast.error('전송 중 오류 발생');
+            toast.error('전송 요청 중 오류가 발생했습니다.');
         } finally {
             setProcessing(false);
             setProcessingMessage('');
@@ -187,30 +220,34 @@ export default function ReportProcessingPage() {
             selectedKeys.includes(`${r.code}-${r.year}-${r.period}`)
         );
 
-        const isConfirmed = confirm(`${targets.length}개 항목의 보고서를 K2B에 자동 업로드하시겠습니까?`);
+        const isConfirmed = confirm(`${targets.length}개 항목의 보고서를 K2B에 백그라운드로 자동 업로드하시겠습니까?`);
         if (!isConfirmed) return;
 
         setProcessing(true);
-        setProcessingMessage('K2B 업로드를 진행하고 있습니다...');
+        setProcessingMessage('업로드 요청을 등록하는 중...');
 
         try {
-            const res = await fetch('/api/report-processing/upload-k2b', {
+            const res = await fetch('/api/report-processing/queue', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targets })
+                body: JSON.stringify({
+                    job_type: 'k2b',
+                    targets
+                })
             });
 
             const data = await res.json();
 
-            if (res.ok) {
-                toast.success(data.message || 'K2B 업로드 완료');
-                fetchRecords();
+            if (res.ok && data.jobId) {
+                toast.success('K2B 업로드 요청이 등록되었습니다. 사내 로컬 컴퓨터에서 자동 업로드가 실행됩니다.');
                 setSelectedKeys([]);
+                // 백그라운드 모니터링 개시
+                monitorJob(data.jobId, 'k2b');
             } else {
-                toast.error(data.error || 'K2B 업로드 실패');
+                toast.error(data.error || 'K2B 업로드 요청 등록 실패');
             }
         } catch (error: any) {
-            toast.error('K2B 업로드 중 서버 오류가 발생했습니다.');
+            toast.error('K2B 업로드 요청 중 오류가 발생했습니다.');
         } finally {
             setProcessing(false);
             setProcessingMessage('');

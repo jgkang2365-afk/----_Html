@@ -27,6 +27,14 @@ export class BackgroundTasks {
 
         console.log("[BackgroundTasks] 스케줄러 초기화 시작 (06, 12, 15, 18시)...");
 
+        // 0. 로컬 백그라운드 작업기(Worker Daemon) 가동
+        try {
+            const { WorkerDaemon } = require('../automation/worker-daemon');
+            WorkerDaemon.getInstance().start();
+        } catch (workerErr) {
+            console.error("[BackgroundTasks] WorkerDaemon 가동 중 오류 발생:", workerErr);
+        }
+
         // Webpack/Turbopack 빌드 에러 우회 (서버 환경에서만 런타임에 로드)
         let cron;
         try {
