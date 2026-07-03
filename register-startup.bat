@@ -3,7 +3,7 @@
 chcp 65001 > null
 
 set "StartupFolder=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
-set "SourceVBS=c:\Users\USER\Desktop\안티그래티비\측정일지_html\run-server.vbs"
+set "SourceVBS=%~dp0run-server.vbs"
 
 echo [안내] 윈도우 시작프로그램에 자동 실행 바로가기를 등록하고 있습니다...
 

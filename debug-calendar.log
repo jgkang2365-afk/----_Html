@@ -971,3 +971,115 @@
 [2026-07-01T01:59:44.026Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-07-01T01:59:45.680Z] Event updated successfully: nnim97tub86rotje50c0blgths 
 [2026-07-01T01:59:45.683Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T01:31:11.147Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at getSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:197:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:136:97)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:11.163Z] Error getting Google Calendar event: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at getSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:197:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:136:97)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:11.169Z] Creating Calendar Event {
+  "summary": "[강종구] 한일산업 (주) - 26상 미수",
+  "description": "사업장코드: H0389\n          사업장: 한일산업 (주)\n          주소: 충청남도 아산시 신창면 서부남로 561 (궁화리)\n          담당자: 구훈회 부장\n          연락처: 010-9439-0842\n          비고:",
+  "date": "2026-06-10",
+  "endDate": "2026-06-10",
+  "location": "충청남도 아산시 신창면 서부남로 561 (궁화리)",
+  "colorId": "3"
+}
+[2026-07-03T01:31:11.172Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at createSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:83:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:140:103)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:11.175Z] Error creating Google Calendar event: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at createSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:83:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:140:103)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:11.608Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at getSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:197:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:136:97)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:11.611Z] Error getting Google Calendar event: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at getSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:197:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:136:97)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:11.614Z] Creating Calendar Event {
+  "summary": "[강종구] 한일산업 (주) - 26상 미수",
+  "description": "사업장코드: H0389\n          사업장: 한일산업 (주)\n          주소: 충청남도 아산시 신창면 서부남로 561 (궁화리)\n          담당자: 구훈회 부장\n          연락처: 010-9439-0842\n          비고:",
+  "date": "2026-06-09",
+  "endDate": "2026-06-09",
+  "location": "충청남도 아산시 신창면 서부남로 561 (궁화리)",
+  "colorId": "3"
+}
+[2026-07-03T01:31:11.616Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at createSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:83:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:140:103)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:11.619Z] Error creating Google Calendar event: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at createSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:83:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:140:103)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:11.620Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at listEvents (webpack-internal:///(instrument)/./lib/google/calendar.ts:244:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:172:98)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:11.621Z] Error listing Google Calendar events: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at listEvents (webpack-internal:///(instrument)/./lib/google/calendar.ts:244:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:172:98)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:297:25)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.321Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at getSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:197:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:136:97)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.324Z] Error getting Google Calendar event: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at getSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:197:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:136:97)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.337Z] Creating Calendar Event {
+  "summary": "[강종구] 한일산업 (주) - 26상 미수",
+  "description": "사업장코드: H0389\n          사업장: 한일산업 (주)\n          주소: 충청남도 아산시 신창면 서부남로 561 (궁화리)\n          담당자: 구훈회 부장\n          연락처: 010-9439-0842\n          비고:",
+  "date": "2026-06-10",
+  "endDate": "2026-06-10",
+  "location": "충청남도 아산시 신창면 서부남로 561 (궁화리)",
+  "colorId": "3"
+}
+[2026-07-03T01:31:37.341Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at createSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:83:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:140:103)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.349Z] Error creating Google Calendar event: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at createSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:83:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:140:103)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.382Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at getSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:197:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:136:97)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.384Z] Error getting Google Calendar event: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at getSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:197:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:136:97)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.390Z] Creating Calendar Event {
+  "summary": "[강종구] 한일산업 (주) - 26상 미수",
+  "description": "사업장코드: H0389\n          사업장: 한일산업 (주)\n          주소: 충청남도 아산시 신창면 서부남로 561 (궁화리)\n          담당자: 구훈회 부장\n          연락처: 010-9439-0842\n          비고:",
+  "date": "2026-06-09",
+  "endDate": "2026-06-09",
+  "location": "충청남도 아산시 신창면 서부남로 561 (궁화리)",
+  "colorId": "3"
+}
+[2026-07-03T01:31:37.392Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at createSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:83:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:140:103)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.394Z] Error creating Google Calendar event: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at createSurveyEvent (webpack-internal:///(instrument)/./lib/google/calendar.ts:83:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:140:103)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.396Z] Auth Client Creation Error {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at listEvents (webpack-internal:///(instrument)/./lib/google/calendar.ts:244:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:172:98)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
+[2026-07-03T01:31:37.398Z] Error listing Google Calendar events: {
+  "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
+  "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at listEvents (webpack-internal:///(instrument)/./lib/google/calendar.ts:244:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:172:98)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
+}
