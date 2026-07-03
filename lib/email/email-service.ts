@@ -123,4 +123,47 @@ export class EmailService {
             throw error;
         }
     }
+
+    /**
+     * 시스템 오류 알림 메일 발송 (공단 사이트 개편 및 크롬 버전 불일치 대응)
+     */
+    async sendSystemAlertEmail(options: {
+        subject: string;
+        bodyHtml: string;
+    }) {
+        const adminEmail = process.env.ADMIN_EMAIL || '5678882@naver.com'; // 기본 수신 관리자 이메일
+        try {
+            const info = await this.transporter.sendMail({
+                from: `"건강디딤돌 연동 시스템" <${this.config.auth.user}>`,
+                to: adminEmail,
+                subject: `[오류 알림] ${options.subject}`,
+                html: `
+                    <html>
+                        <body style="font-family: '맑은 고딕', sans-serif; font-size: 15px; line-height: 1.6; color: #333;">
+                            <h2 style="color: #d9534f; border-bottom: 2px solid #d9534f; padding-bottom: 10px;">
+                                건강디딤돌 자동 신청 시스템 에러 발생
+                            </h2>
+                            <p style="font-weight: bold; font-size: 16px;">
+                                발생된 에러 요약: ${options.subject}
+                            </p>
+                            <div style="background-color: #f9f9f9; border: 1px solid #ddd; padding: 15px; border-radius: 4px; font-family: monospace;">
+                                ${options.bodyHtml}
+                            </div>
+                            <br>
+                            <p style="color: #666; font-size: 12px; margin-top: 20px;">
+                                본 메일은 깡통 컴 개발 서버 자동화 모듈에 의해 자동 발송되었습니다. 사이트 정상 작동 여부를 긴급 점검해주시기 바랍니다.
+                            </p>
+                        </body>
+                    </html>
+                `,
+            });
+
+            console.log(`[Email Alert Success] ${options.subject}: ${info.messageId}`);
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            console.error(`[Email Alert Error] ${options.subject}:`, error);
+            throw error;
+        }
+    }
 }
+

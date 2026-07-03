@@ -268,7 +268,7 @@ export async function GET(request: NextRequest) {
       const representativeName = bInfo?.representative_name || jInfo?.representative_name || item.representative_name;
 
       const industrialAccidentNumber = bInfo?.industrial_accident_number || jInfo?.industrial_accident_number || item.industrial_accident_number;
-      const commencementNumber = bInfo?.commencement_number || jInfo?.commencement_number;
+      const commencementNumber = bInfo?.commencement_number || jInfo?.commencement_number || item.commencement_number;
 
 
       return {

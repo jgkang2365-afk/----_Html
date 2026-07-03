@@ -415,28 +415,28 @@ export const CustomQueryExport: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* 기본 데이터 로드 컨트롤 영역 */}
-      <Card className="p-4 bg-surface-50 border border-surface-200">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
+      <Card className="p-3 bg-surface-50 border border-surface-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col md:flex-row md:items-baseline gap-1 md:gap-3">
             <h2 className="text-base font-semibold text-text-900">1. 대분류 데이터 로드</h2>
-            <p className="text-xs text-text-500 mt-0.5">
+            <p className="text-xs text-text-500">
               원활한 필터링 속도를 위해 1차적으로 불러올 년도와 주기를 지정합니다.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-row flex-nowrap items-center gap-2.5 flex-shrink-0">
             <Select
               value={loadYear}
               onChange={(e) => setLoadYear(e.target.value)}
               options={yearOptions}
-              className="w-44"
+              className="w-36 sm:w-40 text-sm"
             />
             <Select
               value={loadPeriod}
               onChange={(e) => setLoadPeriod(e.target.value)}
               options={periodOptions}
-              className="w-44"
+              className="w-36 sm:w-40 text-sm"
             />
-            <Button variant="secondary" onClick={fetchRawData} disabled={loading} className="gap-1.5">
+            <Button variant="secondary" onClick={fetchRawData} disabled={loading} className="gap-1.5 whitespace-nowrap py-2 text-sm">
               🔄 리로드
             </Button>
           </div>

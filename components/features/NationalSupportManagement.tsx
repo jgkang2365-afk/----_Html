@@ -65,9 +65,7 @@ export const NationalSupportManagement: React.FC = () => {
 
   const periodOptions = [
     { value: "상반기", label: "상반기" },
-    { value: "상반기(수시)", label: "상반기(수시)" },
     { value: "하반기", label: "하반기" },
-    { value: "하반기(수시)", label: "하반기(수시)" },
   ];
 
   // 건강디딤돌 신청결과 목록 로드

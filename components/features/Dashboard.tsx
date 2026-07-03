@@ -28,6 +28,11 @@ interface DashboardData {
   incompleteCount: number;
   completeCount: number;
   completionRate: number;
+  executionStats?: {
+    total: number;
+    executed: number;
+    rate: number;
+  };
   revenue: {
     measurementFee: number;
     otherRevenue: number;
@@ -243,18 +248,18 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
           color={data.revenue.depositRate >= 80 ? "green" : "orange"}
         />
         <KPIButton
-          title="측정 완료율"
-          value={`${data.completionRate.toFixed(1)}%`}
-          subValue={`완료 ${data.completeCount} / 전체 ${data.totalCount}`}
+          title="실시율"
+          value={`${data.executionStats?.rate.toFixed(1) || "0.0"}%`}
+          subValue={`실시 ${data.executionStats?.executed || 0} / 전체 ${data.executionStats?.total || 0}`}
           icon={<ClipboardCheck className="w-6 h-6" />}
-          color={data.completionRate >= 80 ? "green" : "blue"}
+          color={data.executionStats && data.executionStats.rate >= 80 ? "green" : "blue"}
         />
         <KPIButton
-          title="K2B 전송률"
-          value={`${data.totalCount > 0 ? ((data.k2bStats.전송완료 / data.totalCount) * 100).toFixed(1) : 0}%`}
-          subValue={`미전송 ${data.k2bStats.미전송}건`}
+          title="측정 완료율"
+          value={`${data.completionRate.toFixed(1)}%`}
+          subValue={`전송완료 ${data.completeCount} / 전체 ${data.totalCount}`}
           icon={<Send className="w-6 h-6" />}
-          color="purple"
+          color={data.completionRate >= 80 ? "green" : "purple"}
         />
       </div>
 

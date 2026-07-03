@@ -36,13 +36,36 @@ export async function GET(request: NextRequest) {
     // 1~8, 10, 12, 13번 데이터 조회 (기존 로직 유지)
     // -------------------------------------------------------------------------------- //
     // 1. 측정건수
-    let q1 = supabase.from("measurement_journal").select("id, completion_status");
+    let q1 = supabase.from("measurement_journal").select("id, completion_status, k2b_send_date, measurement_period, code");
     q1 = applyFilters(q1, 'measurement');
     const { data: allJournals } = await q1;
-    const totalCount = allJournals?.length || 0;
-    const incompleteCount = allJournals?.filter((j) => j.completion_status === "미완료").length || 0;
-    const completeCount = totalCount - incompleteCount;
+    // 수시 주기 원천 배제
+    const journalsFiltered = allJournals?.filter((j) => !j.measurement_period?.includes("(수시)")) || [];
+    const totalCount = journalsFiltered.length;
+    const k2bSentCount = journalsFiltered.filter((j) => j.k2b_send_date !== null && j.k2b_send_date !== "").length || 0;
+    const completeCount = k2bSentCount;
+    const incompleteCount = totalCount - completeCount;
     const completionRate = totalCount > 0 ? (completeCount / totalCount) * 100 : 0;
+
+    // 1-2. 실시율 계산 (measurement_target_business 기준)
+    let qExecution = supabase.from("measurement_target_business").select("id, is_registered, period, code");
+    if (targetYear) qExecution = qExecution.eq("year", targetYear);
+    if (targetPeriod) qExecution = qExecution.ilike("period", `%${targetPeriod}%`);
+    const { data: targetBusinesses } = await qExecution;
+    // 수시 주기 원천 배제
+    const targetBusinessesFiltered = targetBusinesses?.filter(t => !t.period?.includes("(수시)")) || [];
+    const totalTargets = targetBusinessesFiltered.length;
+    const endedTargets = targetBusinessesFiltered.filter(t => t.is_registered === "거래종료" || t.is_registered === "종료" || t.is_registered === "거래 종료").length || 0;
+    const activeTargets = totalTargets - endedTargets;
+    
+    // 측정일지(measurement_journal)가 작성되었거나, 대상 테이블에 '실시'/'확정' 상태인 사업장 모두를 실제 측정을 진행한 '실시' 건으로 인정
+    const journalCodes = new Set(journalsFiltered.map(j => j.code).filter(Boolean));
+    const executedTargets = targetBusinessesFiltered.filter(t => 
+      t.is_registered === "실시" || 
+      t.is_registered === "확정" || 
+      (t.code && journalCodes.has(t.code))
+    ).length || 0;
+    const executionRate = activeTargets > 0 ? (executedTargets / activeTargets) * 100 : 0;
 
     // 2. 매출현황
     let q2 = supabase.from("measurement_journal").select("measurement_fee_total, measurement_fee_business, measurement_fee_national, deposit_total");
@@ -300,6 +323,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       totalCount, incompleteCount, completeCount, completionRate: Math.round(completionRate * 10) / 10,
+      executionStats: {
+        total: activeTargets,
+        executed: executedTargets,
+        rate: Math.round(executionRate * 10) / 10
+      },
       revenue: { measurementFee: totalMeasurementFee, otherRevenue: totalOtherRevenue, total: totalMeasurementFee + totalOtherRevenue, deposit: totalDeposit, depositRate: Math.round(depositRate * 10) / 10 },
       periodStats, nationalSupport: nationalSupportStats,
       overdueItems: processedOverdueItems,

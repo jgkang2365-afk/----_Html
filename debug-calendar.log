@@ -1083,3 +1083,284 @@
   "message": "Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json",
   "stack": "Error: Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: C:\\Users\\PC\\OneDrive\\Desktop\\자동화\\----_Html\\google-credentials.json\n    at getAuthClient (webpack-internal:///(instrument)/./lib/google/calendar.ts:60:19)\n    at listEvents (webpack-internal:///(instrument)/./lib/google/calendar.ts:244:34)\n    at syncBusinessToCalendar (webpack-internal:///(instrument)/./lib/google/sync-service.ts:172:98)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async WorkerDaemon.processK2BJob (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:342:29)\n    at async WorkerDaemon.poll (webpack-internal:///(instrument)/./lib/automation/worker-daemon.ts:100:17)"
 }
+[2026-07-03T11:55:59.379Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T11:56:00.712Z] Updating Calendar Event: rllch9np820jfodl0ohcd5t0cs {
+  "summary": "[이주형] (주) 큐에스엔지니어링 (주)원봉 김포공장 신축공사 - 전액 국고, 최초 실시",
+  "description": "사업장코드: H0490\n          사업장: (주) 큐에스엔지니어링 (주)원봉 김포공장 신축공사\n          주소: 경기도 김포시 양촌읍 학운리 4314\n          담당자: 이영근\n          연락처: 010-8784-8397\n          비고: 전액 국고, 최초 실시",
+  "date": "2026-06-22",
+  "endDate": "2026-06-22",
+  "location": "경기도 김포시 양촌읍 학운리 4314",
+  "colorId": "5"
+}
+[2026-07-03T11:56:00.717Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T11:56:02.591Z] Event updated successfully: rllch9np820jfodl0ohcd5t0cs 
+[2026-07-03T11:56:02.593Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:37:38.894Z] Creating Calendar Event {
+  "summary": "[이주형] 태전자동차공업사",
+  "description": "사업장코드: H0074\n          사업장: 태전자동차공업사\n          주소: 대전광역시 서구 계룡로232번길 157 (월평동)\n          담당자: 오남석 대표\n          연락처: 010-9813-5579\n          비고:",
+  "date": "2026-02-09",
+  "endDate": "2026-02-09",
+  "location": "대전광역시 서구 계룡로232번길 157 (월평동)",
+  "colorId": "3"
+}
+[2026-07-03T13:37:38.898Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:37:40.712Z] Event created successfully: 8ls0vchuns58jvqjf3m841sjs0 
+[2026-07-03T13:37:40.752Z] Deleting Calendar Event: 42gcntqimu9i4o3a4m5qvpc0sc 
+[2026-07-03T13:37:40.753Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:37:41.940Z] Event deleted: 42gcntqimu9i4o3a4m5qvpc0sc 
+[2026-07-03T13:37:41.988Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:53:19.487Z] Creating Calendar Event {
+  "summary": "[강종구] (주)참존건설 쿠팡 CHA6 FC 대수선공사",
+  "description": "사업장코드: H0430\n          사업장: (주)참존건설 쿠팡 CHA6 FC 대수선공사\n          주소: 충청남도 천안시 서북구 입장면 용정도하길 181 (용정리)\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-01-12",
+  "endDate": "2026-01-12",
+  "location": "충청남도 천안시 서북구 입장면 용정도하길 181 (용정리)",
+  "colorId": "3"
+}
+[2026-07-03T13:53:19.491Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:53:21.189Z] Event created successfully: ambtfois5p30vfhffjmbq7krhc 
+[2026-07-03T13:53:21.234Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:56:52.867Z] Creating Calendar Event {
+  "summary": "[미지정] 그린자동차정비공업 주식회사",
+  "description": "사업장코드: H0205\n          사업장: 그린자동차정비공업 주식회사\n          주소: 충청남도 당진시 송산로 60 (원당동)\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-01-06",
+  "endDate": "2026-01-06",
+  "location": "충청남도 당진시 송산로 60 (원당동)",
+  "colorId": "3"
+}
+[2026-07-03T13:56:52.869Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:56:54.642Z] Event created successfully: dqdoetgnsbm7c02fvp7lp2jt9g 
+[2026-07-03T13:56:54.690Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:56:57.753Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:56:58.558Z] Updating Calendar Event: dqdoetgnsbm7c02fvp7lp2jt9g {
+  "summary": "[(배윤민)] 그린자동차정비공업 주식회사",
+  "description": "사업장코드: H0205\n          사업장: 그린자동차정비공업 주식회사\n          주소: 충청남도 당진시 송산로 60 (원당동)\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-01-06",
+  "endDate": "2026-01-06",
+  "location": "충청남도 당진시 송산로 60 (원당동)",
+  "colorId": "3"
+}
+[2026-07-03T13:56:58.561Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T13:57:01.138Z] Event updated successfully: dqdoetgnsbm7c02fvp7lp2jt9g 
+[2026-07-03T13:57:01.141Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:00:29.020Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:00:30.246Z] Updating Calendar Event: dqdoetgnsbm7c02fvp7lp2jt9g {
+  "summary": "[배윤민] 그린자동차정비공업 주식회사",
+  "description": "사업장코드: H0205\n          사업장: 그린자동차정비공업 주식회사\n          주소: 충청남도 당진시 송산로 60 (원당동)\n          담당자: 미지정\n          연락처: 041-357-0119\n          비고:",
+  "date": "2026-01-06",
+  "endDate": "2026-01-06",
+  "location": "충청남도 당진시 송산로 60 (원당동)",
+  "colorId": "3"
+}
+[2026-07-03T14:00:30.247Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:00:32.271Z] Event updated successfully: dqdoetgnsbm7c02fvp7lp2jt9g 
+[2026-07-03T14:00:32.273Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:05:54.024Z] Creating Calendar Event {
+  "summary": "[미지정] 중부모터스(주)렉서스천안아산",
+  "description": "사업장코드: H0440\n          사업장: 중부모터스(주)렉서스천안아산\n          주소: 충청남도 천안시 서북구 번영로 627 (업성동)\n          담당자: 미지정\n          연락처: 041-561-3369\n          비고:",
+  "date": "2026-02-10",
+  "endDate": "2026-02-10",
+  "location": "충청남도 천안시 서북구 번영로 627 (업성동)",
+  "colorId": "3"
+}
+[2026-07-03T14:05:54.027Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:05:55.804Z] Event created successfully: gn49bnoj1tpetu66a568742usc 
+[2026-07-03T14:05:55.848Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:08:23.199Z] Creating Calendar Event {
+  "summary": "[미지정] 삼일공업사",
+  "description": "사업장코드: H0438\n          사업장: 삼일공업사\n          주소: 충청남도 천안시 서북구 수레터1길 23 (차암동, 삼일공업사2급정비공장)\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-02-04",
+  "endDate": "2026-02-04",
+  "location": "충청남도 천안시 서북구 수레터1길 23 (차암동, 삼일공업사2급정비공장)",
+  "colorId": "3"
+}
+[2026-07-03T14:08:23.202Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:08:24.905Z] Event created successfully: 0nlr5imtsiqplo46k1bp9g9vs4 
+[2026-07-03T14:08:24.941Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:09:16.988Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:09:18.384Z] Updating Calendar Event: 0nlr5imtsiqplo46k1bp9g9vs4 {
+  "summary": "[이주형] 삼일공업사",
+  "description": "사업장코드: H0438\n          사업장: 삼일공업사\n          주소: 충청남도 천안시 서북구 수레터1길 23 (차암동, 삼일공업사2급정비공장)\n          담당자: 미지정\n          연락처: 041-621-9448\n          비고:",
+  "date": "2026-02-04",
+  "endDate": "2026-02-04",
+  "location": "충청남도 천안시 서북구 수레터1길 23 (차암동, 삼일공업사2급정비공장)",
+  "colorId": "3"
+}
+[2026-07-03T14:09:18.386Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:09:20.553Z] Event updated successfully: 0nlr5imtsiqplo46k1bp9g9vs4 
+[2026-07-03T14:09:20.555Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:24:05.341Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:24:06.527Z] Updating Calendar Event: 2kb1gs5qncsqji1gmp8olkvnu8 {
+  "summary": "[강종구] 지제이종합건설 주식회사 25-F-00부대 실험실 신축 시설공사(4282) - 26상 미수",
+  "description": "사업장코드: H0492\n          사업장: 지제이종합건설 주식회사 25-F-00부대 실험실 신축 시설공사(4282)\n          주소: 충청남도 서산시 고북면 신정리 622\n          담당자: 이정현\n          연락처: 010-5144-2296\n          비고:",
+  "date": "2026-06-29",
+  "endDate": "2026-06-29",
+  "location": "충청남도 서산시 고북면 신정리 622",
+  "colorId": "9"
+}
+[2026-07-03T14:24:06.529Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:24:08.493Z] Event updated successfully: 2kb1gs5qncsqji1gmp8olkvnu8 
+[2026-07-03T14:24:08.496Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:24:34.260Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:24:35.637Z] Updating Calendar Event: ol51frfk3rm4hvs2jugdkp7rls {
+  "summary": "[고유빈] 유엔넷 주식회사 쿠팡_CHA 8FC(천안) PH2 네트워크 구축 - 26상 미수",
+  "description": "사업장코드: H0489\n          사업장: 유엔넷 주식회사 쿠팡_CHA 8FC(천안) PH2 네트워크 구축\n          주소: 충청남도 천안시 서북구 입장면 용정도하길 495 (산정리)\n          담당자: 이천호\n          연락처: 010-3928-2005\n          비고:",
+  "date": "2026-06-19",
+  "endDate": "2026-06-19",
+  "location": "충청남도 천안시 서북구 입장면 용정도하길 495 (산정리)",
+  "colorId": "7"
+}
+[2026-07-03T14:24:35.639Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:24:37.452Z] Event updated successfully: ol51frfk3rm4hvs2jugdkp7rls 
+[2026-07-03T14:24:37.454Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:25:27.746Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:25:28.844Z] Updating Calendar Event: 4r70pc9s0k0q5miiafqocv90c8 {
+  "summary": "[한기문] 위본건설 (주) 덕산지구 농어촌지방상수도 확충사업(2단계) - 26상 미수 / 타기관 신규",
+  "description": "사업장코드: H0491\n          사업장: 위본건설 (주) 덕산지구 농어촌지방상수도 확충사업(2단계)\n          주소: 충청남도 예산군 봉산면 구암리 60-3\n          담당자: 김연성\n          연락처: 010-2001-0247\n          비고: 타기관 신규",
+  "date": "2026-06-26",
+  "endDate": "2026-06-26",
+  "location": "충청남도 예산군 봉산면 구암리 60-3",
+  "colorId": "10"
+}
+[2026-07-03T14:25:28.848Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:25:30.627Z] Event updated successfully: 4r70pc9s0k0q5miiafqocv90c8 
+[2026-07-03T14:25:30.630Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:32:34.515Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:32:35.600Z] Updating Calendar Event: i6ufrb8s5p7e090lgqbgi6akas {
+  "summary": "[고유빈] (주) 제이앤지 - 26상 미수 / 근무 : 08시~",
+  "description": "사업장코드: H0167\n          사업장: (주) 제이앤지\n          주소: 충청남도 아산시 온천대로1122번길 17 (득산동)\n          담당자: 남진현\n          연락처: 010-9084-9432\n          비고: 근무 : 08시~",
+  "date": "2026-06-30",
+  "endDate": "2026-06-30",
+  "location": "충청남도 아산시 온천대로1122번길 17 (득산동)",
+  "colorId": "7"
+}
+[2026-07-03T14:32:35.602Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:32:37.398Z] Event updated successfully: i6ufrb8s5p7e090lgqbgi6akas 
+[2026-07-03T14:32:37.401Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:34:13.978Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:34:15.099Z] Updating Calendar Event: 0ssjlmafik4ujqam71r9m8601s {
+  "summary": "[강종구] (주)진화이앤씨 데이터센터 각 세종 2~3차 구축공사(소방)",
+  "description": "사업장코드: H0484\n          사업장: (주)진화이앤씨 데이터센터 각 세종 2~3차 구축공사(소방)\n          주소: 세종특별자치시 행복대로 824 (집현동)\n          담당자: 배진호 팀장\n          연락처: 010-5633-6739\n          비고:",
+  "date": "2026-06-22",
+  "endDate": "2026-06-22",
+  "location": "세종특별자치시 행복대로 824 (집현동)",
+  "colorId": "9"
+}
+[2026-07-03T14:34:15.108Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:34:17.092Z] Event updated successfully: 0ssjlmafik4ujqam71r9m8601s 
+[2026-07-03T14:34:17.097Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:35:10.764Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:35:11.902Z] Updating Calendar Event: l6fejt5tqki5u0r13nhausbps8 {
+  "summary": "[이주형] (주)에펠오토서비스 인천 - 신규",
+  "description": "사업장코드: H0482\n          사업장: (주)에펠오토서비스 인천\n          주소: 인천광역시 중구 서해대로94번길 13 (신흥동3가)\n          담당자: 미지정\n          연락처: 032-881-3006\n          비고: 신규",
+  "date": "2026-06-17",
+  "endDate": "2026-06-17",
+  "location": "인천광역시 중구 서해대로94번길 13 (신흥동3가)",
+  "colorId": "5"
+}
+[2026-07-03T14:35:11.960Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:35:13.868Z] Event updated successfully: l6fejt5tqki5u0r13nhausbps8 
+[2026-07-03T14:35:13.871Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:36:57.026Z] Creating Calendar Event {
+  "summary": "[배윤민] 시온모터스",
+  "description": "사업장코드: H0258\n          사업장: 시온모터스\n          주소: 대전광역시 대덕구 대화로 16, 지하층 (대화동)\n          담당자: 지봉춘 대표\n          연락처: 010-9548-7588\n          비고:",
+  "date": "2026-01-12",
+  "endDate": "2026-01-12",
+  "location": "대전광역시 대덕구 대화로 16, 지하층 (대화동)",
+  "colorId": "3"
+}
+[2026-07-03T14:36:57.028Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:36:58.529Z] Event created successfully: cf8c5jfp2o0nhlq0tmsvl9j0gg 
+[2026-07-03T14:36:58.616Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:38:15.721Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:38:16.927Z] Updating Calendar Event: qvc92aducfokdauqrqni6fnlqo {
+  "summary": "[이주형] (유)백상 충남 장애인가족 힐링센터 조성공사",
+  "description": "사업장코드: H0452\n          사업장: (유)백상 충남 장애인가족 힐링센터 조성공사\n          주소: 충청남도 태안군 안면읍 승언리 산18-1\n          담당자: 김희집\n          연락처: 010-6244-4091\n          비고:",
+  "date": "2026-03-09",
+  "endDate": "2026-03-09",
+  "location": "충청남도 태안군 안면읍 승언리 산18-1",
+  "colorId": "3"
+}
+[2026-07-03T14:38:16.929Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:38:18.864Z] Event updated successfully: qvc92aducfokdauqrqni6fnlqo 
+[2026-07-03T14:38:18.867Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:39:19.086Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:39:20.170Z] Updating Calendar Event: t2t96o0lnj5p7cl7untk6497jc {
+  "summary": "[이주형] 일주산업개발(주) 비하동 임대형 기숙사(1부지) 신축",
+  "description": "사업장코드: H0453\n          사업장: 일주산업개발(주) 비하동 임대형 기숙사(1부지) 신축\n          주소: 충청북도 청주시 흥덕구 비하로57번길 15-1 (비하동)\n          담당자: 고상순 차장\n          연락처: 010-5136-2272\n          비고:",
+  "date": "2026-04-07",
+  "endDate": "2026-04-07",
+  "location": "충청북도 청주시 흥덕구 비하로57번길 15-1 (비하동)",
+  "colorId": "3"
+}
+[2026-07-03T14:39:20.193Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:39:22.198Z] Event updated successfully: t2t96o0lnj5p7cl7untk6497jc 
+[2026-07-03T14:39:22.203Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:39:58.095Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:39:59.051Z] Updating Calendar Event: 5vlcgpk51pks9s5g788qn5svpc {
+  "summary": "[이주형] 일주산업개발(주) 비하동 임대형 기숙사(2부지) 신축",
+  "description": "사업장코드: H0454\n          사업장: 일주산업개발(주) 비하동 임대형 기숙사(2부지) 신축\n          주소: 충청북도 청주시 흥덕구 비하로57번길 15-1 (비하동)\n          담당자: 고상순 차장\n          연락처: 010-5136-2272\n          비고:",
+  "date": "2026-04-07",
+  "endDate": "2026-04-07",
+  "location": "충청북도 청주시 흥덕구 비하로57번길 15-1 (비하동)",
+  "colorId": "3"
+}
+[2026-07-03T14:39:59.053Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:00.831Z] Event updated successfully: 5vlcgpk51pks9s5g788qn5svpc 
+[2026-07-03T14:40:00.834Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:24.028Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:25.036Z] Updating Calendar Event: lh4tk1u02oajplfch3lpqg1rb8 {
+  "summary": "[강종구, 고유빈, 이주형, 한기문] 천안시청 - 26상 미수 / ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "description": "사업장코드: H0463\n          사업장: 천안시청\n          주소: 충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)\n          담당자: 김효진 보건관리자\n          연락처: 010-4035-4419\n          비고: ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "date": "2026-05-11",
+  "endDate": "2026-05-11",
+  "location": "충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)",
+  "colorId": "3"
+}
+[2026-07-03T14:40:25.040Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:26.872Z] Event updated successfully: lh4tk1u02oajplfch3lpqg1rb8 
+[2026-07-03T14:40:26.906Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:27.725Z] Updating Calendar Event: od7aqgfbar7j42iidr1i1ah1os {
+  "summary": "[강종구, 고유빈] 천안시청 - 26상 미수 / ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "description": "사업장코드: H0463\n          사업장: 천안시청\n          주소: 충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)\n          담당자: 김효진 보건관리자\n          연락처: 010-4035-4419\n          비고: ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "date": "2026-05-12",
+  "endDate": "2026-05-12",
+  "location": "충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)",
+  "colorId": "3"
+}
+[2026-07-03T14:40:27.728Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:29.561Z] Event updated successfully: od7aqgfbar7j42iidr1i1ah1os 
+[2026-07-03T14:40:29.592Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:30.492Z] Updating Calendar Event: 9sgi3me4t0enjnoa28mk2gg474 {
+  "summary": "[강종구, 고유빈, 이주형, 한기문] 천안시청 - 26상 미수 / ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "description": "사업장코드: H0463\n          사업장: 천안시청\n          주소: 충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)\n          담당자: 김효진 보건관리자\n          연락처: 010-4035-4419\n          비고: ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "date": "2026-05-14",
+  "endDate": "2026-05-14",
+  "location": "충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)",
+  "colorId": "3"
+}
+[2026-07-03T14:40:30.496Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:32.438Z] Event updated successfully: 9sgi3me4t0enjnoa28mk2gg474 
+[2026-07-03T14:40:32.475Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:33.368Z] Updating Calendar Event: 2sm4v9lfrdvq9cjkjebvn2ae4c {
+  "summary": "[강종구] 천안시청 - 26상 미수 / ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "description": "사업장코드: H0463\n          사업장: 천안시청\n          주소: 충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)\n          담당자: 김효진 보건관리자\n          연락처: 010-4035-4419\n          비고: ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "date": "2026-05-08",
+  "endDate": "2026-05-08",
+  "location": "충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)",
+  "colorId": "3"
+}
+[2026-07-03T14:40:33.375Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:35.307Z] Event updated successfully: 2sm4v9lfrdvq9cjkjebvn2ae4c 
+[2026-07-03T14:40:35.345Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:36.151Z] Updating Calendar Event: pjq58tlkaks3q8ego2onokrmt8 {
+  "summary": "[강종구, 고유빈, 한기문] 천안시청 - 26상 미수 / ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "description": "사업장코드: H0463\n          사업장: 천안시청\n          주소: 충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)\n          담당자: 김효진 보건관리자\n          연락처: 010-4035-4419\n          비고: ※ 일자별 공시료 정보\n5/8(금) : 목천매립장(C)\n5/11(월) : 공원1팀(B), 명품(C), 가로청소(D), 산림재난(B), 도로보수(F)\n5/12(화) : 하수준설(C), 누수방지(F),  조리실(F), 수질실험(C)\n5/13(수) : 등산로관리/가로청소(B), 가로녹지(F), 공원2팀/조리실/도로보수(C)\n5/14(목) : 조리실/농기계(D), 조리실/농산물가공/스마트원예/과수관리(F), 축산미생물/안전분석/토양검정/가축분석(C), 풋볼파크(B)",
+  "date": "2026-05-13",
+  "endDate": "2026-05-13",
+  "location": "충청남도 천안시 서북구 번영로 156 (불당동, 천안시청)",
+  "colorId": "3"
+}
+[2026-07-03T14:40:36.154Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-03T14:40:37.874Z] Event updated successfully: pjq58tlkaks3q8ego2onokrmt8 
+[2026-07-03T14:40:37.876Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
