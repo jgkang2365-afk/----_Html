@@ -63,11 +63,14 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
       const res = await fetch("/api/notifications");
       if (res.ok) {
         const data = await res.json();
-        setNotifications(data.notifications || []);
+        const list = data.notifications || [];
+        setNotifications(list);
+        return list;
       }
     } catch (err) {
       console.error("알림 fetch 에러:", err);
     }
+    return [];
   };
 
   const markAsRead = async (id?: number) => {
@@ -78,7 +81,10 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         body: JSON.stringify(id ? { id } : { all: true }),
       });
       if (res.ok) {
-        fetchNotifications();
+        const updated = await fetchNotifications();
+        if (updated && updated.filter((n: Notification) => !n.is_read).length === 0) {
+          setShowNotifications(false);
+        }
       }
     } catch (err) {
       console.error("알림 읽음 처리 에러:", err);
