@@ -134,6 +134,26 @@ export async function verifyDataConsistency(externalSupabaseClient?: SupabaseCli
 
         console.log(`[Verification] 검증 대상: business_info(${businessInfoMap.size}건), measurement_business(최신 ${latestMeasurementMap.size}건)`);
 
+        // 3-2. 검증 제외(예외 등록) 목록 조회
+        const { data: exclusions, error: exError } = await supabase
+            .from("data_verification_exclusions")
+            .select("code, issue_type");
+
+        if (exError) {
+            console.error("[Verification] 제외 목록 조회 실패:", exError);
+        }
+
+        const exclusionSet = new Set<string>();
+        exclusions?.forEach(e => {
+            if (e.code && e.issue_type) {
+                exclusionSet.add(`${e.code}:${e.issue_type}`);
+            }
+        });
+
+        const isExcluded = (code: string, issueType: string) => {
+            return exclusionSet.has(`${code}:${issueType}`);
+        };
+
         // 4. 비교 로직 수행
         // 기준: measurement_business (최신) vs business_info (현재)
         // measurement_business 에 있는 코드는 반드시 business_info 에도 있어야 하며, 정보가 일치해야 함.
@@ -150,7 +170,7 @@ export async function verifyDataConsistency(externalSupabaseClient?: SupabaseCli
             if (!current) {
                 // Case 1: 측정사업장에는 있는데 사업장정보에 없는 경우 (Missing)
                 // H로 시작하는 코드만 검증 (테스트 데이터 제외)
-                if (code.startsWith('H')) {
+                if (code.startsWith('H') && !isExcluded(code, 'MISSING_IN_BUSINESS_INFO')) {
                     issues.push({
                         code,
                         business_name: latest.business_name,
@@ -164,7 +184,7 @@ export async function verifyDataConsistency(externalSupabaseClient?: SupabaseCli
                 const latestName = (latest.business_name || "").replace(/\s+/g, "").trim();
                 const currentName = (current.business_name || "").replace(/\s+/g, "").trim();
 
-                if (latestName && latestName !== currentName) {
+                if (latestName && latestName !== currentName && !isExcluded(code, 'MISMATCH_NAME')) {
                     const [hLatest, hCurrent] = highlightDiff(latest.business_name || "", current.business_name || "");
 
                     issues.push({
@@ -180,7 +200,7 @@ export async function verifyDataConsistency(externalSupabaseClient?: SupabaseCli
                 const currentRep = (current.representative_name || "").replace(/\s+/g, "").trim();
 
                 // 둘 다 값이 있는 경우에만 비교 (한쪽만 비어있는 경우는 불일치로 보지 않음 - 정책에 따라 다름, 여기선 보수적으로)
-                if (latestRep && currentRep && latestRep !== currentRep) {
+                if (latestRep && currentRep && latestRep !== currentRep && !isExcluded(code, 'MISMATCH_REPRESENTATIVE')) {
                     const [hLatest, hCurrent] = highlightDiff(latest.representative_name || "", current.representative_name || "");
 
                     issues.push({

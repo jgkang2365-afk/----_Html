@@ -1364,3 +1364,39 @@
 [2026-07-03T14:40:36.154Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-07-03T14:40:37.874Z] Event updated successfully: pjq58tlkaks3q8ego2onokrmt8 
 [2026-07-03T14:40:37.876Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T02:40:32.086Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T02:40:33.807Z] Updating Calendar Event: ol51frfk3rm4hvs2jugdkp7rls {
+  "summary": "[고유빈] 유엔넷 주식회사 쿠팡_CHA 8FC(천안) PH2 네트워크 구축 - 26상 미수",
+  "description": "사업장코드: H0489\n          사업장: 유엔넷 주식회사 쿠팡_CHA 8FC(천안) PH2 네트워크 구축\n          주소: 충청남도 천안시 서북구 입장면 용정도하길 495 (산정리)\n          담당자: 이천호\n          연락처: 010-3928-2005\n          비고:",
+  "date": "2026-06-19",
+  "endDate": "2026-06-19",
+  "location": "충청남도 천안시 서북구 입장면 용정도하길 495 (산정리)",
+  "colorId": "7"
+}
+[2026-07-04T02:40:33.814Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T02:40:35.607Z] Event updated successfully: ol51frfk3rm4hvs2jugdkp7rls 
+[2026-07-04T02:40:35.612Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T02:40:54.371Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T02:40:55.552Z] Updating Calendar Event: biri073ibggk8c3nsta1josbpc {
+  "summary": "[고유빈] 유엔넷 주식회사 쿠팡_CHA6 FC(천안) PH2 1F, 4F 네트워크 구축",
+  "description": "사업장코드: H0433\n          사업장: 유엔넷 주식회사 쿠팡_CHA6 FC(천안) PH2 1F, 4F 네트워크 구축\n          주소: 충청남도 천안시 서북구 입장면 용정리 192\n          담당자: 이천호\n          연락처: 010-3928-2005\n          비고:",
+  "date": "2026-01-19",
+  "endDate": "2026-01-19",
+  "location": "충청남도 천안시 서북구 입장면 용정리 192",
+  "colorId": "3"
+}
+[2026-07-04T02:40:55.557Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T02:40:57.323Z] Event updated successfully: biri073ibggk8c3nsta1josbpc 
+[2026-07-04T02:40:57.326Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T02:41:54.068Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T02:41:55.170Z] Updating Calendar Event: cfq4tnetmh3lga509nuscmf4ro {
+  "summary": "[한기문] (주)디이에스 - 26상 미수 / 신규",
+  "description": "사업장코드: H0459\n          사업장: (주)디이에스\n          주소: 경기도 화성시 만세구 양감면 토성로 594-7 (송산리)\n          담당자: 곽래훈\n          연락처: 010-2962-0192\n          비고: 신규",
+  "date": "2026-05-15",
+  "endDate": "2026-05-15",
+  "location": "경기도 화성시 만세구 양감면 토성로 594-7 (송산리)",
+  "colorId": "3"
+}
+[2026-07-04T02:41:55.175Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T02:41:57.653Z] Event updated successfully: cfq4tnetmh3lga509nuscmf4ro 
+[2026-07-04T02:41:57.657Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

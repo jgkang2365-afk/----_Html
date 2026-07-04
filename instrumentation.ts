@@ -3,6 +3,10 @@
  * 서버 시작 시 백그라운드 작업을 등록하기 위한 진입점
  */
 export async function register() {
+    // 빌드 단계에서는 백그라운드 작업을 실행하지 않음
+    if (process.env.NEXT_PHASE === 'phase-production-build') {
+        return;
+    }
     // 서버 사이드 프로세스일 때만 실행 (Edge Runtime 제외)
     if (process.env.NEXT_RUNTIME === 'nodejs') {
         try {

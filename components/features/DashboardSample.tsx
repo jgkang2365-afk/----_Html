@@ -69,6 +69,19 @@ interface SampleDashboardData {
     period: string;
     amount: number;
   }>;
+  newBusinessStats: {
+    total: number;
+    newCount: number;
+    rate: number;
+    list: Array<{
+      code: string;
+      business_name: string;
+      period: string;
+      designated_office: string;
+      manager_name: string;
+      manager_mobile: string;
+    }>;
+  };
 }
 
 export const DashboardSample: React.FC = () => {
@@ -159,7 +172,7 @@ export const DashboardSample: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* 주요 지표 카드 섹션 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         <Card className="p-4">
           <h3 className="text-xs font-medium text-text-500 mb-1">전체 측정건수</h3>
           <p className="text-2xl font-bold text-text-900">{data.totalCount}건</p>
@@ -173,8 +186,12 @@ export const DashboardSample: React.FC = () => {
           <p className="text-2xl font-bold text-warning-600">{data.incompleteCount}건</p>
         </Card>
         <Card className="p-4">
-          <h3 className="text-xs font-medium text-text-500 mb-1">완료율</h3>
+          <h3 className="text-xs font-medium text-text-500 mb-1">K2B 전송율</h3>
           <p className="text-2xl font-bold text-success-600">{data.completionRate.toFixed(1)}%</p>
+        </Card>
+        <Card className="p-4">
+          <h3 className="text-xs font-medium text-text-500 mb-1">신규사업장 발굴률(건설업 제외)</h3>
+          <p className="text-2xl font-bold text-success-600">{data.newBusinessStats?.rate.toFixed(1) || "0.0"}%</p>
         </Card>
         <Card className="p-4">
           <h3 className="text-xs font-medium text-text-500 mb-1">측정비 매출</h3>

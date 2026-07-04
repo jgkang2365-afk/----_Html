@@ -20,23 +20,41 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const startYearParam = searchParams.get("startYear");
+    const endYearParam = searchParams.get("endYear");
     const yearParam = searchParams.get("year");
     const periodParam = searchParams.get("period");
-    const targetYear = yearParam && yearParam !== "전체" && yearParam !== "" ? parseInt(yearParam) : null;
+
+    const startYear = startYearParam && startYearParam !== "전체" && startYearParam !== ""
+      ? parseInt(startYearParam)
+      : (yearParam && yearParam !== "전체" && yearParam !== "" ? parseInt(yearParam) : null);
+
+    const endYear = endYearParam && endYearParam !== "전체" && endYearParam !== ""
+      ? parseInt(endYearParam)
+      : (yearParam && yearParam !== "전체" && yearParam !== "" ? parseInt(yearParam) : null);
+
     const targetPeriod = periodParam && periodParam !== "전체" && periodParam !== "" ? periodParam.trim() : null;
 
     const supabase = await createClient();
 
     const applyFilters = (query: any, type: 'measurement' | 'other' = 'measurement') => {
-      if (targetYear) query = query.eq(type === 'other' ? "revenue_year" : "measurement_year", targetYear);
-      if (targetPeriod) query = query.ilike(type === 'other' ? "revenue_period" : "measurement_period", `%${targetPeriod}%`);
+      const yearCol = type === 'other' ? "revenue_year" : "measurement_year";
+      if (startYear) {
+        query = query.gte(yearCol, startYear);
+      }
+      if (endYear) {
+        query = query.lte(yearCol, endYear);
+      }
+      if (targetPeriod) {
+        query = query.ilike(type === 'other' ? "revenue_period" : "measurement_period", `%${targetPeriod}%`);
+      }
       return query;
     };
 
     // 1~8, 10, 12, 13번 데이터 조회 (기존 로직 유지)
     // -------------------------------------------------------------------------------- //
     // 1. 측정건수
-    let q1 = supabase.from("measurement_journal").select("id, completion_status, k2b_send_date, measurement_period, code");
+    let q1 = supabase.from("measurement_journal").select("id, completion_status, k2b_send_date, measurement_period, code, business_name, note, business_category, designated_office, manager_name, manager_mobile");
     q1 = applyFilters(q1, 'measurement');
     const { data: allJournals } = await q1;
     // 수시 주기 원천 배제
@@ -47,9 +65,32 @@ export async function GET(request: NextRequest) {
     const incompleteCount = totalCount - completeCount;
     const completionRate = totalCount > 0 ? (completeCount / totalCount) * 100 : 0;
 
+    // 신규사업장 발굴률 계산 (건설업 제외, 비고에 '최초실시'가 포함된 건)
+    const isConstruction = (category: string | null) => {
+      if (!category) return false;
+      const cleanCat = category.trim();
+      return cleanCat.includes("건설") || cleanCat.includes("건설업");
+    };
+    const nonConstructionJournals = journalsFiltered.filter((j) => !isConstruction(j.business_category));
+    const totalNonConstruction = nonConstructionJournals.length;
+    const newBusinessCount = nonConstructionJournals.filter((j) => j.note?.includes("최초실시")).length;
+    const newBusinessRate = totalNonConstruction > 0 ? (newBusinessCount / totalNonConstruction) * 100 : 0;
+
+    const newBusinessList = nonConstructionJournals
+      .filter((j) => j.note?.includes("최초실시"))
+      .map((j) => ({
+        code: j.code,
+        business_name: j.business_name,
+        period: j.measurement_period,
+        designated_office: j.designated_office || "미지정",
+        manager_name: j.manager_name || "-",
+        manager_mobile: j.manager_mobile || "-"
+      }));
+
     // 1-2. 실시율 계산 (measurement_target_business 기준)
     let qExecution = supabase.from("measurement_target_business").select("id, is_registered, period, code");
-    if (targetYear) qExecution = qExecution.eq("year", targetYear);
+    if (startYear) qExecution = qExecution.gte("year", startYear);
+    if (endYear) qExecution = qExecution.lte("year", endYear);
     if (targetPeriod) qExecution = qExecution.ilike("period", `%${targetPeriod}%`);
     const { data: targetBusinesses } = await qExecution;
     // 수시 주기 원천 배제
@@ -259,7 +300,7 @@ export async function GET(request: NextRequest) {
     // 11. 년도별/월별 매출 추이 비교 (수정됨)
     // targetYear 기준 비교: targetYear vs targetYear-1
     // targetYear 없으면: currentYear vs currentYear-1
-    const comparisonYear = targetYear || getKSTYear();
+    const comparisonYear = endYear || getKSTYear();
     const prevYear = comparisonYear - 1;
 
     // 비교 데이터 조회 (measurement_year 기준)
@@ -327,6 +368,12 @@ export async function GET(request: NextRequest) {
         total: activeTargets,
         executed: executedTargets,
         rate: Math.round(executionRate * 10) / 10
+      },
+      newBusinessStats: {
+        total: totalNonConstruction,
+        newCount: newBusinessCount,
+        rate: Math.round(newBusinessRate * 10) / 10,
+        list: newBusinessList
       },
       revenue: { measurementFee: totalMeasurementFee, otherRevenue: totalOtherRevenue, total: totalMeasurementFee + totalOtherRevenue, deposit: totalDeposit, depositRate: Math.round(depositRate * 10) / 10 },
       periodStats, nationalSupport: nationalSupportStats,

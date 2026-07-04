@@ -19,18 +19,16 @@ export const DashboardClient = () => {
     const [syncRefreshKey, setSyncRefreshKey] = useState(0);
 
     // 필터 상태 (Dashboard로 전달)
-    const [selectedYear, setSelectedYear] = useState<string>(getCurrentYear().toString());
+    const [startYear, setStartYear] = useState<string>(getCurrentYear().toString());
+    const [endYear, setEndYear] = useState<string>(getCurrentYear().toString());
     const [selectedPeriod, setSelectedPeriod] = useState<string>("전체");
 
     // 년도 옵션 생성
     const currentYear = getCurrentYear();
-    const yearOptions = [
-        { value: "전체", label: "전체 년도" },
-        ...Array.from({ length: 6 }, (_, i) => {
-            const year = currentYear - i; // 올해부터 과거 5년
-            return { value: year.toString(), label: `${year}년` };
-        })
-    ];
+    const yearOptions = Array.from({ length: 6 }, (_, i) => {
+        const year = currentYear - i; // 올해부터 과거 5년
+        return { value: year.toString(), label: `${year}년` };
+    });
 
     const periodOptions = [
         { value: "전체", label: "전체 주기" },
@@ -39,44 +37,23 @@ export const DashboardClient = () => {
     ];
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 border-b border-gray-100 pb-4">
+        <div className="space-y-4">
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 border-b border-gray-100 pb-2.5">
                 <div>
                     <h1 className="text-2xl font-bold text-text-900 mb-1">대시보드</h1>
                     <p className="text-text-700 text-sm">측정일지 관리 시스템 대시보드입니다.</p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3 items-center">
-                    {activeTab === 'general' && (
-                        <div className="flex gap-2">
-                            <div className="flex items-center gap-2">
-                                <Select
-                                    value={selectedYear}
-                                    onChange={(e) => setSelectedYear(e.target.value)}
-                                    options={yearOptions}
-                                    className="w-32 bg-white"
-                                />
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Select
-                                    value={selectedPeriod}
-                                    onChange={(e) => setSelectedPeriod(e.target.value)}
-                                    options={periodOptions}
-                                    className="w-32 bg-white"
-                                />
-                            </div>
-                        </div>
-                    )}
-
+                <div className="flex flex-wrap items-center gap-3 self-end md:self-auto shrink-0">
                     {/* 탭 버튼 그룹 */}
-                    <div className="inline-flex p-1 bg-gray-100 rounded-lg shadow-inner">
+                    <div className="inline-flex p-0.5 bg-gray-200/80 rounded-lg shadow-inner shrink-0">
                         <button
                             onClick={() => setActiveTab('general')}
                             className={cn(
-                                "px-4 py-2 text-sm font-medium rounded-md transition-all duration-200",
+                                "px-3 py-1 text-xs font-semibold rounded-md transition-all duration-200",
                                 activeTab === 'general'
                                     ? "bg-white text-primary-600 shadow-sm"
-                                    : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
+                                    : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/30"
                             )}
                         >
                             일반
@@ -84,25 +61,63 @@ export const DashboardClient = () => {
                         <button
                             onClick={() => setActiveTab('data-upload')}
                             className={cn(
-                                "px-4 py-2 text-sm font-medium rounded-md transition-all duration-200",
+                                "px-3 py-1 text-xs font-semibold rounded-md transition-all duration-200",
                                 activeTab === 'data-upload'
                                     ? "bg-white text-primary-600 shadow-sm"
-                                    : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
+                                    : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/30"
                             )}
                         >
                             데이터 업로드
                         </button>
                     </div>
+
+                    {/* 데이터 불일치 알림 */}
+                    <InconsistencyAlert onNavigate={() => setActiveTab('data-upload')} />
                 </div>
             </div>
 
-            {/* 데이터 불일치 알림 (항상 표시 또는 일반 탭에서만 표시 등 정책에 따라 조정 가능) */}
-            <InconsistencyAlert onNavigate={() => setActiveTab('data-upload')} />
+            {/* 복합 필터 영역 (일반 탭 전용) */}
+            {activeTab === 'general' && (
+                <div className="flex justify-end items-center gap-2 mt-1">
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">조회 기간:</span>
+                        <Select
+                            value={startYear}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                setStartYear(val);
+                                if (parseInt(val) > parseInt(endYear)) {
+                                    setEndYear(val);
+                                }
+                            }}
+                            options={yearOptions}
+                            className="w-28 bg-white text-sm"
+                        />
+                        <span className="text-slate-400 text-xs px-0.5 whitespace-nowrap">~</span>
+                        <Select
+                            value={endYear}
+                            onChange={(e) => setEndYear(e.target.value)}
+                            options={yearOptions.filter(opt => parseInt(opt.value) >= parseInt(startYear))}
+                            className="w-28 bg-white text-sm"
+                        />
+                    </div>
+                    <div className="h-4 w-[1px] bg-slate-200 mx-1 hidden sm:block" />
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">주기:</span>
+                        <Select
+                            value={selectedPeriod}
+                            onChange={(e) => setSelectedPeriod(e.target.value)}
+                            options={periodOptions}
+                            className="w-28 bg-white text-sm"
+                        />
+                    </div>
+                </div>
+            )}
 
             <div className="mt-4">
                 {activeTab === 'general' && (
                     <div className="animate-in fade-in zoom-in-95 duration-300">
-                        <Dashboard year={selectedYear} period={selectedPeriod} />
+                        <Dashboard startYear={startYear} endYear={endYear} period={selectedPeriod} />
                     </div>
                 )}
                 {activeTab === 'data-upload' && (

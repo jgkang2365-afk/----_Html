@@ -40,6 +40,46 @@ export function SyncStatus() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [referenceDate, setReferenceDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [excludingMap, setExcludingMap] = useState<{ [key: number]: boolean }>({});
+
+  const handleExcludeIssue = async (id: number, code: string, issueType: string) => {
+    if (!confirm("해당 데이터 불일치 알림을 검증에서 제외하시겠습니까? (이후 동기화 시에도 표시되지 않습니다.)")) {
+      return;
+    }
+
+    try {
+      setExcludingMap(prev => ({ ...prev, [id]: true }));
+      setError(null);
+      setSuccess(null);
+
+      const response = await fetch("/api/sync/exclude", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code, issue_type: issueType }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "서버 오류가 발생했습니다." }));
+        throw new Error(errorData.error || "제외 처리 중 오류가 발생했습니다.");
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setSuccess("성공적으로 제외 처리되었습니다.");
+        // 데이터 목록 새로고침
+        await fetchSyncLogs();
+      } else {
+        throw new Error(data.error || "제외 처리 중 오류가 발생했습니다.");
+      }
+    } catch (err) {
+      console.error("Exclusion error:", err);
+      setError(err instanceof Error ? err.message : "제외 처리 중 오류가 발생했습니다.");
+    } finally {
+      setExcludingMap(prev => ({ ...prev, [id]: false }));
+    }
+  };
 
   useEffect(() => {
     fetchSyncLogs();
@@ -507,11 +547,21 @@ export function SyncStatus() {
             <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1">
               {issues.map(issue => (
                 <div key={issue.id} className="bg-white border border-error-100 rounded p-2 text-sm shadow-sm">
-                  <div className="font-medium text-error-800 flex justify-between items-center mb-1">
-                    <span>[{issue.code}] {issue.business_name}</span>
-                    <span className="text-xs text-gray-400 font-normal ml-2">
-                      {formatDate(issue.created_at)}
-                    </span>
+                  <div className="font-medium text-error-800 flex justify-between items-start gap-2 mb-1">
+                    <span className="flex-1">[{issue.code}] {issue.business_name}</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-gray-400 font-normal">
+                        {formatDate(issue.created_at)}
+                      </span>
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleExcludeIssue(issue.id, issue.code, issue.issue_type)}
+                        disabled={excludingMap[issue.id]}
+                        className="text-[10px] h-6 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border-none rounded font-semibold transition-colors"
+                      >
+                        {excludingMap[issue.id] ? "처리중" : "확인 후 제외"}
+                      </Button>
+                    </div>
                   </div>
                   <div className="text-gray-700 text-xs">
                     {issue.description.split(/(\[\[.*?\]\])/).map((part, index) => {
