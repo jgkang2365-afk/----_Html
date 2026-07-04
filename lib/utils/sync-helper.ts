@@ -16,6 +16,8 @@ interface SyncResult {
     fax: string | null;
     business_number: string | null;
     industrial_accident_number: string | null;
+    commencement_number: string | null; // 사업개시번호 추가
+    representative_name: string | null; // 대표자명 추가
     office_jurisdiction: string | null;
     status: string | null; // New field for standardized status
 }
@@ -82,6 +84,8 @@ export async function syncBusinessData(
         fax: baseData.fax || null,
         business_number: baseData.business_number || null,
         industrial_accident_number: baseData.industrial_accident_number || null,
+        commencement_number: baseData.commencement_number || null,
+        representative_name: baseData.representative_name || null,
         office_jurisdiction: baseData.office_jurisdiction || null,
         status: normalizeBusinessStatus(baseData.status),
     };
@@ -148,7 +152,7 @@ export async function syncBusinessData(
     // 4.5. [1순위] 측정 대상 사업장 정보 (measurement_target_business) - 업종 분류 기초 데이터
     const { data: targetData } = await supabase
         .from("measurement_target_business")
-        .select("business_category")
+        .select("business_category, representative_name, commencement_number")
         .eq("code", code)
         .eq("year", targetYear)
         .eq("period", targetPeriod)
@@ -224,6 +228,14 @@ export async function syncBusinessData(
     if (!result.industrial_accident_number) {
         if (mbData?.industrial_accident_number) result.industrial_accident_number = mbData.industrial_accident_number;
         else if (bInfo?.industrial_accident_number) result.industrial_accident_number = bInfo.industrial_accident_number;
+    }
+
+    if (!result.representative_name) {
+        if (targetData?.representative_name) result.representative_name = targetData.representative_name;
+    }
+
+    if (!result.commencement_number) {
+        if (targetData?.commencement_number) result.commencement_number = targetData.commencement_number;
     }
 
     if (!result.office_jurisdiction) {

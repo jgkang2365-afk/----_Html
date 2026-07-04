@@ -17,7 +17,10 @@ export async function syncNationalSupportToBusiness(
     code: string,
     year: number,
     period: string,
-    nationalSupportStatus: string | null
+    nationalSupportStatus: string | null,
+    representativeName?: string | null,
+    industrialAccidentNumber?: string | null,
+    commencementNumber?: string | null
 ) {
     try {
         let targetStatus: "대상" | "비대상" = "비대상";
@@ -27,13 +30,45 @@ export async function syncNationalSupportToBusiness(
             targetStatus = "대상";
         }
 
+        // 기존 representative_name 조회
+        let finalRepName: string | null = null;
+        if (representativeName) {
+            const { data: existing, error: fetchError } = await supabase
+                .from("measurement_target_business")
+                .select("representative_name")
+                .eq("code", code)
+                .eq("year", year)
+                .eq("period", period)
+                .maybeSingle();
+
+            if (!fetchError && existing && existing.representative_name) {
+                // 기존 대표자명이 이미 존재하면 보존
+                finalRepName = existing.representative_name;
+            } else {
+                // 기존 대표자명이 비어있을 경우에만 엑셀 정보로 채움
+                finalRepName = representativeName;
+            }
+        }
+
+        const updatePayload: any = {
+            national_support_status: targetStatus,
+            updated_at: getKSTISOString(),
+        };
+
+        if (finalRepName) {
+            updatePayload.representative_name = finalRepName;
+        }
+        if (industrialAccidentNumber) {
+            updatePayload.industrial_accident_number = industrialAccidentNumber;
+        }
+        if (commencementNumber) {
+            updatePayload.commencement_number = commencementNumber;
+        }
+
         // measurement_target_business 업데이트
         const { error: updateError } = await supabase
             .from("measurement_target_business")
-            .update({
-                national_support_status: targetStatus,
-                updated_at: getKSTISOString(),
-            })
+            .update(updatePayload)
             .eq("code", code)
             .eq("year", year)
             .eq("period", period);
@@ -52,3 +87,4 @@ export async function syncNationalSupportToBusiness(
         return { success: false, error };
     }
 }
+

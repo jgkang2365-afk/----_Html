@@ -97,6 +97,23 @@ export async function POST(request: NextRequest) {
         key.includes("결과") ||
         key === "result"
     );
+    const representativeHeader = Object.keys(data[0] || {}).find(
+      (key) =>
+        key.includes("대표자") ||
+        key === "representative"
+    );
+    const sanjaeHeader = Object.keys(data[0] || {}).find(
+      (key) =>
+        key.includes("사업장관리번호") ||
+        key.includes("산재관리번호") ||
+        key.includes("산재번호") ||
+        key === "industrial_accident_number"
+    );
+    const commencementHeader = Object.keys(data[0] || {}).find(
+      (key) =>
+        key.includes("사업개시번호") ||
+        key === "commencement_number"
+    );
 
     if (!codeHeader) {
       return NextResponse.json(
@@ -122,13 +139,24 @@ export async function POST(request: NextRequest) {
         ? String(row[resultHeader] || "").trim()
         : "";
 
+      // 대표자, 산재번호, 사업개시번호 확인
+      const representative = representativeHeader
+        ? String(row[representativeHeader] || "").trim()
+        : "";
+      const sanjae = sanjaeHeader
+        ? String(row[sanjaeHeader] || "").trim()
+        : "";
+      const commencement = commencementHeader
+        ? String(row[commencementHeader] || "").trim()
+        : "";
+
       // 국고지원 상태 결정
-      // 신청결과가 "대상"인 경우: "지원"
+      // 신청결과가 "대상"인 경우: "대상"
       // 그 외: "비대상"
-      let nationalSupportStatus: "지원" | "비대상" | null = null;
+      let nationalSupportStatus: "대상" | "비대상" | null = null;
 
       if (result && (result === "대상" || (result.includes("대상") && !result.includes("비대상")))) {
-        nationalSupportStatus = "지원";
+        nationalSupportStatus = "대상";
       } else if (result || applicationStatus) {
         // 신청결과가 있지만 "대상"이 아니면 "비대상"
         nationalSupportStatus = "비대상";
@@ -163,15 +191,19 @@ export async function POST(request: NextRequest) {
         updateCount++;
         console.log(`✅ 코드 ${code} (${year} ${period}) 건강디딤돌 신청결과 저장: ${nationalSupportStatus}`);
 
-        // 측정 대상 사업장(measurement_business) 테이블에 국고지원 상태 동기화
+        // 측정 대상 사업장(measurement_business) 테이블에 국고지원 상태 및 대표자 정보 등 동기화
         await syncNationalSupportToBusiness(
           supabase,
           code,
           parseInt(year),
           period,
-          nationalSupportStatus
+          nationalSupportStatus,
+          representative || null,
+          sanjae || null,
+          commencement || null
         );
       }
+
 
       // measurement_journal이 있으면 함께 업데이트 (선택사항)
       const { data: journals, error: journalError } = await supabase

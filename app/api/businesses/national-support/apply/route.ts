@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { EmailService } from "@/lib/email/email-service";
+import { normalizeRepresentativeName } from "@/lib/utils/data-utils";
 
 /**
  * 건강디딤돌 자동 신청 API
@@ -93,11 +94,12 @@ export async function POST(request: NextRequest) {
     }
 
     // 백그라운드 크롤링 프로세스 기동 (API 응답 대기 지연을 방지하기 위해 비동기로 호출)
+    // 건강디딤돌 조회를 위해 대표자명 실시간 1인 정규화 적용
     runApplyCrawler({
       target_id,
       sanjae,
       commencement,
-      representative,
+      representative: normalizeRepresentativeName(representative) || representative,
       contact_name: contact_name || "",
       contact_phone: contact_phone || "",
       period,
@@ -223,7 +225,7 @@ async function runApplyCrawler(params: {
                   code,
                   year: parseInt(String(year)),
                   period,
-                  application_status: "신청완료",
+                  application_status: "○",
                   result: "대상",
                   national_support_status: "대상",
                 },

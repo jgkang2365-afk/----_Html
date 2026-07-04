@@ -27,6 +27,10 @@ interface NationalSupportEntry {
   national_support_status: string | null;
   business_name: string | null;
   address?: string | null; // Added
+  representative_name?: string | null; // 대표자명 추가
+  industrial_accident_number?: string | null; // 산재관리번호 추가
+  commencement_number?: string | null; // 사업개시번호 추가
+  sync_status?: string | null; // 동기화 상태 추가
   created_at: string;
   updated_at: string;
 }
@@ -36,6 +40,7 @@ export const NationalSupportManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<NationalSupportEntry[]>([]);
   const [filteredEntries, setFilteredEntries] = useState<NationalSupportEntry[]>([]);
+  const [syncing, setSyncing] = useState(false);
 
   // 필터 상태
   const currentYear = new Date().getFullYear();
@@ -80,7 +85,9 @@ export const NationalSupportManagement: React.FC = () => {
       if (searchCode) params.append("code", searchCode);
       if (searchResult) params.append("result", searchResult);
 
-      const response = await fetch(`/api/businesses/national-support?${params.toString()}`);
+      const response = await fetch(`/api/businesses/national-support?${params.toString()}`, {
+        cache: 'no-store'
+      });
 
       if (!response.ok) {
         let errorMessage = "건강디딤돌 신청결과 목록을 불러오는 중 오류가 발생했습니다.";
@@ -212,6 +219,39 @@ export const NationalSupportManagement: React.FC = () => {
     }
   };
 
+  // 일괄 동기화
+  const handleSyncAll = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    
+    // 브라우저 팝업 차단 대응: 임시 컨펌 생략
+    setSyncing(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams();
+      params.append("year", selectedYear);
+      params.append("period", selectedPeriod);
+
+      const response = await fetch(`/api/businesses/national-support/sync-all?${params.toString()}`, {
+        method: "POST",
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert(data.message || "동기화가 완료되었습니다.");
+        loadEntries();
+      } else {
+        throw new Error(data.error || "동기화 중 오류가 발생했습니다.");
+      }
+    } catch (err: any) {
+      console.error("동기화 오류:", err);
+      alert("동기화 실패: " + (err.message || "알 수 없는 오류"));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* 필터 영역 */}
@@ -264,6 +304,20 @@ export const NationalSupportManagement: React.FC = () => {
             <Button variant="secondary" onClick={handleExportExcel} className="whitespace-nowrap px-4">
               엑셀 다운로드
             </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const a = document.createElement("a");
+                a.href = "/templates/national_support_template.xlsx";
+                a.download = "건강디딤돌_업로드_양식.xlsx";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+              }}
+              className="whitespace-nowrap px-4 flex items-center gap-1.5"
+            >
+              📥 양식 다운로드
+            </Button>
             <input
               type="file"
               ref={fileInputRef}
@@ -278,6 +332,15 @@ export const NationalSupportManagement: React.FC = () => {
               className="whitespace-nowrap px-4"
             >
               {uploading ? "업로드 중..." : "엑셀 업로드"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={(e) => handleSyncAll(e)}
+              disabled={syncing || loading}
+              className="whitespace-nowrap px-4"
+            >
+              {syncing ? "동기화 중..." : "일괄 동기화"}
             </Button>
             <Button
               variant="primary"
@@ -322,76 +385,96 @@ export const NationalSupportManagement: React.FC = () => {
             <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black font-bold">
               <TableRow>
                 <TableHead className="!text-left !pl-2.5 font-bold py-4 text-black text-sm">코드</TableHead>
-                <TableHead className="w-[220px] text-black">사업장명</TableHead>
-                <TableHead className="w-[300px] text-black">주소</TableHead>
-                <TableHead className="text-center w-[100px] text-black">측정년도</TableHead>
-                <TableHead className="text-center w-[100px] text-black">측정주기</TableHead>
-                <TableHead className="text-center w-[100px] text-black">신청 여부</TableHead>
-                <TableHead className="text-center w-[100px] text-black">신청결과</TableHead>
-                <TableHead className="text-center w-[120px] text-black">국고지원 상태</TableHead>
-                <TableHead className="w-[180px] text-black">등록일시</TableHead>
-                <TableHead className="w-[180px] text-black">수정일시</TableHead>
+                <TableHead className="w-[180px] text-black">사업장명</TableHead>
+                <TableHead className="w-[120px] text-black">대표자</TableHead>
+                <TableHead className="w-[130px] text-black">산재관리번호</TableHead>
+                <TableHead className="w-[130px] text-black">사업개시번호</TableHead>
+                <TableHead className="w-[240px] text-black">주소</TableHead>
+                <TableHead className="text-center w-[90px] text-black">측정년도</TableHead>
+                <TableHead className="text-center w-[90px] text-black">측정주기</TableHead>
+                <TableHead className="text-center w-[90px] text-black">신청 여부</TableHead>
+                <TableHead className="text-center w-[90px] text-black">신청결과</TableHead>
+                <TableHead className="text-center w-[110px] text-black">국고지원 상태</TableHead>
+                <TableHead className="w-[150px] text-black">수정일시</TableHead>
                 <TableHead className="w-[80px] text-black">관리</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredEntries.map((entry) => (
-                <TableRow key={entry.id} className="hover:bg-blue-50/40 group relative growable-row transition-colors">
-                  <TableCell className="relative !text-left !pl-2.5 !py-3">
-                    {/* 표준 블루 인디케이터 바 */}
-                    <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
-                    {entry.code}
-                  </TableCell>
-                  <TableCell className="font-medium align-middle truncate max-w-[220px]" title={entry.business_name || ""}>{entry.business_name || "-"}</TableCell>
-                  <TableCell title={entry.address || ""}>{entry.address || "-"}</TableCell>
-                  <TableCell className="align-middle px-2">{entry.year}</TableCell>
-                  <TableCell className="align-middle px-2">{entry.period}</TableCell>
-                  <TableCell className="align-middle px-2">{entry.application_status || "-"}</TableCell>
-                  <TableCell className="align-middle px-2">{entry.result || "-"}</TableCell>
-                  <TableCell className="align-middle px-2">
-                    <span
-                      className={`px-2 py-1 rounded text-sm font-medium ${entry.national_support_status === "대상"
-                        ? "bg-green-100 text-green-800"
-                        : entry.national_support_status === "비대상"
-                          ? "bg-gray-100 text-gray-800"
-                          : "bg-surface-100 text-surface-600"
-                        }`}
-                    >
-                      {entry.national_support_status || "-"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="align-middle text-sm text-text-500">
-                    {entry.created_at
-                      ? new Date(entry.created_at).toLocaleString("ko-KR")
-                      : "-"}
-                  </TableCell>
-                  <TableCell className="align-middle text-sm text-text-500">
-                    {entry.updated_at
-                      ? new Date(entry.updated_at).toLocaleString("ko-KR")
-                      : "-"}
-                  </TableCell>
-                  <TableCell className="align-middle">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedEntry(entry);
-                        setFormData({
-                          code: entry.code,
-                          year: entry.year.toString(),
-                          period: entry.period,
-                          application_status: entry.application_status || "",
-                          result: entry.result || "",
-                          national_support_status: entry.national_support_status || "",
-                        });
-                        setIsModalOpen(true);
-                      }}
-                    >
-                      수정
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {filteredEntries.map((entry) => {
+                // 대표자명 실시간 1인 정규화 헬퍼 (조회용 명의 시각화 보조)
+                const getQueryName = (name: string | null | undefined) => {
+                  if (!name) return "";
+                  let clean = name.trim();
+                  if (clean.includes(",")) clean = clean.split(",")[0].trim();
+                  clean = clean.replace(/외\s*\d*\s*(명|인)/g, "").trim();
+                  clean = clean.replace(/외$/g, "").trim();
+                  return clean;
+                };
+                const queryName = getQueryName(entry.representative_name);
+
+                return (
+                  <TableRow key={entry.id} className="hover:bg-blue-50/40 group relative growable-row transition-colors">
+                    <TableCell className="relative !text-left !pl-2.5 !py-3">
+                      {/* 표준 블루 인디케이터 바 */}
+                      <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
+                      {entry.code}
+                    </TableCell>
+                    <TableCell className="font-medium align-middle truncate max-w-[180px]" title={entry.business_name || ""}>{entry.business_name || "-"}</TableCell>
+                    <TableCell className="align-middle" title={entry.representative_name || ""}>
+                      <span className="font-medium">{entry.representative_name || "-"}</span>
+                      {entry.representative_name && queryName !== entry.representative_name.trim() && (
+                        <div className="text-[10px] text-slate-400 font-normal mt-0.5">
+                          (조회: {queryName})
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="align-middle font-mono text-sm">{entry.industrial_accident_number || "-"}</TableCell>
+                    <TableCell className="align-middle font-mono text-sm">{entry.commencement_number || "-"}</TableCell>
+                    <TableCell title={entry.address || ""} className="truncate max-w-[240px]">{entry.address || "-"}</TableCell>
+                    <TableCell className="align-middle px-2">{entry.year}</TableCell>
+                    <TableCell className="align-middle px-2">{entry.period}</TableCell>
+                    <TableCell className="align-middle px-2">{entry.application_status || "-"}</TableCell>
+                    <TableCell className="align-middle px-2">{entry.result || "-"}</TableCell>
+                    <TableCell className="align-middle px-2">
+                      <span
+                        className={`px-2 py-1 rounded text-sm font-medium ${entry.national_support_status === "대상"
+                          ? "bg-green-100 text-green-800"
+                          : entry.national_support_status === "비대상"
+                            ? "bg-gray-100 text-gray-800"
+                            : "bg-surface-100 text-surface-600"
+                          }`}
+                      >
+                        {entry.national_support_status || "-"}
+                      </span>
+                    </TableCell>
+                    <TableCell className={`align-middle text-sm ${entry.sync_status === "성공" ? "text-red-600 font-bold" : "text-text-500"}`}>
+                      {entry.updated_at
+                        ? new Date(entry.updated_at).toLocaleString("ko-KR")
+                        : "-"}
+                    </TableCell>
+                    <TableCell className="align-middle">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedEntry(entry);
+                          setFormData({
+                            code: entry.code,
+                            year: entry.year.toString(),
+                            period: entry.period,
+                            application_status: entry.application_status || "",
+                            result: entry.result || "",
+                            national_support_status: entry.national_support_status || "",
+                          });
+                          setIsModalOpen(true);
+                        }}
+                      >
+                        수정
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}

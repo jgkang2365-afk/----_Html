@@ -33,3 +33,35 @@ export function normalizeString(value: string | null | undefined): string | null
   const trimmed = String(value).trim();
   return trimmed.length > 0 ? trimmed : null;
 }
+
+/**
+ * 대표자명 문자열을 정규화합니다.
+ * - 세금 계산서 등 법적 데이터 유지를 위해 원본은 보존되나, 실시간 조회 시 가공용으로 쓰입니다.
+ * - 쉼표(,)가 있을 경우 첫 번째 이름만 추출합니다.
+ * - '외 [숫자][명/인]' 또는 '외'와 같은 불필요한 패턴을 제거합니다.
+ * @param name 대표자명 문자열
+ * @returns 정규화된 대표자명 또는 null
+ */
+export function normalizeRepresentativeName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  let cleanName = String(name).trim();
+  
+  // 1. 쉼표(,)가 있을 경우 첫 번째 이름 추출
+  if (cleanName.includes(",")) {
+    cleanName = cleanName.split(",")[0].trim();
+  }
+
+  // 2. 슬래시(/)가 있을 경우 첫 번째 이름 추출
+  if (cleanName.includes("/")) {
+    cleanName = cleanName.split("/")[0].trim();
+  }
+  
+  // 3. '외 [숫자][명/인]' 패턴 제거 (예: '홍길동외 1명', '이순신 외 2인', '한라산 외 1명')
+  cleanName = cleanName.replace(/외\s*\d*\s*(명|인)/g, "").trim();
+  
+  // 4. '외' 단독 패턴 제거 (예: '홍길동 외')
+  cleanName = cleanName.replace(/외$/g, "").trim();
+  
+  return cleanName.length > 0 ? cleanName : null;
+}
+

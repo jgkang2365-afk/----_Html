@@ -46,3 +46,155 @@
 [2026-07-04T08:09:24.349Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-07-04T08:09:26.290Z] Event updated successfully: 1m37vea1pg33pbpfqrit1dbeoc 
 [2026-07-04T08:09:26.293Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:04:28.010Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:04:29.290Z] Updating Calendar Event: n549h00untigr8mvad56nnral0 {
+  "summary": "[한기문] 국립축산과학원 가축유전자원센터 - 타기관 신규",
+  "description": "사업장코드: H0455\n          사업장: 국립축산과학원 가축유전자원센터\n          주소: 경상남도 함양군 서상면 덕유월성로 224 (상남리, 가축유전자원센터)\n          담당자: 미지정\n          연락처: 055-960-3505\n          비고: 타기관 신규",
+  "date": "2026-04-16",
+  "endDate": "2026-04-16",
+  "location": "경상남도 함양군 서상면 덕유월성로 224 (상남리, 가축유전자원센터)",
+  "colorId": "3"
+}
+[2026-07-04T13:04:29.294Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:04:31.182Z] Event updated successfully: n549h00untigr8mvad56nnral0 
+[2026-07-04T13:04:31.192Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:05:13.453Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:05:14.511Z] Updating Calendar Event: 417uuomrl0qipcjbmjup3v7e4c {
+  "summary": "[이주형] 대광건설 주식회사 논산시 과학영농 종합분석센터 건립사업",
+  "description": "사업장코드: H0460\n          사업장: 대광건설 주식회사 논산시 과학영농 종합분석센터 건립사업\n          주소: 충청남도 논산시 부적면 백일헌로 3 (덕평리)\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-04-08",
+  "endDate": "2026-04-08",
+  "location": "충청남도 논산시 부적면 백일헌로 3 (덕평리)",
+  "colorId": "3"
+}
+[2026-07-04T13:05:14.515Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:05:16.428Z] Event updated successfully: 417uuomrl0qipcjbmjup3v7e4c 
+[2026-07-04T13:05:16.436Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:06:12.499Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:06:13.519Z] Updating Calendar Event: oeedaujnrhn1l4dt81u4hulfs0 {
+  "summary": "[한기문] 주식회사 옥토기술단 대전도시철도 2호선 7공구 건설공사 - 26상 미수 / 타기관 신규",
+  "description": "사업장코드: H0483\n          사업장: 주식회사 옥토기술단 대전도시철도 2호선 7공구 건설공사\n          주소: 대전광역시 유성구 궁동 일원\n          담당자: 서영호\n          연락처: 010-5728-0558\n          비고: 타기관 신규",
+  "date": "2026-06-02",
+  "endDate": "2026-06-02",
+  "location": "대전광역시 유성구 궁동 일원",
+  "colorId": "3"
+}
+[2026-07-04T13:06:13.523Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:06:15.393Z] Event updated successfully: oeedaujnrhn1l4dt81u4hulfs0 
+[2026-07-04T13:06:15.396Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:07:37.164Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:07:38.197Z] Updating Calendar Event: qq7ckv9bnkr749js0do5k82lis {
+  "summary": "[한기문] (유한)금영토건 대전도시철도 2호선 6공구 건설공사",
+  "description": "사업장코드: H0485\n          사업장: (유한)금영토건 대전도시철도 2호선 6공구 건설공사\n          주소: 대전광역시 유성구 대덕대로 481 (구성동)\n          담당자: 전승기\n          연락처: 010-7712-3294\n          비고:",
+  "date": "2026-06-11",
+  "endDate": "2026-06-11",
+  "location": "대전광역시 유성구 대덕대로 481 (구성동)",
+  "colorId": "3"
+}
+[2026-07-04T13:07:38.200Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:07:40.243Z] Event updated successfully: qq7ckv9bnkr749js0do5k82lis 
+[2026-07-04T13:07:40.245Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:08:06.575Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:08:07.634Z] Updating Calendar Event: qq7ckv9bnkr749js0do5k82lis {
+  "summary": "[한기문] (유한)금영토건 대전도시철도 2호선 6공구 건설공사",
+  "description": "사업장코드: H0485\n          사업장: (유한)금영토건 대전도시철도 2호선 6공구 건설공사\n          주소: 대전광역시 유성구 대덕대로 481 (구성동)\n          담당자: 전승기\n          연락처: 010-7712-3294\n          비고:",
+  "date": "2026-06-11",
+  "endDate": "2026-06-11",
+  "location": "대전광역시 유성구 대덕대로 481 (구성동)",
+  "colorId": "3"
+}
+[2026-07-04T13:08:07.637Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:08:09.305Z] Event updated successfully: qq7ckv9bnkr749js0do5k82lis 
+[2026-07-04T13:08:09.307Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:10:30.264Z] Creating Calendar Event {
+  "summary": "[한기문] 중부모터스(주)토요타대전",
+  "description": "사업장코드: H0068\n          사업장: 중부모터스(주)토요타대전\n          주소: 대전광역시 서구 벌곡로 1358 (가수원동)\n          담당자: 전호인 대리\n          연락처: 010-9085-0458\n          비고:",
+  "date": "2026-02-06",
+  "endDate": "2026-02-06",
+  "location": "대전광역시 서구 벌곡로 1358 (가수원동)",
+  "colorId": "3"
+}
+[2026-07-04T13:10:30.266Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:10:31.806Z] Event created successfully: 7nchth5q865k81gb76u81nsla4 
+[2026-07-04T13:10:31.853Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:10:55.149Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:10:56.164Z] Updating Calendar Event: 4cvmb2671d63ldumok29qjp6gk {
+  "summary": "[배윤민] 더보스톤치과병원",
+  "description": "사업장코드: H0142\n          사업장: 더보스톤치과병원\n          주소: 충청남도 천안시 서북구 불당33길 26 (불당동)\n          담당자: 김다겸 주임\n          연락처: 010-5870-2958\n          비고:",
+  "date": "2026-03-20",
+  "endDate": "2026-03-20",
+  "location": "충청남도 천안시 서북구 불당33길 26 (불당동)",
+  "colorId": "3"
+}
+[2026-07-04T13:10:56.165Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:10:57.802Z] Event updated successfully: 4cvmb2671d63ldumok29qjp6gk 
+[2026-07-04T13:10:57.806Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:11:22.850Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:11:23.811Z] Updating Calendar Event: 1hgdfjhrc92q57vf0isnj4nqbg {
+  "summary": "[이주형] 의료법인 삼광의료재단 에스엠엘대전의원",
+  "description": "사업장코드: H0281\n          사업장: 의료법인 삼광의료재단 에스엠엘대전의원\n          주소: 대전광역시 유성구 북유성대로 188 (죽동)\n          담당자: 김수빈\n          연락처: 010-4201-4275\n          비고:",
+  "date": "2026-03-11",
+  "endDate": "2026-03-11",
+  "location": "대전광역시 유성구 북유성대로 188 (죽동)",
+  "colorId": "3"
+}
+[2026-07-04T13:11:23.813Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:11:25.818Z] Event updated successfully: 1hgdfjhrc92q57vf0isnj4nqbg 
+[2026-07-04T13:11:25.827Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:11:39.776Z] Creating Calendar Event {
+  "summary": "[한기문] 주식회사 더가든오브내추럴솔루션",
+  "description": "사업장코드: H0294\n          사업장: 주식회사 더가든오브내추럴솔루션\n          주소: 경기도 오산시 가장산업서로 12-24 (가장동)\n          담당자: 조진웅 책임\n          연락처: 010-8248-3380\n          비고:",
+  "date": "2026-02-10",
+  "endDate": "2026-02-10",
+  "location": "경기도 오산시 가장산업서로 12-24 (가장동)",
+  "colorId": "3"
+}
+[2026-07-04T13:11:39.778Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:11:41.322Z] Event created successfully: b6ccjsqvtrpnab3f449tfn8kfs 
+[2026-07-04T13:11:41.368Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:12:00.042Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:12:01.008Z] Updating Calendar Event: rtiovtqri46djm1m58n13kgnao {
+  "summary": "[이주형, 한기문] 국립농업과학원",
+  "description": "사업장코드: H0102\n          사업장: 국립농업과학원\n          주소: 전북특별자치도 완주군 이서면 농생명로 166 (금평리, 국립농업과학원)\n          담당자: 안유미 보건관리자\n          연락처: 010-3194-8055\n          비고:",
+  "date": "2026-03-18",
+  "endDate": "2026-03-18",
+  "location": "전북특별자치도 완주군 이서면 농생명로 166 (금평리, 국립농업과학원)",
+  "colorId": "3"
+}
+[2026-07-04T13:12:01.011Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:12:02.813Z] Event updated successfully: rtiovtqri46djm1m58n13kgnao 
+[2026-07-04T13:12:02.860Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:12:03.650Z] Updating Calendar Event: fkvh618neegjg1q0v6jp9f3pok {
+  "summary": "[이주형] 국립농업과학원",
+  "description": "사업장코드: H0102\n          사업장: 국립농업과학원\n          주소: 전북특별자치도 완주군 이서면 농생명로 166 (금평리, 국립농업과학원)\n          담당자: 안유미 보건관리자\n          연락처: 010-3194-8055\n          비고:",
+  "date": "2026-03-17",
+  "endDate": "2026-03-17",
+  "location": "전북특별자치도 완주군 이서면 농생명로 166 (금평리, 국립농업과학원)",
+  "colorId": "3"
+}
+[2026-07-04T13:12:03.656Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:12:05.424Z] Event updated successfully: fkvh618neegjg1q0v6jp9f3pok 
+[2026-07-04T13:12:05.465Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:12:06.181Z] Updating Calendar Event: vo559v5r34qfbfdqghc1gs1plg {
+  "summary": "[이주형, 한기문] 국립농업과학원",
+  "description": "사업장코드: H0102\n          사업장: 국립농업과학원\n          주소: 전북특별자치도 완주군 이서면 농생명로 166 (금평리, 국립농업과학원)\n          담당자: 안유미 보건관리자\n          연락처: 010-3194-8055\n          비고:",
+  "date": "2026-03-16",
+  "endDate": "2026-03-16",
+  "location": "전북특별자치도 완주군 이서면 농생명로 166 (금평리, 국립농업과학원)",
+  "colorId": "3"
+}
+[2026-07-04T13:12:06.182Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:12:08.001Z] Event updated successfully: vo559v5r34qfbfdqghc1gs1plg 
+[2026-07-04T13:12:08.003Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:15:35.826Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:15:37.006Z] Updating Calendar Event: iettunk7sa932u32sck1n2qgls {
+  "summary": "[한기문] 주식회사 대운모터스1급정비센터 - 신규, 전 사업자 24하,25상 미수 42만원",
+  "description": "사업장코드: H0487\n          사업장: 주식회사 대운모터스1급정비센터\n          주소: 대전광역시 대덕구 신탄진로756번길 110 (신탄진동, 영일)\n          담당자: 이형승\n          연락처: 010-7524-3420\n          비고: 신규, 전 사업자 24하,25상 미수 42만원",
+  "date": "2026-06-19",
+  "endDate": "2026-06-19",
+  "location": "대전광역시 대덕구 신탄진로756번길 110 (신탄진동, 영일)",
+  "colorId": "10"
+}
+[2026-07-04T13:15:37.010Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:15:38.954Z] Event updated successfully: iettunk7sa932u32sck1n2qgls 
+[2026-07-04T13:15:38.970Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

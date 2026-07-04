@@ -538,6 +538,36 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // === [건강디딤돌 신청결과 자동 동기화 Logic] ===
+    // measurement_target_business의 national_support_status가 "대상"이면 
+    // national_support_application 테이블에도 자동 생성(Upsert) 처리
+    if (updatedData && updatedData.national_support_status === "대상") {
+      try {
+        console.log(`[National Support Sync] Automatically sync ${updatedData.code} to national_support_application...`);
+        const { error: appSyncError } = await supabase
+          .from("national_support_application")
+          .upsert({
+            code: updatedData.code,
+            year: updatedData.year,
+            period: updatedData.period,
+            application_status: "○", // 기본적으로 신청 여부도 '○'로 매핑
+            result: "대상",
+            national_support_status: "대상"
+          }, {
+            onConflict: "code,year,period",
+            ignoreDuplicates: false
+          });
+
+        if (appSyncError) {
+          console.error("[National Support Sync] Auto Sync Error:", appSyncError);
+        } else {
+          console.log(`[National Support Sync] Successfully upserted ${updatedData.code} to national_support_application`);
+        }
+      } catch (e) {
+        console.error("[National Support Sync] Exception:", e);
+      }
+    }
+
     return NextResponse.json({ success: true, data: updatedData });
 
   } catch (error: any) {
@@ -608,6 +638,36 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       throw new Error(`Target Insert Error: ${insertError.message}`);
+    }
+
+    // === [건강디딤돌 신청결과 자동 동기화 Logic] ===
+    // measurement_target_business의 national_support_status가 "대상"이면 
+    // national_support_application 테이블에도 자동 생성(Upsert) 처리
+    if (newTarget && newTarget.national_support_status === "대상") {
+      try {
+        console.log(`[National Support Sync] Automatically sync new business ${newTarget.code} to national_support_application...`);
+        const { error: appSyncError } = await supabase
+          .from("national_support_application")
+          .upsert({
+            code: newTarget.code,
+            year: newTarget.year,
+            period: newTarget.period,
+            application_status: "○",
+            result: "대상",
+            national_support_status: "대상"
+          }, {
+            onConflict: "code,year,period",
+            ignoreDuplicates: false
+          });
+
+        if (appSyncError) {
+          console.error("[National Support Sync] Auto Sync Error:", appSyncError);
+        } else {
+          console.log(`[National Support Sync] Successfully upserted new business ${newTarget.code} to national_support_application`);
+        }
+      } catch (e) {
+        console.error("[National Support Sync] Exception:", e);
+      }
     }
 
     return NextResponse.json({ success: true, data: newTarget });

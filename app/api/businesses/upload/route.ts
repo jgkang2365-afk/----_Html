@@ -54,6 +54,27 @@ export async function POST(request: NextRequest) {
             return null;
         };
 
+        // 1. 업로드 대상 사업장 코드, 년도, 주기 수집하여 건강디딤돌 결과 Bulk 조회 (상호 동기화 안전장치)
+        const uploadCodes = rawData.map(row => getValue(row, ["code", "m.i_code", "사업장코드", "관리번호", "코드"])).filter(Boolean) as string[];
+        const uniqueCodes = Array.from(new Set(uploadCodes));
+        const nationalSupportMap = new Map<string, string>(); // 'code-year-period' -> '대상' | '비대상'
+
+        if (uniqueCodes.length > 0) {
+            const { data: supportApplications, error: supportError } = await supabase
+                .from("national_support_application")
+                .select("code, year, period, national_support_status")
+                .in("code", uniqueCodes);
+
+            if (!supportError && supportApplications) {
+                supportApplications.forEach((app: any) => {
+                    const key = `${app.code}-${app.year}-${app.period}`;
+                    if (app.national_support_status) {
+                        nationalSupportMap.set(key, app.national_support_status);
+                    }
+                });
+            }
+        }
+
         console.log(`[Upload] Starting upload for ${rawData.length} rows...`);
         const BATCH_SIZE = 20;
 
@@ -75,6 +96,12 @@ export async function POST(request: NextRequest) {
                     const year = parseInt(yearInput, 10);
                     if (isNaN(year)) throw new Error(`[${rowNumber}행] 측정년도가 유효하지 않습니다: ${yearInput}`);
 
+                    const key = `${code}-${year}-${period}`;
+                    let existingSupportStatus = nationalSupportMap.get(key) || null;
+                    if (existingSupportStatus === "지원" || existingSupportStatus === "지원대상" || existingSupportStatus === "대상") {
+                        existingSupportStatus = "대상";
+                    }
+
                     const baseData: any = {
                         code,
                         year,
@@ -89,6 +116,8 @@ export async function POST(request: NextRequest) {
                         fax: getValue(row, ["fax", "팩스", "전송"]),
                         business_number: getValue(row, ["business_number", "사업자번호", "등록번호"]),
                         industrial_accident_number: getValue(row, ["industrial_accident_number", "산재번호", "관리번호_산재"]),
+                        commencement_number: getValue(row, ["commencement_number", "사업개시번호", "개시번호"]),
+                        representative_name: getValue(row, ["representative_name", "대표자명", "대표자", "대표", "대표이사", "사장님"]),
                         notes: getValue(row, ["notes", "비고", "특이사항"]),
                         is_registered_text: normalizeBusinessStatus(getValue(row, ["is_registered", "계획진행", "실시여부", "상태"])),
                         office_jurisdiction: getValue(row, ["office_jurisdiction", "관할청", "소재지관할청"]),
@@ -106,14 +135,16 @@ export async function POST(request: NextRequest) {
                         fax: baseData.fax,
                         business_number: baseData.business_number,
                         industrial_accident_number: baseData.industrial_accident_number,
+                        commencement_number: baseData.commencement_number,
+                        representative_name: baseData.representative_name,
                         office_jurisdiction: baseData.office_jurisdiction,
                         status: baseData.is_registered_text,
                     });
 
                     const finalData = {
                         ...baseData,
-                        // 동기화된 정보 (null이 아닌 경우에만 덮어씀)
-                        national_support_status: syncedData.national_support_status,
+                        // 동기화된 정보 (null이 아닌 경우에만 덮어씀. 기존 건강디딤돌 업로드 결과가 있다면 최우선 적용)
+                        national_support_status: existingSupportStatus || syncedData.national_support_status,
                         previous_measurement_date: syncedData.previous_measurement_date,
                         previous_measurement_period: syncedData.previous_measurement_period,
                         future_measurement_period: syncedData.future_measurement_period,
@@ -128,6 +159,8 @@ export async function POST(request: NextRequest) {
                         fax: baseData.fax || syncedData.fax,
                         business_number: baseData.business_number || syncedData.business_number,
                         industrial_accident_number: baseData.industrial_accident_number || syncedData.industrial_accident_number,
+                        commencement_number: baseData.commencement_number || syncedData.commencement_number,
+                        representative_name: baseData.representative_name || syncedData.representative_name,
                         office_jurisdiction: baseData.office_jurisdiction || syncedData.office_jurisdiction,
 
                         // 상태값 표준화 적용

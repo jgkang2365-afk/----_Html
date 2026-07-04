@@ -473,6 +473,17 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const handleSaveEdit = async () => {
         if (!editingItem) return;
 
+        // 필수값 검증 (사업장명, 코드 누락 방지)
+        if (!editForm.business_name || !editForm.business_name.trim()) {
+            alert("사업장명은 필수 입력 항목입니다.");
+            return;
+        }
+
+        if (!editForm.code || !editForm.code.trim()) {
+            alert("사업장 코드는 필수 입력 항목입니다.");
+            return;
+        }
+
         // 국고 대상 지정 시 검증
         if (editForm.national_support_status === "대상") {
             const currentPeriod = editForm.period || editingItem.period;
@@ -494,48 +505,54 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             }
         }
 
-        saveChanges(editingItem.code, editForm);
-        setIsEditModalOpen(false);
+        try {
+            // 저장이 성공(Resolve)한 후에만 모달을 닫음
+            await saveChanges(editingItem.code, editForm);
+            setIsEditModalOpen(false);
 
-        // 국고 대상이고, 기존 신청중/성공 상태가 아니면 결과 조회 기동
-        if (editForm.national_support_status === "대상" && editingItem.sync_status !== "신청중" && editingItem.sync_status !== "성공") {
-            // 1. 화면에 로컬 상태로 즉시 '신청중(뱅글뱅글)' 표시 및 새로 변경한 폼 값 갱신
-            setData(prev => prev.map(d => d.id === editingItem.id ? { 
-                ...d, 
-                sanjae: editForm.sanjae ?? d.sanjae,
-                commencement: editForm.commencement ?? d.commencement,
-                representative_name: editForm.representative_name ?? d.representative_name,
-                national_support_status: editForm.national_support_status ?? d.national_support_status,
-                sync_status: "신청중", 
-                sync_error_message: null 
-            } : d));
+            // 국고 대상이고, 기존 신청중/성공 상태가 아니면 결과 조회 기동
+            if (editForm.national_support_status === "대상" && editingItem.sync_status !== "신청중" && editingItem.sync_status !== "성공") {
+                // 1. 화면에 로컬 상태로 즉시 '신청중(뱅글뱅글)' 표시 및 새로 변경한 폼 값 갱신
+                setData(prev => prev.map(d => d.id === editingItem.id ? { 
+                    ...d, 
+                    sanjae: editForm.sanjae ?? d.sanjae,
+                    commencement: editForm.commencement ?? d.commencement,
+                    representative_name: editForm.representative_name ?? d.representative_name,
+                    national_support_status: editForm.national_support_status ?? d.national_support_status,
+                    sync_status: "신청중", 
+                    sync_error_message: null 
+                } : d));
 
-            const targetPeriod = editForm.period || editingItem.period;
-            const targetYear = editForm.year || editingItem.year;
+                const targetPeriod = editForm.period || editingItem.period;
+                const targetYear = editForm.year || editingItem.year;
 
-            fetch("/api/businesses/national-support/apply", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    target_id: editingItem.id,
-                    sanjae: editForm.sanjae,
-                    commencement: editForm.commencement,
-                    representative: editForm.representative_name,
-                    contact_name: editForm.manager_name || "담당자",
-                    contact_phone: editForm.manager_mobile || "010-0000-0000",
-                    period: targetPeriod,
-                    code: editingItem.code,
-                    year: targetYear
+                fetch("/api/businesses/national-support/apply", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        target_id: editingItem.id,
+                        sanjae: editForm.sanjae,
+                        commencement: editForm.commencement,
+                        representative: editForm.representative_name,
+                        contact_name: editForm.manager_name || "담당자",
+                        contact_phone: editForm.manager_mobile || "010-0000-0000",
+                        period: targetPeriod,
+                        code: editingItem.code,
+                        year: targetYear
+                    })
                 })
-            })
-            .then(() => {
-                // 2. 조회가 시작되어 락이 걸린 최신 DB 데이터를 화면 목록에 정식 반영하기 위해 재패치
-                setTimeout(() => fetchData(), 1000);
-            })
-            .catch(err => console.error("결과 조회 트리거 실패:", err));
-        } else {
-            // 국고 조회가 자동 기동하지 않는 단순 수정 시에도 변경 데이터 반영을 위해 즉각 리패치
-            setTimeout(() => fetchData(), 500);
+                .then(() => {
+                    // 2. 조회가 시작되어 락이 걸린 최신 DB 데이터를 화면 목록에 정식 반영하기 위해 재패치
+                    setTimeout(() => fetchData(), 1000);
+                })
+                .catch(err => console.error("결과 조회 트리거 실패:", err));
+            } else {
+                // 국고 조회가 자동 기동하지 않는 단순 수정 시에도 변경 데이터 반영을 위해 즉각 리패치
+                setTimeout(() => fetchData(), 500);
+            }
+        } catch (err) {
+            // saveChanges 내부 catch 블록에서 이미 에러 얼럿창을 띄우므로, 모달을 닫지 않고 입력을 보존하며 리턴함
+            console.error("수정 저장 실패:", err);
         }
     };
 
