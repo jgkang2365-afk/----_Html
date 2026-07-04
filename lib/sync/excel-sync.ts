@@ -2056,6 +2056,83 @@ export async function syncMeasurementBusiness(
       console.warn("[측정사업장 동기화] Strict Sync 중 오류:", strictSyncError);
     }
 
+    // [NEW] 예비조사 등록 업체 연동 감지 및 실시간 알림 로직
+    try {
+      console.log("[MES 연동 알림] 당일 예비조사 연동 감지 프로세스 시작...");
+      const kstToday = getKSTISOString().slice(0, 10); // "YYYY-MM-DD"
+      
+      // 1. 오늘의 예비조사 목록 조회
+      const { data: todaySurveys, error: surveyFetchError } = await supabase
+        .from("preliminary_survey")
+        .select("code, business_name, year, period")
+        .eq("measurement_date", kstToday);
+        
+      if (surveyFetchError) {
+        console.error("[MES 연동 알림] 오늘의 예비조사 조회 실패:", surveyFetchError.message);
+      } else if (todaySurveys && todaySurveys.length > 0) {
+        console.log(`[MES 연동 알림] 오늘 예정된 예비조사 건수: ${todaySurveys.length}건`);
+        
+        // 일지담당자(is_journal_manager = true) 목록 조회
+        const { data: managers } = await supabase
+          .from("users")
+          .select("id")
+          .eq("is_journal_manager", true);
+          
+        const managerIds = (managers || []).map(m => m.id);
+        
+        for (const survey of todaySurveys) {
+          const sCode = String(survey.code || "").trim();
+          const sName = String(survey.business_name || "").trim();
+          
+          // 이번 동기화에 들어왔는지 3단계 매칭 대조
+          const isMatched = allRows.some((row: any) => {
+            const rCode = String(row.code || "").trim();
+            const rName = String(row.business_name || "").trim();
+            
+            // 1순위: 코드 매칭
+            if (sCode && rCode && sCode === rCode) return true;
+            // 2순위: 사업장명 매칭
+            if (sName && rName) {
+              const cleanSName = sName.replace(/\s/g, "").replace(/\(주\)/g, "").replace(/주식회사/g, "");
+              const cleanRName = rName.replace(/\s/g, "").replace(/\(주\)/g, "").replace(/주식회사/g, "");
+              if (cleanSName === cleanRName || cleanRName.includes(cleanSName) || cleanSName.includes(cleanRName)) {
+                return true;
+              }
+            }
+            return false;
+          });
+          
+          if (isMatched) {
+            // 중복 발송 방지: 오늘 이미 해당 업체로 mes_sync_success 알림이 갔는지 체크
+            const { data: existingNotis } = await supabase
+              .from("notifications")
+              .select("id")
+              .eq("type", "mes_sync_success")
+              .like("message", `%${sName}%`)
+              .limit(1);
+              
+            if (!existingNotis || existingNotis.length === 0) {
+              // 신규 연동 완료! 알림 발송
+              const notiMsg = `[MES 연동 완료] 오늘 예정된 예비조사 등록 업체 '${sName}'이 MES에 정상 등록되어 연동되었습니다.`;
+              console.log(`[MES 연동 알림] 신규 매칭 연동 알림 생성: ${sName}`);
+              
+              if (managerIds.length > 0) {
+                const notificationsToInsert = managerIds.map(mId => ({
+                  user_id: mId,
+                  type: "mes_sync_success",
+                  message: notiMsg,
+                  is_read: false
+                }));
+                await supabase.from("notifications").insert(notificationsToInsert);
+              }
+            }
+          }
+        }
+      }
+    } catch (notiErr: any) {
+      console.error("[MES 연동 알림] 알림 감지 중 예외 발생:", notiErr.message);
+    }
+
     // 동기화 로그 업데이트
     if (logId) {
       await supabase
