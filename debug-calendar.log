@@ -198,3 +198,27 @@
 [2026-07-04T13:15:37.010Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-07-04T13:15:38.954Z] Event updated successfully: iettunk7sa932u32sck1n2qgls 
 [2026-07-04T13:15:38.970Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:31:15.121Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:31:16.236Z] Updating Calendar Event: 8ls0vchuns58jvqjf3m841sjs0 {
+  "summary": "[이주형] 태전자동차공업사",
+  "description": "사업장코드: H0074\n          사업장: 태전자동차공업사\n          주소: 대전광역시 서구 계룡로232번길 157 (월평동)\n          담당자: 오남석 대표\n          연락처: 010-9813-5579\n          비고:",
+  "date": "2026-02-09",
+  "endDate": "2026-02-09",
+  "location": "대전광역시 서구 계룡로232번길 157 (월평동)",
+  "colorId": "3"
+}
+[2026-07-04T13:31:16.247Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:31:18.107Z] Event updated successfully: 8ls0vchuns58jvqjf3m841sjs0 
+[2026-07-04T13:31:18.112Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:34:02.868Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:34:03.919Z] Updating Calendar Event: s4oa3vqu2ojikdot8c9solbl34 {
+  "summary": "[강종구] 주식회사 은민에스엔디 24-3513 설해원 설해수림 인테리어 공사-B공구 - 26상 미수",
+  "description": "사업장코드: H0354\n          사업장: 주식회사 은민에스엔디 24-3513 설해원 설해수림 인테리어 공사-B공구\n          주소: 강원특별자치도 양양군 손양면 공항로 230 (동호리, 설해원)\n          담당자: 고정욱 선임\n          연락처: 010-8934-0836\n          비고:",
+  "date": "2026-05-27",
+  "endDate": "2026-05-27",
+  "location": "강원특별자치도 양양군 손양면 공항로 230 (동호리, 설해원)",
+  "colorId": "3"
+}
+[2026-07-04T13:34:03.921Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-04T13:34:05.824Z] Event updated successfully: s4oa3vqu2ojikdot8c9solbl34 
+[2026-07-04T13:34:05.826Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
