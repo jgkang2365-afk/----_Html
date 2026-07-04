@@ -55,6 +55,9 @@ export class EmailService {
             throw new Error('수신자 이메일 주소가 올바르지 않습니다.');
         }
 
+        const primaryTo = toList[0];
+        const ccList = toList.slice(1);
+
         // 판별 로직: 보고서가 1개 초과이거나 만료된 보고서(또는 명시적 추가 요청)인 경우
         // 여기서는 reports 배열의 길이를 기준으로 1차 판단하고, 호출부에서 넘겨준 manualIsAdditional 결합
         const isAdditional = manualIsAdditional || reports.length > 1;
@@ -104,9 +107,9 @@ export class EmailService {
     `;
 
         try {
-            const info = await this.transporter.sendMail({
+            const mailOptions: nodemailer.SendMailOptions = {
                 from: `"한결작업환경컨설팅" <${this.config.auth.user}>`,
-                to: toList,
+                to: primaryTo,
                 subject,
                 html,
                 attachments: attachments.map(att => ({
@@ -114,7 +117,13 @@ export class EmailService {
                     path: att.path,
                     contentType: 'application/pdf',
                 })),
-            });
+            };
+
+            if (ccList.length > 0) {
+                mailOptions.cc = ccList;
+            }
+
+            const info = await this.transporter.sendMail(mailOptions);
 
             console.log(`[Email Success] ${companyName}: ${info.messageId}`);
             return { success: true, messageId: info.messageId };

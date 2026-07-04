@@ -11,6 +11,8 @@ import { getKSTISOString } from '../utils/date-utils';
 export class BackgroundTasks {
     private static instance: BackgroundTasks;
     private initialized: boolean = false;
+    private mesSyncStatus: 'idle' | 'running' | 'success' | 'error' = 'idle';
+    private mesSyncError: string | null = null;
 
     private constructor() {}
 
@@ -19,6 +21,16 @@ export class BackgroundTasks {
             BackgroundTasks.instance = new BackgroundTasks();
         }
         return BackgroundTasks.instance;
+    }
+
+    /**
+     * MES 동기화 상태를 조회하는 게터
+     */
+    public getMesSyncStatus() {
+        return {
+            status: this.mesSyncStatus,
+            error: this.mesSyncError
+        };
     }
 
     /**
@@ -90,6 +102,8 @@ export class BackgroundTasks {
      * MES 다운로드 파이썬 스크립트 실행
      */
     public runMesDownloadScript(isFinalCheck: boolean = false): Promise<boolean> {
+        this.mesSyncStatus = 'running';
+        this.mesSyncError = null;
         return new Promise((resolve) => {
             const scriptPath = join(process.cwd(), 'mes_download.py');
             console.log(`[BackgroundTasks] MES 자동 다운로드 스크립트 실행 시작: ${scriptPath}`);
@@ -98,6 +112,8 @@ export class BackgroundTasks {
             exec(`python "${scriptPath}"`, async (error, stdout, stderr) => {
                 if (error) {
                     console.error("[BackgroundTasks] MES 자동 다운로드 스크립트 실행 중 에러 발생:", error);
+                    this.mesSyncStatus = 'error';
+                    this.mesSyncError = error.message || String(error);
                     resolve(false);
                     return;
                 }
@@ -115,6 +131,7 @@ export class BackgroundTasks {
                     }
                 }
                 
+                this.mesSyncStatus = 'success';
                 resolve(true);
             });
         });

@@ -14,6 +14,7 @@ import { formatBusinessNumber, parseBusinessNumber, isValidDigitCount } from "@/
 import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
 
+
 interface JournalEntry {
   id: number | null;
   code: string;
@@ -155,6 +156,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     manager_position: entry.manager_position || "",
     manager_mobile: entry.manager_mobile || "",
     manager_email: entry.manager_email || "",
+    manager_email_1: (() => {
+      const email = entry.manager_email || "";
+      if (email.includes(",") || email.includes(";")) {
+        return email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean)[0] || "";
+      }
+      return email;
+    })(),
+    manager_email_2: (() => {
+      const email = entry.manager_email || "";
+      if (email.includes(",") || email.includes(";")) {
+        return email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean)[1] || "";
+      }
+      return "";
+    })(),
 
     // K2B 정보
     k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
@@ -373,7 +388,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 if (ref.manager_name) updated.manager_name = ref.manager_name;
                 if (ref.manager_position) updated.manager_position = ref.manager_position;
                 if (ref.manager_mobile) updated.manager_mobile = ref.manager_mobile;
-                if (ref.manager_email) updated.manager_email = ref.manager_email;
+                 if (ref.manager_email) {
+                   updated.manager_email = ref.manager_email;
+                   const parts = ref.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+                   updated.manager_email_1 = parts[0] || "";
+                   updated.manager_email_2 = parts[1] || "";
+                 }
                 if (ref.address) updated.address = ref.address;
                 if (ref.business_number) updated.business_number = ref.business_number;
                 if (ref.total_employees !== undefined && ref.total_employees !== null) {
@@ -417,7 +437,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 updated.manager_name = updated.manager_name || pName;
                 updated.manager_position = updated.manager_position || pPosition;
                 updated.manager_mobile = updated.manager_mobile || data.previousData.manager_mobile || "";
-                updated.manager_email = updated.manager_email || data.previousData.manager_email || "";
+                 updated.manager_email = updated.manager_email || data.previousData.manager_email || "";
+                 const pEmailParts = (updated.manager_email || "").split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+                 updated.manager_email_1 = pEmailParts[0] || "";
+                 updated.manager_email_2 = pEmailParts[1] || "";
                 updated.invoice_email = updated.invoice_email || data.previousData.invoice_email || "";
                 updated.invoice_email_2 = updated.invoice_email_2 || data.previousData.invoice_email_2 || "";
                 updated.measurer = updated.measurer || data.previousData.measurer || "";
@@ -485,7 +508,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   updated.manager_position = sPosition;
                 }
                 updated.manager_mobile = updated.manager_mobile || data.summaryInfo.manager_mobile || "";
-                updated.manager_email = updated.manager_email || data.summaryInfo.manager_email || "";
+                 updated.manager_email = updated.manager_email || data.summaryInfo.manager_email || "";
+                 const sEmailParts = (updated.manager_email || "").split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+                 updated.manager_email_1 = sEmailParts[0] || "";
+                 updated.manager_email_2 = sEmailParts[1] || "";
                 // 측정비는 자동으로 채우지 않고 참고용으로만 저장
                 // updated.measurement_fee_business = updated.measurement_fee_business || (data.summaryInfo.measurement_fee_business ? String(data.summaryInfo.measurement_fee_business) : "") || "";
                 // K2B 전송자는 예비조사 정보를 우선으로 하므로 여기서는 설정하지 않음
@@ -894,6 +920,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       manager_position: entry.manager_position || "",
       manager_mobile: entry.manager_mobile || "",
       manager_email: entry.manager_email || "",
+      manager_email_1: (() => {
+        const email = entry.manager_email || "";
+        if (email.includes(",") || email.includes(";")) {
+          return email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean)[0] || "";
+        }
+        return email;
+      })(),
+      manager_email_2: (() => {
+        const email = entry.manager_email || "";
+        if (email.includes(",") || email.includes(";")) {
+          return email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean)[1] || "";
+        }
+        return "";
+      })(),
 
       // K2B 정보
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
@@ -1134,6 +1174,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       // 데이터 정리 (빈 문자열을 null로 변환)
       const submitData: any = {};
       Object.keys(normalizedFormData).forEach((key) => {
+        if (key === 'manager_email_1' || key === 'manager_email_2') {
+          return;
+        }
         const value = normalizedFormData[key as keyof typeof normalizedFormData];
 
         // note 필드는 배열을 콤마로 구분된 문자열로 변환
@@ -1274,22 +1317,26 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
         사업장 정보
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Input
-          label="사업장명 *"
-          value={formData.business_name}
-          onChange={(e) =>
-            setFormData({ ...formData, business_name: e.target.value })
-          }
-          required
-        />
-        <Input
-          label="대표자명"
-          value={formData.representative_name}
-          onChange={(e) =>
-            setFormData({ ...formData, representative_name: e.target.value })
-          }
-        />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="md:col-span-2">
+          <Input
+            label="사업장명 *"
+            value={formData.business_name}
+            onChange={(e) =>
+              setFormData({ ...formData, business_name: e.target.value })
+            }
+            required
+          />
+        </div>
+        <div className="md:col-span-1">
+          <Input
+            label="대표자명"
+            value={formData.representative_name}
+            onChange={(e) =>
+              setFormData({ ...formData, representative_name: e.target.value })
+            }
+          />
+        </div>
         <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-6 gap-4">
           <Input
             label="총인원"
@@ -1679,23 +1726,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             </p>
           )}
         </div>
-        <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-2 pt-4 border-t border-dashed border-gray-300">
-          <div className="flex flex-col gap-1 relative pb-5">
-            <Input
-              label="계산서 메일"
-              type="email"
-              value={formData.invoice_email}
-              onChange={(e) =>
-                setFormData({ ...formData, invoice_email: e.target.value })
-              }
-              className="email-mono-font"
-            />
-            {previousEmails.invoice_email && (
-              <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email}`}>
-                전회: {previousEmails.invoice_email}
-              </div>
-            )}
-          </div>
+        <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 pt-4 border-t border-dashed border-gray-300">
           <div className="flex flex-col gap-1 pb-5">
             <label className="block text-sm font-medium text-text-700 mb-1">
               전자계산서 발행일
@@ -1738,22 +1769,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 }
               />
             </div>
-          </div>
-          <div className="flex flex-col gap-1 relative pb-5">
-            <Input
-              label="계산서 메일2"
-              type="email"
-              value={formData.invoice_email_2}
-              onChange={(e) =>
-                setFormData({ ...formData, invoice_email_2: e.target.value })
-              }
-              className="email-mono-font"
-            />
-            {previousEmails.invoice_email_2 && (
-              <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email_2}`}>
-                전회: {previousEmails.invoice_email_2}
-              </div>
-            )}
           </div>
           <div className="flex flex-col gap-1 pb-5">
             <label className="block text-sm font-medium text-text-700 mb-1">
@@ -2165,43 +2180,141 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
         담당자 정보
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Input
-          label="담당자 성명"
-          value={formData.manager_name}
-          onChange={(e) =>
-            setFormData({ ...formData, manager_name: e.target.value })
-          }
-        />
-        <Input
-          label="담당자 직위"
-          value={formData.manager_position}
-          onChange={(e) =>
-            setFormData({ ...formData, manager_position: e.target.value })
-          }
-        />
-        <Input
-          label="담당자 휴대폰"
-          value={formData.manager_mobile}
-          onChange={(e) =>
-            setFormData({ ...formData, manager_mobile: e.target.value })
-          }
-        />
-        <div className="flex flex-col gap-1">
+      <div className="space-y-4">
+        {/* 1줄: 담당자명, 직책, 휴대폰 (3열) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Input
-            label="담당자 e-mail"
-            type="email"
-            value={formData.manager_email}
+            label="담당자 성명"
+            value={formData.manager_name}
             onChange={(e) =>
-              setFormData({ ...formData, manager_email: e.target.value })
+              setFormData({ ...formData, manager_name: e.target.value })
             }
-            className="email-mono-font"
           />
-          {previousEmails.manager_email && (
-            <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousEmails.manager_email}`}>
-              전회: {previousEmails.manager_email}
-            </div>
-          )}
+          <Input
+            label="담당자 직위"
+            value={formData.manager_position}
+            onChange={(e) =>
+              setFormData({ ...formData, manager_position: e.target.value })
+            }
+          />
+          <Input
+            label="담당자 휴대폰"
+            value={formData.manager_mobile}
+            onChange={(e) =>
+              setFormData({ ...formData, manager_mobile: e.target.value })
+            }
+          />
+        </div>
+
+        {/* 2줄: 담당자 이메일(1), (2), 계산서 메일(1), (2) (4열) */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="flex flex-col gap-1 relative pb-5">
+            <Input
+              label="담당자 e-mail(1)"
+              type="text"
+              value={formData.manager_email_1}
+              onChange={(e) => {
+                const val = e.target.value;
+                setFormData({
+                  ...formData,
+                  manager_email_1: val,
+                  manager_email: [val, formData.manager_email_2].filter(Boolean).join(", ")
+                });
+              }}
+              onBlur={(e) => {
+                const value = e.target.value;
+                if (value.includes(",") || value.includes(";")) {
+                  const parts = value.split(/[,;]/).map(email => email.trim()).filter(Boolean);
+                  if (parts.length > 0) {
+                    setFormData({
+                      ...formData,
+                      manager_email_1: parts[0],
+                      manager_email_2: parts[1] || formData.manager_email_2 || "",
+                      manager_email: [parts[0], parts[1] || formData.manager_email_2].filter(Boolean).join(", ")
+                    });
+                  }
+                }
+              }}
+              className="email-mono-font"
+            />
+            {previousEmails.manager_email && (() => {
+              const parts = previousEmails.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+              return parts[0] ? (
+                <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${parts[0]}`}>
+                  전회: {parts[0]}
+                </div>
+              ) : null;
+            })()}
+          </div>
+          <div className="flex flex-col gap-1 relative pb-5">
+            <Input
+              label="담당자 e-mail(2)"
+              type="text"
+              value={formData.manager_email_2}
+              onChange={(e) => {
+                const val = e.target.value;
+                setFormData({
+                  ...formData,
+                  manager_email_2: val,
+                  manager_email: [formData.manager_email_1, val].filter(Boolean).join(", ")
+                });
+              }}
+              className="email-mono-font"
+            />
+            {previousEmails.manager_email && (() => {
+              const parts = previousEmails.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+              return parts[1] ? (
+                <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${parts[1]}`}>
+                  전회: {parts[1]}
+                </div>
+              ) : null;
+            })()}
+          </div>
+          <div className="flex flex-col gap-1 relative pb-5">
+            <Input
+              label="계산서 메일(1)"
+              type="text"
+              value={formData.invoice_email}
+              onChange={(e) =>
+                setFormData({ ...formData, invoice_email: e.target.value })
+              }
+              onBlur={(e) => {
+                const value = e.target.value;
+                if (value.includes(",") || value.includes(";")) {
+                  const parts = value.split(/[,;]/).map(email => email.trim()).filter(Boolean);
+                  if (parts.length > 0) {
+                    setFormData({
+                      ...formData,
+                      invoice_email: parts[0],
+                      invoice_email_2: parts[1] || formData.invoice_email_2 || ""
+                    });
+                  }
+                }
+              }}
+              className="email-mono-font"
+            />
+            {previousEmails.invoice_email && (
+              <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email}`}>
+                전회: {previousEmails.invoice_email}
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col gap-1 relative pb-5">
+            <Input
+              label="계산서 메일(2)"
+              type="text"
+              value={formData.invoice_email_2}
+              onChange={(e) =>
+                setFormData({ ...formData, invoice_email_2: e.target.value })
+              }
+              className="email-mono-font"
+            />
+            {previousEmails.invoice_email_2 && (
+              <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email_2}`}>
+                전회: {previousEmails.invoice_email_2}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -23,6 +23,7 @@ import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 
+
 // 금액 포맷팅 함수 (천단위 콤마)
 const formatCurrency = (value: string | number | null | undefined): string => {
   if (!value && value !== 0) return "";
@@ -73,6 +74,8 @@ interface SummaryEntry {
   manager_position: string | null;
   manager_mobile: string | null;
   manager_email: string | null;
+  manager_email_1?: string | null;
+  manager_email_2?: string | null;
   invoice_email: string | null;
   invoice_email_2: string | null;
   electronic_invoice_date: string | null;
@@ -292,6 +295,20 @@ export const SummaryTable: React.FC = () => {
       manager_position: entry.manager_position || "",
       manager_mobile: entry.manager_mobile || "",
       manager_email: entry.manager_email || "",
+      manager_email_1: (() => {
+        const email = entry.manager_email || "";
+        if (email.includes(",") || email.includes(";")) {
+          return email.split(/[,;]/).map(e => e.trim()).filter(Boolean)[0] || "";
+        }
+        return email;
+      })(),
+      manager_email_2: (() => {
+        const email = entry.manager_email || "";
+        if (email.includes(",") || email.includes(";")) {
+          return email.split(/[,;]/).map(e => e.trim()).filter(Boolean)[1] || "";
+        }
+        return "";
+      })(),
       invoice_email: entry.invoice_email || "",
       invoice_email_2: entry.invoice_email_2 || "",
       electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
@@ -380,7 +397,14 @@ export const SummaryTable: React.FC = () => {
       }
 
       // 저장할 데이터 준비 (빈 문자열을 null로 변환)
-      const saveData = { ...editFormData };
+      const saveData = { ...editFormData } as any;
+
+      // manager_email_1, manager_email_2를 결합하여 manager_email 설정하고 임시 필드 삭제
+      const mEmail1 = String(saveData.manager_email_1 || "").trim();
+      const mEmail2 = String(saveData.manager_email_2 || "").trim();
+      saveData.manager_email = [mEmail1, mEmail2].filter(Boolean).join(", ");
+      delete saveData.manager_email_1;
+      delete saveData.manager_email_2;
 
       // 전자계산서 발행일이 YY-MM-DD 형식이면 YYYY-MM-DD로 자동 복원
       if (saveData.electronic_invoice_date) {
@@ -648,7 +672,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 사업장 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">사업장 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-12 print:grid-cols-12 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-11 print:grid-cols-11 gap-3 md:gap-4">
                     <div className="md:col-span-6 print:col-span-6 p-1">
                       <label className="block text-sm font-bold text-text-800 mb-1.5 ml-0.5 print:text-base">
                         사업장명
@@ -669,7 +693,7 @@ export const SummaryTable: React.FC = () => {
                         disabled
                       />
                     </div>
-                    <div className="md:col-span-3 print:col-span-3 p-1">
+                    <div className="md:col-span-2 print:col-span-2 p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         총인원
                       </label>
@@ -700,7 +724,7 @@ export const SummaryTable: React.FC = () => {
                         disabled
                       />
                     </div>
-                    <div className="md:col-span-4 print:col-span-4 p-1">
+                    <div className="md:col-span-3 print:col-span-3 p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         개시번호
                       </label>
@@ -710,7 +734,7 @@ export const SummaryTable: React.FC = () => {
                         disabled
                       />
                     </div>
-                    <div className="md:col-span-12 print:col-span-12 p-1">
+                    <div className="md:col-span-11 print:col-span-11 p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         주소
                       </label>
@@ -720,7 +744,7 @@ export const SummaryTable: React.FC = () => {
                         disabled
                       />
                     </div>
-                    <div className="md:col-span-6 print:col-span-6 p-1">
+                    <div className="md:col-span-5 print:col-span-5 p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         전화번호
                       </label>
@@ -744,9 +768,10 @@ export const SummaryTable: React.FC = () => {
                 </div>
 
                 {/* 담당자 정보 */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">담당자 정보</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
+                <div className="space-y-3">
+                  <h4 className="text-sm font-bold text-text-700 border-b pb-1.5 px-1">담당자 정보</h4>
+                  {/* 첫 번째 줄: 성명, 직책, 휴대폰 (3열) */}
+                  <div className="grid grid-cols-3 gap-3 md:gap-4">
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         담당자명
@@ -777,23 +802,58 @@ export const SummaryTable: React.FC = () => {
                         disabled
                       />
                     </div>
+                  </div>
+                  {/* 두 번째 줄: 이메일 1, 이메일 2, 계산서 이메일 1, 계산서 이메일 2 (4열) */}
+                  <div className="grid grid-cols-4 gap-3 md:gap-4 mt-2">
+                    {(() => {
+                      const email = entry.manager_email || "";
+                      const parts = (email.includes(",") || email.includes(";"))
+                        ? email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean)
+                        : [email];
+                      const m1 = parts[0] || "";
+                      const m2 = parts[1] || "";
+                      return (
+                        <>
+                          <div className="p-1">
+                            <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                              담당자 이메일(1)
+                            </label>
+                            <Input
+                              className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
+                              value={m1}
+                              disabled
+                            />
+                          </div>
+                          <div className="p-1">
+                            <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                              담당자 이메일(2)
+                            </label>
+                            <Input
+                              className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
+                              value={m2}
+                              disabled
+                            />
+                          </div>
+                        </>
+                      );
+                    })()}
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        이메일
+                        계산서 이메일(1)
                       </label>
                       <Input
                         className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
-                        value={entry.manager_email || ""}
+                        value={entry.invoice_email || ""}
                         disabled
                       />
                     </div>
                     <div className="p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        계산서 이메일
+                        계산서 이메일(2)
                       </label>
                       <Input
                         className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
-                        value={entry.invoice_email || ""}
+                        value={entry.invoice_email_2 || ""}
                         disabled
                       />
                     </div>
@@ -1367,7 +1427,13 @@ export const SummaryTable: React.FC = () => {
               <Button
                 type="button"
                 variant="success"
-                onClick={() => window.print()}
+                onClick={() => {
+                  if (selectedEntry) {
+                    setSelectedIds(new Set([selectedEntry.id]));
+                    setIsBulkPrintMode(true);
+                    setIsModalOpen(false);
+                  }
+                }}
                 className="md:flex-none text-sm px-3 h-9"
               >
                 출력
@@ -1547,7 +1613,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 사업장 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">사업장 정보</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-12 print:grid-cols-12 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-11 print:grid-cols-11 gap-3 md:gap-4">
                     <div className="md:col-span-6 print:col-span-6 p-1">
                       <label className="block text-sm font-bold text-text-800 mb-1.5 ml-0.5 print:text-base">
                         사업장명 *
@@ -1571,20 +1637,21 @@ export const SummaryTable: React.FC = () => {
                         title="대표자명은 사업장 정보에서 관리됩니다."
                       />
                     </div>
-                    <div className="md:col-span-3 print:col-span-3 p-1">
+                    <div className="md:col-span-2 print:col-span-2 p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         총인원
                       </label>
                       <Input
                         className="h-11 md:h-10 text-base md:text-sm shadow-sm"
-                        type="number"
+                        type="text"
                         value={editFormData.total_employees || ""}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^\d]/g, "");
                           setEditFormData({
                             ...editFormData,
-                            total_employees: e.target.value ? parseInt(e.target.value) : null,
-                          })
-                        }
+                            total_employees: val ? parseInt(val) : null,
+                          });
+                        }}
                       />
                     </div>
                     <div className="md:col-span-4 print:col-span-4 p-1">
@@ -1614,7 +1681,7 @@ export const SummaryTable: React.FC = () => {
                         maxLength={11}
                       />
                     </div>
-                    <div className="md:col-span-4 print:col-span-4 p-1">
+                    <div className="md:col-span-3 print:col-span-3 p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         개시번호
                       </label>
@@ -1628,7 +1695,7 @@ export const SummaryTable: React.FC = () => {
                         maxLength={11}
                       />
                     </div>
-                    <div className="md:col-span-12 print:col-span-12 p-1">
+                    <div className="md:col-span-11 print:col-span-11 p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         주소
                       </label>
@@ -1640,7 +1707,7 @@ export const SummaryTable: React.FC = () => {
                         }
                       />
                     </div>
-                    <div className="md:col-span-6 print:col-span-6 p-1">
+                    <div className="md:col-span-5 print:col-span-5 p-1">
                       <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
                         전화번호
                       </label>
@@ -1670,96 +1737,164 @@ export const SummaryTable: React.FC = () => {
                 {/* 담당자 정보 */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-bold text-text-700 border-b pb-2 px-1">담당자 정보</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
-                    <div className="p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        담당자명
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
-                        value={editFormData.manager_name || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, manager_name: e.target.value })
-                        }
-                      />
+                  <div className="space-y-4">
+                    {/* 1줄: 담당자명, 직책, 휴대폰 (3열) */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                      <div className="p-1 col-span-1">
+                        <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                          담당자명
+                        </label>
+                        <Input
+                          className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                          value={editFormData.manager_name || ""}
+                          onChange={(e) =>
+                            setEditFormData({ ...editFormData, manager_name: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="p-1 col-span-1">
+                        <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                          담당자 직책
+                        </label>
+                        <Input
+                          className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                          value={editFormData.manager_position || ""}
+                          onChange={(e) =>
+                            setEditFormData({ ...editFormData, manager_position: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="p-1 col-span-1">
+                        <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                          담당자 휴대폰
+                        </label>
+                        <Input
+                          className="h-11 md:h-10 text-base md:text-sm shadow-sm"
+                          value={editFormData.manager_mobile || ""}
+                          onChange={(e) =>
+                            setEditFormData({ ...editFormData, manager_mobile: e.target.value })
+                          }
+                        />
+                      </div>
                     </div>
-                    <div className="p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        담당자 직책
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
-                        value={editFormData.manager_position || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, manager_position: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        담당자 휴대폰
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm"
-                        value={editFormData.manager_mobile || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, manager_mobile: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="p-1 relative pb-5">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        담당자 이메일
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
-                        type="email"
-                        value={editFormData.manager_email || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, manager_email: e.target.value })
-                        }
-                      />
-                      {previousData?.manager_email && (
-                        <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.manager_email}`}>
-                          전회: {previousData.manager_email}
-                        </div>
-                      )}
-                    </div>
-                    <div className="p-1 relative pb-5">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        계산서 메일(1)
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
-                        type="email"
-                        value={editFormData.invoice_email || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, invoice_email: e.target.value })
-                        }
-                      />
-                      {previousData?.invoice_email && (
-                        <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email}`}>
-                          전회: {previousData.invoice_email}
-                        </div>
-                      )}
-                    </div>
-                    <div className="p-1 relative pb-5">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        계산서 메일(2)
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
-                        type="email"
-                        value={editFormData.invoice_email_2 || ""}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, invoice_email_2: e.target.value })
-                        }
-                      />
-                      {previousData?.invoice_email_2 && (
-                        <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email_2}`}>
-                          전회: {previousData.invoice_email_2}
-                        </div>
-                      )}
+
+                    {/* 2줄: 담당자 이메일(1), (2), 계산서 메일(1), (2) (4열) */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4">
+                      <div className="p-1 relative pb-5">
+                        <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                          담당자 이메일(1)
+                        </label>
+                        <Input
+                          className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
+                          type="text"
+                          value={editFormData.manager_email_1 || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditFormData({
+                              ...editFormData,
+                              manager_email_1: val,
+                              manager_email: [val, editFormData.manager_email_2].filter(Boolean).join(", ")
+                            });
+                          }}
+                          onBlur={(e) => {
+                            const value = e.target.value;
+                            if (value.includes(",") || value.includes(";")) {
+                              const parts = value.split(/[,;]/).map(email => email.trim()).filter(Boolean);
+                              if (parts.length > 0) {
+                                setEditFormData({
+                                  ...editFormData,
+                                  manager_email_1: parts[0],
+                                  manager_email_2: parts[1] || editFormData.manager_email_2 || "",
+                                  manager_email: [parts[0], parts[1] || editFormData.manager_email_2].filter(Boolean).join(", ")
+                                });
+                              }
+                            }
+                          }}
+                        />
+                        {previousData?.manager_email && (() => {
+                          const parts = previousData.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+                          return parts[0] ? (
+                            <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${parts[0]}`}>
+                              전회: {parts[0]}
+                            </div>
+                          ) : null;
+                        })()}
+                      </div>
+                      <div className="p-1 relative pb-5">
+                        <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                          담당자 이메일(2)
+                        </label>
+                        <Input
+                          className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
+                          type="text"
+                          value={editFormData.manager_email_2 || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditFormData({
+                              ...editFormData,
+                              manager_email_2: val,
+                              manager_email: [editFormData.manager_email_1, val].filter(Boolean).join(", ")
+                            });
+                          }}
+                        />
+                        {previousData?.manager_email && (() => {
+                          const parts = previousData.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+                          return parts[1] ? (
+                            <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${parts[1]}`}>
+                              전회: {parts[1]}
+                            </div>
+                          ) : null;
+                        })()}
+                      </div>
+                      <div className="p-1 relative pb-5">
+                        <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                          계산서 메일(1)
+                        </label>
+                        <Input
+                          className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
+                          type="text"
+                          value={editFormData.invoice_email || ""}
+                          onChange={(e) =>
+                            setEditFormData({ ...editFormData, invoice_email: e.target.value })
+                          }
+                          onBlur={(e) => {
+                            const value = e.target.value;
+                            if (value.includes(",") || value.includes(";")) {
+                              const parts = value.split(/[,;]/).map(email => email.trim()).filter(Boolean);
+                              if (parts.length > 0) {
+                                setEditFormData({
+                                  ...editFormData,
+                                  invoice_email: parts[0],
+                                  invoice_email_2: parts[1] || editFormData.invoice_email_2 || ""
+                                });
+                              }
+                            }
+                          }}
+                        />
+                        {previousData?.invoice_email && (
+                          <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email}`}>
+                            전회: {previousData.invoice_email}
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-1 relative pb-5">
+                        <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                          계산서 메일(2)
+                        </label>
+                        <Input
+                          className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
+                          type="text"
+                          value={editFormData.invoice_email_2 || ""}
+                          onChange={(e) =>
+                            setEditFormData({ ...editFormData, invoice_email_2: e.target.value })
+                          }
+                        />
+                        {previousData?.invoice_email_2 && (
+                          <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email_2}`}>
+                            전회: {previousData.invoice_email_2}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

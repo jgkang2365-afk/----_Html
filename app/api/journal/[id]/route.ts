@@ -471,8 +471,22 @@ export async function PUT(
       // K2B/계산서 정보
       k2b_send_date: bodyClean.k2b_send_date !== undefined ? bodyClean.k2b_send_date : existingJournal.k2b_send_date,
       k2b_sender: bodyClean.k2b_sender !== undefined ? bodyClean.k2b_sender : existingJournal.k2b_sender,
-      invoice_email: bodyClean.invoice_email !== undefined ? bodyClean.invoice_email : existingJournal.invoice_email,
-      invoice_email_2: bodyClean.invoice_email_2 !== undefined ? bodyClean.invoice_email_2 : existingJournal.invoice_email_2,
+      invoice_email: (() => {
+        const rawEmail = bodyClean.invoice_email !== undefined ? bodyClean.invoice_email : existingJournal.invoice_email;
+        if (rawEmail && (rawEmail.includes(',') || rawEmail.includes(';'))) {
+          const parts = rawEmail.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+          return parts[0] || null;
+        }
+        return rawEmail;
+      })(),
+      invoice_email_2: (() => {
+        const rawEmail = bodyClean.invoice_email !== undefined ? bodyClean.invoice_email : existingJournal.invoice_email;
+        if (rawEmail && (rawEmail.includes(',') || rawEmail.includes(';'))) {
+          const parts = rawEmail.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+          return parts[1] || bodyClean.invoice_email_2 || existingJournal.invoice_email_2 || null;
+        }
+        return bodyClean.invoice_email_2 !== undefined ? bodyClean.invoice_email_2 : existingJournal.invoice_email_2;
+      })(),
       electronic_invoice_date: bodyClean.electronic_invoice_date !== undefined ? bodyClean.electronic_invoice_date : existingJournal.electronic_invoice_date,
       electronic_invoice_date_2: bodyClean.electronic_invoice_date_2 !== undefined ? bodyClean.electronic_invoice_date_2 : existingJournal.electronic_invoice_date_2,
       invoice_business_name: truncateField(bodyClean.invoice_business_name !== undefined ? bodyClean.invoice_business_name : existingJournal.invoice_business_name, 255, 'invoice_business_name'),

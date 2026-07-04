@@ -496,8 +496,22 @@ export async function POST(request: NextRequest) {
       manager_position: body.manager_position || businessData.manager_position || null,
       manager_mobile: body.manager_mobile || businessData.manager_mobile || null,
       manager_email: body.manager_email || businessData.manager_email || null,
-      invoice_email: body.invoice_email || businessData.invoice_email || null,
-      invoice_email_2: body.invoice_email_2 || null,
+      invoice_email: (() => {
+        const rawEmail = body.invoice_email || businessData.invoice_email || null;
+        if (rawEmail && (rawEmail.includes(',') || rawEmail.includes(';'))) {
+          const parts = rawEmail.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+          return parts[0] || null;
+        }
+        return rawEmail;
+      })(),
+      invoice_email_2: (() => {
+        const rawEmail = body.invoice_email || businessData.invoice_email || null;
+        if (rawEmail && (rawEmail.includes(',') || rawEmail.includes(';'))) {
+          const parts = rawEmail.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+          return parts[1] || body.invoice_email_2 || null;
+        }
+        return body.invoice_email_2 || null;
+      })(),
       // 측정비 정보 (body에서 가져오기)
       measurement_fee_total: body.measurement_fee_total ? parseFloat(String(body.measurement_fee_total).replace(/,/g, "")) || null : null,
       measurement_fee_business: body.measurement_fee_business ? parseFloat(String(body.measurement_fee_business).replace(/,/g, "")) || null : null,
