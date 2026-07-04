@@ -82,8 +82,6 @@ export const NationalSupportManagement: React.FC = () => {
       const params = new URLSearchParams();
       if (selectedYear) params.append("year", selectedYear);
       if (selectedPeriod) params.append("period", selectedPeriod);
-      if (searchCode) params.append("code", searchCode);
-      if (searchResult) params.append("result", searchResult);
 
       const response = await fetch(`/api/businesses/national-support?${params.toString()}`, {
         cache: 'no-store'
@@ -116,7 +114,7 @@ export const NationalSupportManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedYear, selectedPeriod, searchCode, searchResult]);
+  }, [selectedYear, selectedPeriod]);
 
   useEffect(() => {
     loadEntries();
