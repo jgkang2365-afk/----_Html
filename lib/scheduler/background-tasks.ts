@@ -1,4 +1,5 @@
 import { BounceChecker } from '../email/bounce-checker';
+import { backupDatabase } from '../../scripts/backup-db';
 
 /**
  * 전역 백그라운드 작업 관리자
@@ -25,7 +26,7 @@ export class BackgroundTasks {
             return;
         }
 
-        console.log("[BackgroundTasks] 스케줄러 초기화 시작 (06, 12, 15, 18시)...");
+        console.log("[BackgroundTasks] 스케줄러 초기화 시작 (반송메일 및 DB백업)...");
 
         // 0. 로컬 백그라운드 작업기(Worker Daemon) 가동
         try {
@@ -50,10 +51,21 @@ export class BackgroundTasks {
             await BounceChecker.getInstance().checkBounces();
         });
 
+        // 2. DB 일일 자동 백업 작업 (02:15)
+        // 크론 표현식: 15 2 * * *
+        cron.schedule('15 2 * * *', async () => {
+            try {
+                console.log("[BackgroundTasks] 일일 자동 DB 백업을 시작합니다...");
+                await backupDatabase();
+            } catch (err: any) {
+                console.error("[BackgroundTasks] 일일 자동 DB 백업 실행 실패:", err.message);
+            }
+        });
+
         // 테스트용: 서버 시작 1분 후 한 번 실행 (필요시 주석 처리)
         // setTimeout(() => BounceChecker.getInstance().checkBounces(), 60000);
 
         this.initialized = true;
-        console.log("[BackgroundTasks] 스케줄러 등록 완료.");
+        console.log("[BackgroundTasks] 스케줄러 등록 완료 (반송 메일 체크 & 일일 DB 백업).");
     }
 }
