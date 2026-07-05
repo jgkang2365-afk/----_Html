@@ -382,19 +382,19 @@ export const NationalSupportManagement: React.FC = () => {
           <Table maxHeight="max-h-[calc(100vh-300px)]">
             <TableHeader className="bg-sky-100 border-b-2 border-sky-200 z-20 text-black font-bold">
               <TableRow>
-                <TableHead className="!text-left !pl-2.5 font-bold py-4 text-black text-sm">코드</TableHead>
-                <TableHead className="w-[180px] text-black">사업장명</TableHead>
-                <TableHead className="w-[120px] text-black">대표자</TableHead>
-                <TableHead className="w-[130px] text-black">산재관리번호</TableHead>
-                <TableHead className="w-[130px] text-black">사업개시번호</TableHead>
-                <TableHead className="w-[240px] text-black">주소</TableHead>
-                <TableHead className="text-center w-[90px] text-black">측정년도</TableHead>
-                <TableHead className="text-center w-[90px] text-black">측정주기</TableHead>
-                <TableHead className="text-center w-[90px] text-black">신청 여부</TableHead>
-                <TableHead className="text-center w-[90px] text-black">신청결과</TableHead>
-                <TableHead className="text-center w-[110px] text-black">국고지원 상태</TableHead>
-                <TableHead className="w-[150px] text-black">수정일시</TableHead>
-                <TableHead className="w-[80px] text-black">관리</TableHead>
+                <TableHead className="!text-left !pl-2.5 font-bold py-4 text-black text-sm w-[70px]">코드</TableHead>
+                <TableHead className="w-[300px] text-black">사업장명</TableHead>
+                <TableHead className="w-[80px] text-black !text-right !pr-4">대표자</TableHead>
+                <TableHead className="w-[110px] text-black">산재관리번호</TableHead>
+                <TableHead className="w-[110px] text-black">사업개시번호</TableHead>
+                <TableHead className="w-[180px] text-black">주소</TableHead>
+                <TableHead className="text-center w-[75px] text-black">측정년도</TableHead>
+                <TableHead className="text-center w-[75px] text-black">측정주기</TableHead>
+                <TableHead className="text-center w-[75px] text-black">신청 여부</TableHead>
+                <TableHead className="text-center w-[75px] text-black">신청결과</TableHead>
+                <TableHead className="text-center w-[95px] text-black">국고지원 상태</TableHead>
+                <TableHead className="w-[130px] text-black">수정일시</TableHead>
+                <TableHead className="w-[60px] text-black">관리</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -412,13 +412,13 @@ export const NationalSupportManagement: React.FC = () => {
 
                 return (
                   <TableRow key={entry.id} className="hover:bg-blue-50/40 group relative growable-row transition-colors">
-                    <TableCell className="relative !text-left !pl-2.5 !py-3">
+                    <TableCell className="relative !text-left !pl-2.5 !py-3 w-[70px]">
                       {/* 표준 블루 인디케이터 바 */}
                       <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
                       {entry.code}
                     </TableCell>
-                    <TableCell className="font-medium align-middle truncate max-w-[180px]" title={entry.business_name || ""}>{entry.business_name || "-"}</TableCell>
-                    <TableCell className="align-middle" title={entry.representative_name || ""}>
+                    <TableCell className="font-medium align-middle truncate max-w-[300px] w-[300px]" title={entry.business_name || ""}>{entry.business_name || "-"}</TableCell>
+                    <TableCell className="align-middle w-[80px] !text-right !pr-4" title={entry.representative_name || ""}>
                       <span className="font-medium">{entry.representative_name || "-"}</span>
                       {entry.representative_name && queryName !== entry.representative_name.trim() && (
                         <div className="text-[10px] text-slate-400 font-normal mt-0.5">
@@ -426,14 +426,14 @@ export const NationalSupportManagement: React.FC = () => {
                         </div>
                       )}
                     </TableCell>
-                    <TableCell className="align-middle font-mono text-sm">{entry.industrial_accident_number || "-"}</TableCell>
-                    <TableCell className="align-middle font-mono text-sm">{entry.commencement_number || "-"}</TableCell>
-                    <TableCell title={entry.address || ""} className="truncate max-w-[240px]">{entry.address || "-"}</TableCell>
-                    <TableCell className="align-middle px-2">{entry.year}</TableCell>
-                    <TableCell className="align-middle px-2">{entry.period}</TableCell>
-                    <TableCell className="align-middle px-2">{entry.application_status || "-"}</TableCell>
-                    <TableCell className="align-middle px-2">{entry.result || "-"}</TableCell>
-                    <TableCell className="align-middle px-2">
+                    <TableCell className="align-middle font-mono text-sm w-[110px]">{entry.industrial_accident_number || "-"}</TableCell>
+                    <TableCell className="align-middle font-mono text-sm w-[110px]">{entry.commencement_number || "-"}</TableCell>
+                    <TableCell title={entry.address || ""} className="truncate max-w-[180px] w-[180px]">{entry.address || "-"}</TableCell>
+                    <TableCell className="align-middle px-2 !text-center w-[75px]">{entry.year}</TableCell>
+                    <TableCell className="align-middle px-2 !text-center w-[75px]">{entry.period}</TableCell>
+                    <TableCell className="align-middle px-2 !text-center w-[75px]">{entry.application_status || "-"}</TableCell>
+                    <TableCell className="align-middle px-2 !text-center w-[75px]">{entry.result || "-"}</TableCell>
+                    <TableCell className="align-middle px-2 !text-center w-[95px]">
                       <span
                         className={`px-2 py-1 rounded text-sm font-medium ${entry.national_support_status === "대상"
                           ? "bg-green-100 text-green-800"
@@ -445,12 +445,12 @@ export const NationalSupportManagement: React.FC = () => {
                         {entry.national_support_status || "-"}
                       </span>
                     </TableCell>
-                    <TableCell className={`align-middle text-sm ${entry.sync_status === "성공" ? "text-red-600 font-bold" : "text-text-500"}`}>
+                    <TableCell className={`align-middle text-sm w-[130px] ${entry.sync_status === "성공" ? "text-red-600 font-bold" : "text-text-500"}`}>
                       {entry.updated_at
                         ? new Date(entry.updated_at).toLocaleString("ko-KR")
                         : "-"}
                     </TableCell>
-                    <TableCell className="align-middle">
+                    <TableCell className="align-middle w-[60px]">
                       <Button
                         variant="secondary"
                         size="sm"
