@@ -1,7 +1,7 @@
 import * as dotenv from "dotenv";
 import { resolve } from "path";
 import { createClient } from "@supabase/supabase-js";
-import { syncBusinessInfo } from "../lib/sync/excel-sync";
+import { syncBusinessInfo, syncMeasurementBusiness } from "../lib/sync/excel-sync";
 
 // .env.local 로드
 dotenv.config({ path: resolve(process.cwd(), ".env.local") });
@@ -96,6 +96,71 @@ async function testSync() {
       console.log("  -> 성공: '별지'가 포함된 H0355 사업장이 검증 이슈 목록에서 정상 제외되었습니다.");
     } else {
       console.error("  -> 실패: '별지'가 포함된 사업장이 여전히 검증 이슈 목록에 남아있습니다!");
+    }
+
+    // [검증 시나리오 4] 측정사업장 동기화 변경사항 없는 경우 테스트
+    console.log("\n[시나리오 4] 측정사업장 동기화 변경 사항이 없는 상태에서 기동");
+    const mResult1 = await syncMeasurementBusiness(undefined, undefined, adminSupabase);
+    console.log(`  -> 실행 결과: success=${mResult1.success}, processed=${mResult1.records_processed}, updated=${mResult1.records_updated}`);
+    if (mResult1.records_updated === 0) {
+      console.log("  -> 성공: 변경 사항이 없을 때 수정 건수 0건 처리 및 로그 삭제 확인됨.");
+    } else {
+      console.error("  -> 실패: 변경 사항이 없음에도 수정 건수가 발생했습니다!");
+    }
+
+    // [검증 시나리오 5] 측정사업장 특정 데이터 1건 임시 변경 후 동기화 유도
+    console.log("\n[시나리오 5] 측정사업장 특정 데이터 1건을 DB에서 임시 변경하여 동기화 유도");
+    
+    const targetCode = "H0485";
+    const targetYear = 2026;
+    const targetPeriod = "상반기";
+
+    const { data: mList, error: mError } = await adminSupabase
+      .from("measurement_business")
+      .select("code, phone, year, period")
+      .eq("code", targetCode)
+      .eq("year", targetYear)
+      .eq("period", targetPeriod);
+
+    if (mError) {
+      console.error("  -> measurement_business 조회 중 오류:", mError);
+    }
+
+    if (mList && mList.length > 0) {
+      const targetM = mList[0];
+      const originalPhone = targetM.phone || "";
+      console.log(`  -> 선정한 검증 타겟: ${targetCode} (기존 전화번호: ${originalPhone}, 년도: ${targetYear}, 주기: ${targetPeriod})`);
+
+      const tempPhone = "010-9999-8888";
+      await adminSupabase
+        .from("measurement_business")
+        .update({ phone: tempPhone })
+        .eq("code", targetCode)
+        .eq("year", targetYear)
+        .eq("period", targetPeriod);
+      console.log(`  -> DB 임시 업데이트 완료: ${targetCode} 전화번호 -> '${tempPhone}'`);
+
+      // 동기화 실행 (엑셀 데이터로 덮어 씌우면서 1건의 수정이 발생해야 함)
+      const mResult2 = await syncMeasurementBusiness(undefined, undefined, adminSupabase);
+      console.log(`  -> 동기화 재실행 결과: success=${mResult2.success}, processed=${mResult2.records_processed}, updated=${mResult2.records_updated}`);
+      console.log("  -> 변경 로그:", mResult2.change_log);
+
+      // 원상 복구
+      await adminSupabase
+        .from("measurement_business")
+        .update({ phone: originalPhone })
+        .eq("code", targetCode)
+        .eq("year", targetYear)
+        .eq("period", targetPeriod);
+      console.log(`  -> DB 데이터 원복 완료: ${targetCode} 전화번호 -> '${originalPhone}'`);
+
+      if (mResult2.records_updated === 1 && mResult2.change_log && mResult2.change_log.some(l => l.includes(targetCode) && l.includes("전화번호"))) {
+        console.log("  -> 성공: 측정사업장 데이터 1건 변경 감지 및 동기화 업데이트 검증 완료.");
+      } else {
+        console.error("  -> 실패: 측정사업장 데이터 변경 감지 기능 또는 동기화 로그 처리에 문제가 있습니다.");
+      }
+    } else {
+      console.warn(`  -> 경고: DB에서 ${targetCode} 측정사업장 데이터를 찾을 수 없어 시나리오 5를 건너뜁니다.`);
     }
 
   } catch (error) {

@@ -246,3 +246,15 @@
 [2026-07-05T00:50:07.378Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-07-05T00:50:09.095Z] Event updated successfully: jq7rdbi3knl8tvn2m0pguhptks 
 [2026-07-05T00:50:09.099Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-05T01:47:10.331Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-05T01:47:11.484Z] Updating Calendar Event: 0ssjlmafik4ujqam71r9m8601s {
+  "summary": "[강종구] (주)진화이앤씨 데이터센터 각 세종 2~3차 구축공사(소방)",
+  "description": "사업장코드: H0484\n          사업장: (주)진화이앤씨 데이터센터 각 세종 2~3차 구축공사(소방)\n          주소: 세종특별자치시 행복대로 824 (집현동)\n          담당자: 배진호 팀장\n          연락처: 010-5633-6739\n          비고:",
+  "date": "2026-06-22",
+  "endDate": "2026-06-22",
+  "location": "세종특별자치시 행복대로 824 (집현동)",
+  "colorId": "9"
+}
+[2026-07-05T01:47:11.486Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-05T01:47:13.261Z] Event updated successfully: 0ssjlmafik4ujqam71r9m8601s 
+[2026-07-05T01:47:13.264Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

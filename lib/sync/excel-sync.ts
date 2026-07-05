@@ -1466,6 +1466,7 @@ export async function syncMeasurementBusiness(
   let logId: number | null = null;
   let fileName = specificStorageFileName || fileNameXlsx;
   const changeLog: string[] = []; // 변경 로그 배열
+  const now = getKSTISOString();
 
   try {
     const supabase = externalSupabaseClient || await createClient();
@@ -1481,7 +1482,7 @@ export async function syncMeasurementBusiness(
         .order("created_at", { ascending: false })
         .limit(1);
       
-      if (!prevLogError && prevLog && prevLog.length > 0 && prevLog[0].change_details) {
+      if (!prevLogError && prevLog && prevLog.length > 0 && Array.isArray(prevLog[0].change_details)) {
         previousChangeDetails = prevLog[0].change_details as string[];
       }
     } catch (prevErr) {
@@ -1786,6 +1787,9 @@ export async function syncMeasurementBusiness(
     }
 
     let recordsProcessed = 0;
+    let recordsInserted = 0;
+    let recordsUpdated = 0;
+    const toUpsert: any[] = [];
 
     // 데이터 준비
     const baseFields = [
@@ -1875,8 +1879,23 @@ export async function syncMeasurementBusiness(
     // 이미 로그에 추가된 코드를 추적
     const loggedCodes = new Set<string>();
 
+    // 날짜 비교를 위한 헬퍼 함수 정의
+    const toDateStr = (v: any) => {
+      if (!v) return "";
+      try {
+        const d = new Date(v);
+        if (isNaN(d.getTime())) return String(v).trim();
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      } catch {
+        return String(v).trim();
+      }
+    };
+
     allRows.forEach(row => {
-      if (!row.code || loggedCodes.has(row.code)) return;
+      if (!row.code) return;
 
       // 2) 정확한 code+year+period 매칭 (재업로드 시 이미 갱신된 데이터와 비교)
       const exactMatch = latestMeasurements.find(
@@ -1884,33 +1903,76 @@ export async function syncMeasurementBusiness(
       );
 
       if (exactMatch) {
-        const changes: string[] = [];
-        for (const field of compareFields) {
-          const newVal = String(row[field.key] ?? '').trim();
-          const oldVal = String(exactMatch[field.key] ?? '').trim();
-          if (newVal && newVal !== oldVal) {
-            changes.push(`${field.label}: ${oldVal || '(없음)'} -> ${newVal}`);
+        let hasChanges = false;
+        
+        // 엑셀 파싱 행의 필드들을 기준으로 기존 DB 값과 비교
+        for (const key of Object.keys(row)) {
+          if (key === "updated_at" || key === "created_at" || key === "is_registered") continue;
+
+          const newVal = row[key];
+          const oldVal = exactMatch[key];
+
+          const isNewEmpty = newVal === null || newVal === undefined || String(newVal).trim() === "";
+          const isOldEmpty = oldVal === null || oldVal === undefined || String(oldVal).trim() === "";
+          if (isNewEmpty && isOldEmpty) continue;
+
+          if (isNewEmpty !== isOldEmpty) {
+            hasChanges = true;
+            continue;
+          }
+
+          if (key.includes("date")) {
+            if (toDateStr(newVal) !== toDateStr(oldVal)) {
+              hasChanges = true;
+            }
+            continue;
+          }
+
+          if (String(newVal).trim() !== String(oldVal).trim()) {
+            hasChanges = true;
           }
         }
-        if (changes.length > 0) {
-          addChangeLog(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
-          loggedCodes.add(row.code);
+
+        // 로그 메시지 생성을 위한 핵심 필드 변경 비교
+        if (!loggedCodes.has(row.code)) {
+          const changes: string[] = [];
+          for (const field of compareFields) {
+            const newVal = String(row[field.key] ?? "").trim();
+            const oldVal = String(exactMatch[field.key] ?? "").trim();
+            if (newVal && newVal !== oldVal) {
+              changes.push(`${field.label}: ${oldVal || "(없음)"} -> ${newVal}`);
+            }
+          }
+          if (changes.length > 0) {
+            addChangeLog(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
+            loggedCodes.add(row.code);
+          }
         }
-      } else if (codeExistsInDB.has(row.code)) {
-        // code는 DB에 있지만 이 year/period는 없는 경우 → 신규가 아닌 새 주기 데이터
-        // 변경 로그에 추가하지 않음 (기존 코드의 새 주기)
+
+        if (hasChanges) {
+          toUpsert.push({ ...row, updated_at: now });
+          recordsUpdated++;
+        }
       } else {
-        // 해당 code가 DB에 아예 없을 때만 진짜 신규
-        addChangeLog(`[신규] ${row.business_name} (${row.code}) 측정 정보가 추가되었습니다.`);
-        loggedCodes.add(row.code);
+        // 일치하는 연도/주기가 없는 경우는 신규 측정 데이터
+        toUpsert.push({ ...row, updated_at: now });
+        recordsInserted++;
+
+        if (!loggedCodes.has(row.code)) {
+          if (!codeExistsInDB.has(row.code)) {
+            // 아예 신규 코드인 경우
+            addChangeLog(`[신규] ${row.business_name} (${row.code}) 측정 정보가 추가되었습니다.`);
+            loggedCodes.add(row.code);
+          }
+        }
       }
     });
 
-    // UPSERT 배치 처리 (1000개씩)
-    if (allRows.length > 0) {
+    // UPSERT 배치 처리 (1000개씩) - toUpsert가 있는 경우에만 기동
+    if (toUpsert.length > 0) {
       const upsertBatchSize = 100;
-      for (let i = 0; i < allRows.length; i += upsertBatchSize) {
-        const batch = allRows.slice(i, i + upsertBatchSize);
+      for (let i = 0; i < toUpsert.length; i += upsertBatchSize) {
+        const batch = toUpsert.slice(i, i + upsertBatchSize);
 
         // UPSERT: ON CONFLICT (code, year, period) DO UPDATE
         const { error: upsertError } = await supabase
@@ -1975,7 +2037,7 @@ export async function syncMeasurementBusiness(
 
     // measurement_target_business 테이블에도 동기화 (UI에 바로 반영되도록)
     // measurement_target_business는 "측정 대상 사업장 계획" 테이블로, 화면에 표시되는 데이터임
-    if (allRows.length > 0) {
+    if (toUpsert.length > 0) {
       try {
         // measurement_target_business 테이블에 맞는 필드만 추출
         const targetBusinessFields = [
@@ -1987,7 +2049,7 @@ export async function syncMeasurementBusiness(
           "industrial_accident_number", "commencement_number", "fax", "representative_name", "national_support_status"
         ];
 
-        targetRows = allRows.map(row => {
+        targetRows = toUpsert.map(row => {
           const targetRow: any = {};
           targetBusinessFields.forEach(field => {
             if (row[field] !== undefined) {
@@ -2211,8 +2273,8 @@ export async function syncMeasurementBusiness(
             sync_end_time: getKSTISOString(syncEndTime),
             status: "성공",
             records_processed: parsedData.length,
-            records_updated: recordsProcessed,
-            records_inserted: recordsProcessed,
+            records_updated: recordsUpdated,
+            records_inserted: recordsInserted,
             change_details: changeLog.length > 0 ? changeLog : null
           })
           .eq("id", logId);
@@ -2223,8 +2285,8 @@ export async function syncMeasurementBusiness(
       success: true,
       file_name: fileName,
       records_processed: parsedData.length,
-      records_inserted: recordsProcessed, // UPSERT라 정확한 구분 어려움
-      records_updated: recordsProcessed,
+      records_inserted: recordsInserted,
+      records_updated: recordsUpdated,
       change_log: changeLog,
     };
   } catch (error) {
