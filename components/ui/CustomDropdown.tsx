@@ -24,9 +24,23 @@ export const CustomDropdown: React.FC<CustomDropdownProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLUListElement>(null);
-  const activeItemRef = useRef<HTMLLIElement>(null);
+  const scrollTargetRef = useRef<HTMLLIElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value);
+
+  // 년도-주기 형식인 경우(예: 2026-하반기) 스크롤할 타겟 value 계산
+  const getScrollTargetValue = () => {
+    if (value && /^\d{4}-/.test(value)) {
+      const year = value.split("-")[0];
+      const targetVal = `${year}-상반기`;
+      if (options.some((opt) => opt.value === targetVal)) {
+        return targetVal;
+      }
+    }
+    return value;
+  };
+
+  const scrollTargetValue = getScrollTargetValue();
 
   // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
@@ -39,11 +53,10 @@ export const CustomDropdown: React.FC<CustomDropdownProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 드롭다운이 열릴 때 선택된 요소를 맨 위로 스크롤
+  // 드롭다운이 열릴 때 대상 요소를 맨 위로 스크롤
   useEffect(() => {
-    if (isOpen && activeItemRef.current && containerRef.current) {
-      // 선택된 항목의 offsetTop 위치로 컨테이너 스크롤 조정
-      containerRef.current.scrollTop = activeItemRef.current.offsetTop;
+    if (isOpen && scrollTargetRef.current && containerRef.current) {
+      containerRef.current.scrollTop = scrollTargetRef.current.offsetTop;
     }
   }, [isOpen]);
 
@@ -79,10 +92,11 @@ export const CustomDropdown: React.FC<CustomDropdownProps> = ({
         >
           {options.map((option) => {
             const isSelected = option.value === value;
+            const isScrollTarget = option.value === scrollTargetValue;
             return (
               <li
                 key={option.value}
-                ref={isSelected ? activeItemRef : null}
+                ref={isScrollTarget ? scrollTargetRef : null}
                 onClick={() => handleOptionClick(option.value)}
                 className={cn(
                   "px-4 py-2 text-sm text-left cursor-pointer select-none transition-colors duration-150",

@@ -9,7 +9,7 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function checkStatus() {
-  const names = ["정안레미콘", "(주)한마"];
+  const names = ["참존건설", "아이엘셀리온", "에스엠에이치"];
 
   for (const name of names) {
     console.log(`\n--- Checking: ${name} ---`);
@@ -31,7 +31,7 @@ async function checkStatus() {
     }
 
     for (const target of targets) {
-      console.log(`[Target] Code: ${target.code}, Name: ${target.business_name}, Year: ${target.year}, Period: ${target.period}, Registered: ${target.is_registered}`);
+      console.log(`[Target] Code: ${target.code}, Name: ${target.business_name}, Year: ${target.year}, Period: ${target.period}, Registered: ${target.is_registered}, Sync: ${target.sync_status}, NationalSupport: ${target.national_support_status}`);
       
       // 2. journal에서 조회 (보고서/계산서 상태 확인)
       const { data: journals, error: jError } = await supabase

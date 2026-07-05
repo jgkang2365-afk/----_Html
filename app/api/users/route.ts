@@ -25,19 +25,41 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient();
 
-    const { data: users, error } = await supabase
+    // 1차 조회 시도: is_national_support_manager 포함
+    const primaryQuery = await supabase
       .from("users")
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_active, created_at, updated_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_active, created_at, updated_at")
       .order("name", { ascending: true });
 
-    if (error) {
-      return NextResponse.json(
-        { error: "사용자 목록을 불러오는 중 오류가 발생했습니다." },
-        { status: 500 }
-      );
+    let finalUsers = [];
+
+    if (primaryQuery.error) {
+      console.warn("[API /api/users] is_national_support_manager 컬럼 부재로 fallback 조회 실행");
+      
+      // 2차 조회 시도: 해당 컬럼 제외 (레거시 대응)
+      const fallbackQuery = await supabase
+        .from("users")
+        .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_active, created_at, updated_at")
+        .order("name", { ascending: true });
+
+      if (fallbackQuery.error) {
+        console.error("[API /api/users] fallback 조회 오류:", fallbackQuery.error);
+        return NextResponse.json(
+          { error: "사용자 목록을 불러오는 중 오류가 발생했습니다." },
+          { status: 500 }
+        );
+      }
+      
+      // 누락된 권한 필드를 false로 보정
+      finalUsers = (fallbackQuery.data || []).map(u => ({
+        ...u,
+        is_national_support_manager: false
+      }));
+    } else {
+      finalUsers = primaryQuery.data || [];
     }
 
-    return NextResponse.json({ users: users || [] });
+    return NextResponse.json({ users: finalUsers });
   } catch (error) {
     console.error("Get users error:", error);
     return NextResponse.json(
@@ -64,7 +86,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, role, password, survey_code, job, mobile, email, is_journal_manager } = body;
+    const { name, role, password, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager } = body;
 
     if (!name || !role) {
       return NextResponse.json(
@@ -119,15 +141,20 @@ export async function POST(request: NextRequest) {
         mobile: mobile || null,
         email: email || null,
         is_journal_manager: !!is_journal_manager,
+        is_national_support_manager: !!is_national_support_manager,
         is_active: true,
       })
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_active, created_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_active, created_at")
       .single();
 
     if (insertError) {
       console.error("Insert error details:", insertError);
+      let errorMsg = insertError.message || "사용자 생성에 실패했습니다.";
+      if (insertError.message?.includes("is_national_support_manager") || insertError.message?.includes("column")) {
+        errorMsg = "사용자 생성 실패: '국고 일괄' 권한 컬럼이 데이터베이스에 없습니다. Supabase SQL Editor에서 마이그레이션(046_add_national_support_manager_to_users.sql)을 실행해주시기 바랍니다.";
+      }
       return NextResponse.json(
-        { error: insertError.message || "사용자 생성에 실패했습니다." },
+        { error: errorMsg },
         { status: 500 }
       );
     }

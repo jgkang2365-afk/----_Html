@@ -21,17 +21,34 @@ export async function getUser() {
 
     const supabase = getSupabase();
 
-    const { data: userData, error: userError } = await supabase
+    let userData;
+    
+    // 1차 조회 시도: is_national_support_manager 필드를 포함하여 조회
+    const primaryAttempt = await supabase
       .from("users")
-      .select("id, name, role, job, survey_code, k2b_id, is_journal_manager")
+      .select("id, name, role, job, survey_code, k2b_id, is_journal_manager, is_national_support_manager")
       .eq("id", session.userId)
       .limit(1)
       .maybeSingle();
 
-    if (userError) {
-      console.error("[getUser] 사용자 조회 오류:", userError);
-      console.error("[getUser] 세션 userId:", session.userId);
-      throw new Error(`사용자 조회 실패: ${userError.message || "알 수 없는 오류"}`);
+    if (primaryAttempt.error) {
+      console.warn("[getUser] is_national_support_manager가 없는 레거시 스키마 감지, fallback 조회 시도. 에러:", primaryAttempt.error.message);
+      
+      // 2차 조회 시도: 해당 컬럼을 빼고 조회 (레거시 대응)
+      const fallbackAttempt = await supabase
+        .from("users")
+        .select("id, name, role, job, survey_code, k2b_id, is_journal_manager")
+        .eq("id", session.userId)
+        .limit(1)
+        .maybeSingle();
+
+      if (fallbackAttempt.error) {
+        console.error("[getUser] fallback 사용자 조회 오류:", fallbackAttempt.error);
+        throw new Error(`사용자 조회 실패: ${fallbackAttempt.error.message || "알 수 없는 오류"}`);
+      }
+      userData = fallbackAttempt.data;
+    } else {
+      userData = primaryAttempt.data;
     }
 
     if (!userData) {
@@ -47,6 +64,7 @@ export async function getUser() {
       survey_code: userData.survey_code,
       k2b_id: userData.k2b_id,
       is_journal_manager: !!userData.is_journal_manager,
+      is_national_support_manager: !!(userData as any).is_national_support_manager,
     };
   } catch (error) {
     console.error("[getUser] 함수 오류:", error);

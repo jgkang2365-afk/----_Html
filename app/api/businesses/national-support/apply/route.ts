@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     // 중복 전송 방지를 위한 락(Lock) 확인 및 설정
     const { data: currentPlan, error: selectError } = await supabase
       .from("measurement_target_business")
-      .select("sync_status")
+      .select("sync_status, national_support_status")
       .eq("id", target_id)
       .single();
 
@@ -69,12 +69,71 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (currentPlan.national_support_status !== "대상") {
+      return NextResponse.json(
+        { error: "국고 지원 대상 사업장이 아닙니다." },
+        { status: 400 }
+      );
+    }
+
     if (currentPlan.sync_status === "신청중") {
       return NextResponse.json(
         { error: "이미 해당 사업장에 대한 자동 신청 작업이 기동되어 진행 중입니다." },
         { status: 400 }
       );
     }
+
+    // 기존 건강디딤돌 신청결과 테이블을 조회하여 결과 존재 시 즉시 동기화 처리
+    const { data: existingApp, error: appError } = await supabase
+      .from("national_support_application")
+      .select("national_support_status")
+      .eq("code", code)
+      .eq("year", parseInt(String(year)))
+      .eq("period", period)
+      .maybeSingle();
+
+    if (!appError && existingApp && (existingApp.national_support_status === "대상" || existingApp.national_support_status === "비대상")) {
+      const dbStatus = existingApp.national_support_status;
+
+      // 계획 테이블(measurement_target_business) 즉시 성공 처리 및 상태 업데이트
+      const { error: errTarget } = await supabase
+        .from("measurement_target_business")
+        .update({
+          sync_status: "성공",
+          sync_error_message: null,
+          national_support_status: dbStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", target_id);
+
+      if (errTarget) {
+        console.error("즉시 동기화 계획 테이블 업데이트 실패:", errTarget);
+      }
+
+      // 마스터 테이블(measurement_business) 국고지원 상태 업데이트
+      try {
+        const { error: errMaster } = await supabase
+          .from("measurement_business")
+          .update({
+            national_support_status: dbStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("code", code);
+        if (errMaster) {
+          console.error(`즉시 동기화 마스터 테이블 업데이트 실패 (code: ${code}):`, errMaster.message);
+        }
+      } catch (mbErr) {
+        console.error(`즉시 동기화 마스터 테이블 업데이트 중 예외 발생 (code: ${code}):`, mbErr);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `기존 건강디딤돌 신청결과(${dbStatus})가 즉시 반영되었습니다.`,
+        instantSync: true,
+        status: dbStatus,
+      });
+    }
+
 
     // 락 적용: sync_status를 '신청중'으로 변경하고 에러 메시지 초기화
     const { error: lockError } = await supabase
@@ -176,10 +235,12 @@ async function runApplyCrawler(params: {
 
   crawler.stdout.on("data", (data) => {
     stdoutData += data.toString();
+    console.log("[Python Stdout]", data.toString().trim());
   });
 
   crawler.stderr.on("data", (data) => {
     stderrData += data.toString();
+    console.error("[Python Stderr]", data.toString().trim());
   });
 
   crawler.on("close", async (exitCode) => {

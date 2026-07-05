@@ -103,7 +103,7 @@ def main():
         print_log("조회 버튼 클릭")
         search_button = driver.find_element(By.XPATH, '//*[@id="contents"]/article/div[1]/button')
         search_button.click()
-        time.sleep(2)
+        time.sleep(4) # 네트워크 딜레이 및 동시 요청 시 결과 갱신 지연 방지를 위해 대기 시간 연장
 
         # 5. 결과 대기 및 파싱
         print_log("결과 테이블 대기 및 파싱 중...")

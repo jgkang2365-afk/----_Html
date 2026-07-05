@@ -8,7 +8,7 @@ async function checkColumns() {
     const supabase = await createClient();
     
     const { data, error } = await supabase
-      .from("business_info")
+      .from("measurement_target_business")
       .select("*")
       .limit(1);
 

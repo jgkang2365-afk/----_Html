@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/Table";
 import { toShortName } from "@/lib/constants/designated-offices";
 import * as XLSX from "xlsx";
+import { useUser } from "@/hooks/use-user";
 
 interface BusinessEntry {
     id: string | number;
@@ -127,11 +128,125 @@ const generateYearPeriodOptions = () => {
 const YEAR_PERIOD_OPTIONS = generateYearPeriodOptions();
 
 export const MeasurementTargetBusinessManagement: React.FC = () => {
+    const { user } = useUser();
+    const isAdmin = user?.role === "관리자";
     const [loading, setLoading] = useState(false);
 
     // Data State
     const [data, setData] = useState<BusinessEntry[]>([]);
     const [filteredData, setFilteredData] = useState<BusinessEntry[]>([]);
+
+    // 국고 일괄 조회를 위한 상태 정의
+    const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+    const [bulkTotal, setBulkTotal] = useState(0);
+    const [bulkProcessed, setBulkProcessed] = useState(0);
+    const [bulkSuccessCount, setBulkSuccessCount] = useState(0);
+    const [bulkCrawlerCount, setBulkCrawlerCount] = useState(0);
+    const [bulkFailedCount, setBulkFailedCount] = useState(0);
+    const [showBulkModal, setShowBulkModal] = useState(false);
+    const [bulkLogs, setBulkLogs] = useState<string[]>([]);
+
+    // 국고 일괄 조회 실행 핸들러
+    const handleBulkCheckResult = async () => {
+        if (isBulkProcessing) return;
+
+        // 현재 화면 목록 중 조회 가능한 대상 필터링
+        const targets = filteredData.filter((item) => {
+            const sanjaeVal = item.industrial_accident_number || item.sanjae;
+            const commencementVal = item.commencement_number || item.commencement;
+            const representativeVal = item.representative_name;
+            const isCompleted = item.sync_status === "성공";
+            const isPending = item.sync_status === "신청중" || item.sync_status === "조회중";
+            const isSusi = item.period && item.period.includes("(수시)");
+
+            return item.national_support_status === "대상" && sanjaeVal && commencementVal && representativeVal && !isCompleted && !isPending && !isSusi;
+        });
+
+        if (targets.length === 0) {
+            alert("일괄 조회할 수 있는 미완료 대상 사업장이 없습니다. (필수 정보 입력 상태 및 조회 완료 여부를 확인해주세요)");
+            return;
+        }
+
+        const confirmMsg = `현재 목록의 미완료 대상 ${targets.length}건에 대해 국고 일괄 조회를 시작하시겠습니까?\n\n(건강디딤돌 신청결과가 디비에 있는 항목은 즉시 반영되고, 매칭 결과가 없으면 백그라운드 크롤러가 구동됩니다)`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        setIsBulkProcessing(true);
+        setBulkTotal(targets.length);
+        setBulkProcessed(0);
+        setBulkSuccessCount(0);
+        setBulkCrawlerCount(0);
+        setBulkFailedCount(0);
+        setBulkLogs([`[시작] 총 ${targets.length}건에 대한 국고 일괄 처리를 시작합니다.`]);
+        setShowBulkModal(true);
+
+        // 동시 처리 제한 (동시 최대 2개씩 순차 처리)
+        const limit = 2;
+        let currentIndex = 0;
+
+        const runNext = async () => {
+            if (currentIndex >= targets.length) return;
+            const item = targets[currentIndex++];
+
+            try {
+                // 낙관적 업데이트
+                setData((prev) => prev.map((d) => d.id === item.id ? { ...d, sync_status: "신청중", sync_error_message: null } : d));
+
+                const res = await fetch("/api/businesses/national-support/apply", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        target_id: item.id,
+                        sanjae: item.industrial_accident_number || item.sanjae,
+                        commencement: item.commencement_number || item.commencement,
+                        representative: item.representative_name,
+                        contact_name: item.manager_name || "담당자",
+                        contact_phone: item.manager_mobile || "010-0000-0000",
+                        period: item.period,
+                        code: item.code,
+                        year: item.year
+                    })
+                });
+
+                const resJson = await res.json();
+                if (res.ok) {
+                    if (resJson.instantSync) {
+                        setBulkSuccessCount((prev) => prev + 1);
+                        setBulkLogs((prev) => [`[즉시반영] ${item.business_name}: 기존 결과 매핑 완료`, ...prev]);
+                        setData((prev) => prev.map((d) => d.id === item.id ? { ...d, sync_status: "성공", national_support_status: resJson.status } : d));
+                    } else {
+                        setBulkCrawlerCount((prev) => prev + 1);
+                        setBulkLogs((prev) => [`[백그라운드 기동] ${item.business_name}: 공단 조회 기동`, ...prev]);
+                    }
+                } else {
+                    setBulkFailedCount((prev) => prev + 1);
+                    setBulkLogs((prev) => [`[조회 실패] ${item.business_name}: ${resJson.error || "알 수 없는 오류"}`, ...prev]);
+                    setData((prev) => prev.map((d) => d.id === item.id ? { ...d, sync_status: "실패", sync_error_message: resJson.error } : d));
+                }
+            } catch (err: any) {
+                setBulkFailedCount((prev) => prev + 1);
+                setBulkLogs((prev) => [`[네트워크 오류] ${item.business_name}: ${err.message || "연결 오류"}`, ...prev]);
+                setData((prev) => prev.map((d) => d.id === item.id ? { ...d, sync_status: "실패", sync_error_message: "연결 오류" } : d));
+            } finally {
+                setBulkProcessed((prev) => prev + 1);
+                // 공단 부하 방지를 위해 각 호출 사이 500ms의 대기 시간 부여
+                await new Promise((resolve) => setTimeout(resolve, 500));
+                await runNext();
+            }
+        };
+
+        const workers = [];
+        for (let i = 0; i < Math.min(limit, targets.length); i++) {
+            workers.push(runNext());
+        }
+        await Promise.all(workers);
+
+        setBulkLogs((prev) => [`[완료] 국고 일괄 처리가 최종 종료되었습니다.`, ...prev]);
+        alert("국고 일괄 처리가 완료되었습니다.");
+        setIsBulkProcessing(false);
+        fetchData();
+    };
     const [measurers, setMeasurers] = useState<User[]>([]); // 측정자 목록
     const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
 
@@ -592,16 +707,21 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 })
             });
 
+            const resData = await response.json();
+
             if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.error || "결과 확인 요청 실패");
+                throw new Error(resData.error || "결과 확인 요청 실패");
             }
 
-            alert("공단 사이트 결과 조회가 백그라운드에서 기동되었습니다. 잠시 후 목록이 자동으로 새로고침됩니다.");
-            
-            setTimeout(() => {
+            if (resData.instantSync) {
+                alert(resData.message || "건강디딤돌 신청결과가 즉시 반영되었습니다.");
                 fetchData();
-            }, 4000);
+            } else {
+                alert("공단 사이트 결과 조회가 백그라운드에서 기동되었습니다. 잠시 후 목록이 자동으로 새로고침됩니다.");
+                setTimeout(() => {
+                    fetchData();
+                }, 4000);
+            }
 
         } catch (error) {
             console.error("Check result error:", error);
@@ -967,11 +1087,26 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     </div>
 
                     {/* Grid Header Row */}
-                    <div className="bg-sky-100 font-bold text-sm text-black grid items-center text-center border-x border-t border-slate-200 border-b-2 border-sky-200 pointer-events-none" style={{ gridTemplateColumns: gridTemplateCols }}>
+                    <div className="bg-sky-100 font-bold text-sm text-black grid items-center text-center border-x border-t border-slate-200 border-b-2 border-sky-200" style={{ gridTemplateColumns: gridTemplateCols }}>
                         <div className="py-3 text-center">No</div>
                         <div className="py-3">주기</div>
                         <div className="py-3">실시여부</div>
-                        <div className="py-3">국고</div>
+                        <div className="py-3 flex items-center justify-center gap-1">
+                            <span>국고</span>
+                            {user?.is_national_support_manager && (
+                                <button
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleBulkCheckResult();
+                                    }}
+                                    className="p-0.5 hover:bg-sky-200 rounded text-blue-600 font-bold pointer-events-auto cursor-pointer"
+                                    title="현재 목록 국고 일괄 조회 실행"
+                                >
+                                    ⚙️
+                                </button>
+                            )}
+                        </div>
                         <div className="py-3">계획담당</div>
                         <div className="py-3 px-2">업종분류</div>
                         <div className="py-3 px-2 text-left pl-4">사업장명</div>
@@ -1038,7 +1173,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         </select>
                                     </div>
                                 <div className="text-center text-xs px-1 flex items-center justify-center gap-1.5">
-                                    <span className={item.sync_status === "성공" ? "text-green-600 font-semibold" : ""}>{item.national_support_status || "-"}{item.sync_status === "성공" && " ✅"}</span>
+                                    <span className={item.sync_status === "성공" && item.national_support_status === "대상" ? "text-green-600 font-semibold" : ""}>
+                                        {item.national_support_status || "-"}
+                                        {item.sync_status === "성공" && item.national_support_status === "대상" && " ✅"}
+                                    </span>
                                     {(item.sync_status === "신청중" || item.sync_status === "조회중") && (
                                         <span className="inline-flex items-center text-[10px] bg-blue-100 text-blue-800 px-1 rounded animate-pulse" title="결과 조회 진행 중...">
                                             🔄
@@ -1887,6 +2025,81 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 </div>
                 <div className="bg-white p-4 rounded-b-lg border-t flex justify-end">
                     <Button onClick={() => setIsUnpaidModalOpen(false)} variant="secondary">닫기</Button>
+                </div>
+            </Modal>
+
+            {/* 국고 일괄 진행 현황 모달 */}
+            <Modal
+                isOpen={showBulkModal}
+                onClose={() => {
+                    if (isBulkProcessing) {
+                        if (!confirm("현재 일괄 조회가 진행 중입니다. 정말 닫으시겠습니까?\n(창을 닫아도 백엔드 요청은 계속 진행될 수 있습니다)")) {
+                            return;
+                        }
+                    }
+                    setShowBulkModal(false);
+                }}
+                title="국고 일괄 처리 진행 현황"
+            >
+                <div className="space-y-4">
+                    <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                        <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                            <div className="text-slate-500 font-medium">전체 대상</div>
+                            <div className="text-lg font-bold text-text-900 mt-1">{bulkTotal}건</div>
+                        </div>
+                        <div className="bg-green-50 p-2 rounded border border-green-100">
+                            <div className="text-green-600 font-medium">즉시 반영</div>
+                            <div className="text-lg font-bold text-green-700 mt-1">{bulkSuccessCount}건</div>
+                        </div>
+                        <div className="bg-blue-50 p-2 rounded border border-blue-100">
+                            <div className="text-blue-600 font-medium">조회 기동</div>
+                            <div className="text-lg font-bold text-blue-700 mt-1">{bulkCrawlerCount}건</div>
+                        </div>
+                        <div className="bg-red-50 p-2 rounded border border-red-100">
+                            <div className="text-red-600 font-medium">실패 건</div>
+                            <div className="text-lg font-bold text-red-700 mt-1">{bulkFailedCount}건</div>
+                        </div>
+                    </div>
+
+                    {/* 프로그레스 바 */}
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-slate-500 font-medium">
+                            <span>진행률</span>
+                            <span>{bulkProcessed} / {bulkTotal} 건 ({bulkTotal > 0 ? Math.round((bulkProcessed / bulkTotal) * 100) : 0}%)</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-3.5 overflow-hidden">
+                            <div
+                                className="bg-primary-600 h-3.5 rounded-full transition-all duration-300"
+                                style={{ width: `${bulkTotal > 0 ? (bulkProcessed / bulkTotal) * 100 : 0}%` }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* 진행 로그 창 */}
+                    <div className="space-y-1">
+                        <label className="block text-xs font-bold text-slate-500">실시간 처리 로그</label>
+                        <div className="h-48 overflow-y-auto border border-slate-200 rounded p-2.5 bg-slate-900 text-slate-200 text-xs font-mono space-y-1 custom-scrollbar">
+                            {bulkLogs.map((log, idx) => (
+                                <div key={idx} className={
+                                    log.includes("[즉시반영]") ? "text-green-400" :
+                                    log.includes("[백그라운드 기동]") ? "text-blue-400" :
+                                    log.includes("[조회 실패]") || log.includes("[네트워크 오류]") ? "text-red-400" : "text-slate-300"
+                                }>
+                                    {log}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowBulkModal(false)}
+                            disabled={isBulkProcessing}
+                        >
+                            닫기
+                        </Button>
+                    </div>
                 </div>
             </Modal>
         </div >
