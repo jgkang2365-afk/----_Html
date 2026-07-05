@@ -162,8 +162,8 @@ export async function verifyDataConsistency(externalSupabaseClient?: SupabaseCli
             const current = businessInfoMap.get(code);
             const businessName = latest.business_name || "";
 
-            // [규칙] "번외"가 포함된 사업장은 검증 대상에서 제외
-            if (businessName.includes("번외")) {
+            // [규칙] "번외" 또는 "별지"가 포함된 사업장은 검증 대상에서 제외
+            if (businessName.includes("번외") || businessName.includes("별지") || (current && (current.business_name || "").includes("별지"))) {
                 continue;
             }
 

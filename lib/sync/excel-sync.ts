@@ -883,6 +883,35 @@ export async function syncBusinessInfo(
   try {
     const supabase = externalSupabaseClient || await createClient();
 
+    // 이전 성공 로그의 change_details 가져오기 (중복 메시지 필터링용)
+    let previousChangeDetails: string[] = [];
+    try {
+      const { data: prevLog, error: prevLogError } = await supabase
+        .from("sync_log")
+        .select("change_details")
+        .eq("sync_type", "사업장정보")
+        .eq("status", "성공")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      
+      if (!prevLogError && prevLog && prevLog.length > 0 && Array.isArray(prevLog[0].change_details)) {
+        previousChangeDetails = prevLog[0].change_details as string[];
+      }
+    } catch (prevErr) {
+      console.warn("이전 동기화 로그 조회 실패:", prevErr);
+    }
+
+    const addChangeLog = (message: string) => {
+      // 이전 성공 로그에 완전히 동일한 메시지가 기록되어 있다면 중복으로 간주하고 추가하지 않음
+      if (previousChangeDetails.includes(message)) {
+        return;
+      }
+      // 현재 세션 내에서의 중복도 방지
+      if (!changeLog.includes(message)) {
+        changeLog.push(message);
+      }
+    };
+
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let excelData: any[];
     let targetPath: string | Buffer | undefined = filePath;
@@ -1115,9 +1144,13 @@ export async function syncBusinessInfo(
         parsedData.forEach(row => {
           const latestMeasurement = measurementMap.get(row.code);
           if (latestMeasurement) {
+            // "별지" 텍스트가 정보테이블 또는 측정테이블 최신 사업장명에 포함되어 있으면 비교 대상에서 제외
+            if (row.business_name.includes("별지") || latestMeasurement.business_name.includes("별지")) {
+              return;
+            }
             // 공백 제거 후 비교 (단순 띄어쓰기 차이 무시 옵션이 필요할 수도 있으나, 여기선 엄격 비교 후 로깅)
             if (row.business_name !== latestMeasurement.business_name) {
-              changeLog.push(`[데이터 불일치] 코드 ${row.code}: (정보테이블) ${row.business_name} vs (측정테이블 최신) ${latestMeasurement.business_name}`);
+              addChangeLog(`[데이터 불일치] 코드 ${row.code}: (정보테이블) ${row.business_name} vs (측정테이블 최신) ${latestMeasurement.business_name}`);
             }
           }
         });
@@ -1152,28 +1185,83 @@ export async function syncBusinessInfo(
       };
 
       if (existingCodesSet.has(row.code)) {
-        toUpdate.push(rowWithTimestamp);
-
-        // [LOGGING] 핵심 필드 변경 사항만 비교
         const existing = existingDataMap.get(row.code);
-        if (existing) {
-          const changes: string[] = [];
+        let hasChanges = false;
+        const changes: string[] = [];
 
+        if (existing) {
+          // 날짜 비교를 위한 헬퍼 함수 정의
+          const toDateStr = (v: any) => {
+            if (!v) return "";
+            try {
+              const d = new Date(v);
+              if (isNaN(d.getTime())) return String(v).trim();
+              const year = d.getFullYear();
+              const month = String(d.getMonth() + 1).padStart(2, '0');
+              const day = String(d.getDate()).padStart(2, '0');
+              return `${year}-${month}-${day}`;
+            } catch {
+              return String(v).trim();
+            }
+          };
+
+          // 엑셀 파싱 행의 필드들을 기준으로 기존 DB 값과 비교
+          for (const key of Object.keys(row)) {
+            if (key === "updated_at" || key === "created_at") continue;
+
+            const newVal = row[key];
+            const oldVal = existing[key];
+
+            // 둘 다 비어 있는 상태인 경우 동일한 것으로 간주
+            const isNewEmpty = newVal === null || newVal === undefined || String(newVal).trim() === "";
+            const isOldEmpty = oldVal === null || oldVal === undefined || String(oldVal).trim() === "";
+            if (isNewEmpty && isOldEmpty) {
+              continue;
+            }
+
+            // 한쪽만 비어 있는 경우 변경된 것으로 간주
+            if (isNewEmpty !== isOldEmpty) {
+              hasChanges = true;
+              continue;
+            }
+
+            // 날짜 형식 필드의 경우 정규화하여 비교
+            if (key.includes("date")) {
+              if (toDateStr(newVal) !== toDateStr(oldVal)) {
+                hasChanges = true;
+              }
+              continue;
+            }
+
+            // 일반 필드는 문자열 변환 및 공백 제거 후 비교
+            if (String(newVal).trim() !== String(oldVal).trim()) {
+              hasChanges = true;
+            }
+          }
+
+          // 핵심 필드 변경 내역에 대한 로그 메시지 생성
           for (const field of compareFields) {
-            const newVal = String(row[field.key] ?? '').trim();
-            const oldVal = String(existing[field.key] ?? '').trim();
+            const newVal = String(row[field.key] ?? "").trim();
+            const oldVal = String(existing[field.key] ?? "").trim();
             if (newVal && newVal !== oldVal) {
-              changes.push(`${field.label}: (기존)${oldVal || '(없음)'} -> (변경)${newVal}`);
+              changes.push(`${field.label}: (기존)${oldVal || "(없음)"} -> (변경)${newVal}`);
             }
           }
 
           if (changes.length > 0) {
-            changeLog.push(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
+            addChangeLog(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
           }
+        } else {
+          // 기존 데이터 매핑에 없는 경우 변경이 발생한 것으로 처리
+          hasChanges = true;
+        }
+
+        if (hasChanges) {
+          toUpdate.push(rowWithTimestamp);
         }
       } else {
         toInsert.push(row);
-        changeLog.push(`[신규] ${row.business_name} (${row.code}) 사업장이 추가되었습니다.`);
+        addChangeLog(`[신규] ${row.business_name} (${row.code}) 사업장이 추가되었습니다.`);
       }
     });
 
@@ -1182,7 +1270,7 @@ export async function syncBusinessInfo(
       if (!newCodesSet.has(existingCode)) {
         const existing = existingDataMap.get(existingCode);
         const name = existing?.business_name || existingCode;
-        changeLog.push(`[삭제] ${name} (${existingCode}) 코드가 엑셀에서 삭제되었습니다.`);
+        addChangeLog(`[삭제] ${name} (${existingCode}) 코드가 엑셀에서 삭제되었습니다.`);
       }
     }
 
@@ -1293,19 +1381,28 @@ export async function syncBusinessInfo(
 
     const syncEndTime = new Date(getKSTISOString());
 
-    // 동기화 로그 업데이트
+    // 동기화 로그 업데이트 및 변경 사항 없는 경우 삭제
     if (logId) {
-      await supabase
-        .from("sync_log")
-        .update({
-          sync_end_time: getKSTISOString(syncEndTime),
-          status: "성공",
-          records_processed: parsedData.length,
-          records_updated: recordsUpdated,
-          records_inserted: recordsInserted,
-          change_details: changeLog.length > 0 ? changeLog : null // JSONB로 저장 (Supabase가 자동 변환)
-        })
-        .eq("id", logId);
+      if (changeLog.length === 0) {
+        // 변경 사항이 없으면 불필요한 로그 생성을 방지하기 위해 생성했던 로그 삭제
+        await supabase
+          .from("sync_log")
+          .delete()
+          .eq("id", logId);
+        console.log(`[사업장정보 동기화] 변경 사항이 없어 동기화 로그(ID: ${logId})를 삭제했습니다.`);
+      } else {
+        await supabase
+          .from("sync_log")
+          .update({
+            sync_end_time: getKSTISOString(syncEndTime),
+            status: "성공",
+            records_processed: parsedData.length,
+            records_updated: recordsUpdated,
+            records_inserted: recordsInserted,
+            change_details: changeLog.length > 0 ? changeLog : null
+          })
+          .eq("id", logId);
+      }
     }
 
     return {
@@ -1372,6 +1469,35 @@ export async function syncMeasurementBusiness(
 
   try {
     const supabase = externalSupabaseClient || await createClient();
+
+    // 이전 성공 로그의 change_details 가져오기 (중복 메시지 필터링용)
+    let previousChangeDetails: string[] = [];
+    try {
+      const { data: prevLog, error: prevLogError } = await supabase
+        .from("sync_log")
+        .select("change_details")
+        .eq("sync_type", "측정사업장")
+        .eq("status", "성공")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      
+      if (!prevLogError && prevLog && prevLog.length > 0 && prevLog[0].change_details) {
+        previousChangeDetails = prevLog[0].change_details as string[];
+      }
+    } catch (prevErr) {
+      console.warn("이전 동기화 로그 조회 실패:", prevErr);
+    }
+
+    const addChangeLog = (message: string) => {
+      // 이전 성공 로그에 완전히 동일한 메시지가 기록되어 있다면 중복으로 간주하고 추가하지 않음
+      if (previousChangeDetails.includes(message)) {
+        return;
+      }
+      // 현재 세션 내에서의 중복도 방지
+      if (!changeLog.includes(message)) {
+        changeLog.push(message);
+      }
+    };
 
     // [New] 유효 업종분류 목록 미리 조회 (동적 검증용)
     const { data: catData } = await supabase.from("business_category").select("name");
@@ -1767,7 +1893,7 @@ export async function syncMeasurementBusiness(
           }
         }
         if (changes.length > 0) {
-          changeLog.push(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
+          addChangeLog(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
           loggedCodes.add(row.code);
         }
       } else if (codeExistsInDB.has(row.code)) {
@@ -1775,7 +1901,7 @@ export async function syncMeasurementBusiness(
         // 변경 로그에 추가하지 않음 (기존 코드의 새 주기)
       } else {
         // 해당 code가 DB에 아예 없을 때만 진짜 신규
-        changeLog.push(`[신규] ${row.business_name} (${row.code}) 측정 정보가 추가되었습니다.`);
+        addChangeLog(`[신규] ${row.business_name} (${row.code}) 측정 정보가 추가되었습니다.`);
         loggedCodes.add(row.code);
       }
     });
@@ -2069,19 +2195,28 @@ export async function syncMeasurementBusiness(
       console.error("[MES 연동 알림] 알림 감지 중 예외 발생:", notiErr.message);
     }
 
-    // 동기화 로그 업데이트
+    // 동기화 로그 업데이트 및 변경 사항 없는 경우 삭제
     if (logId) {
-      await supabase
-        .from("sync_log")
-        .update({
-          sync_end_time: getKSTISOString(syncEndTime),
-          status: "성공",
-          records_processed: parsedData.length,
-          records_updated: recordsProcessed, // UPSERT는 INSERT와 UPDATE를 모두 포함
-          records_inserted: recordsProcessed,
-          change_details: changeLog.length > 0 ? changeLog : null // JSONB로 저장
-        })
-        .eq("id", logId);
+      if (changeLog.length === 0) {
+        // 변경 사항이 없으면 불필요한 로그 생성을 방지하기 위해 생성했던 로그 삭제
+        await supabase
+          .from("sync_log")
+          .delete()
+          .eq("id", logId);
+        console.log(`[측정사업장 동기화] 변경 사항이 없어 동기화 로그(ID: ${logId})를 삭제했습니다.`);
+      } else {
+        await supabase
+          .from("sync_log")
+          .update({
+            sync_end_time: getKSTISOString(syncEndTime),
+            status: "성공",
+            records_processed: parsedData.length,
+            records_updated: recordsProcessed,
+            records_inserted: recordsProcessed,
+            change_details: changeLog.length > 0 ? changeLog : null
+          })
+          .eq("id", logId);
+      }
     }
 
     return {
