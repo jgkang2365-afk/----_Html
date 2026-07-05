@@ -10,6 +10,7 @@ import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
+import { getDynamicEmailFontSize, splitEmails } from "@/lib/utils/email-utils";
 import { formatBusinessNumber, parseBusinessNumber, isValidDigitCount } from "@/lib/utils/business-number";
 import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
@@ -174,9 +175,17 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // K2B 정보
     k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
     k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
-    invoice_email: entry.invoice_email || "",
+    invoice_email: (() => {
+      const email = entry.invoice_email || "";
+      const parts = splitEmails(email);
+      return parts.length > 0 ? parts[0] : email;
+    })(),
     electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
-    invoice_email_2: entry.invoice_email_2 || "",
+    invoice_email_2: (() => {
+      const email = entry.invoice_email || "";
+      const parts = splitEmails(email);
+      return parts.length > 1 ? parts[1] : (entry.invoice_email_2 || "");
+    })(),
     electronic_invoice_date_2: normalizeDateForInput(entry.electronic_invoice_date_2),
 
     // 측정비 정보
@@ -403,8 +412,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 if (ref.business_category) {
                   updated.business_category = ref.business_category;
                 }
-                if (ref.invoice_email) updated.invoice_email = ref.invoice_email;
-                if (ref.invoice_email_2) updated.invoice_email_2 = ref.invoice_email_2;
+                if (ref.invoice_email) {
+                  const parts = splitEmails(ref.invoice_email);
+                  updated.invoice_email = parts.length > 0 ? parts[0] : ref.invoice_email;
+                  updated.invoice_email_2 = parts.length > 1 ? parts[1] : (ref.invoice_email_2 || updated.invoice_email_2 || "");
+                } else if (ref.invoice_email_2) {
+                  updated.invoice_email_2 = ref.invoice_email_2;
+                }
                 if (ref.representative_name) updated.representative_name = ref.representative_name;
                 if (ref.phone) updated.phone = ref.phone;
                 if (ref.fax) updated.fax = ref.fax;
@@ -414,6 +428,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
               // 직전 측정일지 데이터 (과거 이력 - 빈 필드 채우기용)
               if (data.previousData) {
+                 const prevInvoiceEmail = data.previousData.invoice_email || "";
+                 const prevInvoiceEmailParts = splitEmails(prevInvoiceEmail);
+                 updated.invoice_email = updated.invoice_email || (prevInvoiceEmailParts.length > 0 ? prevInvoiceEmailParts[0] : prevInvoiceEmail);
+                 updated.invoice_email_2 = updated.invoice_email_2 || (prevInvoiceEmailParts.length > 1 ? prevInvoiceEmailParts[1] : (data.previousData.invoice_email_2 || ""));
+                
                 let pName = data.previousData.manager_name || "";
                 let pPosition = data.previousData.manager_position || "";
 
@@ -441,8 +460,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                  const pEmailParts = (updated.manager_email || "").split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
                  updated.manager_email_1 = pEmailParts[0] || "";
                  updated.manager_email_2 = pEmailParts[1] || "";
-                updated.invoice_email = updated.invoice_email || data.previousData.invoice_email || "";
-                updated.invoice_email_2 = updated.invoice_email_2 || data.previousData.invoice_email_2 || "";
+
                 updated.measurer = updated.measurer || data.previousData.measurer || "";
                 
                 if (!updated.industrial_accident_number && data.previousData.industrial_accident_number) {
@@ -938,9 +956,17 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       // K2B 정보
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
       k2b_sender: entry.k2b_sender || "",
-      invoice_email: entry.invoice_email || "",
+      invoice_email: (() => {
+        const email = entry.invoice_email || "";
+        const parts = splitEmails(email);
+        return parts.length > 0 ? parts[0] : email;
+      })(),
       electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
-      invoice_email_2: entry.invoice_email_2 || "",
+      invoice_email_2: (() => {
+        const email = entry.invoice_email || "";
+        const parts = splitEmails(email);
+        return parts.length > 1 ? parts[1] : (entry.invoice_email_2 || "");
+      })(),
       electronic_invoice_date_2: normalizeDateForInput(entry.electronic_invoice_date_2),
 
       // 측정비 정보
@@ -2215,6 +2241,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               value={formData.manager_email_1}
               onChange={(e) => {
                 const val = e.target.value;
+                if (val.includes(",") || val.includes(";")) {
+                  const parts = splitEmails(val);
+                  if (parts.length > 0) {
+                    setFormData({
+                      ...formData,
+                      manager_email_1: parts[0],
+                      manager_email_2: parts[1] || formData.manager_email_2 || "",
+                      manager_email: [parts[0], parts[1] || formData.manager_email_2].filter(Boolean).join(", ")
+                    });
+                    return;
+                  }
+                }
                 setFormData({
                   ...formData,
                   manager_email_1: val,
@@ -2224,7 +2262,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               onBlur={(e) => {
                 const value = e.target.value;
                 if (value.includes(",") || value.includes(";")) {
-                  const parts = value.split(/[,;]/).map(email => email.trim()).filter(Boolean);
+                  const parts = splitEmails(value);
                   if (parts.length > 0) {
                     setFormData({
                       ...formData,
@@ -2236,6 +2274,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 }
               }}
               className="email-mono-font"
+              style={{ fontSize: getDynamicEmailFontSize(formData.manager_email_1) }}
             />
             {previousEmails.manager_email && (() => {
               const parts = previousEmails.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
@@ -2260,6 +2299,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 });
               }}
               className="email-mono-font"
+              style={{ fontSize: getDynamicEmailFontSize(formData.manager_email_2) }}
             />
             {previousEmails.manager_email && (() => {
               const parts = previousEmails.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
@@ -2275,13 +2315,25 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               label="계산서 메일(1)"
               type="text"
               value={formData.invoice_email}
-              onChange={(e) =>
-                setFormData({ ...formData, invoice_email: e.target.value })
-              }
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val.includes(",") || val.includes(";")) {
+                  const parts = splitEmails(val);
+                  if (parts.length > 0) {
+                    setFormData({
+                      ...formData,
+                      invoice_email: parts[0],
+                      invoice_email_2: parts[1] || formData.invoice_email_2 || ""
+                    });
+                    return;
+                  }
+                }
+                setFormData({ ...formData, invoice_email: val });
+              }}
               onBlur={(e) => {
                 const value = e.target.value;
                 if (value.includes(",") || value.includes(";")) {
-                  const parts = value.split(/[,;]/).map(email => email.trim()).filter(Boolean);
+                  const parts = splitEmails(value);
                   if (parts.length > 0) {
                     setFormData({
                       ...formData,
@@ -2292,6 +2344,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 }
               }}
               className="email-mono-font"
+              style={{ fontSize: getDynamicEmailFontSize(formData.invoice_email) }}
             />
             {previousEmails.invoice_email && (
               <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email}`}>
@@ -2308,6 +2361,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 setFormData({ ...formData, invoice_email_2: e.target.value })
               }
               className="email-mono-font"
+              style={{ fontSize: getDynamicEmailFontSize(formData.invoice_email_2) }}
             />
             {previousEmails.invoice_email_2 && (
               <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email_2}`}>

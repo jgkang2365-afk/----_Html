@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
+import { getDynamicEmailFontSize, splitEmails } from "@/lib/utils/email-utils";
 
 
 // 금액 포맷팅 함수 (천단위 콤마)
@@ -309,8 +310,16 @@ export const SummaryTable: React.FC = () => {
         }
         return "";
       })(),
-      invoice_email: entry.invoice_email || "",
-      invoice_email_2: entry.invoice_email_2 || "",
+      invoice_email: (() => {
+        const email = entry.invoice_email || "";
+        const parts = splitEmails(email);
+        return parts.length > 0 ? parts[0] : email;
+      })(),
+      invoice_email_2: (() => {
+        const email = entry.invoice_email || "";
+        const parts = splitEmails(email);
+        return parts.length > 1 ? parts[1] : (entry.invoice_email_2 || "");
+      })(),
       electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
       commencement_number: entry.commencement_number || "",
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
@@ -807,10 +816,8 @@ export const SummaryTable: React.FC = () => {
                   <div className="grid grid-cols-4 gap-3 md:gap-4 mt-2">
                     {(() => {
                       const email = entry.manager_email || "";
-                      const parts = (email.includes(",") || email.includes(";"))
-                        ? email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean)
-                        : [email];
-                      const m1 = parts[0] || "";
+                      const parts = splitEmails(email);
+                      const m1 = parts[0] || email;
                       const m2 = parts[1] || "";
                       return (
                         <>
@@ -821,6 +828,7 @@ export const SummaryTable: React.FC = () => {
                             <Input
                               className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
                               value={m1}
+                              style={{ fontSize: getDynamicEmailFontSize(m1) }}
                               disabled
                             />
                           </div>
@@ -831,32 +839,45 @@ export const SummaryTable: React.FC = () => {
                             <Input
                               className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
                               value={m2}
+                              style={{ fontSize: getDynamicEmailFontSize(m2) }}
                               disabled
                             />
                           </div>
                         </>
                       );
                     })()}
-                    <div className="p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        계산서 이메일(1)
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
-                        value={entry.invoice_email || ""}
-                        disabled
-                      />
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
-                        계산서 이메일(2)
-                      </label>
-                      <Input
-                        className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
-                        value={entry.invoice_email_2 || ""}
-                        disabled
-                      />
-                    </div>
+                    {(() => {
+                      const email = entry.invoice_email || "";
+                      const parts = splitEmails(email);
+                      const i1 = parts[0] || email;
+                      const i2 = parts[1] || entry.invoice_email_2 || "";
+                      return (
+                        <>
+                          <div className="p-1">
+                            <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                              계산서 이메일(1)
+                            </label>
+                            <Input
+                              className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
+                              value={i1}
+                              style={{ fontSize: getDynamicEmailFontSize(i1) }}
+                              disabled
+                            />
+                          </div>
+                          <div className="p-1">
+                            <label className="block text-sm font-semibold text-text-700 mb-1.5 ml-0.5">
+                              계산서 이메일(2)
+                            </label>
+                            <Input
+                              className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white email-mono-font"
+                              value={i2}
+                              style={{ fontSize: getDynamicEmailFontSize(i2) }}
+                              disabled
+                            />
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -1790,6 +1811,18 @@ export const SummaryTable: React.FC = () => {
                           value={editFormData.manager_email_1 || ""}
                           onChange={(e) => {
                             const val = e.target.value;
+                            if (val.includes(",") || val.includes(";")) {
+                              const parts = splitEmails(val);
+                              if (parts.length > 0) {
+                                setEditFormData({
+                                  ...editFormData,
+                                  manager_email_1: parts[0],
+                                  manager_email_2: parts[1] || editFormData.manager_email_2 || "",
+                                  manager_email: [parts[0], parts[1] || editFormData.manager_email_2].filter(Boolean).join(", ")
+                                });
+                                return;
+                              }
+                            }
                             setEditFormData({
                               ...editFormData,
                               manager_email_1: val,
@@ -1799,7 +1832,7 @@ export const SummaryTable: React.FC = () => {
                           onBlur={(e) => {
                             const value = e.target.value;
                             if (value.includes(",") || value.includes(";")) {
-                              const parts = value.split(/[,;]/).map(email => email.trim()).filter(Boolean);
+                              const parts = splitEmails(value);
                               if (parts.length > 0) {
                                 setEditFormData({
                                   ...editFormData,
@@ -1810,6 +1843,7 @@ export const SummaryTable: React.FC = () => {
                               }
                             }
                           }}
+                          style={{ fontSize: getDynamicEmailFontSize(editFormData.manager_email_1) }}
                         />
                         {previousData?.manager_email && (() => {
                           const parts = previousData.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
@@ -1836,6 +1870,7 @@ export const SummaryTable: React.FC = () => {
                               manager_email: [editFormData.manager_email_1, val].filter(Boolean).join(", ")
                             });
                           }}
+                          style={{ fontSize: getDynamicEmailFontSize(editFormData.manager_email_2) }}
                         />
                         {previousData?.manager_email && (() => {
                           const parts = previousData.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
@@ -1854,13 +1889,25 @@ export const SummaryTable: React.FC = () => {
                           className="h-11 md:h-10 text-base md:text-sm shadow-sm email-mono-font"
                           type="text"
                           value={editFormData.invoice_email || ""}
-                          onChange={(e) =>
-                            setEditFormData({ ...editFormData, invoice_email: e.target.value })
-                          }
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val.includes(",") || val.includes(";")) {
+                              const parts = splitEmails(val);
+                              if (parts.length > 0) {
+                                setEditFormData({
+                                  ...editFormData,
+                                  invoice_email: parts[0],
+                                  invoice_email_2: parts[1] || editFormData.invoice_email_2 || ""
+                                });
+                                return;
+                              }
+                            }
+                            setEditFormData({ ...editFormData, invoice_email: val });
+                          }}
                           onBlur={(e) => {
                             const value = e.target.value;
                             if (value.includes(",") || value.includes(";")) {
-                              const parts = value.split(/[,;]/).map(email => email.trim()).filter(Boolean);
+                              const parts = splitEmails(value);
                               if (parts.length > 0) {
                                 setEditFormData({
                                   ...editFormData,
@@ -1870,6 +1917,7 @@ export const SummaryTable: React.FC = () => {
                               }
                             }
                           }}
+                          style={{ fontSize: getDynamicEmailFontSize(editFormData.invoice_email) }}
                         />
                         {previousData?.invoice_email && (
                           <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email}`}>
@@ -1888,6 +1936,7 @@ export const SummaryTable: React.FC = () => {
                           onChange={(e) =>
                             setEditFormData({ ...editFormData, invoice_email_2: e.target.value })
                           }
+                          style={{ fontSize: getDynamicEmailFontSize(editFormData.invoice_email_2) }}
                         />
                         {previousData?.invoice_email_2 && (
                           <div className="absolute bottom-0 left-1 right-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousData.invoice_email_2}`}>
