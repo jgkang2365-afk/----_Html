@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { CustomDropdown } from "@/components/ui/CustomDropdown";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
@@ -731,6 +732,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "년도": item.year,
             "주기": item.period,
             "지정지청": item.designated_office || toShortName(item.office_jurisdiction || ""),
+            "코드": item.code,
+            "사업자등록번호": item.business_number || "",
+            "산재관리번호": item.industrial_accident_number || item.sanjae || "",
             "사업장명": item.business_name,
             "소재지": item.address,
             "실시여부": item.is_registered_text === '확정' || item.is_registered_text === '실시' ? '실시' : item.is_registered_text === '미확정' || item.is_registered_text === '미실시' ? '미실시' : item.is_registered_text === '종료' || item.is_registered_text === '거래종료' ? '거래종료' : item.is_registered_text || '미실시',
@@ -836,16 +840,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             {/* Sticky Container for Filter & Table Header */}
             <div className="sticky top-16 lg:top-[113px] z-40 space-y-4 bg-gray-50/95 backdrop-blur">
                 <Card className="p-4 bg-white shadow-sm border-surface-200">
-                    <div className="flex items-center justify-between gap-4 flex-nowrap overflow-x-auto scrollbar-hide p-1">
+                    <div className="flex items-center justify-between gap-4 flex-wrap overflow-visible p-1">
                         {/* Filters Group */}
                         <div className="flex items-center gap-3 shrink-0">
                             <div className="flex items-center gap-2 shrink-0">
                                 <span className="text-sm font-semibold whitespace-nowrap text-slate-700">측정년도/주기</span>
-                                <Select
+                                <CustomDropdown
                                     options={YEAR_PERIOD_OPTIONS}
                                     value={filters.yearPeriod}
                                     onChange={(e) => setFilters(prev => ({ ...prev, yearPeriod: e.target.value }))}
-                                    className="w-[160px] h-9 py-1 text-sm text-center"
+                                    className="w-[195px] h-9"
                                 />
                             </div>
                             <div className="flex items-center gap-2 shrink-0">

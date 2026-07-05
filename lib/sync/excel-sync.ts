@@ -469,7 +469,6 @@ function findColumnValue(row: any, columnNames: string[]): any {
   return null;
 }
 
-
 function parseMeasurementBusiness(
   data: any[], 
   worksheet?: XLSX.WorkSheet, 
@@ -550,38 +549,6 @@ function parseMeasurementBusiness(
   }
   console.log("================ END H0433 SCAN ================");
 
-  // 첫 번째 데이터 행에서 컬럼명 분석 (디버깅용)
-  if (data.length > 0) {
-    const firstRow = data[0];
-    const keys = Object.keys(firstRow);
-
-    // "코드" 컬럼의 정확한 이름 찾기 (정확히 일치하는 것만)
-    const exactCodeColumn = keys.find(k => k === "코드");
-
-    if (exactCodeColumn) {
-      console.log(`[파싱] "코드" 컬럼 확인: 정확히 일치하는 컬럼 발견`);
-    } else {
-      const spaceRemovedColumn = keys.find(k => k.replace(/\s/g, "") === "코드");
-      if (spaceRemovedColumn) {
-        console.log(`[파싱] "코드" 컬럼이 공백 포함 이름으로 발견됨: "${spaceRemovedColumn}"`);
-      } else {
-        console.warn(`[파싱] 경고: "코드" 컬럼을 찾을 수 없습니다!`);
-      }
-    }
-
-    // BK 열 관련 컬럼 찾기
-    const bkRelatedKeys = keys.filter(k =>
-      k === "전화번호" ||
-      k === "BK" ||
-      k.includes("BK") ||
-      (k.includes("담당자") && (k.includes("전화") || k.includes("휴대폰") || k.includes("폰")))
-    );
-
-    if (bkRelatedKeys.length > 0) {
-      console.log(`[파싱] BK 열 관련 컬럼 발견:`, bkRelatedKeys);
-    }
-  }
-
   // 파일명에서 년도 추출 시도
   let defaultYear = getKSTYear();
   let defaultPeriod = "상반기";
@@ -596,51 +563,65 @@ function parseMeasurementBusiness(
     console.log(`[파싱] 파일명(${fileName}) 기반 기본값: 년도=${defaultYear}, 주기=${defaultPeriod}`);
   }
 
+  // 1단계: 헤더 목록 추출 및 동적 컬럼 인덱스 매핑 생성
+  const headerRow = rawArrayData && rawArrayData[headerRowIndex !== undefined ? headerRowIndex : 0] ? rawArrayData[headerRowIndex !== undefined ? headerRowIndex : 0] : [];
+  
+  // 컬럼명 대 실제 인덱스 맵 생성
+  const colIndexMap: { [key: string]: number } = {};
+  headerRow.forEach((cell: any, idx: number) => {
+    if (cell !== undefined && cell !== null) {
+      const name = String(cell).replace(/\s/g, ""); // 공백 제거하여 정규화
+      if (name) {
+        colIndexMap[name] = idx;
+      }
+    }
+  });
+
   const mappedData = data.map((row: any, dataIndex: number) => {
     // Column Index Mapping (Based on verified structure)
     const rowValues = Object.values(row);
+    const actualHeaderRowIndex = headerRowIndex !== undefined ? headerRowIndex : 0;
+    const startOffset = actualHeaderRowIndex + 1;
 
-    // 코드 값 찾기 - 새 구조: 인덱스 0 (첫 번째 열)
-    let codeValue = findColumnValue(row, ["코드", "코 드", "Code", "code", "CODE"]);
-    if (!codeValue && rowValues[0]) codeValue = rowValues[0];
+    // [Robust Mapping] rawArrayData를 사용하여 빈 칸에 상관없이 절대 인덱스로 추출
+    const rawRow = rawArrayData && rawArrayData[dataIndex + startOffset] ? rawArrayData[dataIndex + startOffset] : null;
 
-    // 년도 - 신규 파일 구조: 인덱스 3
-    let yearValue = row["년도"] || row["측정년도"];
-    if (!yearValue && rowValues[3]) yearValue = rowValues[3];
+    // 헤더 이름으로 값을 추출하되, 없을 경우 절대 인덱스나 findColumnValue로 폴백하는 헬퍼 함수
+    const getRawValue = (colNames: string[], defaultIdx?: number): any => {
+      // 1) 동적 컬럼명 매핑 인덱스에서 값 조회
+      for (const name of colNames) {
+        const normName = name.replace(/\s/g, "");
+        const idx = colIndexMap[normName];
+        if (idx !== undefined && rawRow && rawRow[idx] !== undefined && rawRow[idx] !== null) {
+          return rawRow[idx];
+        }
+      }
+      // 2) JSON 파싱 row 오브젝트에서 이름으로 조회
+      const val = findColumnValue(row, colNames);
+      if (val !== undefined && val !== null && val !== "") return val;
+
+      // 3) 디폴트 인덱스 폴백
+      if (defaultIdx !== undefined && rawRow && rawRow[defaultIdx] !== undefined && rawRow[defaultIdx] !== null) {
+        return rawRow[defaultIdx];
+      }
+      return null;
+    };
+
+    // 코드 값 찾기
+    let codeValue = getRawValue(["코드", "코 드", "Code", "code", "CODE"], 0);
+
+    // 년도
+    let yearValue = getRawValue(["년도", "측정년도", "년 도"], 3);
     const rowYear = yearValue ? parseInt(String(yearValue), 10) : defaultYear;
 
-    // 디버깅: 첫 5개 행에서 년도 파싱 확인
-    if (dataIndex < 5) {
-      console.log(`[년도 디버깅] 행 ${dataIndex + 1}: row["년도"]=${row["년도"]}, rowValues[3]=${rowValues[3]}, 최종=${rowYear}`);
-    }
-
-    // 측정주기 - 신규 파일 구조: 인덱스 4
-    let period = row["구분"] || row["측정주기"] || defaultPeriod;
-    if ((!period || period === defaultPeriod) && rowValues[4]) period = rowValues[4];
-
+    // 측정주기
+    let period = getRawValue(["구분", "측정주기", "주기"], 4);
     const periodStr = String(period || "").trim();
-    // "하" 단독 포함 체크를 제거 - 너무 광범위하여 오분류 발생 (예: "대한상용자동차" 등 "하" 포함 값)
     const isSecondHalf = periodStr === "하반기" || periodStr === "하" || periodStr === "2" || periodStr === "2분기" || periodStr === "4분기";
     const normalizedPeriod = isSecondHalf ? "하반기" : "상반기";
 
-    // 디버깅: 주기 파싱 확인 (첫 10행 + 의심 케이스)
-    if (dataIndex < 10 || (normalizedPeriod === "하반기" && periodStr !== "하반기")) {
-      console.log(`[주기 디버깅] 행 ${dataIndex + 1}: row["구분"]="${row["구분"]}", row["측정주기"]="${row["측정주기"]}", rowValues[4]="${rowValues[4]}", periodStr="${periodStr}", 최종="${normalizedPeriod}"`);
-    }
-
-    const completionStatus = row["완료여부"] || "미완료";
+    const completionStatus = getRawValue(["완료여부", "상태"]) || "미완료";
     const normalizedStatus = completionStatus.toString().includes("완료") && !completionStatus.toString().includes("미완료") ? "완료" : "미완료";
-
-    // 날짜 변환
-    let startDate = null;
-    let endDate = null;
-    let measurementDate = null;
-    let futureMeasurementDate = null;
-
-    const startDateStr = findColumnValue(row, ["측정시작일", "측정 시작일", "시작일"]);
-    const endDateStr = findColumnValue(row, ["측정종료일", "측정 종료일", "종료일"]);
-    let measurementDateStr = findColumnValue(row, ["금회측정확정일", "확정일", "측정확정일"]);
-    let futureMeasurementDateStr = findColumnValue(row, ["금회예정일", "금회 예정일", "예정일"]);
 
     // 날짜 파싱 헬퍼 함수
     const parseDateValue = (dateVal: any): string | null => {
@@ -675,130 +656,84 @@ function parseMeasurementBusiness(
       return null;
     };
 
-    startDate = parseDateValue(startDateStr);
-    endDate = parseDateValue(endDateStr);
-    measurementDate = parseDateValue(measurementDateStr);
-    futureMeasurementDate = parseDateValue(futureMeasurementDateStr);
+    const startDateStr = getRawValue(["측정시작일", "측정 시작일", "시작일"]);
+    const endDateStr = getRawValue(["측정종료일", "측정 종료일", "종료일"]);
+    let measurementDateStr = getRawValue(["금회측정확정일", "확정일", "측정확정일"]);
+    let futureMeasurementDateStr = getRawValue(["금회예정일", "금회 예정일", "예정일"]);
 
-    // 전회측정일
-    const previousMeasurementDateVal = row["전회측정일"] || row["전회 측정일"] || null;
+    const startDate = parseDateValue(startDateStr);
+    const endDate = parseDateValue(endDateStr);
+    const measurementDate = parseDateValue(measurementDateStr);
+    const futureMeasurementDate = parseDateValue(futureMeasurementDateStr);
+    const previousMeasurementDateVal = getRawValue(["전회측정일", "전회 측정일"]) || null;
     const previousMeasurementDate = parseDateValue(previousMeasurementDateVal);
 
-    if (dataIndex < 5) {
-      console.log(`[날짜 파싱] 행 ${dataIndex + 1}:`);
-      console.log(`  - 코드: ${codeValue}`);
-      console.log(`  - 금회예정일: "${futureMeasurementDateStr}" -> ${futureMeasurementDate}`);
-    }
-
-    let businessCategory = findColumnValue(row, ["업종분류", "업종"]);
-
-    // [Robust Mapping] rawArrayData를 사용하여 빈 칸에 상관없이 절대 인덱스로 추출
-    // XLSX.utils.sheet_to_json(..., {header: headerRowIndex}) 사용 시 
-    // data[0]은 실제 엑셀의 headerRowIndex + 1 행에 해당함.
-    const startOffset = (headerRowIndex !== undefined ? headerRowIndex : 0) + 1;
-    const rawRow = rawArrayData && rawArrayData[dataIndex + startOffset] ? rawArrayData[dataIndex + startOffset] : null;
+    let businessCategory = getRawValue(["업종분류", "업종"]);
 
     const baseData: any = {
       code: String(codeValue || "").trim(),
       year: rowYear,
       period: normalizedPeriod,
-      business_name: String(row["사업장명"] || (rawRow ? rawRow[5] : rowValues[5]) || "").trim(),
-      business_number: row["사업자번호"] ? String(row["사업자번호"]).replace(/[^\d]/g, "").trim() : null,
-      total_employees: row["총인원"] || (rawRow ? rawRow[13] : rowValues[13]) ? parseInt(String(row["총인원"] || (rawRow ? rawRow[13] : rowValues[13])), 10) : null,
-      address: row["주소"] || (rawRow ? rawRow[8] : null) || null,           // I열 (인덱스 8)
-      office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || (rawRow ? rawRow[9] : null) || null, // J열 (인덱스 9)
-      phone: row["전화번호"] || (rawRow ? rawRow[11] : rowValues[11]) || null, // L열 (인덱스 11)
-      fax: row["FAX"] || (rawRow ? rawRow[12] : rowValues[12]) || null,        // M열 (인덱스 12)
+      business_name: String(getRawValue(["사업장명", "사업장 명"], 5) || "").trim(),
+      business_number: getRawValue(["사업자등록번호", "사업자번호", "사업자 번호"]) ? String(getRawValue(["사업자등록번호", "사업자번호", "사업자 번호"])).replace(/[^\d]/g, "").trim() : null,
+      total_employees: getRawValue(["총인원", "근로자수", "근로자 수"], 13) ? parseInt(String(getRawValue(["총인원", "근로자수", "근로자 수"], 13)), 10) : null,
+      address: getRawValue(["주소", "소재지", "사업장소재지"], 8) || null,
+      office_jurisdiction: getRawValue(["소재지 관할청", "관할청명", "소재지관할청", "지정지청", "지정 지청"], 9) || null,
+      phone: getRawValue(["전화번호", "회사전화번호", "회사전화"], 11) || null,
+      fax: getRawValue(["FAX", "팩스", "팩스번호"], 12) || null,
       measurement_start_date: startDate || null,
       measurement_end_date: endDate || null,
       measurement_date: measurementDate || null,
       future_measurement_date: futureMeasurementDate || null,
       completion_status: normalizedStatus,
-      measurer: row["계획담당자"] || row["주관담당자"] || null,
-      national_support_status: normalizeNationalSupportStatus(row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3]),
+      measurer: getRawValue(["계획담당자", "주관담당자", "계획담당", "담당자"]),
+      national_support_status: normalizeNationalSupportStatus(getRawValue(["국고결과", "국고지원여부", "국고지원", "건강디딤돌"])),
       business_category: normalizeBusinessCategory(businessCategory, validCategories),
     };
 
     // [NEW] 지청별/업종별 예외 발행일 로직 (대전/천안지청 & 공업사)
-    // 규칙: 전자계산서 발행일(billing_date)을 측정일 익일(워킹데이 기준)로 자동 기록
     const officeStr = String(baseData.office_jurisdiction || "");
     const categoryStr = String(baseData.business_category || "");
     
     if ((officeStr.includes("대전") || officeStr.includes("천안")) && categoryStr.includes("공업사")) {
-      // [Check] 2026-04-11(금일)부터 적용, 소급적용하지 않음
       if (baseData.measurement_date && baseData.measurement_date >= "2026-04-11") {
-        // measurement_date는 이미 YYYY-MM-DD 형식
         baseData.electronic_invoice_date = getNextWorkingDay(baseData.measurement_date);
-        console.log(`[Exception Billing] ${baseData.business_name} (${baseData.code}): ${baseData.measurement_date} -> ${baseData.electronic_invoice_date}`);
       }
     }
 
     const optionalFields: any = {};
-    const managerName = row["담당자명"] || row["담당자"] || row["담당자 성명"] || null;
-    const managerPosition = row["직위"] || row["담당자 직위"] || null;
+    const managerName = getRawValue(["담당자명", "담당자", "담당자 성명"]) || null;
+    const managerPosition = getRawValue(["직위", "담당자 직위"]) || null;
     let managerMobile: string | null = null;
-    let managerPhone: string | null = null; // [NEW] BM열 (담당자 직통전화)
+    let managerPhone: string | null = null;
 
-    // 담당자 휴대폰 (워크시트 직접 접근)
-    const actualHeaderRowIndex = headerRowIndex !== undefined ? headerRowIndex : 0;
+    // 담당자 휴대폰 및 전화번호 (워크시트 직접 접근)
     if (worksheet) {
       const excelRowIndex = actualHeaderRowIndex + 1 + dataIndex;
-      const candidates = [62, 61, 63];
-      const foundValues: { [key: number]: string } = {};
+      
+      const mobileColIdx = colIndexMap["담당자휴대폰"] !== undefined ? colIndexMap["담당자휴대폰"] : 
+                           colIndexMap["휴대폰"] !== undefined ? colIndexMap["휴대폰"] :
+                           colIndexMap["연락처"] !== undefined ? colIndexMap["연락처"] : 62;
+      
+      const phoneColIdx = colIndexMap["담당자직통전화"] !== undefined ? colIndexMap["담당자직통전화"] : 
+                          colIndexMap["전화번호"] !== undefined ? colIndexMap["전화번호"] :
+                          colIndexMap["회사전화"] !== undefined ? colIndexMap["회사전화"] : 64;
 
-      candidates.forEach(idx => {
-        const cellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: idx });
-        const cell = worksheet[cellAddress];
-        if (cell && cell.v !== undefined && cell.v !== null) {
-          foundValues[idx] = String(cell.v).trim();
-        }
-      });
-
-      const mobilePattern = /^01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}$/;
-      const looseMobilePattern = /^\d{2,3}[-\s.]?\d{3,4}[-\s.]?\d{4}$/;
-      let selectedMobile: string | null = null;
-      let selectedManagerPhone: string | null = null;
-
-      // BM열 (인덱스 64): 담당자 전화번호 (직통전화)
-      // rawRow를 최우선으로 사용 하여 빈 칸 밀림 방지
-      if (rawRow && rawRow[64] !== undefined && rawRow[64] !== null) {
-        selectedManagerPhone = String(rawRow[64]).trim();
-      } else {
-        const bmCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: 64 });
-        const bmCell = worksheet[bmCellAddress];
-        if (bmCell && bmCell.v !== undefined && bmCell.v !== null) {
-          selectedManagerPhone = String(bmCell.v).trim();
-        }
+      const cellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: mobileColIdx });
+      const cell = worksheet[cellAddress];
+      if (cell && cell.v !== undefined && cell.v !== null) {
+        managerMobile = String(cell.v).trim();
       }
 
-      if (foundValues[62] && (mobilePattern.test(foundValues[62]) || looseMobilePattern.test(foundValues[62]))) {
-        selectedMobile = foundValues[62];
-      } else if (foundValues[61] && (mobilePattern.test(foundValues[61]) || looseMobilePattern.test(foundValues[61]))) {
-        selectedMobile = foundValues[61];
-      } else if (foundValues[63] && (mobilePattern.test(foundValues[63]) || looseMobilePattern.test(foundValues[63]))) {
-        selectedMobile = foundValues[63];
-      } else if (foundValues[62] && !foundValues[62].includes("@") && foundValues[62].length > 4 &&
-        !["사원", "대리", "과장", "차장", "부장", "대표", "이사", "상무", "전무", "팀장", "보건관리자", "연구원"].includes(foundValues[62])) {
-        selectedMobile = foundValues[62];
+      const phoneCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: phoneColIdx });
+      const phoneCell = worksheet[phoneCellAddress];
+      if (phoneCell && phoneCell.v !== undefined && phoneCell.v !== null) {
+        managerPhone = String(phoneCell.v).trim();
       }
-      if (selectedMobile) managerMobile = selectedMobile;
-      if (selectedManagerPhone) managerPhone = selectedManagerPhone;
     }
 
-    // Fallback logic for mobile
     if (!managerMobile) {
-      const mobilePattern = /^01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}$/;
-      const looseMobilePattern = /^\d{2,3}[-\s.]?\d{3,4}[-\s.]?\d{4}$/;
-      const fallbackKeys = ["__EMPTY_62", "__EMPTY_61", "__EMPTY_63"];
-      for (const key of fallbackKeys) {
-        if (row[key]) {
-          const value = String(row[key]).trim();
-          if (value && (mobilePattern.test(value) || looseMobilePattern.test(value))) {
-            managerMobile = value;
-            break;
-          }
-        }
-      }
+      managerMobile = getRawValue(["담당자 휴대폰", "휴대폰", "연락처", "핸드폰"]);
     }
 
     if (!managerMobile) {
@@ -814,12 +749,13 @@ function parseMeasurementBusiness(
       }
     }
 
-    let managerEmail = row["Email"] || row["이메일"] || row["담당자 e-mail"] || row["담당자 email"] || row["담당자이메일"] || null;
+    let managerEmail = getRawValue(["Email", "이메일", "담당자 e-mail", "담당자 email", "담당자이메일"]);
 
     // [NEW] BL열(64번째, 인덱스 63)에서 이메일 추출 로직 (파이썬 스크립트 로직 이식)
     if (worksheet) {
       const excelRowIndex = actualHeaderRowIndex + 1 + dataIndex;
-      const emailCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: 63 }); // BL열 = 64번째 = 인덱스 63
+      const emailColIdx = colIndexMap["이메일"] !== undefined ? colIndexMap["이메일"] : 63;
+      const emailCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: emailColIdx });
       const emailCell = worksheet[emailCellAddress];
       if (emailCell && emailCell.v) {
         const emailRaw = String(emailCell.v).trim();

@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
     // 사업장 정보 조회 (우선순위: 1. business_info, 2. measurement_business)
     let businessMap = new Map<string, { name: string; address: string }>();
     // key: "code-year-period" (exact) 또는 "code" (fallback)
-    let targetBusinessMap = new Map<string, { representative_name: string | null; industrial_accident_number: string | null; commencement_number: string | null }>();
+    let targetBusinessMap = new Map<string, { representative_name: string | null; industrial_accident_number: string | null; commencement_number: string | null; sync_status: string | null }>();
 
     if (codes.length > 0) {
       try {
