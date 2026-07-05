@@ -1747,16 +1747,25 @@ export async function syncMeasurementBusiness(
     // [NEW] 변경 내역 비교를 위한 최신 측정사업장 데이터 조회 (올바른 위치로 이동)
     // parsedData가 준비된 후, allRows 생성 및 비교 직전 수행
     console.log("[측정사업장 동기화] 변경 내역 비교를 위한 기존 데이터 조회 중...");
-    const { data: latestMeasurementsData, error: fetchError } = await supabase
-      .from("measurement_business")
-      .select("*");
+    const uniqueCodes = Array.from(new Set(parsedData.map(row => row.code).filter(Boolean)));
+    const latestMeasurements: any[] = [];
 
-    // 이 변수는 아래 allRows.forEach에서 사용됩니다.
-    const latestMeasurements = latestMeasurementsData || [];
+    if (uniqueCodes.length > 0) {
+      // 기존 사업장정보(syncBusinessInfo)와 동일하게 1,000개 단위 배치 조회 적용
+      const batchSize = 1000;
+      for (let i = 0; i < uniqueCodes.length; i += batchSize) {
+        const codeBatch = uniqueCodes.slice(i, i + batchSize);
+        const { data: measurements, error: fetchError } = await supabase
+          .from("measurement_business")
+          .select("*")
+          .in("code", codeBatch);
 
-    if (fetchError) {
-      console.warn("[측정사업장 동기화] 기존 데이터 조회 실패 (변경 내역 비교 불가):", fetchError);
-    } else {
+        if (fetchError) {
+          console.warn("[측정사업장 동기화] 기존 데이터 조회 실패 (변경 내역 비교 불가):", fetchError);
+        } else if (measurements) {
+          latestMeasurements.push(...measurements);
+        }
+      }
       console.log(`[측정사업장 동기화] 기존 데이터 ${latestMeasurements.length}건 조회 완료`);
     }
 
