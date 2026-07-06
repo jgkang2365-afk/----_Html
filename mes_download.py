@@ -265,6 +265,41 @@ def press_ctrl_key(vk_code):
         print(f"[✓] Ctrl + {key_name} 단축키 전송 성공")
     time.sleep(0.05)
 
+def press_alt_key(vk_code):
+    """ Alt + vk_code 단축키 물리 시뮬레이션 (원자적 4키 배열 전송, 스캔코드 매핑 포함) """
+    VK_ALT = 0x12
+    scan_alt = user32.MapVirtualKeyW(VK_ALT, MAPVK_VK_TO_VSC)
+    scan_key = user32.MapVirtualKeyW(vk_code, MAPVK_VK_TO_VSC)
+    
+    key_names = {VK_N: "N", VK_L: "L", VK_TAB: "Tab", VK_RETURN: "Enter"}
+    key_name = key_names.get(vk_code, f"0x{vk_code:02X}")
+    print(f"[-] Alt + {key_name} 단축키 조합 전송 시도...")
+    
+    inputs = (INPUT * 4)()
+    
+    # Alt Down
+    inputs[0].type = INPUT_KEYBOARD
+    inputs[0].u.ki = KEYBDINPUT(wVk=VK_ALT, wScan=scan_alt, dwFlags=0, time=0, dwExtraInfo=0)
+    
+    # Key Down
+    inputs[1].type = INPUT_KEYBOARD
+    inputs[1].u.ki = KEYBDINPUT(wVk=vk_code, wScan=scan_key, dwFlags=0, time=0, dwExtraInfo=0)
+    
+    # Key Up
+    inputs[2].type = INPUT_KEYBOARD
+    inputs[2].u.ki = KEYBDINPUT(wVk=vk_code, wScan=scan_key, dwFlags=KEYEVENTF_KEYUP, time=0, dwExtraInfo=0)
+    
+    # Alt Up
+    inputs[3].type = INPUT_KEYBOARD
+    inputs[3].u.ki = KEYBDINPUT(wVk=VK_ALT, wScan=scan_alt, dwFlags=KEYEVENTF_KEYUP, time=0, dwExtraInfo=0)
+    
+    res = user32.SendInput(4, ctypes.byref(inputs), ctypes.sizeof(INPUT))
+    if res != 4:
+        print(f"[경고] Alt + {key_name} 단축키 전송 실패 (결과: {res}/4)")
+    else:
+        print(f"[✓] Alt + {key_name} 단축키 전송 성공")
+    time.sleep(0.05)
+
 LOGIN_TITLE = "Login"
 MAIN_TITLE = "MES - Ver"
 
@@ -491,37 +526,20 @@ def main():
     send_keys("{F11}")
     time.sleep(3.0)  # Wait(3000)
     
-    # [화일 선택] 창 포커싱을 위해 대기 후 바로 단축키 전송 (창 활성화는 OS의 동작을 따름)
-    print("[-] [화일 선택] 창 대기 완료. 주소 표시줄 활성화 단축키 Ctrl+L 전송 시작...")
-    
-    press_ctrl_key(VK_L)
-    print("[-] Ctrl+L 단축키 전송 완료. 0.5초 대기...")
-    time.sleep(0.5)  # Wait(500)
-    
     # 만약 네트워크 드라이브(Z)가 연결이 안 되어 있을 경우 C:\Temp에 저장하도록 우회
     current_save_path = SAVE_PATH
     if not os.path.exists(SAVE_PATH):
         current_save_path = "C:\\Temp"
         print(f"[경고] 네트워크 경로 미존재로 파일 저장 폴더를 우회합니다: {current_save_path}")
 
-    print(f"[-] 주소 표시줄에 폴더 경로 입력 시도: {current_save_path}")
-    type_text(current_save_path)
-    time.sleep(0.3)  # 타이핑 완료 및 버퍼 안정화를 위한 0.3초 대기 추가
-    print("[-] 경로 입력 완료. 엔터 전송...")
-    press_key(VK_RETURN)
-    print("[-] 경로 변경 적용 대기 (3.0초)...")
-    time.sleep(3.0)  # Wait(3000)
+    # 파일 대화상자가 열리면 기본적으로 파일 이름 입력창에 포커스가 맞춰져 있습니다.
+    # 여기에 절대경로를 포함한 파일명을 직접 입력하여 경로 이동과 파일 저장을 한 번에 완료합니다.
+    full_save_path = os.path.join(current_save_path, "measurement_business")
+    print(f"[-] 파일 이름 창에 전체 저장 절대 경로 입력 시도: '{full_save_path}'")
+    type_text(full_save_path)
+    time.sleep(0.5)
     
-    print("[-] 파일명 입력을 위한 7회 Tab 키 입력 시퀀스 개시 (포커스 탈출 및 파일명 창 이동)...")
-    for i in range(1, 8):
-        print(f"[-] Tab 전송 중 ({i}/7)...")
-        press_key(VK_TAB)
-        time.sleep(0.2)
-
-    print("[-] 파일명 입력 시도: 'measurement_business'")
-    type_text("measurement_business")
-    print("[-] 파일명 입력 완료. 0.5초 대기 후 엔터...")
-    time.sleep(0.5)  # Wait(500)
+    print("[-] 저장 실행 엔터 전송...")
     press_key(VK_RETURN)
     print("[-] 저장 처리 진행 대기 (1.5초)...")
     time.sleep(1.5)  # Wait(1500)
@@ -569,31 +587,14 @@ def main():
     send_keys("{F11}")
     time.sleep(3.0)  # Wait(3000)
     
-    # [화일 선택] 창 포그라운드 대기 및 바로 단축키 전송 (창 활성화는 OS의 동작을 따름)
-    print("[-] [화일 선택] 창 대기 완료. 주소 표시줄 활성화 단축키 Ctrl+L 전송 시작...")
+    # 파일 대화상자가 열리면 기본적으로 파일 이름 입력창에 포커스가 맞춰져 있습니다.
+    # 여기에 절대경로를 포함한 파일명을 직접 입력하여 경로 이동과 파일 저장을 한 번에 완료합니다.
+    full_save_path2 = os.path.join(current_save_path, "business_info")
+    print(f"[-] 파일 이름 창에 전체 저장 절대 경로 입력 시도: '{full_save_path2}'")
+    type_text(full_save_path2)
+    time.sleep(0.5)
     
-    press_ctrl_key(VK_L)
-    print("[-] Ctrl+L 단축키 전송 완료. 1.0초 대기...")
-    time.sleep(1.0)  # Wait(1000)
-    
-    print(f"[-] 주소 표시줄에 폴더 경로 입력 시도: {current_save_path}")
-    type_text(current_save_path)
-    time.sleep(0.3)  # 타이핑 완료 및 버퍼 안정화를 위한 0.3초 대기 추가
-    print("[-] 경로 입력 완료. 엔터 전송...")
-    press_key(VK_RETURN)
-    print("[-] 경로 변경 적용 대기 (3.0초)...")
-    time.sleep(3.0)  # Wait(3000)
-    
-    print("[-] 파일명 입력을 위한 7회 Tab 키 입력 시퀀스 개시 (포커스 탈출 및 파일명 창 이동)...")
-    for i in range(1, 8):
-        print(f"[-] Tab 전송 중 ({i}/7)...")
-        press_key(VK_TAB)
-        time.sleep(1.0)
-
-    print("[-] 파일명 입력 시도: 'business_info'")
-    type_text("business_info")
-    print("[-] 파일명 입력 완료. 1.0초 대기 후 엔터...")
-    time.sleep(1.0)  # Wait(1000)
+    print("[-] 저장 실행 엔터 전송...")
     press_key(VK_RETURN)
     print("[-] 저장 처리 진행 대기 (3.0초)...")
     time.sleep(3.0)  # Wait(3000)
