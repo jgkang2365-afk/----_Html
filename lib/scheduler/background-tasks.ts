@@ -17,10 +17,11 @@ export class BackgroundTasks {
     private constructor() {}
 
     public static getInstance(): BackgroundTasks {
-        if (!BackgroundTasks.instance) {
-            BackgroundTasks.instance = new BackgroundTasks();
+        const globalRef = global as any;
+        if (!globalRef.backgroundTasksInstance) {
+            globalRef.backgroundTasksInstance = new BackgroundTasks();
         }
-        return BackgroundTasks.instance;
+        return globalRef.backgroundTasksInstance;
     }
 
     /**
