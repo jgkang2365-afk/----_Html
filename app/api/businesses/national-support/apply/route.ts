@@ -6,6 +6,7 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { EmailService } from "@/lib/email/email-service";
 import { normalizeRepresentativeName } from "@/lib/utils/data-utils";
+import { syncToMasterTables } from "../../route";
 
 /**
  * 건강디딤돌 자동 신청 API
@@ -102,6 +103,9 @@ export async function POST(request: NextRequest) {
           sync_status: "성공",
           sync_error_message: null,
           national_support_status: dbStatus,
+          industrial_accident_number: sanjae || null,
+          commencement_number: commencement || null,
+          representative_name: representative || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", target_id);
@@ -110,18 +114,26 @@ export async function POST(request: NextRequest) {
         console.error("즉시 동기화 계획 테이블 업데이트 실패:", errTarget);
       }
 
-      // 마스터 테이블(measurement_business) 국고지원 상태 업데이트
+      // 마스터 테이블(measurement_business, business_info) 최종 확정 동기화
       try {
-        const { error: errMaster } = await supabase
-          .from("measurement_business")
-          .update({
-            national_support_status: dbStatus,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("code", code);
-        if (errMaster) {
-          console.error(`즉시 동기화 마스터 테이블 업데이트 실패 (code: ${code}):`, errMaster.message);
-        }
+        const { data: targetBusiness } = await supabase
+          .from("measurement_target_business")
+          .select("business_name")
+          .eq("id", target_id)
+          .single();
+        
+        const bName = targetBusiness?.business_name || "미등록 사업장";
+
+        await syncToMasterTables(
+          supabase,
+          code,
+          Number(year),
+          period,
+          bName,
+          representative || null,
+          sanjae || null,
+          commencement || null
+        );
       } catch (mbErr) {
         console.error(`즉시 동기화 마스터 테이블 업데이트 중 예외 발생 (code: ${code}):`, mbErr);
       }
@@ -135,12 +147,15 @@ export async function POST(request: NextRequest) {
     }
 
 
-    // 락 적용: sync_status를 '신청중'으로 변경하고 에러 메시지 초기화
+    // 락 적용: sync_status를 '신청중'으로 변경하고 에러 메시지 초기화 및 가입력 값 저장
     const { error: lockError } = await supabase
       .from("measurement_target_business")
       .update({
         sync_status: "신청중",
         sync_error_message: null,
+        industrial_accident_number: sanjae || null,
+        commencement_number: commencement || null,
+        representative_name: representative || null,
       })
       .eq("id", target_id);
 
@@ -274,6 +289,9 @@ async function runApplyCrawler(params: {
                 sync_status: "성공",
                 sync_error_message: null,
                 national_support_status: "대상",
+                industrial_accident_number: sanjae || null,
+                commencement_number: commencement || null,
+                representative_name: representative || null,
               })
               .eq("id", target_id);
             if (err1) throw err1;
@@ -294,19 +312,28 @@ async function runApplyCrawler(params: {
               );
             if (err2) throw err2;
 
-            // 3. 마스터 테이블 국고지원 상태 업데이트
+            // 3. 마스터 테이블 최종 확정 동기화
             try {
-              const { error: err3 } = await supabase
-                .from("measurement_business")
-                .update({
-                  national_support_status: "대상",
-                })
-                .eq("code", code);
-              if (err3) {
-                console.error(`[Sync Master Fail] measurement_business 업데이트 실패 (code: ${code}):`, err3.message);
-              }
+              const { data: targetBusiness } = await supabase
+                .from("measurement_target_business")
+                .select("business_name")
+                .eq("id", target_id)
+                .single();
+              
+              const bName = targetBusiness?.business_name || "미등록 사업장";
+
+              await syncToMasterTables(
+                supabase,
+                code,
+                Number(year),
+                period,
+                bName,
+                representative || null,
+                sanjae || null,
+                commencement || null
+              );
             } catch (mbErr) {
-              console.error(`[Sync Master Exception] measurement_business 업데이트 중 예외 발생 (code: ${code}):`, mbErr);
+              console.error(`[Sync Master Exception] 마스터 테이블 업데이트 중 예외 발생 (code: ${code}):`, mbErr);
             }
 
             console.log(`[Crawler Success Sync Complete] 사업장 코드 ${code} 대상 확정 연동 완료`);
@@ -319,6 +346,9 @@ async function runApplyCrawler(params: {
                 sync_status: "성공",
                 sync_error_message: "공단 비대상 판정 확인",
                 national_support_status: "비대상",
+                industrial_accident_number: sanjae || null,
+                commencement_number: commencement || null,
+                representative_name: representative || null,
               })
               .eq("id", target_id);
             if (err1) throw err1;
@@ -339,19 +369,28 @@ async function runApplyCrawler(params: {
               );
             if (err2) throw err2;
 
-            // 3. 마스터 테이블 국고지원 상태 업데이트
+            // 3. 마스터 테이블 최종 확정 동기화
             try {
-              const { error: err3 } = await supabase
-                .from("measurement_business")
-                .update({
-                  national_support_status: "비대상",
-                })
-                .eq("code", code);
-              if (err3) {
-                console.error(`[Sync Master Fail] measurement_business 업데이트 실패 (code: ${code}):`, err3.message);
-              }
+              const { data: targetBusiness } = await supabase
+                .from("measurement_target_business")
+                .select("business_name")
+                .eq("id", target_id)
+                .single();
+              
+              const bName = targetBusiness?.business_name || "미등록 사업장";
+
+              await syncToMasterTables(
+                supabase,
+                code,
+                Number(year),
+                period,
+                bName,
+                representative || null,
+                sanjae || null,
+                commencement || null
+              );
             } catch (mbErr) {
-              console.error(`[Sync Master Exception] measurement_business 업데이트 중 예외 발생 (code: ${code}):`, mbErr);
+              console.error(`[Sync Master Exception] 마스터 테이블 업데이트 중 예외 발생 (code: ${code}):`, mbErr);
             }
 
             console.log(`[Crawler Success Sync Complete] 사업장 코드 ${code} 비대상 판정 연동 완료`);

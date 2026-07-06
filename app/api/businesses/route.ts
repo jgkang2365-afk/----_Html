@@ -580,6 +580,32 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // === [마스터 테이블 최종 동기화 Logic] ===
+    // 계획 진행 상태가 '실시' 또는 '확정'일 때만, 입력된 건강디딤돌 필수 정보를 마스터 DB에 최종 검증(확정) 저장합니다.
+    const isConfirmedStatus = updatedData.is_registered === "실시" || updatedData.is_registered === "확정";
+    const hasMasterInfoToSync = 
+      updates.hasOwnProperty('representative_name') || 
+      updates.hasOwnProperty('industrial_accident_number') || 
+      updates.hasOwnProperty('commencement_number') ||
+      updates.hasOwnProperty('is_registered');
+
+    if (isConfirmedStatus && hasMasterInfoToSync && code) {
+      try {
+        await syncToMasterTables(
+          supabase,
+          code,
+          Number(year || updatedData.year),
+          period || updatedData.period,
+          updatedData.business_name,
+          updatedData.representative_name,
+          updatedData.industrial_accident_number,
+          updatedData.commencement_number
+        );
+      } catch (syncErr) {
+        console.error("[Master Sync Error in PATCH]:", syncErr);
+      }
+    }
+
     return NextResponse.json({ success: true, data: updatedData });
 
   } catch (error: any) {
@@ -595,8 +621,18 @@ export async function POST(request: NextRequest) {
   try {
     await checkPermission("journal:write");
 
-    const body = await request.json();
-    const { code, year, period, business_name, address, plan_manager, national_support_status } = body;
+    const { 
+      code, 
+      year, 
+      period, 
+      business_name, 
+      address, 
+      plan_manager, 
+      national_support_status,
+      sanjae,
+      commencement,
+      representative_name
+    } = body;
 
     // Validation
     if (!code || !year || !period || !business_name) {
@@ -642,6 +678,9 @@ export async function POST(request: NextRequest) {
         office_jurisdiction: officeJurisdiction, // 자동 할당
         plan_manager: plan_manager || null,
         national_support_status: national_support_status || null,
+        industrial_accident_number: sanjae || null,
+        commencement_number: commencement || null,
+        representative_name: representative_name || null,
         is_registered: "미실시", // Default
         created_at: new Date().toISOString()
       })
@@ -743,5 +782,66 @@ export async function DELETE(request: NextRequest) {
       error: "Internal Server Error",
       details: error?.message || String(error)
     }, { status: 500 });
+  }
+}
+
+/**
+ * 가입력 정보(산재관리번호, 사업개시번호, 대표자명)를 
+ * 최종 마스터 테이블(measurement_business, business_info)로 동기화(확정 저장)합니다.
+ */
+export async function syncToMasterTables(
+  supabase: any,
+  code: string,
+  year: number,
+  period: string,
+  businessName: string,
+  representativeName: string | null,
+  industrialAccidentNumber: string | null,
+  commencementNumber: string | null
+) {
+  console.log(`[Sync to Master] Syncing ${code} (Year: ${year}, Period: ${period}) to master tables...`);
+  
+  if (code) {
+    // 1. business_info 테이블 동기화 (대표자명, 사업장명 등)
+    const { error: infoErr } = await supabase
+      .from("business_info")
+      .upsert({
+        code,
+        business_name: businessName,
+        representative_name: representativeName,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: "code"
+      });
+    
+    if (infoErr) {
+      console.error(`[Sync to Master] business_info upsert error for ${code}:`, infoErr.message);
+    } else {
+      console.log(`[Sync to Master] Successfully upserted business_info for ${code}`);
+    }
+  }
+
+  if (code && year && period) {
+    // 2. measurement_business 테이블 동기화 (산재번호, 개시번호, 대표자명 등)
+    const { error: mbErr } = await supabase
+      .from("measurement_business")
+      .upsert({
+        code,
+        year,
+        period,
+        business_name: businessName,
+        representative_name: representativeName,
+        industrial_accident_number: industrialAccidentNumber,
+        commencement_number: commencementNumber,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: "code,year,period"
+      });
+
+    if (mbErr) {
+      console.error(`[Sync to Master] measurement_business upsert error for ${code}:`, mbErr.message);
+    } else {
+      console.log(`[Sync to Master] Successfully upserted measurement_business for ${code}`);
+    }
   }
 }
