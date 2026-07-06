@@ -30,55 +30,103 @@ export async function syncNationalSupportToBusiness(
             targetStatus = "대상";
         }
 
-        // 기존 representative_name 조회
-        let finalRepName: string | null = null;
-        if (representativeName) {
-            const { data: existing, error: fetchError } = await supabase
-                .from("measurement_target_business")
-                .select("representative_name")
-                .eq("code", code)
-                .eq("year", year)
-                .eq("period", period)
-                .maybeSingle();
-
-            if (!fetchError && existing && existing.representative_name) {
-                // 기존 대표자명이 이미 존재하면 보존
-                finalRepName = existing.representative_name;
-            } else {
-                // 기존 대표자명이 비어있을 경우에만 엑셀 정보로 채움
-                finalRepName = representativeName;
-            }
-        }
-
-        const updatePayload: any = {
-            national_support_status: targetStatus,
-            updated_at: getKSTISOString(),
-        };
-
-        if (finalRepName) {
-            updatePayload.representative_name = finalRepName;
-        }
-        if (industrialAccidentNumber) {
-            updatePayload.industrial_accident_number = industrialAccidentNumber;
-        }
-        if (commencementNumber) {
-            updatePayload.commencement_number = commencementNumber;
-        }
-
-        // measurement_target_business 업데이트
-        const { error: updateError } = await supabase
+        // 1. 기존 레코드 존재 여부 및 필수 마스터 필드 조회
+        const { data: existing, error: fetchError } = await supabase
             .from("measurement_target_business")
-            .update(updatePayload)
+            .select("id, business_name, representative_name, industrial_accident_number, commencement_number")
             .eq("code", code)
             .eq("year", year)
-            .eq("period", period);
+            .eq("period", period)
+            .maybeSingle();
 
-        if (updateError) {
-            console.error(
-                `측정사업장 국고지원 상태 동기화 실패 (code: ${code}, year: ${year}, period: ${period}):`,
-                updateError
-            );
-            return { success: false, error: updateError };
+        if (fetchError) {
+            console.error("측정대상사업장 조회 오류:", fetchError);
+        }
+
+        const hasExisting = !!existing;
+
+        // 대표자명 결정 (기존 값이 있으면 보존, 없으면 엑셀/폼 값 사용)
+        let finalRepName: string | null = null;
+        if (hasExisting && existing.representative_name) {
+            finalRepName = existing.representative_name;
+        } else {
+            finalRepName = representativeName || null;
+        }
+
+        // 산재관리번호 결정 (기존 값이 있으면 보존, 없으면 엑셀/폼 값 사용)
+        let finalSanjae: string | null = null;
+        if (hasExisting && existing.industrial_accident_number) {
+            finalSanjae = existing.industrial_accident_number;
+        } else {
+            finalSanjae = industrialAccidentNumber || null;
+        }
+
+        // 사업개시번호 결정 (기존 값이 있으면 보존, 없으면 엑셀/폼 값 사용)
+        let finalCommencement: string | null = null;
+        if (hasExisting && existing.commencement_number) {
+            finalCommencement = existing.commencement_number;
+        } else {
+            finalCommencement = commencementNumber || null;
+        }
+
+        if (!hasExisting) {
+            // [대책 1] 레코드가 존재하지 않는 신규/임시 사업장의 경우 자동 생성(INSERT)
+            const insertPayload = {
+                code,
+                year,
+                period,
+                business_name: "미등록 사업장 (건강디딤돌 연동)",
+                representative_name: finalRepName,
+                industrial_accident_number: finalSanjae,
+                commencement_number: finalCommencement,
+                national_support_status: targetStatus,
+                is_registered: "미실시",
+                created_at: getKSTISOString(),
+                updated_at: getKSTISOString()
+            };
+
+            const { error: insertError } = await supabase
+                .from("measurement_target_business")
+                .insert(insertPayload);
+
+            if (insertError) {
+                console.error(
+                    `측정사업장 자동 생성 실패 (code: ${code}, year: ${year}, period: ${period}):`,
+                    insertError
+                );
+                return { success: false, error: insertError };
+            }
+        } else {
+            // 레코드가 이미 존재하는 경우 UPDATE 동기화 진행
+            const updatePayload: any = {
+                national_support_status: targetStatus,
+                updated_at: getKSTISOString(),
+            };
+
+            if (finalRepName) {
+                updatePayload.representative_name = finalRepName;
+            }
+            if (finalSanjae) {
+                updatePayload.industrial_accident_number = finalSanjae;
+            }
+            if (finalCommencement) {
+                updatePayload.commencement_number = finalCommencement;
+            }
+
+            const { error: updateError } = await supabase
+                .from("measurement_target_business")
+                .update(updatePayload)
+                .eq("code", code)
+                .eq("year", year)
+                .eq("period", period);
+
+            if (updateError) {
+                console.error(
+                    `측정사업장 국고지원 상태 동기화 실패 (code: ${code}, year: ${year}, period: ${period}):`,
+                    updateError
+                );
+                return { success: false, error: updateError };
+            }
         }
 
         return { success: true };

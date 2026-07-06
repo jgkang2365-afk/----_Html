@@ -774,3 +774,14 @@
 [2026-07-05T07:23:19.326Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
 [2026-07-05T07:23:21.184Z] Event updated successfully: bjh1viplcb2gekh9ur8qb3cn64 
 [2026-07-05T07:23:21.190Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-06T04:54:44.452Z] Creating Calendar Event {
+  "summary": "[이주형, 김민영] 미등록 사업장 (건강디딤돌 연동)",
+  "description": "사업장코드: T9999\n          사업장: 미등록 사업장 (건강디딤돌 연동)\n          주소: 주소 미입력\n          담당자: 미지정\n          연락처: 없음\n          비고:",
+  "date": "2026-07-06",
+  "endDate": "2026-07-06",
+  "location": "",
+  "colorId": "5"
+}
+[2026-07-06T04:54:44.461Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 
+[2026-07-06T04:54:46.110Z] Event created successfully: a8295lqcgoeaiq6ijsg10qr1p0 
+[2026-07-06T04:54:46.158Z] Using credentials from file: C:\Users\USER\Desktop\안티그래티비\측정일지_html\google-credentials.json 

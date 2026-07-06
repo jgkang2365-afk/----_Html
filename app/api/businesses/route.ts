@@ -539,20 +539,32 @@ export async function PATCH(request: NextRequest) {
     }
 
     // === [건강디딤돌 신청결과 자동 동기화 Logic] ===
-    // measurement_target_business의 national_support_status가 "대상"이면 
-    // national_support_application 테이블에도 자동 생성(Upsert) 처리
-    if (updatedData && updatedData.national_support_status === "대상") {
+    // measurement_target_business의 국고지원 상태가 변경될 때 national_support_application 테이블과 양방향 대칭 동기화
+    if (updatedData && updatedData.national_support_status) {
       try {
         console.log(`[National Support Sync] Automatically sync ${updatedData.code} to national_support_application...`);
+        
+        // [대책 2] 기존 건강디딤돌 등록 데이터 선 조회하여 상세 결과(공단 사유 등) 유실 방지
+        const { data: existingApp } = await supabase
+          .from("national_support_application")
+          .select("application_status, result")
+          .eq("code", updatedData.code)
+          .eq("year", updatedData.year)
+          .eq("period", updatedData.period)
+          .maybeSingle();
+
+        const finalAppStatus = (existingApp && existingApp.application_status) || (updatedData.national_support_status === "대상" ? "○" : null);
+        const finalResult = (existingApp && existingApp.result) || (updatedData.national_support_status === "대상" ? "대상" : "비대상");
+
         const { error: appSyncError } = await supabase
           .from("national_support_application")
           .upsert({
             code: updatedData.code,
             year: updatedData.year,
             period: updatedData.period,
-            application_status: "○", // 기본적으로 신청 여부도 '○'로 매핑
-            result: "대상",
-            national_support_status: "대상"
+            application_status: finalAppStatus,
+            result: finalResult,
+            national_support_status: updatedData.national_support_status
           }, {
             onConflict: "code,year,period",
             ignoreDuplicates: false
@@ -641,20 +653,32 @@ export async function POST(request: NextRequest) {
     }
 
     // === [건강디딤돌 신청결과 자동 동기화 Logic] ===
-    // measurement_target_business의 national_support_status가 "대상"이면 
-    // national_support_application 테이블에도 자동 생성(Upsert) 처리
-    if (newTarget && newTarget.national_support_status === "대상") {
+    // measurement_target_business의 국고지원 상태가 설정될 때 national_support_application 테이블과 양방향 대칭 동기화
+    if (newTarget && newTarget.national_support_status) {
       try {
         console.log(`[National Support Sync] Automatically sync new business ${newTarget.code} to national_support_application...`);
+        
+        // [대책 2] 기존 건강디딤돌 등록 데이터 선 조회하여 상세 결과(공단 사유 등) 유실 방지
+        const { data: existingApp } = await supabase
+          .from("national_support_application")
+          .select("application_status, result")
+          .eq("code", newTarget.code)
+          .eq("year", newTarget.year)
+          .eq("period", newTarget.period)
+          .maybeSingle();
+
+        const finalAppStatus = (existingApp && existingApp.application_status) || (newTarget.national_support_status === "대상" ? "○" : null);
+        const finalResult = (existingApp && existingApp.result) || (newTarget.national_support_status === "대상" ? "대상" : "비대상");
+
         const { error: appSyncError } = await supabase
           .from("national_support_application")
           .upsert({
             code: newTarget.code,
             year: newTarget.year,
             period: newTarget.period,
-            application_status: "○",
-            result: "대상",
-            national_support_status: "대상"
+            application_status: finalAppStatus,
+            result: finalResult,
+            national_support_status: newTarget.national_support_status
           }, {
             onConflict: "code,year,period",
             ignoreDuplicates: false
