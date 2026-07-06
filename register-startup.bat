@@ -25,8 +25,8 @@ echo.
 echo [안내] 윈도우 작업 스케줄러에 최고 권한(관리자 권한) 백그라운드 실행 작업을 등록하고 있습니다...
 echo (컴퓨터 로그인 시 비밀번호 입력창(UAC) 없이 자동으로 백그라운드에서 실행되게 조치합니다.)
 
-:: schtasks를 사용하여 로그인 시 최고 권한(highest)으로 vbs를 구동하는 작업 생성
-schtasks /create /tn "MeasurementJournalServer" /tr "\"%SourceVBS%\"" /sc onlogon /rl highest /f
+:: schtasks를 사용하여 로그인 시 최고 권한(highest)으로 wscript.exe를 통해 vbs를 구동하는 작업 생성
+schtasks /create /tn "MeasurementJournalServer" /tr "wscript.exe \"%SourceVBS%\"" /sc onlogon /rl highest /f
 
 if %errorlevel% equ 0 goto SUCCESS
 goto FAILURE

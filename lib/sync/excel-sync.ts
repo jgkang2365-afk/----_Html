@@ -875,7 +875,7 @@ export async function syncBusinessInfo(
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
 
-  const syncStartTime = new Date(getKSTISOString());
+  const syncStartTime = new Date();
   let logId: number | null = null;
   let fileName = specificStorageFileName || fileNameXlsx; // 파일명 초기화
   const changeLog: string[] = []; // 변경 로그 배열
@@ -983,7 +983,7 @@ export async function syncBusinessInfo(
       .insert({
         file_name: fileName,
         sync_type: "사업장정보",
-        sync_start_time: getKSTISOString(syncStartTime),
+        sync_start_time: syncStartTime.toISOString(),
         status: "진행중",
         records_processed: 0,
         records_updated: 0,
@@ -1379,30 +1379,22 @@ export async function syncBusinessInfo(
       await Promise.all(updatePromises);
     }
 
-    const syncEndTime = new Date(getKSTISOString());
+    const syncEndTime = new Date();
 
-    // 동기화 로그 업데이트 및 변경 사항 없는 경우 삭제
+    // 동기화 로그 업데이트 (변경 사항 유무에 관계없이 상시 기록하여 타이틀에 최종 동기화 시점 노출)
     if (logId) {
-      if (changeLog.length === 0) {
-        // 변경 사항이 없으면 불필요한 로그 생성을 방지하기 위해 생성했던 로그 삭제
-        await supabase
-          .from("sync_log")
-          .delete()
-          .eq("id", logId);
-        console.log(`[사업장정보 동기화] 변경 사항이 없어 동기화 로그(ID: ${logId})를 삭제했습니다.`);
-      } else {
-        await supabase
-          .from("sync_log")
-          .update({
-            sync_end_time: getKSTISOString(syncEndTime),
-            status: "성공",
-            records_processed: parsedData.length,
-            records_updated: recordsUpdated,
-            records_inserted: recordsInserted,
-            change_details: changeLog.length > 0 ? changeLog : null
-          })
-          .eq("id", logId);
-      }
+      await supabase
+        .from("sync_log")
+        .update({
+          sync_end_time: syncEndTime.toISOString(),
+          status: "성공",
+          records_processed: parsedData.length,
+          records_updated: recordsUpdated,
+          records_inserted: recordsInserted,
+          change_details: changeLog.length > 0 ? changeLog : null
+        })
+        .eq("id", logId);
+      console.log(`[사업장정보 동기화] 동기화 로그(ID: ${logId})를 성공 상태로 업데이트했습니다.`);
     }
 
     return {
@@ -1414,7 +1406,7 @@ export async function syncBusinessInfo(
       change_log: changeLog,
     };
   } catch (error) {
-    const syncEndTime = new Date(getKSTISOString());
+    const syncEndTime = new Date();
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     // 동기화 로그 업데이트 (실패)
@@ -1423,7 +1415,7 @@ export async function syncBusinessInfo(
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: getKSTISOString(syncEndTime),
+          sync_end_time: syncEndTime.toISOString(),
           status: "실패",
           error_message: errorMessage,
         })
@@ -1462,7 +1454,7 @@ export async function syncMeasurementBusiness(
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
 
-  const syncStartTime = new Date(getKSTISOString());
+  const syncStartTime = new Date();
   let logId: number | null = null;
   let fileName = specificStorageFileName || fileNameXlsx;
   const changeLog: string[] = []; // 변경 로그 배열
@@ -1576,7 +1568,7 @@ export async function syncMeasurementBusiness(
       .insert({
         file_name: fileName,
         sync_type: "측정사업장",
-        sync_start_time: getKSTISOString(syncStartTime),
+        sync_start_time: syncStartTime.toISOString(),
         status: "진행중",
         records_processed: 0,
         records_updated: 0,
@@ -2038,7 +2030,7 @@ export async function syncMeasurementBusiness(
       }
     }
 
-    const syncEndTime = new Date(getKSTISOString());
+    const syncEndTime = new Date();
 
 
     // Define targetRows in outer scope for reuse
@@ -2266,28 +2258,20 @@ export async function syncMeasurementBusiness(
       console.error("[MES 연동 알림] 알림 감지 중 예외 발생:", notiErr.message);
     }
 
-    // 동기화 로그 업데이트 및 변경 사항 없는 경우 삭제
+    // 동기화 로그 업데이트 (변경 사항 유무에 관계없이 상시 기록하여 타이틀에 최종 동기화 시점 노출)
     if (logId) {
-      if (changeLog.length === 0) {
-        // 변경 사항이 없으면 불필요한 로그 생성을 방지하기 위해 생성했던 로그 삭제
-        await supabase
-          .from("sync_log")
-          .delete()
-          .eq("id", logId);
-        console.log(`[측정사업장 동기화] 변경 사항이 없어 동기화 로그(ID: ${logId})를 삭제했습니다.`);
-      } else {
-        await supabase
-          .from("sync_log")
-          .update({
-            sync_end_time: getKSTISOString(syncEndTime),
-            status: "성공",
-            records_processed: parsedData.length,
-            records_updated: recordsUpdated,
-            records_inserted: recordsInserted,
-            change_details: changeLog.length > 0 ? changeLog : null
-          })
-          .eq("id", logId);
-      }
+      await supabase
+        .from("sync_log")
+        .update({
+          sync_end_time: syncEndTime.toISOString(),
+          status: "성공",
+          records_processed: parsedData.length,
+          records_updated: recordsUpdated,
+          records_inserted: recordsInserted,
+          change_details: changeLog.length > 0 ? changeLog : null
+        })
+        .eq("id", logId);
+      console.log(`[측정사업장 동기화] 동기화 로그(ID: ${logId})를 성공 상태로 업데이트했습니다.`);
     }
 
     return {
@@ -2299,7 +2283,7 @@ export async function syncMeasurementBusiness(
       change_log: changeLog,
     };
   } catch (error) {
-    const syncEndTime = new Date(getKSTISOString());
+    const syncEndTime = new Date();
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     // 상세 에러 로깅
@@ -2317,7 +2301,7 @@ export async function syncMeasurementBusiness(
         await supabase
           .from("sync_log")
           .update({
-            sync_end_time: getKSTISOString(syncEndTime),
+            sync_end_time: syncEndTime.toISOString(),
             status: "실패",
             error_message: errorMessage,
           })
@@ -2345,7 +2329,7 @@ export async function syncMeasurementBusiness(
  * measurement_journal 테이블의 빈 필드를 business_info 및 measurement_business 데이터로 채움
  */
 export async function updateJournalFromReferenceData(externalSupabaseClient?: SupabaseClient): Promise<SyncResult> {
-  const syncStartTime = new Date(getKSTISOString());
+  const syncStartTime = new Date();
   let logId: number | null = null;
   const fileName = "JOURNAL_UPDATE";
 
@@ -2358,7 +2342,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       .insert({
         file_name: fileName,
         sync_type: "일지데이터보정",
-        sync_start_time: getKSTISOString(syncStartTime),
+        sync_start_time: syncStartTime.toISOString(),
         status: "진행중",
         records_processed: 0,
         records_updated: 0,
@@ -2568,7 +2552,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: getKSTISOString(),
+          sync_end_time: new Date().toISOString(),
           status: "성공",
           records_processed: journals?.length || 0,
           records_updated: updateCount,
@@ -2594,7 +2578,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: getKSTISOString(),
+          sync_end_time: new Date().toISOString(),
           status: "실패",
           error_message: errorMessage,
         })
