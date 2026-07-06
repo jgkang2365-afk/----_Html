@@ -79,21 +79,29 @@ async function testIntegration() {
               })
               .eq("id", tempTargetId);
 
-            console.log("관리자 경고 알림 메일 발송 테스트 시작...");
-            const emailService = new EmailService();
-            const mailRes = await emailService.sendSystemAlertEmail({
-              subject: `건강디딤돌 자동 신청 시스템 에러 발생 (산재번호: 99999999999) - 통합테스트`,
-              bodyHtml: `
-                <p>안녕하세요. 관리자님.</p>
-                <p>이 메일은 <b>건강디딤돌 자동 신청 시스템 통합 테스트</b> 과정에서 발생한 시스템 오류 모의 발송 메일입니다.</p>
-                <hr>
-                <p><b>[에러 상세 로그]</b></p>
-                <pre style="background: #f4f4f4; padding: 10px; border: 1px solid #ddd; overflow-x: auto; font-family: monospace;">
-${stderrData || "가짜 산재번호로 인한 크롤링 타임아웃/실패"}
-                </pre>
-              `
-            });
-            console.log("관리자 알림 이메일 발송 성공!", mailRes);
+            console.log("관리자 경고 인앱 알림 발송 테스트 시작...");
+            const { data: managers } = await supabase
+              .from("users")
+              .select("id")
+              .eq("is_journal_manager", true);
+
+            if (managers && managers.length > 0) {
+              const notifications = managers.map((m) => ({
+                user_id: m.id,
+                type: "error",
+                message: `[건강디딤돌 에러] 자동 신청 중 오류 발생 (산재번호: 99999999999, 사유: 통합테스트 모의 에러)`,
+                is_read: false,
+              }));
+
+              const { error: insErr } = await supabase.from("notifications").insert(notifications);
+              if (insErr) {
+                console.error("테스트 오류: 알림 인서트 실패:", insErr.message);
+              } else {
+                console.log(`관리자 인앱 알림 발송 성공! (${notifications.length}건 생성됨)`);
+              }
+            } else {
+              console.log("테스트 경고: 알림을 전송할 관리자(is_journal_manager = true)가 없습니다.");
+            }
           } else {
             console.log("-> 크롤러가 성공 종료되었습니다.");
           }

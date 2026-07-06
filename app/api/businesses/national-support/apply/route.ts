@@ -430,31 +430,26 @@ async function runApplyCrawler(params: {
         })
         .eq("id", target_id);
 
-      // 사용자/관리자 긴급 경고 이메일 발송
+      // 사용자/관리자 긴급 경고 인앱 알림 발송
       try {
-        const emailService = new EmailService();
-        await emailService.sendSystemAlertEmail({
-          subject: `건강디딤돌 자동 신청 시스템 에러 발생 (산재번호: ${sanjae})`,
-          bodyHtml: `
-            <p>안녕하세요. 관리자님.</p>
-            <p>건강디딤돌 자동 신청 및 접수 처리 중 <b>시스템적 오류(버전 불일치 또는 공단 웹사이트 개편)</b>가 감지되어 긴급 보고드립니다.</p>
-            <hr>
-            <p><b>[사업장 정보]</b></p>
-            <ul>
-              <li>사업장 코드: ${code}</li>
-              <li>산재관리번호: ${sanjae}</li>
-              <li>사업개시번호: ${commencement}</li>
-              <li>대표자 성명: ${representative}</li>
-            </ul>
-            <p><b>[에러 상세 로그]</b></p>
-            <pre style="background: #f4f4f4; padding: 15px; border: 1px solid #ddd; overflow-x: auto; font-family: monospace;">
-${err.message || stderrData || "상세 에러 로그가 존재하지 않습니다."}
-            </pre>
-          `,
-        });
-        console.log("[Crawler Error Alert Email] 관리자 알림 이메일 전송 완료");
-      } catch (mailErr) {
-        console.error("[Crawler Email Fail] 알림 이메일 전송 중 실패:", mailErr);
+        const { data: managers } = await supabase
+          .from("users")
+          .select("id")
+          .eq("is_journal_manager", true);
+
+        if (managers && managers.length > 0) {
+          const notifications = managers.map((m) => ({
+            user_id: m.id,
+            type: "error",
+            message: `[건강디딤돌 에러] 자동 신청 중 오류 발생 (산재번호: ${sanjae}, 사유: ${err.message || "시스템 에러"})`,
+            is_read: false,
+          }));
+
+          await supabase.from("notifications").insert(notifications);
+          console.log("[Crawler Error Alert] 관리자 인앱 알림 전송 완료");
+        }
+      } catch (notiErr) {
+        console.error("[Crawler Noti Fail] 관리자 알림 전송 중 실패:", notiErr);
       }
     }
   });
