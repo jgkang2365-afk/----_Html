@@ -621,6 +621,7 @@ export async function POST(request: NextRequest) {
   try {
     await checkPermission("journal:write");
 
+    const body = await request.json();
     const { 
       code, 
       year, 
