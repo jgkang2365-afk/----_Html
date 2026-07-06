@@ -200,6 +200,20 @@ export function SyncStatus() {
     }).format(date);
   };
 
+  const formatHistoryTitleDate = (dateString: string) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+    const weekday = weekdays[date.getDay()];
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `[${year}-${month}-${day}(${weekday}) ${hours}시 ${minutes}분 ${seconds}초]`;
+  };
+
   /* 가장 최신 로그를 가져오는 함수 (Status Card용) */
   const getLatestLog = (type: string) => {
     return logs
@@ -398,8 +412,14 @@ export function SyncStatus() {
       {/* 최근 1주일 변경 내역 표시 (사업장정보) */}
       <Card className="bg-surface-50 border-surface-200">
         <div className="p-4">
-          <h3 className="text-[15px] font-bold text-slate-800 mb-3 flex items-center gap-2">
-            <span className="p-1 bg-indigo-100 rounded-md">🏢</span> [사업장정보] Excel 가져오기 이력
+          <h3 className="text-[15px] font-bold text-slate-800 mb-3 flex items-center gap-2 flex-wrap">
+            <span className="p-1 bg-indigo-100 rounded-md">🏢</span>
+            <span>[사업장정보] Excel 가져오기 이력</span>
+            {businessInfoLog && (
+              <span className="text-xs font-normal text-slate-500 ml-1">
+                {formatHistoryTitleDate(businessInfoLog.sync_end_time || businessInfoLog.sync_start_time || businessInfoLog.created_at)}
+              </span>
+            )}
           </h3>
           <div className="bg-white border border-surface-200 rounded-xl p-4 max-h-[450px] overflow-y-auto text-xs text-text-700 leading-relaxed shadow-inner scrollbar-thin scrollbar-thumb-gray-200">
             {Object.keys(groupedBusinessInfo).length > 0 ? (
@@ -458,8 +478,14 @@ export function SyncStatus() {
       {/* 최근 1주일 변경 내역 표시 (측정사업장) */}
       <Card className="bg-surface-50 border-surface-200">
         <div className="p-4">
-          <h3 className="text-[15px] font-bold text-slate-800 mb-3 flex items-center gap-2">
-            <span className="p-1 bg-emerald-100 rounded-md">📊</span> [측정사업장] Excel 가져오기 이력
+          <h3 className="text-[15px] font-bold text-slate-800 mb-3 flex items-center gap-2 flex-wrap">
+            <span className="p-1 bg-emerald-100 rounded-md">📊</span>
+            <span>[측정사업장] Excel 가져오기 이력</span>
+            {measurementBusinessLog && (
+              <span className="text-xs font-normal text-slate-500 ml-1">
+                {formatHistoryTitleDate(measurementBusinessLog.sync_end_time || measurementBusinessLog.sync_start_time || measurementBusinessLog.created_at)}
+              </span>
+            )}
           </h3>
           <div className="bg-white border border-surface-200 rounded-xl p-4 max-h-[450px] overflow-y-auto text-xs text-text-700 leading-relaxed shadow-inner scrollbar-thin scrollbar-thumb-gray-200">
             {Object.keys(groupedMeasurementBusiness).length > 0 ? (
