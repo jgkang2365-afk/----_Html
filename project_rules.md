@@ -138,4 +138,6 @@
 
 ### 17. Excel 가져오기 이력의 최종 동기화 일시 표시 규칙 (v0.8.9 신설)
 * **최종 동기화 완료/실패 일시 상시 병기:** 데이터 업로드 대시보드의 가져오기 이력 타이틀([SyncStatus.tsx](file:///c:/Users/USER/Desktop/안티그래티비/측정일지_html/components/features/SyncStatus.tsx))을 렌더링할 때, 변경사항 유무에 관계없이 마지막에 완료된 시점의 일시를 `[YYYY-MM-DD(요일) HH시 MM분 SS초]` 형식의 한국 표준시(KST)로 제목 우측에 상시 표시(`formatHistoryTitleDate` 적용)하여 사용자가 최근 동기화 시점을 명확하게 인지할 수 있도록 유도해야 한다.
+* **완료된 측정 데이터 기준 정합성 검증 규칙 (v0.9.1 신설):** 아직 측정이 진행되지 않은 예정/미실시 상태인 미래 반기 데이터(예: 대표자명 누락 또는 약식 기재된 껍데기 레코드)로 인해 불필요한 데이터 불일치 경고가 상시 노출되는 것을 방지하기 위해, `business_info`와 `measurement_business` 간의 정합성 검증(`verification.ts`) 시에는 `measurement_business` 테이블에서 오직 완료 여부(`completion_status`)가 `'완료'`인 정식 측정 실적 데이터만을 검증 대조군(최신 정보)으로 삼아야 한다.
+
 

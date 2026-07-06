@@ -101,6 +101,7 @@ export async function verifyDataConsistency(externalSupabaseClient?: SupabaseCli
         const { data: measurements, error: mError } = await supabase
             .from("measurement_business")
             .select("code, business_name, representative_name, year, period, created_at")
+            .eq("completion_status", "완료") // 완료된 정식 등록 건만 대상으로 검증
             .gte('year', 2024) // 최신 3년치만 조회하여 성능 최적화 (필요시 조정)
             .order("year", { ascending: false });
 
