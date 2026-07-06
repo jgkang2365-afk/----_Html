@@ -8,6 +8,14 @@ import shutil
 import traceback
 import importlib.metadata
 
+# 표준 출력을 UTF-8로 설정하여 Windows 콘솔(CP949) 한글/특수문자 출력 에러 방지
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+except Exception:
+    pass
+
+
 # ==========================================
 # 0-0. 필수 라이브러리 자동 검사 및 무인 설치 (Dependency Harness)
 # ==========================================
@@ -68,7 +76,7 @@ def install_dependencies():
                     "--quiet", 
                     "--disable-pip-version-check"
                 ])
-                print(f"[✓] '{pkg}' 라이브러리 설치/업데이트 성공.")
+                print(f"[OK] '{pkg}' 라이브러리 설치/업데이트 성공.")
             except Exception as e:
                 print(f"[오류] '{pkg}' 라이브러리 설치 중 심각한 에러가 발생했습니다: {e}")
                 print("[-] 스크립트를 더 이상 진행할 수 없어 안전하게 종료합니다.")
@@ -268,7 +276,7 @@ def press_ctrl_key(vk_code):
     if res != 4:
         print(f"[경고] Ctrl + {key_name} 단축키 전송 실패 (결과: {res}/4)")
     else:
-        print(f"[✓] Ctrl + {key_name} 단축키 전송 성공")
+        print(f"[OK] Ctrl + {key_name} 단축키 전송 성공")
     time.sleep(0.05)
 
 def press_alt_key(vk_code):
@@ -435,7 +443,7 @@ def main():
                 try:
                     with open(req_f, "w") as f:
                         f.write("")
-                    print(f"[✓] 빈 임시 파일 생성 완료 (Touch): {os.path.basename(req_f)}")
+                    print(f"[OK] 빈 임시 파일 생성 완료 (Touch): {os.path.basename(req_f)}")
                 except Exception as f_err:
                     print(f"[경고] 임시 파일 생성 실패 ({os.path.basename(req_f)}): {f_err}")
             else:
@@ -483,7 +491,7 @@ def main():
         send_keys("강종구{ENTER}")
         time.sleep(0.5)
         send_keys(f"{PASSWORD}{{ENTER}}")
-        print("[✓] 로그인 정보 입력 완료.")
+        print("[OK] 로그인 정보 입력 완료.")
     except Exception as e:
         print(f"[오류] 로그인 창 제어 실패: {e}")
         raise RuntimeError(f"로그인 창 제어 실패: {e}")
@@ -501,7 +509,7 @@ def main():
             time.sleep(0.2)
             send_keys("{SPACE}")
             time.sleep(0.5)
-        print("[✓] 초기 팝업 처리 완료.")
+        print("[OK] 초기 팝업 처리 완료.")
     except Exception as e:
         print(f"[주의] 메인 창 또는 팝업 제어 중 확인 필요: {e}")
 
@@ -568,7 +576,7 @@ def main():
             confirm_win = app.window(title="확인", class_name="#32770")
             if confirm_win.exists():
                 if confirm_win.child_window(title_re=".*자료.*저장.*").exists():
-                    print("[✓] 자료 저장 완료 팝업 감지 완료.")
+                    print("[OK] 자료 저장 완료 팝업 감지 완료.")
                     popup_found = True
                     break
         except Exception:
@@ -672,7 +680,7 @@ def main():
         if not login_data.get("success"):
             raise ValueError(login_data.get("error", "로그인 응답 오류"))
             
-        print("[✓] 웹 대시보드 로그인 성공 (세션 쿠키 확보).")
+        print("[OK] 웹 대시보드 로그인 성공 (세션 쿠키 확보).")
     except Exception as login_err:
         print(f"[치명적 오류] 웹 API 로그인 실패로 업로드를 계속할 수 없습니다: {login_err}")
         raise login_err
@@ -704,7 +712,7 @@ def main():
                 
                 res_data = upload_res.json()
                 if res_data.get("success"):
-                    print(f"[✓] 파일 업로드 및 Supabase 동기화 성공: {file_name}")
+                    print(f"[OK] 파일 업로드 및 Supabase 동기화 성공: {file_name}")
                     if res_data.get("syncMessage"):
                         print(f"    - 결과 메시지: {res_data.get('syncMessage')}")
                 else:
@@ -738,7 +746,7 @@ if __name__ == "__main__":
                 f.write(f"=== 에러 발생 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
                 f.write(f"에러 내용: {global_err}\n\n")
                 traceback.print_exc(file=f)
-            print(f"\n[✓] 상세 에러 로그가 다음 경로에 기록되었습니다: {log_path}")
+            print(f"\n[OK] 상세 에러 로그가 다음 경로에 기록되었습니다: {log_path}")
         except Exception as log_write_err:
             print(f"[경고] 로그 파일 생성 실패: {log_write_err}")
             
