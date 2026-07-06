@@ -95,7 +95,13 @@ def is_admin():
     except:
         return False
 
+# 비대화형(백그라운드) 실행 여부 감지 (표준 입력이 터미널에 연결되어 있는지 확인)
+is_interactive = sys.stdin is not None and sys.stdin.isatty()
+
 if not is_admin():
+    if not is_interactive:
+        print("[오류] 관리자 권한이 없으나 백그라운드 환경이라 UAC 팝업을 띄울 수 없습니다. 관리자 권한으로 서버를 실행해 주세요.")
+        sys.exit(1)
     # 관리자 권한이 아니면 권한 상승 후 재실행
     print("[-] 관리자 권한으로 재실행을 시도합니다...")
     ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
@@ -737,5 +743,8 @@ if __name__ == "__main__":
             print(f"[경고] 로그 파일 생성 실패: {log_write_err}")
             
         print("\n" + "="*50)
-        input("프로그램이 비정상 종료되었습니다. 에러 내용을 확인한 뒤 엔터를 누르면 창이 닫힙니다...")
+        if is_interactive:
+            input("프로그램이 비정상 종료되었습니다. 에러 내용을 확인한 뒤 엔터를 누르면 창이 닫힙니다...")
+        else:
+            print("[-] 백그라운드 실행 환경이므로 입력 대기 없이 즉시 종료합니다.")
         sys.exit(1)
