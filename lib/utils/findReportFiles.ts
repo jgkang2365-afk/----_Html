@@ -41,15 +41,35 @@ export function findReportFiles(options: {
             return { report: null, invoice: null, dataFile: null, drawings: [], drawingFolderPath: '' };
         }
 
-        const normalize = (name: string) => name.replace(/[\(\)\s]/g, '').trim();
+        const normalize = (name: string) => name.normalize('NFC').replace(/[\(\)\s]/g, '').trim();
         const normalizedTarget = normalize(companyName);
 
         const items = fs.readdirSync(basePath);
         let targetFolderPath = '';
 
         for (const item of items) {
-            if (normalize(item).includes(normalizedTarget) || normalizedTarget.includes(normalize(item))) {
-                targetFolderPath = join(basePath, item);
+            const normalizedItem = normalize(item);
+            if (normalizedItem.includes(normalizedTarget) || normalizedTarget.includes(normalizedItem)) {
+                const parentPath = join(basePath, item);
+                targetFolderPath = parentPath;
+
+                try {
+                    if (fs.existsSync(parentPath) && fs.statSync(parentPath).isDirectory()) {
+                        const subItems = fs.readdirSync(parentPath);
+                        for (const subItem of subItems) {
+                            const subPath = join(parentPath, subItem);
+                            if (fs.statSync(subPath).isDirectory()) {
+                                const normalizedSub = normalize(subItem);
+                                if (normalizedSub.length > 1 && normalizedTarget.includes(normalizedSub)) {
+                                    targetFolderPath = subPath;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (subErr) {
+                    console.warn(`[findReportFiles] 지점 하위 폴더 탐색 중 예외 발생 (기존 폴더로 진행):`, subErr);
+                }
                 break;
             }
         }
