@@ -32,7 +32,7 @@ export class K2BService {
         const options = new chrome.Options();
         
         // 서버 구동 환경 대응: 화면 크기 및 headless 설정
-        const isHeadless = process.env.K2B_HEADLESS === 'true';
+        const isHeadless = process.env.K2B_HEADLESS?.toLowerCase().trim() === 'true';
         if (isHeadless) {
             console.log('[K2B] 헤드리스 모드(Headless)로 브라우저를 구동합니다.');
             options.addArguments('--headless=new');
