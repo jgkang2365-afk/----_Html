@@ -1,39 +1,77 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { BackgroundTasks } from "@/lib/scheduler/background-tasks";
+import { createClient } from "@/lib/supabase/server";
+
+const MES_QUEUE_ID = 1;
+const STALE_TIMEOUT_MINUTES = 5;
 
 /**
  * MES 데이터 즉시 동기화 수동 트리거 API
+ *
+ * 웹 서버는 MES 프로그램을 직접 실행하지 않습니다.
+ * 사내 Windows PC의 mes_daemon.py가 감지할 수 있도록 Supabase 큐에 신호만 남깁니다.
  * POST /api/cron/mes-trigger
  */
 export async function POST(request: NextRequest) {
   try {
     // 권한 검증: 관리자 전용 시스템 설정 접근 권한 필요
     await checkPermission("system:settings");
+    const supabase = await createClient();
 
-    const currentStatus = BackgroundTasks.getInstance().getMesSyncStatus();
-    if (currentStatus.status === 'running') {
-      return NextResponse.json({
-        success: false,
-        error: "이미 MES 동기화 작업이 백그라운드에서 실행 중입니다. 잠시만 기다려주세요."
-      }, { status: 409 });
+    const timeoutLimit = new Date(
+      Date.now() - STALE_TIMEOUT_MINUTES * 60 * 1000
+    ).toISOString();
+
+    const { error: resetError } = await supabase
+      .from("mes_sync_queue")
+      .update({
+        status: "idle",
+        error_message: `${STALE_TIMEOUT_MINUTES}분 초과 타임아웃으로 자동 리셋됨`,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", MES_QUEUE_ID)
+      .in("status", ["pending", "running"])
+      .lt("updated_at", timeoutLimit);
+
+    if (resetError) {
+      console.warn("[MES 트리거 API] 타임아웃 상태 리셋 실패:", resetError.message);
     }
 
-    console.log("[MES 트리거 API] 관리자에 의한 수동 즉시 동기화 요청 수신.");
-
-    // 비동기로 파이썬 다운로드 스크립트 실행 (즉시 응답하여 타임아웃 방지)
-    // 14:00 최종 체크가 아니므로 미등록 경고 알림은 false로 설정
-    BackgroundTasks.getInstance().runMesDownloadScript(false)
-      .then((success) => {
-        console.log(`[MES 트리거 API] 수동 동기화 실행 완료. 성공 여부: ${success}`);
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("mes_sync_queue")
+      .update({
+        status: "pending",
+        error_message: null,
+        updated_at: now,
       })
-      .catch((err) => {
-        console.error("[MES 트리거 API] 수동 동기화 실행 중 예외 발생:", err);
-      });
+      .eq("id", MES_QUEUE_ID)
+      .in("status", ["idle", "success", "error"])
+      .select("status, updated_at")
+      .maybeSingle();
+
+    if (error) {
+      console.error("[MES 트리거 API] 큐 업데이트 실패:", error);
+      throw error;
+    }
+
+    if (!data) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "이미 다른 MES 동기화 작업이 대기 중이거나 진행 중입니다. 잠시 후 다시 시도해 주세요.",
+        },
+        { status: 409 }
+      );
+    }
+
+    console.log("[MES 트리거 API] MES 동기화 요청 신호를 큐에 등록했습니다.");
 
     return NextResponse.json({
       success: true,
-      message: "MES 데이터 수동 동기화 작업이 백그라운드에서 시작되었습니다. 완료 시 알림이 발송됩니다."
+      status: data.status,
+      updatedAt: data.updated_at,
+      message: "MES 데이터 수동 동기화 요청이 사내 PC 데몬으로 전달되었습니다."
     }, { status: 202 }); // Accepted
 
   } catch (error: any) {
@@ -53,12 +91,24 @@ export async function GET(request: NextRequest) {
   try {
     // 권한 검증: 관리자 전용 시스템 설정 접근 권한 필요
     await checkPermission("system:settings");
+    const supabase = await createClient();
 
-    const syncStatus = BackgroundTasks.getInstance().getMesSyncStatus();
+    const { data, error } = await supabase
+      .from("mes_sync_queue")
+      .select("status, error_message, updated_at")
+      .eq("id", MES_QUEUE_ID)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[MES 트리거 API] 큐 상태 조회 실패:", error);
+      throw error;
+    }
 
     return NextResponse.json({
       success: true,
-      ...syncStatus
+      status: data?.status ?? "idle",
+      error: data?.error_message ?? null,
+      updatedAt: data?.updated_at ?? null,
     });
 
   } catch (error: any) {
