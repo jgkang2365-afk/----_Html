@@ -29,6 +29,7 @@ QUEUE_ID = 1
 POLL_SECONDS = int(os.getenv("MES_DAEMON_POLL_SECONDS", "5"))
 IDLE_RESET_SECONDS = int(os.getenv("MES_DAEMON_IDLE_RESET_SECONDS", "10"))
 MACRO_TIMEOUT_SECONDS = int(os.getenv("MES_DAEMON_MACRO_TIMEOUT_SECONDS", "600"))
+DRY_RUN = os.getenv("MES_DAEMON_DRY_RUN", "").lower() in ("1", "true", "yes", "y")
 
 
 def utc_now_iso():
@@ -87,6 +88,10 @@ def is_windows_admin():
 
 
 def run_mes_macro():
+    if DRY_RUN:
+        print("[MES Daemon] DRY_RUN 모드입니다. mes_download.py 실행 없이 성공 처리합니다.")
+        return
+
     script_path = ROOT_DIR / "mes_download.py"
     if not script_path.exists():
         raise FileNotFoundError(f"mes_download.py 파일을 찾을 수 없습니다: {script_path}")
