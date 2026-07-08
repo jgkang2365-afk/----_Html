@@ -1409,6 +1409,13 @@ export const JournalSearch: React.FC = () => {
                   측정일지 등록 현황 ({filteredJournals.length}건 / 전체 {allJournals.length}건)
                 </h2>
                 <div className="flex gap-2">
+                  <a
+                    href="/api/templates/journal"
+                    download="측정일지_업로드_양식.xlsx"
+                    className="inline-flex items-center justify-center rounded-lg border border-surface-300 bg-white px-4 py-2 text-sm font-medium text-text-700 transition-colors hover:bg-surface-50"
+                  >
+                    양식 다운로드
+                  </a>
                   <Button variant="secondary" onClick={handleExportExcel}>
                     엑셀 다운로드
                   </Button>

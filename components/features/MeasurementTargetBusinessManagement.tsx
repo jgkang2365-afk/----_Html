@@ -1046,7 +1046,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             <Button onClick={() => setIsAddModalOpen(true)} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap">
                                 신규등록
                             </Button>
-                            <a href="/templates/measure_target_template.xlsx" download="측정대상사업장_등록양식.xlsx" target="_blank" rel="noopener noreferrer"
+                            <a href="/api/templates/measurement-target" download="측정대상사업장_등록양식.xlsx"
                                 className="h-9 px-3 inline-flex items-center justify-center rounded-lg font-medium hover:bg-slate-100 border border-slate-200 text-slate-700 text-sm whitespace-nowrap ml-2" title="양식 다운로드">
                                 <span className="text-lg leading-none">⬇</span>
                             </a>

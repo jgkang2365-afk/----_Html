@@ -306,7 +306,7 @@ export const NationalSupportManagement: React.FC = () => {
               variant="secondary"
               onClick={() => {
                 const a = document.createElement("a");
-                a.href = "/templates/national_support_template.xlsx";
+                a.href = "/api/templates/national-support";
                 a.download = "건강디딤돌_업로드_양식.xlsx";
                 document.body.appendChild(a);
                 a.click();
