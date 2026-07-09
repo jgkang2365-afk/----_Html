@@ -139,28 +139,40 @@ def main():
             def normalize_period(p):
                 return p.split("(")[0].strip()
 
+            def parse_row(cols):
+                texts = [col.text.strip() for col in cols]
+                row_text = " | ".join(texts)
+                has_year = any(text == year for text in texts)
+                has_period = any(normalize_period(text) == normalize_period(period) for text in texts)
+
+                result_status = None
+                for text in texts:
+                    if "비대상" in text:
+                        result_status = "NON_SUPPORT"
+                        break
+                    if text == "대상" or ("대상" in text and "비대상" not in text):
+                        result_status = "SUPPORT"
+
+                print_log(f"조회 기록 감지 - 행: {row_text}, 연도일치: {has_year}, 반기일치: {has_period}, 결과: {result_status or '미확인'}")
+                return has_year, has_period, result_status
+
             # 지정된 연도 및 반기와 일치하는 행 탐색
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
-                if len(cols) >= 8:
-                    row_year = cols[0].text.strip()
-                    row_half = cols[1].text.strip()
-                    row_result = cols[7].text.strip()
-                    
-                    print_log(f"조회 기록 감지 - 연도: {row_year}, 반기: {row_half}, 결과: {row_result}")
-                    if row_year == year and normalize_period(row_half) == normalize_period(period):
-                        result = map_result_status(row_result)
+                if len(cols) >= 3:
+                    has_year, has_period, result_status = parse_row(cols)
+                    if has_year and has_period and result_status:
+                        result = result_status
                         break
             
             # 연도와 반기가 일치하는 내역이 없으면 반기 매칭만 시도
             if not result:
                 for row in rows:
                     cols = row.find_elements(By.TAG_NAME, "td")
-                    if len(cols) >= 8:
-                        row_half = cols[1].text.strip()
-                        row_result = cols[7].text.strip()
-                        if normalize_period(row_half) == normalize_period(period):
-                            result = map_result_status(row_result)
+                    if len(cols) >= 3:
+                        _, has_period, result_status = parse_row(cols)
+                        if has_period and result_status:
+                            result = result_status
                             break
                             
         except Exception as table_err:
