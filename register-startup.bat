@@ -12,18 +12,18 @@ if %errorlevel% equ 0 (
 )
 
 set "StartupFolder=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
-set "SourceVBS=%~dp0run-server.vbs"
+set "SourceVBS=%~dp0run-server-tray.vbs"
 set "ShortcutPath=%StartupFolder%\RunMeasurementJournal.lnk"
 set "MesTrayVbs=%~dp0run-mes-tray.vbs"
 set "MesTaskName=MeasurementJournalMESDaemon"
 
 echo.
-echo [안내] 윈도우 시작프로그램 폴더에 백그라운드 실행 바로가기를 생성하고 있습니다...
-echo (컴퓨터 로그인 시 백그라운드에서 자동으로 서버가 구동됩니다.)
+echo [안내] 윈도우 시작프로그램 폴더에 서버 트레이 관리자 바로가기를 생성하고 있습니다...
+echo (컴퓨터 로그인 시 알림 영역 아이콘으로 서버가 자동 구동됩니다.)
 echo 대상 VBS: %SourceVBS%
 echo 바로가기 경로: %ShortcutPath%
 
-:: PowerShell을 사용하여 시작프로그램 폴더에 run-server.vbs를 가리키는 바로가기(.lnk) 생성
+:: PowerShell을 사용하여 시작프로그램 폴더에 run-server-tray.vbs를 가리키는 바로가기(.lnk) 생성
 powershell -NoProfile -Command "$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%ShortcutPath%'); $Shortcut.TargetPath = '%SourceVBS%'; $Shortcut.WorkingDirectory = '%~dp0'; $Shortcut.Save()"
 
 if not %errorlevel% equ 0 goto FAILURE
@@ -41,7 +41,7 @@ echo.
 echo ====================================================================
 echo ✅ 등록이 성공적으로 완료되었습니다! [시작프로그램 등록 성공]
 echo 컴퓨터가 켜지고 윈도우에 로그인하면 서버가 일반 대화형 세션에서
-echo 터미널 창 없이 백그라운드로 자동 구동됩니다.
+echo 알림 영역 아이콘으로 자동 구동되며 로그와 재시작 메뉴를 사용할 수 있습니다.
 echo.
 echo MES 동기화 데몬도 알림 영역 아이콘으로 자동 실행되어 요청을 대기합니다.
 echo MES 화면 자동화가 필요하므로 윈도우 사용자 로그인은 반드시 필요합니다.
