@@ -408,11 +408,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     // Fetch Raw Data
-    const fetchData = useCallback(async () => {
+    const fetchData = useCallback(async (options?: { silent?: boolean }) => {
         const [year, period] = filters.yearPeriod.split("-");
         if (!year || !period) return;
 
-        setLoading(true);
+        if (!options?.silent) {
+            setLoading(true);
+        }
         try {
             const params = new URLSearchParams();
             params.append("year", year);
@@ -428,7 +430,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         } catch (error) {
             console.error("Error fetching businesses:", error);
         } finally {
-            setLoading(false);
+            if (!options?.silent) {
+                setLoading(false);
+            }
         }
     }, [filters.yearPeriod]);
 
@@ -529,7 +533,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         if (!hasPendingNationalSupport) return;
 
         const timer = window.setInterval(() => {
-            fetchData();
+            fetchData({ silent: true });
         }, 5000);
 
         return () => window.clearInterval(timer);
@@ -675,7 +679,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 alert(resData.message || "건강디딤돌 신청결과가 즉시 반영되었습니다.");
                 fetchData();
             } else {
-                alert("조회 요청이 개발 서버에 전달되었습니다. 완료될 때까지 목록이 자동으로 새로고침됩니다.");
+                alert("조회 요청이 개발 서버에 전달되었습니다. 완료될 때까지 화면을 유지한 채 결과만 조용히 갱신합니다.");
             }
 
         } catch (error) {
