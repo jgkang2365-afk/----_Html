@@ -25,17 +25,17 @@ function Get-PythonCommand {
 }
 
 function Set-TrayStatus([string]$status, [string]$detail) {
-    $script:statusItem.Text = "상태: $status"
-    $script:notifyIcon.Text = "MES 동기화 - $status"
+    $script:statusItem.Text = "Status: $status"
+    $script:notifyIcon.Text = "MES Sync - $status"
 
-    if ($status -eq "실행 중") {
+    if ($status -eq "Running") {
         $script:notifyIcon.Icon = [System.Drawing.SystemIcons]::Information
     } else {
         $script:notifyIcon.Icon = [System.Drawing.SystemIcons]::Error
     }
 
     if ($detail) {
-        $script:notifyIcon.BalloonTipTitle = "MES 동기화"
+        $script:notifyIcon.BalloonTipTitle = "MES Sync"
         $script:notifyIcon.BalloonTipText = $detail
     }
 }
@@ -47,7 +47,7 @@ function Start-MesDaemon {
 
     $pythonCommand = Get-PythonCommand
     if (-not $pythonCommand) {
-        Set-TrayStatus "오류" "Python 실행 파일을 찾을 수 없습니다."
+        Set-TrayStatus "Error" "Python executable was not found."
         return
     }
 
@@ -61,9 +61,9 @@ function Start-MesDaemon {
             -RedirectStandardOutput $stdoutLog `
             -RedirectStandardError $stderrLog `
             -PassThru
-        Set-TrayStatus "실행 중" "MES 동기화 데몬이 요청을 기다리고 있습니다."
+        Set-TrayStatus "Running" "MES daemon is waiting for requests."
     } catch {
-        Set-TrayStatus "오류" "MES 데몬을 시작하지 못했습니다: $($_.Exception.Message)"
+        Set-TrayStatus "Error" "Failed to start MES daemon: $($_.Exception.Message)"
     }
 }
 
@@ -82,7 +82,7 @@ $contextMenu.Items.Add($script:statusItem) | Out-Null
 $contextMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 
 $restartItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$restartItem.Text = "MES 데몬 다시 시작"
+$restartItem.Text = "Restart MES daemon"
 $restartItem.Add_Click({
     Stop-MesDaemon
     Start-Sleep -Seconds 1
@@ -91,7 +91,7 @@ $restartItem.Add_Click({
 $contextMenu.Items.Add($restartItem) | Out-Null
 
 $logItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$logItem.Text = "실행 로그 열기"
+$logItem.Text = "Open daemon log"
 $logItem.Add_Click({
     if (-not (Test-Path $stdoutLog)) {
         New-Item -ItemType File -Path $stdoutLog | Out-Null
@@ -101,13 +101,13 @@ $logItem.Add_Click({
 $contextMenu.Items.Add($logItem) | Out-Null
 
 $folderItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$folderItem.Text = "프로젝트 폴더 열기"
+$folderItem.Text = "Open project folder"
 $folderItem.Add_Click({ Start-Process explorer.exe -ArgumentList "`"$projectDir`"" })
 $contextMenu.Items.Add($folderItem) | Out-Null
 $contextMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 
 $exitItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$exitItem.Text = "MES 트레이 종료"
+$exitItem.Text = "Exit MES tray"
 $exitItem.Add_Click({
     $script:allowRestart = $false
     Stop-MesDaemon
@@ -131,7 +131,7 @@ $timer.Interval = 5000
 $timer.Add_Tick({
     if ($script:allowRestart -and
         (-not $script:daemonProcess -or $script:daemonProcess.HasExited)) {
-        Set-TrayStatus "재시작 중" "MES 데몬이 종료되어 자동으로 다시 시작합니다."
+        Set-TrayStatus "Restarting" "MES daemon stopped and will restart automatically."
         Start-MesDaemon
     }
 })
