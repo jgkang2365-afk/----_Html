@@ -385,26 +385,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 throw new Error(errData.error || "등록에 실패했습니다.");
             }
 
-            const resJson = await response.json();
-
-            // 국고 대상인 경우 자동 결과 조회 API 호출 기동
-            if (addForm.national_support_status === "대상" && resJson.data?.id) {
-                fetch("/api/businesses/national-support/apply", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        target_id: resJson.data.id,
-                        sanjae: addForm.sanjae,
-                        commencement: addForm.commencement,
-                        representative: addForm.representative_name,
-                        contact_name: addForm.manager_name,
-                        contact_phone: addForm.manager_mobile,
-                        period: addForm.period,
-                        code: addForm.code,
-                        year: addForm.year
-                    })
-                }).catch(err => console.error("자동 결과 조회 트리거 실패:", err));
-            }
+            await response.json();
 
             alert("성공적으로 등록되었습니다.");
             setIsAddModalOpen(false);
@@ -540,6 +521,20 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         fetchData();
     }, [fetchData]);
 
+    // 개발 서버 작업자가 건강디딤돌 조회를 처리하는 동안 결과가 반영될 때까지 자동 갱신합니다.
+    useEffect(() => {
+        const hasPendingNationalSupport = data.some(item =>
+            item.sync_status === "신청중" || item.sync_status === "조회중"
+        );
+        if (!hasPendingNationalSupport) return;
+
+        const timer = window.setInterval(() => {
+            fetchData();
+        }, 5000);
+
+        return () => window.clearInterval(timer);
+    }, [data, fetchData]);
+
     const handleSearch = () => {
         fetchData();
     };
@@ -626,46 +621,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             await saveChanges(editingItem.code, editForm);
             setIsEditModalOpen(false);
 
-            // 국고 대상이고, 기존 신청중/성공 상태가 아니면 결과 조회 기동
-            if (editForm.national_support_status === "대상" && editingItem.sync_status !== "신청중" && editingItem.sync_status !== "성공") {
-                // 1. 화면에 로컬 상태로 즉시 '신청중(뱅글뱅글)' 표시 및 새로 변경한 폼 값 갱신
-                setData(prev => prev.map(d => d.id === editingItem.id ? { 
-                    ...d, 
-                    sanjae: editForm.sanjae ?? d.sanjae,
-                    commencement: editForm.commencement ?? d.commencement,
-                    representative_name: editForm.representative_name ?? d.representative_name,
-                    national_support_status: editForm.national_support_status ?? d.national_support_status,
-                    sync_status: "신청중", 
-                    sync_error_message: null 
-                } : d));
-
-                const targetPeriod = editForm.period || editingItem.period;
-                const targetYear = editForm.year || editingItem.year;
-
-                fetch("/api/businesses/national-support/apply", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        target_id: editingItem.id,
-                        sanjae: editForm.sanjae,
-                        commencement: editForm.commencement,
-                        representative: editForm.representative_name,
-                        contact_name: editForm.manager_name || "담당자",
-                        contact_phone: editForm.manager_mobile || "010-0000-0000",
-                        period: targetPeriod,
-                        code: editingItem.code,
-                        year: targetYear
-                    })
-                })
-                .then(() => {
-                    // 2. 조회가 시작되어 락이 걸린 최신 DB 데이터를 화면 목록에 정식 반영하기 위해 재패치
-                    setTimeout(() => fetchData(), 1000);
-                })
-                .catch(err => console.error("결과 조회 트리거 실패:", err));
-            } else {
-                // 국고 조회가 자동 기동하지 않는 단순 수정 시에도 변경 데이터 반영을 위해 즉각 리패치
-                setTimeout(() => fetchData(), 500);
-            }
+            // 저장 단계에서는 조회하지 않습니다. 목록의 파란 새로고침 버튼을 눌렀을 때만
+            // 건강디딤돌 신청결과 DB 확인 → 공단 조회 순서로 진행합니다.
+            setTimeout(() => fetchData(), 500);
         } catch (err) {
             // saveChanges 내부 catch 블록에서 이미 에러 얼럿창을 띄우므로, 모달을 닫지 않고 입력을 보존하며 리턴함
             console.error("수정 저장 실패:", err);
@@ -717,10 +675,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 alert(resData.message || "건강디딤돌 신청결과가 즉시 반영되었습니다.");
                 fetchData();
             } else {
-                alert("공단 사이트 결과 조회가 백그라운드에서 기동되었습니다. 잠시 후 목록이 자동으로 새로고침됩니다.");
-                setTimeout(() => {
-                    fetchData();
-                }, 4000);
+                alert("조회 요청이 개발 서버에 전달되었습니다. 완료될 때까지 목록이 자동으로 새로고침됩니다.");
             }
 
         } catch (error) {

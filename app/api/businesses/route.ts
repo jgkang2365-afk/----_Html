@@ -15,6 +15,7 @@ import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
 import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
+import { syncToMasterTables } from "@/lib/sync/master-tables";
 
 export async function GET(request: NextRequest) {
   try {
@@ -306,7 +307,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
-
 export async function PATCH(request: NextRequest) {
   try {
     // console.log(`[PATCH] Request received`); // Optional: keep or remove
@@ -538,48 +538,6 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    // === [건강디딤돌 신청결과 자동 동기화 Logic] ===
-    // measurement_target_business의 국고지원 상태가 변경될 때 national_support_application 테이블과 양방향 대칭 동기화
-    if (updatedData && updatedData.national_support_status) {
-      try {
-        console.log(`[National Support Sync] Automatically sync ${updatedData.code} to national_support_application...`);
-        
-        // [대책 2] 기존 건강디딤돌 등록 데이터 선 조회하여 상세 결과(공단 사유 등) 유실 방지
-        const { data: existingApp } = await supabase
-          .from("national_support_application")
-          .select("application_status, result")
-          .eq("code", updatedData.code)
-          .eq("year", updatedData.year)
-          .eq("period", updatedData.period)
-          .maybeSingle();
-
-        const finalAppStatus = (existingApp && existingApp.application_status) || (updatedData.national_support_status === "대상" ? "○" : null);
-        const finalResult = (existingApp && existingApp.result) || (updatedData.national_support_status === "대상" ? "대상" : "비대상");
-
-        const { error: appSyncError } = await supabase
-          .from("national_support_application")
-          .upsert({
-            code: updatedData.code,
-            year: updatedData.year,
-            period: updatedData.period,
-            application_status: finalAppStatus,
-            result: finalResult,
-            national_support_status: updatedData.national_support_status
-          }, {
-            onConflict: "code,year,period",
-            ignoreDuplicates: false
-          });
-
-        if (appSyncError) {
-          console.error("[National Support Sync] Auto Sync Error:", appSyncError);
-        } else {
-          console.log(`[National Support Sync] Successfully upserted ${updatedData.code} to national_support_application`);
-        }
-      } catch (e) {
-        console.error("[National Support Sync] Exception:", e);
-      }
-    }
-
     // === [마스터 테이블 최종 동기화 Logic] ===
     // 계획 진행 상태가 '실시' 또는 '확정'일 때만, 입력된 건강디딤돌 필수 정보를 마스터 DB에 최종 검증(확정) 저장합니다.
     const isConfirmedStatus = updatedData.is_registered === "실시" || updatedData.is_registered === "확정";
@@ -616,7 +574,6 @@ export async function PATCH(request: NextRequest) {
     }, { status: 500 });
   }
 }
-
 export async function POST(request: NextRequest) {
   try {
     await checkPermission("journal:write");
@@ -692,48 +649,6 @@ export async function POST(request: NextRequest) {
       throw new Error(`Target Insert Error: ${insertError.message}`);
     }
 
-    // === [건강디딤돌 신청결과 자동 동기화 Logic] ===
-    // measurement_target_business의 국고지원 상태가 설정될 때 national_support_application 테이블과 양방향 대칭 동기화
-    if (newTarget && newTarget.national_support_status) {
-      try {
-        console.log(`[National Support Sync] Automatically sync new business ${newTarget.code} to national_support_application...`);
-        
-        // [대책 2] 기존 건강디딤돌 등록 데이터 선 조회하여 상세 결과(공단 사유 등) 유실 방지
-        const { data: existingApp } = await supabase
-          .from("national_support_application")
-          .select("application_status, result")
-          .eq("code", newTarget.code)
-          .eq("year", newTarget.year)
-          .eq("period", newTarget.period)
-          .maybeSingle();
-
-        const finalAppStatus = (existingApp && existingApp.application_status) || (newTarget.national_support_status === "대상" ? "○" : null);
-        const finalResult = (existingApp && existingApp.result) || (newTarget.national_support_status === "대상" ? "대상" : "비대상");
-
-        const { error: appSyncError } = await supabase
-          .from("national_support_application")
-          .upsert({
-            code: newTarget.code,
-            year: newTarget.year,
-            period: newTarget.period,
-            application_status: finalAppStatus,
-            result: finalResult,
-            national_support_status: newTarget.national_support_status
-          }, {
-            onConflict: "code,year,period",
-            ignoreDuplicates: false
-          });
-
-        if (appSyncError) {
-          console.error("[National Support Sync] Auto Sync Error:", appSyncError);
-        } else {
-          console.log(`[National Support Sync] Successfully upserted new business ${newTarget.code} to national_support_application`);
-        }
-      } catch (e) {
-        console.error("[National Support Sync] Exception:", e);
-      }
-    }
-
     return NextResponse.json({ success: true, data: newTarget });
 
   } catch (error: any) {
@@ -783,66 +698,5 @@ export async function DELETE(request: NextRequest) {
       error: "Internal Server Error",
       details: error?.message || String(error)
     }, { status: 500 });
-  }
-}
-
-/**
- * 가입력 정보(산재관리번호, 사업개시번호, 대표자명)를 
- * 최종 마스터 테이블(measurement_business, business_info)로 동기화(확정 저장)합니다.
- */
-export async function syncToMasterTables(
-  supabase: any,
-  code: string,
-  year: number,
-  period: string,
-  businessName: string,
-  representativeName: string | null,
-  industrialAccidentNumber: string | null,
-  commencementNumber: string | null
-) {
-  console.log(`[Sync to Master] Syncing ${code} (Year: ${year}, Period: ${period}) to master tables...`);
-  
-  if (code) {
-    // 1. business_info 테이블 동기화 (대표자명, 사업장명 등)
-    const { error: infoErr } = await supabase
-      .from("business_info")
-      .upsert({
-        code,
-        business_name: businessName,
-        representative_name: representativeName,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: "code"
-      });
-    
-    if (infoErr) {
-      console.error(`[Sync to Master] business_info upsert error for ${code}:`, infoErr.message);
-    } else {
-      console.log(`[Sync to Master] Successfully upserted business_info for ${code}`);
-    }
-  }
-
-  if (code && year && period) {
-    // 2. measurement_business 테이블 동기화 (산재번호, 개시번호, 대표자명 등)
-    const { error: mbErr } = await supabase
-      .from("measurement_business")
-      .upsert({
-        code,
-        year,
-        period,
-        business_name: businessName,
-        representative_name: representativeName,
-        industrial_accident_number: industrialAccidentNumber,
-        commencement_number: commencementNumber,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: "code,year,period"
-      });
-
-    if (mbErr) {
-      console.error(`[Sync to Master] measurement_business upsert error for ${code}:`, mbErr.message);
-    } else {
-      console.log(`[Sync to Master] Successfully upserted measurement_business for ${code}`);
-    }
   }
 }

@@ -4,10 +4,12 @@ import { K2BService } from './k2b-service';
 import { findReportFiles } from '../utils/findReportFiles';
 import { getKSTISOString, getKSTDateString } from '../utils/date-utils';
 import { syncBusinessToCalendar } from "../google/sync-service";
+import { processNationalSupportJob } from "./national-support-worker";
 
 /**
  * 백그라운드 작업기 데몬 (Worker Daemon)
- * 로컬 서버 환경에서만 가동되며, background_jobs 테이블을 감시해 이메일 및 K2B 작업을 비동기 처리합니다.
+ * 로컬 서버 환경에서만 가동되며, background_jobs 테이블을 감시해
+ * 이메일, K2B, 건강디딤돌 조회 작업을 비동기 처리합니다.
  */
 export class WorkerDaemon {
     private static instance: WorkerDaemon;
@@ -119,6 +121,8 @@ export class WorkerDaemon {
                 await this.processEmailJob(job);
             } else if (job.job_type === 'k2b') {
                 await this.processK2BJob(job);
+            } else if (job.job_type === 'national_support') {
+                await this.processNationalSupportJob(job);
             } else {
                 throw new Error(`알 수 없는 작업 유형: ${job.job_type}`);
             }
@@ -128,6 +132,19 @@ export class WorkerDaemon {
         } finally {
             this.isProcessing = false;
             this.currentJobId = null;
+        }
+    }
+
+    private async processNationalSupportJob(job: any) {
+        try {
+            await processNationalSupportJob(job.payload);
+            await this.updateJobStatus(job.id, 'success');
+        } catch (error: any) {
+            await this.updateJobStatus(
+                job.id,
+                'failed',
+                error?.message || '건강디딤돌 조회 작업 실패'
+            );
         }
     }
 
