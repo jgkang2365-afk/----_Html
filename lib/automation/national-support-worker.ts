@@ -32,7 +32,9 @@ function runCrawler(payload: NationalSupportJobPayload): Promise<CrawlerResult> 
       "--contact_phone", payload.contact_phone || "",
       "--period", payload.period,
       "--year", String(payload.year),
-    ]);
+    ], {
+      windowsHide: true,
+    });
 
     let stdout = "";
     let stderr = "";
