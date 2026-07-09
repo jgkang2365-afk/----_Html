@@ -77,6 +77,8 @@ export class WorkerDaemon {
         try {
             const supabase = await createClient();
 
+            await this.recoverStaleNationalSupportJobs(supabase);
+
             // PENDING 상태인 가장 오래된 작업 1개 획득
             const { data: jobs, error } = await supabase
                 .from('background_jobs')
@@ -132,6 +134,52 @@ export class WorkerDaemon {
         } finally {
             this.isProcessing = false;
             this.currentJobId = null;
+        }
+    }
+
+    private async recoverStaleNationalSupportJobs(supabase: any) {
+        const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        const { data: staleJobs, error } = await supabase
+            .from('background_jobs')
+            .select('id, payload, updated_at')
+            .eq('job_type', 'national_support')
+            .eq('status', 'processing')
+            .lt('updated_at', staleThreshold)
+            .limit(5);
+
+        if (error) {
+            console.error('[WorkerDaemon] 건강디딤돌 장기 processing 작업 확인 실패:', error.message);
+            return;
+        }
+
+        if (!staleJobs || staleJobs.length === 0) return;
+
+        for (const job of staleJobs) {
+            const message = '건강디딤돌 조회가 장시간 종료되지 않아 자동 실패 처리되었습니다. 다시 조회를 눌러 재시도해주세요.';
+            await supabase
+                .from('background_jobs')
+                .update({
+                    status: 'failed',
+                    error_message: message,
+                    updated_at: getKSTISOString()
+                })
+                .eq('id', job.id)
+                .eq('status', 'processing');
+
+            const targetId = job.payload?.target_id;
+            if (targetId) {
+                await supabase
+                    .from('measurement_target_business')
+                    .update({
+                        sync_status: '실패',
+                        sync_error_message: message,
+                        updated_at: getKSTISOString()
+                    })
+                    .eq('id', targetId)
+                    .eq('sync_status', '신청중');
+            }
+
+            console.warn(`[WorkerDaemon] 장기 processing 건강디딤돌 작업 자동 실패 처리: ${job.id}`);
         }
     }
 

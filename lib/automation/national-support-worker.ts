@@ -20,9 +20,12 @@ type CrawlerResult = {
   result?: "SUPPORT" | "NON_SUPPORT" | "STANDBY" | "NO_RESULT" | "FAIL";
 };
 
+const CRAWLER_TIMEOUT_MS = 120_000;
+
 function runCrawler(payload: NationalSupportJobPayload): Promise<CrawlerResult> {
   return new Promise((resolve, reject) => {
     const script = path.join(process.cwd(), "scratch/apply_national_support_cli.py");
+    let settled = false;
     const child = spawn("python", [
       script,
       "--sanjae", payload.sanjae,
@@ -36,30 +39,52 @@ function runCrawler(payload: NationalSupportJobPayload): Promise<CrawlerResult> 
       windowsHide: true,
     });
 
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback();
+    };
+
+    const timeout = setTimeout(() => {
+      finish(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // 프로세스가 이미 종료된 경우 무시합니다.
+        }
+        reject(new Error("건강디딤돌 조회가 120초 안에 끝나지 않아 중단했습니다."));
+      });
+    }, CRAWLER_TIMEOUT_MS);
+
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", data => { stdout += data.toString(); });
     child.stderr.on("data", data => { stderr += data.toString(); });
-    child.on("error", reject);
+    child.on("error", error => {
+      finish(() => reject(error));
+    });
     child.on("close", exitCode => {
-      if (exitCode !== 0) {
-        reject(new Error(stderr.trim() || `건강디딤돌 조회 프로그램 종료 코드: ${exitCode}`));
-        return;
-      }
-
-      const lines = stdout.split("\n").map(line => line.trim()).filter(Boolean);
-      for (let index = lines.length - 1; index >= 0; index--) {
-        try {
-          const parsed = JSON.parse(lines[index]);
-          if (parsed && typeof parsed === "object") {
-            resolve(parsed);
-            return;
-          }
-        } catch {
-          // 마지막 JSON 결과가 나올 때까지 이전 줄을 확인합니다.
+      finish(() => {
+        if (exitCode !== 0) {
+          reject(new Error(stderr.trim() || `건강디딤돌 조회 프로그램 종료 코드: ${exitCode}`));
+          return;
         }
-      }
-      reject(new Error("건강디딤돌 조회 결과를 해석할 수 없습니다."));
+
+        const lines = stdout.split("\n").map(line => line.trim()).filter(Boolean);
+        for (let index = lines.length - 1; index >= 0; index--) {
+          try {
+            const parsed = JSON.parse(lines[index]);
+            if (parsed && typeof parsed === "object") {
+              resolve(parsed);
+              return;
+            }
+          } catch {
+            // 마지막 JSON 결과가 나올 때까지 이전 줄을 확인합니다.
+          }
+        }
+        reject(new Error("건강디딤돌 조회 결과를 해석할 수 없습니다."));
+      });
     });
   });
 }
