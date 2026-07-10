@@ -202,6 +202,12 @@ export async function GET(request: NextRequest) {
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false });
 
+    // 3순위 보완: 사업장정보(business_info)에만 있는 기본 사업자등록번호
+    const { data: businessInfoData } = await supabase
+      .from("business_info")
+      .select("code, business_number")
+      .in("code", codes);
+
     // Map: Code -> Latest Info (Business)
     const businessInfoMap = new Map<string, any>();
     if (latestBusinessData) {
@@ -218,6 +224,15 @@ export async function GET(request: NextRequest) {
       latestJournalData.forEach((item: any) => {
         if (!journalInfoMap.has(item.code)) {
           journalInfoMap.set(item.code, item);
+        }
+      });
+    }
+
+    const businessBasicInfoMap = new Map<string, any>();
+    if (businessInfoData) {
+      businessInfoData.forEach((item: any) => {
+        if (!businessBasicInfoMap.has(item.code)) {
+          businessBasicInfoMap.set(item.code, item);
         }
       });
     }
@@ -242,6 +257,7 @@ export async function GET(request: NextRequest) {
 
       const bInfo = businessInfoMap.get(item.code);
       const jInfo = journalInfoMap.get(item.code);
+      const basicInfo = businessBasicInfoMap.get(item.code);
 
       // 실시여부 로직: 기 입력된 값이 '거래종료', '종료', '실시', '미실시' 등 정규화된 값이면 유지.
       // 그 외(null 등)의 경우 기본값('미실시')으로 처리
@@ -262,9 +278,10 @@ export async function GET(request: NextRequest) {
         nationalSupportStatus = bInfo?.national_support_status || jInfo?.national_support_status || item.national_support_status;
       }
 
-      // 2. 사업자번호, 근로자수, 연락처, 대표자명: 측정사업장(Business Master) 테이블이 권위 있는 소스
-      // (measurement_business(bInfo) > measurement_journal(jInfo) > target(item))
-      const businessNumber = bInfo?.business_number || jInfo?.business_number || item.business_number;
+      // 2. 사업자번호, 근로자수, 연락처, 대표자명: 측정사업장/일지 최신값 우선.
+      // 사업장정보(business_info)에만 사업자번호가 있는 기존 자료도 빈값으로 보이지 않도록 보완합니다.
+      // (measurement_business(bInfo) > measurement_journal(jInfo) > business_info(basicInfo) > target(item))
+      const businessNumber = bInfo?.business_number || jInfo?.business_number || basicInfo?.business_number || item.business_number;
       const totalEmployees = bInfo?.total_employees || jInfo?.total_employees || item.total_employees;
       const phone = bInfo?.phone || jInfo?.phone || item.manager_phone;
       const representativeName = bInfo?.representative_name || jInfo?.representative_name || item.representative_name;
