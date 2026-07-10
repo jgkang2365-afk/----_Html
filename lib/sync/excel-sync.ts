@@ -280,7 +280,7 @@ function parseBusinessInfo(data: any[]): any[] {
     const baseData: any = {
       code: String(row["코드"] || "").trim(),
       business_name: String(row["사업장명"] || "").trim(),
-      business_number: row["사업자번호"] || null,
+      business_number: row["사업자번호"] ? String(row["사업자번호"]).replace(/[^\d]/g, "").trim() || null : null,
       address1: row["주소1"] || null,
       address2: row["주소2"] || null,
       phone: row["전화번호"] || null,
@@ -329,7 +329,8 @@ function parseBusinessInfo(data: any[]): any[] {
     if (row["관리번호"]) optionalFields.management_number = String(row["관리번호"]).trim();
 
     // 계산서 관련
-    if (row["계산서 메일"]) optionalFields.invoice_email = String(row["계산서 메일"]).trim();
+    const invoiceEmail = findColumnValue(row, ["계산서 메일", "계산서메일", "세금 Email", "세금이메일", "계산서 e-mail", "계산서 이메일"]);
+    if (invoiceEmail) optionalFields.invoice_email = String(invoiceEmail).trim();
     if (row["계산서 담당"]) optionalFields.invoice_manager = String(row["계산서 담당"]).trim();
 
     // 담당자 정보
@@ -2042,7 +2043,7 @@ export async function syncMeasurementBusiness(
       try {
         // measurement_target_business 테이블에 맞는 필드만 추출
         const targetBusinessFields = [
-          "code", "year", "period", "business_name", "business_number",
+          "code", "year", "period", "business_name",
           "total_employees", "address", "office_jurisdiction", "designated_office",
           "measurement_start_date", "measurement_end_date", "completion_status", "measurer",
           "future_measurement_date", "measurement_date", "future_measurement_period",
@@ -2363,7 +2364,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
     // 먼저 business_info 데이터를 맵으로 메모리에 로드 (코드가 키)
     const { data: bData, error: bError } = await supabase
       .from("business_info")
-      .select("code, business_name, business_number, address1, address2, manager_name, manager_contact, phone, representative_name");
+      .select("code, business_name, business_number, address1, address2, manager_name, manager_contact, phone, representative_name, invoice_email");
 
     if (bError) throw new Error(`business_info 조회 실패: ${bError.message}`);
 
@@ -2380,7 +2381,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
     // 1-2. measurement_business로 업데이트 (코드+년도+주기 기준)
     const { data: mbData, error: mbError } = await supabase
       .from("measurement_business")
-      .select("code, year, period, business_name, business_number, address, manager_name, manager_mobile, total_employees, business_category, industrial_accident_number")
+      .select("code, year, period, business_name, business_number, address, manager_name, manager_mobile, total_employees, business_category, industrial_accident_number, invoice_email")
       // 필요한 필드만 조회하되, 정렬은 메모리에서 하거나 쿼리에서 미리 정렬
       .order("year", { ascending: false })
       .order("period", { ascending: false });
@@ -2467,11 +2468,12 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
         }
 
         // 4. 사업자번호 (business_number)
-        if (mbRow?.business_number) {
-          updateData.business_number = mbRow.business_number;
-          needsUpdate = true;
-        } else if (bRow?.business_number) {
+        // 기준: business_info가 권위 있는 소스이며, 없을 때만 measurement_business 사용
+        if (bRow?.business_number) {
           updateData.business_number = bRow.business_number;
+          needsUpdate = true;
+        } else if (mbRow?.business_number) {
+          updateData.business_number = mbRow.business_number;
           needsUpdate = true;
         }
 
@@ -2520,6 +2522,16 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
         // 11. 국고지원 상태 (national_support_status) - [The Joo Rule] 최신 정보로 덮어쓰기
         if (mbRow?.national_support_status) {
           updateData.national_support_status = mbRow.national_support_status;
+          needsUpdate = true;
+        }
+
+        // 12. 세금계산서 메일 (invoice_email)
+        // 기준: business_info가 권위 있는 소스이며, 없을 때만 measurement_business 사용
+        if (bRow?.invoice_email) {
+          updateData.invoice_email = bRow.invoice_email;
+          needsUpdate = true;
+        } else if (mbRow?.invoice_email) {
+          updateData.invoice_email = mbRow.invoice_email;
           needsUpdate = true;
         }
 

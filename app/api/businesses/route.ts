@@ -16,7 +16,6 @@ import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
 import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
-import { cleanToDigits } from "@/lib/utils/business-number";
 
 export async function GET(request: NextRequest) {
   try {
@@ -362,17 +361,6 @@ export async function PATCH(request: NextRequest) {
       updated_at: new Date().toISOString()
     };
 
-    if (updates.hasOwnProperty('business_number')) {
-      const cleanedBusinessNumber = cleanToDigits(updates.business_number);
-      if (cleanedBusinessNumber && cleanedBusinessNumber.length !== 10) {
-        return NextResponse.json(
-          { error: "사업자등록번호는 숫자 10자리여야 합니다." },
-          { status: 400 }
-        );
-      }
-      updatePayload.business_number = cleanedBusinessNumber;
-    }
-
     // [The Joo Rule] 수동 업데이트 시에도 숫자형 업종분류 차단
     if (updates.business_category && /^\d+$/.test(String(updates.business_category))) {
       console.warn(`[API] 수동 숫자 업종분류 차단됨: ${updates.business_category}`);
@@ -570,7 +558,6 @@ export async function PATCH(request: NextRequest) {
     if (
       code &&
       (
-        updates.hasOwnProperty('business_number') ||
         updates.hasOwnProperty('total_employees') ||
         updates.hasOwnProperty('phone')
       )
@@ -584,9 +571,6 @@ export async function PATCH(request: NextRequest) {
           updated_at: new Date().toISOString(),
         };
 
-        if (updatePayload.hasOwnProperty('business_number')) {
-          masterPayload.business_number = updatePayload.business_number;
-        }
         if (updates.hasOwnProperty('total_employees')) {
           masterPayload.total_employees = updates.total_employees;
         }
@@ -602,20 +586,6 @@ export async function PATCH(request: NextRequest) {
           console.error("Measurement Business detail sync error:", measurementBusinessSyncError);
         }
 
-        if (updatePayload.hasOwnProperty('business_number')) {
-          const { error: businessInfoSyncError } = await supabase
-            .from("business_info")
-            .upsert({
-              code,
-              business_name: updatedData.business_name,
-              business_number: updatePayload.business_number,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: "code" });
-
-          if (businessInfoSyncError) {
-            console.error("Business info number sync error:", businessInfoSyncError);
-          }
-        }
       } catch (detailSyncError) {
         console.error("Business detail sync exception:", detailSyncError);
       }
