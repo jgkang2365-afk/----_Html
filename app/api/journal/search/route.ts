@@ -431,6 +431,21 @@ export async function GET(request: NextRequest) {
     const results: any[] = [];
     const processedKeys = new Set<string>();
 
+    const normalizePhoneLikeValue = (value: any, managerName?: any) => {
+      const text = String(value || "").trim();
+      if (!text) return null;
+
+      const nameText = String(managerName || "").trim();
+      const digitCount = (text.match(/\d/g) || []).length;
+      const containsKorean = /[가-힣]/.test(text);
+
+      if (nameText && text === nameText) return null;
+      if (containsKorean && digitCount < 7) return null;
+      if (digitCount > 0 && digitCount < 7) return null;
+
+      return text;
+    };
+
     // 먼저 measurement_journal 데이터 추가 (business_info 정보 병합)
     // journalMap에는 이미 중복이 제거된 최신 데이터만 있음
     Array.from(journalMap.values()).forEach((journal: any) => {
@@ -457,7 +472,7 @@ export async function GET(request: NextRequest) {
         if (matchingBusiness) {
           journal.manager_name = journal.manager_name || matchingBusiness.manager_name || null;
           journal.manager_position = journal.manager_position || matchingBusiness.manager_position || null;
-          journal.manager_mobile = journal.manager_mobile || matchingBusiness.manager_mobile || null;
+          journal.manager_mobile = normalizePhoneLikeValue(journal.manager_mobile || matchingBusiness.manager_mobile, journal.manager_name);
           journal.manager_email = journal.manager_email || matchingBusiness.manager_email || null;
           journal.invoice_email = journal.invoice_email || matchingBusiness.invoice_email || null;
           journal.industrial_accident_number = journal.industrial_accident_number || matchingBusiness.industrial_accident_number || null;
@@ -478,6 +493,8 @@ export async function GET(request: NextRequest) {
             journal.special_notes = targetNotes;
           }
         }
+
+        journal.manager_mobile = normalizePhoneLikeValue(journal.manager_mobile, journal.manager_name);
 
         // designated_office 재검증 (주소 기반으로 다시 계산)
         // measurement_journal에 저장된 designated_office가 잘못되었을 수 있으므로
@@ -586,7 +603,7 @@ export async function GET(request: NextRequest) {
           commencement_number: isRegularPeriod ? null : (business.commencement_number || null),
           manager_name: isRegularPeriod ? null : (business.manager_name || businessInfo?.manager_name || null),
           manager_position: isRegularPeriod ? null : (business.manager_position || null),
-          manager_mobile: isRegularPeriod ? null : (business.manager_mobile || null),
+          manager_mobile: isRegularPeriod ? null : normalizePhoneLikeValue(business.manager_mobile, business.manager_name),
           manager_email: isRegularPeriod ? null : (business.manager_email || null),
           invoice_email: isRegularPeriod ? null : (business.invoice_email || null),
 

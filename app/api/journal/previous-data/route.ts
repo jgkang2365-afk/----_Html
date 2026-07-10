@@ -264,13 +264,29 @@ export async function GET(request: NextRequest) {
       representative_name: historyReferenceData.representative_name || null,
     };
 
+    const normalizePhoneLikeValue = (value: any, managerName?: any) => {
+      const text = String(value || "").trim();
+      if (!text) return null;
+
+      const nameText = String(managerName || "").trim();
+      const digitCount = (text.match(/\d/g) || []).length;
+      const containsKorean = /[가-힣]/.test(text);
+
+      if (nameText && text === nameText) return null;
+      if (containsKorean && digitCount < 7) return null;
+      if (digitCount > 0 && digitCount < 7) return null;
+
+      return text;
+    };
+
     // 직전 측정일지에서 자동 채울 수 있는 필드만 반환
     // 담당자 정보 우선순위: 계획/마스터(referenceData) > 직전 일지(journal) > 최근 일지(fallback)
+    const previousManagerName = historyReferenceData.manager_name || previousJournal?.manager_name || fallbackDefaults.manager_name || null;
     const previousData = hasData ? {
       // 담당자 정보
-      manager_name: historyReferenceData.manager_name || previousJournal?.manager_name || fallbackDefaults.manager_name || null,
+      manager_name: previousManagerName,
       manager_position: historyReferenceData.manager_position || previousJournal?.manager_position || fallbackDefaults.manager_position || null,
-      manager_mobile: historyReferenceData.manager_mobile || previousJournal?.manager_mobile || fallbackDefaults.manager_mobile || null,
+      manager_mobile: normalizePhoneLikeValue(historyReferenceData.manager_mobile || previousJournal?.manager_mobile || fallbackDefaults.manager_mobile, previousManagerName),
       manager_email: historyReferenceData.manager_email || previousJournal?.manager_email || fallbackDefaults.manager_email || null,
 
       // 총인원: 1순위(과거 마스터/이력), 2순위(직전 측정일지)
@@ -311,9 +327,10 @@ export async function GET(request: NextRequest) {
     }
 
     // measurement_summary에서 추가 정보 가져오기
+    const summaryManagerName = summaryData?.manager_name || null;
     const summaryInfo = summaryData ? {
-      manager_name: summaryData.manager_name || null,
-      manager_mobile: summaryData.manager_mobile || null,
+      manager_name: summaryManagerName,
+      manager_mobile: normalizePhoneLikeValue(summaryData.manager_mobile, summaryManagerName),
       manager_email: summaryData.manager_email || null,
       measurement_fee_business: summaryData.measurement_fee_business || null,
       k2b_sender: summaryData.k2b_sender || null,

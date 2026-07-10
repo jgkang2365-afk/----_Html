@@ -41,6 +41,21 @@ const parseCurrency = (value: string | number | null | undefined): string => {
   return value.replace(/,/g, "");
 };
 
+const normalizeManagerMobile = (value: any, managerName?: any) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const nameText = String(managerName || "").trim();
+  const digitCount = (text.match(/\d/g) || []).length;
+  const containsKorean = /[가-힣]/.test(text);
+
+  if (nameText && text === nameText) return "";
+  if (containsKorean && digitCount < 7) return "";
+  if (digitCount > 0 && digitCount < 7) return "";
+
+  return text;
+};
+
 interface SummaryEntry {
   id: number;
   journal_id: number;
@@ -294,7 +309,7 @@ export const SummaryTable: React.FC = () => {
       fax: entry.fax || "",
       manager_name: entry.manager_name || "",
       manager_position: entry.manager_position || "",
-      manager_mobile: entry.manager_mobile || "",
+      manager_mobile: normalizeManagerMobile(entry.manager_mobile, entry.manager_name),
       manager_email: entry.manager_email || "",
       manager_email_1: (() => {
         const email = entry.manager_email || "";
@@ -407,6 +422,7 @@ export const SummaryTable: React.FC = () => {
 
       // 저장할 데이터 준비 (빈 문자열을 null로 변환)
       const saveData = { ...editFormData } as any;
+      saveData.manager_mobile = normalizeManagerMobile(saveData.manager_mobile, saveData.manager_name);
 
       // manager_email_1, manager_email_2를 결합하여 manager_email 설정하고 임시 필드 삭제
       const mEmail1 = String(saveData.manager_email_1 || "").trim();
@@ -807,7 +823,7 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
-                        value={entry.manager_mobile || ""}
+                        value={normalizeManagerMobile(entry.manager_mobile, entry.manager_name)}
                         disabled
                       />
                     </div>

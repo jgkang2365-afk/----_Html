@@ -46,6 +46,21 @@ interface JournalEditFormProps {
   mode?: 'journal' | 'sales';
 }
 
+const normalizeManagerMobile = (value: any, managerName?: any) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const nameText = String(managerName || "").trim();
+  const digitCount = (text.match(/\d/g) || []).length;
+  const containsKorean = /[가-힣]/.test(text);
+
+  if (nameText && text === nameText) return "";
+  if (containsKorean && digitCount < 7) return "";
+  if (digitCount > 0 && digitCount < 7) return "";
+
+  return text;
+};
+
 export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   entry,
   onClose,
@@ -155,7 +170,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // 담당자 정보
     manager_name: entry.manager_name || "",
     manager_position: entry.manager_position || "",
-    manager_mobile: entry.manager_mobile || "",
+    manager_mobile: normalizeManagerMobile(entry.manager_mobile, entry.manager_name),
     manager_email: entry.manager_email || "",
     manager_email_1: (() => {
       const email = entry.manager_email || "";
@@ -396,7 +411,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
                 if (ref.manager_name) updated.manager_name = ref.manager_name;
                 if (ref.manager_position) updated.manager_position = ref.manager_position;
-                if (ref.manager_mobile) updated.manager_mobile = ref.manager_mobile;
+                const refManagerMobile = normalizeManagerMobile(ref.manager_mobile, ref.manager_name || updated.manager_name);
+                if (refManagerMobile) updated.manager_mobile = refManagerMobile;
                  if (ref.manager_email) {
                    updated.manager_email = ref.manager_email;
                    const parts = ref.manager_email.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
@@ -455,7 +471,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
                 updated.manager_name = updated.manager_name || pName;
                 updated.manager_position = updated.manager_position || pPosition;
-                updated.manager_mobile = updated.manager_mobile || data.previousData.manager_mobile || "";
+                updated.manager_mobile = updated.manager_mobile || normalizeManagerMobile(data.previousData.manager_mobile, pName || updated.manager_name);
                  updated.manager_email = updated.manager_email || data.previousData.manager_email || "";
                  const pEmailParts = (updated.manager_email || "").split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
                  updated.manager_email_1 = pEmailParts[0] || "";
@@ -525,7 +541,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 if (!updated.manager_position && sPosition) {
                   updated.manager_position = sPosition;
                 }
-                updated.manager_mobile = updated.manager_mobile || data.summaryInfo.manager_mobile || "";
+                updated.manager_mobile = updated.manager_mobile || normalizeManagerMobile(data.summaryInfo.manager_mobile, sName || updated.manager_name);
                  updated.manager_email = updated.manager_email || data.summaryInfo.manager_email || "";
                  const sEmailParts = (updated.manager_email || "").split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
                  updated.manager_email_1 = sEmailParts[0] || "";
@@ -936,7 +952,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       // 담당자 정보
       manager_name: entry.manager_name || "",
       manager_position: entry.manager_position || "",
-      manager_mobile: entry.manager_mobile || "",
+      manager_mobile: normalizeManagerMobile(entry.manager_mobile, entry.manager_name),
       manager_email: entry.manager_email || "",
       manager_email_1: (() => {
         const email = entry.manager_email || "";

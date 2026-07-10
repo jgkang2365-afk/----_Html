@@ -198,6 +198,25 @@ export async function PATCH(
       }
     });
 
+    const normalizePhoneLikeValue = (value: any, managerName?: any) => {
+      const text = String(value || "").trim();
+      if (!text) return null;
+
+      const nameText = String(managerName || "").trim();
+      const digitCount = (text.match(/\d/g) || []).length;
+      const containsKorean = /[가-힣]/.test(text);
+
+      if (nameText && text === nameText) return null;
+      if (containsKorean && digitCount < 7) return null;
+      if (digitCount > 0 && digitCount < 7) return null;
+
+      return text;
+    };
+
+    if (filteredUpdateData.manager_mobile !== undefined) {
+      filteredUpdateData.manager_mobile = normalizePhoneLikeValue(filteredUpdateData.manager_mobile, filteredUpdateData.manager_name);
+    }
+
     // 측정일지 업데이트
     const { data: updatedJournal, error: updateError } = await supabase
       .from("measurement_journal")
