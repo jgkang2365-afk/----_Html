@@ -502,7 +502,12 @@ export const SummaryTable: React.FC = () => {
   const PrintPreviewPortal = () => {
     if (typeof window === "undefined") return null;
 
-    const selectedEntries = results.filter((r: SummaryEntry) => selectedIds.has(r.id));
+    const selectedEntries = results
+      .filter((r: SummaryEntry) => selectedIds.has(r.id))
+      .map((entry: SummaryEntry) => ({
+        ...entry,
+        manager_mobile: normalizeManagerMobile(entry.manager_mobile, entry.manager_name),
+      }));
 
     return createPortal(
       <div className="fixed inset-0 z-[100] bg-white overflow-auto" role="dialog" aria-modal="true">
