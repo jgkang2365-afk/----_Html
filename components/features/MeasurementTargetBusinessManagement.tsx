@@ -836,12 +836,32 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const calculateScheduledDate = (prevDateStr: string | null, cycleMonths: number | null) => {
         if (!prevDateStr || !cycleMonths) return "-";
         try {
-            const date = new Date(prevDateStr);
-            date.setMonth(date.getMonth() + cycleMonths);
-            return date.toISOString().split('T')[0];
+            const effectiveCycleMonths = cycleMonths === 1 ? 12 : cycleMonths;
+            const match = prevDateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+            if (!match) return "-";
+
+            const year = parseInt(match[1], 10);
+            const month = parseInt(match[2], 10);
+            const day = parseInt(match[3], 10);
+            const targetMonthIndex = month - 1 + effectiveCycleMonths;
+            const targetYear = year + Math.floor(targetMonthIndex / 12);
+            const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+            const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+            const targetDay = Math.min(day, lastDayOfTargetMonth);
+
+            const yyyy = targetYear;
+            const mm = String(targetMonth + 1).padStart(2, "0");
+            const dd = String(targetDay).padStart(2, "0");
+            return `${yyyy}-${mm}-${dd}`;
         } catch (e) {
             return "-";
         }
+    };
+
+    const calculateScheduledMonth = (prevDateStr: string | null, cycleMonths: number | null) => {
+        const scheduledDate = calculateScheduledDate(prevDateStr, cycleMonths);
+        if (scheduledDate === "-") return "-";
+        return `${parseInt(scheduledDate.slice(5, 7), 10)}월`;
     };
 
     const formatCycle = (months: number | null) => {
@@ -1197,13 +1217,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <div className="text-center text-xs font-medium text-blue-600 px-1">
                                     {formatCycle(item.future_measurement_period)}
                                 </div>
-                                <div className="text-center text-xs px-1">{item.measurement_month ? `${item.measurement_month}월` : '-'}</div>
+                                <div className="text-center text-xs px-1">{item.measurement_month ? `${item.measurement_month}월` : calculateScheduledMonth(item.previous_measurement_date, item.future_measurement_period || 6)}</div>
                                 <div className="text-center text-xs text-slate-500 px-1">
                                     {item.future_measurement_date || calculateScheduledDate(item.previous_measurement_date, item.future_measurement_period || 6)}
                                 </div>
                                 <div className="px-1 text-center">
                                     {(() => {
-                                        const targetDate = item.measurement_date || item.future_measurement_date;
+                                        const calculatedDate = calculateScheduledDate(item.previous_measurement_date, item.future_measurement_period || 6);
+                                        const targetDate = item.measurement_date || item.future_measurement_date || (calculatedDate !== "-" ? calculatedDate : null);
                                         const isAfter = !targetDate || targetDate >= "2026-06-09";
                                         const filteredMeasurers = measurers.filter(u => 
                                             isAfter ? u.name !== "배윤민" : u.name !== "김민영"
