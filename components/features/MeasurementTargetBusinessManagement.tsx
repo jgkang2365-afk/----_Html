@@ -697,9 +697,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             // DB 컬럼 매핑 및 클렌징
             const sanitizeUpdates = (raw: Partial<BusinessEntry>) => {
                 const validColumns = [
-                    'business_name', 'business_category', 'address',
+                    'business_name', 'business_number', 'business_category', 'address',
                     'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
-                    'manager_name', 'manager_mobile', 'phone',
+                    'manager_name', 'manager_mobile', 'phone', 'total_employees',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
                     'representative_name', 'industrial_accident_number', 'commencement_number'
