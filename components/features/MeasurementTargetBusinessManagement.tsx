@@ -1333,7 +1333,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <label className="block text-sm font-medium mb-1 text-slate-700">사업자등록번호</label>
                                 <Input
                                     value={editForm.business_number || ""}
-                                    readOnly
+                                    disabled
                                     className="bg-slate-100 text-slate-500 cursor-not-allowed"
                                     title="사업자등록번호는 사업장정보/측정사업장 엑셀 동기화 기준으로 반영됩니다."
                                 />
