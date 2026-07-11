@@ -61,6 +61,8 @@ export const CustomQueryExport: React.FC = () => {
 
   // 동적 필터 조건 상태
   const [filters, setFilters] = useState<FilterRule[]>([]);
+  const [draggedFilterIndex, setDraggedFilterIndex] = useState<number | null>(null);
+  const [draggedColumnIndex, setDraggedColumnIndex] = useState<number | null>(null);
 
   // 템플릿 상태
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
@@ -92,6 +94,7 @@ export const CustomQueryExport: React.FC = () => {
     { key: "report_writer", label: "보고서작성자", visible: false },
     { key: "measurer", label: "측정자", visible: false },
     { key: "k2b_send_date", label: "K2B전송일", visible: false },
+    { key: "note", label: "측정일지 비고", visible: false },
     { key: "special_notes", label: "특이사항", visible: false },
   ]);
 
@@ -111,6 +114,7 @@ export const CustomQueryExport: React.FC = () => {
     { key: "actual_measurer", label: "실제측정자", type: "string" },
     { key: "report_writer", label: "보고서작성자", type: "string" },
     { key: "measurer", label: "측정자", type: "string" },
+    { key: "note", label: "측정일지 비고", type: "string" },
     { key: "special_notes", label: "특이사항", type: "string" },
     { key: "electronic_invoice_date", label: "계산서발행일", type: "date" },
     { key: "measurement_start_date", label: "측정시작일", type: "date" },
@@ -123,9 +127,13 @@ export const CustomQueryExport: React.FC = () => {
   // 필터 비교 연산자
   const FILTER_OPERATORS = [
     { value: "contains", label: "포함" },
+    { value: "not_contains", label: "불포함" },
     { value: "equals", label: "일치" },
+    { value: "not_equals", label: "불일치" },
     { value: "greater_than", label: "보다 큼 / 이후" },
+    { value: "greater_than_or_equal", label: "이상 / 이후 포함" },
     { value: "less_than", label: "보다 작음 / 이전" },
+    { value: "less_than_or_equal", label: "이하 / 이전 포함" },
     { value: "is_empty", label: "비어 있음" },
     { value: "is_not_empty", label: "비어 있지 않음" },
   ];
@@ -205,6 +213,12 @@ export const CustomQueryExport: React.FC = () => {
     if (itemValue === null || itemValue === undefined) return false;
 
     const targetValue = filter.value.trim();
+    if (!targetValue) return true;
+
+    const compareValues = targetValue
+      .split(/[,|]/)
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
     const strItemVal = String(itemValue).toLowerCase();
     const strTargetVal = targetValue.toLowerCase();
 
@@ -215,20 +229,31 @@ export const CustomQueryExport: React.FC = () => {
       const numTarget = Number(targetValue);
       if (!isNaN(numItem) && !isNaN(numTarget)) {
         if (filter.operator === "equals") return numItem === numTarget;
+        if (filter.operator === "not_equals") return numItem !== numTarget;
         if (filter.operator === "greater_than") return numItem > numTarget;
+        if (filter.operator === "greater_than_or_equal") return numItem >= numTarget;
         if (filter.operator === "less_than") return numItem < numTarget;
+        if (filter.operator === "less_than_or_equal") return numItem <= numTarget;
       }
     }
 
     switch (filter.operator) {
       case "contains":
-        return strItemVal.includes(strTargetVal);
+        return compareValues.some((value) => strItemVal.includes(value));
+      case "not_contains":
+        return compareValues.every((value) => !strItemVal.includes(value));
       case "equals":
-        return strItemVal === strTargetVal;
+        return compareValues.some((value) => strItemVal === value);
+      case "not_equals":
+        return compareValues.every((value) => strItemVal !== value);
       case "greater_than":
         return strItemVal > strTargetVal;
+      case "greater_than_or_equal":
+        return strItemVal >= strTargetVal;
       case "less_than":
         return strItemVal < strTargetVal;
+      case "less_than_or_equal":
+        return strItemVal <= strTargetVal;
       default:
         return true;
     }
@@ -274,21 +299,51 @@ export const CustomQueryExport: React.FC = () => {
     setFilters(filters.filter((f) => f.id !== id));
   };
 
+  const reorderFilters = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    if (fromIndex >= filters.length || toIndex >= filters.length) return;
+
+    const newFilters = [...filters];
+    const [moved] = newFilters.splice(fromIndex, 1);
+    newFilters.splice(toIndex, 0, moved);
+    setFilters(newFilters);
+  };
+
+  const handleMoveFilter = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    reorderFilters(index, targetIndex);
+  };
+
+  const handleFilterDrop = (targetIndex: number) => {
+    if (draggedFilterIndex === null) return;
+    reorderFilters(draggedFilterIndex, targetIndex);
+    setDraggedFilterIndex(null);
+  };
+
   const handleClearAllFilters = () => {
     setFilters([]);
   };
 
   // 6. 컬럼 순서 변경 핸들러 (위로 / 아래로 이동)
-  const handleMoveColumn = (index: number, direction: "up" | "down") => {
-    if (direction === "up" && index === 0) return;
-    if (direction === "down" && index === columns.length - 1) return;
+  const reorderColumns = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    if (fromIndex >= columns.length || toIndex >= columns.length) return;
 
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
     const newCols = [...columns];
-    const temp = newCols[index];
-    newCols[index] = newCols[targetIndex];
-    newCols[targetIndex] = temp;
+    const [moved] = newCols.splice(fromIndex, 1);
+    newCols.splice(toIndex, 0, moved);
     setColumns(newCols);
+  };
+
+  const handleMoveColumn = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    reorderColumns(index, targetIndex);
+  };
+
+  const handleColumnDrop = (targetIndex: number) => {
+    if (draggedColumnIndex === null) return;
+    reorderColumns(draggedColumnIndex, targetIndex);
+    setDraggedColumnIndex(null);
   };
 
   const handleToggleColumnVisibility = (key: string) => {
@@ -299,33 +354,38 @@ export const CustomQueryExport: React.FC = () => {
 
   // 7. 템플릿 저장 및 불러오기 핸들러
   const handleSaveTemplate = () => {
-    if (!newTemplateName.trim()) {
-      alert("템플릿 이름을 입력해 주세요.");
+    const typedName = newTemplateName.trim();
+    const targetName = typedName || selectedTemplateName;
+
+    if (!targetName) {
+      alert("신규 템플릿 이름을 입력하거나 저장된 템플릿을 선택해 주세요.");
       return;
     }
 
     const newTemplate: ReportTemplate = {
-      name: newTemplateName.trim(),
+      name: targetName,
       filters,
       columns,
     };
 
-    // 기존 동명 템플릿 덮어쓰기 여부 확인
-    let updated = [];
-    if (templates.some((t) => t.name === newTemplate.name)) {
-      if (!confirm("동일한 이름의 템플릿이 존재합니다. 덮어쓰시겠습니까?")) {
+    const existingTemplate = templates.find((t) => t.name === targetName);
+    const isUpdatingSelected = selectedTemplateName === targetName;
+
+    let updated: ReportTemplate[] = [];
+    if (existingTemplate) {
+      if (!isUpdatingSelected && !confirm("동일한 이름의 템플릿이 존재합니다. 덮어쓰시겠습니까?")) {
         return;
       }
-      updated = templates.map((t) => (t.name === newTemplate.name ? newTemplate : t));
+      updated = templates.map((t) => (t.name === targetName ? newTemplate : t));
     } else {
       updated = [...templates, newTemplate];
     }
 
     setTemplates(updated);
     localStorage.setItem("custom_report_templates", JSON.stringify(updated));
-    setSelectedTemplateName(newTemplate.name);
+    setSelectedTemplateName(targetName);
     setNewTemplateName("");
-    alert("템플릿이 로컬 저장소에 정상 저장되었습니다.");
+    alert(existingTemplate ? "선택한 템플릿에 현재 설정을 저장했습니다." : "신규 템플릿이 로컬 저장소에 저장되었습니다.");
   };
 
   const handleLoadTemplate = (name: string) => {
@@ -345,6 +405,7 @@ export const CustomQueryExport: React.FC = () => {
         setColumns(mergedCols);
       }
       setSelectedTemplateName(name);
+      setNewTemplateName("");
     }
   };
 
@@ -472,13 +533,13 @@ export const CustomQueryExport: React.FC = () => {
           <div className="flex items-center gap-2">
             <Input
               type="text"
-              placeholder="신규 템플릿 이름 입력"
+              placeholder="새 이름 입력 (비우면 선택 템플릿 저장)"
               value={newTemplateName}
               onChange={(e) => setNewTemplateName(e.target.value)}
               className="w-56"
             />
             <Button variant="primary" onClick={handleSaveTemplate} className="whitespace-nowrap">
-              💾 현재 설정 저장
+              💾 {selectedTemplateName && !newTemplateName.trim() ? "선택 템플릿 저장" : "현재 설정 저장"}
             </Button>
           </div>
         </div>
@@ -491,7 +552,7 @@ export const CustomQueryExport: React.FC = () => {
             <div>
               <h2 className="text-base font-semibold text-text-900">3. 상세 쿼리(필터) 조건 설정</h2>
               <p className="text-xs text-text-500 mt-0.5">
-                지정한 조건들을 모두 만족하는(AND) 데이터만 실시간 필터링합니다.
+                지정한 조건들을 모두 만족하는(AND) 데이터만 실시간 필터링합니다. 여러 검색어는 쉼표로 구분해 입력할 수 있습니다.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -507,18 +568,31 @@ export const CustomQueryExport: React.FC = () => {
           <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
             {filters.length === 0 ? (
               <div className="text-center py-8 text-sm text-text-400 border border-dashed border-surface-200 rounded-lg">
-                설정된 상세 필터가 없습니다. '조건 추가' 버튼을 눌러 필터를 지정하세요.
+                설정된 상세 필터가 없습니다. 조건 추가 버튼을 눌러 필터를 지정하세요.
               </div>
             ) : (
-              filters.map((filter) => {
+              filters.map((filter, idx) => {
                 const currentFieldSpec = FILTER_FIELDS.find((f) => f.key === filter.field);
                 const isNoValOperator = ["is_empty", "is_not_empty"].includes(filter.operator);
 
                 return (
                   <div
                     key={filter.id}
-                    className="flex flex-wrap items-center gap-2 p-2.5 bg-surface-50 border border-surface-200 rounded-lg relative"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleFilterDrop(idx)}
+                    className={`flex flex-wrap items-center gap-2 p-2.5 bg-surface-50 border border-surface-200 rounded-lg relative transition-colors ${draggedFilterIndex === idx ? "opacity-50 border-primary-300" : ""}`}
                   >
+                    <button
+                      type="button"
+                      draggable
+                      onDragStart={() => setDraggedFilterIndex(idx)}
+                      onDragEnd={() => setDraggedFilterIndex(null)}
+                      className="h-9 w-7 cursor-grab active:cursor-grabbing rounded border border-surface-200 bg-white text-text-400 hover:text-text-700 hover:border-primary-300"
+                      title="끌어서 조건 순서 변경"
+                    >
+                      ↕
+                    </button>
+
                     {/* 대상 필드 선택 */}
                     <div className="w-40">
                       <Select
@@ -556,10 +630,12 @@ export const CustomQueryExport: React.FC = () => {
                           type={currentFieldSpec?.type === "date" ? "date" : "text"}
                           placeholder={
                             currentFieldSpec?.type === "number"
-                              ? "숫자 입력"
+                              ? "예: 100000 또는 100000, 200000"
                               : currentFieldSpec?.type === "date"
                               ? ""
-                              : "비교 텍스트 입력"
+                              : currentFieldSpec?.key === "note"
+                              ? "예: 신규, 고시"
+                              : "예: 신규, 고시"
                           }
                           value={filter.value}
                           onChange={(e) =>
@@ -570,14 +646,32 @@ export const CustomQueryExport: React.FC = () => {
                       )}
                     </div>
 
-                    {/* 개별 필터 제거 */}
-                    <button
-                      onClick={() => handleRemoveFilter(filter.id)}
-                      className="text-text-400 hover:text-danger-500 font-bold p-1 px-2.5 transition-colors"
-                      title="조건 삭제"
-                    >
-                      ✕
-                    </button>
+                    {/* 필터 순서 이동 및 개별 필터 제거 */}
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleMoveFilter(idx, "up")}
+                        disabled={idx === 0}
+                        className="px-2 py-1 text-xs border border-surface-200 rounded bg-white hover:bg-surface-100 disabled:opacity-40 disabled:hover:bg-white transition-colors"
+                        title="위로 이동"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        onClick={() => handleMoveFilter(idx, "down")}
+                        disabled={idx === filters.length - 1}
+                        className="px-2 py-1 text-xs border border-surface-200 rounded bg-white hover:bg-surface-100 disabled:opacity-40 disabled:hover:bg-white transition-colors"
+                        title="아래로 이동"
+                      >
+                        ▼
+                      </button>
+                      <button
+                        onClick={() => handleRemoveFilter(filter.id)}
+                        className="text-text-400 hover:text-danger-500 font-bold p-1 px-2.5 transition-colors"
+                        title="조건 삭제"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                 );
               })
@@ -598,17 +692,31 @@ export const CustomQueryExport: React.FC = () => {
             {columns.map((col, idx) => (
               <div
                 key={col.key}
-                className="flex items-center justify-between p-2 bg-white border border-surface-200 rounded shadow-xs hover:border-primary-300 transition-colors"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleColumnDrop(idx)}
+                className={`flex items-center justify-between p-2 bg-white border border-surface-200 rounded shadow-xs hover:border-primary-300 transition-colors ${draggedColumnIndex === idx ? "opacity-50 border-primary-300" : ""}`}
               >
-                <label className="flex items-center gap-2 text-xs font-medium text-text-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={col.visible}
-                    onChange={() => handleToggleColumnVisibility(col.key)}
-                    className="rounded border-surface-300 text-primary-600 focus:ring-primary-500"
-                  />
-                  <span>{col.label}</span>
-                </label>
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    type="button"
+                    draggable
+                    onDragStart={() => setDraggedColumnIndex(idx)}
+                    onDragEnd={() => setDraggedColumnIndex(null)}
+                    className="h-7 w-6 cursor-grab active:cursor-grabbing rounded border border-surface-200 bg-surface-50 text-text-400 hover:text-text-700 hover:border-primary-300"
+                    title="끌어서 컬럼 순서 변경"
+                  >
+                    ↕
+                  </button>
+                  <label className="flex items-center gap-2 text-xs font-medium text-text-700 cursor-pointer select-none min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={col.visible}
+                      onChange={() => handleToggleColumnVisibility(col.key)}
+                      className="rounded border-surface-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span className="truncate">{col.label}</span>
+                  </label>
+                </div>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => handleMoveColumn(idx, "up")}
