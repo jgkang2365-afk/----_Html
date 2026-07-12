@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Dashboard } from "@/components/features/Dashboard";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
 import { SyncStatus } from "@/components/features/SyncStatus";
@@ -24,7 +24,7 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
 
     const [activeTab, setActiveTab] = useState("general");
     const [syncRefreshKey, setSyncRefreshKey] = useState(0);
-    const [mesSyncStatus, setMesSyncStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
+    const [mesSyncStatus, setMesSyncStatus] = useState<'idle' | 'running' | 'success' | 'error' | 'cancelled'>('idle');
     const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
 
     const isSyncing = mesSyncStatus === 'running';
@@ -63,6 +63,10 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                                 setTimeout(() => {
                                     setMesSyncStatus('idle');
                                 }, 2500);
+                            } else if (statusData.status === 'cancelled') {
+                                setMesSyncStatus('cancelled');
+                                setSyncErrorMessage(statusData.error || '사용자 요청으로 동기화를 중단했습니다.');
+                                clearInterval(pollInterval);
                             } else if (statusData.status === 'error') {
                                 setMesSyncStatus('error');
                                 setSyncErrorMessage(statusData.error || "동기화 처리 중 서버 오류가 발생했습니다.");
@@ -83,6 +87,35 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
         }
     };
 
+    const handleCancelMesSync = useCallback(async () => {
+        if (mesSyncStatus !== 'running') return;
+        if (!confirm('진행 중인 MES 동기화를 중단하시겠습니까?\n현재 실행 중인 MES/Excel 작업이 종료됩니다.')) return;
+
+        try {
+            const res = await fetch('/api/cron/mes-trigger', { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                setMesSyncStatus('error');
+                setSyncErrorMessage(data.error || '중단 요청을 전달하지 못했습니다.');
+            } else {
+                setSyncErrorMessage('중단 요청을 사내 PC에 전달했습니다. 실행 중인 단계가 정리되는 대로 종료됩니다.');
+            }
+        } catch (error: any) {
+            setMesSyncStatus('error');
+            setSyncErrorMessage(error.message || '중단 요청 중 오류가 발생했습니다.');
+        }
+    }, [mesSyncStatus]);
+
+    useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && mesSyncStatus === 'running') {
+                event.preventDefault();
+                handleCancelMesSync();
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [mesSyncStatus]);
     // 년도 옵션 생성
     const currentYear = getCurrentYear();
     const yearOptions = Array.from({ length: 6 }, (_, i) => {
@@ -239,7 +272,8 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mb-1.5">
                                         <div className="bg-primary-600 h-full rounded-full animate-pulse" style={{ width: '60%' }}></div>
                                     </div>
-                                    <span className="text-[10px] text-slate-400">약 1~2분이 소요됩니다. 완료 시 이 창이 자동으로 닫힙니다.</span>
+                                    <span className="text-[10px] text-slate-400">약 1~2분이 소요됩니다. 중단하려면 Esc를 누르세요.</span>
+                                    {syncErrorMessage && <span className="mt-2 text-[11px] text-amber-600">{syncErrorMessage}</span>}
                                 </>
                             )}
 
@@ -258,6 +292,16 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                                 </>
                             )}
 
+                            {mesSyncStatus === 'cancelled' && (
+                                <>
+                                    <div className="flex items-center justify-center w-16 h-16 rounded-full bg-amber-50 text-amber-600 mb-4">
+                                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M6 18L18 6" /></svg>
+                                    </div>
+                                    <h3 className="text-lg font-bold text-slate-800 mb-1">동기화 중단됨</h3>
+                                    <p className="text-sm text-amber-700 mb-4">{syncErrorMessage || '사용자 요청으로 동기화를 중단했습니다.'}</p>
+                                    <button onClick={() => setMesSyncStatus('idle')} className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-md">닫기</button>
+                                </>
+                            )}
                             {mesSyncStatus === 'error' && (
                                 <>
                                     <div className="flex items-center justify-center w-16 h-16 rounded-full bg-red-50 text-red-600 mb-4 animate-pulse">
@@ -284,3 +328,6 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
         </div>
     );
 };
+
+
+

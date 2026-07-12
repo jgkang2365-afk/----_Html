@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth/session";
 
 const MES_QUEUE_ID = 1;
 const STALE_TIMEOUT_MINUTES = 5;
@@ -16,6 +17,8 @@ export async function POST(request: NextRequest) {
   try {
     // 권한 검증: 관리자 전용 시스템 설정 접근 권한 필요
     await checkPermission("system:settings");
+    const session = await getSession();
+    if (!session) throw new Error("Unauthorized");
     const supabase = await createClient();
 
     const timeoutLimit = new Date(
@@ -43,10 +46,11 @@ export async function POST(request: NextRequest) {
       .update({
         status: "pending",
         error_message: null,
+        requested_by: session.userId,
         updated_at: now,
       })
       .eq("id", MES_QUEUE_ID)
-      .in("status", ["idle", "success", "error"])
+      .in("status", ["idle", "success", "error", "cancelled"])
       .select("status, updated_at")
       .maybeSingle();
 
@@ -91,6 +95,8 @@ export async function GET(request: NextRequest) {
   try {
     // 권한 검증: 관리자 전용 시스템 설정 접근 권한 필요
     await checkPermission("system:settings");
+    const session = await getSession();
+    if (!session) throw new Error("Unauthorized");
     const supabase = await createClient();
 
     const { data, error } = await supabase
@@ -119,3 +125,43 @@ export async function GET(request: NextRequest) {
     }, { status: error.message === "Unauthorized" ? 401 : error.message === "Forbidden" ? 403 : 500 });
   }
 }
+
+/**
+ * 실행 중인 MES 동기화에 중단 요청을 보냅니다.
+ * 실제 MES 프로그램 종료는 사내 PC의 mes_daemon.py가 수행합니다.
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    await checkPermission("system:settings");
+    const session = await getSession();
+    if (!session) throw new Error("Unauthorized");
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from("mes_sync_queue")
+      .update({
+        status: "cancel_requested",
+        error_message: "사용자가 중단 요청을 실행했습니다.",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", MES_QUEUE_ID)
+      .eq("requested_by", session.userId)
+      .in("status", ["pending", "running"])
+      .select("status")
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) {
+      return NextResponse.json({ success: false, error: "중단할 MES 작업이 없거나, 다른 사용자가 요청한 작업입니다." }, { status: 409 });
+    }
+
+    return NextResponse.json({ success: true, status: data.status });
+  } catch (error: any) {
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : "중단 요청 중 내부 오류가 발생했습니다.",
+    }, { status: error.message === "Unauthorized" ? 401 : error.message === "Forbidden" ? 403 : 500 });
+  }
+}
+
+

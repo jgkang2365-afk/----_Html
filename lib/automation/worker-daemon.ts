@@ -183,6 +183,21 @@ export class WorkerDaemon {
         }
     }
 
+    private async isCancelRequested(jobId: string) {
+        const supabase = await createClient();
+        const { data } = await supabase
+            .from('background_jobs')
+            .select('status')
+            .eq('id', jobId)
+            .maybeSingle();
+        return data?.status === 'cancel_requested';
+    }
+
+    private async cancelJob(jobId: string, requestUser: any, label: string) {
+        await this.updateJobStatus(jobId, 'cancelled', '사용자가 중단 요청을 실행했습니다.');
+        await this.createInAppNotification(requestUser?.id, 'warning', `[${label} 중단] 사용자 요청으로 남은 작업을 중단했습니다.`);
+    }
+
     private async processNationalSupportJob(job: any) {
         try {
             await processNationalSupportJob(job.payload);
@@ -217,6 +232,10 @@ export class WorkerDaemon {
 
         try {
             for (const target of targets) {
+                if (await this.isCancelRequested(job.id)) {
+                    await this.cancelJob(job.id, requestUser, '이메일 전송');
+                    return;
+                }
                 const { business_name, manager_email, reports } = target;
 
                 if (!reports || reports.length === 0) {
@@ -387,6 +406,10 @@ export class WorkerDaemon {
             await k2b.login(dbUser.k2b_id, dbUser.k2b_pw);
 
             for (const target of targets) {
+                if (await this.isCancelRequested(job.id)) {
+                    await this.cancelJob(job.id, requestUser, 'K2B 업로드');
+                    return;
+                }
                 try {
                     // 1. Z드라이브 파일 찾기
                     const files = findReportFiles({
@@ -455,6 +478,12 @@ export class WorkerDaemon {
             }
 
             // 모든 업체 완료 후 그리드 접수현황 조회 및 최종 상태 보정 (기존 파이썬/API 복제)
+            if (await this.isCancelRequested(job.id)) {
+                await k2b.quit();
+                await this.cancelJob(job.id, requestUser, 'K2B 업로드');
+                return;
+            }
+
             try {
                 console.log("[WorkerDaemon K2B] 전송 후 10초 대기 중...");
                 await new Promise(resolve => setTimeout(resolve, 10000));
@@ -546,7 +575,7 @@ export class WorkerDaemon {
     /**
      * Job 상태 업데이트 공통 유틸
      */
-    private async updateJobStatus(jobId: string, status: 'success' | 'failed', errorMsg: string | null = null) {
+    private async updateJobStatus(jobId: string, status: 'success' | 'failed' | 'cancelled', errorMsg: string | null = null) {
         try {
             const supabase = await createClient();
             await supabase
@@ -659,3 +688,5 @@ export class WorkerDaemon {
         process.exit(0);
     }
 }
+
+

@@ -102,25 +102,44 @@ def run_mes_macro():
     cleanup_zombie_processes()
     print(f"[MES Daemon] MES 매크로를 실행합니다: {script_path}")
 
-    result = subprocess.run(
+    process = subprocess.Popen(
         [sys.executable, str(script_path)],
         cwd=str(ROOT_DIR),
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        timeout=MACRO_TIMEOUT_SECONDS,
-        check=False,
     )
 
-    if result.stdout:
+    started_at = time.monotonic()
+    while process.poll() is None:
+        if is_cancel_requested():
+            print("[MES Daemon] 웹에서 중단 요청을 받았습니다. MES 매크로를 종료합니다.")
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            cleanup_zombie_processes()
+            raise RuntimeError("USER_CANCELLED")
+
+        if time.monotonic() - started_at > MACRO_TIMEOUT_SECONDS:
+            process.terminate()
+            raise subprocess.TimeoutExpired(process.args, MACRO_TIMEOUT_SECONDS)
+
+        time.sleep(1)
+
+    stdout, stderr = process.communicate()
+
+    if stdout:
         print("[MES Daemon] mes_download.py stdout:")
-        print(result.stdout)
+        print(stdout)
 
-    if result.stderr:
+    if stderr:
         print("[MES Daemon] mes_download.py stderr:")
-        print(result.stderr)
+        print(stderr)
 
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+    if process.returncode != 0:
+        detail = stderr.strip() or stdout.strip() or f"exit code {process.returncode}"
         raise RuntimeError(detail[-3000:])
 
 
@@ -176,3 +195,4 @@ def poll_forever():
 
 if __name__ == "__main__":
     poll_forever()
+

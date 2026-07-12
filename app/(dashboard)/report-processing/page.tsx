@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     Table,
     TableBody,
@@ -35,6 +35,7 @@ export default function ReportProcessingPage() {
     const [loading, setLoading] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [processingMessage, setProcessingMessage] = useState('');
+    const [activeJob, setActiveJob] = useState<{ id: string; type: 'email' | 'k2b' } | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const [records, setRecords] = useState<BusinessRecord[]>([]);
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]); // 기기: code 기반 -> key `${code}-${year}-${period}` 기반
@@ -78,6 +79,39 @@ export default function ReportProcessingPage() {
         fetchRecords();
     }, [filters.year, filters.period]);
 
+    const cancelActiveJob = useCallback(async () => {
+        if (!activeJob) return;
+        const label = activeJob.type === 'email' ? '이메일 전송' : 'K2B 업로드';
+        if (!confirm(`진행 중인 ${label} 작업을 중단하시겠습니까?\n이미 처리된 항목은 되돌릴 수 없고, 남은 항목만 중단됩니다.`)) return;
+
+        try {
+            const res = await fetch('/api/report-processing/cancel-job', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jobId: activeJob.id })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                toast.info(`[${label}] 중단 요청을 전달했습니다.`);
+                if (data.status === 'cancelled') setActiveJob(null);
+            } else {
+                toast.error(data.error || '중단 요청을 전달하지 못했습니다.');
+            }
+        } catch {
+            toast.error('중단 요청 중 서버 연결 오류가 발생했습니다.');
+        }
+    }, [activeJob]);
+
+    useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && activeJob) {
+                event.preventDefault();
+                cancelActiveJob();
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [activeJob]);
     // 백그라운드 작업 상태 실시간 모니터링 헬퍼
     const monitorJob = (jobId: string, jobType: 'email' | 'k2b') => {
         const startTime = Date.now();
@@ -102,10 +136,17 @@ export default function ReportProcessingPage() {
                 if (status === 'success') {
                     toast.success(`[${jobType === 'email' ? '이메일' : 'K2B'}] 백그라운드 작업이 완료되었습니다.`);
                     clearInterval(interval);
+                    setActiveJob(null);
                     fetchRecords(); // 목록 새로고침
+                } else if (status === 'cancelled') {
+                    toast.warning(`[${jobType === 'email' ? '이메일' : 'K2B'}] 사용자 요청으로 작업을 중단했습니다.`);
+                    clearInterval(interval);
+                    setActiveJob(null);
+                    fetchRecords();
                 } else if (status === 'failed') {
                     toast.error(`[${jobType === 'email' ? '이메일' : 'K2B'}] 백그라운드 작업 실패: ${errorMsg || '알 수 없는 오류'}`);
                     clearInterval(interval);
+                    setActiveJob(null);
                     fetchRecords(); // 목록 새로고침
                 }
 
@@ -179,6 +220,7 @@ export default function ReportProcessingPage() {
             if (res.ok && data.jobId) {
                 toast.success('이메일 발송 요청이 등록되었습니다. 사내 로컬 컴퓨터에서 백그라운드로 발송됩니다.');
                 setSelectedKeys([]);
+                setActiveJob({ id: data.jobId, type: 'email' });
                 // 백그라운드 모니터링 개시
                 monitorJob(data.jobId, 'email');
             } else {
@@ -241,6 +283,7 @@ export default function ReportProcessingPage() {
             if (res.ok && data.jobId) {
                 toast.success('K2B 업로드 요청이 등록되었습니다. 사내 로컬 컴퓨터에서 자동 업로드가 실행됩니다.');
                 setSelectedKeys([]);
+                setActiveJob({ id: data.jobId, type: 'k2b' });
                 // 백그라운드 모니터링 개시
                 monitorJob(data.jobId, 'k2b');
             } else {
@@ -259,6 +302,12 @@ export default function ReportProcessingPage() {
             <div className="flex justify-between items-center">
                 <h1 className="text-2xl font-bold text-gray-800">작업환경측정결과 보고서 처리</h1>
                 <div className="flex gap-2">
+                    {activeJob && (
+                        <Button variant="secondary" onClick={cancelActiveJob} className="border-red-200 text-red-700 hover:bg-red-50">
+                            <X className="w-4 h-4 mr-2" />
+                            진행 작업 중단 (Esc)
+                        </Button>
+                    )}
                     <Button
                         variant="primary"
                         onClick={() => fetchRecords(true)}
@@ -470,3 +519,8 @@ export default function ReportProcessingPage() {
         </div>
     );
 }
+
+
+
+
+
