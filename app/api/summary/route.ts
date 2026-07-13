@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
           .order("year", { ascending: false })
           .order("period", { ascending: false });
 
-        mbData = fallbackResult.data;
+        mbData = fallbackResult.data?.map((row) => ({ ...row, manager_phone: null })) || null;
         mbError = fallbackResult.error;
       }
 

@@ -700,7 +700,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 const validColumns = [
                     'business_name', 'business_category', 'address',
                     'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
-                    'manager_name', 'manager_mobile', 'phone', 'total_employees',
+                    'manager_name', 'manager_mobile', 'phone',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
                     'representative_name', 'industrial_accident_number', 'commencement_number'
@@ -782,6 +782,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             console.error("Update error:", error);
             alert(`수정 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
             setData(previousData); // Rollback to previous data
+            throw error;
         }
     };
 

@@ -356,10 +356,18 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    let updatePayload: any = {
-      ...updates,
-      updated_at: new Date().toISOString()
-    };
+    const allowedUpdateColumns = new Set([
+      "business_name", "business_category", "address", "office_jurisdiction",
+      "is_registered", "national_support_status", "plan_manager", "manager_name",
+      "manager_mobile", "phone", "management_status", "notes", "measurement_date",
+      "measurement_end_date", "future_measurement_period", "future_measurement_date",
+      "measurer_id", "period", "collaborators", "daily_staff", "representative_name",
+      "industrial_accident_number", "commencement_number",
+    ]);
+    const updatePayload: any = Object.fromEntries(
+      Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
+    );
+    updatePayload.updated_at = new Date().toISOString();
 
     // [The Joo Rule] 수동 업데이트 시에도 숫자형 업종분류 차단
     if (updates.business_category && /^\d+$/.test(String(updates.business_category))) {
