@@ -4,6 +4,7 @@
 이 스크립트는 입력된 사업장관리번호, 사업개시번호, 대표자명을 사용하여 공단 결과 조회 페이지에서 결과를 조회하고 JSON으로 반환합니다.
 """
 
+import os
 import sys
 import argparse
 import time
@@ -51,9 +52,12 @@ def main():
 
     print_log(f"결과 조회 기동 - 산재번호: {sanjae}, 개시번호: {commencement}, 대표자: {representative}, 년도: {year}, 반기: {period}")
 
-    # 크롬 옵션 설정 (Headless 모드 활성화)
+    # 기본은 화면을 표시해 개발 서버 PC에서 실제 조회 상황을 확인합니다.
+    # 무인 실행이 필요할 때만 NATIONAL_SUPPORT_HEADLESS=true로 설정합니다.
     chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
+    headless = os.getenv("NATIONAL_SUPPORT_HEADLESS", "false").strip().lower() in ("1", "true", "yes", "y")
+    if headless:
+        chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
@@ -73,7 +77,7 @@ def main():
 
     driver = None
     try:
-        print_log("크롬 브라우저(Headless) 초기화 중...")
+        print_log(f"크롬 브라우저 초기화 중 ({'숨김' if headless else '화면 표시'} 모드)...")
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
         
         url = "https://portal.kosha.or.kr/business-apply-search/health-support/step-stone/cont/sub1"
@@ -209,3 +213,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
