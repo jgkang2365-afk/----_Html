@@ -61,6 +61,11 @@ def update_queue(status, error_message=None):
     supabase.table("mes_sync_queue").update(payload).eq("id", QUEUE_ID).execute()
 
 
+def is_cancel_requested():
+    response = supabase.table("mes_sync_queue").select("status").eq("id", QUEUE_ID).single().execute()
+    return bool(response.data and response.data.get("status") == "cancel_requested")
+
+
 def cleanup_zombie_processes():
     print("[MES Daemon] 잔여 Excel/MES 프로세스를 정리합니다.")
     for image_name in ("excel.exe", "hwsmes.exe"):
@@ -151,6 +156,15 @@ def handle_pending_request():
         run_mes_macro()
         update_queue("success")
         print("[MES Daemon] MES 동기화가 완료되었습니다.")
+    except RuntimeError as exc:
+        if str(exc) == "USER_CANCELLED":
+            update_queue("cancelled", "사용자가 중단 요청을 실행했습니다.")
+            print("[MES Daemon] 사용자의 요청으로 MES 동기화를 중단했습니다.")
+        else:
+            message = f"{exc}\n{traceback.format_exc()}"
+            update_queue("error", message[-3000:])
+            print("[MES Daemon] MES 동기화 실패:")
+            print(message)
     except subprocess.TimeoutExpired:
         message = f"MES 매크로 실행 시간이 {MACRO_TIMEOUT_SECONDS}초를 초과했습니다."
         update_queue("error", message)
@@ -165,7 +179,7 @@ def handle_pending_request():
         try:
             response = supabase.table("mes_sync_queue").select("status").eq("id", QUEUE_ID).single().execute()
             current_status = response.data.get("status") if response.data else None
-            if current_status in ("success", "error"):
+            if current_status in ("success", "error", "cancelled"):
                 update_queue("idle")
                 print("[MES Daemon] 다음 요청을 받을 수 있도록 idle 상태로 복귀했습니다.")
         except Exception as exc:
@@ -195,4 +209,5 @@ def poll_forever():
 
 if __name__ == "__main__":
     poll_forever()
+
 
