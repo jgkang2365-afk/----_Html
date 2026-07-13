@@ -220,8 +220,12 @@ export async function POST(request: NextRequest) {
                         updated_at: new Date().toISOString()
                     };
 
-                    const upsertData = { ...finalData };
+                    const upsertData = {
+                        ...finalData,
+                        is_registered: finalData.is_registered_text,
+                    };
                     delete (upsertData as any).business_number;
+                    delete (upsertData as any).is_registered_text;
 
                     const { error } = await supabase
                         .from("measurement_target_business")
@@ -241,10 +245,14 @@ export async function POST(request: NextRequest) {
             console.log(`[Upload] Processed ${Math.min(i + BATCH_SIZE, rawData.length)} / ${rawData.length} rows`);
         }
 
+        const allSucceeded = results.failed === 0;
+        const firstError = results.errors[0];
+
         return NextResponse.json({
-            success: true,
+            success: allSucceeded,
             data: results,
-            message: `${results.success}건 성공, ${results.failed}건 실패`
+            message: `${results.success}건 성공, ${results.failed}건 실패`,
+            error: allSucceeded ? undefined : `${results.failed}건 저장 실패${firstError ? `: ${firstError}` : ""}`,
         });
 
     } catch (error) {
