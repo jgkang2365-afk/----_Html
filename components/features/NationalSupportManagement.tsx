@@ -17,6 +17,18 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
 
+const NATIONAL_SUPPORT_FILTER_STORAGE_KEY = "national_support_result_filters_v1";
+
+const getSavedNationalSupportFilters = (): { year?: string; period?: string } => {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const saved = window.localStorage.getItem(NATIONAL_SUPPORT_FILTER_STORAGE_KEY);
+    return saved ? JSON.parse(saved) : {};
+  } catch {
+    return {};
+  }
+};
 interface NationalSupportEntry {
   id: number;
   code: string;
@@ -44,8 +56,14 @@ export const NationalSupportManagement: React.FC = () => {
 
   // 필터 상태
   const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState<string>(currentYear.toString());
-  const [selectedPeriod, setSelectedPeriod] = useState<string>("상반기");
+  const [selectedYear, setSelectedYear] = useState<string>(() => {
+    const savedYear = getSavedNationalSupportFilters().year;
+    return savedYear && /^\d{4}$/.test(savedYear) ? savedYear : currentYear.toString();
+  });
+  const [selectedPeriod, setSelectedPeriod] = useState<string>(() => {
+    const savedPeriod = getSavedNationalSupportFilters().period;
+    return savedPeriod === "상반기" || savedPeriod === "하반기" ? savedPeriod : "상반기";
+  });
   const [searchCode, setSearchCode] = useState("");
   const [searchResult, setSearchResult] = useState("");
 
@@ -73,6 +91,12 @@ export const NationalSupportManagement: React.FC = () => {
     { value: "하반기", label: "하반기" },
   ];
 
+  useEffect(() => {
+    window.localStorage.setItem(
+      NATIONAL_SUPPORT_FILTER_STORAGE_KEY,
+      JSON.stringify({ year: selectedYear, period: selectedPeriod })
+    );
+  }, [selectedYear, selectedPeriod]);
   // 건강디딤돌 신청결과 목록 로드
   const loadEntries = React.useCallback(async () => {
     setLoading(true);
@@ -636,3 +660,4 @@ export const NationalSupportManagement: React.FC = () => {
     </div>
   );
 };
+
