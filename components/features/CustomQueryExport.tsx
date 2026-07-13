@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { DESIGNATED_OFFICE_OPTIONS, toShortName } from "@/lib/constants/designated-offices";
 import { Button } from "@/components/ui/Button";
@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
+import { Checkbox } from "@/components/ui/Checkbox";
 import {
   Table,
   TableHeader,
@@ -40,8 +41,18 @@ interface FilterRule {
   value: string;
 }
 
-// 로컬스토리지 저장 템플릿 구조
 interface ReportTemplate {
+  id: string;
+  name: string;
+  filters: FilterRule[];
+  columns: ColumnConfig[];
+  isPublic: boolean;
+  isOwner: boolean;
+  ownerName: string;
+  updatedAt?: string;
+}
+
+interface LegacyReportTemplate {
   name: string;
   filters: FilterRule[];
   columns: ColumnConfig[];
@@ -67,7 +78,10 @@ export const CustomQueryExport: React.FC = () => {
   // 템플릿 상태
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [newTemplateName, setNewTemplateName] = useState<string>("");
-  const [selectedTemplateName, setSelectedTemplateName] = useState<string>("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [templateIsPublic, setTemplateIsPublic] = useState<boolean>(false);
+  const [templateSaving, setTemplateSaving] = useState<boolean>(false);
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
 
   // 컬럼 구성 상태 (순서 및 여부)
   const [columns, setColumns] = useState<ColumnConfig[]>([
@@ -185,19 +199,65 @@ export const CustomQueryExport: React.FC = () => {
     fetchRawData();
   }, [loadYear, loadPeriod]);
 
-  // 2. 로컬 스토리지에 저장된 템플릿 정보 로드
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("custom_report_templates");
-      if (saved) {
-        try {
-          setTemplates(JSON.parse(saved));
-        } catch (e) {
-          console.error("템플릿 파싱 실패:", e);
-        }
-      }
+  const fetchTemplatesFromServer = useCallback(async () => {
+    const response = await fetch("/api/custom-query-templates", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "템플릿을 불러오지 못했습니다.");
     }
+    const list = (data.templates || []) as ReportTemplate[];
+    setTemplates(list);
+    return list;
   }, []);
+
+  // 기존 브라우저 템플릿은 최초 한 번 로그인 사용자의 개인 템플릿으로 이전합니다.
+  useEffect(() => {
+    const initializeTemplates = async () => {
+      try {
+        let remoteTemplates = await fetchTemplatesFromServer();
+        const migrationKey = "custom_report_templates_migrated_to_db_v1";
+        const saved = localStorage.getItem("custom_report_templates");
+
+        if (saved && !localStorage.getItem(migrationKey)) {
+          const localTemplates = JSON.parse(saved) as LegacyReportTemplate[];
+          let migrated = false;
+
+          for (const localTemplate of localTemplates) {
+            const alreadyExists = remoteTemplates.some(
+              (template) => template.isOwner && template.name === localTemplate.name
+            );
+            if (alreadyExists) continue;
+
+            const response = await fetch("/api/custom-query-templates", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: localTemplate.name,
+                filters: localTemplate.filters || [],
+                columns: localTemplate.columns || [],
+                isPublic: false,
+              }),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+              throw new Error(data.error || `로컬 템플릿 '${localTemplate.name}' 이전에 실패했습니다.`);
+            }
+            migrated = true;
+          }
+
+          localStorage.setItem(migrationKey, "true");
+          if (migrated) {
+            remoteTemplates = await fetchTemplatesFromServer();
+          }
+        }
+      } catch (templateError) {
+        console.error("템플릿 초기화 실패:", templateError);
+        setError(templateError instanceof Error ? templateError.message : "템플릿을 불러오지 못했습니다.");
+      }
+    };
+
+    initializeTemplates();
+  }, [fetchTemplatesFromServer]);
 
   // 3. 필터 조건 매칭 연산 엔진
   const matchFilter = (item: any, filter: FilterRule) => {
@@ -353,73 +413,111 @@ export const CustomQueryExport: React.FC = () => {
   };
 
   // 7. 템플릿 저장 및 불러오기 핸들러
-  const handleSaveTemplate = () => {
+  const handleSaveTemplate = async () => {
     const typedName = newTemplateName.trim();
-    const targetName = typedName || selectedTemplateName;
+    const targetName = typedName || selectedTemplate?.name || "";
 
     if (!targetName) {
       alert("신규 템플릿 이름을 입력하거나 저장된 템플릿을 선택해 주세요.");
       return;
     }
 
-    const newTemplate: ReportTemplate = {
-      name: targetName,
-      filters,
-      columns,
-    };
+    const isUpdatingSelected = !typedName && !!selectedTemplate;
+    if (isUpdatingSelected && !selectedTemplate?.isOwner) {
+      alert("공용 템플릿은 작성자만 수정할 수 있습니다. 새 이름을 입력해 개인 템플릿으로 저장해 주세요.");
+      return;
+    }
 
-    const existingTemplate = templates.find((t) => t.name === targetName);
-    const isUpdatingSelected = selectedTemplateName === targetName;
+    const existingOwnTemplate = isUpdatingSelected
+      ? selectedTemplate
+      : templates.find((template) => template.isOwner && template.name === targetName);
 
-    let updated: ReportTemplate[] = [];
-    if (existingTemplate) {
-      if (!isUpdatingSelected && !confirm("동일한 이름의 템플릿이 존재합니다. 덮어쓰시겠습니까?")) {
+    if (typedName && existingOwnTemplate) {
+      if (!confirm("같은 이름의 내 템플릿이 있습니다. 현재 설정으로 덮어쓰시겠습니까?")) {
         return;
       }
-      updated = templates.map((t) => (t.name === targetName ? newTemplate : t));
-    } else {
-      updated = [...templates, newTemplate];
     }
 
-    setTemplates(updated);
-    localStorage.setItem("custom_report_templates", JSON.stringify(updated));
-    setSelectedTemplateName(targetName);
-    setNewTemplateName("");
-    alert(existingTemplate ? "선택한 템플릿에 현재 설정을 저장했습니다." : "신규 템플릿이 로컬 저장소에 저장되었습니다.");
-  };
-
-  const handleLoadTemplate = (name: string) => {
-    if (!name) return;
-    const target = templates.find((t) => t.name === name);
-    if (target) {
-      setFilters(target.filters || []);
-      // 기존 저장된 컬럼 구성의 유효성 매핑
-      if (target.columns && target.columns.length > 0) {
-        // 기존 컬럼 리스트에 없는 신규 필드가 있을 수 있으므로 병합
-        const mergedCols = [...target.columns];
-        columns.forEach((col) => {
-          if (!mergedCols.some((mc) => mc.key === col.key)) {
-            mergedCols.push(col);
-          }
-        });
-        setColumns(mergedCols);
+    setTemplateSaving(true);
+    try {
+      const response = await fetch("/api/custom-query-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: existingOwnTemplate?.id,
+          name: targetName,
+          filters,
+          columns,
+          isPublic: templateIsPublic,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "템플릿 저장에 실패했습니다.");
       }
-      setSelectedTemplateName(name);
+
+      await fetchTemplatesFromServer();
+      setSelectedTemplateId(data.template.id);
+      setTemplateIsPublic(data.template.isPublic);
       setNewTemplateName("");
+      alert(existingOwnTemplate ? "템플릿에 현재 설정을 저장했습니다." : "새 템플릿을 저장했습니다.");
+    } catch (saveError) {
+      alert(saveError instanceof Error ? saveError.message : "템플릿 저장에 실패했습니다.");
+    } finally {
+      setTemplateSaving(false);
     }
   };
 
-  const handleDeleteTemplate = (name: string) => {
-    if (!name) return;
-    if (!confirm(`'${name}' 템플릿을 삭제하시겠습니까?`)) return;
-
-    const updated = templates.filter((t) => t.name !== name);
-    setTemplates(updated);
-    localStorage.setItem("custom_report_templates", JSON.stringify(updated));
-    if (selectedTemplateName === name) {
-      setSelectedTemplateName("");
+  const handleLoadTemplate = (id: string) => {
+    if (!id) {
+      setSelectedTemplateId("");
+      setTemplateIsPublic(false);
+      return;
     }
-    alert("템플릿이 삭제되었습니다.");
+
+    const target = templates.find((template) => template.id === id);
+    if (!target) return;
+
+    setFilters(target.filters || []);
+    if (target.columns && target.columns.length > 0) {
+      const mergedCols = [...target.columns];
+      columns.forEach((column) => {
+        if (!mergedCols.some((savedColumn) => savedColumn.key === column.key)) {
+          mergedCols.push(column);
+        }
+      });
+      setColumns(mergedCols);
+    }
+    setSelectedTemplateId(id);
+    setTemplateIsPublic(target.isPublic);
+    setNewTemplateName("");
+  };
+
+  const handleDeleteTemplate = async (template: ReportTemplate) => {
+    if (!template.isOwner) {
+      alert("공용 템플릿은 작성자만 삭제할 수 있습니다.");
+      return;
+    }
+    if (!confirm(`'${template.name}' 템플릿을 삭제하시겠습니까?`)) return;
+
+    try {
+      const response = await fetch(`/api/custom-query-templates?id=${encodeURIComponent(template.id)}`, {
+        method: "DELETE",
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "템플릿 삭제에 실패했습니다.");
+      }
+
+      await fetchTemplatesFromServer();
+      if (selectedTemplateId === template.id) {
+        setSelectedTemplateId("");
+        setTemplateIsPublic(false);
+      }
+      alert("템플릿이 삭제되었습니다.");
+    } catch (deleteError) {
+      alert(deleteError instanceof Error ? deleteError.message : "템플릿 삭제에 실패했습니다.");
+    }
   };
 
   // 8. 가공된 데이터 엑셀 파일 내보내기 (.xlsx)
@@ -506,40 +604,57 @@ export const CustomQueryExport: React.FC = () => {
 
       {/* 설정 템플릿 관리 영역 */}
       <Card className="p-4 border border-surface-200">
-        <h2 className="text-base font-semibold text-text-900 mb-3">2. 템플릿 설정 (브라우저 로컬 저장)</h2>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <h2 className="text-base font-semibold text-text-900 mb-3">2. 템플릿 설정 (사용자별 DB 저장)</h2>
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3 flex-1">
-            <div className="w-64">
+            <div className="w-80 max-w-full">
               <Select
-                value={selectedTemplateName}
+                value={selectedTemplateId}
                 onChange={(e) => handleLoadTemplate(e.target.value)}
                 options={[
                   { value: "", label: "-- 저장된 템플릿 선택 --" },
-                  ...templates.map((t) => ({ value: t.name, label: t.name })),
+                  ...templates.map((template) => ({
+                    value: template.id,
+                    label: template.isPublic
+                      ? `[공용] ${template.name} · ${template.ownerName}`
+                      : `[개인] ${template.name}`,
+                  })),
                 ]}
                 className="w-full"
               />
             </div>
-            {selectedTemplateName && (
+            {selectedTemplate?.isOwner && (
               <Button
                 variant="danger"
-                onClick={() => handleDeleteTemplate(selectedTemplateName)}
+                onClick={() => handleDeleteTemplate(selectedTemplate)}
                 className="py-2 text-xs"
               >
                 🗑️ 삭제
               </Button>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <Input
               type="text"
               placeholder="새 이름 입력 (비우면 선택 템플릿 저장)"
               value={newTemplateName}
               onChange={(e) => setNewTemplateName(e.target.value)}
-              className="w-56"
+              className="w-64"
             />
-            <Button variant="primary" onClick={handleSaveTemplate} className="whitespace-nowrap">
-              💾 {selectedTemplateName && !newTemplateName.trim() ? "선택 템플릿 저장" : "현재 설정 저장"}
+            <Checkbox
+              id="custom-template-public"
+              label="공용 템플릿"
+              checked={templateIsPublic}
+              onChange={(e) => setTemplateIsPublic(e.target.checked)}
+              disabled={!!selectedTemplate && !selectedTemplate.isOwner && !newTemplateName.trim()}
+            />
+            <Button
+              variant="primary"
+              onClick={handleSaveTemplate}
+              disabled={templateSaving || (!!selectedTemplate && !selectedTemplate.isOwner && !newTemplateName.trim())}
+              className="whitespace-nowrap"
+            >
+              💾 {templateSaving ? "저장 중..." : selectedTemplate && !newTemplateName.trim() ? "선택 템플릿 저장" : "현재 설정 저장"}
             </Button>
           </div>
         </div>
