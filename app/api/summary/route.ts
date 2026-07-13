@@ -123,8 +123,9 @@ export async function GET(request: NextRequest) {
     if (codes.length > 0) {
       const { data: surveyData, error: surveyError } = await supabase
         .from("preliminary_survey")
-        .select("id, code, measurement_date, end_date, measurement_weekdays, preliminary_surveyor, actual_measurer, report_writer, survey_code, created_at")
-        .in("code", codes);
+        .select("id, code, year, period, measurement_date, end_date, measurement_weekdays, preliminary_surveyor, actual_measurer, report_writer, survey_code, created_at")
+        .in("code", codes)
+        .order("measurement_date", { ascending: true });
 
       if (surveyError) {
         console.error("예비조사 조회 오류:", surveyError);
@@ -245,14 +246,13 @@ export async function GET(request: NextRequest) {
       // 해당 코드의 모든 예비조사 필터링 (다중 일자 지원을 위해 목록 전체 유지)
       const businessSurveys = surveys.filter(s => s.code === journal.code);
 
-      // 현재 저널의 주기(year, period)와 일치하는 예비조사만 필터링
+      // 측정일의 월이 아니라 저장된 년도/주기로 연결한다.
+      // 반기 경계 밖의 일정도 사용자가 지정한 업무 주기에 그대로 포함되어야 한다.
       const relatedSurveys = businessSurveys.filter(s => {
-        if (!s.measurement_date) return false;
-        const sDate = new Date(s.measurement_date);
-        const sYear = sDate.getFullYear();
-        const sMonth = sDate.getMonth() + 1;
-        const sPeriod = sMonth <= 6 ? "상반기" : "하반기";
-        return sYear === journal.measurement_year && (journal.measurement_period.includes(sPeriod));
+        const surveyPeriod = String(s.period || "").replace("(수시)", "").trim();
+        const journalPeriod = String(journal.measurement_period || "").replace("(수시)", "").trim();
+
+        return Number(s.year) === Number(journal.measurement_year) && surveyPeriod === journalPeriod;
       });
 
       // 기존 UI 호환성을 위한 대표 survey (첫 번째 항목)
