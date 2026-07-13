@@ -87,25 +87,19 @@ export async function GET(request: NextRequest) {
         manager_mobile: j.manager_mobile || "-"
       }));
 
-    // 1-2. 실시율 계산 (measurement_target_business 기준)
-    let qExecution = supabase.from("measurement_target_business").select("id, is_registered, period, code");
+    // 1-2. 실시율 = 측정일지 등록 건수 / 거래종료 제외 측정대상사업장 건수
+    let qExecution = supabase.from("measurement_target_business").select("id, is_registered, period");
     if (startYear) qExecution = qExecution.gte("year", startYear);
     if (endYear) qExecution = qExecution.lte("year", endYear);
     if (targetPeriod) qExecution = qExecution.ilike("period", `%${targetPeriod}%`);
     const { data: targetBusinesses } = await qExecution;
-    // 수시 주기 원천 배제
-    const targetBusinessesFiltered = targetBusinesses?.filter(t => !t.period?.includes("(수시)")) || [];
-    const totalTargets = targetBusinessesFiltered.length;
-    const endedTargets = targetBusinessesFiltered.filter(t => t.is_registered === "거래종료" || t.is_registered === "종료" || t.is_registered === "거래 종료").length || 0;
-    const activeTargets = totalTargets - endedTargets;
-    
-    // 측정일지(measurement_journal)가 작성되었거나, 대상 테이블에 '실시'/'확정' 상태인 사업장 모두를 실제 측정을 진행한 '실시' 건으로 인정
-    const journalCodes = new Set(journalsFiltered.map(j => j.code).filter(Boolean));
-    const executedTargets = targetBusinessesFiltered.filter(t => 
-      t.is_registered === "실시" || 
-      t.is_registered === "확정" || 
-      (t.code && journalCodes.has(t.code))
-    ).length || 0;
+
+    const activeTargets = (targetBusinesses || []).filter((target) =>
+      target.is_registered !== "거래종료" &&
+      target.is_registered !== "종료" &&
+      target.is_registered !== "거래 종료"
+    ).length;
+    const executedTargets = allJournals?.length || 0;
     const executionRate = activeTargets > 0 ? (executedTargets / activeTargets) * 100 : 0;
 
     // 2. 매출현황

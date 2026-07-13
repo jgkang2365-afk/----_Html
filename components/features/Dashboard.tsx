@@ -269,7 +269,7 @@ export const Dashboard: React.FC<{ startYear: string; endYear: string; period: s
         <KPIButton
           title="실시율"
           value={`${data.executionStats?.rate.toFixed(1) || "0.0"}%`}
-          subValue={`실시 ${data.executionStats?.executed || 0} / 전체 ${data.executionStats?.total || 0}`}
+          subValue={`일지 등록 ${data.executionStats?.executed || 0} / 대상 ${data.executionStats?.total || 0}`}
           icon={<ClipboardCheck className="w-6 h-6" />}
           color={data.executionStats && data.executionStats.rate >= 80 ? "green" : "blue"}
         />
