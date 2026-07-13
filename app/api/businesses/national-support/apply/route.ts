@@ -67,9 +67,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (currentPlan.national_support_status !== "대상") {
+    // 목록은 측정사업장/측정일지의 국고 상태를 보완해 표시할 수 있습니다.
+    // 화면에서 "대상"으로 확인한 뒤 새로고침을 누른 경우, 대상 사업장 테이블의
+    // 값이 비어 있어도 조회를 허용하고 아래 락 단계에서 "대상"으로 맞춥니다.
+    if (currentPlan.national_support_status === "비대상") {
       return NextResponse.json(
-        { error: "국고 지원 대상 사업장이 아닙니다." },
+        { error: "국고 지원 비대상 사업장입니다." },
         { status: 400 }
       );
     }
@@ -150,6 +153,7 @@ export async function POST(request: NextRequest) {
       .update({
         sync_status: "신청중",
         sync_error_message: null,
+        national_support_status: "대상",
         industrial_accident_number: sanjae || null,
         commencement_number: commencement || null,
         representative_name: representative || null,
@@ -216,3 +220,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
