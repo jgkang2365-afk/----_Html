@@ -9,10 +9,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
-import {
-  formatDateYYYYMMDD,
-  calculateMeasurementWeekdays,
-} from "@/lib/utils/date-utils";
+import { formatDateYYYYMMDD, calculateMeasurementWeekdays } from "@/lib/utils/date-utils";
 import { normalizeForDateInput, isValidDateString } from "@/lib/utils/date-validator";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { MEASURER_LIST, getSurveyCode, getMeasurerList } from "@/lib/utils/survey-code";
@@ -31,23 +28,9 @@ const PRELIMINARY_SURVEYOR_OPTIONS = [
 // 예비조사자 조합 목록 획득 함수 (측정일별 분기)
 const getPreliminarySurveyorOptions = (dateStr?: string | null) => {
   if (dateStr && dateStr >= "2026-06-09") {
-    return [
-      "이태환",
-      "한기문",
-      "이태환, 강종구",
-      "이주형",
-      "한기문, 김민영",
-      "이주형, 고유빈",
-    ];
+    return ["이태환", "한기문", "이태환, 강종구", "이주형", "한기문, 김민영", "이주형, 고유빈"];
   }
-  return [
-    "이태환",
-    "한기문",
-    "이태환, 강종구",
-    "이주형",
-    "한기문, 배윤민",
-    "이주형, 고유빈",
-  ];
+  return ["이태환", "한기문", "이태환, 강종구", "이주형", "한기문, 배윤민", "이주형, 고유빈"];
 };
 
 interface BusinessInfo {
@@ -74,6 +57,7 @@ interface SurveyFormData {
   preliminary_surveyor: string; // 콤마 구분
   actual_measurer: string; // 콤마 구분
   report_writer: string; // 콤마 구분
+  assignee_manual_override: boolean;
 }
 
 interface SurveyFormProps {
@@ -82,15 +66,10 @@ interface SurveyFormProps {
   onCancel?: () => void;
 }
 
-export const SurveyForm: React.FC<SurveyFormProps> = ({
-  initialData,
-  onSuccess,
-  onCancel,
-}) => {
+export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, onCancel }) => {
   const { user: currentUser } = useUser();
   const isAdmin = currentUser?.role === "관리자";
   const isJournalManager = isAdmin || !!currentUser?.is_journal_manager;
-  const [isSurveyCodeEditable, setIsSurveyCodeEditable] = useState(false);
   const [isAssigneeManualMode, setIsAssigneeManualMode] = useState(false); // 담당자 수동 모드 (초기화 후)
   const [formData, setFormData] = useState<SurveyFormData>({
     year: "2026",
@@ -107,6 +86,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     preliminary_surveyor: "",
     actual_measurer: "",
     report_writer: "",
+    assignee_manual_override: false,
   });
 
   const [endDateManuallyModified, setEndDateManuallyModified] = useState(false); // 종료일이 수동으로 수정되었는지 추적
@@ -137,7 +117,9 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
   const [searching, setSearching] = useState(false);
 
   // 사용자 목록 (측정자와 연동)
-  const [users, setUsers] = useState<Array<{ id: number; name: string; survey_code: string | null }>>([]);
+  const [users, setUsers] = useState<
+    Array<{ id: number; name: string; survey_code: string | null }>
+  >([]);
 
   // 순번 자동 계산 (신규 등록 시)
   const [nextSequenceNumber, setNextSequenceNumber] = useState<number | null>(null);
@@ -151,9 +133,9 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           const data = await response.json();
           const allUsers = data.users || [];
           // 관리자인 경우 전체 노출, 일반 사용자는 survey_code가 있는 사용자만 필터링
-          const filteredUsers = isAdmin ? allUsers : allUsers.filter(
-            (user: { survey_code?: string | null }) => user.survey_code
-          );
+          const filteredUsers = isAdmin
+            ? allUsers
+            : allUsers.filter((user: { survey_code?: string | null }) => user.survey_code);
           setUsers(filteredUsers);
         }
       } catch (err) {
@@ -192,6 +174,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       // 날짜 값을 엄격하게 정규화
       const normalizedMeasurementDate = normalizeForDateInput(initialData.measurement_date);
       const normalizedEndDate = normalizeForDateInput(initialData.end_date);
+      const manualOverride = initialData.assignee_manual_override === true;
+      setIsAssigneeManualMode(manualOverride);
 
       // 실측정자 및 보고서 담당 처리 (formData 설정보다 먼저 계산)
       let initialActualMeasurers: string[] = [];
@@ -206,7 +190,11 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         initialReportWriter = writers[0] || "";
 
         // 보고서 담당자가 실측정자 목록에 없으면 추가
-        if (initialReportWriter && !initialActualMeasurers.includes(initialReportWriter)) {
+        if (
+          !manualOverride &&
+          initialReportWriter &&
+          !initialActualMeasurers.includes(initialReportWriter)
+        ) {
           initialActualMeasurers.push(initialReportWriter);
         }
       }
@@ -230,6 +218,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         preliminary_surveyor: initialData.preliminary_surveyor || "",
         actual_measurer: initialActualMeasurers.join(", "), // 계산된 값 사용 (중요: 보고서 담당자 포함된 값)
         report_writer: initialReportWriter,
+        assignee_manual_override: manualOverride,
       });
 
       // 종료일이 없고 측정일만 있으면 종료일을 측정일과 동일하게 설정
@@ -248,8 +237,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       if (initialData.preliminary_surveyor) {
         const savedValue = initialData.preliminary_surveyor.trim();
         // 저장된 값 정규화 함수 (공백 제거 후 비교)
-        const normalizeValue = (value: string) =>
-          value.replace(/\s*,\s*/g, ",").trim();
+        const normalizeValue = (value: string) => value.replace(/\s*,\s*/g, ",").trim();
 
         const normalizedSavedValue = normalizeValue(savedValue);
 
@@ -269,13 +257,18 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
         // 일치하는 조합이 없으면, 저장된 값을 콤마로 분리하여 각각이 조합 목록에 있는지 확인
         if (matchedOptions.length === 0 && savedValue.includes(",")) {
-          const parts = savedValue.split(",").map(s => s.trim()).filter(Boolean);
+          const parts = savedValue
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
           preliminaryOptions.forEach((option) => {
             const normalizedOption = normalizeValue(option);
             // 조합의 각 부분이 저장된 값의 부분과 일치하는지 확인
-            const optionParts = option.split(",").map(s => s.trim());
-            if (optionParts.every(part => parts.includes(part)) &&
-              parts.every(part => optionParts.includes(part))) {
+            const optionParts = option.split(",").map((s) => s.trim());
+            if (
+              optionParts.every((part) => parts.includes(part)) &&
+              parts.every((part) => optionParts.includes(part))
+            ) {
               matchedOptions.push(option);
             }
           });
@@ -295,7 +288,12 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
   // 측정일이 변경될 때 종료일 자동 설정 (초기값이 비어있을 때)
   useEffect(() => {
-    if (formData.measurement_date && isValidDateString(formData.measurement_date) && !endDateManuallyModified && !formData.end_date) {
+    if (
+      formData.measurement_date &&
+      isValidDateString(formData.measurement_date) &&
+      !endDateManuallyModified &&
+      !formData.end_date
+    ) {
       setFormData((prev) => ({ ...prev, end_date: prev.measurement_date }));
     }
   }, [formData.measurement_date, endDateManuallyModified, formData.end_date]);
@@ -307,7 +305,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
       const params = new URLSearchParams();
       if (searchParams.code) params.append("code", searchParams.code);
       if (searchParams.businessName) params.append("businessName", searchParams.businessName);
-      if (searchParams.designatedOffice) params.append("designatedOffice", searchParams.designatedOffice);
+      if (searchParams.designatedOffice)
+        params.append("designatedOffice", searchParams.designatedOffice);
       if (searchParams.address) params.append("address", searchParams.address);
 
       const response = await fetch(`/api/business-info/search?${params.toString()}`);
@@ -333,7 +332,9 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
     }
 
     try {
-      const response = await fetch(`/api/sales/check-unpaid?businessName=${encodeURIComponent(businessName)}`);
+      const response = await fetch(
+        `/api/sales/check-unpaid?businessName=${encodeURIComponent(businessName)}`
+      );
       const data = await response.json();
 
       if (response.ok && data.hasWarning) {
@@ -342,12 +343,14 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         const nationalCount = data.nationalUnpaidCount || 0;
         const nationalAmount = data.nationalUnpaidAmount || 0;
 
-        const businessMsg = businessCount > 0
-          ? `사업장 미수: ${businessCount}건 (${businessAmount.toLocaleString()}원)`
-          : "";
-        const nationalMsg = nationalCount > 0
-          ? `국고 미수: ${nationalCount}건 (${nationalAmount.toLocaleString()}원)`
-          : "";
+        const businessMsg =
+          businessCount > 0
+            ? `사업장 미수: ${businessCount}건 (${businessAmount.toLocaleString()}원)`
+            : "";
+        const nationalMsg =
+          nationalCount > 0
+            ? `국고 미수: ${nationalCount}건 (${nationalAmount.toLocaleString()}원)`
+            : "";
 
         let textColorClass = "text-gray-800";
         let titleColorClass = "text-gray-800";
@@ -362,17 +365,17 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
         const message = (
           <div className="text-left">
-            <p className={`text-lg font-bold mb-2 ${titleColorClass}`}>
+            <p className={`mb-2 text-lg font-bold ${titleColorClass}`}>
               &quot;{businessName}&quot; 업체는 미수금이 있습니다.
             </p>
-            <div className={`p-3 bg-white rounded border border-gray-200 ${textColorClass}`}>
+            <div className={`rounded border border-gray-200 bg-white p-3 ${textColorClass}`}>
               {[businessMsg, nationalMsg].filter(Boolean).map((msg, idx) => (
-                <p key={idx} className="mb-1 last:mb-0">{msg}</p>
+                <p key={idx} className="mb-1 last:mb-0">
+                  {msg}
+                </p>
               ))}
             </div>
-            <p className="mt-2 text-sm text-gray-600">
-              새로운 예비조사 등록 시 주의해주세요.
-            </p>
+            <p className="mt-2 text-sm text-gray-600">새로운 예비조사 등록 시 주의해주세요.</p>
           </div>
         );
 
@@ -428,16 +431,19 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             nextSelectedMeasurers = nextSelectedMeasurers.filter((m) => m !== "배윤민");
             if (!nextSelectedMeasurers.includes("김민영")) nextSelectedMeasurers.push("김민영");
           }
-          if (nextActualMeasurers.includes("배윤민")) {
+          if (!isAssigneeManualMode && nextActualMeasurers.includes("배윤민")) {
             nextActualMeasurers = nextActualMeasurers.filter((m) => m !== "배윤민");
             if (!nextActualMeasurers.includes("김민영")) nextActualMeasurers.push("김민영");
           }
-          if (nextReportWriter === "배윤민") {
+          if (!isAssigneeManualMode && nextReportWriter === "배윤민") {
             nextReportWriter = "김민영";
           }
-          if (nextPreliminarySurveyors.includes("한기문, 배윤민")) {
-            nextPreliminarySurveyors = nextPreliminarySurveyors.filter((p) => p !== "한기문, 배윤민");
-            if (!nextPreliminarySurveyors.includes("한기문, 김민영")) nextPreliminarySurveyors.push("한기문, 김민영");
+          if (!isAssigneeManualMode && nextPreliminarySurveyors.includes("한기문, 배윤민")) {
+            nextPreliminarySurveyors = nextPreliminarySurveyors.filter(
+              (p) => p !== "한기문, 배윤민"
+            );
+            if (!nextPreliminarySurveyors.includes("한기문, 김민영"))
+              nextPreliminarySurveyors.push("한기문, 김민영");
           }
         } else {
           // 김민영 -> 배윤민
@@ -445,30 +451,38 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             nextSelectedMeasurers = nextSelectedMeasurers.filter((m) => m !== "김민영");
             if (!nextSelectedMeasurers.includes("배윤민")) nextSelectedMeasurers.push("배윤민");
           }
-          if (nextActualMeasurers.includes("김민영")) {
+          if (!isAssigneeManualMode && nextActualMeasurers.includes("김민영")) {
             nextActualMeasurers = nextActualMeasurers.filter((m) => m !== "김민영");
             if (!nextActualMeasurers.includes("배윤민")) nextActualMeasurers.push("배윤민");
           }
-          if (nextReportWriter === "김민영") {
+          if (!isAssigneeManualMode && nextReportWriter === "김민영") {
             nextReportWriter = "배윤민";
           }
-          if (nextPreliminarySurveyors.includes("한기문, 김민영")) {
-            nextPreliminarySurveyors = nextPreliminarySurveyors.filter((p) => p !== "한기문, 김민영");
-            if (!nextPreliminarySurveyors.includes("한기문, 배윤민")) nextPreliminarySurveyors.push("한기문, 배윤민");
+          if (!isAssigneeManualMode && nextPreliminarySurveyors.includes("한기문, 김민영")) {
+            nextPreliminarySurveyors = nextPreliminarySurveyors.filter(
+              (p) => p !== "한기문, 김민영"
+            );
+            if (!nextPreliminarySurveyors.includes("한기문, 배윤민"))
+              nextPreliminarySurveyors.push("한기문, 배윤민");
           }
         }
 
         setSelectedMeasurers(nextSelectedMeasurers);
-        setActualMeasurers(nextActualMeasurers);
-        setReportWriter(nextReportWriter);
-        setPreliminarySurveyors(nextPreliminarySurveyors);
+        if (!isAssigneeManualMode) {
+          setActualMeasurers(nextActualMeasurers);
+          setReportWriter(nextReportWriter);
+          setPreliminarySurveyors(nextPreliminarySurveyors);
+        }
       }
 
       setFormData((prev) => {
         const updated = { ...prev, measurement_date: value };
 
         // 종료일이 수동으로 수정되지 않았고 비어있거나 측정일과 동일한 경우에만 종료일을 측정일과 동일하게 설정
-        if (!endDateManuallyModified && (!prev.end_date || prev.end_date === prev.measurement_date)) {
+        if (
+          !endDateManuallyModified &&
+          (!prev.end_date || prev.end_date === prev.measurement_date)
+        ) {
           updated.end_date = value;
         }
 
@@ -481,9 +495,11 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         // 스왑 발생 시 폼 데이터 문자열도 업데이트
         if (hasSwapped) {
           updated.measurer = nextSelectedMeasurers.join(", ");
-          updated.preliminary_surveyor = nextPreliminarySurveyors.join(", ");
-          updated.actual_measurer = nextActualMeasurers.join(", ");
-          updated.report_writer = nextReportWriter;
+          if (!isAssigneeManualMode) {
+            updated.preliminary_surveyor = nextPreliminarySurveyors.join(", ");
+            updated.actual_measurer = nextActualMeasurers.join(", ");
+            updated.report_writer = nextReportWriter;
+          }
 
           // 공시료 코드 자동 재부여
           let surveyCode = "";
@@ -571,15 +587,18 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
   // 측정자 선택 처리
   // 측정자별 예비조사자 매핑
-  const getPreliminarySurveyorByMeasurer = (measurer: string, dateStr?: string | null): string | null => {
+  const getPreliminarySurveyorByMeasurer = (
+    measurer: string,
+    dateStr?: string | null
+  ): string | null => {
     const mapping: Record<string, string> = {
-      "이태환": "이태환",
-      "한기문": "한기문",
-      "이주형": "이주형",
-      "강종구": "이태환, 강종구",
-      "배윤민": "한기문, 배윤민",
-      "김민영": "한기문, 김민영",
-      "고유빈": "이주형, 고유빈",
+      이태환: "이태환",
+      한기문: "한기문",
+      이주형: "이주형",
+      강종구: "이태환, 강종구",
+      배윤민: "한기문, 배윤민",
+      김민영: "한기문, 김민영",
+      고유빈: "이주형, 고유빈",
     };
     return mapping[measurer] || null;
   };
@@ -756,21 +775,49 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
     try {
       const isEditMode = initialData?.id !== undefined;
-      const url = isEditMode
-        ? `/api/survey/${initialData.id}`
-        : "/api/survey";
+      const url = isEditMode ? `/api/survey/${initialData.id}` : "/api/survey";
 
       const method = isEditMode ? "PUT" : "POST";
 
-      const response = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(formData),
-      });
+      const submitRequest = async (confirmOverlap = false) => {
+        const response = await fetch(url, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...formData,
+            confirm_measurer_overlap: confirmOverlap,
+          }),
+        });
 
-      const data = await response.json();
+        return {
+          response,
+          data: await response.json(),
+        };
+      };
+
+      let { response, data } = await submitRequest();
+
+      if (response.status === 409 && data.code === "MEASURER_OVERLAP_CONFIRMATION_REQUIRED") {
+        const conflictBusinesses = (data.conflicts || [])
+          .map((conflict: { businessName: string }) => "- " + conflict.businessName)
+          .join("\n");
+        const confirmed = window.confirm(
+          data.primaryMeasurer +
+            "님이 " +
+            formData.measurement_date +
+            "에 이미 다른 업체를 측정합니다.\n\n" +
+            conflictBusinesses +
+            "\n\n" +
+            "인근 사업장 추가 측정으로 공시료 코드 [" +
+            data.suggestedSurveyCode +
+            "]를 자동 부여하여 저장하시겠습니까?"
+        );
+
+        if (!confirmed) return;
+        ({ response, data } = await submitRequest(true));
+      }
 
       if (response.ok) {
         // 경고 메시지가 있으면 표시하되 등록은 성공
@@ -802,50 +849,50 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
 
   // 동적으로 적용될 측정자 및 예비조사 조합 목록 계산
   const currentMeasurerList = getMeasurerList(formData.measurement_date);
-  const currentPreliminarySurveyorOptions = getPreliminarySurveyorOptions(formData.measurement_date);
+  const currentPreliminarySurveyorOptions = getPreliminarySurveyorOptions(
+    formData.measurement_date
+  );
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div ref={topRef} /> {/* 스크롤 타겟 */}
       {error && <Alert variant="error">{error}</Alert>}
       {warning && <Alert variant="warning">{warning}</Alert>}
-
       {/* 기본 정보 */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-text-900 mb-4">기본 정보</h3>
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mb-6">
+        <h3 className="mb-4 text-lg font-semibold text-text-900">기본 정보</h3>
+        <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-12">
           <div className="md:col-span-3 lg:col-span-2">
             <Input
               label="년도"
               type="number"
               value={formData.year}
-              onChange={(e) => setFormData(prev => ({ ...prev, year: e.target.value }))}
+              onChange={(e) => setFormData((prev) => ({ ...prev, year: e.target.value }))}
               required
             />
           </div>
           <div className="md:col-span-9 lg:col-span-10">
-            <label className="block text-sm font-medium text-text-700 mb-2">
-              주기
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label className="mb-2 block text-sm font-medium text-text-700">주기</label>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {["상반기", "상반기(수시)", "하반기", "하반기(수시)"].map((period) => (
                 <div
                   key={period}
-                  className={`p-2 rounded-md border transition-colors cursor-pointer ${formData.period === period
-                    ? "bg-indigo-100 border-indigo-400 shadow-sm ring-2 ring-indigo-300"
-                    : "bg-white border-gray-200 hover:bg-indigo-50"
-                    }`}
-                  onClick={() => setFormData(prev => ({ ...prev, period }))}
+                  className={`cursor-pointer rounded-md border p-2 transition-colors ${
+                    formData.period === period
+                      ? "border-indigo-400 bg-indigo-100 shadow-sm ring-2 ring-indigo-300"
+                      : "border-gray-200 bg-white hover:bg-indigo-50"
+                  }`}
+                  onClick={() => setFormData((prev) => ({ ...prev, period }))}
                 >
                   <div className="flex items-center justify-center">
                     <input
                       type="radio"
                       name="period"
                       checked={formData.period === period}
-                      onChange={() => setFormData(prev => ({ ...prev, period }))}
-                      className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 focus:ring-2 cursor-pointer"
+                      onChange={() => setFormData((prev) => ({ ...prev, period }))}
+                      className="h-4 w-4 cursor-pointer text-indigo-600 focus:ring-2 focus:ring-indigo-500"
                     />
-                    <label className="ml-2 text-sm font-medium text-text-700 cursor-pointer">
+                    <label className="ml-2 cursor-pointer text-sm font-medium text-text-700">
                       {period}
                     </label>
                   </div>
@@ -861,24 +908,29 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           </Alert>
         )}
 
-        {targetMeasurementDate && formData.measurement_date && targetMeasurementDate !== formData.measurement_date && (
-          <Alert variant="warning" className="mb-4 bg-orange-50 border-orange-200">
-            <div className="flex items-center gap-2 text-orange-700 font-bold">
-              <span>⚠️ 일정 불일치 알림</span>
-            </div>
-            <p className="mt-1 text-sm text-orange-600">
-              계획담당자가 지정한 확정일(<span className="font-bold underline">{targetMeasurementDate}</span>)과 현재 선택한 측정일(<span className="font-bold underline">{formData.measurement_date}</span>)이 다릅니다. 일정이 변경된 것인지 확인 바랍니다.
-            </p>
-          </Alert>
-        )}
+        {targetMeasurementDate &&
+          formData.measurement_date &&
+          targetMeasurementDate !== formData.measurement_date && (
+            <Alert variant="warning" className="mb-4 border-orange-200 bg-orange-50">
+              <div className="flex items-center gap-2 font-bold text-orange-700">
+                <span>⚠️ 일정 불일치 알림</span>
+              </div>
+              <p className="mt-1 text-sm text-orange-600">
+                계획담당자가 지정한 확정일(
+                <span className="font-bold underline">{targetMeasurementDate}</span>)과 현재 선택한
+                측정일(<span className="font-bold underline">{formData.measurement_date}</span>)이
+                다릅니다. 일정이 변경된 것인지 확인 바랍니다.
+              </p>
+            </Alert>
+          )}
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <Input
             label="순번"
             value={
               initialData?.id
-                ? ((initialData as any).sequence_number?.toString() || "-")
-                : (nextSequenceNumber?.toString() || "계산 중...")
+                ? (initialData as any).sequence_number?.toString() || "-"
+                : nextSequenceNumber?.toString() || "계산 중..."
             }
             readOnly
             className="bg-surface-50"
@@ -904,17 +956,11 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           />
         </div>
       </Card>
-
       {/* 사업장 정보 */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-text-900 mb-4">사업장 정보</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input
-            label="코드"
-            value={formData.code}
-            readOnly
-            className="bg-surface-50"
-          />
+        <h3 className="mb-4 text-lg font-semibold text-text-900">사업장 정보</h3>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Input label="코드" value={formData.code} readOnly className="bg-surface-50" />
           <Input
             label="사업자번호"
             value={formatBusinessNumber(formData.business_number)}
@@ -924,27 +970,21 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           <Input
             label="사업장명"
             value={formData.business_name}
-            onChange={(e) => setFormData(prev => ({ ...prev, business_name: e.target.value }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, business_name: e.target.value }))}
             className=""
           />
-          <Input
-            label="주소"
-            value={formData.address}
-            readOnly
-            className="bg-surface-50"
-          />
+          <Input label="주소" value={formData.address} readOnly className="bg-surface-50" />
         </div>
       </Card>
-
       {/* 측정자 정보 */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-text-900 mb-4">측정자 정보</h3>
+        <h3 className="mb-4 text-lg font-semibold text-text-900">측정자 정보</h3>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-text-700 mb-2">
+            <label className="mb-2 block text-sm font-medium text-text-700">
               측정자 (복수 선택 가능)
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
               {currentMeasurerList.map((measurer) => (
                 <Checkbox
                   key={measurer}
@@ -956,54 +996,64 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
             </div>
           </div>
           <div className="md:col-span-2">
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-sm font-medium text-text-700">
-                공시료 코드
-              </label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="block text-sm font-medium text-text-700">공시료 코드</label>
             </div>
             <Input
               value={formData.survey_code}
-              onChange={(e) => setFormData(prev => ({ ...prev, survey_code: e.target.value.toUpperCase() }))}
-              readOnly={!isJournalManager}
-              title={isJournalManager ? "일지담당: 직접 수정 가능" : "측정자 선택 시 자동 부여됩니다."}
-              className={isJournalManager ? "" : "bg-surface-50"}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, survey_code: e.target.value.toUpperCase() }))
+              }
+              readOnly
+              title="첫 번째 측정자와 같은 날의 배정 순서에 따라 자동 부여됩니다."
+              className="bg-surface-50"
             />
           </div>
         </div>
       </Card>
-
       {/* 담당자 정보 */}
       <Card className="p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="mb-6 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-text-900">담당자 정보</h3>
           {isJournalManager && initialData?.id && (
             <Button
               type="button"
               variant="secondary"
-              className={`h-8 px-3 text-xs font-medium border ${
+              className={`h-8 border px-3 text-xs font-medium ${
                 isAssigneeManualMode
-                  ? 'bg-orange-50 border-orange-300 text-orange-700 hover:bg-orange-100'
-                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                  ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
               }`}
               onClick={() => {
                 if (!isAssigneeManualMode) {
-                  // 초기화: 예비조사자, 실측정자, 보고서 담당 모두 비움
+                  const confirmed = window.confirm(
+                    "자동 배정된 담당자 정보를 초기화하고 수동 지정 모드로 전환하시겠습니까?\n\n" +
+                      "초기화 대상: 예비조사자, 실측정자, 보고서 담당\n" +
+                      "측정자와 공시료 코드는 변경되지 않습니다."
+                  );
+                  if (!confirmed) return;
+
                   setPreliminarySurveyors([]);
                   setActualMeasurers([]);
                   setReportWriter("");
-                  setFormData(prev => ({
+                  setFormData((prev) => ({
                     ...prev,
                     preliminary_surveyor: "",
                     actual_measurer: "",
                     report_writer: "",
+                    assignee_manual_override: true,
                   }));
                   setIsAssigneeManualMode(true);
                 } else {
                   setIsAssigneeManualMode(false);
+                  setFormData((prev) => ({
+                    ...prev,
+                    assignee_manual_override: false,
+                  }));
                 }
               }}
             >
-              {isAssigneeManualMode ? '🔓 수동 모드 (클릭하여 해제)' : '🔄 담당자 초기화'}
+              {isAssigneeManualMode ? "수동 지정 해제" : "담당자 초기화"}
             </Button>
           )}
         </div>
@@ -1014,24 +1064,24 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
         )}
         <div className="space-y-6">
           {/* 예비조사자 */}
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <label className="block text-sm font-semibold text-blue-900 mb-3">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <label className="mb-3 block text-sm font-semibold text-blue-900">
               예비조사자 (복수 선택 가능)
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
               {currentPreliminarySurveyorOptions.map((option) => (
                 <div
                   key={option}
-                  className={`p-2 rounded-md border transition-colors cursor-pointer ${preliminarySurveyors.includes(option)
-                    ? "bg-blue-100 border-blue-400 shadow-sm"
-                    : "bg-white border-blue-200 hover:bg-blue-50"
-                    }`}
-                  onClick={() => handlePreliminarySurveyorToggle(option)}
+                  className={`cursor-pointer rounded-md border p-2 transition-colors ${
+                    preliminarySurveyors.includes(option)
+                      ? "border-blue-400 bg-blue-100 shadow-sm"
+                      : "border-blue-200 bg-white hover:bg-blue-50"
+                  }`}
                 >
                   <Checkbox
                     label={option}
                     checked={preliminarySurveyors.includes(option)}
-                    onChange={() => { }} // 중복 토글 방지를 위해 빈 함수로 설정 (div onClick에서 처리)
+                    onChange={() => handlePreliminarySurveyorToggle(option)}
                   />
                 </div>
               ))}
@@ -1039,19 +1089,19 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           </div>
 
           {/* 실측정자 */}
-          <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-            <label className="block text-sm font-semibold text-green-900 mb-3">
+          <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+            <label className="mb-3 block text-sm font-semibold text-green-900">
               실측정자 (복수 선택 가능)
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
               {currentMeasurerList.map((measurer) => (
                 <div
                   key={measurer}
-                  className={`p-2 rounded-md border transition-colors cursor-pointer ${actualMeasurers.includes(measurer)
-                    ? "bg-green-100 border-green-400 shadow-sm"
-                    : "bg-white border-green-200 hover:bg-green-50"
-                    }`}
-                  onClick={() => handleActualMeasurerToggle(measurer)}
+                  className={`cursor-pointer rounded-md border p-2 transition-colors ${
+                    actualMeasurers.includes(measurer)
+                      ? "border-green-400 bg-green-100 shadow-sm"
+                      : "border-green-200 bg-white hover:bg-green-50"
+                  }`}
                 >
                   <Checkbox
                     label={measurer}
@@ -1064,19 +1114,19 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           </div>
 
           {/* 보고서 담당 */}
-          <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
-            <label className="block text-sm font-semibold text-purple-900 mb-3">
+          <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+            <label className="mb-3 block text-sm font-semibold text-purple-900">
               보고서 담당 (단수 선택)
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
               {currentMeasurerList.map((measurer) => (
                 <div
                   key={measurer}
-                  className={`p-2 rounded-md border transition-colors cursor-pointer ${reportWriter === measurer
-                    ? "bg-purple-100 border-purple-400 shadow-sm ring-2 ring-purple-300"
-                    : "bg-white border-purple-200 hover:bg-purple-50"
-                    }`}
-                  onClick={() => handleReportWriterChange(measurer)}
+                  className={`cursor-pointer rounded-md border p-2 transition-colors ${
+                    reportWriter === measurer
+                      ? "border-purple-400 bg-purple-100 shadow-sm ring-2 ring-purple-300"
+                      : "border-purple-200 bg-white hover:bg-purple-50"
+                  }`}
                 >
                   <div className="flex items-center">
                     <input
@@ -1084,9 +1134,9 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
                       name="reportWriter"
                       checked={reportWriter === measurer}
                       onChange={() => handleReportWriterChange(measurer)}
-                      className="w-4 h-4 text-purple-600 focus:ring-purple-500 focus:ring-2"
+                      className="h-4 w-4 text-purple-600 focus:ring-2 focus:ring-purple-500"
                     />
-                    <label className="ml-2 text-sm font-medium text-text-700 cursor-pointer">
+                    <label className="ml-2 cursor-pointer text-sm font-medium text-text-700">
                       {measurer}
                     </label>
                   </div>
@@ -1096,9 +1146,8 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           </div>
         </div>
       </Card>
-
       {/* 버튼 */}
-      <div className="flex gap-3 justify-end">
+      <div className="flex justify-end gap-3">
         {onCancel && (
           <Button type="button" variant="secondary" onClick={onCancel}>
             취소
@@ -1108,7 +1157,6 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({
           {loading ? "저장 중..." : initialData?.id ? "수정" : "등록"}
         </Button>
       </div>
-
       {/* 미수금 경고 모달 */}
       <Modal
         isOpen={isUnpaidWarningModalOpen}
