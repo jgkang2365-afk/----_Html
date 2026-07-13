@@ -82,6 +82,16 @@ export async function POST(request: NextRequest) {
             const dd = String(calculated.getDate()).padStart(2, "0");
             return `${yyyy}-${mm}-${dd}`;
         };
+        const normalizeDate = (value: string | null) => {
+            if (!value) return null;
+
+            const compactDate = value.replace(/[^0-9]/g, "");
+            if (/^\d{8}$/.test(compactDate)) {
+                return `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
+            }
+
+            return value;
+        };
 
         // 1. 업로드 대상 사업장 코드, 년도, 주기 수집하여 건강디딤돌 결과 Bulk 조회 (상호 동기화 안전장치)
         const uploadCodes = rawData.map(row => getValue(row, ["code", "m.i_code", "사업장코드", "관리번호", "코드"])).filter(Boolean) as string[];
@@ -150,7 +160,7 @@ export async function POST(request: NextRequest) {
                         notes: getValue(row, ["notes", "비고", "특이사항"]),
                         is_registered_text: normalizeBusinessStatus(getValue(row, ["is_registered", "계획진행", "실시여부", "상태"])),
                         office_jurisdiction: getValue(row, ["office_jurisdiction", "관할청", "소재지관할청"]),
-                        previous_measurement_date: getValue(row, ["previous_measurement_date", "전회측정일", "전회측정"]),
+                        previous_measurement_date: normalizeDate(getValue(row, ["previous_measurement_date", "전회측정일", "전회측정"])),
                         previous_measurement_period: getValue(row, ["previous_measurement_period", "전회측정주기", "전회주기"]),
                         future_measurement_period: normalizeFuturePeriod(getValue(row, ["future_measurement_period", "향후측정주기", "향후 측정 주기"])),
                     };
