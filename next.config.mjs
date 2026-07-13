@@ -32,7 +32,7 @@ const nextConfig = {
     experimental: {
         optimizePackageImports: ['lucide-react', 'recharts'],
         instrumentationHook: true,
-        serverComponentsExternalPackages: ['node-cron', 'imapflow']
+        serverComponentsExternalPackages: ['node-cron', 'imapflow', 'selenium-webdriver']
     }
 };
 
