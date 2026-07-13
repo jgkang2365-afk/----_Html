@@ -414,9 +414,13 @@ export async function PATCH(request: NextRequest) {
         console.log(`[Integrated Sync] Starting sync for ${code}...`);
         
         // 1. Determine Source of Truth (daily_staff or single-date fallback)
-        let dailyStaff = updates.daily_staff;
+        // daily_staff가 명시적으로 null이면 모든 일정을 삭제하라는 의미다.
+        const hasDailyStaffUpdate = Object.prototype.hasOwnProperty.call(updates, "daily_staff");
+        let dailyStaff = hasDailyStaffUpdate
+          ? (Array.isArray(updates.daily_staff) ? updates.daily_staff : [])
+          : undefined;
         
-        if (!dailyStaff) {
+        if (dailyStaff === undefined) {
           // Fallback to single-date logic if daily_staff isn't provided in the update
           // but we might need the current state from the DB if only some parts changed
           const mDate = updates.hasOwnProperty('measurement_date') ? updates.measurement_date : updatedData.measurement_date;
@@ -432,22 +436,51 @@ export async function PATCH(request: NextRequest) {
           }
         }
 
-        if (dailyStaff && Array.isArray(dailyStaff)) {
+        if (Array.isArray(dailyStaff)) {
           // 2. Fetch existing surveys to manage diffs (Add/Update/Delete)
-          const { data: existingSurveys } = await supabase
+          const { data: existingSurveys, error: existingSurveysError } = await supabase
             .from("preliminary_survey")
             .select("id, measurement_date, google_event_id")
             .eq("code", code).eq("year", year).eq("period", period);
+
+          if (existingSurveysError) {
+            throw existingSurveysError;
+          }
 
           const existingDates = new Set(existingSurveys?.map(s => s.measurement_date) || []);
           const incomingDates = new Set(dailyStaff.map((d: any) => d.date).filter(Boolean));
 
           // 3. Delete surveys for removed dates
           const datesToDelete = Array.from(existingDates).filter(d => !incomingDates.has(d));
+          const surveysToDelete = (existingSurveys || []).filter(
+            survey => datesToDelete.includes(survey.measurement_date)
+          );
+
           if (datesToDelete.length > 0) {
-            await supabase.from("preliminary_survey").delete()
-              .eq("code", code).eq("year", year).eq("period", period)
+            const { error: deleteSurveyError } = await supabase
+              .from("preliminary_survey")
+              .delete()
+              .eq("code", code)
+              .eq("year", year)
+              .eq("period", period)
               .in("measurement_date", datesToDelete);
+
+            if (deleteSurveyError) {
+              throw deleteSurveyError;
+            }
+
+            // 삭제 전에 확보한 이벤트 ID로 Calendar 이벤트를 직접 제거한다.
+            for (const survey of surveysToDelete) {
+              if (!survey.google_event_id) continue;
+              try {
+                await deleteSurveyEvent(survey.google_event_id);
+              } catch (calendarDeleteError) {
+                console.error(
+                  "[Integrated Sync] Failed to delete calendar event " + survey.google_event_id + ":",
+                  calendarDeleteError
+                );
+              }
+            }
           }
 
           // 4. Update or Create surveys for all dates in dailyStaff
@@ -508,20 +541,9 @@ export async function PATCH(request: NextRequest) {
           console.log(`[Integrated Sync] Preliminary surveys and summary updated for ${code}`);
         }
 
-        // 6. Trigger Google Calendar Sync (Always attempt if schedules exist)
-        const { data: currentSchedule } = await supabase
-          .from("preliminary_survey")
-          .select("id, google_event_id")
-          .eq("code", code).eq("year", year).eq("period", period);
-        
-        const hasCalendarEvent = currentSchedule?.some(s => !!s.google_event_id);
-        const isRegistered = updatedData.is_registered === "실시" || updatedData.is_registered === "확정";
-
-        if (isRegistered || hasCalendarEvent) {
-          await syncBusinessToCalendar(supabase, code, year, period);
-          console.log(`[Integrated Sync] Calendar sync triggered for ${code}`);
-        }
-
+        // 6. 일정이 모두 삭제된 경우에도 고아 이벤트 정리를 위해 항상 동기화한다.
+        await syncBusinessToCalendar(supabase, code, year, period);
+        console.log("[Integrated Sync] Calendar sync triggered for " + code);
       } catch (syncError) {
         console.error(`[Integrated Sync] Failed for ${code}:`, syncError);
       }
