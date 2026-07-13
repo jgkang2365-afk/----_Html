@@ -160,24 +160,32 @@ def main():
                 print_log(f"조회 기록 감지 - 행: {row_text}, 연도일치: {has_year}, 반기일치: {has_period}, 결과: {result_status or '미확인'}")
                 return has_year, has_period, result_status
 
-            # 지정된 연도 및 반기와 일치하는 행 탐색
+            # 1순위: 요청한 연도와 반기가 모두 같은 결과.
+            # 건강디딤돌 결과는 동일 사업장에 대해 상반기 한 건만 표시되는 경우가 있어,
+            # 2순위로 같은 연도의 확정 결과도 반영합니다.
+            same_year_result = None
+            any_period_result = None
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
-                if len(cols) >= 3:
-                    has_year, has_period, result_status = parse_row(cols)
-                    if has_year and has_period and result_status:
-                        result = result_status
-                        break
-            
-            # 연도와 반기가 일치하는 내역이 없으면 반기 매칭만 시도
+                if len(cols) < 3:
+                    continue
+
+                has_year, has_period, result_status = parse_row(cols)
+                if not result_status:
+                    continue
+
+                if has_year and has_period:
+                    result = result_status
+                    break
+                if has_year and same_year_result is None:
+                    same_year_result = result_status
+                if any_period_result is None:
+                    any_period_result = result_status
+
             if not result:
-                for row in rows:
-                    cols = row.find_elements(By.TAG_NAME, "td")
-                    if len(cols) >= 3:
-                        _, has_period, result_status = parse_row(cols)
-                        if has_period and result_status:
-                            result = result_status
-                            break
+                result = same_year_result or any_period_result
+                if result:
+                    print_log(f"요청 반기와 정확히 일치하는 결과가 없어 보조 기준으로 반영: {result}")
                             
         except Exception as table_err:
             print_log(f"테이블 파싱 오류 혹은 내역 미감지: {str(table_err)}")
@@ -213,4 +221,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
 
