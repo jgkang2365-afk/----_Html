@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { useUser } from "@/hooks/use-user";
 import {
   Table,
   TableHeader,
@@ -59,6 +60,9 @@ interface LegacyReportTemplate {
 }
 
 export const CustomQueryExport: React.FC = () => {
+  const { user } = useUser();
+  const canManageDesignatedOfficeReport = user?.role === "관리자" || !!user?.is_designated_office_report_manager;
+
   // 1차 조회용 대분류 필터 (년도/주기)
   const currentYear = new Date().getFullYear();
   const [loadYear, setLoadYear] = useState<string>("");
@@ -69,6 +73,7 @@ export const CustomQueryExport: React.FC = () => {
   const [filteredResults, setFilteredResults] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [updatingReportStatusIds, setUpdatingReportStatusIds] = useState<Set<string>>(new Set());
 
   // 동적 필터 조건 상태
   const [filters, setFilters] = useState<FilterRule[]>([]);
@@ -90,6 +95,7 @@ export const CustomQueryExport: React.FC = () => {
     { key: "measurement_year", label: "측정년도", visible: true },
     { key: "measurement_period", label: "측정주기", visible: true },
     { key: "designated_office", label: "지정지청", visible: true },
+    { key: "designated_office_report_status", label: "지정기관선정신고서", visible: false },
     { key: "office_jurisdiction", label: "관할지청", visible: true },
     { key: "national_support_status", label: "국고지원여부", visible: true },
     { key: "measurement_fee_business", label: "사업장부담금(자부담)", visible: true },
@@ -119,6 +125,7 @@ export const CustomQueryExport: React.FC = () => {
     { key: "measurement_year", label: "측정년도", type: "number" },
     { key: "measurement_period", label: "측정주기", type: "string" },
     { key: "designated_office", label: "지정지청", type: "string" },
+    { key: "designated_office_report_status", label: "지정기관선정신고서", type: "string" },
     { key: "office_jurisdiction", label: "관할지청", type: "string" },
     { key: "national_support_status", label: "국고지원여부", type: "string" },
     { key: "representative_name", label: "대표자명", type: "string" },
@@ -520,6 +527,58 @@ export const CustomQueryExport: React.FC = () => {
     }
   };
 
+  const handleReportStatusChange = async (item: any, status: string) => {
+    if (!canManageDesignatedOfficeReport) return;
+
+    const journalId = item.journal_id || item.id;
+    if (!journalId) {
+      alert("저장된 측정일지가 없어 상태를 변경할 수 없습니다.");
+      return;
+    }
+
+    const rowKey = String(journalId);
+    const previousStatus = item.designated_office_report_status || "미접수";
+    const updateRows = (rows: any[], nextStatus: string) =>
+      rows.map((row) =>
+        String(row.journal_id || row.id) === rowKey
+          ? { ...row, designated_office_report_status: nextStatus }
+          : row
+      );
+
+    setUpdatingReportStatusIds((current) => new Set(current).add(rowKey));
+    setRawData((current) => updateRows(current, status));
+    setFilteredResults((current) => updateRows(current, status));
+
+    try {
+      const response = await fetch(
+        `/api/journal/${journalId}/designated-office-report-status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }
+      );
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "상태 변경에 실패했습니다.");
+      }
+
+      const savedStatus = result.data?.designated_office_report_status || "미접수";
+      setRawData((current) => updateRows(current, savedStatus));
+      setFilteredResults((current) => updateRows(current, savedStatus));
+    } catch (updateError) {
+      setRawData((current) => updateRows(current, previousStatus));
+      setFilteredResults((current) => updateRows(current, previousStatus));
+      alert(updateError instanceof Error ? updateError.message : "상태 변경에 실패했습니다.");
+    } finally {
+      setUpdatingReportStatusIds((current) => {
+        const next = new Set(current);
+        next.delete(rowKey);
+        return next;
+      });
+    }
+  };
+
   // 8. 가공된 데이터 엑셀 파일 내보내기 (.xlsx)
   const handleExportExcel = () => {
     if (filteredResults.length === 0) {
@@ -538,6 +597,9 @@ export const CustomQueryExport: React.FC = () => {
       const row: any = {};
       visibleCols.forEach((col) => {
         let val = item[col.key];
+        if (col.key === "designated_office_report_status") {
+          val = val || "미접수";
+        }
 
         // 금액 데이터는 숫자 타입으로 형변환하여 엑셀에서 연산 가능하도록 지원
         if (
@@ -923,9 +985,28 @@ export const CustomQueryExport: React.FC = () => {
                             "measurement_fee_total",
                           ].includes(col.key);
 
+                          const isReportStatus = col.key === "designated_office_report_status";
+                          const isCheonan = toShortName(String(item.designated_office || "")) === "천안";
+                          const journalId = String(item.journal_id || item.id || "");
+
                           return (
                             <TableCell key={col.key} className="whitespace-nowrap text-sm text-text-700">
-                              {isCurrency ? (
+                              {isReportStatus ? (
+                                isCheonan && canManageDesignatedOfficeReport ? (
+                                  <select
+                                    value={val || "미접수"}
+                                    onChange={(e) => handleReportStatusChange(item, e.target.value)}
+                                    disabled={updatingReportStatusIds.has(journalId)}
+                                    className="h-8 min-w-24 rounded border border-surface-200 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-surface-50"
+                                    aria-label="지정기관선정신고서 접수 상태"
+                                  >
+                                    <option value="미접수">미접수</option>
+                                    <option value="접수">접수</option>
+                                  </select>
+                                ) : (
+                                  <span>{val || "미접수"}</span>
+                                )
+                              ) : isCurrency ? (
                                 <span className="font-mono text-text-900 font-medium">
                                   {formatCurrency(val)}원
                                 </span>

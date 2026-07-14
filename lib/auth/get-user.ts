@@ -26,7 +26,7 @@ export async function getUser() {
     // 1차 조회 시도: is_national_support_manager 필드를 포함하여 조회
     const primaryAttempt = await supabase
       .from("users")
-      .select("id, name, role, job, survey_code, k2b_id, is_journal_manager, is_national_support_manager")
+      .select("id, name, role, job, survey_code, k2b_id, is_journal_manager, is_national_support_manager, is_designated_office_report_manager")
       .eq("id", session.userId)
       .limit(1)
       .maybeSingle();
@@ -65,6 +65,7 @@ export async function getUser() {
       k2b_id: userData.k2b_id,
       is_journal_manager: !!userData.is_journal_manager,
       is_national_support_manager: !!(userData as any).is_national_support_manager,
+      is_designated_office_report_manager: !!(userData as any).is_designated_office_report_manager,
     };
   } catch (error) {
     console.error("[getUser] 함수 오류:", error);

@@ -51,6 +51,7 @@ export async function PUT(
 
     // isAdmin 정의 (관리자)
     const isAdmin = user.role === "관리자";
+    const canManageDesignatedOfficeReport = isAdmin || !!user.is_designated_office_report_manager;
 
     // 값 비교 헬퍼 함수
     const areValuesEqual = (val1: any, val2: any): boolean => {
@@ -467,6 +468,12 @@ export async function PUT(
       measurement_days: bodyClean.measurement_days !== undefined ? (parseInt(String(bodyClean.measurement_days)) || null) : existingJournal.measurement_days,
       measurer: bodyClean.measurer !== undefined ? bodyClean.measurer : existingJournal.measurer,
       completion_status: bodyClean.completion_status !== undefined ? bodyClean.completion_status : existingJournal.completion_status,
+      designated_office_report_status:
+        toShortName(finalDesignatedOffice || "") !== "천안"
+          ? "미접수"
+          : canManageDesignatedOfficeReport
+            ? (bodyClean.designated_office_report_status === "접수" ? "접수" : "미접수")
+            : (existingJournal.designated_office_report_status || "미접수"),
 
       // K2B/계산서 정보
       k2b_send_date: bodyClean.k2b_send_date !== undefined ? bodyClean.k2b_send_date : existingJournal.k2b_send_date,

@@ -25,6 +25,7 @@ interface JournalEntry {
   designated_office: string;
   address: string;
   completion_status: string;
+  designated_office_report_status?: string;
   measurement_start_date: string | null;
   measurement_end_date: string | null;
   measurement_days: number | null;
@@ -71,6 +72,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const { user } = useUser();
   // isAdmin은 user.role이 "관리자"인 경우
   const isAdmin = user?.role === "관리자";
+  const canManageDesignatedOfficeReport = isAdmin || !!user?.is_designated_office_report_manager;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -153,6 +155,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     measurement_days: entry.measurement_days || "",
     measurer: entry.measurer || "",
     completion_status: entry.completion_status || "미완료",
+    designated_office_report_status: entry.designated_office_report_status || "미접수",
 
     // 사업장 정보
     business_name: entry.business_name || "",
@@ -258,6 +261,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const completionStatusOptions = [
     { value: "미완료", label: "미완료" },
     { value: "완료", label: "완료" },
+  ];
+
+  const designatedOfficeReportStatusOptions = [
+    { value: "미접수", label: "미접수" },
+    { value: "접수", label: "접수" },
   ];
 
 
@@ -935,6 +943,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       measurement_days: entry.measurement_days || "",
       measurer: entry.measurer || "",
       completion_status: entry.completion_status || "미완료",
+      designated_office_report_status: entry.designated_office_report_status || "미접수",
 
       // 사업장 정보
       business_name: entry.business_name || "",
@@ -1029,6 +1038,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     entry.deposit_total,
     entry.total_employees,
     entry.completion_status,
+    entry.designated_office_report_status,
     entry.national_support_status,
     entry.manager_name,
     entry.manager_mobile,
@@ -1059,6 +1069,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           ...prev,
           office_jurisdiction: data.office_jurisdiction || prev.office_jurisdiction,
           designated_office: data.designated_office || prev.designated_office,
+          designated_office_report_status:
+            toShortName(data.designated_office || prev.designated_office) === "천안"
+              ? prev.designated_office_report_status
+              : "미접수",
         }));
       }
     } catch (err) {
@@ -1233,6 +1247,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           submitData[key] = value === "" ? null : value;
         }
       });
+
+      submitData.designated_office_report_status =
+        toShortName(String(submitData.designated_office || "")) === "천안" &&
+        submitData.designated_office_report_status === "접수"
+          ? "접수"
+          : "미접수";
 
       // 국고지원 여부가 "비대상"인 경우 국고 관련 필드를 null로 설정
       if (submitData.national_support_status === "비대상") {
@@ -1985,7 +2005,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const newOffice = e.target.value;
                 setFormData((prev) => ({
                   ...prev,
-                  designated_office: newOffice
+                  designated_office: newOffice,
+                  designated_office_report_status:
+                    toShortName(newOffice) === "천안"
+                      ? prev.designated_office_report_status
+                      : "미접수",
                 }));
               }}
               options={designatedOfficeOptions}
@@ -2061,6 +2085,24 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               )}
             </div>
           </div>
+
+          {toShortName(formData.designated_office || "") === "천안" && (
+            <div className="w-full xl:w-48">
+              <Select
+                label="지정기관선정신고서"
+                value={formData.designated_office_report_status || "미접수"}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    designated_office_report_status: e.target.value,
+                  })
+                }
+                options={designatedOfficeReportStatusOptions}
+                disabled={!canManageDesignatedOfficeReport}
+                className={!canManageDesignatedOfficeReport ? "bg-surface-50" : ""}
+              />
+            </div>
+          )}
 
           {/* 번호 부여 제외 옵션 (우측 배치) */}
           {mounted && (user?.is_journal_manager || isAdmin) && (

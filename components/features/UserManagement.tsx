@@ -27,6 +27,7 @@ interface User {
   email?: string | null;
   is_journal_manager: boolean;
   is_national_support_manager: boolean;
+  is_designated_office_report_manager: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -50,6 +51,7 @@ export const UserManagement: React.FC = () => {
     email: "",
     is_journal_manager: false,
     is_national_support_manager: false,
+    is_designated_office_report_manager: false,
   });
 
   // 비밀번호 리셋 모달
@@ -71,6 +73,7 @@ export const UserManagement: React.FC = () => {
     email: "",
     is_journal_manager: false,
     is_national_support_manager: false,
+    is_designated_office_report_manager: false,
     is_active: true,
   });
 
@@ -253,6 +256,7 @@ export const UserManagement: React.FC = () => {
         email: "",
         is_journal_manager: false,
         is_national_support_manager: false,
+        is_designated_office_report_manager: false,
       });
       fetchUsers();
     } catch (err) {
@@ -312,6 +316,7 @@ export const UserManagement: React.FC = () => {
           email: editForm.email || null,
           is_journal_manager: !!editForm.is_journal_manager,
           is_national_support_manager: !!editForm.is_national_support_manager,
+          is_designated_office_report_manager: !!editForm.is_designated_office_report_manager,
           is_active: !!editForm.is_active,
         }),
       });
@@ -334,6 +339,7 @@ export const UserManagement: React.FC = () => {
         email: "",
         is_journal_manager: false,
         is_national_support_manager: false,
+        is_designated_office_report_manager: false,
         is_active: true,
       });
       fetchUsers();
@@ -398,7 +404,7 @@ export const UserManagement: React.FC = () => {
       {/* 사용자 목록 카드 */}
       <Card className="p-0 overflow-hidden shadow-sm border-slate-200">
         <div className="overflow-x-auto custom-scrollbar">
-          <Table className="min-w-[1000px]">
+          <Table className="min-w-[1120px]">
             <TableHeader className="bg-slate-50 border-b border-slate-200 z-20 text-slate-700 font-bold">
             <TableRow className="border-b border-sky-200">
               <TableHead className="text-black">이름</TableHead>
@@ -407,6 +413,7 @@ export const UserManagement: React.FC = () => {
               <TableHead className="text-black">직무</TableHead>
               <TableHead className="text-center text-black">일지담당</TableHead>
               <TableHead className="text-center text-black">국고일괄</TableHead>
+              <TableHead className="text-center text-black">지정기관신고서</TableHead>
               <TableHead className="text-black">연락처</TableHead>
               <TableHead className="text-black">이메일</TableHead>
               <TableHead className="text-black">공시료 코드</TableHead>
@@ -417,7 +424,7 @@ export const UserManagement: React.FC = () => {
           <TableBody>
             {users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} className="text-center text-text-500 py-8">
+                <TableCell colSpan={12} className="text-center text-text-500 py-8">
                   등록된 사용자가 없습니다.
                 </TableCell>
               </TableRow>
@@ -448,6 +455,11 @@ export const UserManagement: React.FC = () => {
                       <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">권한</span>
                     ) : "-"}
                   </TableCell>
+                  <TableCell className="text-center">
+                    {user.is_designated_office_report_manager ? (
+                      <span className="bg-cyan-100 text-cyan-700 px-2 py-1 rounded text-xs font-bold">담당</span>
+                    ) : "-"}
+                  </TableCell>
                   <TableCell>{user.mobile || "-"}</TableCell>
                   <TableCell>{user.email || "-"}</TableCell>
                   <TableCell>{user.survey_code || "-"}</TableCell>
@@ -470,6 +482,7 @@ export const UserManagement: React.FC = () => {
                             email: user.email || "",
                             is_journal_manager: !!user.is_journal_manager,
                             is_national_support_manager: !!user.is_national_support_manager,
+                            is_designated_office_report_manager: !!user.is_designated_office_report_manager,
                             is_active: user.is_active !== false,
                           });
                           setShowEditModal(true);
@@ -521,6 +534,7 @@ export const UserManagement: React.FC = () => {
             email: "",
             is_journal_manager: false,
             is_national_support_manager: false,
+            is_designated_office_report_manager: false,
           });
           setError(null);
         }}
@@ -620,6 +634,20 @@ export const UserManagement: React.FC = () => {
                 </label>
               </div>
             </div>
+            <div className="flex flex-col justify-end pb-1">
+              <div className="flex items-center gap-2 px-1 py-2 bg-slate-50 rounded-lg border border-slate-100">
+                <input
+                  type="checkbox"
+                  id="create-is-designated-office-report-manager"
+                  checked={createForm.is_designated_office_report_manager}
+                  onChange={(e) => setCreateForm({ ...createForm, is_designated_office_report_manager: e.target.checked })}
+                  className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <label htmlFor="create-is-designated-office-report-manager" className="text-sm font-bold text-text-900">
+                  지정기관신고서 담당 권한
+                </label>
+              </div>
+            </div>
           </div>
 
           <p className="text-xs text-text-500 px-1 italic">
@@ -641,6 +669,7 @@ export const UserManagement: React.FC = () => {
                   email: "",
                   is_journal_manager: false,
                   is_national_support_manager: false,
+                  is_designated_office_report_manager: false,
                 });
                 setError(null);
               }}
@@ -715,6 +744,7 @@ export const UserManagement: React.FC = () => {
             email: "",
             is_journal_manager: false,
             is_national_support_manager: false,
+            is_designated_office_report_manager: false,
             is_active: true,
           });
           setError(null);
@@ -789,6 +819,20 @@ export const UserManagement: React.FC = () => {
                 </label>
               </div>
             </div>
+            <div className="flex flex-col justify-end pb-1">
+              <div className="flex items-center gap-2 px-1 py-2 bg-slate-50 rounded-lg border border-slate-100">
+                <input
+                  type="checkbox"
+                  id="edit-is-designated-office-report-manager"
+                  checked={editForm.is_designated_office_report_manager}
+                  onChange={(e) => setEditForm({ ...editForm, is_designated_office_report_manager: e.target.checked })}
+                  className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <label htmlFor="edit-is-designated-office-report-manager" className="text-sm font-bold text-text-900">
+                  지정기관신고서 담당 권한
+                </label>
+              </div>
+            </div>
             <Input
               label="휴대폰 번호 (선택사항)"
               value={editForm.mobile}
@@ -843,6 +887,7 @@ export const UserManagement: React.FC = () => {
                   email: "",
                   is_journal_manager: false,
                   is_national_support_manager: false,
+                  is_designated_office_report_manager: false,
                   is_active: true,
                 });
                 setError(null);

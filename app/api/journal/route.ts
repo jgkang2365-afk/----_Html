@@ -535,6 +535,12 @@ export async function POST(request: NextRequest) {
       // 특이사항 (body에서 가져오기)
       special_notes: body.special_notes || null,
       completion_status: "미완료",
+      designated_office_report_status:
+        (user.role === "관리자" || user.is_designated_office_report_manager) &&
+        toShortName(designatedOffice || "") === "천안" &&
+        body.designated_office_report_status === "접수"
+          ? "접수"
+          : "미접수",
       created_by: user.name,
       updated_by: user.name,
     };

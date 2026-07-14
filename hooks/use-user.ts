@@ -10,6 +10,7 @@ interface User {
   role: "관리자" | "사용자";
   is_journal_manager?: boolean;
   is_national_support_manager?: boolean;
+  is_designated_office_report_manager?: boolean;
 }
 
 export function useUser() {

@@ -335,6 +335,7 @@ export async function GET(request: NextRequest) {
         measurement_fee_national: journal.measurement_fee_national,
         special_notes: journal.special_notes,
         completion_status: journal.completion_status,
+        designated_office_report_status: journal.designated_office_report_status || "미접수",
         target_measurement_date: target?.measurement_date || null,
         plan_manager: target?.plan_manager || null,
         created_at: journal.created_at,

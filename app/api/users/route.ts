@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     // 1차 조회 시도: is_national_support_manager 포함
     const primaryQuery = await supabase
       .from("users")
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_active, created_at, updated_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active, created_at, updated_at")
       .order("name", { ascending: true });
 
     let finalUsers = [];
@@ -53,7 +53,8 @@ export async function GET(request: NextRequest) {
       // 누락된 권한 필드를 false로 보정
       finalUsers = (fallbackQuery.data || []).map(u => ({
         ...u,
-        is_national_support_manager: false
+        is_national_support_manager: false,
+        is_designated_office_report_manager: false
       }));
     } else {
       finalUsers = primaryQuery.data || [];
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, role, password, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager } = body;
+    const { name, role, password, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager } = body;
 
     if (!name || !role) {
       return NextResponse.json(
@@ -142,9 +143,10 @@ export async function POST(request: NextRequest) {
         email: email || null,
         is_journal_manager: !!is_journal_manager,
         is_national_support_manager: !!is_national_support_manager,
+        is_designated_office_report_manager: !!is_designated_office_report_manager,
         is_active: true,
       })
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_active, created_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active, created_at")
       .single();
 
     if (insertError) {
