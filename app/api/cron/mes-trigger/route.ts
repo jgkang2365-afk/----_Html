@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/auth/session";
 
 const MES_QUEUE_ID = 1;
-const STALE_TIMEOUT_MINUTES = 5;
+const STALE_TIMEOUT_MINUTES = 15;
 
 /**
  * MES 데이터 즉시 동기화 수동 트리거 API

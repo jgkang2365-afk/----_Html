@@ -1,9 +1,13 @@
 import { BounceChecker } from '../email/bounce-checker';
 import { backupDatabase } from '../../scripts/backup-db';
-import { exec } from "child_process";
-import { join } from "path";
 import { createClient } from '../supabase/server';
 import { getKSTISOString } from '../utils/date-utils';
+
+const MES_QUEUE_ID = 1;
+const MES_STALE_TIMEOUT_MINUTES = 15;
+const MES_COMPLETION_TIMEOUT_MS = 12 * 60 * 1000;
+const MES_STATUS_POLL_MS = 2000;
+const KST_CRON_OPTIONS = { timezone: 'Asia/Seoul' };
 
 /**
  * 전역 백그라운드 작업 관리자
@@ -83,17 +87,17 @@ export class BackgroundTasks {
         cron.schedule('30 11 * * *', async () => {
             console.log("[BackgroundTasks] 11:30 MES 자동 다운로드 작업을 기동합니다...");
             await BackgroundTasks.getInstance().runMesDownloadScript(false);
-        });
+        }, KST_CRON_OPTIONS);
 
         cron.schedule('0 12 * * *', async () => {
             console.log("[BackgroundTasks] 12:00 MES 자동 다운로드 작업을 기동합니다...");
             await BackgroundTasks.getInstance().runMesDownloadScript(false);
-        });
+        }, KST_CRON_OPTIONS);
 
         cron.schedule('0 14 * * *', async () => {
             console.log("[BackgroundTasks] 14:00 최종 MES 자동 다운로드 및 연동 여부 점검을 기동합니다...");
             await BackgroundTasks.getInstance().runMesDownloadScript(true);
-        });
+        }, KST_CRON_OPTIONS);
 
         this.initialized = true;
         console.log("[BackgroundTasks] 스케줄러 등록 완료 (반송 메일 & DB 백업 & MES 다운로드 3회 스케줄).");
@@ -102,40 +106,85 @@ export class BackgroundTasks {
     /**
      * MES 다운로드 파이썬 스크립트 실행
      */
-    public runMesDownloadScript(isFinalCheck: boolean = false): Promise<boolean> {
+    public async runMesDownloadScript(isFinalCheck: boolean = false): Promise<boolean> {
         this.mesSyncStatus = 'running';
         this.mesSyncError = null;
-        return new Promise((resolve) => {
-            const scriptPath = join(process.cwd(), 'mes_download.py');
-            console.log(`[BackgroundTasks] MES 자동 다운로드 스크립트 실행 시작: ${scriptPath}`);
-            
-            // 윈도우 깡통 PC 환경을 고려해 python 명령어로 백그라운드 호출
-            exec(`python "${scriptPath}"`, async (error, stdout, stderr) => {
-                if (error) {
-                    console.error("[BackgroundTasks] MES 자동 다운로드 스크립트 실행 중 에러 발생:", error);
-                    this.mesSyncStatus = 'error';
-                    this.mesSyncError = error.message || String(error);
-                    resolve(false);
-                    return;
-                }
-                
-                console.log("[BackgroundTasks] MES 자동 다운로드 스크립트 실행 성공.");
-                if (stdout) console.log("[BackgroundTasks] stdout:", stdout);
-                if (stderr) console.warn("[BackgroundTasks] stderr:", stderr);
-                
-                // 14:00 최종 체크 시점일 경우 미등록 업체 대상 일지담당자 알림 발송
-                if (isFinalCheck) {
-                    try {
-                        await BackgroundTasks.getInstance().checkAndNotifyUnregisteredBusinesses();
-                    } catch (checkErr: any) {
-                        console.error("[BackgroundTasks] 14:00 최종 미등록 예비조사 업체 점검 중 오류:", checkErr.message);
+
+        try {
+            const supabase = await createClient();
+            const timeoutLimit = new Date(
+                Date.now() - MES_STALE_TIMEOUT_MINUTES * 60 * 1000
+            ).toISOString();
+
+            const { error: resetError } = await supabase
+                .from('mes_sync_queue')
+                .update({
+                    status: 'idle',
+                    error_message: MES_STALE_TIMEOUT_MINUTES + '분 초과 자동 작업을 리셋했습니다.',
+                    requested_by: null,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', MES_QUEUE_ID)
+                .in('status', ['pending', 'running'])
+                .lt('updated_at', timeoutLimit);
+
+            if (resetError) {
+                console.warn('[BackgroundTasks] MES 큐 타임아웃 상태 리셋 실패:', resetError.message);
+            }
+
+            const { data: queued, error: queueError } = await supabase
+                .from('mes_sync_queue')
+                .update({
+                    status: 'pending',
+                    error_message: '자동 스케줄에 의해 요청된 MES 동기화입니다.',
+                    requested_by: null,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', MES_QUEUE_ID)
+                .in('status', ['idle', 'success', 'error', 'cancelled'])
+                .select('status')
+                .maybeSingle();
+
+            if (queueError) throw queueError;
+            if (!queued) {
+                throw new Error('다른 MES 동기화가 대기 중이거나 실행 중이어서 자동 요청을 시작하지 못했습니다.');
+            }
+
+            console.log('[BackgroundTasks] 관리자 권한 MES 데몬에 자동 다운로드 요청을 전달했습니다.');
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < MES_COMPLETION_TIMEOUT_MS) {
+                await new Promise(resolve => setTimeout(resolve, MES_STATUS_POLL_MS));
+
+                const { data: queueState, error: statusError } = await supabase
+                    .from('mes_sync_queue')
+                    .select('status, error_message')
+                    .eq('id', MES_QUEUE_ID)
+                    .maybeSingle();
+
+                if (statusError) throw statusError;
+                if (queueState?.status === 'success') {
+                    console.log('[BackgroundTasks] MES 자동 다운로드 및 DB 동기화가 완료되었습니다.');
+                    if (isFinalCheck) {
+                        await this.checkAndNotifyUnregisteredBusinesses();
                     }
+                    this.mesSyncStatus = 'success';
+                    return true;
                 }
-                
-                this.mesSyncStatus = 'success';
-                resolve(true);
-            });
-        });
+
+                if (['error', 'cancelled'].includes(queueState?.status || '')) {
+                    throw new Error(queueState?.error_message || 'MES 자동 동기화가 ' + queueState?.status + ' 상태로 종료되었습니다.');
+                }
+            }
+
+            throw new Error('MES 자동 동기화 완료 대기 시간이 12분을 초과했습니다.');
+        } catch (error: any) {
+            const message = error?.message || String(error);
+            console.error('[BackgroundTasks] MES 자동 다운로드 요청 실패:', message);
+            this.mesSyncStatus = 'error';
+            this.mesSyncError = message;
+            return false;
+        }
     }
 
     /**
