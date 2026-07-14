@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { join } from "path";
 import { readFileSync, existsSync } from "fs";
 import { getKSTISOString, getKSTYear, getNextWorkingDay } from "@/lib/utils/date-utils";
+import { normalizePhoneLikeValue } from "@/lib/business/reference-data";
 
 // [The Joo Rule] 국고지원 상태값 정규화 함수
 const normalizeNationalSupportStatus = (val: any): string | null => {
@@ -572,7 +573,8 @@ function parseMeasurementBusiness(
   headerRow.forEach((cell: any, idx: number) => {
     if (cell !== undefined && cell !== null) {
       const name = String(cell).replace(/\s/g, ""); // 공백 제거하여 정규화
-      if (name) {
+      // 중복 헤더는 첫 번째 열을 기본값으로 사용한다. 예: L열/BM열의 "전화번호".
+      if (name && colIndexMap[name] === undefined) {
         colIndexMap[name] = idx;
       }
     }
@@ -708,54 +710,70 @@ function parseMeasurementBusiness(
     let managerMobile: string | null = null;
     let managerPhone: string | null = null;
 
-    // 담당자 휴대폰 및 전화번호 (워크시트 직접 접근)
+    // 담당자 블록은 중복되는 일반 "전화번호" 헤더와 분리해서 읽는다.
     if (worksheet) {
       const excelRowIndex = actualHeaderRowIndex + 1 + dataIndex;
-      
-      const mobileColIdx = colIndexMap["담당자휴대폰"] !== undefined ? colIndexMap["담당자휴대폰"] : 
-                           colIndexMap["휴대폰"] !== undefined ? colIndexMap["휴대폰"] :
-                           colIndexMap["연락처"] !== undefined ? colIndexMap["연락처"] : 62;
-      
-      const phoneColIdx = colIndexMap["담당자직통전화"] !== undefined ? colIndexMap["담당자직통전화"] : 
-                          colIndexMap["전화번호"] !== undefined ? colIndexMap["전화번호"] :
-                          colIndexMap["회사전화"] !== undefined ? colIndexMap["회사전화"] : 64;
+      const managerNameColIdx = ["담당자명", "담당자", "담당자성명"]
+        .map(name => colIndexMap[name])
+        .find(idx => idx !== undefined);
+      const explicitMobileColIdx = ["담당자휴대폰", "휴대폰", "연락처", "핸드폰"]
+        .map(name => colIndexMap[name])
+        .find(idx => idx !== undefined);
+      const nearbyContactColIdx = managerNameColIdx === undefined
+        ? undefined
+        : headerRow.findIndex((cell: any, idx: number) => {
+            const name = String(cell || "").replace(/\s/g, "");
+            return idx > managerNameColIdx && idx <= managerNameColIdx + 4 &&
+              ["전화번호", "휴대폰", "연락처"].includes(name);
+          });
+      const mobileColIdx = explicitMobileColIdx ??
+        (nearbyContactColIdx !== undefined && nearbyContactColIdx >= 0 ? nearbyContactColIdx : 64);
+      const directPhoneColIdx = ["담당자직통전화", "직통전화", "담당자전화"]
+        .map(name => colIndexMap[name])
+        .find(idx => idx !== undefined);
 
-      const cellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: mobileColIdx });
-      const cell = worksheet[cellAddress];
-      if (cell && cell.v !== undefined && cell.v !== null) {
-        managerMobile = String(cell.v).trim();
+      const mobileCell = worksheet[XLSX.utils.encode_cell({ r: excelRowIndex, c: mobileColIdx })];
+      if (mobileCell?.v !== undefined && mobileCell?.v !== null) {
+        managerMobile = String(mobileCell.v).trim();
       }
 
-      const phoneCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: phoneColIdx });
-      const phoneCell = worksheet[phoneCellAddress];
-      if (phoneCell && phoneCell.v !== undefined && phoneCell.v !== null) {
-        managerPhone = String(phoneCell.v).trim();
-      }
-    }
-
-    if (!managerMobile) {
-      managerMobile = getRawValue(["담당자 휴대폰", "휴대폰", "연락처", "핸드폰"]);
-    }
-
-    if (!managerMobile) {
-      const mobilePattern = /^(010|011|016|017|018|019)-\d{3,4}-\d{4}/;
-      for (const [key, value] of Object.entries(row)) {
-        if (value && typeof value === "string") {
-          const strValue = String(value).trim();
-          if (mobilePattern.test(strValue) && !strValue.match(/^(02|031|032|033|041|042|043|044|051|052|053|054|055|061|062|063|064)-\d{3,4}-\d{4}/)) {
-            managerMobile = strValue;
-            break;
-          }
+      if (directPhoneColIdx !== undefined) {
+        const phoneCell = worksheet[XLSX.utils.encode_cell({ r: excelRowIndex, c: directPhoneColIdx })];
+        if (phoneCell?.v !== undefined && phoneCell?.v !== null) {
+          managerPhone = String(phoneCell.v).trim();
         }
       }
     }
+
+    managerMobile = normalizePhoneLikeValue(managerMobile, managerName) || null;
+
+    if (!managerMobile) {
+      managerMobile = normalizePhoneLikeValue(
+        getRawValue(["담당자 휴대폰", "휴대폰", "연락처", "핸드폰"]),
+        managerName
+      ) || null;
+    }
+
+    if (!managerMobile) {
+      const mobilePattern = /^(010|011|016|017|018|019)-?\d{3,4}-?\d{4}/;
+      for (const value of Object.values(row)) {
+        const strValue = String(value || "").trim();
+        if (mobilePattern.test(strValue)) {
+          managerMobile = strValue;
+          break;
+        }
+      }
+    }
+
+    managerMobile = normalizePhoneLikeValue(managerMobile, managerName) ||
+      normalizePhoneLikeValue(managerPhone, managerName) || null;
 
     let managerEmail = getRawValue(["Email", "이메일", "담당자 e-mail", "담당자 email", "담당자이메일"]);
 
     // [NEW] BL열(64번째, 인덱스 63)에서 이메일 추출 로직 (파이썬 스크립트 로직 이식)
     if (worksheet) {
       const excelRowIndex = actualHeaderRowIndex + 1 + dataIndex;
-      const emailColIdx = colIndexMap["이메일"] !== undefined ? colIndexMap["이메일"] : 63;
+      const emailColIdx = colIndexMap["이메일"] ?? colIndexMap["Email"] ?? 65;
       const emailCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: emailColIdx });
       const emailCell = worksheet[emailCellAddress];
       if (emailCell && emailCell.v) {
@@ -2381,7 +2399,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
     // 1-2. measurement_business로 업데이트 (코드+년도+주기 기준)
     const { data: mbData, error: mbError } = await supabase
       .from("measurement_business")
-      .select("code, year, period, business_name, business_number, address, manager_name, manager_mobile, total_employees, business_category, industrial_accident_number, invoice_email")
+      .select("code, year, period, business_name, business_number, address, manager_name, manager_mobile, manager_phone, total_employees, business_category, industrial_accident_number, commencement_number, national_support_status, invoice_email")
       // 필요한 필드만 조회하되, 정렬은 메모리에서 하거나 쿼리에서 미리 정렬
       .order("year", { ascending: false })
       .order("period", { ascending: false });
@@ -2441,11 +2459,11 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
         // 단, 엑셀에 데이터가 있을 때만 덮어씀 (데이터 유실 방지)
 
         // 1. 담당자 휴대폰 (manager_mobile)
-        if (mbRow?.manager_mobile) {
-          updateData.manager_mobile = mbRow.manager_mobile;
-          needsUpdate = true;
-        } else if (bRow?.manager_contact) {
-          updateData.manager_mobile = bRow.manager_contact;
+        const managerMobile = normalizePhoneLikeValue(mbRow?.manager_mobile, mbRow?.manager_name) ||
+          normalizePhoneLikeValue(mbRow?.manager_phone, mbRow?.manager_name) ||
+          normalizePhoneLikeValue(bRow?.manager_contact, mbRow?.manager_name || bRow?.manager_name);
+        if (managerMobile) {
+          updateData.manager_mobile = managerMobile;
           needsUpdate = true;
         }
 
