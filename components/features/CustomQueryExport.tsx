@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
+import { Modal } from "@/components/ui/Modal";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { useUser } from "@/hooks/use-user";
 import {
-  Table,
   TableHeader,
   TableBody,
   TableRow,
@@ -59,6 +59,18 @@ interface LegacyReportTemplate {
   columns: ColumnConfig[];
 }
 
+interface PendingReportStatusChange {
+  journalId: string;
+  code: string;
+  businessName: string;
+  measurementYear: string;
+  measurementPeriod: string;
+  previousStatus: string;
+  nextStatus: string;
+  selected: boolean;
+}
+
+
 export const CustomQueryExport: React.FC = () => {
   const { user } = useUser();
   const canManageDesignatedOfficeReport = user?.role === "관리자" || !!user?.is_designated_office_report_manager;
@@ -71,9 +83,13 @@ export const CustomQueryExport: React.FC = () => {
   // 상태 관리
   const [rawData, setRawData] = useState<any[]>([]);
   const [filteredResults, setFilteredResults] = useState<any[]>([]);
+  const [resultBusinessNameSearch, setResultBusinessNameSearch] = useState("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [updatingReportStatusIds, setUpdatingReportStatusIds] = useState<Set<string>>(new Set());
+  const [pendingReportStatusChanges, setPendingReportStatusChanges] = useState<Record<string, PendingReportStatusChange>>({});
+  const [isReportStatusReviewOpen, setIsReportStatusReviewOpen] = useState(false);
+  const [isSavingReportStatuses, setIsSavingReportStatuses] = useState(false);
 
   // 동적 필터 조건 상태
   const [filters, setFilters] = useState<FilterRule[]>([]);
@@ -193,6 +209,8 @@ export const CustomQueryExport: React.FC = () => {
       const resJson = await response.json();
       const list = resJson.data || [];
       setRawData(list);
+      setPendingReportStatusChanges({});
+      setIsReportStatusReviewOpen(false);
     } catch (err: any) {
       console.error("데이터 로딩 실패:", err);
       setError(err.message || "데이터 조회 중 오류 발생");
@@ -527,8 +545,15 @@ export const CustomQueryExport: React.FC = () => {
     }
   };
 
-  const handleReportStatusChange = async (item: any, status: string) => {
-    if (!canManageDesignatedOfficeReport) return;
+  const updateReportStatusRows = (rows: any[], rowKey: string, status: string) =>
+    rows.map((row) =>
+      String(row.journal_id || row.id) === rowKey
+        ? { ...row, designated_office_report_status: status }
+        : row
+    );
+
+  const handleReportStatusChange = (item: any, status: string) => {
+    if (!canManageDesignatedOfficeReport || isSavingReportStatuses) return;
 
     const journalId = item.journal_id || item.id;
     if (!journalId) {
@@ -537,51 +562,155 @@ export const CustomQueryExport: React.FC = () => {
     }
 
     const rowKey = String(journalId);
-    const previousStatus = item.designated_office_report_status || "미접수";
-    const updateRows = (rows: any[], nextStatus: string) =>
-      rows.map((row) =>
-        String(row.journal_id || row.id) === rowKey
-          ? { ...row, designated_office_report_status: nextStatus }
-          : row
-      );
+    setPendingReportStatusChanges((current) => {
+      const existing = current[rowKey];
+      const previousStatus = existing?.previousStatus || item.designated_office_report_status || "미접수";
+      const next = { ...current };
 
-    setUpdatingReportStatusIds((current) => new Set(current).add(rowKey));
-    setRawData((current) => updateRows(current, status));
-    setFilteredResults((current) => updateRows(current, status));
-
-    try {
-      const response = await fetch(
-        `/api/journal/${journalId}/designated-office-report-status`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status }),
-        }
-      );
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.error || "상태 변경에 실패했습니다.");
+      if (status === previousStatus) {
+        delete next[rowKey];
+      } else {
+        next[rowKey] = {
+          journalId: rowKey,
+          code: String(item.code || ""),
+          businessName: String(item.business_name || ""),
+          measurementYear: String(item.measurement_year || ""),
+          measurementPeriod: String(item.measurement_period || ""),
+          previousStatus,
+          nextStatus: status,
+          selected: existing?.selected ?? true,
+        };
       }
+      return next;
+    });
 
-      const savedStatus = result.data?.designated_office_report_status || "미접수";
-      setRawData((current) => updateRows(current, savedStatus));
-      setFilteredResults((current) => updateRows(current, savedStatus));
-    } catch (updateError) {
-      setRawData((current) => updateRows(current, previousStatus));
-      setFilteredResults((current) => updateRows(current, previousStatus));
-      alert(updateError instanceof Error ? updateError.message : "상태 변경에 실패했습니다.");
-    } finally {
-      setUpdatingReportStatusIds((current) => {
-        const next = new Set(current);
-        next.delete(rowKey);
-        return next;
+    setRawData((current) => updateReportStatusRows(current, rowKey, status));
+    setFilteredResults((current) => updateReportStatusRows(current, rowKey, status));
+  };
+
+  const handleTogglePendingChange = (rowKey: string) => {
+    setPendingReportStatusChanges((current) => ({
+      ...current,
+      [rowKey]: { ...current[rowKey], selected: !current[rowKey].selected },
+    }));
+  };
+
+  const handleToggleAllPendingChanges = (selected: boolean) => {
+    setPendingReportStatusChanges((current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([key, change]) => [key, { ...change, selected }])
+      )
+    );
+  };
+
+  const handleDiscardPendingChanges = () => {
+    const originals = new Map(
+      Object.entries(pendingReportStatusChanges).map(([key, change]) => [key, change.previousStatus])
+    );
+    const restoreRows = (rows: any[]) =>
+      rows.map((row) => {
+        const rowKey = String(row.journal_id || row.id);
+        return originals.has(rowKey)
+          ? { ...row, designated_office_report_status: originals.get(rowKey) }
+          : row;
       });
+
+    setRawData(restoreRows);
+    setFilteredResults(restoreRows);
+    setPendingReportStatusChanges({});
+    setIsReportStatusReviewOpen(false);
+  };
+
+  const handleSavePendingChanges = async () => {
+    const changes = Object.values(pendingReportStatusChanges);
+    const selectedChanges = changes.filter((change) => change.selected);
+    if (selectedChanges.length === 0) {
+      alert("최종 저장할 항목을 선택해주세요.");
+      return;
     }
+
+    setIsSavingReportStatuses(true);
+    setUpdatingReportStatusIds(new Set(selectedChanges.map((change) => change.journalId)));
+
+    const outcomes = await Promise.all(
+      selectedChanges.map(async (change) => {
+        try {
+          const response = await fetch(
+            `/api/journal/${change.journalId}/designated-office-report-status`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: change.nextStatus }),
+            }
+          );
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "상태 변경에 실패했습니다.");
+          return {
+            ...change,
+            success: true as const,
+            savedStatus: result.data?.designated_office_report_status || change.nextStatus,
+          };
+        } catch (saveError) {
+          return {
+            ...change,
+            success: false as const,
+            error: saveError instanceof Error ? saveError.message : "상태 변경에 실패했습니다.",
+          };
+        }
+      })
+    );
+
+    const successfulStatuses = new Map(
+      outcomes
+        .filter((outcome) => outcome.success)
+        .map((outcome) => [outcome.journalId, outcome.savedStatus])
+    );
+    const uncheckedOriginals = new Map(
+      changes
+        .filter((change) => !change.selected)
+        .map((change) => [change.journalId, change.previousStatus])
+    );
+    const applySavedRows = (rows: any[]) =>
+      rows.map((row) => {
+        const rowKey = String(row.journal_id || row.id);
+        if (successfulStatuses.has(rowKey)) {
+          return { ...row, designated_office_report_status: successfulStatuses.get(rowKey) };
+        }
+        if (uncheckedOriginals.has(rowKey)) {
+          return { ...row, designated_office_report_status: uncheckedOriginals.get(rowKey) };
+        }
+        return row;
+      });
+
+    setRawData(applySavedRows);
+    setFilteredResults(applySavedRows);
+
+    const failedOutcomes = outcomes.filter((outcome) => !outcome.success);
+    setPendingReportStatusChanges(
+      Object.fromEntries(
+        failedOutcomes.map((outcome) => [
+          outcome.journalId,
+          { ...pendingReportStatusChanges[outcome.journalId], selected: true },
+        ])
+      )
+    );
+    setUpdatingReportStatusIds(new Set());
+    setIsSavingReportStatuses(false);
+
+    if (failedOutcomes.length > 0) {
+      alert(
+        `${outcomes.length - failedOutcomes.length}건 저장, ${failedOutcomes.length}건 실패했습니다. 실패 항목을 확인한 후 다시 시도해주세요.`
+      );
+      return;
+    }
+
+    setIsReportStatusReviewOpen(false);
+    alert(`${selectedChanges.length}건의 변경사항을 저장했습니다.`);
   };
 
   // 8. 가공된 데이터 엑셀 파일 내보내기 (.xlsx)
   const handleExportExcel = () => {
-    if (filteredResults.length === 0) {
+    if (displayedResults.length === 0) {
       alert("출력할 데이터가 존재하지 않습니다.");
       return;
     }
@@ -593,7 +722,7 @@ export const CustomQueryExport: React.FC = () => {
     }
 
     // 선택된 컬럼 레이아웃에 맞게 데이터 배열 가공
-    const excelData = filteredResults.map((item) => {
+    const excelData = displayedResults.map((item) => {
       const row: any = {};
       visibleCols.forEach((col) => {
         let val = item[col.key];
@@ -632,6 +761,23 @@ export const CustomQueryExport: React.FC = () => {
       alert("엑셀 파일 내보내기 도중 오류가 발생했습니다: " + e.message);
     }
   };
+
+  const resultBusinessNameTerms = resultBusinessNameSearch
+    .split(/[,\n]/)
+    .map((term) => term.trim().toLocaleLowerCase("ko-KR"))
+    .filter(Boolean);
+  const displayedResults =
+    resultBusinessNameTerms.length === 0
+      ? filteredResults
+      : filteredResults.filter((item) => {
+          const businessName = String(item.business_name || "").toLocaleLowerCase("ko-KR");
+          return resultBusinessNameTerms.some((term) => businessName.includes(term));
+        });
+
+  const pendingReportChanges = Object.values(pendingReportStatusChanges);
+  const selectedPendingReportChangeCount = pendingReportChanges.filter((change) => change.selected).length;
+  const allPendingReportChangesSelected =
+    pendingReportChanges.length > 0 && selectedPendingReportChangeCount === pendingReportChanges.length;
 
   return (
     <div className="space-y-6">
@@ -919,23 +1065,44 @@ export const CustomQueryExport: React.FC = () => {
       </div>
 
       {/* 데이터 테이블 및 엑셀 다운로드 실행 영역 */}
-      <Card className="p-4 border border-surface-200 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold text-text-900">5. 필터링 결과 및 다운로드</h2>
+      <Card className="p-4 border border-surface-200 space-y-4 overflow-visible">
+        <div className="sticky top-16 lg:top-[105px] z-40 -mx-4 grid min-h-16 grid-cols-1 items-center gap-2 border-b border-surface-200 bg-white px-4 py-2 shadow-sm lg:h-16 lg:grid-cols-[minmax(220px,1fr)_minmax(280px,520px)_minmax(220px,1fr)] lg:py-0">
+          <div className="flex min-w-0 items-center gap-2 lg:justify-start">
+            <h2 className="truncate text-sm font-semibold text-text-900 sm:text-base">5. 필터링 결과 및 다운로드</h2>
             <span className="bg-primary-50 text-primary-700 text-xs px-2.5 py-0.5 rounded-full font-medium border border-primary-100">
-              총 {filteredResults.length}건
+              {resultBusinessNameTerms.length > 0 ? `${displayedResults.length} / ${filteredResults.length}건` : `총 ${filteredResults.length}건`}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="w-full">
+            <Input
+              type="search"
+              value={resultBusinessNameSearch}
+              onChange={(event) => setResultBusinessNameSearch(event.target.value)}
+              placeholder="사업장명 일부 검색 (여러 개는 쉼표로 구분)"
+              aria-label="필터 결과 내 사업장명 검색"
+              className="h-9 w-full bg-white"
+            />
+          </div>
+
+          <div className="flex min-w-0 items-center justify-end gap-2">
+            {canManageDesignatedOfficeReport && pendingReportChanges.length > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => setIsReportStatusReviewOpen(true)}
+                className="shrink-0 border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+              >
+                변경사항 확인 ({pendingReportChanges.length})
+              </Button>
+            )}
             <Button
               variant="primary"
               onClick={handleExportExcel}
-              disabled={filteredResults.length === 0}
-              className="bg-success-600 hover:bg-success-700 border-success-600 focus:ring-success-500 font-semibold gap-1.5 shadow-sm"
+              disabled={displayedResults.length === 0}
+              className="shrink-0 bg-success-600 hover:bg-success-700 border-success-600 focus:ring-success-500 font-semibold gap-1.5 shadow-sm"
             >
-              📥 맞춤형 엑셀 다운로드 (XLSX)
+              <span className="sm:hidden">엑셀 다운로드</span>
+              <span className="hidden sm:inline">맞춤형 엑셀 다운로드 (XLSX)</span>
             </Button>
           </div>
         </div>
@@ -947,9 +1114,9 @@ export const CustomQueryExport: React.FC = () => {
             <LoadingSpinner size="lg" />
           </div>
         ) : (
-          <div className="overflow-x-auto border border-surface-200 rounded-lg max-h-96">
-            <Table>
-              <TableHeader className="bg-surface-50 sticky top-0 z-10 shadow-xs">
+          <div className="overflow-x-auto rounded-lg border border-surface-200 bg-white shadow-sm lg:overflow-visible">
+            <table className="w-max min-w-full caption-bottom text-base">
+              <TableHeader className="bg-surface-50 sticky top-0 lg:top-[169px] z-30 shadow-xs">
                 <TableRow>
                   <TableHead className="w-12 text-center">번호</TableHead>
                   {columns
@@ -962,7 +1129,7 @@ export const CustomQueryExport: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredResults.length === 0 ? (
+                {displayedResults.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={columns.filter((c) => c.visible).length + 1}
@@ -972,8 +1139,8 @@ export const CustomQueryExport: React.FC = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredResults.map((item, idx) => (
-                    <TableRow key={item.id || idx} className="hover:bg-surface-50/50">
+                  displayedResults.map((item, idx) => (
+                    <TableRow key={item.id || idx} className={`hover:bg-surface-50/50 ${pendingReportStatusChanges[String(item.journal_id || item.id)] ? "bg-amber-50" : ""}`}>
                       <TableCell className="text-center text-xs text-text-400">{idx + 1}</TableCell>
                       {columns
                         .filter((c) => c.visible)
@@ -1020,10 +1187,108 @@ export const CustomQueryExport: React.FC = () => {
                   ))
                 )}
               </TableBody>
-            </Table>
+            </table>
           </div>
         )}
       </Card>
+      <Modal
+        isOpen={isReportStatusReviewOpen}
+        onClose={() => {
+          if (!isSavingReportStatuses) setIsReportStatusReviewOpen(false);
+        }}
+        title="지정기관선정신고서 변경사항 확인"
+        size="xl"
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-900">
+                저장할 항목을 확인한 후 체크된 항목만 최종 반영합니다.
+              </p>
+              <p className="mt-0.5 text-xs text-amber-700">
+                체크하지 않은 항목은 기존 상태로 되돌아갑니다.
+              </p>
+            </div>
+            <span className="text-sm font-semibold text-amber-900">
+              선택 {selectedPendingReportChangeCount} / 전체 {pendingReportChanges.length}건
+            </span>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-surface-200">
+            <div className="grid grid-cols-[44px_minmax(220px,1fr)_120px_120px] items-center gap-3 border-b border-surface-200 bg-surface-50 px-3 py-2 text-xs font-semibold text-text-700">
+              <div className="flex justify-center">
+                <input
+                  type="checkbox"
+                  checked={allPendingReportChangesSelected}
+                  onChange={(event) => handleToggleAllPendingChanges(event.target.checked)}
+                  disabled={isSavingReportStatuses}
+                  aria-label="전체 변경사항 선택"
+                  className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500"
+                />
+              </div>
+              <span>사업장</span>
+              <span>년도·주기</span>
+              <span>변경 내용</span>
+            </div>
+            <div className="max-h-[55vh] overflow-y-auto">
+              {pendingReportChanges.map((change) => (
+                <label
+                  key={change.journalId}
+                  className={`grid cursor-pointer grid-cols-[44px_minmax(220px,1fr)_120px_120px] items-center gap-3 border-b border-surface-100 px-3 py-3 text-sm last:border-b-0 hover:bg-surface-50 ${change.selected ? "bg-primary-50/30" : ""}`}
+                >
+                  <div className="flex justify-center">
+                    <input
+                      type="checkbox"
+                      checked={change.selected}
+                      onChange={() => handleTogglePendingChange(change.journalId)}
+                      disabled={isSavingReportStatuses}
+                      className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-text-900">{change.businessName || "사업장명 없음"}</p>
+                    <p className="mt-0.5 text-xs text-text-500">{change.code || "코드 없음"}</p>
+                  </div>
+                  <span className="text-text-700">
+                    {change.measurementYear || "-"} · {change.measurementPeriod || "-"}
+                  </span>
+                  <span className="font-semibold text-text-900">
+                    {change.previousStatus} → {change.nextStatus}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap justify-between gap-3 border-t border-surface-100 pt-4">
+            <Button
+              variant="danger"
+              onClick={handleDiscardPendingChanges}
+              disabled={isSavingReportStatuses}
+            >
+              전체 변경 취소
+            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setIsReportStatusReviewOpen(false)}
+                disabled={isSavingReportStatuses}
+              >
+                계속 수정
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleSavePendingChanges}
+                disabled={isSavingReportStatuses || selectedPendingReportChangeCount === 0}
+              >
+                {isSavingReportStatuses
+                  ? "저장 중..."
+                  : `선택 항목 최종 저장 (${selectedPendingReportChangeCount})`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
