@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
+import { Search } from "lucide-react";
 import { DESIGNATED_OFFICE_OPTIONS, toShortName } from "@/lib/constants/designated-offices";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -84,6 +85,7 @@ export const CustomQueryExport: React.FC = () => {
   const [rawData, setRawData] = useState<any[]>([]);
   const [filteredResults, setFilteredResults] = useState<any[]>([]);
   const [resultBusinessNameSearch, setResultBusinessNameSearch] = useState("");
+  const [resultBusinessNameSearchInput, setResultBusinessNameSearchInput] = useState("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [updatingReportStatusIds, setUpdatingReportStatusIds] = useState<Set<string>>(new Set());
@@ -762,6 +764,10 @@ export const CustomQueryExport: React.FC = () => {
     }
   };
 
+  const applyResultBusinessNameSearch = () => {
+    setResultBusinessNameSearch(resultBusinessNameSearchInput.trim());
+  };
+
   const resultBusinessNameTerms = resultBusinessNameSearch
     .split(/[,\n]/)
     .map((term) => term.trim().toLocaleLowerCase("ko-KR"))
@@ -1074,16 +1080,41 @@ export const CustomQueryExport: React.FC = () => {
             </span>
           </div>
 
-          <div className="w-full">
+          <form
+            className="flex w-full items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyResultBusinessNameSearch();
+            }}
+          >
+            <label
+              htmlFor="result-business-name-search"
+              className="shrink-0 text-sm font-semibold text-text-800"
+            >
+              사업장명
+            </label>
             <Input
+              id="result-business-name-search"
               type="search"
-              value={resultBusinessNameSearch}
-              onChange={(event) => setResultBusinessNameSearch(event.target.value)}
-              placeholder="사업장명 일부 검색 (여러 개는 쉼표로 구분)"
+              value={resultBusinessNameSearchInput}
+              onChange={(event) => setResultBusinessNameSearchInput(event.target.value)}
+              onBlur={() => {
+                window.setTimeout(applyResultBusinessNameSearch, 0);
+              }}
+              placeholder="일부 검색 · 여러 개는 쉼표로 구분"
               aria-label="필터 결과 내 사업장명 검색"
-              className="h-9 w-full bg-white"
+              className="h-9 w-full border-slate-300 bg-white shadow-xs"
             />
-          </div>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              className="h-9 shrink-0 gap-1.5 px-4 shadow-sm"
+            >
+              <Search size={15} aria-hidden="true" />
+              검색
+            </Button>
+          </form>
 
           <div className="flex min-w-0 items-center justify-end gap-2">
             {canManageDesignatedOfficeReport && pendingReportChanges.length > 0 && (
