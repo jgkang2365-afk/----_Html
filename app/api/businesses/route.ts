@@ -414,11 +414,17 @@ export async function PATCH(request: NextRequest) {
         console.log(`[Integrated Sync] Starting sync for ${code}...`);
         
         // 1. Determine Source of Truth (daily_staff or single-date fallback)
-        // daily_staff가 명시적으로 null이면 모든 일정을 삭제하라는 의미다.
+        // daily_staff가 null이어도 단일 실시일이 함께 오면 단일 일정으로 처리한다.
+        // 실시일 없이 null/빈 배열이 온 경우에만 모든 일정을 삭제한다.
         const hasDailyStaffUpdate = Object.prototype.hasOwnProperty.call(updates, "daily_staff");
-        let dailyStaff = hasDailyStaffUpdate
-          ? (Array.isArray(updates.daily_staff) ? updates.daily_staff : [])
-          : undefined;
+        const hasSingleMeasurementDate =
+          Object.prototype.hasOwnProperty.call(updates, "measurement_date") &&
+          Boolean(updates.measurement_date);
+        const shouldUseSingleDateFallback =
+          hasDailyStaffUpdate && updates.daily_staff == null && hasSingleMeasurementDate;
+        let dailyStaff = !hasDailyStaffUpdate || shouldUseSingleDateFallback
+          ? undefined
+          : (Array.isArray(updates.daily_staff) ? updates.daily_staff : []);
         
         if (dailyStaff === undefined) {
           // Fallback to single-date logic if daily_staff isn't provided in the update
