@@ -205,10 +205,30 @@ export class K2BService {
      * 파이썬의 pyperclip.copy() + pyautogui.hotkey('ctrl', 'v') + pyautogui.press('enter') 대체
      */
     private sendFilePathViaClipboard(filePath: string) {
-        // PowerShell로 클립보드에 복사
-        execSync(`powershell -command "Set-Clipboard -Value '${filePath.replace(/'/g, "''")}'"`);
-        // Ctrl+V 붙여넣기 후 Enter
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
+        this.setClipboard(filePath);
+
+        // 백그라운드 서버에서 SendKeys가 다른 창으로 전달되지 않도록 파일 선택창을 먼저 활성화합니다.
+        const command = `
+Add-Type -AssemblyName System.Windows.Forms
+$shell = New-Object -ComObject WScript.Shell
+$activated = $false
+for ($i = 0; $i -lt 20; $i++) {
+    if ($shell.AppActivate('열기') -or $shell.AppActivate('Open')) {
+        $activated = $true
+        break
+    }
+    Start-Sleep -Milliseconds 250
+}
+if (-not $activated) {
+    throw 'K2B 파일 선택창을 활성화할 수 없습니다.'
+}
+Start-Sleep -Milliseconds 300
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 500
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+`;
+        const encodedCommand = Buffer.from(command, 'utf16le').toString('base64');
+        execSync(`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encodedCommand}`);
     }
 
     /**
@@ -312,15 +332,49 @@ export class K2BService {
 
             // ===== Step 3: '위치도 업로드' 버튼 클릭 =====
             try {
-                const locationMapBtn = await this.driver.wait(
-                    until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_fileUp_grid_upload_body_gridrow_0_cell_0_2gridCellContainerElement')),
-                    20000 // WebDriverWait 20초
-                );
+                const locationButtonLocators = [
+                    By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_fileUp_grid_upload_body_gridrow_0_cell_0_2gridCellContainerElement'),
+                    By.css('[id*="div_fileUp_grid_upload_body_gridrow_0_cell_0_2"]'),
+                    By.xpath('//*[contains(@id, "grid_upload") and contains(@id, "gridrow_0") and contains(@id, "cell_0_2")]')
+                ];
+                let locationMapBtn: WebElement | null = null;
+                const deadline = Date.now() + 20000;
+
+                while (!locationMapBtn && Date.now() < deadline) {
+                    for (const locator of locationButtonLocators) {
+                        const elements = await this.driver.findElements(locator);
+                        for (const element of elements) {
+                            if (await element.isDisplayed().catch(() => false)) {
+                                locationMapBtn = element;
+                                break;
+                            }
+                        }
+                        if (locationMapBtn) break;
+                    }
+                    if (!locationMapBtn) await this.driver.sleep(500);
+                }
+
+                if (!locationMapBtn) {
+                    throw new Error('TXT 업로드 행 또는 위치도 버튼이 생성되지 않았습니다.');
+                }
                 await locationMapBtn.click();
                 await this.driver.sleep(3000); // time.sleep(3)
             } catch (e) {
-                // TimeoutException → continue (다음 업체)
-                return { success: false, status: '위치도 버튼 오류', error: '위치도 업로드 버튼을 찾을 수 없습니다.' };
+                try {
+                    const logDir = path.resolve(process.cwd(), 'logs');
+                    fs.mkdirSync(logDir, { recursive: true });
+                    const screenshot = await this.driver.takeScreenshot();
+                    const screenshotPath = path.join(logDir, `k2b-location-error-${Date.now()}.png`);
+                    fs.writeFileSync(screenshotPath, screenshot, 'base64');
+                    console.error(`[K2B] 위치도 단계 오류 화면 저장: ${screenshotPath}`);
+                } catch (screenshotError) {
+                    console.error('[K2B] 오류 화면 저장 실패:', screenshotError);
+                }
+                return {
+                    success: false,
+                    status: '위치도 버튼 오류',
+                    error: `TXT 업로드 후 위치도 버튼을 찾을 수 없습니다: ${e instanceof Error ? e.message : String(e)}`
+                };
             }
 
             // ===== Step 4: 도면 폴더 확인 및 JPG 업로드 =====
