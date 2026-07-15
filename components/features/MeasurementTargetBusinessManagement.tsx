@@ -1677,7 +1677,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                     ...prev, 
                                                                     daily_staff: newList,
                                                                     measurement_date: sortedDates[0] || null,
-                                                                    measurement_end_date: sortedDates[sortedDates.length - 1] || null
+                                                                    measurement_end_date: sortedDates[sortedDates.length - 1] || null,
+                                                                    is_registered_text: sortedDates.length > 0 ? '실시' : '미실시'
                                                                 }));
                                                             }} />
                                                         </div>

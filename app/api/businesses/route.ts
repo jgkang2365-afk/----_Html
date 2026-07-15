@@ -530,6 +530,13 @@ export async function PATCH(request: NextRequest) {
             measurement_end_date: maxEndDate
           };
 
+          // 실시일이 있으면 화면에서 전달된 이전 상태와 관계없이 실시로 확정한다.
+          // 거래종료는 사용자가 명시한 최우선 상태이므로 그대로 유지한다.
+          const isTerminated = ["거래종료", "종료", "거래 종료"].includes(updatedData.is_registered);
+          if (maxEndDate && !isTerminated) {
+            businessUpdatePayload.is_registered = "실시";
+          }
+
           // [The Joo Rule] Successful Null: 실시일이 완전히 비워졌고 현재 상태가 '실시' 또는 '확정'이라면 '미실시'로 자동 하향 동기화
           if (!maxEndDate && (updatedData.is_registered === "실시" || updatedData.is_registered === "확정")) {
             businessUpdatePayload.is_registered = "미실시";
