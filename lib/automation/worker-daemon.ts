@@ -4,6 +4,7 @@ import { K2BService } from './k2b-service';
 import { findReportFiles } from '../utils/findReportFiles';
 import { getKSTISOString, getKSTDateString } from '../utils/date-utils';
 import { syncBusinessToCalendar } from "../google/sync-service";
+import { getCalendarConfigurationStatus } from "../google/calendar";
 import { processNationalSupportJob } from "./national-support-worker";
 
 /**
@@ -48,6 +49,16 @@ export class WorkerDaemon {
         if (this.pollingInterval) {
             console.log("[WorkerDaemon] 이미 워커가 실행 중입니다.");
             return;
+        }
+
+        const calendarConfiguration = getCalendarConfigurationStatus();
+        if (!calendarConfiguration.valid) {
+            console.error(
+                `[WorkerDaemon] 구글 캘린더 설정 오류: ${calendarConfiguration.errors.join(', ')}. ` +
+                'K2B/일지 처리는 계속되지만 캘린더 동기화 실패가 사용자 알림에 표시됩니다.'
+            );
+        } else {
+            console.log('[WorkerDaemon] 구글 캘린더 동기화 설정 확인 완료.');
         }
 
         console.log("[WorkerDaemon] 백그라운드 작업기(Worker Daemon)를 시작합니다. (5초 간격 감시)");
@@ -443,19 +454,21 @@ export class WorkerDaemon {
                         .eq('measurement_year', target.year)
                         .eq('measurement_period', target.period);
 
-                    // 구글 캘린더 동기화 트리거
-                    try {
-                        await syncBusinessToCalendar(supabase, target.code, target.year, target.period);
-                    } catch (syncError) {
-                        console.error(`[WorkerDaemon K2B Sync] Calendar sync failed for ${target.code}:`, syncError);
-                    }
+                    const calendarSync = await this.syncCalendarAfterK2B(
+                        supabase,
+                        target.code,
+                        target.year,
+                        target.period
+                    );
 
                     results.push({
                         code: target.code,
                         companyName: target.business_name,
                         success: uploadRes.success,
                         status: uploadRes.status,
-                        error: uploadRes.error
+                        error: uploadRes.error,
+                        calendarSyncSuccess: calendarSync.success,
+                        calendarSyncError: calendarSync.error
                     });
 
                     if (uploadRes.success) {
@@ -510,11 +523,12 @@ export class WorkerDaemon {
                             .eq('measurement_year', matchTarget.year)
                             .eq('measurement_period', matchTarget.period);
 
-                        try {
-                            await syncBusinessToCalendar(supabase, matchTarget.code, matchTarget.year, matchTarget.period);
-                        } catch (syncError) {
-                            console.error(`[WorkerDaemon K2B Sync] Calendar sync failed for ${matchTarget.code}:`, syncError);
-                        }
+                        const calendarSync = await this.syncCalendarAfterK2B(
+                            supabase,
+                            matchTarget.code,
+                            matchTarget.year,
+                            matchTarget.period
+                        );
 
                         const rIdx = results.findIndex(r => r.code === matchTarget.code);
                         if (rIdx !== -1) {
@@ -522,6 +536,8 @@ export class WorkerDaemon {
                             if (gr.status === '정상처리') {
                                 results[rIdx].success = true;
                             }
+                            results[rIdx].calendarSyncSuccess = calendarSync.success;
+                            results[rIdx].calendarSyncError = calendarSync.error;
                         }
                     }
                 }
@@ -534,13 +550,23 @@ export class WorkerDaemon {
 
             // 최종 Job 상태 업데이트
             const finalSuccessCount = results.filter(r => r.success).length;
-            if (finalSuccessCount === targets.length) {
+            const calendarFailures = results.filter(r => r.success && r.calendarSyncSuccess === false);
+            if (finalSuccessCount === targets.length && calendarFailures.length === 0) {
                 await this.updateJobStatus(job.id, 'success');
                 await this.createInAppNotification(
                     requestUser.id, 
                     'info', 
                     `[K2B 업로드 완료] ${targets[0]?.business_name}${targets.length > 1 ? ` 외 ${targets.length - 1}곳` : ''}의 K2B 자동 등록이 완료되었습니다.`
                 );
+            } else if (finalSuccessCount === targets.length) {
+                const warning = `K2B 전송은 완료됐으나 캘린더 동기화 실패: ${calendarFailures.map(r => r.companyName).join(', ')}`;
+                await this.updateJobStatus(job.id, 'success', warning);
+                await this.createInAppNotification(
+                    requestUser.id,
+                    'warning',
+                    `[K2B 업로드 완료/캘린더 확인 필요] ${warning}`
+                );
+                await this.notifyAllManagers('error', `[캘린더 동기화 실패] ${warning}`);
             } else if (finalSuccessCount > 0) {
                 await this.updateJobStatus(job.id, 'success', `일부 성공: ${finalSuccessCount}/${targets.length}개 완료`);
                 await this.createInAppNotification(
@@ -569,6 +595,29 @@ export class WorkerDaemon {
             await this.notifyAllManagers('error', errorMsg);
         } finally {
             this.currentK2BService = null;
+        }
+    }
+
+    private async syncCalendarAfterK2B(
+        supabase: any,
+        code: string,
+        year: number | string,
+        period: string
+    ): Promise<{ success: boolean; error?: string }> {
+        try {
+            const result = await syncBusinessToCalendar(supabase, code, year, period);
+            if (!result?.success) {
+                throw new Error('캘린더 동기화 결과를 확인하지 못했습니다.');
+            }
+            console.log(
+                `[WorkerDaemon K2B Sync] ${code} 캘린더 검증 완료 ` +
+                `(일정 ${result.syncedEventCount}/${result.count}건)`
+            );
+            return { success: true };
+        } catch (error: any) {
+            const message = error?.message || String(error);
+            console.error(`[WorkerDaemon K2B Sync] Calendar sync failed for ${code}: ${message}`);
+            return { success: false, error: message };
         }
     }
 

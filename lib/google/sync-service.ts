@@ -1,5 +1,6 @@
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent, listEvents } from "./calendar";
 import { SupabaseClient } from "@supabase/supabase-js";
+import { resolveCalendarColorId } from "./calendar-policy";
 
 /**
  * 특정 사업장의 정보를 구글 캘린더와 동기화합니다.
@@ -86,9 +87,7 @@ export async function syncBusinessToCalendar(
     }
 
     // 4. 각 일정별 동기화 수행
-    const colorMap: { [key: string]: string } = {
-      '한기문': '10', '배윤민': '6', '김민영': '6', '강종구': '9', '이주형': '5', '고유빈': '7',
-    };
+    let syncedEventCount = 0;
 
     for (const survey of validSurveys) {
       if (!isConfirmedStatus || !survey.measurement_date) {
@@ -126,23 +125,16 @@ export async function syncBusinessToCalendar(
       const suffixParts = [unpaidText, notesText].filter(Boolean);
       const summary = baseSummary + (suffixParts.length > 0 ? ` - ${suffixParts.join(" / ")}` : "");
 
-      // 색상 결정 (보고서 담당자 기준)
-      let colorId = colorMap[survey.report_writer] || '10';
-
-      // K2B/인보이스 상태 체크 (생략 가능하나 기존 로직 유지)
-      try {
-          const { data: currentJournal } = await supabase
+      const { data: currentJournal, error: journalError } = await supabase
             .from("measurement_journal")
             .select("k2b_send_date, electronic_invoice_date, measurement_fee_business")
             .eq("code", code)
             .eq("measurement_year", survey.year)
             .eq("measurement_period", survey.period)
             .maybeSingle();
+      if (journalError) throw journalError;
 
-          if (currentJournal?.k2b_send_date && (currentJournal.electronic_invoice_date || Number(currentJournal.measurement_fee_business) === 0)) {
-            colorId = '3'; // Grape (완료)
-          }
-      } catch (e) {}
+      const colorId = resolveCalendarColorId(survey.report_writer, currentJournal);
 
       const eventData = {
         summary,
@@ -163,20 +155,32 @@ export async function syncBusinessToCalendar(
       if (survey.google_event_id) {
         const existing = await getSurveyEvent(survey.google_event_id);
         if (existing && existing.status !== 'cancelled') {
-          await updateSurveyEvent(survey.google_event_id, eventData);
+          const updated = await updateSurveyEvent(survey.google_event_id, eventData);
+          if (updated) {
+            if (updated.colorId !== colorId) {
+              throw new Error(`캘린더 색상 검증 실패: 요청 ${colorId}, 저장 ${updated.colorId || "없음"}`);
+            }
+            syncedEventCount += 1;
+          } else {
+            const created = await createSurveyEvent(eventData);
+            if (!created?.id) throw new Error("삭제된 캘린더 일정을 다시 생성하지 못했습니다.");
+            await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
+            survey.google_event_id = created.id;
+            syncedEventCount += 1;
+          }
         } else {
           const created = await createSurveyEvent(eventData);
-          if (created?.id) {
-             await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
-             survey.google_event_id = created.id; // [CRITICAL FIX] 메모리 객체 업데이트
-          }
+          if (!created?.id) throw new Error("캘린더 일정을 다시 생성하지 못했습니다.");
+          await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
+          survey.google_event_id = created.id;
+          syncedEventCount += 1;
         }
       } else {
         const created = await createSurveyEvent(eventData);
-        if (created?.id) {
-            await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
-            survey.google_event_id = created.id; // [CRITICAL FIX] 메모리 객체 업데이트
-        }
+        if (!created?.id) throw new Error("캘린더 일정을 생성하지 못했습니다.");
+        await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
+        survey.google_event_id = created.id;
+        syncedEventCount += 1;
       }
     }
 
@@ -228,7 +232,7 @@ export async function syncBusinessToCalendar(
     }
 
     console.log(`[Sync Service] Sync completed for ${code}`);
-    return { success: true, count: validSurveys.length };
+    return { success: true, count: validSurveys.length, syncedEventCount };
   } catch (error) {
     console.error(`[Sync Service] Exception for ${code}:`, error);
     throw error;

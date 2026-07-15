@@ -7,6 +7,7 @@ const KEY_FILE_PATH = path.join(process.cwd(), 'google-credentials.json');
 const SCOPES = ['https://www.googleapis.com/auth/calendar.events'];
 
 const DEBUG_LOG_PATH = path.join(process.cwd(), 'debug-calendar.log');
+const RETRY_DELAYS_MS = [1000, 2500];
 
 function logDebug(message: string, data?: any) {
     const timestamp = new Date().toISOString();
@@ -63,6 +64,61 @@ const getAuthClient = async () => {
     }
 };
 
+function getCalendarId() {
+    const calendarId = process.env.GOOGLE_CALENDAR_ID?.trim();
+    if (!calendarId) {
+        throw new Error('GOOGLE_CALENDAR_ID 환경 변수가 설정되지 않았습니다.');
+    }
+    return calendarId;
+}
+
+function isNotFoundError(error: any) {
+    const status = Number(error?.code || error?.response?.status || 0);
+    return status === 404 || status === 410;
+}
+
+function isRetryableError(error: any) {
+    const status = Number(error?.code || error?.response?.status || 0);
+    const code = String(error?.code || error?.cause?.code || '').toUpperCase();
+    return status === 408 || status === 429 || status >= 500 ||
+        ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENETUNREACH'].includes(code);
+}
+
+async function withCalendarRetry<T>(label: string, operation: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt += 1) {
+        try {
+            return await operation();
+        } catch (error) {
+            if (!isRetryableError(error) || attempt >= RETRY_DELAYS_MS.length) {
+                throw error;
+            }
+
+            const delay = RETRY_DELAYS_MS[attempt];
+            logDebug(`${label} 일시 오류. ${delay}ms 후 재시도합니다.`, error);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+export function getCalendarConfigurationStatus() {
+    const errors: string[] = [];
+    if (!process.env.GOOGLE_CALENDAR_ID?.trim()) {
+        errors.push('GOOGLE_CALENDAR_ID 누락');
+    }
+
+    if (process.env.GOOGLE_CREDENTIALS_JSON) {
+        try {
+            JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+        } catch {
+            errors.push('GOOGLE_CREDENTIALS_JSON 형식 오류');
+        }
+    } else if (!fs.existsSync(KEY_FILE_PATH)) {
+        errors.push(`google-credentials.json 누락 (${KEY_FILE_PATH})`);
+    }
+
+    return { valid: errors.length === 0, errors };
+}
+
 /**
  * 예비조사 일정 구글 캘린더 등록
  * @param eventData 이벤트 데이터
@@ -75,12 +131,7 @@ export async function createSurveyEvent(eventData: {
     location?: string;
     colorId?: string;
 }) {
-    const calendarId = process.env.GOOGLE_CALENDAR_ID;
-
-    if (!calendarId) {
-        logDebug('GOOGLE_CALENDAR_ID environment variable is not set. Skipping calendar sync.');
-        return null;
-    }
+    const calendarId = getCalendarId();
 
     try {
         logDebug("Creating Calendar Event", eventData);
@@ -123,16 +174,15 @@ export async function createSurveyEvent(eventData: {
             },
         };
 
-        const response = await calendar.events.insert({
-            calendarId,
-            requestBody: event,
-        });
+        const response = await withCalendarRetry('Google Calendar 일정 생성', () =>
+            calendar.events.insert({ calendarId, requestBody: event })
+        );
 
         logDebug(`Event created successfully: ${response.data.id}`);
         return response.data;
     } catch (error) {
         logDebug('Error creating Google Calendar event:', error);
-        return null;
+        throw error;
     }
 }
 
@@ -147,8 +197,7 @@ export async function updateSurveyEvent(eventId: string, eventData: {
     location?: string;
     colorId?: string;
 }) {
-    const calendarId = process.env.GOOGLE_CALENDAR_ID;
-    if (!calendarId) return null;
+    const calendarId = getCalendarId();
 
     try {
         logDebug(`Updating Calendar Event: ${eventId}`, eventData);
@@ -191,21 +240,19 @@ export async function updateSurveyEvent(eventId: string, eventData: {
             },
         };
 
-        const response = await calendar.events.patch({
-            calendarId,
-            eventId,
-            requestBody: event,
-        });
+        const response = await withCalendarRetry('Google Calendar 일정 수정', () =>
+            calendar.events.patch({ calendarId, eventId, requestBody: event })
+        );
 
         logDebug(`Event updated successfully: ${response.data.id}`);
         return response.data;
     } catch (error: any) {
         logDebug('Error updating Google Calendar event:', error);
-        if (error.code === 404 || error.code === 410) {
+        if (isNotFoundError(error)) {
             logDebug('Event not found (404/410), assuming deleted.');
             return null;
         }
-        return null;
+        throw error;
     }
 }
 
@@ -215,22 +262,21 @@ export async function updateSurveyEvent(eventId: string, eventData: {
  * @returns 이벤트 데이터
  */
 export async function getSurveyEvent(eventId: string) {
-    const calendarId = process.env.GOOGLE_CALENDAR_ID;
-    if (!calendarId) return null;
+    const calendarId = getCalendarId();
 
     try {
         const authClient = await getAuthClient();
         const calendar = google.calendar({ version: 'v3', auth: authClient as any });
 
-        const response = await calendar.events.get({
-            calendarId,
-            eventId,
-        });
+        const response = await withCalendarRetry('Google Calendar 일정 조회', () =>
+            calendar.events.get({ calendarId, eventId })
+        );
 
         return response.data;
     } catch (error: any) {
         logDebug('Error getting Google Calendar event:', error);
-        return null;
+        if (isNotFoundError(error)) return null;
+        throw error;
     }
 }
 
@@ -238,24 +284,23 @@ export async function getSurveyEvent(eventId: string) {
  * 구글 캘린더 일정 삭제 (System-as-Master)
  */
 export async function deleteSurveyEvent(eventId: string) {
-    const calendarId = process.env.GOOGLE_CALENDAR_ID;
-    if (!calendarId) return false;
+    const calendarId = getCalendarId();
 
     try {
         logDebug(`Deleting Calendar Event: ${eventId}`);
         const authClient = await getAuthClient();
         const calendar = google.calendar({ version: 'v3', auth: authClient as any });
 
-        await calendar.events.delete({
-            calendarId,
-            eventId,
-        });
+        await withCalendarRetry('Google Calendar 일정 삭제', () =>
+            calendar.events.delete({ calendarId, eventId })
+        );
 
         logDebug(`Event deleted: ${eventId}`);
         return true;
     } catch (error) {
         logDebug('Error deleting Google Calendar event:', error);
-        return false;
+        if (isNotFoundError(error)) return true;
+        throw error;
     }
 }
 /**
@@ -265,26 +310,27 @@ export async function deleteSurveyEvent(eventId: string) {
  * @param q 검색어 (옵션)
  */
 export async function listEvents(timeMin: string, timeMax: string, q?: string) {
-    const calendarId = process.env.GOOGLE_CALENDAR_ID;
-    if (!calendarId) return [];
+    const calendarId = getCalendarId();
 
     try {
         const authClient = await getAuthClient();
         const calendar = google.calendar({ version: 'v3', auth: authClient as any });
 
-        const response = await calendar.events.list({
-            calendarId,
-            timeMin,
-            timeMax,
-            q,
-            singleEvents: true,
-            orderBy: 'startTime',
-            maxResults: 2500 // 충분히 큰 값으로 설정
-        });
+        const response = await withCalendarRetry('Google Calendar 일정 목록 조회', () =>
+            calendar.events.list({
+                calendarId,
+                timeMin,
+                timeMax,
+                q,
+                singleEvents: true,
+                orderBy: 'startTime',
+                maxResults: 2500
+            })
+        );
 
         return response.data.items || [];
     } catch (error) {
         logDebug('Error listing Google Calendar events:', error);
-        return [];
+        throw error;
     }
 }
