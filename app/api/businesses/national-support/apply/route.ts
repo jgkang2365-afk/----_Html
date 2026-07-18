@@ -4,6 +4,7 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { normalizeRepresentativeName } from "@/lib/utils/data-utils";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
+import { normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
 
 /**
  * 건강디딤돌 자동 신청 API
@@ -43,6 +44,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalizedSanjae = normalizeElevenDigitNumber(sanjae);
+    const normalizedCommencement = normalizeElevenDigitNumber(commencement);
+    if (!normalizedSanjae || !normalizedCommencement) {
+      return NextResponse.json(
+        { error: "산재관리번호와 사업개시번호는 각각 정확한 11자리여야 합니다." },
+        { status: 400 },
+      );
+    }
+
     if (period.includes("(수시)")) {
       return NextResponse.json(
         { error: "수시 주기는 건강디딤돌 지원 대상이 아닙니다." },
@@ -77,10 +87,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (currentPlan.sync_status === "신청중") {
+    if (currentPlan.sync_status === "신청중" || currentPlan.sync_status === "조회중") {
       return NextResponse.json(
-        { error: "이미 해당 사업장에 대한 자동 신청 작업이 기동되어 진행 중입니다." },
+        { error: "이미 해당 사업장에 대한 결과 조회 작업이 진행 중입니다." },
         { status: 400 }
+      );
+    }
+
+    const { data: duplicateJobs, error: duplicateJobError } = await supabase
+      .from("background_jobs")
+      .select("id")
+      .eq("job_type", "national_support")
+      .in("status", ["pending", "processing", "cancel_requested"])
+      .contains("payload", { target_id })
+      .limit(1);
+    if (duplicateJobError) {
+      return NextResponse.json(
+        { error: "건강디딤돌 중복 작업 확인에 실패했습니다." },
+        { status: 500 },
+      );
+    }
+    if (duplicateJobs && duplicateJobs.length > 0) {
+      return NextResponse.json(
+        { error: "이미 해당 사업장의 결과 조회 작업이 대기 중이거나 진행 중입니다." },
+        { status: 409 },
       );
     }
 
@@ -103,8 +133,8 @@ export async function POST(request: NextRequest) {
           sync_status: "성공",
           sync_error_message: null,
           national_support_status: dbStatus,
-          industrial_accident_number: sanjae || null,
-          commencement_number: commencement || null,
+          industrial_accident_number: normalizedSanjae,
+          commencement_number: normalizedCommencement,
           representative_name: representative || null,
           updated_at: new Date().toISOString(),
         })
@@ -131,8 +161,9 @@ export async function POST(request: NextRequest) {
           period,
           bName,
           representative || null,
-          sanjae || null,
-          commencement || null
+          normalizedSanjae,
+          normalizedCommencement,
+          { updateBusinessInfo: false },
         );
       } catch (mbErr) {
         console.error(`즉시 동기화 마스터 테이블 업데이트 중 예외 발생 (code: ${code}):`, mbErr);
@@ -147,18 +178,20 @@ export async function POST(request: NextRequest) {
     }
 
 
-    // 락 적용: sync_status를 '신청중'으로 변경하고 에러 메시지 초기화 및 가입력 값 저장
-    const { error: lockError } = await supabase
+    // 조회 작업 락과 입력값만 저장합니다. 결과가 나오기 전에는 대상 여부를 확정하지 않습니다.
+    const { data: lockedPlan, error: lockError } = await supabase
       .from("measurement_target_business")
       .update({
-        sync_status: "신청중",
+        sync_status: "조회중",
         sync_error_message: null,
-        national_support_status: "대상",
-        industrial_accident_number: sanjae || null,
-        commencement_number: commencement || null,
+        industrial_accident_number: normalizedSanjae,
+        commencement_number: normalizedCommencement,
         representative_name: representative || null,
       })
-      .eq("id", target_id);
+      .eq("id", target_id)
+      .or("sync_status.is.null,sync_status.not.in.(신청중,조회중)")
+      .select("id")
+      .maybeSingle();
 
     if (lockError) {
       console.error("락 설정 실패:", lockError);
@@ -167,9 +200,15 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+    if (!lockedPlan) {
+      return NextResponse.json(
+        { error: "다른 요청이 먼저 조회 작업을 시작했습니다." },
+        { status: 409 },
+      );
+    }
 
     // 배포 서버는 Python 크롤러를 직접 실행하지 않습니다. 공용 DB 대기열에 등록하면
-    // 개발 서버의 WorkerDaemon이 작업을 가져가 공단 조회와 결과 반영을 수행합니다.
+    // 백그라운드 WorkerDaemon이 작업을 가져가 공단 조회와 결과 반영을 수행합니다.
     const { data: queuedJob, error: queueError } = await supabase
       .from("background_jobs")
       .insert({
@@ -177,8 +216,8 @@ export async function POST(request: NextRequest) {
         status: "pending",
         payload: {
           target_id,
-          sanjae,
-          commencement,
+          sanjae: normalizedSanjae,
+          commencement: normalizedCommencement,
           representative: normalizeRepresentativeName(representative) || representative,
           contact_name: contact_name || "",
           contact_phone: contact_phone || "",
@@ -208,7 +247,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: "건강디딤돌 조회 작업이 개발 서버에 전달되었습니다. 결과는 잠시 후 반영됩니다.",
+      message: "건강디딤돌 조회 작업이 백그라운드 작업자에 전달되었습니다. 결과는 잠시 후 반영됩니다.",
       jobId: queuedJob.id,
     });
 

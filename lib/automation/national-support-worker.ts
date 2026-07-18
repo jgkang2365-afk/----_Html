@@ -149,7 +149,8 @@ export async function processNationalSupportJob(payload: NationalSupportJobPaylo
         target?.business_name || "미등록 사업장",
         payload.representative || null,
         payload.sanjae || null,
-        payload.commencement || null
+        payload.commencement || null,
+        { updateBusinessInfo: false },
       );
 
       return { status: supportStatus };
@@ -164,7 +165,7 @@ export async function processNationalSupportJob(payload: NationalSupportJobPaylo
         ...commonTargetFields,
         sync_status: "확인대기",
         sync_error_message: statusMessage,
-        national_support_status: "대상",
+        national_support_status: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", payload.target_id);

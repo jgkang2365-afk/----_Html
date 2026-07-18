@@ -16,6 +16,11 @@ import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
 import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
+import {
+  hasNationalSupportLookupInformation,
+  getInitialNationalSupportState,
+  isAdHocMeasurement,
+} from "@/lib/national-support/eligibility";
 
 export async function GET(request: NextRequest) {
   try {
@@ -358,8 +363,9 @@ export async function PATCH(request: NextRequest) {
 
     const allowedUpdateColumns = new Set([
       "business_name", "business_category", "address", "office_jurisdiction",
-      "is_registered", "national_support_status", "plan_manager", "manager_name",
-      "manager_mobile", "phone", "management_status", "notes", "measurement_date",
+      "business_number", "invoice_email", "fax",
+      "is_registered", "plan_manager", "manager_name",
+      "manager_mobile", "manager_phone", "phone", "total_employees", "management_status", "notes", "measurement_date",
       "measurement_end_date", "future_measurement_period", "future_measurement_date",
       "measurer_id", "period", "collaborators", "daily_staff", "representative_name",
       "industrial_accident_number", "commencement_number",
@@ -397,6 +403,36 @@ export async function PATCH(request: NextRequest) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const supportInfoChanged = [
+      "period",
+      "representative_name",
+      "industrial_accident_number",
+      "commencement_number",
+    ].some(key => Object.prototype.hasOwnProperty.call(updates, key));
+
+    if (supportInfoChanged) {
+      const supportStateUpdates: Record<string, any> = {};
+      if (isAdHocMeasurement(updatedData.period)) {
+        supportStateUpdates.national_support_status = "비대상";
+        supportStateUpdates.sync_status = "성공";
+        supportStateUpdates.sync_error_message = null;
+      } else if (!updatedData.national_support_status) {
+        supportStateUpdates.sync_status = hasNationalSupportLookupInformation(updatedData)
+          ? "조회대기"
+          : "정보부족";
+        supportStateUpdates.sync_error_message = null;
+      }
+
+      if (Object.keys(supportStateUpdates).length > 0) {
+        const { error: supportStateError } = await supabase
+          .from("measurement_target_business")
+          .update({ ...supportStateUpdates, updated_at: new Date().toISOString() })
+          .eq("id", updatedData.id);
+        if (supportStateError) throw supportStateError;
+        Object.assign(updatedData, supportStateUpdates);
+      }
     }
 
     // === [Integrated Sync Logic] ===
@@ -682,10 +718,19 @@ export async function POST(request: NextRequest) {
       business_name, 
       address, 
       plan_manager, 
-      national_support_status,
       sanjae,
       commencement,
-      representative_name
+      representative_name,
+      business_number,
+      business_category,
+      phone,
+      fax,
+      invoice_email,
+      manager_name,
+      manager_mobile,
+      manager_phone,
+      total_employees,
+      office_jurisdiction,
     } = body;
 
     // Validation
@@ -698,27 +743,39 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // 1. 중복 확인 (measurement_target_business)
-    // 단, 주기에 '(수시)'가 포함된 경우 중복 허용 (여러 번 수시 측정 가능)
-    if (!period.includes("(수시)")) {
-      const { data: existing } = await supabase
-        .from("measurement_target_business")
-        .select("id")
-        .eq("code", code)
-        .eq("year", year)
-        .eq("period", period)
-        .maybeSingle();
+    // 1. 코드 + 연도 + 주기 중복 등록 방지
+    const { data: existing } = await supabase
+      .from("measurement_target_business")
+      .select("id")
+      .eq("code", code)
+      .eq("year", year)
+      .eq("period", period)
+      .limit(1)
+      .maybeSingle();
 
-      if (existing) {
-        return NextResponse.json(
-          { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
-          { status: 409 }
-        );
-      }
+    if (existing) {
+      return NextResponse.json(
+        { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
+        { status: 409 }
+      );
     }
 
     // Auto-calculate office_jurisdiction based on address
-    const officeJurisdiction = address ? findOfficeByAddress(address) : null;
+    const calculatedOfficeJurisdiction = address ? findOfficeByAddress(address) : null;
+    const industrialAccidentNumber = String(sanjae || "").replace(/\D/g, "").slice(0, 11) || null;
+    const commencementNumber = String(commencement || "").replace(/\D/g, "").slice(0, 11) || null;
+    const parsedTotalEmployees = total_employees === "" || total_employees === null || total_employees === undefined
+      ? null
+      : Number(total_employees);
+    const normalizedTotalEmployees = parsedTotalEmployees !== null && Number.isFinite(parsedTotalEmployees)
+      ? parsedTotalEmployees
+      : null;
+    const initialSupportState = getInitialNationalSupportState({
+      period,
+      industrial_accident_number: industrialAccidentNumber,
+      commencement_number: commencementNumber,
+      representative_name,
+    });
 
     // 2. Insert into measurement_target_business
     const { data: newTarget, error: insertError } = await supabase
@@ -728,12 +785,23 @@ export async function POST(request: NextRequest) {
         year: Number(year),
         period,
         business_name,
+        business_number: String(business_number || "").replace(/\D/g, "") || null,
         address: address || null,
-        office_jurisdiction: officeJurisdiction, // 자동 할당
+        office_jurisdiction: office_jurisdiction || calculatedOfficeJurisdiction,
+        business_category: business_category || null,
+        phone: phone || null,
+        fax: fax || null,
+        invoice_email: invoice_email || null,
+        manager_name: manager_name || null,
+        manager_mobile: manager_mobile || null,
+        manager_phone: manager_phone || null,
+        total_employees: normalizedTotalEmployees,
         plan_manager: plan_manager || null,
-        national_support_status: national_support_status || null,
-        industrial_accident_number: sanjae || null,
-        commencement_number: commencement || null,
+        national_support_status: initialSupportState.nationalSupportStatus,
+        sync_status: initialSupportState.syncStatus,
+        sync_error_message: null,
+        industrial_accident_number: industrialAccidentNumber,
+        commencement_number: commencementNumber,
         representative_name: representative_name || null,
         is_registered: "미실시", // Default
         created_at: new Date().toISOString()
@@ -742,10 +810,23 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
+      if (insertError.code === "23505") {
+        return NextResponse.json(
+          { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
+          { status: 409 },
+        );
+      }
       throw new Error(`Target Insert Error: ${insertError.message}`);
     }
 
-    return NextResponse.json({ success: true, data: newTarget });
+    return NextResponse.json({
+      success: true,
+      data: newTarget,
+      nationalSupportFollowUp: {
+        eligible: initialSupportState.shouldQueueLookup,
+        status: initialSupportState.syncStatus,
+      },
+    });
 
   } catch (error: any) {
     console.error("POST API Critical Error:", error);

@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsx --test tests/calendar-policy.test.ts",
+    "test": "tsx --test tests/calendar-policy.test.ts tests/national-support-eligibility.test.ts tests/business-info-registration-search.test.ts",
     "clear-cache": "node scripts/clear-cache.js",
     "force-clear-cache": "node scripts/force-clear-cache.js",
     "dev:clean": "npm run clear-cache && npm run dev:turbo",

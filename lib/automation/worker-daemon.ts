@@ -187,7 +187,7 @@ export class WorkerDaemon {
                         updated_at: getKSTISOString()
                     })
                     .eq('id', targetId)
-                    .eq('sync_status', '신청중');
+                    .in('sync_status', ['신청중', '조회중']);
             }
 
             console.warn(`[WorkerDaemon] 장기 processing 건강디딤돌 작업 자동 실패 처리: ${job.id}`);

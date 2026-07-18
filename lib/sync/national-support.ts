@@ -23,11 +23,20 @@ export async function syncNationalSupportToBusiness(
     commencementNumber?: string | null
 ) {
     try {
-        let targetStatus: "대상" | "비대상" = "비대상";
+        let targetStatus: "대상" | "비대상" | null = null;
 
         // [The Joo Rule] 정규화 규칙 적용
         if (nationalSupportStatus === "지원" || nationalSupportStatus === "대상" || nationalSupportStatus === "지원대상") {
             targetStatus = "대상";
+        } else if (nationalSupportStatus === "비대상" || nationalSupportStatus === "미지원") {
+            targetStatus = "비대상";
+        }
+
+        if (!targetStatus) {
+            return {
+                success: false,
+                error: new Error("확정되지 않은 건강디딤돌 상태는 사업장 국고 상태로 동기화할 수 없습니다."),
+            };
         }
 
         // 1. 기존 레코드 존재 여부 및 필수 마스터 필드 조회

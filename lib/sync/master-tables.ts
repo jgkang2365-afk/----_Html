@@ -9,9 +9,10 @@ export async function syncToMasterTables(
   businessName: string,
   representativeName: string | null,
   industrialAccidentNumber: string | null,
-  commencementNumber: string | null
+  commencementNumber: string | null,
+  options: { updateBusinessInfo?: boolean } = {},
 ) {
-  if (code) {
+  if (code && options.updateBusinessInfo !== false) {
     const { error } = await supabase.from("business_info").upsert({
       code,
       business_name: businessName,

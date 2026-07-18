@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -21,6 +21,16 @@ import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import * as XLSX from "xlsx";
 import { useUser } from "@/hooks/use-user";
+import {
+    canRequestNationalSupportLookup,
+    getNationalSupportDisplayStatus,
+    hasNationalSupportLookupInformation,
+} from "@/lib/national-support/eligibility";
+import {
+    buildRegistrationAutoFillValues,
+    ExactMeasurementBusiness,
+    RegistrationAutoFillValues,
+} from "@/lib/business-info/registration-context";
 
 interface BusinessEntry {
     id: string | number;
@@ -65,6 +75,28 @@ interface BusinessEntry {
     representative_name?: string | null; // 대표자명
     industrial_accident_number?: string | null; // 산재관리번호
     commencement_number?: string | null; // 사업개시번호
+    invoice_email?: string | null;
+    fax?: string | null;
+}
+
+interface BusinessInfoSearchResult {
+    code: string;
+    business_name: string;
+    business_number: string;
+    representative_name: string;
+    address: string;
+    business_category: string;
+    phone: string;
+    fax: string;
+    invoice_email: string;
+    industrial_accident_number: string;
+    commencement_number: string;
+    office_jurisdiction: string;
+    invoice_contact_candidate: {
+        name: string;
+        position: string;
+        contact: string;
+    } | null;
 }
 
 interface User {
@@ -152,16 +184,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         if (isBulkProcessing) return;
 
         // 현재 화면 목록 중 조회 가능한 대상 필터링
-        const targets = filteredData.filter((item) => {
-            const sanjaeVal = item.industrial_accident_number || item.sanjae;
-            const commencementVal = item.commencement_number || item.commencement;
-            const representativeVal = item.representative_name;
-            const isCompleted = item.sync_status === "성공";
-            const isPending = item.sync_status === "신청중" || item.sync_status === "조회중";
-            const isSusi = item.period && item.period.includes("(수시)");
-
-            return item.national_support_status === "대상" && sanjaeVal && commencementVal && representativeVal && !isCompleted && !isPending && !isSusi;
-        });
+        const targets = filteredData.filter((item) => canRequestNationalSupportLookup({
+            ...item,
+            industrial_accident_number: item.industrial_accident_number || item.sanjae,
+            commencement_number: item.commencement_number || item.commencement,
+        }));
 
         if (targets.length === 0) {
             alert("일괄 조회할 수 있는 미완료 대상 사업장이 없습니다. (필수 정보 입력 상태 및 조회 완료 여부를 확인해주세요)");
@@ -192,7 +219,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
             try {
                 // 낙관적 업데이트
-                setData((prev) => prev.map((d) => d.id === item.id ? { ...d, sync_status: "신청중", sync_error_message: null } : d));
+                setData((prev) => prev.map((d) => d.id === item.id ? { ...d, sync_status: "조회중", sync_error_message: null } : d));
 
                 const res = await fetch("/api/businesses/national-support/apply", {
                     method: "POST",
@@ -352,28 +379,133 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         year: new Date().getFullYear(),
         period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기"
     });
+    const [businessInfoQuery, setBusinessInfoQuery] = useState("");
+    const [businessInfoResults, setBusinessInfoResults] = useState<BusinessInfoSearchResult[]>([]);
+    const [selectedBusinessInfo, setSelectedBusinessInfo] = useState<BusinessInfoSearchResult | null>(null);
+    const [isBusinessInfoSearching, setIsBusinessInfoSearching] = useState(false);
+    const [registrationContextStatus, setRegistrationContextStatus] = useState<"idle" | "loading" | "exact" | "none" | "error">("idle");
+    const registrationContextRequestRef = useRef(0);
+    const registrationAutoValuesRef = useRef<Partial<RegistrationAutoFillValues>>({});
 
-    const handleAddSubmit = async () => {
-        // 국고 대상 지정 시 검증
-        if (addForm.national_support_status === "대상") {
-            if (addForm.period && addForm.period.includes("(수시)")) {
-                alert("수시 주기는 건강디딤돌 지원 대상이 아닙니다.");
-                return;
-            }
-            if (!addForm.sanjae || addForm.sanjae.length !== 11) {
-                alert("산재관리번호 11자리를 정확히 입력해주세요.");
-                return;
-            }
-            if (!addForm.commencement || addForm.commencement.length !== 11) {
-                alert("사업개시번호 11자리를 정확히 입력해주세요.");
-                return;
-            }
-            if (!addForm.representative_name) {
-                alert("대표자명을 입력해주세요.");
-                return;
-            }
+    const applyRegistrationAutoValues = (values: RegistrationAutoFillValues) => {
+        const previousAutoValues = registrationAutoValuesRef.current;
+        setAddForm(prev => {
+            const next: any = { ...prev };
+            (Object.keys(values) as Array<keyof RegistrationAutoFillValues>).forEach(key => {
+                const currentValue = next[key];
+                const previousAutoValue = previousAutoValues[key];
+                const isEmpty = currentValue === null || currentValue === undefined || String(currentValue).trim() === "";
+                const isUnchangedAutoValue = previousAutoValue !== undefined && String(currentValue ?? "") === String(previousAutoValue ?? "");
+
+                // Replace only empty or previously auto-filled values. Manual edits always win.
+                if (isEmpty || isUnchangedAutoValue) {
+                    next[key] = values[key];
+                }
+            });
+            return next;
+        });
+        registrationAutoValuesRef.current = values;
+    };
+
+    const loadExactMeasurementBusiness = async (
+        business: BusinessInfoSearchResult,
+        year: number,
+        period: string,
+    ) => {
+        if (!business.code || !Number.isInteger(year) || !period) return;
+
+        const requestId = ++registrationContextRequestRef.current;
+        setRegistrationContextStatus("loading");
+        try {
+            const params = new URLSearchParams({
+                code: business.code,
+                year: String(year),
+                period,
+            });
+            const response = await fetch(`/api/business-info/registration-context?${params.toString()}`, {
+                cache: "no-store",
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "측정사업장 보완자료 조회에 실패했습니다.");
+            if (requestId !== registrationContextRequestRef.current) return;
+
+            const exactMeasurementBusiness = (result.measurementBusiness || null) as ExactMeasurementBusiness | null;
+            applyRegistrationAutoValues(
+                buildRegistrationAutoFillValues(business, exactMeasurementBusiness),
+            );
+            setRegistrationContextStatus(exactMeasurementBusiness ? "exact" : "none");
+        } catch (error) {
+            if (requestId !== registrationContextRequestRef.current) return;
+            console.error("신규 등록 보완자료 조회 오류:", error);
+            setRegistrationContextStatus("error");
+        }
+    };
+
+    const resetAddForm = () => {
+        setAddForm({
+            year: new Date().getFullYear(),
+            period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
+            code: "",
+            business_name: "",
+            address: "",
+            plan_manager: "",
+            sanjae: "",
+            commencement: "",
+            representative_name: "",
+            manager_name: "",
+            manager_mobile: "",
+        });
+        setBusinessInfoQuery("");
+        setBusinessInfoResults([]);
+        setSelectedBusinessInfo(null);
+        setRegistrationContextStatus("idle");
+        registrationAutoValuesRef.current = {};
+        registrationContextRequestRef.current += 1;
+    };
+
+    const handleBusinessInfoSearch = async () => {
+        const query = businessInfoQuery.trim();
+        if (!query) {
+            setBusinessInfoResults([]);
+            return;
         }
 
+        setIsBusinessInfoSearching(true);
+        try {
+            const response = await fetch(`/api/business-info/search?q=${encodeURIComponent(query)}`, {
+                cache: "no-store",
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "사업장정보 검색에 실패했습니다.");
+            setBusinessInfoResults(result.businesses || []);
+        } catch (error) {
+            alert(error instanceof Error ? error.message : "사업장정보 검색 중 오류가 발생했습니다.");
+        } finally {
+            setIsBusinessInfoSearching(false);
+        }
+    };
+
+    const selectBusinessInfo = (business: BusinessInfoSearchResult) => {
+        setSelectedBusinessInfo(business);
+        setBusinessInfoResults([]);
+        setBusinessInfoQuery(`${business.code} ${business.business_name}`);
+        setAddForm(prev => ({
+            ...prev,
+            code: business.code,
+            business_name: business.business_name,
+            business_number: business.business_number || prev.business_number,
+            invoice_email: business.invoice_email || prev.invoice_email,
+            office_jurisdiction: business.office_jurisdiction || prev.office_jurisdiction,
+        }));
+        applyRegistrationAutoValues(buildRegistrationAutoFillValues(business, null));
+        void loadExactMeasurementBusiness(
+            business,
+            Number(addForm.year || currentYear),
+            String(addForm.period || initialPeriod),
+        );
+    };
+
+    const handleAddSubmit = async () => {
         try {
             const response = await fetch("/api/businesses", {
                 method: "POST",
@@ -381,26 +513,42 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 body: JSON.stringify(addForm)
             });
 
-            if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.error || "등록에 실패했습니다.");
+            const createResult = await response.json();
+            if (!response.ok) throw new Error(createResult.error || "등록에 실패했습니다.");
+
+            let completionMessage = "사업장 등록이 완료되었습니다.";
+            if (createResult.nationalSupportFollowUp?.eligible && createResult.data?.id) {
+                try {
+                    const followUpResponse = await fetch("/api/businesses/national-support/apply", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            target_id: createResult.data.id,
+                            sanjae: addForm.sanjae,
+                            commencement: addForm.commencement,
+                            representative: addForm.representative_name,
+                            contact_name: addForm.manager_name || "",
+                            contact_phone: addForm.manager_mobile || "",
+                            period: addForm.period,
+                            code: addForm.code,
+                            year: addForm.year,
+                        }),
+                    });
+                    const followUpResult = await followUpResponse.json();
+                    if (!followUpResponse.ok) {
+                        throw new Error(followUpResult.error || "건강디딤돌 처리 요청 실패");
+                    }
+                    completionMessage += `\n${followUpResult.message || "건강디딤돌 결과조회가 시작되었습니다."}`;
+                } catch (followUpError) {
+                    completionMessage += `\n건강디딤돌 처리 요청은 실패했습니다. 목록의 조회 버튼으로 재시도할 수 있습니다.\n사유: ${followUpError instanceof Error ? followUpError.message : String(followUpError)}`;
+                }
+            } else if (!addForm.period?.includes("(수시)")) {
+                completionMessage += "\n건강디딤돌 정보가 부족하여 사업장만 등록했습니다.";
             }
 
-            await response.json();
-
-            alert("성공적으로 등록되었습니다.");
+            alert(completionMessage);
             setIsAddModalOpen(false);
-            setAddForm({
-                year: new Date().getFullYear(),
-                period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
-                code: "",
-                business_name: "",
-                address: "",
-                plan_manager: "",
-                national_support_status: "",
-                sanjae: "",
-                commencement: ""
-            });
+            resetAddForm();
             fetchData();
         } catch (error) {
             console.error("Registration error:", error);
@@ -526,7 +674,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         fetchData();
     }, [fetchData]);
 
-    // 개발 서버 작업자가 건강디딤돌 조회를 처리하는 동안 결과가 반영될 때까지 자동 갱신합니다.
+    // 백그라운드 작업자가 건강디딤돌 조회를 처리하는 동안 결과가 반영될 때까지 자동 갱신합니다.
     useEffect(() => {
         const hasPendingNationalSupport = data.some(item =>
             item.sync_status === "신청중" || item.sync_status === "조회중"
@@ -600,27 +748,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
-        // 국고 대상 지정 시 검증
-        if (editForm.national_support_status === "대상") {
-            const currentPeriod = editForm.period || editingItem.period;
-            if (currentPeriod && currentPeriod.includes("(수시)")) {
-                alert("수시 주기는 건강디딤돌 지원 대상이 아닙니다.");
-                return;
-            }
-            if (!editForm.sanjae || editForm.sanjae.length !== 11) {
-                alert("산재관리번호 11자리를 정확히 입력해주세요.");
-                return;
-            }
-            if (!editForm.commencement || editForm.commencement.length !== 11) {
-                alert("사업개시번호 11자리를 정확히 입력해주세요.");
-                return;
-            }
-            if (!editForm.representative_name) {
-                alert("대표자명을 입력해주세요.");
-                return;
-            }
-        }
-
         try {
             // 저장이 성공(Resolve)한 후에만 모달을 닫음
             await saveChanges(editingItem.code, editForm);
@@ -645,13 +772,18 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         const commencementVal = item.commencement_number || item.commencement;
         const representativeVal = item.representative_name;
 
-        if (!sanjaeVal || !commencementVal || !representativeVal) {
-            alert("산재관리번호, 사업개시번호, 대표자명을 먼저 입력하고 저장해주세요.");
+        if (!canRequestNationalSupportLookup({
+            ...item,
+            industrial_accident_number: sanjaeVal,
+            commencement_number: commencementVal,
+            representative_name: representativeVal,
+        })) {
+            alert("조회 조건을 확인해주세요. 정기 측정이며 산재·개시번호 11자리와 대표자명이 필요합니다.");
             return;
         }
 
         // Optimistic update
-        setData(prev => prev.map(d => d.id === item.id ? { ...d, sync_status: "신청중", sync_error_message: null } : d));
+        setData(prev => prev.map(d => d.id === item.id ? { ...d, sync_status: "조회중", sync_error_message: null } : d));
 
         try {
             const response = await fetch("/api/businesses/national-support/apply", {
@@ -680,7 +812,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 alert(resData.message || "건강디딤돌 신청결과가 즉시 반영되었습니다.");
                 fetchData();
             } else {
-                alert("조회 요청이 개발 서버에 전달되었습니다. 완료될 때까지 화면을 유지한 채 결과만 조용히 갱신합니다.");
+                alert(resData.message || "조회 요청이 백그라운드 작업자에 전달되었습니다. 완료될 때까지 결과를 자동 갱신합니다.");
             }
 
         } catch (error) {
@@ -698,8 +830,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             // DB 컬럼 매핑 및 클렌징
             const sanitizeUpdates = (raw: Partial<BusinessEntry>) => {
                 const validColumns = [
-                    'business_name', 'business_category', 'address',
-                    'office_jurisdiction', 'is_registered', 'national_support_status', 'plan_manager',
+                    'business_name', 'business_number', 'business_category', 'address', 'invoice_email', 'fax',
+                    'office_jurisdiction', 'is_registered', 'plan_manager',
                     'manager_name', 'manager_mobile', 'phone',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
@@ -1155,7 +1287,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     </div>
                                 <div className="text-center text-xs px-1 flex items-center justify-center gap-1.5">
                                     <span className={item.sync_status === "성공" && item.national_support_status === "대상" ? "text-green-600 font-semibold" : ""}>
-                                        {item.national_support_status || "-"}
+                                        {getNationalSupportDisplayStatus({
+                                            ...item,
+                                            industrial_accident_number: item.industrial_accident_number || item.sanjae,
+                                            commencement_number: item.commencement_number || item.commencement,
+                                        })}
                                         {item.sync_status === "성공" && item.national_support_status === "대상" && " ✅"}
                                     </span>
                                     {(item.sync_status === "신청중" || item.sync_status === "조회중") && (
@@ -1168,7 +1304,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                             ❌
                                         </span>
                                     )}
-                                    {item.national_support_status === "대상" && item.sync_status !== "성공" && (
+                                    {canRequestNationalSupportLookup({
+                                        ...item,
+                                        industrial_accident_number: item.industrial_accident_number || item.sanjae,
+                                        commencement_number: item.commencement_number || item.commencement,
+                                    }) && (
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -1332,19 +1472,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         { value: "하반기(수시)", label: "하반기(수시)" }
                                     ]}
                                     value={editForm.period || ""}
-                                    onChange={(e) => {
-                                        const newPeriod = e.target.value;
-                                        setEditForm(prev => {
-                                            const updates: any = { period: newPeriod };
-                                            if (newPeriod.includes("(수시)")) {
-                                                updates.national_support_status = "비대상";
-                                                updates.sanjae = "";
-                                                updates.commencement = "";
-                                                updates.representative_name = "";
-                                            }
-                                            return { ...prev, ...updates };
-                                        });
-                                    }}
+                                    onChange={(e) => setEditForm(prev => ({ ...prev, period: e.target.value }))}
                                     className={`w-full ${editForm.period?.includes("(수시)") ? "text-red-500 font-bold" : ""}`}
                                 />
                             </div>
@@ -1416,38 +1544,30 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
-                                <Select
-                                    options={[
-                                        { value: "", label: "선택" },
-                                        { value: "대상", label: "대상" },
-                                        { value: "비대상", label: "비대상" }
-                                    ]}
-                                    value={editForm.period?.includes("(수시)") ? "비대상" : (editForm.national_support_status || "")}
-                                    onChange={(e) => {
-                                        if (editForm.period?.includes("(수시)") && e.target.value === "대상") {
-                                            alert("수시 주기는 건강디딤돌 지원 대상이 아닙니다.");
-                                            return;
-                                        }
-                                        setEditForm(prev => ({ ...prev, national_support_status: e.target.value }));
-                                    }}
-                                    disabled={editForm.period?.includes("(수시)")}
-                                />
+                                <div className="h-10 rounded-md border border-slate-200 bg-slate-50 px-3 flex items-center text-sm font-medium text-slate-700">
+                                    {getNationalSupportDisplayStatus({
+                                        ...editForm,
+                                        industrial_accident_number: editForm.sanjae || editForm.industrial_accident_number,
+                                        commencement_number: editForm.commencement || editForm.commencement_number,
+                                    })}
+                                </div>
                                 {editForm.period?.includes("(수시)") && (
                                     <p className="text-[11px] text-red-600 font-semibold mt-1">
-                                        ⚠️ 수시 주기는 건강디딤돌 지원 비대상 고정입니다.
+                                        수시 주기는 건강디딤돌 비대상으로 처리됩니다.
                                     </p>
                                 )}
                             </div>
                         </div>
 
-                        {/* 국고 자동 신청 정보 추가 */}
-                        {editForm.national_support_status === "대상" && (
-                            <div className="bg-blue-50/40 border border-blue-100 p-4 rounded-lg space-y-3 mt-3">
-                                <h4 className="text-sm font-bold text-blue-800 border-b border-blue-200 pb-1 mb-2">건강디딤돌 결과 조회용 필수 정보</h4>
-                                <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-blue-50/40 border border-blue-100 p-4 rounded-lg space-y-3 mt-3">
+                                <div className="border-b border-blue-200 pb-2 mb-2">
+                                    <h4 className="text-sm font-bold text-blue-800">건강디딤돌 정보 보완 (선택)</h4>
+                                    <p className="text-[11px] text-slate-500 mt-1">일부 정보만 입력해도 저장할 수 있으며, 조회에는 산재·개시번호 11자리와 대표자명이 필요합니다.</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                            산재관리번호 (11자리 숫자) <span className="text-red-500">*</span>
+                                            산재관리번호
                                         </label>
                                         <Input
                                             value={editForm.sanjae || ""}
@@ -1456,12 +1576,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                 setEditForm(prev => ({ ...prev, sanjae: val }));
                                             }}
                                             placeholder="예: 12345678901"
-                                            required
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                            사업개시번호 (11자리 숫자) <span className="text-red-500">*</span>
+                                            사업개시번호
                                         </label>
                                         <Input
                                             value={editForm.commencement || ""}
@@ -1470,12 +1589,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                 setEditForm(prev => ({ ...prev, commencement: val }));
                                             }}
                                             placeholder="예: 00000000000"
-                                            required
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                            대표자명 <span className="text-red-500">*</span>
+                                            대표자명
                                         </label>
                                         <Input
                                             value={editForm.representative_name || ""}
@@ -1483,20 +1601,30 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                 setEditForm(prev => ({ ...prev, representative_name: e.target.value }));
                                             }}
                                             placeholder="예: 홍길동"
-                                            required
                                         />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 mb-1">측정업무 담당자명</label>
+                                        <Input value={editForm.manager_name || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_name: e.target.value }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 휴대전화</label>
+                                        <Input value={editForm.manager_mobile || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_mobile: e.target.value }))} placeholder="010-0000-0000" />
                                     </div>
                                 </div>
                                 {editForm.sync_status && (
                                     <div className="text-xs mt-2 text-slate-600">
-                                        현재 신청 상태: <span className="font-bold">{editForm.sync_status}</span>
+                                        현재 조회 상태: <span className="font-bold">{getNationalSupportDisplayStatus({
+                                            ...editForm,
+                                            industrial_accident_number: editForm.sanjae || editForm.industrial_accident_number,
+                                            commencement_number: editForm.commencement || editForm.commencement_number,
+                                        })}</span>
                                         {editForm.sync_status === "실패" && editForm.sync_error_message && (
                                             <p className="text-red-600 font-semibold mt-1">사유: {editForm.sync_error_message}</p>
                                         )}
                                     </div>
                                 )}
-                            </div>
-                        )}
+                        </div>
                     </div>
 
                     {/* 섹션 4: 측정 정보 */}
@@ -1791,6 +1919,68 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     handleAddSubmit();
                 }} className="p-6">
                     <div className="space-y-6">
+                        <div className="border-b border-slate-200 pb-5">
+                            <h4 className="text-md font-bold text-slate-800 mb-2">동기화된 사업장정보 검색</h4>
+                            <p className="text-xs text-slate-500 mb-3">코드, 사업장명, 사업자등록번호, 대표자명 또는 주소 일부로 검색할 수 있습니다.</p>
+                            <div className="flex gap-2">
+                                <Input
+                                    value={businessInfoQuery}
+                                    onChange={(e) => setBusinessInfoQuery(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            handleBusinessInfoSearch();
+                                        }
+                                    }}
+                                    placeholder="사업장정보 검색어"
+                                />
+                                <Button type="button" variant="secondary" onClick={handleBusinessInfoSearch} disabled={isBusinessInfoSearching}>
+                                    {isBusinessInfoSearching ? "검색 중" : "검색"}
+                                </Button>
+                            </div>
+                            {businessInfoResults.length > 0 && (
+                                <div className="mt-2 max-h-52 overflow-y-auto border border-slate-200 rounded-md divide-y divide-slate-100 bg-white">
+                                    {businessInfoResults.map((business) => (
+                                        <button
+                                            key={business.code}
+                                            type="button"
+                                            onClick={() => selectBusinessInfo(business)}
+                                            className="w-full px-3 py-2.5 text-left hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                        >
+                                            <span className="block text-sm font-semibold text-slate-800">{business.code} · {business.business_name}</span>
+                                            <span className="block text-xs text-slate-500 mt-0.5">{formatBusinessNumber(business.business_number) || "사업자번호 없음"} · {business.representative_name || "대표자 미등록"}</span>
+                                            <span className="block text-xs text-slate-400 truncate">{business.address || "주소 미등록"}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {selectedBusinessInfo && (
+                                <div className="mt-3 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-md">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-xs text-emerald-800"><strong>{selectedBusinessInfo.business_name}</strong> 기본정보를 입력했습니다.</span>
+                                        {selectedBusinessInfo.invoice_contact_candidate && (
+                                            <Button
+                                                type="button"
+                                                variant="secondary"
+                                                onClick={() => setAddForm(prev => ({
+                                                    ...prev,
+                                                    manager_name: selectedBusinessInfo.invoice_contact_candidate?.name || "",
+                                                    manager_mobile: selectedBusinessInfo.invoice_contact_candidate?.contact || "",
+                                                }))}
+                                            >
+                                                계산서 담당자 후보 복사
+                                            </Button>
+                                        )}
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-emerald-700">
+                                        {registrationContextStatus === "loading" && "선택한 연도·주기의 측정사업장 보완자료를 확인하는 중입니다."}
+                                        {registrationContextStatus === "exact" && "선택한 연도·주기와 정확히 일치하는 보완자료를 반영했습니다."}
+                                        {registrationContextStatus === "none" && "해당 연도·주기의 보완자료가 없어 사업장 기본정보와 수동 입력값을 사용합니다."}
+                                        {registrationContextStatus === "error" && "보완자료를 확인하지 못했습니다. 사업장 등록은 계속할 수 있습니다."}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
                         {/* 1. Essential Info */}
                         <div>
                             <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">필수 정보</h4>
@@ -1802,7 +1992,17 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     <Input
                                         type="number"
                                         value={addForm.year || currentYear}
-                                        onChange={(e) => setAddForm(prev => ({ ...prev, year: parseInt(e.target.value) }))}
+                                        onChange={(e) => {
+                                            const year = parseInt(e.target.value);
+                                            setAddForm(prev => ({ ...prev, year }));
+                                            if (selectedBusinessInfo && Number.isInteger(year)) {
+                                                void loadExactMeasurementBusiness(
+                                                    selectedBusinessInfo,
+                                                    year,
+                                                    String(addForm.period || initialPeriod),
+                                                );
+                                            }
+                                        }}
                                         required
                                     />
                                 </div>
@@ -1819,17 +2019,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         ]}
                                         value={addForm.period || initialPeriod}
                                         onChange={(e) => {
-                                            const newPeriod = e.target.value;
-                                            setAddForm(prev => {
-                                                const updates: any = { period: newPeriod };
-                                                if (newPeriod.includes("(수시)")) {
-                                                    updates.national_support_status = "비대상";
-                                                    updates.sanjae = "";
-                                                    updates.commencement = "";
-                                                    updates.representative_name = "";
-                                                }
-                                                return { ...prev, ...updates };
-                                            });
+                                            const period = e.target.value;
+                                            setAddForm(prev => ({ ...prev, period }));
+                                            if (selectedBusinessInfo) {
+                                                void loadExactMeasurementBusiness(
+                                                    selectedBusinessInfo,
+                                                    Number(addForm.year || currentYear),
+                                                    period,
+                                                );
+                                            }
                                         }}
                                     />
                                 </div>
@@ -1845,7 +2043,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                             value={(addForm.code || "").replace(/^H/, "")}
                                             onChange={(e) => {
                                                 const nums = e.target.value.replace(/[^0-9]/g, "").slice(0, 4);
-                                                setAddForm(prev => ({ ...prev, code: nums ? `H${nums}` : "" }));
+                                                const code = nums ? `H${nums}` : "";
+                                                setAddForm(prev => ({ ...prev, code }));
+                                                if (selectedBusinessInfo && code !== selectedBusinessInfo.code) {
+                                                    setSelectedBusinessInfo(null);
+                                                    setRegistrationContextStatus("idle");
+                                                    registrationAutoValuesRef.current = {};
+                                                    registrationContextRequestRef.current += 1;
+                                                }
                                             }}
                                             className="rounded-l-none"
                                             placeholder="0001 (숫자 4자리)"
@@ -1881,6 +2086,38 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     />
                                 </div>
                                 <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">사업자등록번호</label>
+                                    <Input value={addForm.business_number || ""} onChange={(e) => setAddForm(prev => ({ ...prev, business_number: e.target.value.replace(/\D/g, "").slice(0, 10) }))} />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">업종</label>
+                                    <Select options={businessCategories.map(c => c.value === "" ? { ...c, label: "선택" } : c)} value={addForm.business_category || ""} onChange={(e) => setAddForm(prev => ({ ...prev, business_category: e.target.value }))} />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">전화번호</label>
+                                    <Input value={addForm.phone || ""} onChange={(e) => setAddForm(prev => ({ ...prev, phone: e.target.value }))} />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">팩스번호</label>
+                                    <Input value={addForm.fax || ""} onChange={(e) => setAddForm(prev => ({ ...prev, fax: e.target.value }))} />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">근로자수</label>
+                                    <Input
+                                        type="number"
+                                        min="0"
+                                        value={addForm.total_employees ?? ""}
+                                        onChange={(e) => setAddForm(prev => ({
+                                            ...prev,
+                                            total_employees: e.target.value === "" ? null : Number(e.target.value),
+                                        }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">계산서 이메일</label>
+                                    <Input type="email" value={addForm.invoice_email || ""} onChange={(e) => setAddForm(prev => ({ ...prev, invoice_email: e.target.value }))} />
+                                </div>
+                                <div>
                                     <label className="block text-sm font-medium mb-1 text-slate-700">계획담당</label>
                                     <Select
                                         options={PLAN_MANAGER_EDIT_OPTIONS}
@@ -1888,78 +2125,46 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         onChange={(e) => setAddForm(prev => ({ ...prev, plan_manager: e.target.value }))}
                                     />
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-blue-50/40 border border-blue-100 p-4 rounded-lg space-y-3">
+                            <div className="flex items-start justify-between gap-4 border-b border-blue-200 pb-2">
                                 <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
-                                    <Select
-                                        options={[
-                                            { value: "", label: "선택" },
-                                            { value: "대상", label: "대상" },
-                                            { value: "비대상", label: "비대상" }
-                                        ]}
-                                        value={addForm.period?.includes("(수시)") ? "비대상" : (addForm.national_support_status || "")}
-                                        onChange={(e) => {
-                                            if (addForm.period?.includes("(수시)") && e.target.value === "대상") {
-                                                alert("수시 주기는 건강디딤돌 지원 대상이 아닙니다.");
-                                                return;
-                                            }
-                                            setAddForm(prev => ({ ...prev, national_support_status: e.target.value }));
-                                        }}
-                                        disabled={addForm.period?.includes("(수시)")}
-                                    />
-                                    {addForm.period?.includes("(수시)") && (
-                                        <p className="text-[11px] text-red-600 font-semibold mt-1">
-                                            ⚠️ 수시 주기는 건강디딤돌 지원 비대상 고정입니다.
-                                        </p>
-                                    )}
+                                    <h4 className="text-sm font-bold text-blue-800">건강디딤돌 정보 보완 (선택)</h4>
+                                    <p className="text-[11px] text-slate-500 mt-1">정보가 없어도 사업장은 등록됩니다. 정기 측정이며 조회 정보가 완성된 경우에만 결과조회를 시작합니다.</p>
                                 </div>
-                                {addForm.national_support_status === "대상" && (
-                                    <div className="col-span-2 bg-blue-50/40 border border-blue-100 p-4 rounded-lg space-y-3 mt-2">
-                                        <h4 className="text-sm font-bold text-blue-800 border-b border-blue-200 pb-1 mb-2">건강디딤돌 결과 조회용 필수 정보</h4>
-                                        <div className="grid grid-cols-3 gap-4">
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                                    산재관리번호 (11자리 숫자) <span className="text-red-500">*</span>
-                                                </label>
-                                                <Input
-                                                    value={addForm.sanjae || ""}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 11);
-                                                        setAddForm(prev => ({ ...prev, sanjae: val }));
-                                                    }}
-                                                    placeholder="예: 12345678901"
-                                                    required
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                                    사업개시번호 (11자리 숫자) <span className="text-red-500">*</span>
-                                                </label>
-                                                <Input
-                                                    value={addForm.commencement || ""}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 11);
-                                                        setAddForm(prev => ({ ...prev, commencement: val }));
-                                                    }}
-                                                    placeholder="예: 00000000000"
-                                                    required
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                                    대표자명 <span className="text-red-500">*</span>
-                                                </label>
-                                                <Input
-                                                    value={addForm.representative_name || ""}
-                                                    onChange={(e) => {
-                                                        setAddForm(prev => ({ ...prev, representative_name: e.target.value }));
-                                                    }}
-                                                    placeholder="예: 홍길동"
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                <span className="shrink-0 rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800">
+                                    {addForm.period?.includes("(수시)")
+                                        ? "비대상"
+                                        : hasNationalSupportLookupInformation({
+                                            industrial_accident_number: addForm.sanjae,
+                                            commencement_number: addForm.commencement,
+                                            representative_name: addForm.representative_name,
+                                        }) ? "조회 대기" : "정보 부족"}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 mb-1">산재관리번호</label>
+                                    <Input value={addForm.sanjae || ""} onChange={(e) => setAddForm(prev => ({ ...prev, sanjae: e.target.value.replace(/\D/g, "").slice(0, 11) }))} placeholder="11자리 숫자" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 mb-1">사업개시번호</label>
+                                    <Input value={addForm.commencement || ""} onChange={(e) => setAddForm(prev => ({ ...prev, commencement: e.target.value.replace(/\D/g, "").slice(0, 11) }))} placeholder="11자리 숫자" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 mb-1">대표자명</label>
+                                    <Input value={addForm.representative_name || ""} onChange={(e) => setAddForm(prev => ({ ...prev, representative_name: e.target.value }))} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 mb-1">측정업무 담당자명</label>
+                                    <Input value={addForm.manager_name || ""} onChange={(e) => setAddForm(prev => ({ ...prev, manager_name: e.target.value }))} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 휴대전화</label>
+                                    <Input value={addForm.manager_mobile || ""} onChange={(e) => setAddForm(prev => ({ ...prev, manager_mobile: e.target.value }))} placeholder="010-0000-0000" />
+                                </div>
                             </div>
                         </div>
 

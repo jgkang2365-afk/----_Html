@@ -40,9 +40,20 @@ export async function POST(request: NextRequest) {
       // '비대상'이 아니면서 '대상'을 포함하는 경우에만 대상으로 설정
       if (result && (result === "대상" || (result.includes("대상") && !result.includes("비대상")))) {
         calculatedStatus = "대상";
-      } else if (result || application_status) {
+      } else if (
+        result === "비대상" ||
+        result === "미지원" ||
+        application_status === "신청취소"
+      ) {
         calculatedStatus = "비대상";
       }
+    }
+
+    if (calculatedStatus !== "대상" && calculatedStatus !== "비대상") {
+      return NextResponse.json(
+        { error: "대상 또는 비대상으로 확정된 결과만 등록할 수 있습니다." },
+        { status: 400 },
+      );
     }
 
     // 중복 체크

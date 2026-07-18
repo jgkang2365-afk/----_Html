@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { canRequestNationalSupportLookup } from "@/lib/national-support/eligibility";
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +37,7 @@ export async function GET(request: NextRequest) {
         sync_status,
         national_support_status,
         industrial_accident_number,
-        sanjae,
         commencement_number,
-        commencement,
         representative_name,
         manager_name,
         manager_mobile,
@@ -63,16 +62,9 @@ export async function GET(request: NextRequest) {
     
     // 일괄 처리(조회)가 가능한 유효 대상 필터링
     // (성공이 아니고, 수시 주기가 아니며, 필수 정보(산재번호, 개시번호, 대표자명)가 채워진 대상)
-    const queue = allTargets.filter((t) => {
-      const sanjaeVal = t.industrial_accident_number || t.sanjae;
-      const commencementVal = t.commencement_number || t.commencement;
-      const representativeVal = t.representative_name;
-      const isCompleted = t.sync_status === "성공";
-      const isPending = t.sync_status === "신청중" || t.sync_status === "조회중";
-      const isSusi = t.period && t.period.includes("(수시)");
-      
-      return sanjaeVal && commencementVal && representativeVal && !isCompleted && !isPending && !isSusi;
-    });
+    const queue = allTargets.filter((target) =>
+      canRequestNationalSupportLookup(target)
+    );
 
     return NextResponse.json({
       success: true,
@@ -87,8 +79,8 @@ export async function GET(request: NextRequest) {
         id: t.id,
         code: t.code,
         business_name: t.business_name,
-        sanjae: t.industrial_accident_number || t.sanjae,
-        commencement: t.commencement_number || t.commencement,
+        sanjae: t.industrial_accident_number,
+        commencement: t.commencement_number,
         representative: t.representative_name,
         manager_name: t.manager_name,
         manager_mobile: t.manager_mobile,
