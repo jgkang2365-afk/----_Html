@@ -429,6 +429,31 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             if (!response.ok) throw new Error(result.error || "측정사업장 보완자료 조회에 실패했습니다.");
             if (requestId !== registrationContextRequestRef.current) return;
 
+            if (result.existingTarget) {
+                const target = result.existingTarget;
+                const existingItem = {
+                    ...target,
+                    isRegistered: target.is_registered === "실시",
+                    is_registered_text: target.is_registered || "미실시",
+                    designated_office: target.office_jurisdiction || "",
+                    sanjae: target.industrial_accident_number || "",
+                    commencement: target.commencement_number || "",
+                    unpaid_count: 0,
+                    unpaid_details: [],
+                } as BusinessEntry;
+
+                setIsAddModalOpen(false);
+                resetAddForm();
+                window.setTimeout(() => {
+                    alert(
+                        `${business.business_name}은(는) ${year}년 ${period} 측정대상 사업장으로 이미 등록되어 있습니다.\n` +
+                        "중복 등록을 방지하기 위해 기존 사업장 수정 화면으로 이동합니다.",
+                    );
+                    handleEditClick(existingItem);
+                }, 0);
+                return;
+            }
+
             const exactMeasurementBusiness = (result.measurementBusiness || null) as ExactMeasurementBusiness | null;
             applyRegistrationAutoValues(
                 buildRegistrationAutoFillValues(business, exactMeasurementBusiness),
@@ -461,6 +486,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         setRegistrationContextStatus("idle");
         registrationAutoValuesRef.current = {};
         registrationContextRequestRef.current += 1;
+    };
+
+    const openAddModal = () => {
+        resetAddForm();
+        setIsAddModalOpen(true);
+    };
+
+    const closeAddModal = () => {
+        setIsAddModalOpen(false);
+        resetAddForm();
     };
 
     const handleBusinessInfoSearch = async () => {
@@ -750,7 +785,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
         try {
             // 저장이 성공(Resolve)한 후에만 모달을 닫음
-            await saveChanges(editingItem.code, editForm);
+            await saveChanges(editingItem.code, editForm, editingItem);
             setIsEditModalOpen(false);
 
             // 저장 단계에서는 조회하지 않습니다. 목록의 파란 새로고침 버튼을 눌렀을 때만
@@ -822,8 +857,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
     };
 
-    const saveChanges = async (code: string, updates: Partial<BusinessEntry>) => {
-        const [year, period] = filters.yearPeriod.split("-");
+    const saveChanges = async (
+        code: string,
+        updates: Partial<BusinessEntry>,
+        identity?: Pick<BusinessEntry, "id" | "year" | "period">,
+    ) => {
+        const [filterYear, filterPeriod] = filters.yearPeriod.split("-");
+        const targetYear = identity?.year ?? parseInt(filterYear, 10);
+        const targetPeriod = identity?.period || filterPeriod;
         const previousData = [...data]; // For rollback
 
         try {
@@ -898,9 +939,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    id: identity?.id,
                     code: code,
-                    year: parseInt(year),
-                    period: period,
+                    year: targetYear,
+                    period: targetPeriod,
                     updates: cleanUpdates
                 })
             });
@@ -1156,7 +1198,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             <Button onClick={() => setIsExcelModalOpen(true)} variant="success" className="h-9 px-3 text-sm font-medium whitespace-nowrap">
                                 엑셀 업로드
                             </Button>
-                            <Button onClick={() => setIsAddModalOpen(true)} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap">
+                            <Button onClick={openAddModal} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap">
                                 신규등록
                             </Button>
                             <a href="/api/templates/measurement-target" download="측정대상사업장_등록양식.xlsx"
@@ -1908,7 +1950,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             </Modal>
 
             {/* New Registration Modal */}
-            <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="신규 사업장 등록" size="lg">
+            <Modal isOpen={isAddModalOpen} onClose={closeAddModal} title="신규 사업장 등록" size="lg">
                 <form onSubmit={(e) => {
                     e.preventDefault();
                     // Basic validation
@@ -2169,7 +2211,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         </div>
 
                         <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
-                            <Button variant="secondary" onClick={() => setIsAddModalOpen(false)} type="button">취소</Button>
+                            <Button variant="secondary" onClick={closeAddModal} type="button">취소</Button>
                             <Button variant="primary" type="submit">등록</Button>
                         </div>
                     </div>

@@ -37,6 +37,32 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const { data: existingTarget, error: existingTargetError } = await supabase
+      .from("measurement_target_business")
+      .select("*")
+      .eq("code", code)
+      .eq("year", year)
+      .eq("period", period)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingTargetError) {
+      console.error("신규 등록 중복 사업장 조회 오류:", existingTargetError);
+      return NextResponse.json(
+        { error: "기존 측정대상 사업장 확인 중 오류가 발생했습니다." },
+        { status: 500 },
+      );
+    }
+
+    if (existingTarget) {
+      return NextResponse.json({
+        existingTarget,
+        measurementBusiness: null,
+        hasSupplementaryData: false,
+        match: { code, year, period },
+      });
+    }
+
     const { data, error } = await supabase
       .from("measurement_business")
       .select(EXACT_MEASUREMENT_BUSINESS_FIELDS)
@@ -56,6 +82,7 @@ export async function GET(request: NextRequest) {
 
     const measurementBusiness = data?.[0] || null;
     return NextResponse.json({
+      existingTarget: null,
       measurementBusiness,
       hasSupplementaryData: Boolean(measurementBusiness),
       match: { code, year, period },
