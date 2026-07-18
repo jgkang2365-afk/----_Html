@@ -22,6 +22,13 @@ class NationalSupportLogicTest(unittest.TestCase):
         self.assertEqual(module.classify_employee_check(""), "NO_INFO")
         self.assertEqual(module.classify_employee_check("확인 불가"), "EMPLOYEE_CHECK_FAILED")
 
+    def test_contact_phone_uses_suffix_after_fixed_010_prefix(self):
+        self.assertEqual(module.normalize_contact_phone_suffix("010-2991-3090"), "29913090")
+        self.assertEqual(module.normalize_contact_phone_suffix("01029913090"), "29913090")
+        self.assertEqual(module.normalize_contact_phone_suffix("29913090"), "29913090")
+        with self.assertRaises(ValueError):
+            module.normalize_contact_phone_suffix("041-123-4567")
+
     def test_success_requires_explicit_marker(self):
         self.assertTrue(module.has_application_success_marker("신청이 완료되었습니다"))
         self.assertTrue(module.has_application_success_marker("접수번호 1234"))

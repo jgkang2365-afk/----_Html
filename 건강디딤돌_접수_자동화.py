@@ -12,10 +12,21 @@ import time
 import os
 import subprocess
 import platform
+import re
 from openpyxl import load_workbook
 import json
 import sys
 from datetime import datetime
+
+
+def normalize_contact_phone_suffix(value):
+    """공단 화면의 고정 010 선택 상자 뒤에 입력할 가입자 번호만 반환합니다."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    if digits.startswith("010"):
+        digits = digits[3:]
+    if len(digits) not in (7, 8):
+        raise ValueError("담당자 휴대전화는 010 번호여야 합니다.")
+    return digits
 
 
 def classify_employee_check(value):
@@ -905,7 +916,8 @@ class HealthProgramAutomation:
         phone_input = WebDriverWait(self.driver, 10).until(
             EC.presence_of_element_located((By.XPATH, phone_xpath))
         )
-        phone_input.send_keys(str(biz_contact_phone))
+        phone_input.clear()
+        phone_input.send_keys(normalize_contact_phone_suffix(biz_contact_phone))
         time.sleep(1.5)
         
         # 고용보험 근로자수 "검색" 버튼 클릭
