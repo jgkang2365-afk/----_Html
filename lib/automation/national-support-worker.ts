@@ -261,6 +261,12 @@ export async function processNationalSupportJob(
       "건강디딤돌 조회",
     ) as PortalLookupResult;
     const final = await handleLookupResult(lookupResult);
+    console.info("[NationalSupportWorker] 조회 판정 완료", {
+      target_id: payload.target_id,
+      mode,
+      lookupResult,
+    });
+
     if (final) return final;
 
     if (mode === "apply_if_missing" && shouldApplyAfterLookup(lookupResult)) {

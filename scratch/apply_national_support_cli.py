@@ -23,6 +23,18 @@ def print_log(message):
     sys.stderr.write(f"[{timestamp}] {message}\n")
     sys.stderr.flush()
 
+def classify_lookup_candidates(candidates):
+    """정확한 연도·주기 행이 없을 때만 신규 신청 가능한 결과 없음으로 판정합니다."""
+    exact_match_found = False
+    for has_year, has_period, result_status in candidates:
+        if not (has_year and has_period):
+            continue
+        exact_match_found = True
+        if result_status:
+            return result_status
+    return "STANDBY" if exact_match_found else "NO_RESULT"
+
+
 def main():
     parser = argparse.ArgumentParser(description="건강디딤돌 결과 조회 CLI 프로그램")
     parser.add_argument("--sanjae", required=True, help="사업장관리번호(산재관리번호)")
@@ -159,21 +171,20 @@ def main():
 
             # 요청한 연도와 반기가 모두 같은 결과만 인정합니다.
             # 다른 반기의 결과를 요청 반기로 저장하면 지원 여부가 잘못 확정됩니다.
+            candidates = []
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
                 if len(cols) < 3:
                     continue
 
                 has_year, has_period, result_status = parse_row(cols)
-                if not result_status:
-                    continue
+                candidates.append((has_year, has_period, result_status))
 
-                if has_year and has_period:
-                    result = result_status
-                    break
-
-            if not result:
-                print_log("요청 연도와 반기가 모두 일치하는 확정 결과가 없습니다.")
+            result = classify_lookup_candidates(candidates)
+            if result == "NO_RESULT":
+                print_log("요청 연도와 반기가 모두 일치하는 신청 내역이 없습니다.")
+            elif result == "STANDBY":
+                print_log("요청 연도와 반기가 일치하는 내역은 있으나 결과가 미확정입니다.")
                             
         except Exception as table_err:
             print_log(f"테이블 파싱 오류 혹은 내역 미감지: {str(table_err)}")
