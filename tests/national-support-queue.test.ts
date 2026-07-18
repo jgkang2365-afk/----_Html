@@ -12,6 +12,16 @@ const migrationPath = path.join(
   process.cwd(),
   "supabase/migrations/20260718_sync_status_and_atomic_queue.sql",
 );
+const recheckMigrationPath = path.join(
+  process.cwd(),
+  "supabase/migrations/20260718_reset_second_half_national_support_review.sql",
+);
+const recheckVerificationPath = path.join(
+  process.cwd(),
+  "supabase/verification/20260718_verify_second_half_national_support_review.sql",
+);
+
+
 
 test("허용된 모든 sync_status가 코드와 DB 제약에 포함된다", () => {
   const migration = fs.readFileSync(migrationPath, "utf8");
@@ -84,4 +94,28 @@ test("이전 작업 큐 migration과 점검 SQL이 필수 스키마를 검사한
   }
   assert.match(verification, /enqueue_national_support_job/);
   assert.match(verification, /measurement_target_business_sync_status_check/);
+});
+
+test("2026년 하반기 비대상 재검증은 감사 범위만 백업 후 초기화한다", () => {
+  const migration = fs.readFileSync(recheckMigrationPath, "utf8");
+  const verification = fs.readFileSync(recheckVerificationPath, "utf8");
+
+  assert.match(migration, /year = 2026/);
+  assert.match(migration, /period = '하반기'/);
+  assert.match(migration, /national_support_status = '비대상'/);
+  assert.match(migration, /COALESCE\(sync_status, '대기'\) = '대기'/);
+  assert.match(migration, /target_count > 68/);
+  assert.match(migration, /national_support_recheck_backup_20260718/);
+  assert.match(migration, /ENABLE ROW LEVEL SECURITY/);
+  assert.match(migration, /REVOKE ALL[\s\S]*FROM anon, authenticated/);
+  assert.match(migration, /THEN '조회대기'/);
+  assert.match(migration, /ELSE '정보부족'/);
+  assert.match(migration, /UPDATE public\.national_support_application/);
+  assert.match(migration, /UPDATE public\.measurement_journal/);
+  assert.match(migration, /UPDATE public\.measurement_target_business/);
+
+  assert.match(verification, /remaining_target_non_support/);
+  assert.doesNotMatch(migration, /CREATE\s+TEMP(?:ORARY)?\s+TABLE|national_support_recheck_targets/);
+  assert.match(verification, /remaining_application_non_support/);
+  assert.match(verification, /remaining_journal_non_support/);
 });

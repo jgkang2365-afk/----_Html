@@ -7,7 +7,6 @@ import {
   FINAL_LOOKUP_MAX_ATTEMPTS,
   type ApplicationResult,
   type PortalLookupResult,
-  shouldApplyAfterLookup,
   shouldRetryFinalLookup,
 } from "@/lib/national-support/workflow";
 import {
@@ -44,7 +43,7 @@ export type NationalSupportProcessResult = {
 };
 
 const CRAWLER_TIMEOUT_MS = 120_000;
-const APPLICATION_TIMEOUT_MS = 180_000;
+const INTEGRATED_FLOW_TIMEOUT_MS = 300_000;
 
 function terminateProcessTree(childPid?: number) {
   if (!childPid) return;
@@ -137,7 +136,7 @@ function runCrawler(payload: NationalSupportJobPayload) {
   );
 }
 
-function runApplication(payload: NationalSupportJobPayload) {
+function runIntegratedFlow(payload: NationalSupportJobPayload) {
   if (
     !isValidNationalSupportContactName(payload.contact_name) ||
     !isValidNationalSupportMobile(payload.contact_phone)
@@ -145,10 +144,10 @@ function runApplication(payload: NationalSupportJobPayload) {
     throw new Error("자동 신청에 사용할 수 있는 담당자명 또는 010 휴대전화가 없습니다.");
   }
   return runPythonAutomation(
-    "apply_national_support_application_cli.py",
+    "national_support_flow_cli.py",
     [...commonArgs(payload), "--year", String(payload.year)],
-    "건강디딤돌 신청",
-    APPLICATION_TIMEOUT_MS,
+    "건강디딤돌 업체 단위 조회·신청",
+    INTEGRATED_FLOW_TIMEOUT_MS,
   );
 }
 
@@ -256,24 +255,37 @@ export async function processNationalSupportJob(
   };
 
   try {
-    const lookupResult = resultCode(
-      await runCrawler(payload),
-      "건강디딤돌 조회",
-    ) as PortalLookupResult;
-    const final = await handleLookupResult(lookupResult);
-    console.info("[NationalSupportWorker] 조회 판정 완료", {
-      target_id: payload.target_id,
-      mode,
-      lookupResult,
-    });
+    if (mode === "apply_if_missing") {
+      const flowResult = resultCode(
+        await runIntegratedFlow(payload),
+        "건강디딤돌 업체 단위 조회·신청",
+      );
+      console.info("[NationalSupportWorker] 통합 조회·신청 판정 완료", {
+        target_id: payload.target_id,
+        mode,
+        result: flowResult,
+      });
 
-    if (final) return final;
+      if (
+        flowResult === "SUPPORT" ||
+        flowResult === "NON_SUPPORT" ||
+        flowResult === "STANDBY" ||
+        flowResult === "NO_RESULT"
+      ) {
+        const lookupResult = flowResult as PortalLookupResult;
+        const final = await handleLookupResult(lookupResult);
+        if (final) return final;
+        if (lookupResult === "STANDBY") {
+          await updateProgress(
+            "확인대기",
+            "기존 신청 또는 심사 중인 내역이 확인되어 신청하지 않았습니다.",
+          );
+          return { status: "확인대기" };
+        }
+        throw new Error("통합 자동화가 조회 결과 없음 이후 신청 단계를 완료하지 못했습니다.");
+      }
 
-    if (mode === "apply_if_missing" && shouldApplyAfterLookup(lookupResult)) {
-      const applicationResult = resultCode(
-        await runApplication(payload),
-        "건강디딤돌 신청",
-      ) as ApplicationResult;
+      const applicationResult = flowResult as ApplicationResult;
 
       if (applicationResult === "OVER_50" || applicationResult === "NO_EMPLOYEE_INFO") {
         await updateProgress(
@@ -300,6 +312,19 @@ export async function processNationalSupportJob(
         },
       };
     }
+
+    const lookupResult = resultCode(
+      await runCrawler(payload),
+      "건강디딤돌 조회",
+    ) as PortalLookupResult;
+    const final = await handleLookupResult(lookupResult);
+    console.info("[NationalSupportWorker] 조회 판정 완료", {
+      target_id: payload.target_id,
+      mode,
+      lookupResult,
+    });
+    if (final) return final;
+
 
     if (mode === "final_lookup") {
       if (shouldRetryFinalLookup(lookupResult, attemptCount)) {
