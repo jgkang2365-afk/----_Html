@@ -276,7 +276,7 @@ export async function processNationalSupportJob(
             ? "신청 시점 50인 이상 - 사용자가 직접 확인해야 합니다."
             : "공단 근로자 수 정보 없음 - 사용자가 직접 확인해야 합니다.",
         );
-        return { status: "비대상(대기)" };
+        return { status: "50인↑ (신청보류)" };
       }
       if (applicationResult === "ALREADY_APPLIED") {
         await updateProgress("확인대기", "기존 신청 내역이 확인되어 결과 조회를 대기합니다.");

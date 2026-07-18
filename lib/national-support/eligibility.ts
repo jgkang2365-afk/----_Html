@@ -95,7 +95,7 @@ export function getNationalSupportDisplayStatus(input: NationalSupportLookupInpu
     case "조회중":
       return "조회 중";
     case "비대상대기":
-      return "비대상(대기)";
+      return "50인↑ (신청보류)";
     case "신청완료대기":
       return "신청완료(결과 대기)";
     case "수동확인필요":

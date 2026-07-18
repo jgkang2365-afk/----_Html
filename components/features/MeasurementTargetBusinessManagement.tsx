@@ -837,7 +837,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     period: item.period,
                     code: item.code,
                     year: item.year,
-                    mode: "lookup_only",
+                    mode: hasNationalSupportApplicationInformation({
+                        industrial_accident_number: sanjaeVal,
+                        commencement_number: commencementVal,
+                        representative_name: representativeVal,
+                        manager_name: item.manager_name,
+                        manager_mobile: item.manager_mobile,
+                    }) ? "apply_if_missing" : "lookup_only",
                 })
             });
 
@@ -1332,7 +1338,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         </select>
                                     </div>
                                 <div className="text-center text-xs px-1 flex items-center justify-center gap-1.5">
-                                    <span className={item.sync_status === "성공" && item.national_support_status === "대상" ? "text-green-600 font-semibold" : ""}>
+                                    <span className={
+                                        item.sync_status === "성공" && item.national_support_status === "대상"
+                                            ? "text-green-600 font-semibold"
+                                            : item.sync_status === "비대상대기"
+                                                ? "text-red-600 font-semibold"
+                                                : ""
+                                    }>
                                         {getNationalSupportDisplayStatus({
                                             ...item,
                                             industrial_accident_number: item.industrial_accident_number || item.sanjae,
