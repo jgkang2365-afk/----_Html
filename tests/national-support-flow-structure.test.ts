@@ -12,6 +12,10 @@ const workerSource = readFileSync(
   path.join(root, "lib", "automation", "national-support-worker.ts"),
   "utf8",
 );
+const targetManagementSource = readFileSync(
+  path.join(root, "components", "features", "MeasurementTargetBusinessManagement.tsx"),
+  "utf8",
+);
 const migrationSource = readFileSync(
   path.join(
     root,
@@ -45,4 +49,12 @@ test("DB는 건강디딤돌 processing 작업을 한 건으로 제한한다", ()
   );
   assert.match(migrationSource, /job_type = 'national_support'/);
   assert.match(migrationSource, /status = 'processing'/);
+});
+
+test("측정대상 목록은 깡통컴의 국고 상태 변경을 계속 자동 반영한다", () => {
+  assert.match(targetManagementSource, /cache: "no-store"/);
+  assert.match(targetManagementSource, /"신청중", "조회중", "신청완료대기"/);
+  assert.match(targetManagementSource, /hasPendingNationalSupport \? 3000 : 15000/);
+  assert.match(targetManagementSource, /window\.addEventListener\("focus", refreshWhenVisible\)/);
+  assert.match(targetManagementSource, /document\.addEventListener\("visibilitychange", refreshWhenVisible\)/);
 });

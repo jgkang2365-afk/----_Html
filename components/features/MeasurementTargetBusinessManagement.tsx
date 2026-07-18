@@ -170,6 +170,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     // Data State
     const [data, setData] = useState<BusinessEntry[]>([]);
     const [filteredData, setFilteredData] = useState<BusinessEntry[]>([]);
+    const dataFetchInFlightRef = useRef(false);
 
     // 국고 일괄 조회를 위한 상태 정의
     const [isBulkProcessing, setIsBulkProcessing] = useState(false);
@@ -211,8 +212,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         setBulkLogs([`[시작] 총 ${targets.length}건에 대한 국고 일괄 처리를 시작합니다.`]);
         setShowBulkModal(true);
 
-        // 동시 처리 제한 (동시 최대 2개씩 순차 처리)
-        const limit = 2;
+        // Worker/Chrome 단일 실행 정책에 맞춰 큐 등록도 한 건씩 순차 처리합니다.
+        const limit = 1;
         let currentIndex = 0;
 
         const runNext = async () => {
@@ -272,8 +273,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
         await Promise.all(workers);
 
-        setBulkLogs((prev) => [`[완료] 국고 일괄 처리가 최종 종료되었습니다.`, ...prev]);
-        alert("국고 일괄 처리가 완료되었습니다.");
+        setBulkLogs((prev) => [`[요청 완료] 국고 일괄 조회가 모두 대기열에 등록되었습니다. 처리 결과는 목록에 자동 반영됩니다.`, ...prev]);
+        alert("국고 일괄 조회 요청 등록이 완료되었습니다. 깡통컴 처리 결과는 목록에 자동 반영됩니다.");
         setIsBulkProcessing(false);
         fetchData();
     };
@@ -596,8 +597,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     // Fetch Raw Data
     const fetchData = useCallback(async (options?: { silent?: boolean }) => {
+        if (dataFetchInFlightRef.current) return;
+        dataFetchInFlightRef.current = true;
+
         const [year, period] = filters.yearPeriod.split("-");
-        if (!year || !period) return;
+        if (!year || !period) {
+            dataFetchInFlightRef.current = false;
+            return;
+        }
 
         if (!options?.silent) {
             setLoading(true);
@@ -607,7 +614,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             params.append("year", year);
             params.append("period", period);
 
-            const response = await fetch(`/api/businesses?${params.toString()}`);
+            const response = await fetch(`/api/businesses?${params.toString()}`, {
+                cache: "no-store",
+            });
             if (!response.ok) throw new Error("Failed to fetch data");
 
             const result = await response.json();
@@ -621,6 +630,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 setLoading(false);
             }
         }
+        dataFetchInFlightRef.current = false;
     }, [filters.yearPeriod]);
 
     // Client-side Filtering
@@ -712,19 +722,31 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         fetchData();
     }, [fetchData]);
 
-    // 백그라운드 작업자가 건강디딤돌 조회를 처리하는 동안 결과가 반영될 때까지 자동 갱신합니다.
+    const hasPendingNationalSupport = data.some(item =>
+        ["신청중", "조회중", "신청완료대기"].includes(item.sync_status || "")
+    );
+
+    // 깡통컴의 DB 변경을 화면에 반영합니다. 진행 중에는 빠르게, 평상시에는 낮은 빈도로 확인합니다.
     useEffect(() => {
-        const hasPendingNationalSupport = data.some(item =>
-            item.sync_status === "신청중" || item.sync_status === "조회중"
+        const refreshWhenVisible = () => {
+            if (document.visibilityState === "visible") {
+                fetchData({ silent: true });
+            }
+        };
+
+        const timer = window.setInterval(
+            refreshWhenVisible,
+            hasPendingNationalSupport ? 3000 : 15000,
         );
-        if (!hasPendingNationalSupport) return;
+        window.addEventListener("focus", refreshWhenVisible);
+        document.addEventListener("visibilitychange", refreshWhenVisible);
 
-        const timer = window.setInterval(() => {
-            fetchData({ silent: true });
-        }, 5000);
-
-        return () => window.clearInterval(timer);
-    }, [data, fetchData]);
+        return () => {
+            window.clearInterval(timer);
+            window.removeEventListener("focus", refreshWhenVisible);
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+        };
+    }, [fetchData, hasPendingNationalSupport]);
 
     const handleSearch = () => {
         fetchData();
