@@ -6,6 +6,8 @@ import {
   getNationalSupportDisplayStatus,
   hasNationalSupportApplicationInformation,
   getInitialNationalSupportState,
+  isValidNationalSupportContactName,
+  isValidNationalSupportMobile,
 } from "../lib/national-support/eligibility";
 
 test("표제가 있는 산재·개시번호를 비고에서 추출한다", () => {
@@ -55,7 +57,7 @@ test("조회 정보와 담당자 정보가 모두 있으면 자동 신청 대상
     commencement_number: "92515679367",
     representative_name: "홍길동",
     manager_name: "김담당 과장",
-    manager_mobile: "010-1234-5678",
+    manager_mobile: "010-9241-0780",
   };
   assert.equal(hasNationalSupportApplicationInformation(input), true);
   assert.equal(getInitialNationalSupportState(input).shouldAutoApply, true);
@@ -123,4 +125,15 @@ test("자동 신청 후 확정 결과가 없으면 신청완료 대기로 표시
     getNationalSupportDisplayStatus({ period: "하반기", sync_status: "신청완료대기" }),
     "신청완료(결과 대기)",
   );
+});
+
+
+test("자동 신청 담당자와 휴대전화의 더미값을 거부한다", () => {
+  assert.equal(isValidNationalSupportContactName("남주원 이사"), true);
+  assert.equal(isValidNationalSupportContactName("담당자"), false);
+  assert.equal(isValidNationalSupportContactName("1234"), false);
+  assert.equal(isValidNationalSupportMobile("010-9241-0780"), true);
+  assert.equal(isValidNationalSupportMobile("041-123-4567"), false);
+  assert.equal(isValidNationalSupportMobile("010-0000-0000"), false);
+  assert.equal(isValidNationalSupportMobile("010-1234-5678"), false);
 });

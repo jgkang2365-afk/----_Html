@@ -15,6 +15,25 @@ import platform
 from openpyxl import load_workbook
 import json
 import sys
+from datetime import datetime
+
+
+def classify_employee_check(value):
+    text = str(value or "").strip()
+    if not text:
+        return "NO_INFO"
+    if "50인 이상" in text:
+        return "OVER_50"
+    if "50인 미만" in text or ("%" in text and "50인 이상" not in text):
+        return "OK"
+    return "EMPLOYEE_CHECK_FAILED"
+
+
+def has_application_success_marker(value):
+    text = str(value or "")
+    return any(marker in text for marker in (
+        "신청이 완료", "신청 완료", "접수가 완료", "접수번호",
+    ))
 
 
 # customtkinter 설정
@@ -592,7 +611,7 @@ class HealthProgramAutomation:
                 try:
                     # 신청 프로세스 실행
                     result_status = self._process_application(row, biz_id, biz_start_no, biz_name, biz_address, 
-                                             biz_contact_name, biz_contact_phone, url, half)
+                                             biz_contact_name, biz_contact_phone, url, half, year)
                     
                     if result_status == "OK":
                         # 신청 완료된 행에 '○' 기재 (H열: 신청 여부)
@@ -638,7 +657,7 @@ class HealthProgramAutomation:
                 workbook.close()
     
     def _process_application(self, row, biz_id, biz_start_no, biz_name, biz_address, 
-                            biz_contact_name, biz_contact_phone, url, half):
+                            biz_contact_name, biz_contact_phone, url, half, year=None):
         """개별 신청 프로세스 처리"""
         # 첫 번째 '신청하기' 버튼 클릭
         apply_button_xpath1 = '//*[@id="contents"]/header/div[2]/button'
@@ -655,6 +674,15 @@ class HealthProgramAutomation:
         )
         apply_link.click()
         time.sleep(1.5)
+
+        requested_year = str(year or "").strip()
+        if not requested_year or requested_year != str(datetime.now().year):
+            self.update_progress("  -> 신청 연도가 현재 접수 연도와 다르므로 자동 신청을 중단합니다.")
+            return "YEAR_CHECK_REQUIRED"
+        portal_year_text = self.driver.find_element(By.TAG_NAME, "body").text
+        if requested_year not in portal_year_text:
+            self.update_progress("  -> 공단 신청 화면에서 요청 연도를 확인할 수 없어 중단합니다.")
+            return "YEAR_CHECK_REQUIRED"
         
         # "0000년 50인미만 비용지원 비율 등 안내" 팝업창 확인
         popup_button_xpath = '//*[@id="app"]/div[7]/div/section/footer/button[2]/span'
@@ -807,7 +835,8 @@ class HealthProgramAutomation:
                 raise Exception("반기 옵션 항목을 찾을 수 없습니다.")
                 
         except Exception as e:
-            self.update_progress(f"반기 종류 선택 중 오류 발생 (무시하고 진행): {str(e)}")
+            self.update_progress(f"반기 종류 선택 중 오류 발생: {str(e)}")
+            return "FAIL"
         
         # '희망측정기관' 검색 버튼 클릭
         search_button_xpath = '//*[@id="contents"]/section/section[3]/div/button'
@@ -887,44 +916,20 @@ class HealthProgramAutomation:
         search_button.click()
         time.sleep(1.5)
         
-        # 고용보험 근로자수 확인 (#percentage)
+        # 고용보험 근로자수 확인 (#percentage) - 확인 실패 시 제출 금지
         try:
-            percentage_elem = WebDriverWait(self.driver, 5).until(
+            percentage_elem = WebDriverWait(self.driver, 8).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, '#percentage'))
             )
-            percentage_text = percentage_elem.text.strip()
-            # 텍스트가 없으면 value 속성 확인 (input 태그일 경우 대비)
-            if not percentage_text:
-                percentage_text = percentage_elem.get_attribute("value")
-            
-            if percentage_text:
-                percentage_text = str(percentage_text).strip()
-            
-            # "50인 이상" 체크 또는 빈 값 체크
-            if percentage_text and "50인 이상" in percentage_text:
-                self.update_progress("  -> 50인 이상 사업장입니다. 신청을 취소합니다.")
-                self.driver.get(url)  # 메인으로 복귀
-                # 메인 페이지 '신청하기' 버튼 로드 대기
-                apply_button_xpath1 = '//*[@id="contents"]/header/div[2]/button'
-                WebDriverWait(self.driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, apply_button_xpath1))
-                )
-                time.sleep(3)
-                return "OVER_50"
-            elif not percentage_text:
-                self.update_progress("  -> 근로자 수 정보가 없습니다. 신청을 취소합니다.")
-                self.driver.get(url)  # 메인으로 복귀
-                # 메인 페이지 '신청하기' 버튼 로드 대기
-                apply_button_xpath1 = '//*[@id="contents"]/header/div[2]/button'
-                WebDriverWait(self.driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, apply_button_xpath1))
-                )
-                time.sleep(3)
-                return "NO_INFO"
-                
+            percentage_text = percentage_elem.text.strip() or percentage_elem.get_attribute("value")
+            employee_result = classify_employee_check(percentage_text)
+            if employee_result != "OK":
+                self.update_progress(f"  -> 근로자 수 확인 결과 {employee_result}. 자동 신청을 중단합니다.")
+                return employee_result
         except Exception as e:
-            self.update_progress(f"  -> 근로자 수 확인 중 오류 (무시하고 진행): {str(e)}")
-            
+            self.update_progress(f"  -> 근로자 수 확인 실패. 자동 신청을 중단합니다: {str(e)}")
+            return "EMPLOYEE_CHECK_FAILED"
+
         # '작업환경측정 비용지원 환수 동의' 체크박스 클릭
         agreement_checkbox_xpath = '//*[@id="contents"]/section/section[8]/div[2]/label'
         agreement_checkbox = WebDriverWait(self.driver, 10).until(
@@ -947,16 +952,20 @@ class HealthProgramAutomation:
             EC.element_to_be_clickable((By.XPATH, popup_button_xpath))
         )
         popup_button.click()
-        time.sleep(1.5)
-        
-        # 다음 신청을 위해 메인 페이지로 돌아가기
+        try:
+            WebDriverWait(self.driver, 12).until(
+                lambda current_driver: has_application_success_marker(
+                    current_driver.find_element(By.TAG_NAME, "body").text
+                )
+            )
+        except Exception:
+            self.update_progress("  -> 신청 완료 응답을 명확히 확인하지 못했습니다.")
+            return "APPLY_RESULT_UNKNOWN"
+
         self.driver.get(url)
-        apply_button_xpath1 = '//*[@id="contents"]/header/div[2]/button'
         WebDriverWait(self.driver, 20).until(
-            EC.element_to_be_clickable((By.XPATH, apply_button_xpath1))
+            EC.element_to_be_clickable((By.XPATH, '//*[@id="contents"]/header/div[2]/button'))
         )
-        time.sleep(2)
-        
         return "OK"
     
     def check_result(self, year, half):

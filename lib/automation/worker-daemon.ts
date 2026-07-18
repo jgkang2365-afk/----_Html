@@ -6,6 +6,7 @@ import { getKSTISOString, getKSTDateString } from '../utils/date-utils';
 import { syncBusinessToCalendar } from "../google/sync-service";
 import { getCalendarConfigurationStatus } from "../google/calendar";
 import { processNationalSupportJob } from "./national-support-worker";
+import { enqueueNationalSupportJob } from "../national-support/job-queue";
 
 /**
  * 백그라운드 작업기 데몬 (Worker Daemon)
@@ -95,6 +96,8 @@ export class WorkerDaemon {
                 .from('background_jobs')
                 .select('*')
                 .eq('status', 'pending')
+                .lte('available_at', new Date().toISOString())
+                .order('available_at', { ascending: true })
                 .order('created_at', { ascending: true })
                 .limit(1);
 
@@ -211,8 +214,35 @@ export class WorkerDaemon {
 
     private async processNationalSupportJob(job: any) {
         try {
-            await processNationalSupportJob(job.payload);
+            const result = await processNationalSupportJob({
+                ...job.payload,
+                attempt_count: job.attempt_count ?? job.payload?.attempt_count ?? 0,
+            });
             await this.updateJobStatus(job.id, 'success');
+            if (result.followUp) {
+                const supabase = await createClient();
+                try {
+                    await enqueueNationalSupportJob(
+                        supabase,
+                        result.followUp.payload,
+                        result.followUp.availableAt,
+                    );
+                } catch (queueError: any) {
+                    const { error: fallbackError } = await supabase
+                        .from('background_jobs')
+                        .update({
+                            status: 'pending',
+                            payload: result.followUp.payload,
+                            available_at: result.followUp.availableAt.toISOString(),
+                            attempt_count: result.followUp.payload.attempt_count || 0,
+                            error_message: "후속 조회 등록 재사용: " + (queueError?.message || String(queueError)),
+                            updated_at: getKSTISOString(),
+                        })
+                        .eq('id', job.id);
+                    if (fallbackError) throw fallbackError;
+                    console.warn("[WorkerDaemon] 후속 조회 작업을 현재 작업 ID로 재등록: " + job.id);
+                }
+            }
         } catch (error: any) {
             await this.updateJobStatus(
                 job.id,

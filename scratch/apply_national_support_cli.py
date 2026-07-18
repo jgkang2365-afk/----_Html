@@ -140,14 +140,11 @@ def main():
                     return "NON_SUPPORT"
                 return "STANDBY"
 
-            def normalize_period(p):
-                return p.split("(")[0].strip()
-
             def parse_row(cols):
                 texts = [col.text.strip() for col in cols]
                 row_text = " | ".join(texts)
                 has_year = any(text == year for text in texts)
-                has_period = any(normalize_period(text) == normalize_period(period) for text in texts)
+                has_period = any(text.strip() == period for text in texts)
 
                 result_status = None
                 for text in texts:

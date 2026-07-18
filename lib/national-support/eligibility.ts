@@ -1,3 +1,5 @@
+import { normalizeContactName } from "@/lib/utils/data-utils";
+
 export type NationalSupportLookupInput = {
   period?: string | null;
   national_support_status?: string | null;
@@ -11,6 +13,7 @@ export type NationalSupportLookupInput = {
 
 const IN_PROGRESS_STATUSES = new Set(["신청중", "조회중"]);
 const COMPLETED_STATUSES = new Set(["대상", "비대상"]);
+const INVALID_CONTACT_NAMES = new Set(["담당자", "미정", "없음", "대표번호"]);
 
 export function normalizeElevenDigitNumber(value: unknown): string | null {
   const digits = String(value ?? "").replace(/\D/g, "");
@@ -23,23 +26,14 @@ function extractLabelledNumber(notes: string, labels: string[]): string | null {
     `(?:${labelPattern})\\s*(?:[:：=]|-)?\\s*([0-9][0-9\\s-]{9,20})`,
     "i",
   );
-  const match = notes.match(pattern);
-  return normalizeElevenDigitNumber(match?.[1]);
+  return normalizeElevenDigitNumber(notes.match(pattern)?.[1]);
 }
 
 export function extractInsuranceNumbers(notes: unknown) {
   const text = String(notes ?? "");
   return {
-    industrialAccidentNumber: extractLabelledNumber(text, [
-      "산재관리번호",
-      "산재번호",
-      "산재",
-    ]),
-    commencementNumber: extractLabelledNumber(text, [
-      "사업개시번호",
-      "개시번호",
-      "개시",
-    ]),
+    industrialAccidentNumber: extractLabelledNumber(text, ["산재관리번호", "산재번호", "산재"]),
+    commencementNumber: extractLabelledNumber(text, ["사업개시번호", "개시번호", "개시"]),
   };
 }
 
@@ -47,9 +41,7 @@ export function isAdHocMeasurement(period: unknown) {
   return String(period ?? "").includes("(수시)");
 }
 
-export function hasNationalSupportLookupInformation(
-  input: NationalSupportLookupInput,
-) {
+export function hasNationalSupportLookupInformation(input: NationalSupportLookupInput) {
   return Boolean(
     normalizeElevenDigitNumber(input.industrial_accident_number) &&
       normalizeElevenDigitNumber(input.commencement_number) &&
@@ -57,39 +49,47 @@ export function hasNationalSupportLookupInformation(
   );
 }
 
-export function hasNationalSupportApplicationInformation(
-  input: NationalSupportLookupInput,
-) {
+export function isValidNationalSupportContactName(value: unknown) {
+  const normalized = normalizeContactName(String(value ?? ""));
   return Boolean(
-    hasNationalSupportLookupInformation(input) &&
-      input.manager_name?.trim() &&
-      input.manager_mobile?.trim(),
+    normalized &&
+      !INVALID_CONTACT_NAMES.has(normalized) &&
+      !/^\d+$/.test(normalized) &&
+      /[가-힣A-Za-z]/.test(normalized),
   );
 }
 
-export function canRequestNationalSupportLookup(
-  input: NationalSupportLookupInput,
-) {
+export function isValidNationalSupportMobile(value: unknown) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!/^010\d{7,8}$/.test(digits)) return false;
+  const subscriber = digits.slice(3);
+  if (/^(\d)\1+$/.test(subscriber)) return false;
+  return digits !== "01012345678" && digits !== "0101234567";
+}
+
+export function hasNationalSupportApplicationInformation(input: NationalSupportLookupInput) {
+  return Boolean(
+    hasNationalSupportLookupInformation(input) &&
+      isValidNationalSupportContactName(input.manager_name) &&
+      isValidNationalSupportMobile(input.manager_mobile),
+  );
+}
+
+export function canRequestNationalSupportLookup(input: NationalSupportLookupInput) {
   if (isAdHocMeasurement(input.period)) return false;
   if (input.national_support_status === "비대상") return false;
   if (IN_PROGRESS_STATUSES.has(input.sync_status || "")) return false;
-  if (
-    input.sync_status === "성공" &&
-    COMPLETED_STATUSES.has(input.national_support_status || "")
-  ) {
+  if (input.sync_status === "성공" && COMPLETED_STATUSES.has(input.national_support_status || "")) {
     return false;
   }
   return hasNationalSupportLookupInformation(input);
 }
 
-export function getNationalSupportDisplayStatus(
-  input: NationalSupportLookupInput,
-) {
+export function getNationalSupportDisplayStatus(input: NationalSupportLookupInput) {
   if (isAdHocMeasurement(input.period)) return "비대상";
   if (COMPLETED_STATUSES.has(input.national_support_status || "")) {
     return input.national_support_status as "대상" | "비대상";
   }
-
   switch (input.sync_status) {
     case "신청중":
     case "조회중":
@@ -98,6 +98,8 @@ export function getNationalSupportDisplayStatus(
       return "비대상(대기)";
     case "신청완료대기":
       return "신청완료(결과 대기)";
+    case "수동확인필요":
+      return "수동 확인 필요";
     case "실패":
       return "조회 실패";
     case "확인대기":
@@ -111,9 +113,7 @@ export function getNationalSupportDisplayStatus(
   }
 }
 
-export function getInitialNationalSupportState(
-  input: NationalSupportLookupInput,
-) {
+export function getInitialNationalSupportState(input: NationalSupportLookupInput) {
   if (isAdHocMeasurement(input.period)) {
     return {
       nationalSupportStatus: "비대상" as const,
@@ -122,13 +122,11 @@ export function getInitialNationalSupportState(
       shouldAutoApply: false,
     };
   }
-
   const hasLookupInfo = hasNationalSupportLookupInformation(input);
-  const hasApplicationInfo = hasNationalSupportApplicationInformation(input);
   return {
     nationalSupportStatus: null,
     syncStatus: hasLookupInfo ? ("조회대기" as const) : ("정보부족" as const),
     shouldQueueLookup: hasLookupInfo,
-    shouldAutoApply: hasApplicationInfo,
+    shouldAutoApply: hasNationalSupportApplicationInformation(input),
   };
 }

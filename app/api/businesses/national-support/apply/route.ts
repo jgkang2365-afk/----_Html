@@ -4,7 +4,7 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
-import { normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
+import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
 
 /**
  * 건강디딤돌 자동 신청 API
@@ -65,6 +65,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (jobMode === "apply_if_missing" && !hasNationalSupportApplicationInformation({
+      industrial_accident_number: normalizedSanjae,
+      commencement_number: normalizedCommencement,
+      representative_name: representative,
+      manager_name: contact_name,
+      manager_mobile: contact_phone,
+    })) {
+      return NextResponse.json(
+        { error: "자동 신청에는 실제 담당자명과 010 휴대전화가 필요합니다." },
+        { status: 400 },
+      );
+    }
+
     const supabase = await createClient();
 
     // 중복 전송 방지를 위한 락(Lock) 확인 및 설정
@@ -104,7 +117,7 @@ export async function POST(request: NextRequest) {
       .select("id")
       .eq("job_type", "national_support")
       .in("status", ["pending", "processing", "cancel_requested"])
-      .contains("payload", { target_id })
+      .contains("payload", { target_id, mode: jobMode })
       .limit(1);
     if (duplicateJobError) {
       return NextResponse.json(

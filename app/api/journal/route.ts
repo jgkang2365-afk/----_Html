@@ -9,6 +9,7 @@ import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
 import { hasNationalSupportLookupInformation, isAdHocMeasurement } from "@/lib/national-support/eligibility";
+import { preserveFinalNationalSupportStatus } from "@/lib/national-support/workflow";
 
 async function queueFinalNationalSupportLookup(
   supabase: any,
@@ -30,14 +31,25 @@ async function queueFinalNationalSupportLookup(
   if (!targetId) {
     const { data: target } = await supabase
       .from("measurement_target_business")
-      .select("id")
+      .select("id, national_support_status")
       .eq("code", input.code)
       .eq("year", Number(input.year))
       .eq("period", input.period)
       .maybeSingle();
     targetId = target?.id;
+    if (target?.national_support_status === "대상" || target?.national_support_status === "비대상") {
+      return false;
+    }
   }
   if (!targetId) return false;
+  const { data: targetState } = await supabase
+    .from("measurement_target_business")
+    .select("national_support_status")
+    .eq("id", targetId)
+    .maybeSingle();
+  if (targetState?.national_support_status === "대상" || targetState?.national_support_status === "비대상") {
+    return false;
+  }
   if (!hasNationalSupportLookupInformation({
     industrial_accident_number: input.sanjae,
     commencement_number: input.commencement,
@@ -49,7 +61,7 @@ async function queueFinalNationalSupportLookup(
     .select("id")
     .eq("job_type", "national_support")
     .in("status", ["pending", "processing", "cancel_requested"])
-    .contains("payload", { target_id: targetId })
+    .contains("payload", { target_id: targetId, mode: "final_lookup" })
     .limit(1);
   if (activeJobError || (activeJobs && activeJobs.length > 0)) return false;
 
@@ -58,7 +70,6 @@ async function queueFinalNationalSupportLookup(
     .update({
       sync_status: "조회중",
       sync_error_message: null,
-      national_support_status: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", targetId);
@@ -225,6 +236,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const { data: targetStateBeforeSave } = await supabase
+      .from("measurement_target_business")
+      .select("id, national_support_status")
+      .eq("code", code)
+      .eq("year", Number(measurementYear))
+      .eq("period", measurementPeriod)
+      .maybeSingle();
+
     // business_info 테이블에서 추가 정보 가져오기
     const { data: businessInfo, error: businessInfoError } = await supabase
       .from("business_info")
@@ -243,7 +262,7 @@ export async function POST(request: NextRequest) {
 
     const { data: allExistingJournals, error: existingError } = await supabase
       .from("measurement_journal")
-      .select("id, code, business_name, document_number, sequence_number, five_plus_sequence, commencement_number, updated_at, created_at")
+      .select("id, code, business_name, document_number, sequence_number, five_plus_sequence, commencement_number, national_support_status, updated_at, created_at")
       .eq("code", code)
       .eq("measurement_year", measurementYear)
       .eq("measurement_period", measurementPeriod)
@@ -320,6 +339,13 @@ export async function POST(request: NextRequest) {
             updateData[key] = null;
           }
         });
+
+        updateData.national_support_status = preserveFinalNationalSupportStatus(
+          body.national_support_status,
+          existingJournal.national_support_status,
+          businessData.national_support_status,
+          targetStateBeforeSave?.national_support_status,
+        );
 
         // note 필드 처리
         if (body.note) {
@@ -579,7 +605,11 @@ export async function POST(request: NextRequest) {
       phone: businessInfo?.phone || null,
       fax: businessInfo?.fax || null,
       business_category: body.business_category || businessData.business_category || null,
-      national_support_status: body.national_support_status || businessData.national_support_status || null,
+      national_support_status: preserveFinalNationalSupportStatus(
+        body.national_support_status,
+        businessData.national_support_status,
+        targetStateBeforeSave?.national_support_status,
+      ),
       // measurement_business에서 담당자 정보 가져오기 (사용자 입력 값 우선)
       industrial_accident_number: cleanToDigits(body.industrial_accident_number || businessData.industrial_accident_number),
       manager_name: (() => {
@@ -714,7 +744,7 @@ export async function POST(request: NextRequest) {
     // 측정 대상 사업장 계획 업데이트 (진행률 파목 및 데이터 동기화)
     const { data: existingPlan, error: planCheckError } = await supabase
       .from("measurement_target_business")
-      .select("id")
+      .select("id, national_support_status")
       .eq("code", code)
       .eq("year", measurementYear)
       .eq("period", measurementPeriod)
@@ -736,7 +766,11 @@ export async function POST(request: NextRequest) {
             total_employees: journalData.total_employees,
             address: journalData.address,
             office_jurisdiction: journalData.office_jurisdiction,
-            national_support_status: body.national_support_status || journalData.national_support_status || null,
+            national_support_status: preserveFinalNationalSupportStatus(
+              body.national_support_status,
+              journalData.national_support_status,
+              existingPlan.national_support_status,
+            ),
             manager_name: journalData.manager_name,
             manager_mobile: journalData.manager_mobile,
             manager_phone: journalData.phone,
@@ -760,7 +794,12 @@ export async function POST(request: NextRequest) {
               invoice_email: journalData.invoice_email,
               invoice_email_2: journalData.invoice_email_2,
               business_category: journalData.business_category,
-              national_support_status: body.national_support_status || null,
+              national_support_status: preserveFinalNationalSupportStatus(
+                body.national_support_status,
+                journalData.national_support_status,
+                existingPlan.national_support_status,
+                businessData.national_support_status,
+              ),
               industrial_accident_number: journalData.industrial_accident_number,
               total_employees: journalData.total_employees,
               representative_name: journalData.representative_name,
