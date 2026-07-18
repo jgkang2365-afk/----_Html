@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
@@ -5,12 +6,14 @@ import { getUser } from "@/lib/auth/get-user";
 import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
 import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
+import { classifyNationalSupportQueueError } from "@/lib/national-support/queue-error";
 
 /**
  * 건강디딤돌 자동 신청 API
  * POST /api/businesses/national-support/apply
  */
 export async function POST(request: NextRequest) {
+  const correlationId = randomUUID();
   try {
     // 권한 검증
     await checkPermission("journal:write");
@@ -107,27 +110,11 @@ export async function POST(request: NextRequest) {
 
     if (currentPlan.sync_status === "신청중" || currentPlan.sync_status === "조회중") {
       return NextResponse.json(
-        { error: "이미 해당 사업장에 대한 결과 조회 작업이 진행 중입니다." },
-        { status: 400 }
-      );
-    }
-
-    const { data: duplicateJobs, error: duplicateJobError } = await supabase
-      .from("background_jobs")
-      .select("id")
-      .eq("job_type", "national_support")
-      .in("status", ["pending", "processing", "cancel_requested"])
-      .contains("payload", { target_id, mode: jobMode })
-      .limit(1);
-    if (duplicateJobError) {
-      return NextResponse.json(
-        { error: "건강디딤돌 중복 작업 확인에 실패했습니다." },
-        { status: 500 },
-      );
-    }
-    if (duplicateJobs && duplicateJobs.length > 0) {
-      return NextResponse.json(
-        { error: "이미 해당 사업장의 결과 조회 작업이 대기 중이거나 진행 중입니다." },
+        {
+          error: "이미 해당 사업장에 대한 결과 조회 작업이 진행 중입니다.",
+          errorCode: "NATIONAL_SUPPORT_ALREADY_RUNNING",
+          correlationId,
+        },
         { status: 409 },
       );
     }
@@ -196,71 +183,67 @@ export async function POST(request: NextRequest) {
     }
 
 
-    // 조회 작업 락과 입력값만 저장합니다. 결과가 나오기 전에는 대상 여부를 확정하지 않습니다.
-    const { data: lockedPlan, error: lockError } = await supabase
-      .from("measurement_target_business")
-      .update({
-        sync_status: "조회중",
-        sync_error_message: null,
-        industrial_accident_number: normalizedSanjae,
-        commencement_number: normalizedCommencement,
-        representative_name: representative || null,
-      })
-      .eq("id", target_id)
-      .or("sync_status.is.null,sync_status.not.in.(신청중,조회중)")
-      .select("id")
-      .maybeSingle();
+    const jobPayload = {
+      target_id,
+      sanjae: normalizedSanjae,
+      commencement: normalizedCommencement,
+      representative: normalizeRepresentativeName(representative) || representative,
+      contact_name: normalizeContactName(contact_name) || "",
+      contact_phone: contact_phone || "",
+      period,
+      code,
+      year,
+      requested_by: user.id,
+      mode: jobMode,
+    };
 
-    if (lockError) {
-      console.error("락 설정 실패:", lockError);
-      return NextResponse.json(
-        { error: "자동 신청 상태를 변경하는 데 실패했습니다." },
-        { status: 500 }
-      );
-    }
-    if (!lockedPlan) {
-      return NextResponse.json(
-        { error: "다른 요청이 먼저 조회 작업을 시작했습니다." },
-        { status: 409 },
-      );
-    }
+    // 행 잠금, 조회중 상태 변경, 큐 등록을 PostgreSQL 함수 안의 단일 트랜잭션으로 처리합니다.
+    const { data: queuedJobs, error: queueError } = await supabase.rpc(
+      "enqueue_national_support_job",
+      {
+        p_target_id: Number(target_id),
+        p_job_payload: jobPayload,
+        p_available_at: new Date().toISOString(),
+      },
+    );
+    const queuedJob = Array.isArray(queuedJobs) ? queuedJobs[0] : null;
 
-    // 배포 서버는 Python 크롤러를 직접 실행하지 않습니다. 공용 DB 대기열에 등록하면
-    // 백그라운드 WorkerDaemon이 작업을 가져가 공단 조회와 결과 반영을 수행합니다.
-    const { data: queuedJob, error: queueError } = await supabase
-      .from("background_jobs")
-      .insert({
-        job_type: "national_support",
-        status: "pending",
-        payload: {
-          target_id,
-          sanjae: normalizedSanjae,
-          commencement: normalizedCommencement,
-          representative: normalizeRepresentativeName(representative) || representative,
-          contact_name: normalizeContactName(contact_name) || "",
-          contact_phone: contact_phone || "",
-          period,
-          code,
-          year,
-          requested_by: user.id,
-          mode: jobMode,
+    if (queueError || !queuedJob?.job_id) {
+      const dbError = queueError || {
+        code: "RPC_EMPTY_RESULT",
+        message: "enqueue_national_support_job returned no job",
+        details: null,
+        hint: null,
+      };
+      const errorCode = classifyNationalSupportQueueError(dbError);
+      console.error("[NationalSupportQueue] 원자적 락/큐 등록 실패", {
+        correlationId,
+        errorCode,
+        dbError: {
+          code: dbError.code || null,
+          message: dbError.message || null,
+          details: dbError.details || null,
+          hint: dbError.hint || null,
         },
-      })
-      .select("id")
-      .single();
+        target_id,
+        mode: jobMode,
+        existing_sync_status: currentPlan.sync_status,
+      });
 
-    if (queueError) {
-      await supabase
-        .from("measurement_target_business")
-        .update({
-          sync_status: "실패",
-          sync_error_message: `조회 작업 등록 실패: ${queueError.message}`,
-        })
-        .eq("id", target_id);
-
+      const status = errorCode === "NATIONAL_SUPPORT_ALREADY_RUNNING"
+        ? 409
+        : errorCode === "NATIONAL_SUPPORT_TARGET_NOT_FOUND"
+          ? 404
+          : 500;
       return NextResponse.json(
-        { error: "건강디딤돌 조회 작업을 등록하지 못했습니다." },
-        { status: 500 }
+        {
+          error: status === 409
+            ? "이미 해당 사업장의 조회 작업이 대기 중이거나 진행 중입니다."
+            : "자동 신청 상태를 변경하는 데 실패했습니다.",
+          errorCode,
+          correlationId,
+        },
+        { status },
       );
     }
 
@@ -269,14 +252,23 @@ export async function POST(request: NextRequest) {
       message: jobMode === "apply_if_missing"
         ? "건강디딤돌 조회 및 자동 신청 작업이 백그라운드 작업자에 전달되었습니다."
         : "건강디딤돌 조회 작업이 백그라운드 작업자에 전달되었습니다. 결과는 잠시 후 반영됩니다.",
-      jobId: queuedJob.id,
+      jobId: queuedJob.job_id,
     });
 
   } catch (error: any) {
-    console.error("자동 신청 API 기동 오류:", error);
+    console.error("[NationalSupportQueue] API 처리 오류", {
+      correlationId,
+      errorCode: "NATIONAL_SUPPORT_API_FAILED",
+      code: error?.code || null,
+      message: error?.message || null,
+    });
     return NextResponse.json(
-      { error: error.message || "자동 신청 기동 중 내부 오류가 발생했습니다." },
-      { status: 500 }
+      {
+        error: "자동 신청 기동 중 내부 오류가 발생했습니다.",
+        errorCode: "NATIONAL_SUPPORT_API_FAILED",
+        correlationId,
+      },
+      { status: 500 },
     );
   }
 }
