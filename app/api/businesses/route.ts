@@ -775,6 +775,8 @@ export async function POST(request: NextRequest) {
       industrial_accident_number: industrialAccidentNumber,
       commencement_number: commencementNumber,
       representative_name,
+      manager_name,
+      manager_mobile,
     });
 
     // 2. Insert into measurement_target_business
@@ -824,6 +826,7 @@ export async function POST(request: NextRequest) {
       data: newTarget,
       nationalSupportFollowUp: {
         eligible: initialSupportState.shouldQueueLookup,
+        mode: initialSupportState.shouldAutoApply ? "apply_if_missing" : "lookup_only",
         status: initialSupportState.syncStatus,
       },
     });

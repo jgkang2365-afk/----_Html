@@ -5,6 +5,8 @@ export type NationalSupportLookupInput = {
   industrial_accident_number?: string | null;
   commencement_number?: string | null;
   representative_name?: string | null;
+  manager_name?: string | null;
+  manager_mobile?: string | null;
 };
 
 const IN_PROGRESS_STATUSES = new Set(["신청중", "조회중"]);
@@ -55,6 +57,16 @@ export function hasNationalSupportLookupInformation(
   );
 }
 
+export function hasNationalSupportApplicationInformation(
+  input: NationalSupportLookupInput,
+) {
+  return Boolean(
+    hasNationalSupportLookupInformation(input) &&
+      input.manager_name?.trim() &&
+      input.manager_mobile?.trim(),
+  );
+}
+
 export function canRequestNationalSupportLookup(
   input: NationalSupportLookupInput,
 ) {
@@ -82,6 +94,10 @@ export function getNationalSupportDisplayStatus(
     case "신청중":
     case "조회중":
       return "조회 중";
+    case "비대상대기":
+      return "비대상(대기)";
+    case "신청완료대기":
+      return "신청완료(결과 대기)";
     case "실패":
       return "조회 실패";
     case "확인대기":
@@ -103,13 +119,16 @@ export function getInitialNationalSupportState(
       nationalSupportStatus: "비대상" as const,
       syncStatus: "성공" as const,
       shouldQueueLookup: false,
+      shouldAutoApply: false,
     };
   }
 
   const hasLookupInfo = hasNationalSupportLookupInformation(input);
+  const hasApplicationInfo = hasNationalSupportApplicationInformation(input);
   return {
     nationalSupportStatus: null,
     syncStatus: hasLookupInfo ? ("조회대기" as const) : ("정보부족" as const),
     shouldQueueLookup: hasLookupInfo,
+    shouldAutoApply: hasApplicationInfo,
   };
 }

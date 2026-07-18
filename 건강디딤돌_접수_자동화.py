@@ -991,16 +991,13 @@ class HealthProgramAutomation:
                 continue
             
             if biz_id and str(biz_id).strip():
-                # 대표자명 실시간 1인 정규화 (법적 원본은 보존, 조회 전송 시 가공)
-                if ceo_name:
-                    ceo_name_str = str(ceo_name).strip()
-                    if "," in ceo_name_str:
-                        ceo_name_str = ceo_name_str.split(",")[0].strip()
-                    import re
-                    ceo_name = re.sub(r'외\s*\d*\s*(인|명|)', '', ceo_name_str).strip()
+                # 대표자명에서 첫 번째 이름만 추출 (쉼표로 구분된 경우)
+                if ceo_name and "," in str(ceo_name):
+                    ceo_name = str(ceo_name).split(",")[0].strip()
+                elif ceo_name:
+                    ceo_name = str(ceo_name).strip()
                 else:
                     ceo_name = ""
-
                 
                 # 사업개시번호 처리
                 if biz_start_num:

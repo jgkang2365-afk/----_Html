@@ -19,11 +19,13 @@ import {
 } from "@/components/ui/Table";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
+import { normalizeContactName } from "@/lib/utils/data-utils";
 import * as XLSX from "xlsx";
 import { useUser } from "@/hooks/use-user";
 import {
     canRequestNationalSupportLookup,
     getNationalSupportDisplayStatus,
+    hasNationalSupportApplicationInformation,
     hasNationalSupportLookupInformation,
 } from "@/lib/national-support/eligibility";
 import {
@@ -567,6 +569,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             period: addForm.period,
                             code: addForm.code,
                             year: addForm.year,
+                            mode: createResult.nationalSupportFollowUp.mode || "lookup_only",
                         }),
                     });
                     const followUpResult = await followUpResponse.json();
@@ -833,7 +836,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     contact_phone: item.manager_mobile || "010-0000-0000",
                     period: item.period,
                     code: item.code,
-                    year: item.year
+                    year: item.year,
+                    mode: "lookup_only",
                 })
             });
 
@@ -1646,13 +1650,27 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">측정업무 담당자명</label>
-                                        <Input value={editForm.manager_name || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_name: e.target.value }))} />
+                                        <label className="block text-xs font-semibold text-slate-500 mb-1">측정업무 담당자명 (신청용)</label>
+                                        <Input
+                                            value={normalizeContactName(editForm.manager_name) || ""}
+                                            readOnly
+                                            className="bg-slate-50 text-slate-700"
+                                            title="상단 담당자 정보에서 직책을 제외한 이름이 자동 반영됩니다."
+                                        />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 휴대전화</label>
-                                        <Input value={editForm.manager_mobile || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_mobile: e.target.value }))} placeholder="010-0000-0000" />
+                                        <Input
+                                            value={editForm.manager_mobile || ""}
+                                            readOnly
+                                            className="bg-slate-50 text-slate-700"
+                                            placeholder="010-0000-0000"
+                                            title="상단 담당자 정보의 휴대전화가 자동 반영됩니다."
+                                        />
                                     </div>
+                                    <p className="col-span-2 text-[11px] text-blue-700">
+                                        상단 담당자 정보와 자동 동기화되며, 신청 작업에는 직책을 제외한 이름만 전달됩니다.
+                                    </p>
                                 </div>
                                 {editForm.sync_status && (
                                     <div className="text-xs mt-2 text-slate-600">
@@ -1964,7 +1982,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="border-b border-slate-200 pb-5">
                             <h4 className="text-md font-bold text-slate-800 mb-2">동기화된 사업장정보 검색</h4>
                             <p className="text-xs text-slate-500 mb-3">코드, 사업장명, 사업자등록번호, 대표자명 또는 주소 일부로 검색할 수 있습니다.</p>
-                            <div className="flex gap-2">
+                            <div className="flex items-center gap-2">
                                 <Input
                                     value={businessInfoQuery}
                                     onChange={(e) => setBusinessInfoQuery(e.target.value)}
@@ -1975,9 +1993,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         }
                                     }}
                                     placeholder="사업장정보 검색어"
+                                    className="min-w-0 flex-1"
                                 />
-                                <Button type="button" variant="secondary" onClick={handleBusinessInfoSearch} disabled={isBusinessInfoSearching}>
-                                    {isBusinessInfoSearching ? "검색 중" : "검색"}
+                                <Button
+                                    type="button"
+                                    variant="primary"
+                                    onClick={handleBusinessInfoSearch}
+                                    disabled={isBusinessInfoSearching}
+                                    className="h-10 min-w-[72px] shrink-0 whitespace-nowrap px-4"
+                                >
+                                    {isBusinessInfoSearching ? "조회 중" : "조회"}
                                 </Button>
                             </div>
                             {businessInfoResults.length > 0 && (
@@ -2179,6 +2204,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <span className="shrink-0 rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800">
                                     {addForm.period?.includes("(수시)")
                                         ? "비대상"
+                                        : hasNationalSupportApplicationInformation({
+                                            industrial_accident_number: addForm.sanjae,
+                                            commencement_number: addForm.commencement,
+                                            representative_name: addForm.representative_name,
+                                            manager_name: addForm.manager_name,
+                                            manager_mobile: addForm.manager_mobile,
+                                        }) ? "자동 신청"
                                         : hasNationalSupportLookupInformation({
                                             industrial_accident_number: addForm.sanjae,
                                             commencement_number: addForm.commencement,

@@ -7,6 +7,95 @@ import { toShortName } from "@/lib/constants/designated-offices";
 import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
+import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
+import { hasNationalSupportLookupInformation, isAdHocMeasurement } from "@/lib/national-support/eligibility";
+
+async function queueFinalNationalSupportLookup(
+  supabase: any,
+  input: {
+    targetId?: number | string | null;
+    code: string;
+    year: number | string;
+    period: string;
+    sanjae?: string | null;
+    commencement?: string | null;
+    representative?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
+    requestedBy: number | string;
+  },
+) {
+  if (isAdHocMeasurement(input.period)) return false;
+  let targetId = input.targetId;
+  if (!targetId) {
+    const { data: target } = await supabase
+      .from("measurement_target_business")
+      .select("id")
+      .eq("code", input.code)
+      .eq("year", Number(input.year))
+      .eq("period", input.period)
+      .maybeSingle();
+    targetId = target?.id;
+  }
+  if (!targetId) return false;
+  if (!hasNationalSupportLookupInformation({
+    industrial_accident_number: input.sanjae,
+    commencement_number: input.commencement,
+    representative_name: input.representative,
+  })) return false;
+
+  const { data: activeJobs, error: activeJobError } = await supabase
+    .from("background_jobs")
+    .select("id")
+    .eq("job_type", "national_support")
+    .in("status", ["pending", "processing", "cancel_requested"])
+    .contains("payload", { target_id: targetId })
+    .limit(1);
+  if (activeJobError || (activeJobs && activeJobs.length > 0)) return false;
+
+  const { error: lockError } = await supabase
+    .from("measurement_target_business")
+    .update({
+      sync_status: "조회중",
+      sync_error_message: null,
+      national_support_status: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", targetId);
+  if (lockError) return false;
+
+  const { error: queueError } = await supabase
+    .from("background_jobs")
+    .insert({
+      job_type: "national_support",
+      status: "pending",
+      payload: {
+        target_id: targetId,
+        sanjae: cleanToDigits(input.sanjae),
+        commencement: cleanToDigits(input.commencement),
+        representative: normalizeRepresentativeName(input.representative) || input.representative,
+        contact_name: normalizeContactName(input.contactName) || "",
+        contact_phone: input.contactPhone || "",
+        period: input.period,
+        code: input.code,
+        year: input.year,
+        mode: "final_lookup",
+        requested_by: input.requestedBy,
+      },
+    });
+
+  if (queueError) {
+    await supabase
+      .from("measurement_target_business")
+      .update({
+        sync_status: "실패",
+        sync_error_message: `측정일지 등록 후 최종 조회 작업 등록 실패: ${queueError.message}`,
+      })
+      .eq("id", targetId);
+    return false;
+  }
+  return true;
+}
 
 /**
  * 측정일지 등록 API
@@ -334,6 +423,18 @@ export async function POST(request: NextRequest) {
             console.log(`[POST /api/journal] 중복 항목 없음`);
           }
         }
+
+        await queueFinalNationalSupportLookup(supabase, {
+          code,
+          year: measurementYear,
+          period: measurementPeriod,
+          sanjae: updateData.industrial_accident_number || businessData.industrial_accident_number,
+          commencement: updateData.commencement_number || businessData.commencement_number,
+          representative: updateData.representative_name || businessInfo?.representative_name || businessData.representative_name,
+          contactName: updateData.manager_name || businessData.manager_name,
+          contactPhone: updateData.manager_mobile || businessData.manager_mobile,
+          requestedBy: user.id,
+        });
 
         // 업데이트 후 기존 측정일지 ID 반환
         return NextResponse.json({
@@ -695,6 +796,19 @@ export async function POST(request: NextRequest) {
     } catch (syncError) {
       console.error(`[Journal POST Sync] Calendar sync failed:`, syncError);
     }
+
+    await queueFinalNationalSupportLookup(supabase, {
+      targetId: existingPlan?.id,
+      code,
+      year: measurementYear,
+      period: measurementPeriod,
+      sanjae: journalData.industrial_accident_number,
+      commencement: journalData.commencement_number,
+      representative: journalData.representative_name,
+      contactName: journalData.manager_name,
+      contactPhone: journalData.manager_mobile,
+      requestedBy: user.id,
+    });
 
     return NextResponse.json({
       success: true,

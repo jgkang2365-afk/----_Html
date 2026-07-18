@@ -65,3 +65,23 @@ export function normalizeRepresentativeName(name: string | null | undefined): st
   return cleanName.length > 0 ? cleanName : null;
 }
 
+const CONTACT_TITLES = [
+  "대표이사", "관리소장", "공장장", "부사장", "본부장", "센터장",
+  "팀장", "실장", "소장", "전무", "상무", "대표", "사장", "이사",
+  "부장", "차장", "과장", "대리", "주임", "반장", "담당자",
+];
+
+/** 건강디딤돌 신청 작업에 전달할 담당자 이름에서 직책만 제거합니다. */
+export function normalizeContactName(name: string | null | undefined): string | null {
+  if (!name) return null;
+
+  const titleAlternation = CONTACT_TITLES.join("|");
+  let cleanName = String(name).trim().split(/[,/]/)[0].trim();
+  cleanName = cleanName.replace(new RegExp(`\\((?:${titleAlternation})(?:님)?\\)`, "g"), " ");
+  cleanName = cleanName.replace(new RegExp(`(^|\\s)(?:${titleAlternation})(?:님)?(?=\\s|$)`, "g"), " ");
+  cleanName = cleanName.replace(new RegExp(`(?:${titleAlternation})(?:님)?$`), "");
+  cleanName = cleanName.replace(/\s+/g, " ").trim();
+
+  return cleanName || null;
+}
+

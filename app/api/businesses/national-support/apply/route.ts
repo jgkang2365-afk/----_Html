@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
-import { normalizeRepresentativeName } from "@/lib/utils/data-utils";
+import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
 import { normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
 
@@ -34,7 +34,12 @@ export async function POST(request: NextRequest) {
       period,
       code,
       year,
+      mode = "lookup_only",
     } = body;
+
+    const jobMode = mode === "apply_if_missing" || mode === "final_lookup"
+      ? mode
+      : "lookup_only";
 
     // 필수 입력값 검증 (담당자명 및 연락처는 결과 조회 시 필수 항목이 아니므로 제외)
     if (!target_id || !sanjae || !commencement || !representative || !period || !code || !year) {
@@ -219,12 +224,13 @@ export async function POST(request: NextRequest) {
           sanjae: normalizedSanjae,
           commencement: normalizedCommencement,
           representative: normalizeRepresentativeName(representative) || representative,
-          contact_name: contact_name || "",
+          contact_name: normalizeContactName(contact_name) || "",
           contact_phone: contact_phone || "",
           period,
           code,
           year,
           requested_by: user.id,
+          mode: jobMode,
         },
       })
       .select("id")
@@ -247,7 +253,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: "건강디딤돌 조회 작업이 백그라운드 작업자에 전달되었습니다. 결과는 잠시 후 반영됩니다.",
+      message: jobMode === "apply_if_missing"
+        ? "건강디딤돌 조회 및 자동 신청 작업이 백그라운드 작업자에 전달되었습니다."
+        : "건강디딤돌 조회 작업이 백그라운드 작업자에 전달되었습니다. 결과는 잠시 후 반영됩니다.",
       jobId: queuedJob.id,
     });
 
