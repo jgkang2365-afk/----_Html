@@ -4,6 +4,25 @@ import { isAuthorizedDocumentWorker } from "@/lib/document-generation/worker-aut
 
 export const dynamic = "force-dynamic";
 
+function payloadTemplates(payload: unknown): any[] {
+  let parsed = payload;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return [];
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return [];
+  const templates = (parsed as { templates?: unknown }).templates;
+  if (!templates || typeof templates !== "object") return [];
+  return Object.values(templates);
+}
+
+function normalizedId(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string; templateId: string } }
@@ -29,19 +48,23 @@ export async function GET(
       { status: 409 }
     );
   }
-  const templateEntries = Object.values(job.payload?.templates || {}) as any[];
-  const selected = templateEntries.find((template) => template.template_id === params.templateId);
+  const requestedTemplateId = normalizedId(params.templateId);
+  const templateEntries = payloadTemplates(job.payload);
+  const selected = templateEntries.find(
+    (template) => normalizedId(template?.template_id) === requestedTemplateId
+  );
   if (!selected) {
     console.warn("[DocumentWorker] 작업에 포함되지 않은 템플릿 요청:", {
       jobId: params.id,
       templateId: params.templateId,
+      payloadTemplateIds: templateEntries.map((template) => normalizedId(template?.template_id)),
     });
     return NextResponse.json({ error: "작업에 포함되지 않은 템플릿입니다." }, { status: 403 });
   }
   const { data: template } = await admin
     .from("document_templates")
     .select("*")
-    .eq("id", params.templateId)
+    .eq("id", requestedTemplateId)
     .maybeSingle();
   if (
     !template ||
