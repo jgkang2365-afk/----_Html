@@ -138,30 +138,41 @@ class HwpxAutomation:
         import win32com.client  # type: ignore
 
         hwp = None
+        stage = "COM 객체 생성"
         try:
             hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
             security_module = os.environ.get("HWP_SECURITY_MODULE", "FilePathCheckDLL")
             security_module_name = os.environ.get("HWP_SECURITY_MODULE_NAME", "FilePathCheckerModule")
+            stage = "보안 모듈 등록"
             try:
                 hwp.RegisterModule(security_module, security_module_name)
             except Exception:
                 LOGGER.warning("한글 보안 모듈 등록을 건너뜁니다.")
+
+            stage = "문서 열기"
             if not hwp.Open(str(path), "HWPX", "forceopen:true"):
                 raise RuntimeError("HWPX 복사본을 열지 못했습니다.")
 
+            stage = "누름틀 목록 조회"
             raw_fields = normalize_text(hwp.GetFieldList(0, 0))
             available = {
-                re.sub(r"\{\{\d+\}\}$", "", field)
-                for field in re.split(r"[\x02\r\n]+", raw_fields)
+                re.sub(r"[{][{][0-9]+[}][}]$", "", field)
+                for field in re.split(f"[{chr(2)}{chr(13)}{chr(10)}]+", raw_fields)
                 if field
             }
             missing = [field for field in required_fields if field not in available]
             if missing:
                 raise RuntimeError("누락된 HWPX 누름틀: " + ", ".join(missing))
+
+            stage = "누름틀 값 입력"
             for field in required_fields:
                 hwp.PutFieldText(field, normalize_text(values.get(field)))
-            if not hwp.Save():
+
+            stage = "문서 저장"
+            if not hwp.Save(True):
                 raise RuntimeError("HWPX 저장에 실패했습니다.")
+        except Exception as error:
+            raise RuntimeError(f"HWPX {stage} 단계 실패: {error}") from error
         finally:
             if hwp is not None:
                 try:
@@ -174,7 +185,6 @@ class HwpxAutomation:
                     pass
             del hwp
             gc.collect()
-
 
 class ExcelAutomation:
     def fill(self, path: Path, values: dict[str, str]) -> None:

@@ -140,6 +140,8 @@ test("manager_email과 invoice_email은 서로 다른 스냅샷 필드다", () =
 test("Windows Worker는 원본을 복사하고 COM을 finally에서 종료한다", () => {
   const source = readFileSync("document_worker.py", "utf8");
   assert.match(source, /shutil\.copy2\(template_file, working_file\)/);
+  assert.match(source, /hwp\.Save\(True\)/);
+  assert.match(source, /HWPX \{stage\} 단계 실패/);
   assert.match(source, /hwp\.Quit\(\)/);
   assert.match(source, /excel\.Quit\(\)/);
   assert.match(source, /DispatchEx\("Excel\.Application"\)/);
@@ -157,4 +159,9 @@ test("Storage 내부 경로는 한글 원본 파일명 대신 ASCII 키를 사�
   assert.match(source, /"second-half"/);
   assert.doesNotMatch(source, /uploadedPath = .*file\.name/);
   assert.match(source, /original_filename: file\.name/);
+});
+test("한글 Worker는 Boolean 저장 인수와 단계별 오류를 사용한다", () => {
+  const source = readFileSync("document_worker.py", "utf8");
+  assert.match(source, /hwp\.Save\(True\)/);
+  assert.match(source, /HWPX \{stage\} 단계 실패/);
 });
