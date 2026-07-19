@@ -7,7 +7,6 @@ import {
   DOCUMENT_TYPE_META,
   isDocumentType,
   normalizeMeasurementPeriod,
-  sanitizeWindowsFilename,
 } from "@/lib/document-generation/constants";
 
 export const dynamic = "force-dynamic";
@@ -111,7 +110,8 @@ export async function POST(request: NextRequest) {
     if (versionError) throw versionError;
     const version = Number(latest?.version || 0) + 1;
     const bytes = Buffer.from(await file.arrayBuffer());
-    uploadedPath = `${year}/${period}/${documentType}/v${version}-${randomUUID()}-${sanitizeWindowsFilename(file.name, `template${extension}`)}`;
+    const periodSegment = period === "상반기" ? "first-half" : "second-half";
+    uploadedPath = `${year}/${periodSegment}/${documentType}/v${version}-${randomUUID()}${extension}`;
     stage = "STORAGE_UPLOAD";
     const { error: uploadError } = await admin.storage
       .from("document-templates")

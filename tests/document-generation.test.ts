@@ -151,3 +151,10 @@ test("템플릿 업로드는 배포 런타임의 전역 File 객체에 의존하
   assert.match(source, /correlationId/);
   assert.match(source, /DOCUMENT_TEMPLATE_/);
 });
+test("Storage 내부 경로는 한글 원본 파일명 대신 ASCII 키를 사용한다", () => {
+  const source = readFileSync("app/api/document-templates/route.ts", "utf8");
+  assert.match(source, /"first-half"/);
+  assert.match(source, /"second-half"/);
+  assert.doesNotMatch(source, /uploadedPath = .*file\.name/);
+  assert.match(source, /original_filename: file\.name/);
+});
