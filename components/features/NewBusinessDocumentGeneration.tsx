@@ -122,7 +122,7 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
       .filter((file) => file.status !== "COMPLETED" && available.has(file.document_type))
       .map((file) => file.document_type);
     setSelected(
-      context?.job?.status === "PARTIAL_SUCCESS" && failedTypes.length > 0
+      ["PARTIAL_SUCCESS", "FAILED"].includes(context?.job?.status || "") && failedTypes.length > 0
         ? failedTypes
         : DOCUMENT_TYPES.filter((type) => available.has(type))
     );

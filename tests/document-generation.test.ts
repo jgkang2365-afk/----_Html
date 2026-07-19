@@ -176,3 +176,8 @@ test("Worker 템플릿 다운로드는 API 리다이렉트 대신 별도 signed 
   assert.match(worker, /payload\.get\("signedUrl"\)/);
   assert.match(worker, /urllib\.request\.urlopen\(request/);
 });
+test("실패 재시도 선택창은 실제 실패한 문서만 기본 선택한다", () => {
+  const source = readFileSync("components/features/NewBusinessDocumentGeneration.tsx", "utf8");
+  assert.match(source, /\["PARTIAL_SUCCESS", "FAILED"\]\.includes/);
+  assert.match(source, /file\.status !== "COMPLETED"/);
+});
