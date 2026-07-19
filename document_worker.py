@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import gc
 import hashlib
 import json
@@ -47,7 +48,7 @@ XLSM_CELLS = {
 }
 
 LOGGER = logging.getLogger("document-worker")
-WORKER_VERSION = "2026.07.19.3"
+WORKER_VERSION = "2026.07.19.4"
 
 
 def load_env_file(path: Path) -> None:
@@ -360,39 +361,119 @@ def process_job(
     return status, results, "; ".join(errors) or None
 
 
+def process_next_queued_job(client: DocumentWorkerClient, output_root: Path) -> str | None:
+    pythoncom = None
+    try:
+        try:
+            import pythoncom as win32_pythoncom  # type: ignore
+
+            pythoncom = win32_pythoncom
+            pythoncom.CoInitialize()
+        except ImportError:
+            pass
+
+        job = client.claim()
+        if not job:
+            return None
+        status, results, error_message = process_job(job, client, output_root)
+        client.complete(str(job["id"]), status, results, error_message)
+        LOGGER.info("작업 완료 id=%s status=%s", job.get("id"), status)
+        return str(job["id"])
+    finally:
+        if pythoncom is not None:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+
 def run_worker(once: bool = False) -> int:
+    from document_worker_realtime import (
+        ClaimCoordinator,
+        DocumentWorkerRuntime,
+        RealtimeSettings,
+        env_flag,
+        masked_supabase_url,
+    )
+
     project_root = Path(__file__).resolve().parent
     load_env_file(project_root / ".env.local")
-    base_url = os.environ.get("DOCUMENT_WORKER_API_URL") or os.environ.get("WEB_API_URL") or "http://localhost:3000"
+    base_url = (
+        os.environ.get("DOCUMENT_WORKER_API_BASE_URL")
+        or os.environ.get("DOCUMENT_WORKER_API_URL")
+        or os.environ.get("WEB_API_URL")
+        or "http://localhost:3000"
+    )
     token = os.environ.get("DOCUMENT_WORKER_TOKEN", "")
     output_root = Path(os.environ.get("DOCUMENT_OUTPUT_ROOT") or r"Z:\data\측정팀\측정보고서")
-    poll_seconds = max(2, int(os.environ.get("DOCUMENT_WORKER_POLL_SECONDS", "5")))
     worker_id = os.environ.get("DOCUMENT_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
     if not token:
         LOGGER.error("DOCUMENT_WORKER_TOKEN이 설정되지 않았습니다.")
         return 2
+
     client = DocumentWorkerClient(base_url, token, worker_id)
-    LOGGER.info("문서 Worker 시작 version=%s worker=%s api=%s root=%s", WORKER_VERSION, worker_id, base_url, output_root)
-
-    while True:
+    process_next = lambda: process_next_queued_job(client, output_root)
+    if once:
         try:
-            job = client.claim()
-            if job:
-                status, results, error_message = process_job(job, client, output_root)
-                client.complete(str(job["id"]), status, results, error_message)
-                LOGGER.info("작업 완료 id=%s status=%s", job.get("id"), status)
-            elif once:
-                return 0
+            process_next()
+            return 0
         except urllib.error.HTTPError as error:
-            LOGGER.error("Worker API 오류 status=%s body=%s", error.code, error.read().decode("utf-8", "ignore")[:500])
-            if once:
-                return 1
+            LOGGER.error(
+                "Worker API 오류 status=%s body=%s",
+                error.code,
+                error.read().decode("utf-8", "ignore")[:500],
+            )
+            return 1
         except Exception:
-            LOGGER.exception("문서 Worker 루프 오류")
-            if once:
-                return 1
-        time.sleep(poll_seconds)
+            LOGGER.exception("문서 Worker 단발 실행 오류")
+            return 1
 
+    try:
+        recovery_poll_seconds = max(
+            10, int(os.environ.get("DOCUMENT_WORKER_RECOVERY_POLL_SECONDS", "300"))
+        )
+    except ValueError:
+        LOGGER.error("DOCUMENT_WORKER_RECOVERY_POLL_SECONDS는 정수여야 합니다.")
+        return 2
+
+    realtime_enabled = env_flag(os.environ.get("DOCUMENT_WORKER_REALTIME_ENABLED"), True)
+    supabase_url = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+    realtime_key = (
+        os.environ.get("SUPABASE_REALTIME_KEY")
+        or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+    )
+    if realtime_enabled and (not supabase_url or not realtime_key):
+        LOGGER.error(
+            "Realtime 환경변수가 부족하여 복구 폴링 전용으로 실행합니다. "
+            "SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL 및 "
+            "SUPABASE_REALTIME_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY를 확인하세요."
+        )
+        realtime_enabled = False
+
+    settings = RealtimeSettings(
+        enabled=realtime_enabled,
+        supabase_url=supabase_url,
+        realtime_key=realtime_key,
+        recovery_poll_seconds=recovery_poll_seconds,
+    )
+    LOGGER.info(
+        "문서 Worker 시작 version=%s worker=%s api=%s root=%s realtime=%s recovery=%ss supabase=%s",
+        WORKER_VERSION,
+        worker_id,
+        base_url,
+        output_root,
+        realtime_enabled,
+        recovery_poll_seconds,
+        masked_supabase_url(supabase_url),
+    )
+
+    coordinator = ClaimCoordinator(process_next)
+    runtime = DocumentWorkerRuntime(coordinator, settings)
+    try:
+        asyncio.run(runtime.run())
+    except KeyboardInterrupt:
+        LOGGER.info("종료 신호 수신. Realtime과 현재 작업을 정리합니다.")
+    return 0
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="신규 사업장 문서 생성 Windows Worker")

@@ -54,7 +54,9 @@ function Start-DocumentWorker {
     if (-not (Test-DocumentWorkerConfigured)) { return }
     if ($script:documentWorkerProcess -and -not $script:documentWorkerProcess.HasExited) { return }
     try {
-        $script:documentWorkerProcess = Start-Process -FilePath "python.exe" -ArgumentList "document_worker.py" `
+        $workerPython = Join-Path $projectDir ".venv-document-worker\Scripts\python.exe"
+        if (-not (Test-Path -LiteralPath $workerPython)) { $workerPython = "python.exe" }
+        $script:documentWorkerProcess = Start-Process -FilePath $workerPython -ArgumentList "document_worker.py" `
             -WorkingDirectory $projectDir -WindowStyle Hidden -RedirectStandardOutput $documentWorkerLog `
             -RedirectStandardError $documentWorkerErrorLog -PassThru
     } catch { $script:documentWorkerProcess = $null }
