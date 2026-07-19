@@ -34,11 +34,28 @@ export async function GET(
       { error: "작업에 고정된 템플릿과 일치하지 않습니다." },
       { status: 409 }
     );
-  const { data: signed, error } = await admin.storage
+  const { data: file, error } = await admin.storage
     .from("document-templates")
-    .createSignedUrl(template.storage_path, 60);
-  if (error || !signed?.signedUrl) {
-    return NextResponse.json({ error: "템플릿 다운로드 주소 생성 실패" }, { status: 500 });
+    .download(template.storage_path);
+  if (error || !file) {
+    console.error("[DocumentWorker] 템플릿 다운로드 실패:", {
+      templateId: template.id,
+      storagePath: template.storage_path,
+      code: error?.name,
+      message: error?.message,
+    });
+    return NextResponse.json({ error: "템플릿 파일 다운로드 실패" }, { status: 500 });
   }
-  return NextResponse.json({ signedUrl: signed.signedUrl });
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return new NextResponse(bytes, {
+    status: 200,
+    headers: {
+      "Content-Type":
+        template.extension === ".xlsm"
+          ? "application/vnd.ms-excel.sheet.macroEnabled.12"
+          : "application/octet-stream",
+      "Content-Length": String(bytes.byteLength),
+      "Cache-Control": "private, no-store",
+    },
+  });
 }
