@@ -40,5 +40,5 @@ export async function GET(
   if (error || !signed?.signedUrl) {
     return NextResponse.json({ error: "템플릿 다운로드 주소 생성 실패" }, { status: 500 });
   }
-  return NextResponse.redirect(signed.signedUrl, 307);
+  return NextResponse.json({ signedUrl: signed.signedUrl });
 }

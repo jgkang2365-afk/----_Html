@@ -245,8 +245,18 @@ class DocumentWorkerClient:
         return result.get("job")
 
     def download_template(self, job_id: str, template_id: str, destination: Path) -> None:
-        destination.write_bytes(self._request(f"/api/document-worker/jobs/{job_id}/templates/{template_id}"))
-
+        payload = json.loads(
+            self._request(f"/api/document-worker/jobs/{job_id}/templates/{template_id}")
+        )
+        signed_url = normalize_text(payload.get("signedUrl"))
+        if not signed_url:
+            raise RuntimeError("템플릿 다운로드 주소가 없습니다.")
+        request = urllib.request.Request(
+            signed_url,
+            headers={"User-Agent": "measurement-document-worker/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=120) as response:
+            destination.write_bytes(response.read())
     def complete(self, job_id: str, status: str, results: list[dict[str, Any]], error_message: str | None) -> None:
         self._request(f"/api/document-worker/jobs/{job_id}/complete", "POST", {
             "worker_id": self.worker_id,

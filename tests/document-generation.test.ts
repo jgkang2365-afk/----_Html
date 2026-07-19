@@ -165,3 +165,14 @@ test("한글 Worker는 Boolean 저장 인수와 단계별 오류를 사용한다
   assert.match(source, /hwp\.Save\(True\)/);
   assert.match(source, /HWPX \{stage\} 단계 실패/);
 });
+test("Worker 템플릿 다운로드는 API 리다이렉트 대신 별도 signed URL 요청을 사용한다", () => {
+  const route = readFileSync(
+    "app/api/document-worker/jobs/[id]/templates/[templateId]/route.ts",
+    "utf8"
+  );
+  const worker = readFileSync("document_worker.py", "utf8");
+  assert.match(route, /NextResponse\.json\(\{ signedUrl:/);
+  assert.doesNotMatch(route, /NextResponse\.redirect/);
+  assert.match(worker, /payload\.get\("signedUrl"\)/);
+  assert.match(worker, /urllib\.request\.urlopen\(request/);
+});
