@@ -21,6 +21,10 @@ const registrationContextSource = readFileSync(
   path.join(root, "app", "api", "business-info", "registration-context", "route.ts"),
   "utf8",
 );
+const excelSyncSource = readFileSync(
+  path.join(root, "lib", "sync", "excel-sync.ts"),
+  "utf8",
+);
 
 test("담당자 메일은 선택값이며 공백 제거와 NULL 변환 기준을 공유한다", () => {
   assert.equal(normalizeOptionalManagerEmail("  Staff.Name@Example.COM  "), "Staff.Name@Example.COM");
@@ -84,4 +88,39 @@ test("담당자 메일은 건강디딤돌 조회 및 신청 자격에 영향을 
     hasNationalSupportApplicationInformation(applicationInput),
     hasNationalSupportApplicationInformation({ ...applicationInput, manager_email: "wrong" } as any),
   );
+});
+
+test("수정 모달 연락 및 정산 정보는 지정된 원본을 읽기 전용으로 사용한다", () => {
+  assert.match(
+    routeSource,
+    /\.select\("code, business_number, phone, fax, invoice_email"\)/,
+  );
+  assert.match(
+    routeSource,
+    /\.eq\("year", targetYear\)[\s\S]*\.eq\("period", period\)/,
+  );
+  assert.match(routeSource, /const totalEmployees = exactInfo\?\.total_employees \?\? null/);
+  assert.match(routeSource, /phone: basicInfo\?\.phone \|\| null/);
+  assert.match(routeSource, /fax: basicInfo\?\.fax \|\| null/);
+  assert.match(routeSource, /invoice_email: basicInfo\?\.invoice_email \|\| null/);
+  assert.match(componentSource, />연락 및 정산 정보</);
+  assert.match(componentSource, /value=\{editForm\.phone \|\| ""\} readOnly/);
+  assert.match(componentSource, /value=\{editForm\.fax \|\| ""\} readOnly/);
+  assert.match(componentSource, /value=\{editForm\.total_employees \?\? ""\} readOnly/);
+  assert.match(componentSource, /value=\{editForm\.invoice_email \|\| ""\} readOnly/);
+});
+
+test("건강디딤돌 담당자는 사용자 입력을 우선하고 MES는 빈칸만 보완한다", () => {
+  assert.match(routeSource, /item\.manager_name \|\| exactInfo\?\.manager_name/);
+  assert.match(routeSource, /item\.manager_mobile \|\| exactInfo\?\.manager_mobile/);
+  assert.match(routeSource, /item\.manager_email \|\| exactInfo\?\.manager_email/);
+  assert.match(componentSource, /manager_name: e\.target\.value/);
+  assert.match(componentSource, /manager_mobile: e\.target\.value/);
+  assert.match(componentSource, /manager_email: e\.target\.value/);
+  assert.match(componentSource, /\["manager_name", "manager_mobile", "manager_email"\] as const/);
+  assert.match(componentSource, /delete updatesToSave\[field\]/);
+  assert.match(excelSyncSource, /hasUserValue\(existing\.manager_name\)/);
+  assert.match(excelSyncSource, /hasUserValue\(existing\.manager_mobile\)/);
+  assert.match(excelSyncSource, /hasUserValue\(existing\.manager_email\)/);
+  assert.match(excelSyncSource, /\.upsert\(protectedBatch/);
 });

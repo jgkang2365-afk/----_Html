@@ -204,6 +204,15 @@ export async function GET(request: NextRequest) {
       .order("year", { ascending: false })
       .order("period", { ascending: false });
 
+    // 현재 화면의 연도·주기와 정확히 일치하는 MES 담당자 및 근로자 정보
+    const { data: exactMeasurementData } = await supabase
+      .from("measurement_business")
+      .select("code, total_employees, manager_name, manager_mobile, manager_email, updated_at")
+      .in("code", codes)
+      .eq("year", targetYear)
+      .eq("period", period)
+      .order("updated_at", { ascending: false });
+
     // 2순위: measurement_journal
     const { data: latestJournalData } = await supabase
       .from("measurement_journal")
@@ -212,10 +221,10 @@ export async function GET(request: NextRequest) {
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false });
 
-    // 3순위 보완: 사업장정보(business_info)에만 있는 기본 사업자등록번호
+    // 3순위 보완: 사업장정보(business_info)에만 있는 기본 사업자등록번호와 대표전화
     const { data: businessInfoData } = await supabase
       .from("business_info")
-      .select("code, business_number")
+      .select("code, business_number, phone, fax, invoice_email")
       .in("code", codes);
 
     // Map: Code -> Latest Info (Business)
@@ -224,6 +233,15 @@ export async function GET(request: NextRequest) {
       latestBusinessData.forEach((item: any) => {
         if (!businessInfoMap.has(item.code)) {
           businessInfoMap.set(item.code, item);
+        }
+      });
+    }
+
+    const exactMeasurementInfoMap = new Map<string, any>();
+    if (exactMeasurementData) {
+      exactMeasurementData.forEach((item: any) => {
+        if (!exactMeasurementInfoMap.has(item.code)) {
+          exactMeasurementInfoMap.set(item.code, item);
         }
       });
     }
@@ -266,6 +284,7 @@ export async function GET(request: NextRequest) {
       const isSurveyRegistered = surveyRegisteredCodes.has(item.code);
 
       const bInfo = businessInfoMap.get(item.code);
+      const exactInfo = exactMeasurementInfoMap.get(item.code);
       const jInfo = journalInfoMap.get(item.code);
       const basicInfo = businessBasicInfoMap.get(item.code);
 
@@ -288,13 +307,15 @@ export async function GET(request: NextRequest) {
         nationalSupportStatus = bInfo?.national_support_status || jInfo?.national_support_status || item.national_support_status;
       }
 
-      // 2. 사업자번호, 근로자수, 연락처, 대표자명: 측정사업장/일지 최신값 우선.
-      // 사업장정보(business_info)에만 사업자번호가 있는 기존 자료도 빈값으로 보이지 않도록 보완합니다.
-      // (measurement_business(bInfo) > measurement_journal(jInfo) > business_info(basicInfo) > target(item))
+      // 사업자번호와 대표자명은 기존 보완 규칙을 유지한다.
       const businessNumber = bInfo?.business_number || jInfo?.business_number || basicInfo?.business_number || item.business_number;
-      const totalEmployees = bInfo?.total_employees || jInfo?.total_employees || item.total_employees;
-      const phone = bInfo?.phone || jInfo?.phone || item.manager_phone;
       const representativeName = bInfo?.representative_name || jInfo?.representative_name || item.representative_name;
+
+      // 건강디딤돌 담당자는 사용자 저장값을 우선하고, 정확한 연도·주기의 MES 값은 빈칸만 보완한다.
+      const managerName = item.manager_name || exactInfo?.manager_name || null;
+      const managerMobile = item.manager_mobile || exactInfo?.manager_mobile || null;
+      const managerEmail = item.manager_email || exactInfo?.manager_email || null;
+      const totalEmployees = exactInfo?.total_employees ?? null;
 
       const industrialAccidentNumber = bInfo?.industrial_accident_number || jInfo?.industrial_accident_number || item.industrial_accident_number;
       const commencementNumber = bInfo?.commencement_number || jInfo?.commencement_number || item.commencement_number;
@@ -314,7 +335,12 @@ export async function GET(request: NextRequest) {
         // Sync Applied Fields
         business_number: businessNumber,
         total_employees: totalEmployees,
-        manager_phone: phone,
+        phone: basicInfo?.phone || null,
+        fax: basicInfo?.fax || null,
+        invoice_email: basicInfo?.invoice_email || null,
+        manager_name: managerName,
+        manager_mobile: managerMobile,
+        manager_email: managerEmail,
         business_category: /^\d+$/.test(String(businessCategory)) ? `⚠️ 수정필요(${businessCategory})` : businessCategory,
         national_support_status: nationalSupportStatus,
         representative_name: representativeName,

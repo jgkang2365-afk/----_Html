@@ -2090,10 +2090,43 @@ export async function syncMeasurementBusiness(
         const targetBatchSize = 1000;
         for (let i = 0; i < targetRows.length; i += targetBatchSize) {
           const batch = targetRows.slice(i, i + targetBatchSize);
+          const batchCodes = Array.from(new Set(batch.map(row => row.code)));
+          const batchYears = Array.from(new Set(batch.map(row => row.year)));
+          const batchPeriods = Array.from(new Set(batch.map(row => row.period)));
+
+          const { data: existingTargets, error: existingTargetsError } = await supabase
+            .from("measurement_target_business")
+            .select("code, year, period, manager_name, manager_mobile, manager_email")
+            .in("code", batchCodes)
+            .in("year", batchYears)
+            .in("period", batchPeriods);
+
+          if (existingTargetsError) {
+            throw new Error("기존 측정대상 담당자 조회 실패: " + existingTargetsError.message);
+          }
+
+          const contactKey = (row: any) => [row.code, row.year, row.period].join("::");
+          const existingTargetMap = new Map(
+            (existingTargets || []).map(existing => [contactKey(existing), existing]),
+          );
+          const hasUserValue = (value: unknown) =>
+            value !== null && value !== undefined && String(value).trim() !== "";
+
+          const protectedBatch = batch.map(row => {
+            const existing = existingTargetMap.get(contactKey(row)) as any;
+            if (!existing) return row;
+
+            return {
+              ...row,
+              manager_name: hasUserValue(existing.manager_name) ? existing.manager_name : row.manager_name,
+              manager_mobile: hasUserValue(existing.manager_mobile) ? existing.manager_mobile : row.manager_mobile,
+              manager_email: hasUserValue(existing.manager_email) ? existing.manager_email : row.manager_email,
+            };
+          });
 
           const { error: targetUpsertError } = await supabase
             .from("measurement_target_business")
-            .upsert(batch, {
+            .upsert(protectedBatch, {
               onConflict: "code,year,period",
               ignoreDuplicates: false
             });

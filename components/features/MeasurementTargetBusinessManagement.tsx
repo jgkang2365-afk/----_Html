@@ -21,7 +21,6 @@ import {
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
-import { normalizeContactName } from "@/lib/utils/data-utils";
 import * as XLSX from "xlsx";
 import { useUser } from "@/hooks/use-user";
 import {
@@ -842,7 +841,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
         try {
             // 저장이 성공(Resolve)한 후에만 모달을 닫음
-            await saveChanges(editingItem.code, editForm, editingItem);
+            const updatesToSave = { ...editForm };
+            (["manager_name", "manager_mobile", "manager_email"] as const).forEach(field => {
+                if (String(editForm[field] ?? "") === String(editingItem[field] ?? "")) {
+                    delete updatesToSave[field];
+                }
+            });
+            await saveChanges(editingItem.code, updatesToSave, editingItem);
             setIsEditModalOpen(false);
 
             // 저장 단계에서는 조회하지 않습니다. 목록의 파란 새로고침 버튼을 눌렀을 때만
@@ -935,9 +940,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             // DB 컬럼 매핑 및 클렌징
             const sanitizeUpdates = (raw: Partial<BusinessEntry>) => {
                 const validColumns = [
-                    'business_name', 'business_number', 'business_category', 'address', 'invoice_email', 'fax',
+                    'business_name', 'business_number', 'business_category', 'address',
                     'office_jurisdiction', 'is_registered', 'plan_manager',
-                    'manager_name', 'manager_mobile', 'manager_email', 'phone',
+                    'manager_name', 'manager_mobile', 'manager_email',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
                     'representative_name', 'industrial_accident_number', 'commencement_number'
@@ -954,7 +959,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 }
 
                 if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
-                if (raw.manager_phone !== undefined) sanitized.phone = raw.manager_phone;
 
                 if (raw.sanjae !== undefined) sanitized.industrial_accident_number = raw.sanjae;
                 if (raw.commencement !== undefined) sanitized.commencement_number = raw.commencement;
@@ -1620,7 +1624,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <label className="block text-sm font-medium mb-1 text-slate-700">소재지</label>
                                 <Input value={editForm.address || ""} onChange={(e) => setEditForm(prev => ({ ...prev, address: e.target.value }))} />
                             </div>
-                            <div className="col-span-3">
+                            <div className="col-span-6">
                                 <label className="block text-sm font-medium mb-1 text-slate-700">업종분류</label>
                                 <Select
                                     options={businessCategories.map(c => c.value === "" ? { ...c, label: "선택" } : c)}
@@ -1628,37 +1632,28 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     onChange={(e) => setEditForm(prev => ({ ...prev, business_category: e.target.value }))}
                                 />
                             </div>
-                            <div className="col-span-3">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">근로자수</label>
-                                <Input type="number" value={editForm.total_employees || ""} onChange={(e) => setEditForm(prev => ({ ...prev, total_employees: e.target.value ? parseInt(e.target.value) : null }))} />
-                            </div>
                         </div>
                     </div>
 
-                    {/* 섹션 2: 담당자 정보 */}
+                    {/* 섹션 2: 연락 및 정산 정보 */}
                     <div className="mb-6">
-                        <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">담당자 정보</h4>
+                        <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">연락 및 정산 정보</h4>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">담당자명</label>
-                                <Input value={editForm.manager_name || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_name: e.target.value }))} />
+                                <label className="block text-sm font-medium mb-1 text-slate-700">전화번호</label>
+                                <Input value={editForm.phone || ""} readOnly className="bg-slate-50 text-slate-700" />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">휴대전화</label>
-                                <Input value={editForm.manager_mobile || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_mobile: e.target.value }))} placeholder="010-0000-0000" />
+                                <label className="block text-sm font-medium mb-1 text-slate-700">팩스</label>
+                                <Input value={editForm.fax || ""} readOnly className="bg-slate-50 text-slate-700" />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">유선전화</label>
-                                <Input value={editForm.manager_phone || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_phone: e.target.value }))} />
+                                <label className="block text-sm font-medium mb-1 text-slate-700">근로자 수</label>
+                                <Input value={editForm.total_employees ?? ""} readOnly className="bg-slate-50 text-slate-700" />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">담당자 메일</label>
-                                <Input
-                                    type="email"
-                                    value={editForm.manager_email || ""}
-                                    onChange={(e) => setEditForm(prev => ({ ...prev, manager_email: e.target.value }))}
-                                    placeholder="name@example.com"
-                                />
+                                <label className="block text-sm font-medium mb-1 text-slate-700">계산서 메일</label>
+                                <Input value={editForm.invoice_email || ""} readOnly className="bg-slate-50 text-slate-700" />
                             </div>
                         </div>
                     </div>
@@ -1739,25 +1734,28 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">측정업무 담당자명 (신청용)</label>
                                         <Input
-                                            value={normalizeContactName(editForm.manager_name) || ""}
-                                            readOnly
-                                            className="bg-slate-50 text-slate-700"
-                                            title="상단 담당자 정보에서 직책을 제외한 이름이 자동 반영됩니다."
+                                            value={editForm.manager_name || ""}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, manager_name: e.target.value }))}
+                                            placeholder="예: 홍길동"
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 휴대전화</label>
                                         <Input
                                             value={editForm.manager_mobile || ""}
-                                            readOnly
-                                            className="bg-slate-50 text-slate-700"
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, manager_mobile: e.target.value }))}
                                             placeholder="010-0000-0000"
-                                            title="상단 담당자 정보의 휴대전화가 자동 반영됩니다."
                                         />
                                     </div>
-                                    <p className="col-span-2 text-[11px] text-blue-700">
-                                        상단 담당자 정보와 자동 동기화되며, 신청 작업에는 직책을 제외한 이름만 전달됩니다.
-                                    </p>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 메일</label>
+                                        <Input
+                                            type="email"
+                                            value={editForm.manager_email || ""}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, manager_email: e.target.value }))}
+                                            placeholder="name@example.com"
+                                        />
+                                    </div>
                                 </div>
                                 {editForm.sync_status && (
                                     <div className="text-xs mt-2 text-slate-600">
