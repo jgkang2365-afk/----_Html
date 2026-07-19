@@ -144,3 +144,10 @@ test("Windows Worker는 원본을 복사하고 COM을 finally에서 종료한다
   assert.match(source, /excel\.Quit\(\)/);
   assert.match(source, /DispatchEx\("Excel\.Application"\)/);
 });
+test("템플릿 업로드는 배포 런타임의 전역 File 객체에 의존하지 않는다", () => {
+  const source = readFileSync("app/api/document-templates/route.ts", "utf8");
+  assert.match(source, /function isUploadedFile/);
+  assert.doesNotMatch(source, /instanceof File/);
+  assert.match(source, /correlationId/);
+  assert.match(source, /DOCUMENT_TEMPLATE_/);
+});

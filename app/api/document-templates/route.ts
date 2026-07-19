@@ -13,6 +13,16 @@ import {
 export const dynamic = "force-dynamic";
 const MAX_TEMPLATE_BYTES = 100 * 1024 * 1024;
 
+function isUploadedFile(value: FormDataEntryValue | null): value is File {
+  return (
+    value !== null &&
+    typeof value !== "string" &&
+    typeof value.name === "string" &&
+    typeof value.size === "number" &&
+    typeof value.arrayBuffer === "function"
+  );
+}
+
 async function requireAdmin() {
   const user = await getUser();
   if (!user || user.role !== "관리자") throw new Error("ADMIN_REQUIRED");
@@ -52,6 +62,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   let uploadedPath = "";
+  let createdTemplateId = "";
+  let stage = "VALIDATE";
+  const correlationId = randomUUID();
   try {
     const user = await requireAdmin();
     const form = await request.formData();
@@ -61,7 +74,7 @@ export async function POST(request: NextRequest) {
     const period = normalizeMeasurementPeriod(form.get("measurement_period"));
     const activate = String(form.get("activate")) !== "false";
     if (
-      !(file instanceof File) ||
+      !isUploadedFile(file) ||
       !isDocumentType(documentType) ||
       !Number.isInteger(year) ||
       !period
@@ -85,6 +98,7 @@ export async function POST(request: NextRequest) {
       );
 
     const admin = createAdminClient();
+    stage = "VERSION_LOOKUP";
     const { data: latest, error: versionError } = await admin
       .from("document_templates")
       .select("version")
@@ -98,6 +112,7 @@ export async function POST(request: NextRequest) {
     const version = Number(latest?.version || 0) + 1;
     const bytes = Buffer.from(await file.arrayBuffer());
     uploadedPath = `${year}/${period}/${documentType}/v${version}-${randomUUID()}-${sanitizeWindowsFilename(file.name, `template${extension}`)}`;
+    stage = "STORAGE_UPLOAD";
     const { error: uploadError } = await admin.storage
       .from("document-templates")
       .upload(uploadedPath, bytes, {
@@ -108,6 +123,7 @@ export async function POST(request: NextRequest) {
         upsert: false,
       });
     if (uploadError) throw uploadError;
+    stage = "DATABASE_INSERT";
     const { data: created, error: insertError } = await admin
       .from("document_templates")
       .insert({
@@ -126,8 +142,10 @@ export async function POST(request: NextRequest) {
       .select("*")
       .single();
     if (insertError) throw insertError;
+    createdTemplateId = created.id;
     let template = created;
     if (activate) {
+      stage = "TEMPLATE_ACTIVATE";
       const activated = await admin.rpc("activate_document_template", {
         p_template_id: created.id,
       });
@@ -136,14 +154,28 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ success: true, template });
   } catch (error: any) {
-    if (uploadedPath)
-      await createAdminClient().storage.from("document-templates").remove([uploadedPath]);
+    const admin = createAdminClient();
+    if (createdTemplateId)
+      await admin.from("document_templates").delete().eq("id", createdTemplateId);
+    if (uploadedPath) await admin.storage.from("document-templates").remove([uploadedPath]);
     const forbidden = error?.message === "ADMIN_REQUIRED";
-    console.error("[DocumentTemplates] 업로드 실패:", error?.message || error);
+    const errorCode = forbidden
+      ? "DOCUMENT_TEMPLATE_ADMIN_REQUIRED"
+      : "DOCUMENT_TEMPLATE_" + stage + "_FAILED";
+    console.error("[DocumentTemplates] 업로드 실패:", {
+      correlationId,
+      errorCode,
+      stage,
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+    });
+    const message = forbidden
+      ? "관리자만 템플릿을 등록할 수 있습니다."
+      : "템플릿 등록에 실패했습니다. (단계: " + stage + ", 추적번호: " + correlationId + ")";
     return NextResponse.json(
-      {
-        error: forbidden ? "관리자만 템플릿을 등록할 수 있습니다." : "템플릿 등록에 실패했습니다.",
-      },
+      { error: message, errorCode, correlationId },
       { status: forbidden ? 403 : 500 }
     );
   }
