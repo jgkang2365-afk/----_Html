@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
+import { NewBusinessDocumentGeneration } from "@/components/features/NewBusinessDocumentGeneration";
 import {
     Table,
     TableHeader,
@@ -599,6 +600,22 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             setIsAddModalOpen(false);
             resetAddForm();
             fetchData();
+
+            if (createResult.newBusinessCodeCreated && createResult.data) {
+                const created = createResult.data;
+                const newItem = {
+                    ...created,
+                    isRegistered: created.is_registered === "실시",
+                    is_registered_text: created.is_registered || "미실시",
+                    designated_office: created.office_jurisdiction || "",
+                    sanjae: created.industrial_accident_number || "",
+                    commencement: created.commencement_number || "",
+                    unpaid_count: 0,
+                    national_unpaid_count: 0,
+                    unpaid_details: [],
+                } as BusinessEntry;
+                window.setTimeout(() => handleEditClick(newItem), 0);
+            }
         } catch (error) {
             console.error("Registration error:", error);
             alert(`등록 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
@@ -1544,7 +1561,18 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 />
             </Modal>
 
-            <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="사업장 상세 정보 수정" size="lg">
+            <Modal
+                isOpen={isEditModalOpen}
+                onClose={() => setIsEditModalOpen(false)}
+                title="사업장 상세 정보 수정"
+                size="lg"
+                headerActions={editingItem ? (
+                    <NewBusinessDocumentGeneration
+                        businessId={Number(editingItem.id)}
+                        business={editForm as unknown as Record<string, any>}
+                    />
+                ) : undefined}
+            >
                 <div className="p-6">
                     {/* 섹션 1: 기본 정보 */}
                     <div className="mb-6">

@@ -5,7 +5,10 @@ $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $logDir = Join-Path $projectDir "logs"
 $stdoutLog = Join-Path $logDir "server.log"
 $stderrLog = Join-Path $logDir "server-error.log"
+$documentWorkerLog = Join-Path $logDir "document-worker.log"
+$documentWorkerErrorLog = Join-Path $logDir "document-worker-error.log"
 $script:serverProcess = $null
+$script:documentWorkerProcess = $null
 $script:allowRestart = $true
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
@@ -40,9 +43,34 @@ function Set-TrayStatus([string]$status, [string]$detail) {
     }
 }
 
+
+function Test-DocumentWorkerConfigured {
+    $envPath = Join-Path $projectDir ".env.local"
+    if (-not (Test-Path $envPath)) { return $false }
+    return [bool](Select-String -LiteralPath $envPath -Pattern '^DOCUMENT_WORKER_TOKEN=.+$' -Quiet)
+}
+
+function Start-DocumentWorker {
+    if (-not (Test-DocumentWorkerConfigured)) { return }
+    if ($script:documentWorkerProcess -and -not $script:documentWorkerProcess.HasExited) { return }
+    try {
+        $script:documentWorkerProcess = Start-Process -FilePath "python.exe" -ArgumentList "document_worker.py" `
+            -WorkingDirectory $projectDir -WindowStyle Hidden -RedirectStandardOutput $documentWorkerLog `
+            -RedirectStandardError $documentWorkerErrorLog -PassThru
+    } catch { $script:documentWorkerProcess = $null }
+}
+
+function Stop-DocumentWorker {
+    if ($script:documentWorkerProcess -and -not $script:documentWorkerProcess.HasExited) {
+        Stop-Process -Id $script:documentWorkerProcess.Id -Force -ErrorAction SilentlyContinue
+        $script:documentWorkerProcess.WaitForExit(3000)
+    }
+    $script:documentWorkerProcess = $null
+}
 function Start-JournalServer {
     $portProcess = Get-ServerPortProcess
     if ($portProcess -and -not $portProcess.HasExited) {
+        Start-DocumentWorker
         Set-TrayStatus "Running" "The server is already listening on http://localhost:3000."
         return
     }
@@ -62,12 +90,14 @@ function Start-JournalServer {
             -RedirectStandardOutput $stdoutLog `
             -RedirectStandardError $stderrLog `
             -PassThru
+        Start-DocumentWorker
     } catch {
         Set-TrayStatus "Error" "Failed to start server: $($_.Exception.Message)"
     }
 }
 
 function Stop-JournalServer {
+    Stop-DocumentWorker
     $portProcess = Get-ServerPortProcess
     if ($portProcess -and -not $portProcess.HasExited) {
         Stop-Process -Id $portProcess.Id -Force -ErrorAction SilentlyContinue
@@ -79,6 +109,7 @@ function Stop-JournalServer {
         $script:serverProcess.WaitForExit(3000)
     }
     $script:serverProcess = $null
+$script:documentWorkerProcess = $null
 }
 
 function Open-LiveServerLog {
@@ -115,6 +146,14 @@ $errorLogItem.Add_Click({
     Start-Process notepad.exe -ArgumentList "`"$stderrLog`""
 })
 $contextMenu.Items.Add($errorLogItem) | Out-Null
+$documentLogItem = New-Object System.Windows.Forms.ToolStripMenuItem
+$documentLogItem.Text = "Open document worker log"
+$documentLogItem.Add_Click({
+    if (-not (Test-Path $documentWorkerLog)) { New-Item -ItemType File -Path $documentWorkerLog | Out-Null }
+    $command = "Get-Content -Path `"$documentWorkerLog`" -Tail 120 -Wait"
+    Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $command
+})
+$contextMenu.Items.Add($documentLogItem) | Out-Null
 
 $restartItem = New-Object System.Windows.Forms.ToolStripMenuItem
 $restartItem.Text = "Restart server"
@@ -155,7 +194,12 @@ $timer.Interval = 5000
 $timer.Add_Tick({
     $portProcess = Get-ServerPortProcess
     if ($portProcess -and -not $portProcess.HasExited) {
+        Start-DocumentWorker
         Set-TrayStatus "Running" "The server is listening on http://localhost:3000."
+        if (Test-DocumentWorkerConfigured) {
+            $workerStatus = if ($script:documentWorkerProcess -and -not $script:documentWorkerProcess.HasExited) { "Running" } else { "Restarting" }
+            $script:statusItem.Text = "Server: Running | Documents: $workerStatus"
+        }
         return
     }
 
