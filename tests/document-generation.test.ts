@@ -145,6 +145,8 @@ test("Windows Worker는 원본을 복사하고 COM을 finally에서 종료한다
   assert.match(source, /hwp\.Quit\(\)/);
   assert.match(source, /excel\.Quit\(\)/);
   assert.match(source, /DispatchEx\("Excel\.Application"\)/);
+  assert.match(source, /def publish_file/);
+  assert.match(source, /except PermissionError/);
 });
 test("템플릿 업로드는 배포 런타임의 전역 File 객체에 의존하지 않는다", () => {
   const source = readFileSync("app/api/document-templates/route.ts", "utf8");
@@ -175,6 +177,7 @@ test("Worker 템플릿 다운로드는 로컬 API가 파일 바이트를 직접 
   assert.match(route, /new NextResponse\(bytes/);
   assert.doesNotMatch(route, /createSignedUrl|NextResponse\.redirect/);
   assert.match(worker, /destination\.write_bytes/);
+  assert.match(worker, /템플릿 다운로드 실패 \(HTTP/);
   assert.doesNotMatch(worker, /payload\.get\("signedUrl"\)/);
 });
 test("실패 재시도 선택창은 실제 실패한 문서만 기본 선택한다", () => {

@@ -1,7 +1,9 @@
 import hashlib
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from document_worker import (
     XLSM_CELLS,
@@ -10,6 +12,7 @@ from document_worker import (
     build_output_path,
     format_business_number,
     normalize_measurement_period,
+    publish_file,
     process_job,
     unique_destination,
 )
@@ -62,6 +65,30 @@ class DocumentWorkerTest(unittest.TestCase):
             candidate = unique_destination(original)
             self.assertNotEqual(candidate, original)
             self.assertEqual(original.read_bytes(), b"original")
+
+    def test_publish_retries_after_windows_file_lock(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "working.hwpx"
+            destination = root / "published.hwpx"
+            source.write_bytes(b"generated")
+            real_copy2 = shutil.copy2
+            attempts = 0
+
+            def locked_once(source_path, destination_path):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise PermissionError(5, "Access is denied")
+                return real_copy2(source_path, destination_path)
+
+            with patch("document_worker.shutil.copy2", side_effect=locked_once), patch(
+                "document_worker.time.sleep"
+            ):
+                published = publish_file(source, destination, attempts=2, delay_seconds=0)
+
+            self.assertEqual(attempts, 2)
+            self.assertEqual(published.read_bytes(), b"generated")
 
     def test_partial_success_keeps_other_document(self):
         with tempfile.TemporaryDirectory() as temporary:

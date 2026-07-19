@@ -16,10 +16,28 @@ export async function GET(
     .select("payload, status")
     .eq("id", params.id)
     .maybeSingle();
-  const templateEntries = Object.values(job?.payload?.templates || {}) as any[];
+  if (!job)
+    return NextResponse.json({ error: "문서 생성 작업을 찾을 수 없습니다." }, { status: 404 });
+  if (job.status !== "PROCESSING") {
+    console.warn("[DocumentWorker] 처리 중이 아닌 작업의 템플릿 요청:", {
+      jobId: params.id,
+      templateId: params.templateId,
+      status: job.status,
+    });
+    return NextResponse.json(
+      { error: "문서 생성 작업 상태가 PROCESSING이 아닙니다. (현재: " + job.status + ")" },
+      { status: 409 }
+    );
+  }
+  const templateEntries = Object.values(job.payload?.templates || {}) as any[];
   const selected = templateEntries.find((template) => template.template_id === params.templateId);
-  if (!job || !selected || job.status !== "PROCESSING")
-    return NextResponse.json({ error: "템플릿 다운로드 권한이 없습니다." }, { status: 403 });
+  if (!selected) {
+    console.warn("[DocumentWorker] 작업에 포함되지 않은 템플릿 요청:", {
+      jobId: params.id,
+      templateId: params.templateId,
+    });
+    return NextResponse.json({ error: "작업에 포함되지 않은 템플릿입니다." }, { status: 403 });
+  }
   const { data: template } = await admin
     .from("document_templates")
     .select("*")

@@ -47,6 +47,7 @@ XLSM_CELLS = {
 }
 
 LOGGER = logging.getLogger("document-worker")
+WORKER_VERSION = "2026.07.19.3"
 
 
 def load_env_file(path: Path) -> None:
@@ -118,6 +119,22 @@ def unique_destination(path: Path) -> Path:
         candidate = path.with_name(f"{path.stem}_{stamp}_{sequence}{path.suffix}")
         sequence += 1
     return candidate
+
+
+def publish_file(source: Path, requested_destination: Path, attempts: int = 10, delay_seconds: float = 0.5) -> Path:
+    last_error: PermissionError | None = None
+    for attempt in range(attempts):
+        destination = unique_destination(requested_destination)
+        try:
+            shutil.copy2(source, destination)
+            return destination
+        except PermissionError as error:
+            last_error = error
+            if attempt + 1 < attempts:
+                time.sleep(delay_seconds)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("생성 파일 게시에 실패했습니다.")
 
 
 def mask_email(value: Any) -> str:
@@ -245,9 +262,13 @@ class DocumentWorkerClient:
         return result.get("job")
 
     def download_template(self, job_id: str, template_id: str, destination: Path) -> None:
-        destination.write_bytes(
-            self._request(f"/api/document-worker/jobs/{job_id}/templates/{template_id}")
-        )
+        try:
+            content = self._request(f"/api/document-worker/jobs/{job_id}/templates/{template_id}")
+        except urllib.error.HTTPError as error:
+            response_body = error.read().decode("utf-8", "replace").strip()
+            detail = response_body[:500] or error.reason
+            raise RuntimeError(f"템플릿 다운로드 실패 (HTTP {error.code}): {detail}") from error
+        destination.write_bytes(content)
     def complete(self, job_id: str, status: str, results: list[dict[str, Any]], error_message: str | None) -> None:
         self._request(f"/api/document-worker/jobs/{job_id}/complete", "POST", {
             "worker_id": self.worker_id,
@@ -326,8 +347,7 @@ def process_job(
 
                 if not working_file.exists() or working_file.stat().st_size <= 0:
                     raise RuntimeError("저장 검증에 실패했습니다.")
-                destination = unique_destination(final_folder / working_file.name)
-                shutil.move(str(working_file), str(destination))
+                destination = publish_file(working_file, final_folder / working_file.name)
                 result.update({"status": "COMPLETED", "filename": destination.name, "path": str(destination)})
             except Exception as error:
                 result["error"] = str(error)
@@ -352,7 +372,7 @@ def run_worker(once: bool = False) -> int:
         LOGGER.error("DOCUMENT_WORKER_TOKEN이 설정되지 않았습니다.")
         return 2
     client = DocumentWorkerClient(base_url, token, worker_id)
-    LOGGER.info("문서 Worker 시작 worker=%s api=%s root=%s", worker_id, base_url, output_root)
+    LOGGER.info("문서 Worker 시작 version=%s worker=%s api=%s root=%s", WORKER_VERSION, worker_id, base_url, output_root)
 
     while True:
         try:
