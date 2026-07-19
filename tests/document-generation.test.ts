@@ -180,15 +180,15 @@ test("Worker 템플릿 다운로드는 로컬 API가 파일 바이트를 직접 
   assert.match(worker, /템플릿 다운로드 실패 \(HTTP/);
   assert.doesNotMatch(worker, /payload\.get\("signedUrl"\)/);
 });
-test("Worker 템플릿 API는 문자열 payload와 UUID 표기 차이를 정규화한다", () => {
+test("Worker 템플릿 API는 선택 문서와 연도·주기로 다운로드 권한을 검증한다", () => {
   const route = readFileSync(
     "app/api/document-worker/jobs/[id]/templates/[templateId]/route.ts",
     "utf8"
   );
-  assert.match(route, /typeof parsed === "string"/);
-  assert.match(route, /JSON\.parse\(parsed\)/);
-  assert.match(route, /trim\(\)\.toLowerCase\(\)/);
-  assert.match(route, /payloadTemplateIds/);
+  assert.match(route, /selected_documents, measurement_year, measurement_period/);
+  assert.match(route, /selectedDocuments\.includes\(template\.document_type\)/);
+  assert.match(route, /template\.measurement_period !== job\.measurement_period/);
+  assert.doesNotMatch(route, /payload\.templates|payloadTemplateIds/);
 });
 test("실패 재시도 선택창은 실제 실패한 문서만 기본 선택한다", () => {
   const source = readFileSync("components/features/NewBusinessDocumentGeneration.tsx", "utf8");
