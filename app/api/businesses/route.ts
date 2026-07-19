@@ -21,6 +21,10 @@ import {
   getInitialNationalSupportState,
   isAdHocMeasurement,
 } from "@/lib/national-support/eligibility";
+import {
+  isValidOptionalManagerEmail,
+  normalizeOptionalManagerEmail,
+} from "@/lib/business/manager-email";
 
 export async function GET(request: NextRequest) {
   try {
@@ -365,7 +369,7 @@ export async function PATCH(request: NextRequest) {
       "business_name", "business_category", "address", "office_jurisdiction",
       "business_number", "invoice_email", "fax",
       "is_registered", "plan_manager", "manager_name",
-      "manager_mobile", "manager_phone", "phone", "total_employees", "management_status", "notes", "measurement_date",
+      "manager_mobile", "manager_phone", "manager_email", "phone", "total_employees", "management_status", "notes", "measurement_date",
       "measurement_end_date", "future_measurement_period", "future_measurement_date",
       "measurer_id", "period", "collaborators", "daily_staff", "representative_name",
       "industrial_accident_number", "commencement_number",
@@ -374,6 +378,18 @@ export async function PATCH(request: NextRequest) {
       Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
     );
     updatePayload.updated_at = new Date().toISOString();
+
+    if (Object.prototype.hasOwnProperty.call(updatePayload, "manager_email")) {
+      if (!isValidOptionalManagerEmail(updatePayload.manager_email)) {
+        return NextResponse.json(
+          { error: "담당자 메일 형식을 확인해 주세요." },
+          { status: 400 },
+        );
+      }
+      updatePayload.manager_email = normalizeOptionalManagerEmail(
+        updatePayload.manager_email,
+      );
+    }
 
     // [The Joo Rule] 수동 업데이트 시에도 숫자형 업종분류 차단
     if (updates.business_category && /^\d+$/.test(String(updates.business_category))) {
@@ -729,6 +745,7 @@ export async function POST(request: NextRequest) {
       manager_name,
       manager_mobile,
       manager_phone,
+      manager_email,
       total_employees,
       office_jurisdiction,
     } = body;
@@ -741,6 +758,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!isValidOptionalManagerEmail(manager_email)) {
+      return NextResponse.json(
+        { error: "담당자 메일 형식을 확인해 주세요." },
+        { status: 400 },
+      );
+    }
+
+    const normalizedManagerEmail = normalizeOptionalManagerEmail(manager_email);
     const supabase = await createClient();
 
     // 1. 코드 + 연도 + 주기 중복 등록 방지
@@ -798,6 +823,7 @@ export async function POST(request: NextRequest) {
         manager_mobile: manager_mobile || null,
         manager_phone: manager_phone || null,
         total_employees: normalizedTotalEmployees,
+        manager_email: normalizedManagerEmail,
         plan_manager: plan_manager || null,
         national_support_status: initialSupportState.nationalSupportStatus,
         sync_status: initialSupportState.syncStatus,

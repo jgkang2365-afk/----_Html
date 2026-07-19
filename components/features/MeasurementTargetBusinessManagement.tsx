@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/Table";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
+import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
 import { normalizeContactName } from "@/lib/utils/data-utils";
 import * as XLSX from "xlsx";
 import { useUser } from "@/hooks/use-user";
@@ -57,6 +58,7 @@ interface BusinessEntry {
     plan_manager: string | null; // 계획담당
     manager_name: string | null; // 업체담당
     manager_mobile: string | null;
+    manager_email?: string | null;
     manager_phone: string | null; // 담당자 직통전화/전화번호
     management_status: string | null; // 관리상태
     phone: string | null; // 대표전화? (기존 코드에 있음)
@@ -380,7 +382,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [editForm, setEditForm] = useState<Partial<BusinessEntry>>({});
     const [addForm, setAddForm] = useState<Partial<BusinessEntry>>({
         year: new Date().getFullYear(),
-        period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기"
+        period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
+        manager_email: "",
     });
     const [businessInfoQuery, setBusinessInfoQuery] = useState("");
     const [businessInfoResults, setBusinessInfoResults] = useState<BusinessInfoSearchResult[]>([]);
@@ -482,6 +485,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             representative_name: "",
             manager_name: "",
             manager_mobile: "",
+            manager_email: "",
         });
         setBusinessInfoQuery("");
         setBusinessInfoResults([]);
@@ -529,6 +533,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         setBusinessInfoQuery(`${business.code} ${business.business_name}`);
         setAddForm(prev => ({
             ...prev,
+            manager_email: prev.code && prev.code !== business.code ? "" : prev.manager_email,
             code: business.code,
             business_name: business.business_name,
             business_number: business.business_number || prev.business_number,
@@ -544,6 +549,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const handleAddSubmit = async () => {
+        if (!isValidOptionalManagerEmail(addForm.manager_email)) {
+            alert("담당자 메일 형식을 확인해 주세요.");
+            return;
+        }
+
         try {
             const response = await fetch("/api/businesses", {
                 method: "POST",
@@ -808,6 +818,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
+        if (!isValidOptionalManagerEmail(editForm.manager_email)) {
+            alert("담당자 메일 형식을 확인해 주세요.");
+            return;
+        }
+
         try {
             // 저장이 성공(Resolve)한 후에만 모달을 닫음
             await saveChanges(editingItem.code, editForm, editingItem);
@@ -905,7 +920,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 const validColumns = [
                     'business_name', 'business_number', 'business_category', 'address', 'invoice_email', 'fax',
                     'office_jurisdiction', 'is_registered', 'plan_manager',
-                    'manager_name', 'manager_mobile', 'phone',
+                    'manager_name', 'manager_mobile', 'manager_email', 'phone',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
                     'representative_name', 'industrial_accident_number', 'commencement_number'
@@ -1030,7 +1045,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "업종분류": item.business_category,
             "담당자명": item.manager_name || "",
             "휴대폰": item.manager_mobile || "",
-            "전화번호": item.phone || item.manager_phone || "",
+            "유선전화": item.manager_phone || item.phone || "",
+            "담당자 메일": item.manager_email || "",
             "보고서 담당": item.measurer_id ? measurerMap.get(item.measurer_id) || "" : "",
             "향후측정주기": item.future_measurement_period ? (item.future_measurement_period === 6 ? "6개월" : item.future_measurement_period === 12 ? "1년" : item.future_measurement_period + "개월") : "-",
             "비고": item.notes
@@ -1607,6 +1623,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <label className="block text-sm font-medium mb-1 text-slate-700">유선전화</label>
                                 <Input value={editForm.manager_phone || ""} onChange={(e) => setEditForm(prev => ({ ...prev, manager_phone: e.target.value }))} />
                             </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1 text-slate-700">담당자 메일</label>
+                                <Input
+                                    type="email"
+                                    value={editForm.manager_email || ""}
+                                    onChange={(e) => setEditForm(prev => ({ ...prev, manager_email: e.target.value }))}
+                                    placeholder="name@example.com"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -2003,7 +2028,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
             {/* New Registration Modal */}
             <Modal isOpen={isAddModalOpen} onClose={closeAddModal} title="신규 사업장 등록" size="lg">
-                <form onSubmit={(e) => {
+                <form noValidate onSubmit={(e) => {
                     e.preventDefault();
                     // Basic validation
                     if (!addForm.code || !addForm.business_name) {
@@ -2272,6 +2297,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 휴대전화</label>
                                     <Input value={addForm.manager_mobile || ""} onChange={(e) => setAddForm(prev => ({ ...prev, manager_mobile: e.target.value }))} placeholder="010-0000-0000" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 메일</label>
+                                    <Input
+                                        type="email"
+                                        value={addForm.manager_email || ""}
+                                        onChange={(e) => setAddForm(prev => ({ ...prev, manager_email: e.target.value }))}
+                                        placeholder="name@example.com"
+                                    />
                                 </div>
                             </div>
                         </div>
