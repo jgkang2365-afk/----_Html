@@ -218,11 +218,27 @@ export class K2BService {
 
     private runEncodedPowerShell(command: string) {
         const encodedCommand = Buffer.from(command, 'utf16le').toString('base64');
-        execFileSync(
-            'powershell.exe',
-            ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodedCommand],
-            { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }
-        );
+        try {
+            execFileSync(
+                'powershell.exe',
+                ['-NoProfile', '-Sta', '-NonInteractive', '-EncodedCommand', encodedCommand],
+                { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }
+            );
+        } catch (error: any) {
+            const stderr = Buffer.isBuffer(error?.stderr)
+                ? error.stderr.toString('utf8')
+                : String(error?.stderr || '');
+            if (stderr.includes('K2B_CLIPBOARD_BUSY')) {
+                throw new Error('Windows 클립보드가 사용 중이어서 파일 경로를 입력하지 못했습니다.');
+            }
+            if (stderr.includes('K2B_FILE_DIALOG_NOT_FOUND')) {
+                throw new Error('K2B 파일 선택창을 활성화하지 못했습니다.');
+            }
+            if (stderr.includes('K2B_FILE_DIALOG_PATH_REJECTED')) {
+                throw new Error('파일 선택창에서 Z 드라이브 또는 UNC 경로를 열지 못했습니다.');
+            }
+            throw new Error('Windows 파일 선택 자동화 명령이 실패했습니다.');
+        }
     }
 
     /**
@@ -248,11 +264,22 @@ function Try-ActivateFileDialog([int]$attempts) {
     }
     return $false
 }
+function Set-ClipboardText([string]$value) {
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            [System.Windows.Forms.Clipboard]::SetDataObject($value, $true, 10, 100)
+            return
+        } catch {
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    throw 'K2B_CLIPBOARD_BUSY'
+}
 if (-not (Try-ActivateFileDialog 20)) {
-    throw 'K2B 파일 선택창을 활성화할 수 없습니다.'
+    throw 'K2B_FILE_DIALOG_NOT_FOUND'
 }
 $filePath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${pathBase64}'))
-[System.Windows.Forms.Clipboard]::SetText($filePath)
+Set-ClipboardText $filePath
 Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait('^l')
 Start-Sleep -Milliseconds 300
@@ -264,7 +291,7 @@ if (Try-ActivateFileDialog 4) {
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
     Start-Sleep -Milliseconds 300
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
-    throw '파일 선택창이 닫히지 않았습니다. Z 드라이브 매핑 또는 UNC 경로를 확인하세요.'
+    throw 'K2B_FILE_DIALOG_PATH_REJECTED'
 }
 `;
         this.runEncodedPowerShell(command);
@@ -301,11 +328,22 @@ function Try-ActivateFileDialog([int]$attempts) {
     }
     return $false
 }
+function Set-ClipboardText([string]$value) {
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            [System.Windows.Forms.Clipboard]::SetDataObject($value, $true, 10, 100)
+            return
+        } catch {
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    throw 'K2B_CLIPBOARD_BUSY'
+}
 if (-not (Try-ActivateFileDialog 20)) {
-    throw 'K2B 도면 파일 선택창을 활성화할 수 없습니다.'
+    throw 'K2B_FILE_DIALOG_NOT_FOUND'
 }
 $folderPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${folderBase64}'))
-[System.Windows.Forms.Clipboard]::SetText($folderPath)
+Set-ClipboardText $folderPath
 [System.Windows.Forms.SendKeys]::SendWait('^l')
 Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait('^v')
@@ -313,7 +351,7 @@ Start-Sleep -Milliseconds 500
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 Start-Sleep -Milliseconds 2500
 $filenames = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${filenamesBase64}'))
-[System.Windows.Forms.Clipboard]::SetText($filenames)
+Set-ClipboardText $filenames
 [System.Windows.Forms.SendKeys]::SendWait('%n')
 Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait('^v')
@@ -324,7 +362,7 @@ if (Try-ActivateFileDialog 4) {
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
     Start-Sleep -Milliseconds 300
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
-    throw '도면 파일 선택창이 닫히지 않았습니다. Z 드라이브 매핑 또는 UNC 경로를 확인하세요.'
+    throw 'K2B_FILE_DIALOG_PATH_REJECTED'
 }
 `;
         this.runEncodedPowerShell(command);

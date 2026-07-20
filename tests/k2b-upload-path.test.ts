@@ -46,6 +46,10 @@ test("K2B Windows 10 파일 선택은 주소창 경로 입력과 단계별 오�
   assert.match(source, /resolveWindowsDialogPath/);
   assert.match(source, /SendWait\('\^l'\)/);
   assert.match(source, /REPORT_STORAGE_UNC_ROOT/);
+  assert.match(source, /'-Sta'/);
+  assert.match(source, /SetDataObject/);
+  assert.doesNotMatch(source, /Clipboard\]::SetText/);
+  assert.match(source, /K2B_CLIPBOARD_BUSY/);
   assert.match(source, /TXT 파일 선택 오류/);
   assert.match(source, /도면 파일 선택 오류/);
   assert.doesNotMatch(source, /execSync\(`powershell -command/);
