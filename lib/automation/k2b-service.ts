@@ -242,15 +242,18 @@ export class K2BService {
     }
 
     /**
-     * Windows 10 Explorer형 파일 선택창에 전체 파일 경로를 입력합니다.
+     * Windows 10 파일 선택창에서 폴더로 이동한 뒤 파일명을 입력합니다.
      */
     private sendFilePathViaClipboard(filePath: string) {
         if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
             throw new Error(`TXT 파일이 실제 경로에 없습니다: ${filePath}`);
         }
 
-        const dialogPath = this.resolveDialogPath(filePath);
-        const pathBase64 = Buffer.from(dialogPath, 'utf8').toString('base64');
+        const dialogFilePath = this.resolveDialogPath(filePath);
+        const dialogFolder = path.win32.dirname(dialogFilePath);
+        const dialogFilename = path.win32.basename(dialogFilePath);
+        const folderBase64 = Buffer.from(dialogFolder, 'utf8').toString('base64');
+        const filenameBase64 = Buffer.from(dialogFilename, 'utf8').toString('base64');
         const command = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -278,10 +281,17 @@ function Set-ClipboardText([string]$value) {
 if (-not (Try-ActivateFileDialog 20)) {
     throw 'K2B_FILE_DIALOG_NOT_FOUND'
 }
-$filePath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${pathBase64}'))
-Set-ClipboardText $filePath
-Start-Sleep -Milliseconds 300
+$folderPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${folderBase64}'))
+Set-ClipboardText $folderPath
 [System.Windows.Forms.SendKeys]::SendWait('^l')
+Start-Sleep -Milliseconds 300
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 500
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+Start-Sleep -Milliseconds 2500
+$filename = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${filenameBase64}'))
+Set-ClipboardText $filename
+[System.Windows.Forms.SendKeys]::SendWait('%n')
 Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait('^v')
 Start-Sleep -Milliseconds 500
@@ -296,7 +306,6 @@ if (Try-ActivateFileDialog 4) {
 `;
         this.runEncodedPowerShell(command);
     }
-
     /**
      * Windows 10 파일 선택창에서 도면 폴더로 이동한 뒤 여러 파일을 선택합니다.
      */
