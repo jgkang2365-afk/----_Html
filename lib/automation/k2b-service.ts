@@ -283,7 +283,7 @@ if (-not (Try-ActivateFileDialog 20)) {
 }
 $folderPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${folderBase64}'))
 Set-ClipboardText $folderPath
-[System.Windows.Forms.SendKeys]::SendWait('^l')
+[System.Windows.Forms.SendKeys]::SendWait('%d')
 Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait('^v')
 Start-Sleep -Milliseconds 500
@@ -353,7 +353,7 @@ if (-not (Try-ActivateFileDialog 20)) {
 }
 $folderPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${folderBase64}'))
 Set-ClipboardText $folderPath
-[System.Windows.Forms.SendKeys]::SendWait('^l')
+[System.Windows.Forms.SendKeys]::SendWait('%d')
 Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait('^v')
 Start-Sleep -Milliseconds 500
