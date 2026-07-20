@@ -288,6 +288,24 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const currentMonth = new Date().getMonth() + 1;
     const initialPeriod = currentMonth <= 6 ? "상반기" : "하반기";
 
+    // 정렬 상태 관리
+    const [sortConfig, setSortConfig] = useState<{
+        key: string;
+        direction: "asc" | "desc" | null;
+    } | null>(null);
+
+    const handleSort = (key: string) => {
+        setSortConfig((prev) => {
+            if (!prev || prev.key !== key) {
+                return { key, direction: "asc" };
+            }
+            if (prev.direction === "asc") {
+                return { key, direction: "desc" };
+            }
+            return null;
+        });
+    };
+
     const [filters, setFilters] = useState({
         yearPeriod: `${currentYear}-${initialPeriod}`, // Combined
         designatedOffice: "",
@@ -721,28 +739,113 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             result = result.filter(item => item.measurement_date === filters.confirmedDate);
         }
 
-        // Custom Sort: 1. Status (Unconfirmed > Confirmed > Terminated), 2. Month (Asc)
-        result.sort((a, b) => {
-            const getStatusPriority = (status: string | null) => {
-                if (status === '미실시' || status === '미확정' || !status) return 1;
-                if (status === '실시' || status === '확정') return 2;
-                if (status === '거래종료' || status === '종료' || status === '거래 종료') return 3;
-                return 4;
-            };
+        // Custom / Dynamic Sort
+        if (sortConfig && sortConfig.direction) {
+            const { key, direction } = sortConfig;
+            result.sort((a, b) => {
+                let valA: any = "";
+                let valB: any = "";
 
-            const priorityA = getStatusPriority(a.is_registered_text);
-            const priorityB = getStatusPriority(b.is_registered_text);
+                if (key === "period") {
+                    valA = a.period || "";
+                    valB = b.period || "";
+                } else if (key === "is_registered_text") {
+                    valA = a.is_registered_text || "미실시";
+                    valB = b.is_registered_text || "미실시";
+                } else if (key === "national_support_status") {
+                    valA = getNationalSupportDisplayStatus({
+                        ...a,
+                        industrial_accident_number: a.industrial_accident_number || a.sanjae,
+                        commencement_number: a.commencement_number || a.commencement,
+                    }) || "";
+                    valB = getNationalSupportDisplayStatus({
+                        ...b,
+                        industrial_accident_number: b.industrial_accident_number || b.sanjae,
+                        commencement_number: b.commencement_number || b.commencement,
+                    }) || "";
+                } else if (key === "plan_manager") {
+                    valA = a.plan_manager || "";
+                    valB = b.plan_manager || "";
+                } else if (key === "business_category") {
+                    valA = a.business_category || "";
+                    valB = b.business_category || "";
+                } else if (key === "business_name") {
+                    valA = a.business_name || "";
+                    valB = b.business_name || "";
+                } else if (key === "address") {
+                    valA = a.address || "";
+                    valB = b.address || "";
+                } else if (key === "office_jurisdiction") {
+                    valA = toShortName(a.office_jurisdiction || "") || "";
+                    valB = toShortName(b.office_jurisdiction || "") || "";
+                } else if (key === "unpaid_count") {
+                    valA = (a.unpaid_count || 0) + (a.national_unpaid_count || 0);
+                    valB = (b.unpaid_count || 0) + (b.national_unpaid_count || 0);
+                } else if (key === "previous_measurement_date") {
+                    valA = a.previous_measurement_date || "";
+                    valB = b.previous_measurement_date || "";
+                } else if (key === "future_measurement_period") {
+                    valA = a.future_measurement_period || 0;
+                    valB = b.future_measurement_period || 0;
+                } else if (key === "measurement_month") {
+                    const mA = a.measurement_month ? parseInt(String(a.measurement_month), 10) : null;
+                    const mB = b.measurement_month ? parseInt(String(b.measurement_month), 10) : null;
+                    if (mA !== null) {
+                        valA = mA;
+                    } else {
+                        const schedA = calculateScheduledMonth(a.previous_measurement_date, a.future_measurement_period || 6);
+                        valA = schedA !== "-" ? parseInt(schedA, 10) : 99;
+                    }
+                    if (mB !== null) {
+                        valB = mB;
+                    } else {
+                        const schedB = calculateScheduledMonth(b.previous_measurement_date, b.future_measurement_period || 6);
+                        valB = schedB !== "-" ? parseInt(schedB, 10) : 99;
+                    }
+                } else if (key === "future_measurement_date") {
+                    valA = a.future_measurement_date || calculateScheduledDate(a.previous_measurement_date, a.future_measurement_period || 6);
+                    valB = b.future_measurement_date || calculateScheduledDate(b.previous_measurement_date, b.future_measurement_period || 6);
+                    if (valA === "-") valA = "9999-99-99";
+                    if (valB === "-") valB = "9999-99-99";
+                } else if (key === "measurer_id") {
+                    valA = measurers.find((m) => m.id === a.measurer_id)?.name || "";
+                    valB = measurers.find((m) => m.id === b.measurer_id)?.name || "";
+                } else if (key === "measurement_date") {
+                    valA = a.measurement_date || "";
+                    valB = b.measurement_date || "";
+                } else if (key === "notes") {
+                    valA = a.notes || "";
+                    valB = b.notes || "";
+                }
 
-            if (priorityA !== priorityB) return priorityA - priorityB;
+                if (valA < valB) return direction === "asc" ? -1 : 1;
+                if (valA > valB) return direction === "asc" ? 1 : -1;
+                return 0;
+            });
+        } else {
+            // Custom Sort: 1. Status (Unconfirmed > Confirmed > Terminated), 2. Month (Asc)
+            result.sort((a, b) => {
+                const getStatusPriority = (status: string | null) => {
+                    if (status === '미실시' || status === '미확정' || !status) return 1;
+                    if (status === '실시' || status === '확정') return 2;
+                    if (status === '거래종료' || status === '종료' || status === '거래 종료') return 3;
+                    return 4;
+                };
 
-            // Secondary: Month Ascending
-            const monthA = a.measurement_month ? parseInt(String(a.measurement_month)) : 99;
-            const monthB = b.measurement_month ? parseInt(String(b.measurement_month)) : 99;
-            return monthA - monthB;
-        });
+                const priorityA = getStatusPriority(a.is_registered_text);
+                const priorityB = getStatusPriority(b.is_registered_text);
+
+                if (priorityA !== priorityB) return priorityA - priorityB;
+
+                // Secondary: Month Ascending
+                const monthA = a.measurement_month ? parseInt(String(a.measurement_month)) : 99;
+                const monthB = b.measurement_month ? parseInt(String(b.measurement_month)) : 99;
+                return monthA - monthB;
+            });
+        }
 
         setFilteredData(result);
-    }, [data, filters]);
+    }, [data, filters, sortConfig, measurers]);
 
     useEffect(() => {
         fetchData();
@@ -1179,6 +1282,32 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     // 18 Columns: No(45), 주기(60), 실시여부(80), 국고(100), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 실시일(110), 비고(80), 관리(40)
     const gridTemplateCols = "45px 60px 80px 100px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
 
+    const renderSortIcon = (key: string) => {
+        const isSorted = sortConfig?.key === key;
+        const direction = isSorted ? sortConfig?.direction : null;
+        
+        return (
+            <span className="inline-flex flex-col ml-1 justify-center items-center h-4 w-3 select-none shrink-0">
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 320 512"
+                    className={`h-2.5 w-2.5 transition-colors duration-150 ${direction === "asc" ? "text-blue-600 font-bold" : "text-slate-400/40"}`}
+                    fill="currentColor"
+                >
+                    <path d="M182.6 137.4c-12.5-12.5-32.8-12.5-45.3 0l-128 128c-9.2 9.2-11.9 22.9-6.9 34.9s16.6 19.8 29.6 19.8H288c12.9 0 24.6-7.8 29.6-19.8s2.2-25.7-6.9-34.9l-128-128z" />
+                </svg>
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 320 512"
+                    className={`h-2.5 w-2.5 mt-[2px] transition-colors duration-150 ${direction === "desc" ? "text-blue-600 font-bold" : "text-slate-400/40"}`}
+                    fill="currentColor"
+                >
+                    <path d="M182.6 374.6c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-9.2-9.2-11.9-22.9-6.9-34.9s16.6-19.8 29.6-19.8H288c12.9 0 24.6 7.8 29.6 19.8s2.2 25.7-6.9 34.9l-128 128z" />
+                </svg>
+            </span>
+        );
+    };
+
     return (
         <div className="p-4 w-full min-w-[1400px]">
             {/* Sticky Container for Filter & Table Header */}
@@ -1313,10 +1442,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     {/* Grid Header Row */}
                     <div className="bg-sky-100 font-bold text-sm text-black grid items-center text-center border-x border-t border-slate-200 border-b-2 border-sky-200" style={{ gridTemplateColumns: gridTemplateCols }}>
                         <div className="py-3 text-center">No</div>
-                        <div className="py-3">주기</div>
-                        <div className="py-3">실시여부</div>
-                        <div className="py-3 flex items-center justify-center gap-1">
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("period")}>
+                            주기 {renderSortIcon("period")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("is_registered_text")}>
+                            실시여부 {renderSortIcon("is_registered_text")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center gap-1 cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("national_support_status")}>
                             <span>국고</span>
+                            {renderSortIcon("national_support_status")}
                             {user?.is_national_support_manager && (
                                 <button
                                     onClick={(e) => {
@@ -1324,27 +1458,53 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         e.stopPropagation();
                                         handleBulkCheckResult();
                                     }}
-                                    className="p-0.5 hover:bg-sky-200 rounded text-blue-600 font-bold pointer-events-auto cursor-pointer"
+                                    className="p-0.5 hover:bg-sky-200 rounded text-blue-600 font-bold pointer-events-auto cursor-pointer ml-1"
                                     title="현재 목록 국고 일괄 조회 실행"
                                 >
                                     ⚙️
                                 </button>
                             )}
                         </div>
-                        <div className="py-3">계획담당</div>
-                        <div className="py-3 px-2">업종분류</div>
-                        <div className="py-3 px-2 text-left pl-4">사업장명</div>
-                        <div className="py-3 px-2 text-left pl-4">소재지</div>
-                        <div className="py-3">관할</div>
-                        <div className="py-3">미수</div>
-                        <div className="py-3">전회측정</div>
-                        <div className="py-3">향후측정주기</div>
-                        <div className="py-3">예정월</div>
-                        <div className="py-3">예정일</div>
-                        <div className="py-3">보고서 담당</div>
-                        <div className="py-3">실시일</div>
-                        <div className="py-3">비고</div>
-                        <div className="py-3">관리</div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("plan_manager")}>
+                            계획담당 {renderSortIcon("plan_manager")}
+                        </div>
+                        <div className="py-3 px-2 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("business_category")}>
+                            업종분류 {renderSortIcon("business_category")}
+                        </div>
+                        <div className="py-3 px-2 flex items-center justify-start pl-4 cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("business_name")}>
+                            사업장명 {renderSortIcon("business_name")}
+                        </div>
+                        <div className="py-3 px-2 flex items-center justify-start pl-4 cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("address")}>
+                            소재지 {renderSortIcon("address")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("office_jurisdiction")}>
+                            관할 {renderSortIcon("office_jurisdiction")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("unpaid_count")}>
+                            미수 {renderSortIcon("unpaid_count")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("previous_measurement_date")}>
+                            전회측정 {renderSortIcon("previous_measurement_date")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("future_measurement_period")}>
+                            향후측정주기 {renderSortIcon("future_measurement_period")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("measurement_month")}>
+                            예정월 {renderSortIcon("measurement_month")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("future_measurement_date")}>
+                            예정일 {renderSortIcon("future_measurement_date")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("measurer_id")}>
+                            보고서 담당 {renderSortIcon("measurer_id")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("measurement_date")}>
+                            실시일 {renderSortIcon("measurement_date")}
+                        </div>
+                        <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("notes")}>
+                            비고 {renderSortIcon("notes")}
+                        </div>
+                        <div className="py-3 text-center">관리</div>
                     </div>
                 </div>
             </div>
