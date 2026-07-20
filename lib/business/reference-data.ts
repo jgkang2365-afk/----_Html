@@ -173,7 +173,7 @@ function mapTargetBusinessToRef(data: any): ReferenceData {
         address: data.address,
         manager_name: data.manager_name,
         manager_position: data.manager_position, // 계획 테이블에 있다면 매핑
-        manager_mobile: data.manager_mobile,
+        manager_mobile: normalizePhoneLikeValue(data.manager_mobile, data.manager_name) || normalizePhoneLikeValue(data.manager_phone, data.manager_name),
         phone: data.manager_phone, 
         total_employees: data.total_employees,
         business_category: data.business_category,
@@ -195,7 +195,7 @@ function mapMeasurementBusinessToRef(data: any): ReferenceData {
         address: data.address,
         manager_name: data.manager_name,
         manager_position: data.manager_position,
-        manager_mobile: data.manager_mobile,
+        manager_mobile: normalizePhoneLikeValue(data.manager_mobile, data.manager_name) || normalizePhoneLikeValue(data.manager_phone, data.manager_name),
         manager_email: data.manager_email,
         total_employees: isNaN(total_employees) ? null : total_employees,
         business_category: data.business_category,
@@ -218,6 +218,8 @@ function mapBusinessInfoToRef(data: any): ReferenceData {
         address: address,
         manager_name: data.manager_name,
         manager_position: data.manager_position,
+        manager_mobile: normalizePhoneLikeValue(data.manager_contact, data.manager_name),
+        manager_email: data.manager_email,
         phone: data.phone,
         fax: data.fax,
         total_employees: data.total_employees,
@@ -225,5 +227,18 @@ function mapBusinessInfoToRef(data: any): ReferenceData {
         invoice_email: data.invoice_email,
         representative_name: data.representative_name,
     };
+}
+
+export function normalizePhoneLikeValue(value: any, managerName?: any): string | undefined {
+    const text = String(value || "").trim();
+    if (!text) return undefined;
+
+    const nameText = String(managerName || "").trim();
+    const digitCount = (text.match(/\d/g) || []).length;
+
+    if (nameText && text === nameText) return undefined;
+    if (digitCount < 7) return undefined;
+
+    return text;
 }
 

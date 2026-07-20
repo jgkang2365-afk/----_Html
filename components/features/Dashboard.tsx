@@ -19,8 +19,9 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   Line, ComposedChart
 } from "recharts";
-import { Banknote, TrendingUp, ClipboardCheck, Send, AlertTriangle, Phone, ExternalLink } from "lucide-react";
+import { Banknote, TrendingUp, ClipboardCheck, Send, AlertTriangle, Phone, ExternalLink, UserPlus } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
 
 
 interface DashboardData {
@@ -28,6 +29,11 @@ interface DashboardData {
   incompleteCount: number;
   completeCount: number;
   completionRate: number;
+  executionStats?: {
+    total: number;
+    executed: number;
+    rate: number;
+  };
   revenue: {
     measurementFee: number;
     otherRevenue: number;
@@ -84,12 +90,25 @@ interface DashboardData {
     period: string;
     amount: number;
   }>;
+  newBusinessStats: {
+    total: number;
+    newCount: number;
+    rate: number;
+    list: Array<{
+      code: string;
+      business_name: string;
+      period: string;
+      designated_office: string;
+      manager_name: string;
+      manager_mobile: string;
+    }>;
+  };
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#6366f1'];
 const STATUS_COLORS = { complete: '#10b981', incomplete: '#f59e0b' };
 
-export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, period }) => {
+export const Dashboard: React.FC<{ startYear: string; endYear: string; period: string }> = ({ startYear, endYear, period }) => {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +116,9 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
   // 계산서 발행 현황 데이터 상태
   const [invoiceStatusData, setInvoiceStatusData] = useState<any[]>([]);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+
+  // 신규사업장 발굴 명단 모달 상태
+  const [isNewBusinessModalOpen, setIsNewBusinessModalOpen] = useState(false);
 
   // 모달 상태
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -110,7 +132,8 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
         setError(null);
 
         const params = new URLSearchParams();
-        if (year !== "전체") params.append("year", year);
+        if (startYear !== "전체") params.append("startYear", startYear);
+        if (endYear !== "전체") params.append("endYear", endYear);
         if (period !== "전체") params.append("period", period);
 
         const response = await fetch(`/api/dashboard?${params.toString()}`, {
@@ -141,7 +164,7 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
     };
 
     loadDashboardData();
-  }, [year, period]);
+  }, [startYear, endYear, period]);
 
   // 계산서 발행 현황 데이터 로드
   useEffect(() => {
@@ -149,7 +172,8 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
       try {
         setInvoiceLoading(true);
         const params = new URLSearchParams();
-        if (year !== "전체") params.append("year", year);
+        if (startYear !== "전체") params.append("startYear", startYear);
+        if (endYear !== "전체") params.append("endYear", endYear);
         if (period !== "전체") params.append("period", period);
 
         const response = await fetch(`/api/dashboard/invoice-status?${params.toString()}`);
@@ -165,7 +189,7 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
     };
 
     loadInvoiceStatus();
-  }, [year, period]);
+  }, [startYear, endYear, period]);
 
   const handleBarClick = (entry: any) => {
     if (entry && entry.unissued_list && entry.unissued_list.length > 0) {
@@ -227,7 +251,7 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
   return (
     <div className="space-y-6">
       {/* 1. 핵심 지표 (KPI) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <KPIButton
           title="총 매출"
           value={`${formatFullCurrency(data.revenue.total)}원`}
@@ -243,18 +267,26 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
           color={data.revenue.depositRate >= 80 ? "green" : "orange"}
         />
         <KPIButton
-          title="측정 완료율"
-          value={`${data.completionRate.toFixed(1)}%`}
-          subValue={`완료 ${data.completeCount} / 전체 ${data.totalCount}`}
+          title="실시율"
+          value={`${data.executionStats?.rate.toFixed(1) || "0.0"}%`}
+          subValue={`일지 등록 ${data.executionStats?.executed || 0} / 대상 ${data.executionStats?.total || 0}`}
           icon={<ClipboardCheck className="w-6 h-6" />}
-          color={data.completionRate >= 80 ? "green" : "blue"}
+          color={data.executionStats && data.executionStats.rate >= 80 ? "green" : "blue"}
         />
         <KPIButton
-          title="K2B 전송률"
-          value={`${data.totalCount > 0 ? ((data.k2bStats.전송완료 / data.totalCount) * 100).toFixed(1) : 0}%`}
-          subValue={`미전송 ${data.k2bStats.미전송}건`}
+          title="K2B 전송율"
+          value={`${data.completionRate.toFixed(1)}%`}
+          subValue={`K2B 전송 ${data.completeCount} / 전체 ${data.totalCount}`}
           icon={<Send className="w-6 h-6" />}
-          color="purple"
+          color={data.completionRate >= 80 ? "green" : "purple"}
+        />
+        <KPIButton
+          title="신규사업장 발굴률(건설업 제외)"
+          value={`${data.newBusinessStats?.rate.toFixed(1) || "0.0"}%`}
+          subValue={`발굴 ${data.newBusinessStats?.newCount || 0} / 전체 ${data.newBusinessStats?.total || 0}`}
+          icon={<UserPlus className="w-6 h-6" />}
+          color={data.newBusinessStats && data.newBusinessStats.rate >= 20 ? "green" : "orange"}
+          onClick={() => setIsNewBusinessModalOpen(true)}
         />
       </div>
 
@@ -513,7 +545,7 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
                                  title={`${company.business_name} ${company.period ? `(${company.period})` : ''} - 클릭 시 측정일지로 이동하며 즉시 수정 창이 뜹니다.`}
                                  onClick={(e) => {
                                    e.stopPropagation();
-                                   const searchYear = year === "전체" ? (company.period?.match(/\d{4}년/)?.[0]?.replace('년', '') || "") : year;
+                                   const searchYear = (company.period?.match(/\d{4}년/)?.[0]?.replace('년', '') || startYear || "");
                                    const searchPeriod = company.period?.includes("상반기") ? "상반기" : (company.period?.includes("하반기") ? "하반기" : "");
                                    window.open(`/journal?code=${company.code}&businessName=${encodeURIComponent(company.business_name)}&year=${searchYear}&period=${searchPeriod}&autoOpen=true`, '_blank');
                                  }}
@@ -560,12 +592,75 @@ export const Dashboard: React.FC<{ year: string; period: string }> = ({ year, pe
           </div>
         </div>
       </Modal>
+
+      {/* 신규사업장 발굴 목록 모달 */}
+      <Modal
+        isOpen={isNewBusinessModalOpen}
+        onClose={() => setIsNewBusinessModalOpen(false)}
+        title="신규사업장 발굴 명단 (건설업 제외)"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">
+            현재 필터 조건(조회 기간 및 주기)에 따라 비고가 <strong>"최초실시"</strong>이고 건설업종이 아닌 신규 발굴 사업장 리스트입니다. (사업장명 클릭 시 일지 작성으로 바로 이동합니다.)
+          </p>
+          <div className="overflow-x-auto border border-slate-100 rounded-xl">
+            <Table>
+              <TableHeader className="bg-slate-50/75">
+                <TableRow>
+                  <TableHead className="pl-6 font-semibold text-slate-700">사업장명</TableHead>
+                  <TableHead className="font-semibold text-slate-700">측정주기</TableHead>
+                  <TableHead className="font-semibold text-slate-700">지정지청</TableHead>
+                  <TableHead className="font-semibold text-slate-700">담당자</TableHead>
+                  <TableHead className="font-semibold text-slate-700">연락처</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data?.newBusinessStats.list && data.newBusinessStats.list.length > 0 ? (
+                  data.newBusinessStats.list.map((item, index) => (
+                    <TableRow key={index} className="hover:bg-slate-50/50 transition-colors">
+                      <TableCell className="pl-6 font-bold py-3">
+                        <span
+                          className="text-primary-600 hover:text-primary-700 hover:underline cursor-pointer transition-colors"
+                          title="클릭 시 새 창에서 해당 측정일지로 이동합니다."
+                          onClick={() => {
+                            const sYear = item.period?.match(/\d{4}년/)?.[0]?.replace('년', '') || startYear || "";
+                            const sPeriod = item.period?.includes("상반기") ? "상반기" : (item.period?.includes("하반기") ? "하반기" : "");
+                            window.open(`/journal?code=${item.code}&businessName=${encodeURIComponent(item.business_name)}&year=${sYear}&period=${sPeriod}&autoOpen=true`, '_blank');
+                          }}
+                        >
+                          {item.business_name}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-slate-600 text-sm">{item.period || "-"}</TableCell>
+                      <TableCell className="text-slate-600 text-sm">{item.designated_office}</TableCell>
+                      <TableCell className="text-slate-600 text-sm">{item.manager_name}</TableCell>
+                      <TableCell className="text-slate-600 text-sm">{item.manager_mobile}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-slate-400">
+                      해당 기간 내에 신규 발굴된 사업장이 없습니다.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button variant="secondary" onClick={() => setIsNewBusinessModalOpen(false)}>
+              닫기
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div >
   );
 };
 
 // 보조 컴포넌트들 (KPIButton, Legend)
-const KPIButton = ({ title, value, subValue, icon, color }: { title: string, value: string, subValue: string, icon: React.ReactNode, color: string }) => {
+const KPIButton = ({ title, value, subValue, icon, color, onClick }: { title: string, value: string, subValue: string, icon: React.ReactNode, color: string, onClick?: () => void }) => {
   const colorMap: Record<string, string> = {
     blue: "bg-blue-50 text-blue-600 border-blue-100",
     green: "bg-emerald-50 text-emerald-600 border-emerald-100",
@@ -577,7 +672,13 @@ const KPIButton = ({ title, value, subValue, icon, color }: { title: string, val
   const activeColor = colorMap[color] || colorMap.blue;
 
   return (
-    <Card className="p-5 shadow-sm hover:shadow-md transition-shadow duration-200 border-l-4 border-l-transparent hover:border-l-primary-500">
+    <Card 
+      onClick={onClick}
+      className={cn(
+        "p-5 shadow-sm hover:shadow-md transition-all duration-200 border-l-4 border-l-transparent",
+        onClick ? "cursor-pointer hover:border-l-primary-500 hover:-translate-y-0.5" : ""
+      )}
+    >
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-medium text-text-500 mb-1">{title}</p>

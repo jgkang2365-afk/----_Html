@@ -34,7 +34,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { role, survey_code, job, mobile, email, is_journal_manager, is_active } = body;
+    const { role, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active } = body;
 
     if (role && !["관리자", "사용자"].includes(role)) {
       return NextResponse.json(
@@ -56,8 +56,10 @@ export async function PATCH(
       return NextResponse.json({ error: "사용자를 찾을 수 없습니다." }, { status: 404 });
     }
 
-    // 사용자 수정
-    const { data: updatedUser, error: updateError } = await supabase
+    let finalUpdatedUser;
+
+    // 1차 업데이트 시도: is_national_support_manager 포함
+    const primaryUpdate = await supabase
       .from("users")
       .update({
         ...(role && { role }),
@@ -66,22 +68,53 @@ export async function PATCH(
         mobile: mobile || null,
         email: email || null,
         is_journal_manager: !!is_journal_manager,
+        is_national_support_manager: !!is_national_support_manager,
+        is_designated_office_report_manager: !!is_designated_office_report_manager,
         ...(is_active !== undefined && { is_active }),
       })
       .eq("id", userId)
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_active, updated_at")
-      .single();
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active, updated_at")
+      .maybeSingle();
 
-    if (updateError) {
-      return NextResponse.json(
-        { error: "사용자 수정에 실패했습니다." },
-        { status: 500 }
-      );
+    if (primaryUpdate.error) {
+      console.warn("[API PATCH /api/users] is_national_support_manager 업데이트 실패, fallback 업데이트 기동. 사유:", primaryUpdate.error.message);
+      
+      // 2차 업데이트 시도: 해당 컬럼 제외 (레거시 대응)
+      const fallbackUpdate = await supabase
+        .from("users")
+        .update({
+          ...(role && { role }),
+          ...(job && { job }),
+          survey_code: survey_code || null,
+          mobile: mobile || null,
+          email: email || null,
+          is_journal_manager: !!is_journal_manager,
+          ...(is_active !== undefined && { is_active }),
+        })
+        .eq("id", userId)
+        .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_active, updated_at")
+        .maybeSingle();
+
+      if (fallbackUpdate.error) {
+        console.error("[API PATCH /api/users] fallback 업데이트 실패:", fallbackUpdate.error);
+        return NextResponse.json(
+          { error: "사용자 수정에 실패했습니다." },
+          { status: 500 }
+        );
+      }
+      
+      finalUpdatedUser = {
+        ...fallbackUpdate.data,
+        is_national_support_manager: false,
+        is_designated_office_report_manager: false
+      };
+    } else {
+      finalUpdatedUser = primaryUpdate.data;
     }
 
     return NextResponse.json({
       success: true,
-      user: updatedUser,
+      user: finalUpdatedUser,
       message: "사용자 정보가 수정되었습니다.",
     });
   } catch (error) {

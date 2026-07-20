@@ -32,7 +32,7 @@ export const Table = React.forwardRef<HTMLTableElement, TableProps>(
   ({ children, className, maxHeight, ...props }, ref) => {
     return (
       <div className="w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm bg-white">
-        <div className={cn("overflow-x-auto", maxHeight && `overflow-y-auto ${maxHeight}`)}>
+        <div className={cn("overflow-x-auto [scrollbar-gutter:stable]", maxHeight && `overflow-y-auto ${maxHeight}`)}>
           <table
             ref={ref}
             className={cn("w-full caption-bottom text-base", className)}

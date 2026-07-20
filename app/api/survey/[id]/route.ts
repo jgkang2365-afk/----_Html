@@ -3,20 +3,23 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { reassignSequenceNumbers } from "@/lib/utils/survey-sequence";
 import { getKSTISOString } from "@/lib/utils/date-utils";
+import {
+  MEASURER_OVERLAP_CONFIRMATION_CODE,
+  MEASURER_OVERLAP_LIMIT_CODE,
+  rebalanceSurveyCodesForDate,
+  resolveSurveyAssignment,
+} from "@/lib/utils/survey-assignment";
 
 /**
  * 예비조사 수정/삭제 API
  * PUT: 예비조사 수정
  * DELETE: 예비조사 삭제
- * 
+ *
  * 중요: 예비조사 수정은 preliminary_survey 테이블만 업데이트하며,
  * measurement_journal 테이블에는 영향을 주지 않습니다.
  * 두 테이블은 독립적이며, 서로 직접적인 관계가 없습니다.
  */
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     // 권한 체크
     await checkPermission("survey:write");
@@ -32,88 +35,97 @@ export async function PUT(
       code,
       business_name,
       measurer,
-      survey_code,
       address,
       preliminary_surveyor,
       actual_measurer,
       report_writer,
+      assignee_manual_override,
+      confirm_measurer_overlap,
     } = body;
 
     // 필수 필드 검증
-    if (!measurement_date || !business_name) {
+    if (!measurement_date || !business_name || !measurer) {
       return NextResponse.json(
-        { error: "측정일과 사업장명은 필수 항목입니다." },
+        { error: "측정일, 사업장명, 측정자는 필수 항목입니다." },
         { status: 400 }
       );
     }
 
     const supabase = await createClient();
 
-    // 1. 해당 일자 등록 업체 수 제한 (6개 미만이어야 함 -> 6개 이상이면 등록 불가)
-    // 수정 시에는 자기 자신(id)은 카운트에서 제외해야 함 (날짜가 바뀌지 않는 경우 등)
+    const surveyId = parseInt(id);
+    const { data: existingSurvey, error: existingSurveyError } = await supabase
+      .from("preliminary_survey")
+      .select("measurement_date, measurer, survey_code")
+      .eq("id", surveyId)
+      .single();
+
+    if (existingSurveyError || !existingSurvey) {
+      return NextResponse.json({ error: "수정할 예비조사를 찾을 수 없습니다." }, { status: 404 });
+    }
+
+    // 1. 자기 자신을 제외하고 해당 일자에는 최대 6개 업체까지만 등록 가능
     const { count: dateCount, error: dateCountError } = await supabase
       .from("preliminary_survey")
       .select("id", { count: "exact", head: true })
       .eq("measurement_date", measurement_date)
-      .neq("id", parseInt(id));
+      .neq("id", surveyId);
 
     if (dateCountError) {
       console.error("일자별 등록 건수 조회 오류:", dateCountError);
-    } else if ((dateCount || 0) > 6) {
       return NextResponse.json(
-        { error: `해당 일자(${measurement_date})에는 이미 6개를 초과하는 업체가 등록되어 있어 변경할 수 없습니다.` },
+        { error: "일자별 등록 건수를 확인하지 못해 저장을 중단했습니다." },
+        { status: 500 }
+      );
+    }
+
+    if ((dateCount || 0) >= 6) {
+      return NextResponse.json(
+        {
+          error:
+            "해당 일자(" +
+            measurement_date +
+            ")에는 이미 6개 업체가 등록되어 있어 변경할 수 없습니다.",
+        },
         { status: 400 }
       );
     }
 
-    // 2. 동일 일자 측정자 중복 체크
-    if (measurer) {
-      const { data: sameDateSurveys, error: measurerCheckError } = await supabase
-        .from("preliminary_survey")
-        .select("measurer")
-        .eq("measurement_date", measurement_date)
-        .neq("id", parseInt(id))
-        .not("measurer", "is", null);
+    // 2. 첫 번째 측정자를 기준으로 공시료 코드를 자동 결정
+    let assignment;
+    try {
+      assignment = await resolveSurveyAssignment({
+        supabase,
+        measurementDate: measurement_date,
+        measurer,
+        surveyId,
+        currentSurveyCode: existingSurvey.survey_code,
+        confirmOverlap: confirm_measurer_overlap === true,
+      });
+    } catch (assignmentError) {
+      const message =
+        assignmentError instanceof Error
+          ? assignmentError.message
+          : "측정자 배정 확인 중 오류가 발생했습니다.";
+      const code = assignmentError instanceof Error ? assignmentError.name : undefined;
 
-      if (measurerCheckError) {
-        console.error("측정자 중복 체크 오류:", measurerCheckError);
-      } else if (sameDateSurveys && sameDateSurveys.length > 0) {
-        const newMeasurers = measurer.split(",").map((m: string) => m.trim());
-
-        for (const survey of sameDateSurveys) {
-          if (!survey.measurer) continue;
-          const existingMeasurers = survey.measurer.split(",").map((m: string) => m.trim());
-
-          // 교집합 확인
-          const duplicates = newMeasurers.filter((nm: string) => existingMeasurers.includes(nm));
-          if (duplicates.length > 0) {
-            return NextResponse.json(
-              { error: `측정자 [${duplicates.join(", ")}]님은 해당 일자(${measurement_date})에 이미 다른 일정(업체)이 배정되어 있습니다.` },
-              { status: 400 }
-            );
-          }
-        }
-      }
+      return NextResponse.json(
+        { error: message, code },
+        { status: code === MEASURER_OVERLAP_LIMIT_CODE ? 409 : 400 }
+      );
     }
 
-    // 3. 동일 일자 공시료 번호 중복 체크
-    if (survey_code) {
-      const { data: duplicateSurveyCode, error: surveyCodeError } = await supabase
-        .from("preliminary_survey")
-        .select("id, business_name")
-        .eq("measurement_date", measurement_date)
-        .eq("survey_code", survey_code)
-        .neq("id", parseInt(id))
-        .maybeSingle();
-
-      if (surveyCodeError) {
-        console.error("공시료 번호 중복 체크 오류:", surveyCodeError);
-      } else if (duplicateSurveyCode) {
-        return NextResponse.json(
-          { error: `공시료 번호 [${survey_code}]는 해당 일자(${measurement_date})에 이미 다른 업체(${duplicateSurveyCode.business_name})에서 사용 중입니다.` },
-          { status: 400 }
-        );
-      }
+    if (assignment.requiresConfirmation) {
+      return NextResponse.json(
+        {
+          code: MEASURER_OVERLAP_CONFIRMATION_CODE,
+          error: assignment.primaryMeasurer + "님이 같은 날짜에 이미 다른 업체를 측정합니다.",
+          primaryMeasurer: assignment.primaryMeasurer,
+          suggestedSurveyCode: assignment.surveyCode,
+          conflicts: assignment.conflicts,
+        },
+        { status: 409 }
+      );
     }
 
     // 예비조사 수정 (preliminary_survey 테이블만 업데이트, measurement_journal에는 영향 없음)
@@ -128,11 +140,12 @@ export async function PUT(
         code: code || null,
         business_name,
         measurer: measurer || null,
-        survey_code: survey_code || null,
+        survey_code: assignment.surveyCode,
         address: address || null,
         preliminary_surveyor: preliminary_surveyor || null,
         actual_measurer: actual_measurer || null,
         report_writer: report_writer || null,
+        assignee_manual_override: assignee_manual_override === true,
         updated_at: getKSTISOString(),
       })
       .eq("id", parseInt(id))
@@ -144,6 +157,17 @@ export async function PUT(
       return NextResponse.json(
         { error: "예비조사 수정 중 오류가 발생했습니다.", details: error.message },
         { status: 500 }
+      );
+    }
+
+    if (
+      existingSurvey.measurement_date !== measurement_date ||
+      existingSurvey.measurer !== measurer
+    ) {
+      await rebalanceSurveyCodesForDate(
+        supabase,
+        existingSurvey.measurement_date,
+        existingSurvey.measurer || ""
       );
     }
     // [The Joo Rule] Full Re-calculation: 모든 일정을 다시 계산하여 사업장 목록 및 일지 동기화
@@ -161,7 +185,7 @@ export async function PUT(
       await supabase
         .from("measurement_target_business")
         .update({
-          business_name: business_name
+          business_name: business_name,
         })
         .eq("code", code);
     } catch (nameSyncError) {
@@ -180,11 +204,15 @@ export async function PUT(
           .eq("code", code)
           .maybeSingle();
 
-        const isConfirmedBiz = targetBiz && (targetBiz.is_registered === "확정" || targetBiz.is_registered === "실시");
-        
+        const isConfirmedBiz =
+          targetBiz && (targetBiz.is_registered === "확정" || targetBiz.is_registered === "실시");
+
         // 2026-02-23 이후 데이터 또는 정식 연동 대상에 대해 동기화 실행
-        const isTargetDate = targetBiz?.measurement_date === "2026-01-12" ||
-          (targetBiz?.measurement_date ? new Date(targetBiz.measurement_date) >= new Date("2026-02-23") : false);
+        const isTargetDate =
+          targetBiz?.measurement_date === "2026-01-12" ||
+          (targetBiz?.measurement_date
+            ? new Date(targetBiz.measurement_date) >= new Date("2026-02-23")
+            : false);
 
         if (isConfirmedBiz && isTargetDate) {
           await syncBusinessToCalendar(supabase, code, year, period);
@@ -205,22 +233,20 @@ export async function PUT(
       .eq("id", survey.id)
       .single();
 
-    return NextResponse.json({ survey: updatedSurvey || survey });
+    return NextResponse.json({
+      survey: updatedSurvey || survey,
+      assignedSurveyCode: assignment.surveyCode,
+      overlapApplied: assignment.assignmentNumber === 2,
+    });
   } catch (error) {
     console.error("예비조사 수정 API 오류:", error);
 
     if (error instanceof Error) {
       if (error.message.includes("Unauthorized")) {
-        return NextResponse.json(
-          { error: "로그인이 필요합니다." },
-          { status: 401 }
-        );
+        return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
       }
       if (error.message.includes("Forbidden")) {
-        return NextResponse.json(
-          { error: "권한이 없습니다." },
-          { status: 403 }
-        );
+        return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
       }
     }
 
@@ -249,7 +275,7 @@ export async function DELETE(
     // 삭제할 예비조사의 정보 조회 (동기화용)
     const { data: surveyToDelete, error: selectError } = await supabase
       .from("preliminary_survey")
-      .select("sequence_number, code, year, period, google_event_id")
+      .select("sequence_number, code, year, period, google_event_id, measurement_date, measurer")
       .eq("id", parseInt(id))
       .single();
 
@@ -265,7 +291,9 @@ export async function DELETE(
       try {
         const { deleteSurveyEvent } = await import("@/lib/google/calendar");
         await deleteSurveyEvent(surveyToDelete.google_event_id);
-        console.log(`[Survey Sync] Deleted associated calendar event: ${surveyToDelete.google_event_id}`);
+        console.log(
+          `[Survey Sync] Deleted associated calendar event: ${surveyToDelete.google_event_id}`
+        );
       } catch (calErr) {
         console.error("[Survey Sync] Failed to delete calendar event:", calErr);
       }
@@ -275,10 +303,7 @@ export async function DELETE(
     const deletedCode = surveyToDelete.code;
 
     // 예비조사 삭제
-    const { error } = await supabase
-      .from("preliminary_survey")
-      .delete()
-      .eq("id", parseInt(id));
+    const { error } = await supabase.from("preliminary_survey").delete().eq("id", parseInt(id));
 
     if (error) {
       console.error("예비조사 삭제 오류:", error);
@@ -288,6 +313,12 @@ export async function DELETE(
       );
     }
 
+    await rebalanceSurveyCodesForDate(
+      supabase,
+      surveyToDelete.measurement_date,
+      surveyToDelete.measurer || ""
+    );
+
     // 삭제된 순번보다 큰 순번들을 모두 -1 (재정렬) -> 이제 전체 재정렬 로직으로 대체
     // 순번 재정렬 (측정일 기준)
     await reassignSequenceNumbers(supabase);
@@ -296,12 +327,24 @@ export async function DELETE(
     if (deletedCode && surveyToDelete.year && surveyToDelete.period) {
       try {
         const { syncBusinessSchedule } = await import("@/lib/utils/survey-sync");
-        await syncBusinessSchedule(supabase, deletedCode, surveyToDelete.year, surveyToDelete.period);
-        
+        await syncBusinessSchedule(
+          supabase,
+          deletedCode,
+          surveyToDelete.year,
+          surveyToDelete.period
+        );
+
         // [Calendar Sync] 삭제 후 전체 정합성 복구 (Successful Null)
         const { syncBusinessToCalendar } = await import("@/lib/google/sync-service");
-        await syncBusinessToCalendar(supabase, deletedCode, surveyToDelete.year, surveyToDelete.period);
-        console.log(`[Survey Sync] Final calendar reconciliation triggered for ${deletedCode} after deletion`);
+        await syncBusinessToCalendar(
+          supabase,
+          deletedCode,
+          surveyToDelete.year,
+          surveyToDelete.period
+        );
+        console.log(
+          `[Survey Sync] Final calendar reconciliation triggered for ${deletedCode} after deletion`
+        );
       } catch (syncError) {
         console.error("[Full Re-Sync] Failed in DELETE:", syncError);
       }
@@ -313,16 +356,10 @@ export async function DELETE(
 
     if (error instanceof Error) {
       if (error.message.includes("Unauthorized")) {
-        return NextResponse.json(
-          { error: "로그인이 필요합니다." },
-          { status: 401 }
-        );
+        return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
       }
       if (error.message.includes("Forbidden")) {
-        return NextResponse.json(
-          { error: "권한이 없습니다." },
-          { status: 403 }
-        );
+        return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
       }
     }
 

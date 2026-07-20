@@ -405,7 +405,20 @@ export async function POST(request: NextRequest) {
           manager_email: String(row["담당자 이메일"] || row["manager_email"] || "").trim() || null,
           k2b_send_date: parseDate(row["K2B 발송일"] || row["k2b_send_date"]),
           k2b_sender: String(row["K2B 발송자"] || row["k2b_sender"] || "").trim() || null,
-          invoice_email: String(row["계산서 e-mail"] || row["invoice_email"] || "").trim() || null,
+          invoice_email: (() => {
+            const raw = String(row["계산서 e-mail"] || row["invoice_email"] || "").trim() || null;
+            if (raw && (raw.includes(",") || raw.includes(";"))) {
+              return raw.split(/[,;]/).map(e => e.trim()).filter(Boolean)[0] || null;
+            }
+            return raw;
+          })(),
+          invoice_email_2: (() => {
+            const raw = String(row["계산서 e-mail"] || row["invoice_email"] || "").trim() || null;
+            if (raw && (raw.includes(",") || raw.includes(";"))) {
+              return raw.split(/[,;]/).map(e => e.trim()).filter(Boolean)[1] || null;
+            }
+            return null;
+          })(),
           electronic_invoice_date: parseDate(row["전자계산서 발행일"] || row["electronic_invoice_date"]),
           measurement_fee_total: parseNumber(row["측정비(합계)"] || row["measurement_fee_total"]),
           measurement_fee_business: parseNumber(row["측정비(사업장)"] || row["measurement_fee_business"]),

@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { join } from "path";
 import { readFileSync, existsSync } from "fs";
 import { getKSTISOString, getKSTYear, getNextWorkingDay } from "@/lib/utils/date-utils";
+import { normalizePhoneLikeValue } from "@/lib/business/reference-data";
 
 // [The Joo Rule] 국고지원 상태값 정규화 함수
 const normalizeNationalSupportStatus = (val: any): string | null => {
@@ -280,7 +281,7 @@ function parseBusinessInfo(data: any[]): any[] {
     const baseData: any = {
       code: String(row["코드"] || "").trim(),
       business_name: String(row["사업장명"] || "").trim(),
-      business_number: row["사업자번호"] || null,
+      business_number: row["사업자번호"] ? String(row["사업자번호"]).replace(/[^\d]/g, "").trim() || null : null,
       address1: row["주소1"] || null,
       address2: row["주소2"] || null,
       phone: row["전화번호"] || null,
@@ -329,7 +330,8 @@ function parseBusinessInfo(data: any[]): any[] {
     if (row["관리번호"]) optionalFields.management_number = String(row["관리번호"]).trim();
 
     // 계산서 관련
-    if (row["계산서 메일"]) optionalFields.invoice_email = String(row["계산서 메일"]).trim();
+    const invoiceEmail = findColumnValue(row, ["계산서 메일", "계산서메일", "세금 Email", "세금이메일", "계산서 e-mail", "계산서 이메일"]);
+    if (invoiceEmail) optionalFields.invoice_email = String(invoiceEmail).trim();
     if (row["계산서 담당"]) optionalFields.invoice_manager = String(row["계산서 담당"]).trim();
 
     // 담당자 정보
@@ -469,7 +471,6 @@ function findColumnValue(row: any, columnNames: string[]): any {
   return null;
 }
 
-
 function parseMeasurementBusiness(
   data: any[], 
   worksheet?: XLSX.WorkSheet, 
@@ -550,38 +551,6 @@ function parseMeasurementBusiness(
   }
   console.log("================ END H0433 SCAN ================");
 
-  // 첫 번째 데이터 행에서 컬럼명 분석 (디버깅용)
-  if (data.length > 0) {
-    const firstRow = data[0];
-    const keys = Object.keys(firstRow);
-
-    // "코드" 컬럼의 정확한 이름 찾기 (정확히 일치하는 것만)
-    const exactCodeColumn = keys.find(k => k === "코드");
-
-    if (exactCodeColumn) {
-      console.log(`[파싱] "코드" 컬럼 확인: 정확히 일치하는 컬럼 발견`);
-    } else {
-      const spaceRemovedColumn = keys.find(k => k.replace(/\s/g, "") === "코드");
-      if (spaceRemovedColumn) {
-        console.log(`[파싱] "코드" 컬럼이 공백 포함 이름으로 발견됨: "${spaceRemovedColumn}"`);
-      } else {
-        console.warn(`[파싱] 경고: "코드" 컬럼을 찾을 수 없습니다!`);
-      }
-    }
-
-    // BK 열 관련 컬럼 찾기
-    const bkRelatedKeys = keys.filter(k =>
-      k === "전화번호" ||
-      k === "BK" ||
-      k.includes("BK") ||
-      (k.includes("담당자") && (k.includes("전화") || k.includes("휴대폰") || k.includes("폰")))
-    );
-
-    if (bkRelatedKeys.length > 0) {
-      console.log(`[파싱] BK 열 관련 컬럼 발견:`, bkRelatedKeys);
-    }
-  }
-
   // 파일명에서 년도 추출 시도
   let defaultYear = getKSTYear();
   let defaultPeriod = "상반기";
@@ -596,51 +565,66 @@ function parseMeasurementBusiness(
     console.log(`[파싱] 파일명(${fileName}) 기반 기본값: 년도=${defaultYear}, 주기=${defaultPeriod}`);
   }
 
+  // 1단계: 헤더 목록 추출 및 동적 컬럼 인덱스 매핑 생성
+  const headerRow = rawArrayData && rawArrayData[headerRowIndex !== undefined ? headerRowIndex : 0] ? rawArrayData[headerRowIndex !== undefined ? headerRowIndex : 0] : [];
+  
+  // 컬럼명 대 실제 인덱스 맵 생성
+  const colIndexMap: { [key: string]: number } = {};
+  headerRow.forEach((cell: any, idx: number) => {
+    if (cell !== undefined && cell !== null) {
+      const name = String(cell).replace(/\s/g, ""); // 공백 제거하여 정규화
+      // 중복 헤더는 첫 번째 열을 기본값으로 사용한다. 예: L열/BM열의 "전화번호".
+      if (name && colIndexMap[name] === undefined) {
+        colIndexMap[name] = idx;
+      }
+    }
+  });
+
   const mappedData = data.map((row: any, dataIndex: number) => {
     // Column Index Mapping (Based on verified structure)
     const rowValues = Object.values(row);
+    const actualHeaderRowIndex = headerRowIndex !== undefined ? headerRowIndex : 0;
+    const startOffset = actualHeaderRowIndex + 1;
 
-    // 코드 값 찾기 - 새 구조: 인덱스 0 (첫 번째 열)
-    let codeValue = findColumnValue(row, ["코드", "코 드", "Code", "code", "CODE"]);
-    if (!codeValue && rowValues[0]) codeValue = rowValues[0];
+    // [Robust Mapping] rawArrayData를 사용하여 빈 칸에 상관없이 절대 인덱스로 추출
+    const rawRow = rawArrayData && rawArrayData[dataIndex + startOffset] ? rawArrayData[dataIndex + startOffset] : null;
 
-    // 년도 - 신규 파일 구조: 인덱스 3
-    let yearValue = row["년도"] || row["측정년도"];
-    if (!yearValue && rowValues[3]) yearValue = rowValues[3];
+    // 헤더 이름으로 값을 추출하되, 없을 경우 절대 인덱스나 findColumnValue로 폴백하는 헬퍼 함수
+    const getRawValue = (colNames: string[], defaultIdx?: number): any => {
+      // 1) 동적 컬럼명 매핑 인덱스에서 값 조회
+      for (const name of colNames) {
+        const normName = name.replace(/\s/g, "");
+        const idx = colIndexMap[normName];
+        if (idx !== undefined && rawRow && rawRow[idx] !== undefined && rawRow[idx] !== null) {
+          return rawRow[idx];
+        }
+      }
+      // 2) JSON 파싱 row 오브젝트에서 이름으로 조회
+      const val = findColumnValue(row, colNames);
+      if (val !== undefined && val !== null && val !== "") return val;
+
+      // 3) 디폴트 인덱스 폴백
+      if (defaultIdx !== undefined && rawRow && rawRow[defaultIdx] !== undefined && rawRow[defaultIdx] !== null) {
+        return rawRow[defaultIdx];
+      }
+      return null;
+    };
+
+    // 코드 값 찾기
+    let codeValue = getRawValue(["코드", "코 드", "Code", "code", "CODE"], 0);
+
+    // 년도
+    let yearValue = getRawValue(["년도", "측정년도", "년 도"], 3);
     const rowYear = yearValue ? parseInt(String(yearValue), 10) : defaultYear;
 
-    // 디버깅: 첫 5개 행에서 년도 파싱 확인
-    if (dataIndex < 5) {
-      console.log(`[년도 디버깅] 행 ${dataIndex + 1}: row["년도"]=${row["년도"]}, rowValues[3]=${rowValues[3]}, 최종=${rowYear}`);
-    }
-
-    // 측정주기 - 신규 파일 구조: 인덱스 4
-    let period = row["구분"] || row["측정주기"] || defaultPeriod;
-    if ((!period || period === defaultPeriod) && rowValues[4]) period = rowValues[4];
-
+    // 측정주기
+    let period = getRawValue(["구분", "측정주기", "주기"], 4);
     const periodStr = String(period || "").trim();
-    // "하" 단독 포함 체크를 제거 - 너무 광범위하여 오분류 발생 (예: "대한상용자동차" 등 "하" 포함 값)
     const isSecondHalf = periodStr === "하반기" || periodStr === "하" || periodStr === "2" || periodStr === "2분기" || periodStr === "4분기";
     const normalizedPeriod = isSecondHalf ? "하반기" : "상반기";
 
-    // 디버깅: 주기 파싱 확인 (첫 10행 + 의심 케이스)
-    if (dataIndex < 10 || (normalizedPeriod === "하반기" && periodStr !== "하반기")) {
-      console.log(`[주기 디버깅] 행 ${dataIndex + 1}: row["구분"]="${row["구분"]}", row["측정주기"]="${row["측정주기"]}", rowValues[4]="${rowValues[4]}", periodStr="${periodStr}", 최종="${normalizedPeriod}"`);
-    }
-
-    const completionStatus = row["완료여부"] || "미완료";
+    const completionStatus = getRawValue(["완료여부", "상태"]) || "미완료";
     const normalizedStatus = completionStatus.toString().includes("완료") && !completionStatus.toString().includes("미완료") ? "완료" : "미완료";
-
-    // 날짜 변환
-    let startDate = null;
-    let endDate = null;
-    let measurementDate = null;
-    let futureMeasurementDate = null;
-
-    const startDateStr = findColumnValue(row, ["측정시작일", "측정 시작일", "시작일"]);
-    const endDateStr = findColumnValue(row, ["측정종료일", "측정 종료일", "종료일"]);
-    let measurementDateStr = findColumnValue(row, ["금회측정확정일", "확정일", "측정확정일"]);
-    let futureMeasurementDateStr = findColumnValue(row, ["금회예정일", "금회 예정일", "예정일"]);
 
     // 날짜 파싱 헬퍼 함수
     const parseDateValue = (dateVal: any): string | null => {
@@ -675,139 +659,113 @@ function parseMeasurementBusiness(
       return null;
     };
 
-    startDate = parseDateValue(startDateStr);
-    endDate = parseDateValue(endDateStr);
-    measurementDate = parseDateValue(measurementDateStr);
-    futureMeasurementDate = parseDateValue(futureMeasurementDateStr);
+    const startDateStr = getRawValue(["측정시작일", "측정 시작일", "시작일"]);
+    const endDateStr = getRawValue(["측정종료일", "측정 종료일", "종료일"]);
+    let measurementDateStr = getRawValue(["금회측정확정일", "확정일", "측정확정일"]);
+    let futureMeasurementDateStr = getRawValue(["금회예정일", "금회 예정일", "예정일"]);
 
-    // 전회측정일
-    const previousMeasurementDateVal = row["전회측정일"] || row["전회 측정일"] || null;
+    const startDate = parseDateValue(startDateStr);
+    const endDate = parseDateValue(endDateStr);
+    const measurementDate = parseDateValue(measurementDateStr);
+    const futureMeasurementDate = parseDateValue(futureMeasurementDateStr);
+    const previousMeasurementDateVal = getRawValue(["전회측정일", "전회 측정일"]) || null;
     const previousMeasurementDate = parseDateValue(previousMeasurementDateVal);
 
-    if (dataIndex < 5) {
-      console.log(`[날짜 파싱] 행 ${dataIndex + 1}:`);
-      console.log(`  - 코드: ${codeValue}`);
-      console.log(`  - 금회예정일: "${futureMeasurementDateStr}" -> ${futureMeasurementDate}`);
-    }
-
-    let businessCategory = findColumnValue(row, ["업종분류", "업종"]);
-
-    // [Robust Mapping] rawArrayData를 사용하여 빈 칸에 상관없이 절대 인덱스로 추출
-    // XLSX.utils.sheet_to_json(..., {header: headerRowIndex}) 사용 시 
-    // data[0]은 실제 엑셀의 headerRowIndex + 1 행에 해당함.
-    const startOffset = (headerRowIndex !== undefined ? headerRowIndex : 0) + 1;
-    const rawRow = rawArrayData && rawArrayData[dataIndex + startOffset] ? rawArrayData[dataIndex + startOffset] : null;
+    let businessCategory = getRawValue(["업종분류", "업종"]);
 
     const baseData: any = {
       code: String(codeValue || "").trim(),
       year: rowYear,
       period: normalizedPeriod,
-      business_name: String(row["사업장명"] || (rawRow ? rawRow[5] : rowValues[5]) || "").trim(),
-      business_number: row["사업자번호"] ? String(row["사업자번호"]).replace(/[^\d]/g, "").trim() : null,
-      total_employees: row["총인원"] || (rawRow ? rawRow[13] : rowValues[13]) ? parseInt(String(row["총인원"] || (rawRow ? rawRow[13] : rowValues[13])), 10) : null,
-      address: row["주소"] || (rawRow ? rawRow[8] : null) || null,           // I열 (인덱스 8)
-      office_jurisdiction: row["소재지 관할청"] || row["관할청명"] || row["소재지관할청"] || (rawRow ? rawRow[9] : null) || null, // J열 (인덱스 9)
-      phone: row["전화번호"] || (rawRow ? rawRow[11] : rowValues[11]) || null, // L열 (인덱스 11)
-      fax: row["FAX"] || (rawRow ? rawRow[12] : rowValues[12]) || null,        // M열 (인덱스 12)
+      business_name: String(getRawValue(["사업장명", "사업장 명"], 5) || "").trim(),
+      business_number: getRawValue(["사업자등록번호", "사업자번호", "사업자 번호"]) ? String(getRawValue(["사업자등록번호", "사업자번호", "사업자 번호"])).replace(/[^\d]/g, "").trim() : null,
+      total_employees: getRawValue(["총인원", "근로자수", "근로자 수"], 13) ? parseInt(String(getRawValue(["총인원", "근로자수", "근로자 수"], 13)), 10) : null,
+      address: getRawValue(["주소", "소재지", "사업장소재지"], 8) || null,
+      office_jurisdiction: getRawValue(["소재지 관할청", "관할청명", "소재지관할청", "지정지청", "지정 지청"], 9) || null,
+      phone: getRawValue(["전화번호", "회사전화번호", "회사전화"], 11) || null,
+      fax: getRawValue(["FAX", "팩스", "팩스번호"], 12) || null,
       measurement_start_date: startDate || null,
       measurement_end_date: endDate || null,
       measurement_date: measurementDate || null,
       future_measurement_date: futureMeasurementDate || null,
       completion_status: normalizedStatus,
-      measurer: row["계획담당자"] || row["주관담당자"] || null,
-      national_support_status: normalizeNationalSupportStatus(row["국고결과"] || row["국고지원여부"] || row["국고지원"] || row["건강디딤돌"] || rowValues[3]),
+      measurer: getRawValue(["계획담당자", "주관담당자", "계획담당", "담당자"]),
+      national_support_status: normalizeNationalSupportStatus(getRawValue(["국고결과", "국고지원여부", "국고지원", "건강디딤돌"])),
       business_category: normalizeBusinessCategory(businessCategory, validCategories),
     };
 
 
-
     const optionalFields: any = {};
-    const managerName = row["담당자명"] || row["담당자"] || row["담당자 성명"] || null;
-    const managerPosition = row["직위"] || row["담당자 직위"] || null;
+    const managerName = getRawValue(["담당자명", "담당자", "담당자 성명"]) || null;
+    const managerPosition = getRawValue(["직위", "담당자 직위"]) || null;
     let managerMobile: string | null = null;
-    let managerPhone: string | null = null; // [NEW] BM열 (담당자 직통전화)
+    let managerPhone: string | null = null;
 
-    // 담당자 휴대폰 (워크시트 직접 접근)
-    const actualHeaderRowIndex = headerRowIndex !== undefined ? headerRowIndex : 0;
+    // 담당자 블록은 중복되는 일반 "전화번호" 헤더와 분리해서 읽는다.
     if (worksheet) {
       const excelRowIndex = actualHeaderRowIndex + 1 + dataIndex;
-      const candidates = [62, 61, 63];
-      const foundValues: { [key: number]: string } = {};
+      const managerNameColIdx = ["담당자명", "담당자", "담당자성명"]
+        .map(name => colIndexMap[name])
+        .find(idx => idx !== undefined);
+      const explicitMobileColIdx = ["담당자휴대폰", "휴대폰", "연락처", "핸드폰"]
+        .map(name => colIndexMap[name])
+        .find(idx => idx !== undefined);
+      const nearbyContactColIdx = managerNameColIdx === undefined
+        ? undefined
+        : headerRow.findIndex((cell: any, idx: number) => {
+            const name = String(cell || "").replace(/\s/g, "");
+            return idx > managerNameColIdx && idx <= managerNameColIdx + 4 &&
+              ["전화번호", "휴대폰", "연락처"].includes(name);
+          });
+      const mobileColIdx = explicitMobileColIdx ??
+        (nearbyContactColIdx !== undefined && nearbyContactColIdx >= 0 ? nearbyContactColIdx : 64);
+      const directPhoneColIdx = ["담당자직통전화", "직통전화", "담당자전화"]
+        .map(name => colIndexMap[name])
+        .find(idx => idx !== undefined);
 
-      candidates.forEach(idx => {
-        const cellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: idx });
-        const cell = worksheet[cellAddress];
-        if (cell && cell.v !== undefined && cell.v !== null) {
-          foundValues[idx] = String(cell.v).trim();
-        }
-      });
-
-      const mobilePattern = /^01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}$/;
-      const looseMobilePattern = /^\d{2,3}[-\s.]?\d{3,4}[-\s.]?\d{4}$/;
-      let selectedMobile: string | null = null;
-      let selectedManagerPhone: string | null = null;
-
-      // BM열 (인덱스 64): 담당자 전화번호 (직통전화)
-      // rawRow를 최우선으로 사용 하여 빈 칸 밀림 방지
-      if (rawRow && rawRow[64] !== undefined && rawRow[64] !== null) {
-        selectedManagerPhone = String(rawRow[64]).trim();
-      } else {
-        const bmCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: 64 });
-        const bmCell = worksheet[bmCellAddress];
-        if (bmCell && bmCell.v !== undefined && bmCell.v !== null) {
-          selectedManagerPhone = String(bmCell.v).trim();
-        }
+      const mobileCell = worksheet[XLSX.utils.encode_cell({ r: excelRowIndex, c: mobileColIdx })];
+      if (mobileCell?.v !== undefined && mobileCell?.v !== null) {
+        managerMobile = String(mobileCell.v).trim();
       }
 
-      if (foundValues[62] && (mobilePattern.test(foundValues[62]) || looseMobilePattern.test(foundValues[62]))) {
-        selectedMobile = foundValues[62];
-      } else if (foundValues[61] && (mobilePattern.test(foundValues[61]) || looseMobilePattern.test(foundValues[61]))) {
-        selectedMobile = foundValues[61];
-      } else if (foundValues[63] && (mobilePattern.test(foundValues[63]) || looseMobilePattern.test(foundValues[63]))) {
-        selectedMobile = foundValues[63];
-      } else if (foundValues[62] && !foundValues[62].includes("@") && foundValues[62].length > 4 &&
-        !["사원", "대리", "과장", "차장", "부장", "대표", "이사", "상무", "전무", "팀장", "보건관리자", "연구원"].includes(foundValues[62])) {
-        selectedMobile = foundValues[62];
+      if (directPhoneColIdx !== undefined) {
+        const phoneCell = worksheet[XLSX.utils.encode_cell({ r: excelRowIndex, c: directPhoneColIdx })];
+        if (phoneCell?.v !== undefined && phoneCell?.v !== null) {
+          managerPhone = String(phoneCell.v).trim();
+        }
       }
-      if (selectedMobile) managerMobile = selectedMobile;
-      if (selectedManagerPhone) managerPhone = selectedManagerPhone;
     }
 
-    // Fallback logic for mobile
+    managerMobile = normalizePhoneLikeValue(managerMobile, managerName) || null;
+
     if (!managerMobile) {
-      const mobilePattern = /^01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}$/;
-      const looseMobilePattern = /^\d{2,3}[-\s.]?\d{3,4}[-\s.]?\d{4}$/;
-      const fallbackKeys = ["__EMPTY_62", "__EMPTY_61", "__EMPTY_63"];
-      for (const key of fallbackKeys) {
-        if (row[key]) {
-          const value = String(row[key]).trim();
-          if (value && (mobilePattern.test(value) || looseMobilePattern.test(value))) {
-            managerMobile = value;
-            break;
-          }
-        }
-      }
+      managerMobile = normalizePhoneLikeValue(
+        getRawValue(["담당자 휴대폰", "휴대폰", "연락처", "핸드폰"]),
+        managerName
+      ) || null;
     }
 
     if (!managerMobile) {
-      const mobilePattern = /^(010|011|016|017|018|019)-\d{3,4}-\d{4}/;
-      for (const [key, value] of Object.entries(row)) {
-        if (value && typeof value === "string") {
-          const strValue = String(value).trim();
-          if (mobilePattern.test(strValue) && !strValue.match(/^(02|031|032|033|041|042|043|044|051|052|053|054|055|061|062|063|064)-\d{3,4}-\d{4}/)) {
-            managerMobile = strValue;
-            break;
-          }
+      const mobilePattern = /^(010|011|016|017|018|019)-?\d{3,4}-?\d{4}/;
+      for (const value of Object.values(row)) {
+        const strValue = String(value || "").trim();
+        if (mobilePattern.test(strValue)) {
+          managerMobile = strValue;
+          break;
         }
       }
     }
 
-    let managerEmail = row["Email"] || row["이메일"] || row["담당자 e-mail"] || row["담당자 email"] || row["담당자이메일"] || null;
+    managerMobile = normalizePhoneLikeValue(managerMobile, managerName) ||
+      normalizePhoneLikeValue(managerPhone, managerName) || null;
+
+    let managerEmail = getRawValue(["Email", "이메일", "담당자 e-mail", "담당자 email", "담당자이메일"]);
 
     // [NEW] BL열(64번째, 인덱스 63)에서 이메일 추출 로직 (파이썬 스크립트 로직 이식)
     if (worksheet) {
       const excelRowIndex = actualHeaderRowIndex + 1 + dataIndex;
-      const emailCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: 63 }); // BL열 = 64번째 = 인덱스 63
+      const emailColIdx = colIndexMap["이메일"] ?? colIndexMap["Email"] ?? 65;
+      const emailCellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: emailColIdx });
       const emailCell = worksheet[emailCellAddress];
       if (emailCell && emailCell.v) {
         const emailRaw = String(emailCell.v).trim();
@@ -927,13 +885,42 @@ export async function syncBusinessInfo(
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
 
-  const syncStartTime = new Date(getKSTISOString());
+  const syncStartTime = new Date();
   let logId: number | null = null;
   let fileName = specificStorageFileName || fileNameXlsx; // 파일명 초기화
   const changeLog: string[] = []; // 변경 로그 배열
 
   try {
     const supabase = externalSupabaseClient || await createClient();
+
+    // 이전 성공 로그의 change_details 가져오기 (중복 메시지 필터링용)
+    let previousChangeDetails: string[] = [];
+    try {
+      const { data: prevLog, error: prevLogError } = await supabase
+        .from("sync_log")
+        .select("change_details")
+        .eq("sync_type", "사업장정보")
+        .eq("status", "성공")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      
+      if (!prevLogError && prevLog && prevLog.length > 0 && Array.isArray(prevLog[0].change_details)) {
+        previousChangeDetails = prevLog[0].change_details as string[];
+      }
+    } catch (prevErr) {
+      console.warn("이전 동기화 로그 조회 실패:", prevErr);
+    }
+
+    const addChangeLog = (message: string) => {
+      // 이전 성공 로그에 완전히 동일한 메시지가 기록되어 있다면 중복으로 간주하고 추가하지 않음
+      if (previousChangeDetails.includes(message)) {
+        return;
+      }
+      // 현재 세션 내에서의 중복도 방지
+      if (!changeLog.includes(message)) {
+        changeLog.push(message);
+      }
+    };
 
     // 파일 소스 결정: Storage 우선, 로컬 파일 fallback
     let excelData: any[];
@@ -1006,7 +993,7 @@ export async function syncBusinessInfo(
       .insert({
         file_name: fileName,
         sync_type: "사업장정보",
-        sync_start_time: getKSTISOString(syncStartTime),
+        sync_start_time: syncStartTime.toISOString(),
         status: "진행중",
         records_processed: 0,
         records_updated: 0,
@@ -1167,9 +1154,13 @@ export async function syncBusinessInfo(
         parsedData.forEach(row => {
           const latestMeasurement = measurementMap.get(row.code);
           if (latestMeasurement) {
+            // "별지" 텍스트가 정보테이블 또는 측정테이블 최신 사업장명에 포함되어 있으면 비교 대상에서 제외
+            if (row.business_name.includes("별지") || latestMeasurement.business_name.includes("별지")) {
+              return;
+            }
             // 공백 제거 후 비교 (단순 띄어쓰기 차이 무시 옵션이 필요할 수도 있으나, 여기선 엄격 비교 후 로깅)
             if (row.business_name !== latestMeasurement.business_name) {
-              changeLog.push(`[데이터 불일치] 코드 ${row.code}: (정보테이블) ${row.business_name} vs (측정테이블 최신) ${latestMeasurement.business_name}`);
+              addChangeLog(`[데이터 불일치] 코드 ${row.code}: (정보테이블) ${row.business_name} vs (측정테이블 최신) ${latestMeasurement.business_name}`);
             }
           }
         });
@@ -1204,28 +1195,83 @@ export async function syncBusinessInfo(
       };
 
       if (existingCodesSet.has(row.code)) {
-        toUpdate.push(rowWithTimestamp);
-
-        // [LOGGING] 핵심 필드 변경 사항만 비교
         const existing = existingDataMap.get(row.code);
-        if (existing) {
-          const changes: string[] = [];
+        let hasChanges = false;
+        const changes: string[] = [];
 
+        if (existing) {
+          // 날짜 비교를 위한 헬퍼 함수 정의
+          const toDateStr = (v: any) => {
+            if (!v) return "";
+            try {
+              const d = new Date(v);
+              if (isNaN(d.getTime())) return String(v).trim();
+              const year = d.getFullYear();
+              const month = String(d.getMonth() + 1).padStart(2, '0');
+              const day = String(d.getDate()).padStart(2, '0');
+              return `${year}-${month}-${day}`;
+            } catch {
+              return String(v).trim();
+            }
+          };
+
+          // 엑셀 파싱 행의 필드들을 기준으로 기존 DB 값과 비교
+          for (const key of Object.keys(row)) {
+            if (key === "updated_at" || key === "created_at") continue;
+
+            const newVal = row[key];
+            const oldVal = existing[key];
+
+            // 둘 다 비어 있는 상태인 경우 동일한 것으로 간주
+            const isNewEmpty = newVal === null || newVal === undefined || String(newVal).trim() === "";
+            const isOldEmpty = oldVal === null || oldVal === undefined || String(oldVal).trim() === "";
+            if (isNewEmpty && isOldEmpty) {
+              continue;
+            }
+
+            // 한쪽만 비어 있는 경우 변경된 것으로 간주
+            if (isNewEmpty !== isOldEmpty) {
+              hasChanges = true;
+              continue;
+            }
+
+            // 날짜 형식 필드의 경우 정규화하여 비교
+            if (key.includes("date")) {
+              if (toDateStr(newVal) !== toDateStr(oldVal)) {
+                hasChanges = true;
+              }
+              continue;
+            }
+
+            // 일반 필드는 문자열 변환 및 공백 제거 후 비교
+            if (String(newVal).trim() !== String(oldVal).trim()) {
+              hasChanges = true;
+            }
+          }
+
+          // 핵심 필드 변경 내역에 대한 로그 메시지 생성
           for (const field of compareFields) {
-            const newVal = String(row[field.key] ?? '').trim();
-            const oldVal = String(existing[field.key] ?? '').trim();
+            const newVal = String(row[field.key] ?? "").trim();
+            const oldVal = String(existing[field.key] ?? "").trim();
             if (newVal && newVal !== oldVal) {
-              changes.push(`${field.label}: (기존)${oldVal || '(없음)'} -> (변경)${newVal}`);
+              changes.push(`${field.label}: (기존)${oldVal || "(없음)"} -> (변경)${newVal}`);
             }
           }
 
           if (changes.length > 0) {
-            changeLog.push(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
+            addChangeLog(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
           }
+        } else {
+          // 기존 데이터 매핑에 없는 경우 변경이 발생한 것으로 처리
+          hasChanges = true;
+        }
+
+        if (hasChanges) {
+          toUpdate.push(rowWithTimestamp);
         }
       } else {
         toInsert.push(row);
-        changeLog.push(`[신규] ${row.business_name} (${row.code}) 사업장이 추가되었습니다.`);
+        addChangeLog(`[신규] ${row.business_name} (${row.code}) 사업장이 추가되었습니다.`);
       }
     });
 
@@ -1234,7 +1280,7 @@ export async function syncBusinessInfo(
       if (!newCodesSet.has(existingCode)) {
         const existing = existingDataMap.get(existingCode);
         const name = existing?.business_name || existingCode;
-        changeLog.push(`[삭제] ${name} (${existingCode}) 코드가 엑셀에서 삭제되었습니다.`);
+        addChangeLog(`[삭제] ${name} (${existingCode}) 코드가 엑셀에서 삭제되었습니다.`);
       }
     }
 
@@ -1343,21 +1389,22 @@ export async function syncBusinessInfo(
       await Promise.all(updatePromises);
     }
 
-    const syncEndTime = new Date(getKSTISOString());
+    const syncEndTime = new Date();
 
-    // 동기화 로그 업데이트
+    // 동기화 로그 업데이트 (변경 사항 유무에 관계없이 상시 기록하여 타이틀에 최종 동기화 시점 노출)
     if (logId) {
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: getKSTISOString(syncEndTime),
+          sync_end_time: syncEndTime.toISOString(),
           status: "성공",
           records_processed: parsedData.length,
           records_updated: recordsUpdated,
           records_inserted: recordsInserted,
-          change_details: changeLog.length > 0 ? changeLog : null // JSONB로 저장 (Supabase가 자동 변환)
+          change_details: changeLog.length > 0 ? changeLog : null
         })
         .eq("id", logId);
+      console.log(`[사업장정보 동기화] 동기화 로그(ID: ${logId})를 성공 상태로 업데이트했습니다.`);
     }
 
     return {
@@ -1369,7 +1416,7 @@ export async function syncBusinessInfo(
       change_log: changeLog,
     };
   } catch (error) {
-    const syncEndTime = new Date(getKSTISOString());
+    const syncEndTime = new Date();
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     // 동기화 로그 업데이트 (실패)
@@ -1378,7 +1425,7 @@ export async function syncBusinessInfo(
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: getKSTISOString(syncEndTime),
+          sync_end_time: syncEndTime.toISOString(),
           status: "실패",
           error_message: errorMessage,
         })
@@ -1417,13 +1464,43 @@ export async function syncMeasurementBusiness(
   const defaultPathXlsx = join(process.cwd(), fileNameXlsx);
   const defaultPathXls = join(process.cwd(), fileNameXls);
 
-  const syncStartTime = new Date(getKSTISOString());
+  const syncStartTime = new Date();
   let logId: number | null = null;
   let fileName = specificStorageFileName || fileNameXlsx;
   const changeLog: string[] = []; // 변경 로그 배열
+  const now = getKSTISOString();
 
   try {
     const supabase = externalSupabaseClient || await createClient();
+
+    // 이전 성공 로그의 change_details 가져오기 (중복 메시지 필터링용)
+    let previousChangeDetails: string[] = [];
+    try {
+      const { data: prevLog, error: prevLogError } = await supabase
+        .from("sync_log")
+        .select("change_details")
+        .eq("sync_type", "측정사업장")
+        .eq("status", "성공")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      
+      if (!prevLogError && prevLog && prevLog.length > 0 && Array.isArray(prevLog[0].change_details)) {
+        previousChangeDetails = prevLog[0].change_details as string[];
+      }
+    } catch (prevErr) {
+      console.warn("이전 동기화 로그 조회 실패:", prevErr);
+    }
+
+    const addChangeLog = (message: string) => {
+      // 이전 성공 로그에 완전히 동일한 메시지가 기록되어 있다면 중복으로 간주하고 추가하지 않음
+      if (previousChangeDetails.includes(message)) {
+        return;
+      }
+      // 현재 세션 내에서의 중복도 방지
+      if (!changeLog.includes(message)) {
+        changeLog.push(message);
+      }
+    };
 
     // [New] 유효 업종분류 목록 미리 조회 (동적 검증용)
     const { data: catData } = await supabase.from("business_category").select("name");
@@ -1501,7 +1578,7 @@ export async function syncMeasurementBusiness(
       .insert({
         file_name: fileName,
         sync_type: "측정사업장",
-        sync_start_time: getKSTISOString(syncStartTime),
+        sync_start_time: syncStartTime.toISOString(),
         status: "진행중",
         records_processed: 0,
         records_updated: 0,
@@ -1672,16 +1749,25 @@ export async function syncMeasurementBusiness(
     // [NEW] 변경 내역 비교를 위한 최신 측정사업장 데이터 조회 (올바른 위치로 이동)
     // parsedData가 준비된 후, allRows 생성 및 비교 직전 수행
     console.log("[측정사업장 동기화] 변경 내역 비교를 위한 기존 데이터 조회 중...");
-    const { data: latestMeasurementsData, error: fetchError } = await supabase
-      .from("measurement_business")
-      .select("*");
+    const uniqueCodes = Array.from(new Set(parsedData.map(row => row.code).filter(Boolean)));
+    const latestMeasurements: any[] = [];
 
-    // 이 변수는 아래 allRows.forEach에서 사용됩니다.
-    const latestMeasurements = latestMeasurementsData || [];
+    if (uniqueCodes.length > 0) {
+      // 기존 사업장정보(syncBusinessInfo)와 동일하게 1,000개 단위 배치 조회 적용
+      const batchSize = 1000;
+      for (let i = 0; i < uniqueCodes.length; i += batchSize) {
+        const codeBatch = uniqueCodes.slice(i, i + batchSize);
+        const { data: measurements, error: fetchError } = await supabase
+          .from("measurement_business")
+          .select("*")
+          .in("code", codeBatch);
 
-    if (fetchError) {
-      console.warn("[측정사업장 동기화] 기존 데이터 조회 실패 (변경 내역 비교 불가):", fetchError);
-    } else {
+        if (fetchError) {
+          console.warn("[측정사업장 동기화] 기존 데이터 조회 실패 (변경 내역 비교 불가):", fetchError);
+        } else if (measurements) {
+          latestMeasurements.push(...measurements);
+        }
+      }
       console.log(`[측정사업장 동기화] 기존 데이터 ${latestMeasurements.length}건 조회 완료`);
     }
 
@@ -1712,6 +1798,9 @@ export async function syncMeasurementBusiness(
     }
 
     let recordsProcessed = 0;
+    let recordsInserted = 0;
+    let recordsUpdated = 0;
+    const toUpsert: any[] = [];
 
     // 데이터 준비
     const baseFields = [
@@ -1801,8 +1890,23 @@ export async function syncMeasurementBusiness(
     // 이미 로그에 추가된 코드를 추적
     const loggedCodes = new Set<string>();
 
+    // 날짜 비교를 위한 헬퍼 함수 정의
+    const toDateStr = (v: any) => {
+      if (!v) return "";
+      try {
+        const d = new Date(v);
+        if (isNaN(d.getTime())) return String(v).trim();
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      } catch {
+        return String(v).trim();
+      }
+    };
+
     allRows.forEach(row => {
-      if (!row.code || loggedCodes.has(row.code)) return;
+      if (!row.code) return;
 
       // 2) 정확한 code+year+period 매칭 (재업로드 시 이미 갱신된 데이터와 비교)
       const exactMatch = latestMeasurements.find(
@@ -1810,33 +1914,76 @@ export async function syncMeasurementBusiness(
       );
 
       if (exactMatch) {
-        const changes: string[] = [];
-        for (const field of compareFields) {
-          const newVal = String(row[field.key] ?? '').trim();
-          const oldVal = String(exactMatch[field.key] ?? '').trim();
-          if (newVal && newVal !== oldVal) {
-            changes.push(`${field.label}: ${oldVal || '(없음)'} -> ${newVal}`);
+        let hasChanges = false;
+        
+        // 엑셀 파싱 행의 필드들을 기준으로 기존 DB 값과 비교
+        for (const key of Object.keys(row)) {
+          if (key === "updated_at" || key === "created_at" || key === "is_registered") continue;
+
+          const newVal = row[key];
+          const oldVal = exactMatch[key];
+
+          const isNewEmpty = newVal === null || newVal === undefined || String(newVal).trim() === "";
+          const isOldEmpty = oldVal === null || oldVal === undefined || String(oldVal).trim() === "";
+          if (isNewEmpty && isOldEmpty) continue;
+
+          if (isNewEmpty !== isOldEmpty) {
+            hasChanges = true;
+            continue;
+          }
+
+          if (key.includes("date")) {
+            if (toDateStr(newVal) !== toDateStr(oldVal)) {
+              hasChanges = true;
+            }
+            continue;
+          }
+
+          if (String(newVal).trim() !== String(oldVal).trim()) {
+            hasChanges = true;
           }
         }
-        if (changes.length > 0) {
-          changeLog.push(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
-          loggedCodes.add(row.code);
+
+        // 로그 메시지 생성을 위한 핵심 필드 변경 비교
+        if (!loggedCodes.has(row.code)) {
+          const changes: string[] = [];
+          for (const field of compareFields) {
+            const newVal = String(row[field.key] ?? "").trim();
+            const oldVal = String(exactMatch[field.key] ?? "").trim();
+            if (newVal && newVal !== oldVal) {
+              changes.push(`${field.label}: ${oldVal || "(없음)"} -> ${newVal}`);
+            }
+          }
+          if (changes.length > 0) {
+            addChangeLog(`[변경] ${row.business_name} (${row.code}): ${changes.join(", ")}`);
+            loggedCodes.add(row.code);
+          }
         }
-      } else if (codeExistsInDB.has(row.code)) {
-        // code는 DB에 있지만 이 year/period는 없는 경우 → 신규가 아닌 새 주기 데이터
-        // 변경 로그에 추가하지 않음 (기존 코드의 새 주기)
+
+        if (hasChanges) {
+          toUpsert.push({ ...row, updated_at: now });
+          recordsUpdated++;
+        }
       } else {
-        // 해당 code가 DB에 아예 없을 때만 진짜 신규
-        changeLog.push(`[신규] ${row.business_name} (${row.code}) 측정 정보가 추가되었습니다.`);
-        loggedCodes.add(row.code);
+        // 일치하는 연도/주기가 없는 경우는 신규 측정 데이터
+        toUpsert.push({ ...row, updated_at: now });
+        recordsInserted++;
+
+        if (!loggedCodes.has(row.code)) {
+          if (!codeExistsInDB.has(row.code)) {
+            // 아예 신규 코드인 경우
+            addChangeLog(`[신규] ${row.business_name} (${row.code}) 측정 정보가 추가되었습니다.`);
+            loggedCodes.add(row.code);
+          }
+        }
       }
     });
 
-    // UPSERT 배치 처리 (1000개씩)
-    if (allRows.length > 0) {
+    // UPSERT 배치 처리 (1000개씩) - toUpsert가 있는 경우에만 기동
+    if (toUpsert.length > 0) {
       const upsertBatchSize = 100;
-      for (let i = 0; i < allRows.length; i += upsertBatchSize) {
-        const batch = allRows.slice(i, i + upsertBatchSize);
+      for (let i = 0; i < toUpsert.length; i += upsertBatchSize) {
+        const batch = toUpsert.slice(i, i + upsertBatchSize);
 
         // UPSERT: ON CONFLICT (code, year, period) DO UPDATE
         const { error: upsertError } = await supabase
@@ -1893,7 +2040,7 @@ export async function syncMeasurementBusiness(
       }
     }
 
-    const syncEndTime = new Date(getKSTISOString());
+    const syncEndTime = new Date();
 
 
     // Define targetRows in outer scope for reuse
@@ -1901,11 +2048,11 @@ export async function syncMeasurementBusiness(
 
     // measurement_target_business 테이블에도 동기화 (UI에 바로 반영되도록)
     // measurement_target_business는 "측정 대상 사업장 계획" 테이블로, 화면에 표시되는 데이터임
-    if (allRows.length > 0) {
+    if (toUpsert.length > 0) {
       try {
         // measurement_target_business 테이블에 맞는 필드만 추출
         const targetBusinessFields = [
-          "code", "year", "period", "business_name", "business_number",
+          "code", "year", "period", "business_name",
           "total_employees", "address", "office_jurisdiction", "designated_office",
           "measurement_start_date", "measurement_end_date", "completion_status", "measurer",
           "future_measurement_date", "measurement_date", "future_measurement_period",
@@ -1913,7 +2060,7 @@ export async function syncMeasurementBusiness(
           "industrial_accident_number", "commencement_number", "fax", "representative_name", "national_support_status"
         ];
 
-        targetRows = allRows.map(row => {
+        targetRows = toUpsert.map(row => {
           const targetRow: any = {};
           targetBusinessFields.forEach(field => {
             if (row[field] !== undefined) {
@@ -1934,10 +2081,43 @@ export async function syncMeasurementBusiness(
         const targetBatchSize = 1000;
         for (let i = 0; i < targetRows.length; i += targetBatchSize) {
           const batch = targetRows.slice(i, i + targetBatchSize);
+          const batchCodes = Array.from(new Set(batch.map(row => row.code)));
+          const batchYears = Array.from(new Set(batch.map(row => row.year)));
+          const batchPeriods = Array.from(new Set(batch.map(row => row.period)));
+
+          const { data: existingTargets, error: existingTargetsError } = await supabase
+            .from("measurement_target_business")
+            .select("code, year, period, manager_name, manager_mobile, manager_email")
+            .in("code", batchCodes)
+            .in("year", batchYears)
+            .in("period", batchPeriods);
+
+          if (existingTargetsError) {
+            throw new Error("기존 측정대상 담당자 조회 실패: " + existingTargetsError.message);
+          }
+
+          const contactKey = (row: any) => [row.code, row.year, row.period].join("::");
+          const existingTargetMap = new Map(
+            (existingTargets || []).map(existing => [contactKey(existing), existing]),
+          );
+          const hasUserValue = (value: unknown) =>
+            value !== null && value !== undefined && String(value).trim() !== "";
+
+          const protectedBatch = batch.map(row => {
+            const existing = existingTargetMap.get(contactKey(row)) as any;
+            if (!existing) return row;
+
+            return {
+              ...row,
+              manager_name: hasUserValue(existing.manager_name) ? existing.manager_name : row.manager_name,
+              manager_mobile: hasUserValue(existing.manager_mobile) ? existing.manager_mobile : row.manager_mobile,
+              manager_email: hasUserValue(existing.manager_email) ? existing.manager_email : row.manager_email,
+            };
+          });
 
           const { error: targetUpsertError } = await supabase
             .from("measurement_target_business")
-            .upsert(batch, {
+            .upsert(protectedBatch, {
               onConflict: "code,year,period",
               ignoreDuplicates: false
             });
@@ -2044,31 +2224,109 @@ export async function syncMeasurementBusiness(
       console.warn("[측정사업장 동기화] Strict Sync 중 오류:", strictSyncError);
     }
 
-    // 동기화 로그 업데이트
+    // [NEW] 예비조사 등록 업체 연동 감지 및 실시간 알림 로직
+    try {
+      console.log("[MES 연동 알림] 당일 예비조사 연동 감지 프로세스 시작...");
+      const kstToday = getKSTISOString().slice(0, 10); // "YYYY-MM-DD"
+      
+      // 1. 오늘의 예비조사 목록 조회
+      const { data: todaySurveys, error: surveyFetchError } = await supabase
+        .from("preliminary_survey")
+        .select("code, business_name, year, period")
+        .eq("measurement_date", kstToday);
+        
+      if (surveyFetchError) {
+        console.error("[MES 연동 알림] 오늘의 예비조사 조회 실패:", surveyFetchError.message);
+      } else if (todaySurveys && todaySurveys.length > 0) {
+        console.log(`[MES 연동 알림] 오늘 예정된 예비조사 건수: ${todaySurveys.length}건`);
+        
+        // 일지담당자(is_journal_manager = true) 목록 조회
+        const { data: managers } = await supabase
+          .from("users")
+          .select("id")
+          .eq("is_journal_manager", true);
+          
+        const managerIds = (managers || []).map(m => m.id);
+        
+        for (const survey of todaySurveys) {
+          const sCode = String(survey.code || "").trim();
+          const sName = String(survey.business_name || "").trim();
+          
+          // 이번 동기화에 들어왔는지 3단계 매칭 대조
+          const isMatched = allRows.some((row: any) => {
+            const rCode = String(row.code || "").trim();
+            const rName = String(row.business_name || "").trim();
+            
+            // 1순위: 코드 매칭
+            if (sCode && rCode && sCode === rCode) return true;
+            // 2순위: 사업장명 매칭
+            if (sName && rName) {
+              const cleanSName = sName.replace(/\s/g, "").replace(/\(주\)/g, "").replace(/주식회사/g, "");
+              const cleanRName = rName.replace(/\s/g, "").replace(/\(주\)/g, "").replace(/주식회사/g, "");
+              if (cleanSName === cleanRName || cleanRName.includes(cleanSName) || cleanSName.includes(cleanRName)) {
+                return true;
+              }
+            }
+            return false;
+          });
+          
+          if (isMatched) {
+            // 중복 발송 방지: 오늘 이미 해당 업체로 mes_sync_success 알림이 갔는지 체크
+            const { data: existingNotis } = await supabase
+              .from("notifications")
+              .select("id")
+              .eq("type", "mes_sync_success")
+              .like("message", `%${sName}%`)
+              .limit(1);
+              
+            if (!existingNotis || existingNotis.length === 0) {
+              // 신규 연동 완료! 알림 발송
+              const notiMsg = `[MES 연동 완료] 오늘 예정된 예비조사 등록 업체 '${sName}'이 MES에 정상 등록되어 연동되었습니다.`;
+              console.log(`[MES 연동 알림] 신규 매칭 연동 알림 생성: ${sName}`);
+              
+              if (managerIds.length > 0) {
+                const notificationsToInsert = managerIds.map(mId => ({
+                  user_id: mId,
+                  type: "mes_sync_success",
+                  message: notiMsg,
+                  is_read: false
+                }));
+                await supabase.from("notifications").insert(notificationsToInsert);
+              }
+            }
+          }
+        }
+      }
+    } catch (notiErr: any) {
+      console.error("[MES 연동 알림] 알림 감지 중 예외 발생:", notiErr.message);
+    }
+
+    // 동기화 로그 업데이트 (변경 사항 유무에 관계없이 상시 기록하여 타이틀에 최종 동기화 시점 노출)
     if (logId) {
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: getKSTISOString(syncEndTime),
+          sync_end_time: syncEndTime.toISOString(),
           status: "성공",
           records_processed: parsedData.length,
-          records_updated: recordsProcessed, // UPSERT는 INSERT와 UPDATE를 모두 포함
-          records_inserted: recordsProcessed,
-          change_details: changeLog.length > 0 ? changeLog : null // JSONB로 저장
+          records_updated: recordsUpdated,
+          records_inserted: recordsInserted,
+          change_details: changeLog.length > 0 ? changeLog : null
         })
         .eq("id", logId);
+      console.log(`[측정사업장 동기화] 동기화 로그(ID: ${logId})를 성공 상태로 업데이트했습니다.`);
     }
 
     return {
       success: true,
       file_name: fileName,
       records_processed: parsedData.length,
-      records_inserted: recordsProcessed, // UPSERT라 정확한 구분 어려움
-      records_updated: recordsProcessed,
+      records_inserted: recordsInserted,
+      records_updated: recordsUpdated,
       change_log: changeLog,
     };
   } catch (error) {
-    const syncEndTime = new Date(getKSTISOString());
+    const syncEndTime = new Date();
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     // 상세 에러 로깅
@@ -2086,7 +2344,7 @@ export async function syncMeasurementBusiness(
         await supabase
           .from("sync_log")
           .update({
-            sync_end_time: getKSTISOString(syncEndTime),
+            sync_end_time: syncEndTime.toISOString(),
             status: "실패",
             error_message: errorMessage,
           })
@@ -2114,7 +2372,7 @@ export async function syncMeasurementBusiness(
  * measurement_journal 테이블의 빈 필드를 business_info 및 measurement_business 데이터로 채움
  */
 export async function updateJournalFromReferenceData(externalSupabaseClient?: SupabaseClient): Promise<SyncResult> {
-  const syncStartTime = new Date(getKSTISOString());
+  const syncStartTime = new Date();
   let logId: number | null = null;
   const fileName = "JOURNAL_UPDATE";
 
@@ -2127,7 +2385,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       .insert({
         file_name: fileName,
         sync_type: "일지데이터보정",
-        sync_start_time: getKSTISOString(syncStartTime),
+        sync_start_time: syncStartTime.toISOString(),
         status: "진행중",
         records_processed: 0,
         records_updated: 0,
@@ -2148,7 +2406,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
     // 먼저 business_info 데이터를 맵으로 메모리에 로드 (코드가 키)
     const { data: bData, error: bError } = await supabase
       .from("business_info")
-      .select("code, business_name, business_number, address1, address2, manager_name, manager_contact, phone, representative_name");
+      .select("code, business_name, business_number, address1, address2, manager_name, manager_contact, phone, representative_name, invoice_email");
 
     if (bError) throw new Error(`business_info 조회 실패: ${bError.message}`);
 
@@ -2165,7 +2423,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
     // 1-2. measurement_business로 업데이트 (코드+년도+주기 기준)
     const { data: mbData, error: mbError } = await supabase
       .from("measurement_business")
-      .select("code, year, period, business_name, business_number, address, manager_name, manager_mobile, total_employees, business_category, industrial_accident_number")
+      .select("code, year, period, business_name, business_number, address, manager_name, manager_mobile, manager_phone, total_employees, business_category, industrial_accident_number, commencement_number, national_support_status, invoice_email")
       // 필요한 필드만 조회하되, 정렬은 메모리에서 하거나 쿼리에서 미리 정렬
       .order("year", { ascending: false })
       .order("period", { ascending: false });
@@ -2225,11 +2483,11 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
         // 단, 엑셀에 데이터가 있을 때만 덮어씀 (데이터 유실 방지)
 
         // 1. 담당자 휴대폰 (manager_mobile)
-        if (mbRow?.manager_mobile) {
-          updateData.manager_mobile = mbRow.manager_mobile;
-          needsUpdate = true;
-        } else if (bRow?.manager_contact) {
-          updateData.manager_mobile = bRow.manager_contact;
+        const managerMobile = normalizePhoneLikeValue(mbRow?.manager_mobile, mbRow?.manager_name) ||
+          normalizePhoneLikeValue(mbRow?.manager_phone, mbRow?.manager_name) ||
+          normalizePhoneLikeValue(bRow?.manager_contact, mbRow?.manager_name || bRow?.manager_name);
+        if (managerMobile) {
+          updateData.manager_mobile = managerMobile;
           needsUpdate = true;
         }
 
@@ -2252,11 +2510,12 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
         }
 
         // 4. 사업자번호 (business_number)
-        if (mbRow?.business_number) {
-          updateData.business_number = mbRow.business_number;
-          needsUpdate = true;
-        } else if (bRow?.business_number) {
+        // 기준: business_info가 권위 있는 소스이며, 없을 때만 measurement_business 사용
+        if (bRow?.business_number) {
           updateData.business_number = bRow.business_number;
+          needsUpdate = true;
+        } else if (mbRow?.business_number) {
+          updateData.business_number = mbRow.business_number;
           needsUpdate = true;
         }
 
@@ -2308,6 +2567,16 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
           needsUpdate = true;
         }
 
+        // 12. 세금계산서 메일 (invoice_email)
+        // 기준: business_info가 권위 있는 소스이며, 없을 때만 measurement_business 사용
+        if (bRow?.invoice_email) {
+          updateData.invoice_email = bRow.invoice_email;
+          needsUpdate = true;
+        } else if (mbRow?.invoice_email) {
+          updateData.invoice_email = mbRow.invoice_email;
+          needsUpdate = true;
+        }
+
         if (needsUpdate) {
           updates.push({
             id: journal.id,
@@ -2337,7 +2606,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: getKSTISOString(),
+          sync_end_time: new Date().toISOString(),
           status: "성공",
           records_processed: journals?.length || 0,
           records_updated: updateCount,
@@ -2363,7 +2632,7 @@ export async function updateJournalFromReferenceData(externalSupabaseClient?: Su
       await supabase
         .from("sync_log")
         .update({
-          sync_end_time: getKSTISOString(),
+          sync_end_time: new Date().toISOString(),
           status: "실패",
           error_message: errorMessage,
         })

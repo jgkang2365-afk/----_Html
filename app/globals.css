@@ -66,6 +66,8 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
   line-height: 1.4 !important;
   overflow: visible !important;
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
 }
 
 /* 인쇄 스타일 */

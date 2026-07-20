@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -27,13 +27,14 @@ const navItems: NavItem[] = [
   { href: "/survey", label: "예비조사" },
   { href: "/journal", label: "측정일지" },
   { href: "/summary", label: "측정정보 요약" },
-  { href: "/report-processing", label: "보고서 처리", adminOnly: true },
+  { href: "/report-processing", label: "보고서 처리" },
   { href: "/businesses/national-support", label: "건강디딤돌 신청결과" },
   { href: "/sales", label: "매출관리" },
 ];
 
 const adminNavItems: NavItem[] = [
   { href: "/users", label: "사용자 관리", adminOnly: true },
+  { href: "/document-templates", label: "문서 템플릿 관리", adminOnly: true },
   { href: "/business-categories", label: "업종분류 관리", adminOnly: true },
   { href: "/admin/quotas", label: "지청별 지정한계", adminOnly: true },
 ];
@@ -57,17 +58,21 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const unreadCount = notifications.filter(n => !n.is_read).length;
   const [isMemoOpen, setIsMemoOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   const fetchNotifications = async () => {
     try {
       const res = await fetch("/api/notifications");
       if (res.ok) {
         const data = await res.json();
-        setNotifications(data.notifications || []);
+        const list = data.notifications || [];
+        setNotifications(list);
+        return list;
       }
     } catch (err) {
       console.error("알림 fetch 에러:", err);
     }
+    return [];
   };
 
   const markAsRead = async (id?: number) => {
@@ -78,7 +83,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         body: JSON.stringify(id ? { id } : { all: true }),
       });
       if (res.ok) {
-        fetchNotifications();
+        await fetchNotifications();
       }
     } catch (err) {
       console.error("알림 읽음 처리 에러:", err);
@@ -92,6 +97,43 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
       return () => clearInterval(interval);
     }
   }, [user]);
+
+  // 안 읽은 알림이 없을 경우 2초 후에 자동으로 팝오버를 닫는 타이머
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const unreadNotifications = notifications.filter(n => !n.is_read);
+
+    if (showNotifications && unreadNotifications.length === 0) {
+      timer = setTimeout(() => {
+        setShowNotifications(false);
+      }, 2000);
+    }
+
+    return () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [showNotifications, notifications]);
+
+  // 알림 팝오버 외부 클릭 시 닫기
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        notificationRef.current &&
+        !notificationRef.current.contains(event.target as Node)
+      ) {
+        setShowNotifications(false);
+      }
+    };
+
+    if (showNotifications) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showNotifications]);
 
   useEffect(() => {
     if (!loading) {
@@ -142,7 +184,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                 <MessageSquare size={20} />
               </Button>
 
-              <div className="relative">
+              <div className="relative" ref={notificationRef}>
                 <Button
                 variant="secondary"
                 size="sm"
@@ -160,8 +202,8 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
               {/* 알림 드롭다운 */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-surface-100 overflow-hidden animate-in fade-in zoom-in duration-200">
-                  <div className="p-3 border-b border-surface-100 flex items-center justify-between bg-surface-50/50">
+                <div className="absolute right-0 mt-2 w-80 bg-[#fffdeb] rounded-lg shadow-xl border border-yellow-200 overflow-hidden animate-in fade-in zoom-in duration-200 z-50">
+                  <div className="p-3 border-b border-yellow-200 flex items-center justify-between bg-[#fef3c7]/60">
                     <span className="text-sm font-bold text-text-900">알림</span>
                     {unreadCount > 0 && (
                       <button
@@ -174,7 +216,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                   </div>
                   <div className="max-h-96 overflow-y-auto no-scrollbar">
                     {notifications.filter(n => !n.is_read).length === 0 ? (
-                      <div className="p-8 text-center text-sm text-text-400">
+                      <div className="p-8 text-center text-sm text-text-500">
                         표시할 새로운 알림이 없습니다.
                       </div>
                     ) : (
@@ -183,7 +225,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                         .map((noti) => (
                           <div
                             key={noti.id}
-                            className="p-3 border-b border-surface-50 transition-colors hover:bg-surface-50 cursor-default group"
+                            className="p-3 border-b border-yellow-100 transition-colors hover:bg-[#fef3c7]/50 cursor-default group"
                           >
                             <div className="flex justify-between gap-2">
                               <p
@@ -299,32 +341,47 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
               })}
             </ul>
 
-            {/* 관리자 메뉴 (맨 오른쪽) */}
-            {!loading && isAdmin && (
-              <ul className="flex items-center gap-1 shrink-0 ml-4">
-                {adminNavItems.map((item) => {
-                  const isActive =
-                    pathname === item.href || pathname?.startsWith(item.href + "/");
+            {/* 우측 메뉴 영역 (내맘대로 및 관리자 메뉴) */}
+            <div className="flex items-center gap-3 shrink-0 ml-auto pl-4">
+              <Link
+                href="/custom-reports"
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap block",
+                  pathname === "/custom-reports"
+                    ? "bg-primary-50 text-primary-600 font-bold"
+                    : "text-text-700 hover:bg-surface-50 hover:text-text-900"
+                )}
+                aria-current={pathname === "/custom-reports" ? "page" : undefined}
+              >
+                내맘대로
+              </Link>
 
-                  return (
-                    <li key={item.href} className="shrink-0">
-                      <Link
-                        href={item.href}
-                        className={cn(
-                          "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap block",
-                          isActive
-                            ? "bg-primary-50 text-primary-600"
-                            : "text-text-700 hover:bg-surface-50 hover:text-text-900"
-                        )}
-                        aria-current={isActive ? "page" : undefined}
-                      >
-                        {item.label}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+              {!loading && isAdmin && (
+                <ul className="flex items-center gap-1 border-l border-surface-200 pl-3">
+                  {adminNavItems.map((item) => {
+                    const isActive =
+                      pathname === item.href || pathname?.startsWith(item.href + "/");
+
+                    return (
+                      <li key={item.href} className="shrink-0">
+                        <Link
+                          href={item.href}
+                          className={cn(
+                            "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap block",
+                            isActive
+                              ? "bg-primary-50 text-primary-600"
+                              : "text-text-700 hover:bg-surface-50 hover:text-text-900"
+                          )}
+                          aria-current={isActive ? "page" : undefined}
+                        >
+                          {item.label}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
       </nav>

@@ -19,13 +19,15 @@ const navItems: NavItem[] = [
   { href: "/survey", label: "예비조사", icon: "🔍" },
   { href: "/journal", label: "측정일지", icon: "📋" },
   { href: "/summary", label: "측정정보 요약", icon: "📄" },
-  { href: "/report-processing", label: "보고서 처리", icon: "📧", adminOnly: true },
+  { href: "/custom-reports", label: "맞춤형 보고서 추출", icon: "⚙️" },
+  { href: "/report-processing", label: "보고서 처리", icon: "📧" },
   { href: "/businesses/national-support", label: "건강디딤돌 신청결과", icon: "🏥" },
   { href: "/sales", label: "매출관리", icon: "💰" },
 ];
 
 const adminNavItems: NavItem[] = [
   { href: "/users", label: "사용자 관리", icon: "👥", adminOnly: true },
+  { href: "/document-templates", label: "문서 템플릿 관리", icon: "📁", adminOnly: true },
   { href: "/business-categories", label: "업종분류 관리", icon: "🏷️", adminOnly: true },
   { href: "/admin/quotas", label: "지청별 지정한계", icon: "🔢", adminOnly: true },
 ];

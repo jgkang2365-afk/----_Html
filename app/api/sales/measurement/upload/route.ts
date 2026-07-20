@@ -180,6 +180,12 @@ export async function POST(request: NextRequest) {
                 mapField("invoice_business_name", ["발행처 상호", "발행처상호"], "string");
                 mapField("invoice_business_number", ["발행처 사업자", "발행처사업자"], "string");
 
+                if (updates.invoice_email && (updates.invoice_email.includes(",") || updates.invoice_email.includes(";"))) {
+                    const parts = updates.invoice_email.split(/[,;]/).map((e: any) => String(e).trim()).filter(Boolean);
+                    updates.invoice_email = parts[0] || null;
+                    updates.invoice_email_2 = parts[1] || null;
+                }
+
                 if (Object.keys(updates).length === 0) {
                     continue;
                 }

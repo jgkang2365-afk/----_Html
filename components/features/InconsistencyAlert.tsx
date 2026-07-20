@@ -34,33 +34,18 @@ export function InconsistencyAlert({ onNavigate }: InconsistencyAlertProps) {
     if (loading || issueCount === 0) return null;
 
     return (
-        <div className="mb-6">
-            <Alert variant="error" className="border-l-4 border-l-error-500 bg-white shadow-sm">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-error-100 rounded-full text-error-600">
-                            <AlertTriangle size={20} />
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-error-900 text-lg">
-                                ⚠️ 데이터 불일치 {issueCount}건 감지됨
-                            </h3>
-                            <p className="text-sm text-text-600 mt-1">
-                                측정사업장(최신) 데이터와 사업장 정보 간의 불일치가 존재합니다.
-                                <br />
-                                검토 및 해결을 위해 데이터 업로드 탭을 확인해주세요.
-                            </p>
-                        </div>
-                    </div>
-                    <Button
-                        variant="danger"
-                        className="shrink-0 flex items-center gap-2"
-                        onClick={onNavigate}
-                    >
-                        확인하러 가기 <ArrowRight size={16} />
-                    </Button>
-                </div>
-            </Alert>
+        <div className="inline-flex items-center gap-2 bg-rose-50 border border-rose-100 rounded-lg px-3 py-1.5 text-rose-700">
+            <AlertTriangle size={15} className="shrink-0 text-rose-500" />
+            <span className="text-xs font-bold whitespace-nowrap">
+                데이터 불일치 {issueCount}건 감지됨
+            </span>
+            <Button
+                variant="danger"
+                className="h-6 px-2 text-[10px] font-bold rounded flex items-center gap-0.5 shrink-0"
+                onClick={onNavigate}
+            >
+                확인하러 가기 <ArrowRight size={10} />
+            </Button>
         </div>
     );
 }

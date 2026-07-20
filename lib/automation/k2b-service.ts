@@ -2,7 +2,8 @@ import { Builder, By, Key, until, WebDriver, WebElement } from 'selenium-webdriv
 import chrome from 'selenium-webdriver/chrome';
 import path from 'path';
 import fs from 'fs';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
+import { resolveWindowsDialogPath } from './windows-file-path';
 
 /**
  * K2B 시스템 자동화 서비스
@@ -32,7 +33,7 @@ export class K2BService {
         const options = new chrome.Options();
         
         // 서버 구동 환경 대응: 화면 크기 및 headless 설정
-        const isHeadless = process.env.K2B_HEADLESS === 'true';
+        const isHeadless = process.env.K2B_HEADLESS?.toLowerCase().trim() === 'true';
         if (isHeadless) {
             console.log('[K2B] 헤드리스 모드(Headless)로 브라우저를 구동합니다.');
             options.addArguments('--headless=new');
@@ -201,63 +202,180 @@ export class K2BService {
     }
 
     /**
-     * 클립보드에 텍스트를 복사하고 Ctrl+V → Enter 전송
-     * 파이썬의 pyperclip.copy() + pyautogui.hotkey('ctrl', 'v') + pyautogui.press('enter') 대체
+     * Windows 파일 선택창에서 사용할 경로를 준비합니다.
+     * 관리자 권한 프로세스에서 매핑 드라이브가 보이지 않을 수 있으므로 UNC 경로를 우선합니다.
+     */
+    private resolveDialogPath(filePath: string): string {
+        const resolvedPath = resolveWindowsDialogPath(filePath, {
+            storageRoot: process.env.REPORT_STORAGE_ROOT,
+            uncRoot: process.env.REPORT_STORAGE_UNC_ROOT
+        });
+        if (resolvedPath !== filePath) {
+            console.log('[K2B] 파일 선택창에 UNC 경로를 사용합니다.');
+        }
+        return resolvedPath;
+    }
+
+    private runEncodedPowerShell(command: string) {
+        const encodedCommand = Buffer.from(command, 'utf16le').toString('base64');
+        try {
+            execFileSync(
+                'powershell.exe',
+                ['-NoProfile', '-Sta', '-NonInteractive', '-EncodedCommand', encodedCommand],
+                { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }
+            );
+        } catch (error: any) {
+            const stderr = Buffer.isBuffer(error?.stderr)
+                ? error.stderr.toString('utf8')
+                : String(error?.stderr || '');
+            if (stderr.includes('K2B_CLIPBOARD_BUSY')) {
+                throw new Error('Windows 클립보드가 사용 중이어서 파일 경로를 입력하지 못했습니다.');
+            }
+            if (stderr.includes('K2B_FILE_DIALOG_NOT_FOUND')) {
+                throw new Error('K2B 파일 선택창을 활성화하지 못했습니다.');
+            }
+            if (stderr.includes('K2B_FILE_DIALOG_PATH_REJECTED')) {
+                throw new Error('파일 선택창에서 Z 드라이브 또는 UNC 경로를 열지 못했습니다.');
+            }
+            throw new Error('Windows 파일 선택 자동화 명령이 실패했습니다.');
+        }
+    }
+
+    /**
+     * Windows 10 파일 선택창에서 폴더로 이동한 뒤 파일명을 입력합니다.
      */
     private sendFilePathViaClipboard(filePath: string) {
-        // PowerShell로 클립보드에 복사
-        execSync(`powershell -command "Set-Clipboard -Value '${filePath.replace(/'/g, "''")}'"`);
-        // Ctrl+V 붙여넣기 후 Enter
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
-    }
+        if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+            throw new Error(`TXT 파일이 실제 경로에 없습니다: ${filePath}`);
+        }
 
-    /**
-     * 도면 파일 다중 선택 (파이썬의 pyautogui 로직 이식)
-     * 
-     * 파이썬 원본:
-     * 1. pyautogui.hotkey('alt', 'd') → 주소창 이동
-     * 2. pyperclip.copy(drawing_folder) → 폴더 경로 복사
-     * 3. pyautogui.hotkey('ctrl', 'v') → 붙여넣기
-     * 4. pyautogui.press('enter') → 폴더 이동
-     * 5. time.sleep(1.5) → 폴더 이동 대기
-     * 6. pyautogui.hotkey('alt', 'n') → 파일명 입력란 이동
-     * 7. 파일명들을 큰따옴표+공백으로 연결하여 붙여넣기
-     * 8. pyautogui.press('enter')
-     */
-    /**
-     * PowerShell EncodedCommand를 사용하여 특수문자/따옴표 포함 텍스트를 클립보드에 안전하게 설정
-     */
-    private setClipboard(text: string) {
-        // .NET 메서드를 사용하는 PowerShell 명령 생성
-        const command = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText(([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${Buffer.from(text, 'utf8').toString('base64')}'))))`;
-        // PowerShell에 명령 전달
-        execSync(`powershell -command "${command}"`);
+        const dialogFilePath = this.resolveDialogPath(filePath);
+        const dialogFolder = path.win32.dirname(dialogFilePath);
+        const dialogFilename = path.win32.basename(dialogFilePath);
+        const folderBase64 = Buffer.from(dialogFolder, 'utf8').toString('base64');
+        const filenameBase64 = Buffer.from(dialogFilename, 'utf8').toString('base64');
+        const command = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+$shell = New-Object -ComObject WScript.Shell
+function Try-ActivateFileDialog([int]$attempts) {
+    for ($i = 0; $i -lt $attempts; $i++) {
+        if ($shell.AppActivate('열기') -or $shell.AppActivate('Open')) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
     }
-
+    return $false
+}
+function Set-ClipboardText([string]$value) {
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            [System.Windows.Forms.Clipboard]::SetDataObject($value, $true, 10, 100)
+            return
+        } catch {
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    throw 'K2B_CLIPBOARD_BUSY'
+}
+if (-not (Try-ActivateFileDialog 20)) {
+    throw 'K2B_FILE_DIALOG_NOT_FOUND'
+}
+$folderPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${folderBase64}'))
+Set-ClipboardText $folderPath
+[System.Windows.Forms.SendKeys]::SendWait('%d')
+Start-Sleep -Milliseconds 300
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 500
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+Start-Sleep -Milliseconds 2500
+$filename = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${filenameBase64}'))
+Set-ClipboardText $filename
+[System.Windows.Forms.SendKeys]::SendWait('%n')
+Start-Sleep -Milliseconds 300
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 500
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+Start-Sleep -Milliseconds 1500
+if (Try-ActivateFileDialog 4) {
+    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Start-Sleep -Milliseconds 300
+    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    throw 'K2B_FILE_DIALOG_PATH_REJECTED'
+}
+`;
+        this.runEncodedPowerShell(command);
+    }
+    /**
+     * Windows 10 파일 선택창에서 도면 폴더로 이동한 뒤 여러 파일을 선택합니다.
+     */
     private sendMultipleFilesViaDialog(drawingFolder: string, jpgFiles: string[]) {
-        // 1. Alt+D → 주소창 이동
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%d')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`);
+        if (!fs.existsSync(drawingFolder) || !fs.statSync(drawingFolder).isDirectory()) {
+            throw new Error(`도면 폴더가 실제 경로에 없습니다: ${drawingFolder}`);
+        }
+        const missingFile = jpgFiles.find(
+            filename => !fs.existsSync(path.join(drawingFolder, filename))
+        );
+        if (missingFile) {
+            throw new Error(`도면 파일이 실제 경로에 없습니다: ${missingFile}`);
+        }
 
-        // 2-4. 폴더 경로를 클립보드에 복사 후 붙여넣기 → Enter
-        this.setClipboard(drawingFolder);
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 500; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 2500"`); // 폴더 이동 대기
-
-        // 5. Alt+N → 파일명 입력란 이동
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('%n')"`);
-        execSync(`powershell -command "Start-Sleep -Milliseconds 1000"`);
-
-        // 6. 모든 파일명을 큰따옴표로 묶고 공백으로 연결
-        const filenamesStr = jpgFiles.map(f => `"${f}"`).join(' ');
-        
-        // 클립보드에 파일명 넣기 (Encoded 방식으로 따옴표 완벽 보존)
-        this.setClipboard(filenamesStr);
-
-        // 7. Ctrl+V → 붙여넣기 후 Enter
-        execSync(`powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 2000; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`);
+        const dialogFolder = this.resolveDialogPath(drawingFolder);
+        const filenames = jpgFiles.map(filename => `"${filename}"`).join(' ');
+        const folderBase64 = Buffer.from(dialogFolder, 'utf8').toString('base64');
+        const filenamesBase64 = Buffer.from(filenames, 'utf8').toString('base64');
+        const command = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+$shell = New-Object -ComObject WScript.Shell
+function Try-ActivateFileDialog([int]$attempts) {
+    for ($i = 0; $i -lt $attempts; $i++) {
+        if ($shell.AppActivate('열기') -or $shell.AppActivate('Open')) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
     }
-
+    return $false
+}
+function Set-ClipboardText([string]$value) {
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            [System.Windows.Forms.Clipboard]::SetDataObject($value, $true, 10, 100)
+            return
+        } catch {
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    throw 'K2B_CLIPBOARD_BUSY'
+}
+if (-not (Try-ActivateFileDialog 20)) {
+    throw 'K2B_FILE_DIALOG_NOT_FOUND'
+}
+$folderPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${folderBase64}'))
+Set-ClipboardText $folderPath
+[System.Windows.Forms.SendKeys]::SendWait('%d')
+Start-Sleep -Milliseconds 300
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 500
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+Start-Sleep -Milliseconds 2500
+$filenames = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${filenamesBase64}'))
+Set-ClipboardText $filenames
+[System.Windows.Forms.SendKeys]::SendWait('%n')
+Start-Sleep -Milliseconds 300
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 500
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+Start-Sleep -Milliseconds 1500
+if (Try-ActivateFileDialog 4) {
+    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Start-Sleep -Milliseconds 300
+    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    throw 'K2B_FILE_DIALOG_PATH_REJECTED'
+}
+`;
+        this.runEncodedPowerShell(command);
+    }
     /**
      * 단일 업체 보고서 업로드 실행
      * 
@@ -283,6 +401,9 @@ export class K2BService {
         if (!files.dataFile) {
             return { success: false, status: 'txt 파일 없음', error: 'TXT 데이터 파일이 없습니다.' };
         }
+        if (!fs.existsSync(files.dataFile.path) || !fs.statSync(files.dataFile.path).isFile()) {
+            return { success: false, status: 'TXT 경로 오류', error: `TXT 파일 경로를 찾을 수 없습니다: ${files.dataFile.path}` };
+        }
 
         try {
             console.log(`[K2B] ${companyName} 업로드 시작`);
@@ -307,20 +428,62 @@ export class K2BService {
 
             // ===== Step 2: TXT 파일 경로를 클립보드로 전송 =====
             // 파이썬: pyperclip.copy(file_path) → time.sleep(1) → ctrl+v → time.sleep(1) → enter → sleep(3)
-            this.sendFilePathViaClipboard(files.dataFile.path);
+            try {
+                this.sendFilePathViaClipboard(files.dataFile.path);
+            } catch (error) {
+                return {
+                    success: false,
+                    status: 'TXT 파일 선택 오류',
+                    error: `K2B 파일 선택창에서 TXT 파일을 열지 못했습니다: ${error instanceof Error ? error.message : String(error)}`
+                };
+            }
             await this.driver.sleep(3000); // time.sleep(3) - 파일 업로드 대기
 
             // ===== Step 3: '위치도 업로드' 버튼 클릭 =====
             try {
-                const locationMapBtn = await this.driver.wait(
-                    until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_fileUp_grid_upload_body_gridrow_0_cell_0_2gridCellContainerElement')),
-                    20000 // WebDriverWait 20초
-                );
+                const locationButtonLocators = [
+                    By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_fileUp_grid_upload_body_gridrow_0_cell_0_2gridCellContainerElement'),
+                    By.css('[id*="div_fileUp_grid_upload_body_gridrow_0_cell_0_2"]'),
+                    By.xpath('//*[contains(@id, "grid_upload") and contains(@id, "gridrow_0") and contains(@id, "cell_0_2")]')
+                ];
+                let locationMapBtn: WebElement | null = null;
+                const deadline = Date.now() + 20000;
+
+                while (!locationMapBtn && Date.now() < deadline) {
+                    for (const locator of locationButtonLocators) {
+                        const elements = await this.driver.findElements(locator);
+                        for (const element of elements) {
+                            if (await element.isDisplayed().catch(() => false)) {
+                                locationMapBtn = element;
+                                break;
+                            }
+                        }
+                        if (locationMapBtn) break;
+                    }
+                    if (!locationMapBtn) await this.driver.sleep(500);
+                }
+
+                if (!locationMapBtn) {
+                    throw new Error('TXT 업로드 행 또는 위치도 버튼이 생성되지 않았습니다.');
+                }
                 await locationMapBtn.click();
                 await this.driver.sleep(3000); // time.sleep(3)
             } catch (e) {
-                // TimeoutException → continue (다음 업체)
-                return { success: false, status: '위치도 버튼 오류', error: '위치도 업로드 버튼을 찾을 수 없습니다.' };
+                try {
+                    const logDir = path.resolve(process.cwd(), 'logs');
+                    fs.mkdirSync(logDir, { recursive: true });
+                    const screenshot = await this.driver.takeScreenshot();
+                    const screenshotPath = path.join(logDir, `k2b-location-error-${Date.now()}.png`);
+                    fs.writeFileSync(screenshotPath, screenshot, 'base64');
+                    console.error(`[K2B] 위치도 단계 오류 화면 저장: ${screenshotPath}`);
+                } catch (screenshotError) {
+                    console.error('[K2B] 오류 화면 저장 실패:', screenshotError);
+                }
+                return {
+                    success: false,
+                    status: '위치도 버튼 오류',
+                    error: `TXT 업로드 후 위치도 버튼을 찾을 수 없습니다: ${e instanceof Error ? e.message : String(e)}`
+                };
             }
 
             // ===== Step 4: 도면 폴더 확인 및 JPG 업로드 =====
@@ -338,7 +501,15 @@ export class K2BService {
                     console.log(`[K2B] ${companyName}: JPG 파일 ${jpgFiles.length}개 발견`);
 
                     // 다중 파일 선택 (pyautogui 로직 대체)
-                    this.sendMultipleFilesViaDialog(drawingFolderPath, jpgFiles);
+                    try {
+                        this.sendMultipleFilesViaDialog(drawingFolderPath, jpgFiles);
+                    } catch (error) {
+                        return {
+                            success: false,
+                            status: '도면 파일 선택 오류',
+                            error: `K2B 파일 선택창에서 도면 파일을 열지 못했습니다: ${error instanceof Error ? error.message : String(error)}`
+                        };
+                    }
                     console.log(`[K2B] ${companyName}: 파일명 입력 완료`);
                     await this.driver.sleep(3000); // time.sleep(3) - 파일 업로드 완료 대기
 

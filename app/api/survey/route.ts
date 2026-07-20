@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { reassignSequenceNumbers } from "@/lib/utils/survey-sequence";
+import {
+  MEASURER_OVERLAP_CONFIRMATION_CODE,
+  MEASURER_OVERLAP_LIMIT_CODE,
+  resolveSurveyAssignment,
+} from "@/lib/utils/survey-assignment";
 
 /**
  * 예비조사 API
@@ -61,24 +66,30 @@ export async function GET(request: NextRequest) {
 
     if (businessName) {
       // 콤마로 구분된 여러 사업장명 지원 (OR 조건)
-      const terms = businessName.split(",").map(t => t.trim()).filter(Boolean);
+      const terms = businessName
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
       if (terms.length > 0) {
         // business_name.ilike.%term1%,business_name.ilike.%term2%...
-        const orQuery = terms.map(term => `business_name.ilike.%${term}%`).join(",");
+        const orQuery = terms.map((term) => `business_name.ilike.%${term}%`).join(",");
         businessInfoQuery = businessInfoQuery.or(orQuery);
       }
     }
 
     if (address) {
       // 콤마로 구분된 여러 주소 지원 (OR 조건)
-      const terms = address.split(",").map(t => t.trim()).filter(Boolean);
+      const terms = address
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
       if (terms.length > 0) {
         // (address1 like term1 OR address2 like term1) OR (address1 like term2 OR address2 like term2)
         // supabase .or() syntax: column.operator.value,column.operator.value
         // address1.ilike.%term1%,address2.ilike.%term1%,address1.ilike.%term2%,address2.ilike.%term2%
-        const orConditions = terms.flatMap(term => [
+        const orConditions = terms.flatMap((term) => [
           `address1.ilike.%${term}%`,
-          `address2.ilike.%${term}%`
+          `address2.ilike.%${term}%`,
         ]);
         businessInfoQuery = businessInfoQuery.or(orConditions.join(","));
       }
@@ -117,12 +128,18 @@ export async function GET(request: NextRequest) {
           .select("code, office_jurisdiction")
           .not("office_jurisdiction", "is", null)
           .limit(50);
-        const uniqueOffices = [...new Set(sampleData?.map((b: any) => b.office_jurisdiction).filter(Boolean) || [])];
-        console.log("데이터베이스의 관할청 샘플 (중복 제거, 상위 20개):", uniqueOffices.slice(0, 20));
+        const uniqueOffices = [
+          ...new Set(sampleData?.map((b: any) => b.office_jurisdiction).filter(Boolean) || []),
+        ];
+        console.log(
+          "데이터베이스의 관할청 샘플 (중복 제거, 상위 20개):",
+          uniqueOffices.slice(0, 20)
+        );
 
         // 검색어와 유사한 값 찾기
-        const similarOffices = uniqueOffices.filter((office: string) =>
-          office.includes(officeJurisdiction) || officeJurisdiction.includes(office)
+        const similarOffices = uniqueOffices.filter(
+          (office: string) =>
+            office.includes(officeJurisdiction) || officeJurisdiction.includes(office)
         );
         if (similarOffices.length > 0) {
           console.log("검색어와 유사한 관할청:", similarOffices);
@@ -133,7 +150,10 @@ export async function GET(request: NextRequest) {
     if (businessInfoError) {
       console.error("사업장정보 검색 오류:", businessInfoError);
       // office_jurisdiction 컬럼이 없는 경우 (마이그레이션 미실행) fallback 처리
-      if (businessInfoError.message?.includes("office_jurisdiction") || businessInfoError.code === "PGRST204") {
+      if (
+        businessInfoError.message?.includes("office_jurisdiction") ||
+        businessInfoError.code === "PGRST204"
+      ) {
         console.warn("office_jurisdiction 컬럼이 없습니다. measurement_business에서 검색합니다.");
 
         // 기본 쿼리 재실행 (office_jurisdiction 제외)
@@ -152,7 +172,9 @@ export async function GET(request: NextRequest) {
           fallbackQuery = fallbackQuery.ilike("business_name", `%${businessName}%`);
         }
         if (address) {
-          fallbackQuery = fallbackQuery.or(`address1.ilike.%${address}%,address2.ilike.%${address}%`);
+          fallbackQuery = fallbackQuery.or(
+            `address1.ilike.%${address}%,address2.ilike.%${address}%`
+          );
         }
 
         const { data: fallbackList, error: fallbackError } = await fallbackQuery;
@@ -177,7 +199,9 @@ export async function GET(request: NextRequest) {
 
           if (!mbError && measurementBusinessList) {
             const codesByOffice = measurementBusinessList
-              .filter((mb: any) => mb.office_jurisdiction && mb.office_jurisdiction === officeJurisdiction)
+              .filter(
+                (mb: any) => mb.office_jurisdiction && mb.office_jurisdiction === officeJurisdiction
+              )
               .map((mb: any) => mb.code);
             filteredCodes = [...new Set(codesByOffice)];
           }
@@ -252,14 +276,17 @@ export async function GET(request: NextRequest) {
         // but to mix with other conditions we might need .or()
 
         // OR 조건 생성을 위해 "code.in.(...)" 형식 사용
-        orConditions.push(`code.in.(${codes.map(c => `"${c}"`).join(',')})`);
+        orConditions.push(`code.in.(${codes.map((c) => `"${c}"`).join(",")})`);
       }
 
       // 2. 예비조사 테이블 직접 검색 (business_info에 없는 경우 대비)
       if (businessName) {
         // 콤마로 구분된 여러 검색어 지원
-        const terms = businessName.split(",").map(t => t.trim()).filter(Boolean);
-        terms.forEach(term => {
+        const terms = businessName
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
+        terms.forEach((term) => {
           orConditions.push(`business_name.ilike.%${term}%`);
         });
       }
@@ -270,17 +297,20 @@ export async function GET(request: NextRequest) {
 
       if (address) {
         // 콤마로 구분된 여러 주소 지원
-        const terms = address.split(",").map(t => t.trim()).filter(Boolean);
-        terms.forEach(term => {
+        const terms = address
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
+        terms.forEach((term) => {
           orConditions.push(`address.ilike.%${term}%`);
         });
       }
 
       // 조건 적용
       if (orConditions.length > 0) {
-        surveyQuery = surveyQuery.or(orConditions.join(','));
+        surveyQuery = surveyQuery.or(orConditions.join(","));
       } else {
-        // 검색 조건은 있지만(예: officeJurisdiction, businessNumber) 
+        // 검색 조건은 있지만(예: officeJurisdiction, businessNumber)
         // codes도 없고 다른 직접 검색 조건도 없는 경우 (매칭되는 데이터 없음)
         surveyQuery = surveyQuery.eq("id", -1); // 결과 없게 만듦
       }
@@ -316,14 +346,17 @@ export async function GET(request: NextRequest) {
           // 예비조사 목록에 사업자번호 추가
           surveys = surveys.map((survey) => ({
             ...survey,
-            business_number: survey.code ? businessNumberMap.get(survey.code) || null : null
+            business_number: survey.code ? businessNumberMap.get(survey.code) || null : null,
           }));
         }
       }
     }
 
     // 3. 각 사업장명별 미수금 횟수 계산
-    const businessNames = businessInfoList?.map((b: any) => b.business_name).filter((name: string) => name && name.trim()) || [];
+    const businessNames =
+      businessInfoList
+        ?.map((b: any) => b.business_name)
+        .filter((name: string) => name && name.trim()) || [];
     const businessUnpaidCountMap = new Map<string, number>();
     const nationalUnpaidCountMap = new Map<string, number>();
 
@@ -335,7 +368,9 @@ export async function GET(request: NextRequest) {
         chunks.push(businessNames.slice(i, i + chunkSize));
       }
 
-      console.log(`[API] 미수금 조회 시작: 총 ${businessNames.length}개 사업장, ${chunks.length}개 청크로 분할 조회`);
+      console.log(
+        `[API] 미수금 조회 시작: 총 ${businessNames.length}개 사업장, ${chunks.length}개 청크로 분할 조회`
+      );
 
       let allRevenueData: any[] = [];
 
@@ -343,7 +378,9 @@ export async function GET(request: NextRequest) {
       const promises = chunks.map(async (chunk) => {
         const { data: revenueData, error: revenueError } = await supabase
           .from("measurement_journal")
-          .select("business_name, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national")
+          .select(
+            "business_name, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national"
+          )
           .not("business_name", "ilike", "%번외%")
           .in("business_name", chunk);
 
@@ -384,35 +421,30 @@ export async function GET(request: NextRequest) {
     }
 
     // 4. 사업장정보 데이터를 반환 형식으로 변환
-    const businesses = businessInfoList?.map((business: any) => ({
-      code: business.code,
-      business_name: business.business_name,
-      business_number: business.business_number || "",
-      address: [business.address1, business.address2].filter(Boolean).join(" ").trim() || "",
-      office_jurisdiction: business.office_jurisdiction || "",
-      unpaid_count: businessUnpaidCountMap.get(business.business_name) || 0, // 사업장 미수 횟수
-      national_unpaid_count: nationalUnpaidCountMap.get(business.business_name) || 0, // 국고 미수 횟수
-    })) || [];
+    const businesses =
+      businessInfoList?.map((business: any) => ({
+        code: business.code,
+        business_name: business.business_name,
+        business_number: business.business_number || "",
+        address: [business.address1, business.address2].filter(Boolean).join(" ").trim() || "",
+        office_jurisdiction: business.office_jurisdiction || "",
+        unpaid_count: businessUnpaidCountMap.get(business.business_name) || 0, // 사업장 미수 횟수
+        national_unpaid_count: nationalUnpaidCountMap.get(business.business_name) || 0, // 국고 미수 횟수
+      })) || [];
 
     return NextResponse.json({
       businesses: businesses,
-      surveys: surveys
+      surveys: surveys,
     });
   } catch (error) {
     console.error("예비조사 API 오류:", error);
 
     if (error instanceof Error) {
       if (error.message.includes("Unauthorized")) {
-        return NextResponse.json(
-          { error: "로그인이 필요합니다." },
-          { status: 401 }
-        );
+        return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
       }
       if (error.message.includes("Forbidden")) {
-        return NextResponse.json(
-          { error: "권한이 없습니다." },
-          { status: 403 }
-        );
+        return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
       }
     }
 
@@ -442,17 +474,18 @@ export async function POST(request: NextRequest) {
       code,
       business_name,
       measurer,
-      survey_code,
       address,
       preliminary_surveyor,
       actual_measurer,
       report_writer,
+      assignee_manual_override,
+      confirm_measurer_overlap,
     } = body;
 
     // 필수 필드 검증
-    if (!measurement_date || !business_name) {
+    if (!measurement_date || !business_name || !measurer) {
       return NextResponse.json(
-        { error: "측정일과 사업장명은 필수 항목입니다." },
+        { error: "측정일, 사업장명, 측정자는 필수 항목입니다." },
         { status: 400 }
       );
     }
@@ -481,9 +514,10 @@ export async function POST(request: NextRequest) {
         const startDate = latestJournal.measurement_start_date
           ? new Date(latestJournal.measurement_start_date).getTime()
           : 0;
-        const lastMeasurementDate = endDate > startDate
-          ? latestJournal.measurement_end_date
-          : latestJournal.measurement_start_date;
+        const lastMeasurementDate =
+          endDate > startDate
+            ? latestJournal.measurement_end_date
+            : latestJournal.measurement_start_date;
 
         if (lastMeasurementDate) {
           const lastDate = new Date(lastMeasurementDate);
@@ -491,14 +525,16 @@ export async function POST(request: NextRequest) {
           const monthsDiff = (newDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24 * 30); // 개월 차이
 
           if (monthsDiff < 3) {
-            const daysDiff = Math.floor((newDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-            warningMessage = `전회 측정일(${lastDate.toISOString().split('T')[0]})로부터 ${daysDiff}일(${monthsDiff.toFixed(1)}개월)이 지났습니다. 법령에 따라 측정일로부터 3개월이 지난 이후에 측정이 가능합니다. 그래도 등록하시겠습니까?`;
+            const daysDiff = Math.floor(
+              (newDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)
+            );
+            warningMessage = `전회 측정일(${lastDate.toISOString().split("T")[0]})로부터 ${daysDiff}일(${monthsDiff.toFixed(1)}개월)이 지났습니다. 법령에 따라 측정일로부터 3개월이 지난 이후에 측정이 가능합니다. 그래도 등록하시겠습니까?`;
           }
         }
       }
     }
 
-    // 1. 해당 일자 등록 업체 수 제한 (6개 미만이어야 함 -> 6개 이상이면 등록 불가)
+    // 1. 해당 일자에는 최대 6개 업체까지만 등록 가능
     const { count: dateCount, error: dateCountError } = await supabase
       .from("preliminary_survey")
       .select("id", { count: "exact", head: true })
@@ -506,59 +542,57 @@ export async function POST(request: NextRequest) {
 
     if (dateCountError) {
       console.error("일자별 등록 건수 조회 오류:", dateCountError);
-    } else if ((dateCount || 0) > 6) {
       return NextResponse.json(
-        { error: `해당 일자(${measurement_date})에는 이미 6개를 초과하는 업체가 등록되어 있어 추가할 수 없습니다.` },
+        { error: "일자별 등록 건수를 확인하지 못해 저장을 중단했습니다." },
+        { status: 500 }
+      );
+    }
+
+    if ((dateCount || 0) >= 6) {
+      return NextResponse.json(
+        {
+          error:
+            "해당 일자(" +
+            measurement_date +
+            ")에는 이미 6개 업체가 등록되어 있어 추가할 수 없습니다.",
+        },
         { status: 400 }
       );
     }
 
-    // 2. 동일 일자 측정자 중복 체크
-    if (measurer) {
-      const { data: sameDateSurveys, error: measurerCheckError } = await supabase
-        .from("preliminary_survey")
-        .select("measurer")
-        .eq("measurement_date", measurement_date)
-        .not("measurer", "is", null);
+    // 2. 첫 번째 측정자를 기준으로 공시료 코드를 자동 결정
+    let assignment;
+    try {
+      assignment = await resolveSurveyAssignment({
+        supabase,
+        measurementDate: measurement_date,
+        measurer,
+        confirmOverlap: confirm_measurer_overlap === true,
+      });
+    } catch (assignmentError) {
+      const message =
+        assignmentError instanceof Error
+          ? assignmentError.message
+          : "측정자 배정 확인 중 오류가 발생했습니다.";
+      const code = assignmentError instanceof Error ? assignmentError.name : undefined;
 
-      if (measurerCheckError) {
-        console.error("측정자 중복 체크 오류:", measurerCheckError);
-      } else if (sameDateSurveys && sameDateSurveys.length > 0) {
-        const newMeasurers = measurer.split(",").map((m: string) => m.trim());
-
-        for (const survey of sameDateSurveys) {
-          if (!survey.measurer) continue;
-          const existingMeasurers = survey.measurer.split(",").map((m: string) => m.trim());
-
-          // 교집합 확인
-          const duplicates = newMeasurers.filter((nm: string) => existingMeasurers.includes(nm));
-          if (duplicates.length > 0) {
-            return NextResponse.json(
-              { error: `측정자 [${duplicates.join(", ")}]님은 해당 일자(${measurement_date})에 이미 다른 일정(업체)이 배정되어 있습니다.` },
-              { status: 400 }
-            );
-          }
-        }
-      }
+      return NextResponse.json(
+        { error: message, code },
+        { status: code === MEASURER_OVERLAP_LIMIT_CODE ? 409 : 400 }
+      );
     }
 
-    // 3. 동일 일자 공시료 번호 중복 체크
-    if (survey_code) {
-      const { data: duplicateSurveyCode, error: surveyCodeError } = await supabase
-        .from("preliminary_survey")
-        .select("id, business_name")
-        .eq("measurement_date", measurement_date)
-        .eq("survey_code", survey_code)
-        .maybeSingle();
-
-      if (surveyCodeError) {
-        console.error("공시료 번호 중복 체크 오류:", surveyCodeError);
-      } else if (duplicateSurveyCode) {
-        return NextResponse.json(
-          { error: `공시료 번호 [${survey_code}]는 해당 일자(${measurement_date})에 이미 다른 업체(${duplicateSurveyCode.business_name})에서 사용 중입니다.` },
-          { status: 400 }
-        );
-      }
+    if (assignment.requiresConfirmation) {
+      return NextResponse.json(
+        {
+          code: MEASURER_OVERLAP_CONFIRMATION_CODE,
+          error: assignment.primaryMeasurer + "님이 같은 날짜에 이미 다른 업체를 측정합니다.",
+          primaryMeasurer: assignment.primaryMeasurer,
+          suggestedSurveyCode: assignment.surveyCode,
+          conflicts: assignment.conflicts,
+        },
+        { status: 409 }
+      );
     }
 
     // 순번 자동 계산 (현재 등록된 예비조사 중 가장 큰 순번 + 1)
@@ -587,11 +621,12 @@ export async function POST(request: NextRequest) {
         code: code || null,
         business_name,
         measurer: measurer || null,
-        survey_code: survey_code || null,
+        survey_code: assignment.surveyCode,
         address: address || null,
         preliminary_surveyor: preliminary_surveyor || null,
         actual_measurer: actual_measurer || null,
         report_writer: report_writer || null,
+        assignee_manual_override: assignee_manual_override === true,
         sequence_number: sequenceNumber,
       })
       .select()
@@ -640,25 +675,24 @@ export async function POST(request: NextRequest) {
       .eq("id", survey.id)
       .single();
 
-    return NextResponse.json({
-      survey: updatedSurvey || survey,
-      warning: warningMessage // 경고 메시지 포함 (있을 경우)
-    }, { status: 201 });
+    return NextResponse.json(
+      {
+        survey: updatedSurvey || survey,
+        warning: warningMessage,
+        assignedSurveyCode: assignment.surveyCode,
+        overlapApplied: assignment.assignmentNumber === 2,
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("예비조사 등록 API 오류:", error);
 
     if (error instanceof Error) {
       if (error.message.includes("Unauthorized")) {
-        return NextResponse.json(
-          { error: "로그인이 필요합니다." },
-          { status: 401 }
-        );
+        return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
       }
       if (error.message.includes("Forbidden")) {
-        return NextResponse.json(
-          { error: "권한이 없습니다." },
-          { status: 403 }
-        );
+        return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
       }
     }
 

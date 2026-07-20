@@ -8,13 +8,25 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic'; // Force dynamic rendering
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { getUser } from "@/lib/auth/get-user";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
 import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
+import { syncToMasterTables } from "@/lib/sync/master-tables";
+import {
+  hasNationalSupportLookupInformation,
+  getInitialNationalSupportState,
+  isAdHocMeasurement,
+} from "@/lib/national-support/eligibility";
+import {
+  isValidOptionalManagerEmail,
+  normalizeOptionalManagerEmail,
+} from "@/lib/business/manager-email";
 
 export async function GET(request: NextRequest) {
   try {
@@ -192,6 +204,15 @@ export async function GET(request: NextRequest) {
       .order("year", { ascending: false })
       .order("period", { ascending: false });
 
+    // 현재 화면의 연도·주기와 정확히 일치하는 MES 담당자 및 근로자 정보
+    const { data: exactMeasurementData } = await supabase
+      .from("measurement_business")
+      .select("code, total_employees, manager_name, manager_mobile, manager_email, updated_at")
+      .in("code", codes)
+      .eq("year", targetYear)
+      .eq("period", period)
+      .order("updated_at", { ascending: false });
+
     // 2순위: measurement_journal
     const { data: latestJournalData } = await supabase
       .from("measurement_journal")
@@ -199,6 +220,12 @@ export async function GET(request: NextRequest) {
       .in("code", codes)
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false });
+
+    // 3순위 보완: 사업장정보(business_info)에만 있는 기본 사업자등록번호와 대표전화
+    const { data: businessInfoData } = await supabase
+      .from("business_info")
+      .select("code, business_number, phone, fax, invoice_email")
+      .in("code", codes);
 
     // Map: Code -> Latest Info (Business)
     const businessInfoMap = new Map<string, any>();
@@ -210,12 +237,30 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    const exactMeasurementInfoMap = new Map<string, any>();
+    if (exactMeasurementData) {
+      exactMeasurementData.forEach((item: any) => {
+        if (!exactMeasurementInfoMap.has(item.code)) {
+          exactMeasurementInfoMap.set(item.code, item);
+        }
+      });
+    }
+
     // Map: Code -> Latest Info (Journal)
     const journalInfoMap = new Map<string, any>();
     if (latestJournalData) {
       latestJournalData.forEach((item: any) => {
         if (!journalInfoMap.has(item.code)) {
           journalInfoMap.set(item.code, item);
+        }
+      });
+    }
+
+    const businessBasicInfoMap = new Map<string, any>();
+    if (businessInfoData) {
+      businessInfoData.forEach((item: any) => {
+        if (!businessBasicInfoMap.has(item.code)) {
+          businessBasicInfoMap.set(item.code, item);
         }
       });
     }
@@ -239,7 +284,9 @@ export async function GET(request: NextRequest) {
       const isSurveyRegistered = surveyRegisteredCodes.has(item.code);
 
       const bInfo = businessInfoMap.get(item.code);
+      const exactInfo = exactMeasurementInfoMap.get(item.code);
       const jInfo = journalInfoMap.get(item.code);
+      const basicInfo = businessBasicInfoMap.get(item.code);
 
       // 실시여부 로직: 기 입력된 값이 '거래종료', '종료', '실시', '미실시' 등 정규화된 값이면 유지.
       // 그 외(null 등)의 경우 기본값('미실시')으로 처리
@@ -260,15 +307,18 @@ export async function GET(request: NextRequest) {
         nationalSupportStatus = bInfo?.national_support_status || jInfo?.national_support_status || item.national_support_status;
       }
 
-      // 2. 사업자번호, 근로자수, 연락처, 대표자명: 측정사업장(Business Master) 테이블이 권위 있는 소스
-      // (measurement_business(bInfo) > measurement_journal(jInfo) > target(item))
-      const businessNumber = bInfo?.business_number || jInfo?.business_number || item.business_number;
-      const totalEmployees = bInfo?.total_employees || jInfo?.total_employees || item.total_employees;
-      const phone = bInfo?.phone || jInfo?.phone || item.manager_phone;
+      // 사업자번호와 대표자명은 기존 보완 규칙을 유지한다.
+      const businessNumber = bInfo?.business_number || jInfo?.business_number || basicInfo?.business_number || item.business_number;
       const representativeName = bInfo?.representative_name || jInfo?.representative_name || item.representative_name;
 
+      // 건강디딤돌 담당자는 사용자 저장값을 우선하고, 정확한 연도·주기의 MES 값은 빈칸만 보완한다.
+      const managerName = item.manager_name || exactInfo?.manager_name || null;
+      const managerMobile = item.manager_mobile || exactInfo?.manager_mobile || null;
+      const managerEmail = item.manager_email || exactInfo?.manager_email || null;
+      const totalEmployees = exactInfo?.total_employees ?? null;
+
       const industrialAccidentNumber = bInfo?.industrial_accident_number || jInfo?.industrial_accident_number || item.industrial_accident_number;
-      const commencementNumber = bInfo?.commencement_number || jInfo?.commencement_number;
+      const commencementNumber = bInfo?.commencement_number || jInfo?.commencement_number || item.commencement_number;
 
 
       return {
@@ -285,7 +335,12 @@ export async function GET(request: NextRequest) {
         // Sync Applied Fields
         business_number: businessNumber,
         total_employees: totalEmployees,
-        manager_phone: phone,
+        phone: basicInfo?.phone || null,
+        fax: basicInfo?.fax || null,
+        invoice_email: basicInfo?.invoice_email || null,
+        manager_name: managerName,
+        manager_mobile: managerMobile,
+        manager_email: managerEmail,
         business_category: /^\d+$/.test(String(businessCategory)) ? `⚠️ 수정필요(${businessCategory})` : businessCategory,
         national_support_status: nationalSupportStatus,
         representative_name: representativeName,
@@ -306,7 +361,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
-
 export async function PATCH(request: NextRequest) {
   try {
     // console.log(`[PATCH] Request received`); // Optional: keep or remove
@@ -339,10 +393,31 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    let updatePayload: any = {
-      ...updates,
-      updated_at: new Date().toISOString()
-    };
+    const allowedUpdateColumns = new Set([
+      "business_name", "business_category", "address", "office_jurisdiction",
+      "business_number", "invoice_email", "fax",
+      "is_registered", "plan_manager", "manager_name",
+      "manager_mobile", "manager_phone", "manager_email", "phone", "total_employees", "management_status", "notes", "measurement_date",
+      "measurement_end_date", "future_measurement_period", "future_measurement_date",
+      "measurer_id", "period", "collaborators", "daily_staff", "representative_name",
+      "industrial_accident_number", "commencement_number",
+    ]);
+    const updatePayload: any = Object.fromEntries(
+      Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
+    );
+    updatePayload.updated_at = new Date().toISOString();
+
+    if (Object.prototype.hasOwnProperty.call(updatePayload, "manager_email")) {
+      if (!isValidOptionalManagerEmail(updatePayload.manager_email)) {
+        return NextResponse.json(
+          { error: "담당자 메일 형식을 확인해 주세요." },
+          { status: 400 },
+        );
+      }
+      updatePayload.manager_email = normalizeOptionalManagerEmail(
+        updatePayload.manager_email,
+      );
+    }
 
     // [The Joo Rule] 수동 업데이트 시에도 숫자형 업종분류 차단
     if (updates.business_category && /^\d+$/.test(String(updates.business_category))) {
@@ -374,6 +449,36 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const supportInfoChanged = [
+      "period",
+      "representative_name",
+      "industrial_accident_number",
+      "commencement_number",
+    ].some(key => Object.prototype.hasOwnProperty.call(updates, key));
+
+    if (supportInfoChanged) {
+      const supportStateUpdates: Record<string, any> = {};
+      if (isAdHocMeasurement(updatedData.period)) {
+        supportStateUpdates.national_support_status = "비대상";
+        supportStateUpdates.sync_status = "성공";
+        supportStateUpdates.sync_error_message = null;
+      } else if (!updatedData.national_support_status) {
+        supportStateUpdates.sync_status = hasNationalSupportLookupInformation(updatedData)
+          ? "조회대기"
+          : "정보부족";
+        supportStateUpdates.sync_error_message = null;
+      }
+
+      if (Object.keys(supportStateUpdates).length > 0) {
+        const { error: supportStateError } = await supabase
+          .from("measurement_target_business")
+          .update({ ...supportStateUpdates, updated_at: new Date().toISOString() })
+          .eq("id", updatedData.id);
+        if (supportStateError) throw supportStateError;
+        Object.assign(updatedData, supportStateUpdates);
+      }
+    }
+
     // === [Integrated Sync Logic] ===
     // This section handles synchronizing 'preliminary_survey' and Summary fields 
     // whenever any measurement-related field is updated.
@@ -389,9 +494,19 @@ export async function PATCH(request: NextRequest) {
         console.log(`[Integrated Sync] Starting sync for ${code}...`);
         
         // 1. Determine Source of Truth (daily_staff or single-date fallback)
-        let dailyStaff = updates.daily_staff;
+        // daily_staff가 null이어도 단일 실시일이 함께 오면 단일 일정으로 처리한다.
+        // 실시일 없이 null/빈 배열이 온 경우에만 모든 일정을 삭제한다.
+        const hasDailyStaffUpdate = Object.prototype.hasOwnProperty.call(updates, "daily_staff");
+        const hasSingleMeasurementDate =
+          Object.prototype.hasOwnProperty.call(updates, "measurement_date") &&
+          Boolean(updates.measurement_date);
+        const shouldUseSingleDateFallback =
+          hasDailyStaffUpdate && updates.daily_staff == null && hasSingleMeasurementDate;
+        let dailyStaff = !hasDailyStaffUpdate || shouldUseSingleDateFallback
+          ? undefined
+          : (Array.isArray(updates.daily_staff) ? updates.daily_staff : []);
         
-        if (!dailyStaff) {
+        if (dailyStaff === undefined) {
           // Fallback to single-date logic if daily_staff isn't provided in the update
           // but we might need the current state from the DB if only some parts changed
           const mDate = updates.hasOwnProperty('measurement_date') ? updates.measurement_date : updatedData.measurement_date;
@@ -407,22 +522,51 @@ export async function PATCH(request: NextRequest) {
           }
         }
 
-        if (dailyStaff && Array.isArray(dailyStaff)) {
+        if (Array.isArray(dailyStaff)) {
           // 2. Fetch existing surveys to manage diffs (Add/Update/Delete)
-          const { data: existingSurveys } = await supabase
+          const { data: existingSurveys, error: existingSurveysError } = await supabase
             .from("preliminary_survey")
             .select("id, measurement_date, google_event_id")
             .eq("code", code).eq("year", year).eq("period", period);
+
+          if (existingSurveysError) {
+            throw existingSurveysError;
+          }
 
           const existingDates = new Set(existingSurveys?.map(s => s.measurement_date) || []);
           const incomingDates = new Set(dailyStaff.map((d: any) => d.date).filter(Boolean));
 
           // 3. Delete surveys for removed dates
           const datesToDelete = Array.from(existingDates).filter(d => !incomingDates.has(d));
+          const surveysToDelete = (existingSurveys || []).filter(
+            survey => datesToDelete.includes(survey.measurement_date)
+          );
+
           if (datesToDelete.length > 0) {
-            await supabase.from("preliminary_survey").delete()
-              .eq("code", code).eq("year", year).eq("period", period)
+            const { error: deleteSurveyError } = await supabase
+              .from("preliminary_survey")
+              .delete()
+              .eq("code", code)
+              .eq("year", year)
+              .eq("period", period)
               .in("measurement_date", datesToDelete);
+
+            if (deleteSurveyError) {
+              throw deleteSurveyError;
+            }
+
+            // 삭제 전에 확보한 이벤트 ID로 Calendar 이벤트를 직접 제거한다.
+            for (const survey of surveysToDelete) {
+              if (!survey.google_event_id) continue;
+              try {
+                await deleteSurveyEvent(survey.google_event_id);
+              } catch (calendarDeleteError) {
+                console.error(
+                  "[Integrated Sync] Failed to delete calendar event " + survey.google_event_id + ":",
+                  calendarDeleteError
+                );
+              }
+            }
           }
 
           // 4. Update or Create surveys for all dates in dailyStaff
@@ -472,6 +616,13 @@ export async function PATCH(request: NextRequest) {
             measurement_end_date: maxEndDate
           };
 
+          // 실시일이 있으면 화면에서 전달된 이전 상태와 관계없이 실시로 확정한다.
+          // 거래종료는 사용자가 명시한 최우선 상태이므로 그대로 유지한다.
+          const isTerminated = ["거래종료", "종료", "거래 종료"].includes(updatedData.is_registered);
+          if (maxEndDate && !isTerminated) {
+            businessUpdatePayload.is_registered = "실시";
+          }
+
           // [The Joo Rule] Successful Null: 실시일이 완전히 비워졌고 현재 상태가 '실시' 또는 '확정'이라면 '미실시'로 자동 하향 동기화
           if (!maxEndDate && (updatedData.is_registered === "실시" || updatedData.is_registered === "확정")) {
             businessUpdatePayload.is_registered = "미실시";
@@ -483,20 +634,9 @@ export async function PATCH(request: NextRequest) {
           console.log(`[Integrated Sync] Preliminary surveys and summary updated for ${code}`);
         }
 
-        // 6. Trigger Google Calendar Sync (Always attempt if schedules exist)
-        const { data: currentSchedule } = await supabase
-          .from("preliminary_survey")
-          .select("id, google_event_id")
-          .eq("code", code).eq("year", year).eq("period", period);
-        
-        const hasCalendarEvent = currentSchedule?.some(s => !!s.google_event_id);
-        const isRegistered = updatedData.is_registered === "실시" || updatedData.is_registered === "확정";
-
-        if (isRegistered || hasCalendarEvent) {
-          await syncBusinessToCalendar(supabase, code, year, period);
-          console.log(`[Integrated Sync] Calendar sync triggered for ${code}`);
-        }
-
+        // 6. 일정이 모두 삭제된 경우에도 고아 이벤트 정리를 위해 항상 동기화한다.
+        await syncBusinessToCalendar(supabase, code, year, period);
+        console.log("[Integrated Sync] Calendar sync triggered for " + code);
       } catch (syncError) {
         console.error(`[Integrated Sync] Failed for ${code}:`, syncError);
       }
@@ -538,6 +678,68 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    if (
+      code &&
+      (
+        updates.hasOwnProperty('total_employees') ||
+        updates.hasOwnProperty('phone')
+      )
+    ) {
+      try {
+        const masterPayload: any = {
+          code,
+          year: Number(year || updatedData.year),
+          period: period || updatedData.period,
+          business_name: updatedData.business_name,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (updates.hasOwnProperty('total_employees')) {
+          masterPayload.total_employees = updates.total_employees;
+        }
+        if (updates.hasOwnProperty('phone')) {
+          masterPayload.phone = updates.phone;
+        }
+
+        const { error: measurementBusinessSyncError } = await supabase
+          .from("measurement_business")
+          .upsert(masterPayload, { onConflict: "code,year,period" });
+
+        if (measurementBusinessSyncError) {
+          console.error("Measurement Business detail sync error:", measurementBusinessSyncError);
+        }
+
+      } catch (detailSyncError) {
+        console.error("Business detail sync exception:", detailSyncError);
+      }
+    }
+
+    // === [마스터 테이블 최종 동기화 Logic] ===
+    // 계획 진행 상태가 '실시' 또는 '확정'일 때만, 입력된 건강디딤돌 필수 정보를 마스터 DB에 최종 검증(확정) 저장합니다.
+    const isConfirmedStatus = updatedData.is_registered === "실시" || updatedData.is_registered === "확정";
+    const hasMasterInfoToSync = 
+      updates.hasOwnProperty('representative_name') || 
+      updates.hasOwnProperty('industrial_accident_number') || 
+      updates.hasOwnProperty('commencement_number') ||
+      updates.hasOwnProperty('is_registered');
+
+    if (isConfirmedStatus && hasMasterInfoToSync && code) {
+      try {
+        await syncToMasterTables(
+          supabase,
+          code,
+          Number(year || updatedData.year),
+          period || updatedData.period,
+          updatedData.business_name,
+          updatedData.representative_name,
+          updatedData.industrial_accident_number,
+          updatedData.commencement_number
+        );
+      } catch (syncErr) {
+        console.error("[Master Sync Error in PATCH]:", syncErr);
+      }
+    }
+
     return NextResponse.json({ success: true, data: updatedData });
 
   } catch (error: any) {
@@ -548,13 +750,33 @@ export async function PATCH(request: NextRequest) {
     }, { status: 500 });
   }
 }
-
 export async function POST(request: NextRequest) {
   try {
     await checkPermission("journal:write");
 
     const body = await request.json();
-    const { code, year, period, business_name, address, plan_manager, national_support_status } = body;
+    const { 
+      code, 
+      year, 
+      period, 
+      business_name, 
+      address, 
+      plan_manager, 
+      sanjae,
+      commencement,
+      representative_name,
+      business_number,
+      business_category,
+      phone,
+      fax,
+      invoice_email,
+      manager_name,
+      manager_mobile,
+      manager_phone,
+      manager_email,
+      total_employees,
+      office_jurisdiction,
+    } = body;
 
     // Validation
     if (!code || !year || !period || !business_name) {
@@ -564,29 +786,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!isValidOptionalManagerEmail(manager_email)) {
+      return NextResponse.json(
+        { error: "담당자 메일 형식을 확인해 주세요." },
+        { status: 400 },
+      );
+    }
+
+    const normalizedManagerEmail = normalizeOptionalManagerEmail(manager_email);
     const supabase = await createClient();
 
-    // 1. 중복 확인 (measurement_target_business)
-    // 단, 주기에 '(수시)'가 포함된 경우 중복 허용 (여러 번 수시 측정 가능)
-    if (!period.includes("(수시)")) {
-      const { data: existing } = await supabase
-        .from("measurement_target_business")
-        .select("id")
-        .eq("code", code)
-        .eq("year", year)
-        .eq("period", period)
-        .maybeSingle();
+    // 1. 코드 + 연도 + 주기 중복 등록 방지
+    const { data: existing } = await supabase
+      .from("measurement_target_business")
+      .select("id")
+      .eq("code", code)
+      .eq("year", year)
+      .eq("period", period)
+      .limit(1)
+      .maybeSingle();
 
-      if (existing) {
-        return NextResponse.json(
-          { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
-          { status: 409 }
-        );
-      }
+    if (existing) {
+      return NextResponse.json(
+        { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
+        { status: 409 }
+      );
     }
 
     // Auto-calculate office_jurisdiction based on address
-    const officeJurisdiction = address ? findOfficeByAddress(address) : null;
+    const calculatedOfficeJurisdiction = address ? findOfficeByAddress(address) : null;
+    const industrialAccidentNumber = String(sanjae || "").replace(/\D/g, "").slice(0, 11) || null;
+    const commencementNumber = String(commencement || "").replace(/\D/g, "").slice(0, 11) || null;
+    const parsedTotalEmployees = total_employees === "" || total_employees === null || total_employees === undefined
+      ? null
+      : Number(total_employees);
+    const normalizedTotalEmployees = parsedTotalEmployees !== null && Number.isFinite(parsedTotalEmployees)
+      ? parsedTotalEmployees
+      : null;
+    const initialSupportState = getInitialNationalSupportState({
+      period,
+      industrial_accident_number: industrialAccidentNumber,
+      commencement_number: commencementNumber,
+      representative_name,
+      manager_name,
+      manager_mobile,
+    });
 
     // 2. Insert into measurement_target_business
     const { data: newTarget, error: insertError } = await supabase
@@ -596,10 +840,25 @@ export async function POST(request: NextRequest) {
         year: Number(year),
         period,
         business_name,
+        business_number: String(business_number || "").replace(/\D/g, "") || null,
         address: address || null,
-        office_jurisdiction: officeJurisdiction, // 자동 할당
+        office_jurisdiction: office_jurisdiction || calculatedOfficeJurisdiction,
+        business_category: business_category || null,
+        phone: phone || null,
+        fax: fax || null,
+        invoice_email: invoice_email || null,
+        manager_name: manager_name || null,
+        manager_mobile: manager_mobile || null,
+        manager_phone: manager_phone || null,
+        total_employees: normalizedTotalEmployees,
+        manager_email: normalizedManagerEmail,
         plan_manager: plan_manager || null,
-        national_support_status: national_support_status || null,
+        national_support_status: initialSupportState.nationalSupportStatus,
+        sync_status: initialSupportState.syncStatus,
+        sync_error_message: null,
+        industrial_accident_number: industrialAccidentNumber,
+        commencement_number: commencementNumber,
+        representative_name: representative_name || null,
         is_registered: "미실시", // Default
         created_at: new Date().toISOString()
       })
@@ -607,10 +866,52 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
+      if (insertError.code === "23505") {
+        return NextResponse.json(
+          { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
+          { status: 409 },
+        );
+      }
       throw new Error(`Target Insert Error: ${insertError.message}`);
     }
 
-    return NextResponse.json({ success: true, data: newTarget });
+    const currentUser = await getUser();
+    const admin = createAdminClient();
+    const { data: eligibilityRows, error: eligibilityError } = await admin.rpc(
+      "register_new_business_document_eligibility",
+      {
+        p_business_id: newTarget.id,
+        p_requested_by: currentUser ? Number(currentUser.id) : null,
+      },
+    );
+
+    if (eligibilityError) {
+      console.error("[POST /api/businesses] 신규 문서 생성 자격 저장 실패:", {
+        code: eligibilityError.code,
+        message: eligibilityError.message,
+        targetId: newTarget.id,
+      });
+      await admin.from("measurement_target_business").delete().eq("id", newTarget.id);
+      return NextResponse.json(
+        { error: "신규 사업장 등록 준비에 실패했습니다. 문서 생성 migration 적용 여부를 확인해 주세요." },
+        { status: 500 },
+      );
+    }
+
+    const eligibility = Array.isArray(eligibilityRows) ? eligibilityRows[0] : eligibilityRows;
+    const newBusinessCodeCreated = eligibility?.new_business_code_created === true;
+
+    return NextResponse.json({
+      success: true,
+      data: newTarget,
+      newBusinessCodeCreated,
+      documentGenerationJobId: eligibility?.job_id || null,
+      nationalSupportFollowUp: {
+        eligible: initialSupportState.shouldQueueLookup,
+        mode: initialSupportState.shouldAutoApply ? "apply_if_missing" : "lookup_only",
+        status: initialSupportState.syncStatus,
+      },
+    });
 
   } catch (error: any) {
     console.error("POST API Critical Error:", error);

@@ -1,0 +1,195 @@
+=== measurement_target_business 조회 결과 ===
+[
+  {
+    "id": 376,
+    "created_at": "2026-07-03T13:58:47.246+00:00",
+    "updated_at": "2026-07-05T06:16:32.093+00:00",
+    "year": 2026,
+    "period": "상반기",
+    "code": "H0440",
+    "is_registered": "실시",
+    "management_status": null,
+    "national_support_status": "비대상",
+    "plan_manager": "강종구",
+    "previous_measurement_date": null,
+    "previous_measurement_period": null,
+    "future_measurement_period": 6,
+    "future_measurement_date": null,
+    "measurement_month": null,
+    "measurement_date": "2026-02-10",
+    "business_category": "공업사",
+    "address": "충청남도 천안시 서북구 번영로 627 (업성동)",
+    "office_jurisdiction": "천안",
+    "business_name": "중부모터스(주)렉서스천안아산",
+    "manager_name": null,
+    "manager_mobile": null,
+    "phone": "041-561-3369",
+    "notes": null,
+    "measurer_id": null,
+    "google_event_id": null,
+    "collaborators": null,
+    "measurement_end_date": "2026-02-10",
+    "daily_staff": null,
+    "fax": null,
+    "manager_phone": null,
+    "sync_status": "성공",
+    "sync_error_message": null,
+    "industrial_accident_number": "31285555170",
+    "commencement_number": "00000000000",
+    "representative_name": "장승호, 오재욱"
+  },
+  {
+    "id": 303,
+    "created_at": "2026-02-23T01:15:22.193+00:00",
+    "updated_at": "2026-07-05T06:09:06.481+00:00",
+    "year": 2026,
+    "period": "상반기",
+    "code": "H0447",
+    "is_registered": "실시",
+    "management_status": null,
+    "national_support_status": "대상",
+    "plan_manager": "강종구",
+    "previous_measurement_date": null,
+    "previous_measurement_period": null,
+    "future_measurement_period": 6,
+    "future_measurement_date": null,
+    "measurement_month": null,
+    "measurement_date": "2026-02-27",
+    "business_category": "건설",
+    "address": "충청남도 천안시 서북구 입장면 용정도하길 181 (용정리)",
+    "office_jurisdiction": "천안",
+    "business_name": "(주)프라임엔시스템 CHA6 ESS Construction",
+    "manager_name": "이석재 책임",
+    "manager_mobile": "010-9218-2086",
+    "phone": null,
+    "notes": "P5, N5",
+    "measurer_id": 14,
+    "google_event_id": null,
+    "collaborators": "배윤민",
+    "measurement_end_date": "2026-02-27",
+    "daily_staff": null,
+    "fax": null,
+    "manager_phone": null,
+    "sync_status": "성공",
+    "sync_error_message": null,
+    "industrial_accident_number": "21487681776",
+    "commencement_number": "92600664917",
+    "representative_name": "김병래"
+  }
+]
+
+=========================================
+[진단 대상 업체: 중부모터스(주)렉서스천안아산 (H0440)]
+=========================================
+- national_support_application 조회 결과:
+[
+  {
+    "id": 930,
+    "code": "H0440",
+    "year": 2026,
+    "period": "상반기",
+    "application_status": "○",
+    "result": "대상",
+    "national_support_status": "대상",
+    "created_at": "2026-07-05T06:09:25.786516+00:00",
+    "updated_at": "2026-07-05T06:09:25.786516+00:00"
+  }
+]
+- measurement_business (마스터) 조회 결과:
+[
+  {
+    "code": "H0440",
+    "year": 2026,
+    "period": "상반기",
+    "business_name": "중부모터스(주)렉서스천안아산",
+    "business_number": "3128555517",
+    "total_employees": 22,
+    "address": "충청남도 천안시 서북구 번영로 627 (업성동)",
+    "office_jurisdiction": "대전지방고용노동청 천안지청",
+    "measurement_start_date": "2026-02-10",
+    "measurement_end_date": "2026-02-10",
+    "completion_status": "완료",
+    "measurer": null,
+    "manager_name": "전호인",
+    "manager_position": "대리",
+    "manager_mobile": "010-9085-0458",
+    "manager_email": "hijeon@lexusjb.com",
+    "invoice_email": "hijeon@lexusjb.com",
+    "industrial_accident_number": "31285555170",
+    "representative_name": "장승호, 오재욱",
+    "future_measurement_period": 6,
+    "created_at": "2026-02-10T02:27:59.387729+00:00",
+    "updated_at": "2026-07-05T06:16:37.414077+00:00",
+    "future_measurement_date": null,
+    "measurement_date": null,
+    "business_category": "공업사",
+    "commencement_number": "00000000000",
+    "is_email_sent": false,
+    "last_email_sent_at": null,
+    "email_send_history": [],
+    "delivery_status": "success",
+    "delivery_error": null,
+    "phone": "041-561-3369",
+    "fax": "041-552-3369",
+    "manager_phone": "010-9085-0458",
+    "national_support_status": "대상"
+  }
+]
+
+=========================================
+[진단 대상 업체: (주)프라임엔시스템 CHA6 ESS Construction (H0447)]
+=========================================
+- national_support_application 조회 결과:
+[
+  {
+    "id": 929,
+    "code": "H0447",
+    "year": 2026,
+    "period": "상반기",
+    "application_status": "○",
+    "result": "대상",
+    "national_support_status": "대상",
+    "created_at": "2026-07-05T06:09:06.209202+00:00",
+    "updated_at": "2026-07-05T06:09:06.209202+00:00"
+  }
+]
+- measurement_business (마스터) 조회 결과:
+[
+  {
+    "code": "H0447",
+    "year": 2026,
+    "period": "상반기",
+    "business_name": "(주)프라임엔시스템 CHA6 ESS Construction",
+    "business_number": "2148768177",
+    "total_employees": 16,
+    "address": "충청남도 천안시 서북구 입장면 용정도하길 181 (용정리)",
+    "office_jurisdiction": "대전지방고용노동청 천안지청",
+    "measurement_start_date": "2026-02-27",
+    "measurement_end_date": "2026-02-27",
+    "completion_status": "완료",
+    "measurer": null,
+    "manager_name": "이석재",
+    "manager_position": "책임",
+    "manager_mobile": "010-9218-2086",
+    "manager_email": "bbqkfc88@primen.co.kr",
+    "invoice_email": "bbqkfc88@primen.co.kr",
+    "industrial_accident_number": "21487681776",
+    "representative_name": "김병래",
+    "future_measurement_period": 6,
+    "created_at": "2026-02-27T07:22:30.801056+00:00",
+    "updated_at": "2026-07-05T06:09:06.676668+00:00",
+    "future_measurement_date": null,
+    "measurement_date": null,
+    "business_category": "건설",
+    "commencement_number": "92600664917",
+    "is_email_sent": false,
+    "last_email_sent_at": null,
+    "email_send_history": [],
+    "delivery_status": "success",
+    "delivery_error": null,
+    "phone": null,
+    "fax": null,
+    "manager_phone": "010-9218-2086",
+    "national_support_status": "대상"
+  }
+]

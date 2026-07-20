@@ -41,17 +41,49 @@ export function findReportFiles(options: {
             return { report: null, invoice: null, dataFile: null, drawings: [], drawingFolderPath: '' };
         }
 
-        const normalize = (name: string) => name.replace(/[\(\)\s]/g, '').trim();
+        const normalize = (name: string) => name.normalize('NFC').replace(/[\(\)\s]/g, '').trim();
         const normalizedTarget = normalize(companyName);
 
         const items = fs.readdirSync(basePath);
         let targetFolderPath = '';
 
+        console.log(`[findReportFiles Debug] 검색 시작 - 대상 회사명: "${companyName}" (정규화: "${normalizedTarget}")`);
+        console.log(`[findReportFiles Debug] 탐색 기준 경로(basePath): "${basePath}"`);
+
         for (const item of items) {
-            if (normalize(item).includes(normalizedTarget) || normalizedTarget.includes(normalize(item))) {
-                targetFolderPath = join(basePath, item);
+            const normalizedItem = normalize(item);
+            if (normalizedItem.includes(normalizedTarget) || normalizedTarget.includes(normalizedItem)) {
+                const parentPath = join(basePath, item);
+                targetFolderPath = parentPath;
+                console.log(`[findReportFiles Debug] 1단계 매칭 성공: "${item}" (경로: ${parentPath})`);
+
+                try {
+                    if (fs.existsSync(parentPath) && fs.statSync(parentPath).isDirectory()) {
+                        const subItems = fs.readdirSync(parentPath);
+                        console.log(`[findReportFiles Debug] 2단계 하위 폴더 목록:`, subItems);
+                        for (const subItem of subItems) {
+                            const subPath = join(parentPath, subItem);
+                            if (fs.statSync(subPath).isDirectory()) {
+                                const normalizedSub = normalize(subItem);
+                                if (normalizedSub.length > 1 && normalizedTarget.includes(normalizedSub)) {
+                                    targetFolderPath = subPath;
+                                    console.log(`[findReportFiles Debug] 2단계 지점 폴더 매칭 성공: "${subItem}" -> 최종 경로: "${subPath}"`);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (subErr) {
+                    console.warn(`[findReportFiles] 지점 하위 폴더 탐색 중 예외 발생 (기존 폴더로 진행):`, subErr);
+                }
                 break;
             }
+        }
+
+        if (!targetFolderPath) {
+            console.warn(`[findReportFiles Debug] 매칭되는 폴더를 전혀 찾지 못했습니다.`);
+        } else {
+            console.log(`[findReportFiles Debug] 최종 결정된 폴더 경로: "${targetFolderPath}"`);
         }
 
         if (!targetFolderPath || !fs.existsSync(targetFolderPath)) {

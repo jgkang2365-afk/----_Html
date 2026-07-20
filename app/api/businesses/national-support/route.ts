@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
@@ -34,14 +35,25 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     // 신청결과에 따라 국고지원 상태 자동 계산
-    let calculatedStatus: "지원" | "비대상" | null = national_support_status;
+    let calculatedStatus: "대상" | "비대상" | null = national_support_status;
     if (!calculatedStatus) {
-      // '비대상'이 아니면서 '대상'을 포함하는 경우에만 지원으로 설정
+      // '비대상'이 아니면서 '대상'을 포함하는 경우에만 대상으로 설정
       if (result && (result === "대상" || (result.includes("대상") && !result.includes("비대상")))) {
-        calculatedStatus = "지원";
-      } else if (result || application_status) {
+        calculatedStatus = "대상";
+      } else if (
+        result === "비대상" ||
+        result === "미지원" ||
+        application_status === "신청취소"
+      ) {
         calculatedStatus = "비대상";
       }
+    }
+
+    if (calculatedStatus !== "대상" && calculatedStatus !== "비대상") {
+      return NextResponse.json(
+        { error: "대상 또는 비대상으로 확정된 결과만 등록할 수 있습니다." },
+        { status: 400 },
+      );
     }
 
     // 중복 체크
@@ -180,6 +192,9 @@ export async function GET(request: NextRequest) {
 
     // 사업장 정보 조회 (우선순위: 1. business_info, 2. measurement_business)
     let businessMap = new Map<string, { name: string; address: string }>();
+    // key: "code-year-period" (exact) 또는 "code" (fallback)
+    let targetBusinessMap = new Map<string, { representative_name: string | null; industrial_accident_number: string | null; commencement_number: string | null; sync_status: string | null }>();
+
     if (codes.length > 0) {
       try {
         // 1차: business_info에서 조회
@@ -229,18 +244,112 @@ export async function GET(request: NextRequest) {
           }
         }
 
+        // 3차: 대표자명, 산재관리번호, 사업개시번호 조회 (3단계 교차 Coalesce 결합)
+        try {
+          // 3-1. business_info 조회 (대표자명 마스터)
+          const { data: bInfos } = await supabase
+            .from("business_info")
+            .select("code, representative_name")
+            .in("code", codes);
+          const bInfoMap = new Map<string, string>();
+          if (bInfos) {
+            bInfos.forEach((bi: any) => {
+              if (bi.representative_name) bInfoMap.set(bi.code, bi.representative_name);
+            });
+          }
+
+          // 3-2. measurement_business 조회 (대표자명, 산재번호, 개시번호 실적 마스터)
+          const { data: mBusinesses } = await supabase
+            .from("measurement_business")
+            .select("code, representative_name, industrial_accident_number, commencement_number, year, period")
+            .in("code", codes)
+            .order("year", { ascending: false })
+            .order("period", { ascending: false });
+
+          const mbMap = new Map<string, { representative_name: string | null, industrial_accident_number: string | null, commencement_number: string | null }>();
+          if (mBusinesses) {
+            mBusinesses.forEach((mb: any) => {
+              // 내림차순 정렬되어 있으므로 첫 레코드가 가장 최근 실적
+              if (!mbMap.has(mb.code)) {
+                mbMap.set(mb.code, {
+                  representative_name: mb.representative_name || null,
+                  industrial_accident_number: mb.industrial_accident_number || null,
+                  commencement_number: mb.commencement_number || null
+                });
+              }
+            });
+          }
+
+          // 3-3. measurement_target_business 조회 (당해년도 계획)
+          const { data: targetBusinesses, error: targetError } = await supabase
+            .from("measurement_target_business")
+            .select("code, year, period, representative_name, industrial_accident_number, commencement_number, sync_status")
+            .in("code", codes)
+            .order("year", { ascending: false })
+            .order("period", { ascending: false });
+
+          if (!targetError && targetBusinesses) {
+            targetBusinesses.forEach((tb: any) => {
+              const exactKey = `${tb.code}-${tb.year}-${tb.period}`;
+              
+              // 3단계 결합 우선순위 정의 (1. 계획 테이블값 -> 2. 실적 마스터값 -> 3. 기본정보 마스터값)
+              const mbFallback = mbMap.get(tb.code) || { representative_name: null, industrial_accident_number: null, commencement_number: null };
+              const biRepName = bInfoMap.get(tb.code) || null;
+
+              const payload = {
+                representative_name: tb.representative_name || mbFallback.representative_name || biRepName || null,
+                industrial_accident_number: tb.industrial_accident_number || mbFallback.industrial_accident_number || null,
+                commencement_number: tb.commencement_number || mbFallback.commencement_number || null,
+                sync_status: tb.sync_status || null
+              };
+
+              // exact key 저장
+              targetBusinessMap.set(exactKey, payload);
+              // code 전용 fallback 저장
+              if (!targetBusinessMap.has(tb.code)) {
+                targetBusinessMap.set(tb.code, payload);
+              }
+            });
+          }
+
+          // [안전 가드] measurement_target_business에 데이터가 아예 없더라도, 마스터 테이블(mb, bi)에 정보가 있으면 code 키로 맵을 채워줌
+          codes.forEach((code: string) => {
+            if (!targetBusinessMap.has(code)) {
+              const mbFallback = mbMap.get(code) || { representative_name: null, industrial_accident_number: null, commencement_number: null };
+              const biRepName = bInfoMap.get(code) || null;
+              targetBusinessMap.set(code, {
+                representative_name: mbFallback.representative_name || biRepName || null,
+                industrial_accident_number: mbFallback.industrial_accident_number || null,
+                commencement_number: mbFallback.commencement_number || null,
+                sync_status: null
+              });
+            }
+          });
+
+        } catch (tErr) {
+          console.error("대상 사업장 필수정보 추가 조회 중 예외:", tErr);
+        }
+
       } catch (err) {
         console.error("사업장명 조회 중 예외 발생:", err);
       }
     }
 
-    // 사업장명, 주소 포함하여 반환
+    // 사업장명, 주소, 대표자, 산재번호, 사업개시번호 포함하여 반환
     const formattedEntries = (entries || []).map((entry: any) => {
       const businessInfo = businessMap.get(entry.code) || { name: null, address: null };
+      const exactKey = `${entry.code}-${entry.year}-${entry.period}`;
+      // year/period 정확 매칭 후 없으면 동일 code의 가장 최근 레코드로 fallback
+      const targetInfo = targetBusinessMap.get(exactKey) || targetBusinessMap.get(entry.code) || { representative_name: null, industrial_accident_number: null, commencement_number: null, sync_status: null };
+
       return {
         ...entry,
         business_name: businessInfo.name,
         address: businessInfo.address,
+        representative_name: targetInfo.representative_name,
+        industrial_accident_number: targetInfo.industrial_accident_number,
+        commencement_number: targetInfo.commencement_number,
+        sync_status: targetInfo.sync_status
       };
     });
 

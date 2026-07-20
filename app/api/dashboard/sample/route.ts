@@ -71,7 +71,7 @@ export async function GET() {
     console.log("[API /api/dashboard/sample] 측정일지 조회 시작");
     const { data: allJournals, error: journalError } = await supabase
       .from("measurement_journal")
-      .select("id, completion_status");
+      .select("id, completion_status, code, business_name, note, business_category, designated_office, manager_name, manager_mobile, measurement_period");
 
     if (journalError) {
       console.error("[API /api/dashboard/sample] 측정일지 조회 오류:", journalError);
@@ -91,6 +91,28 @@ export async function GET() {
     const incompleteCount =
       allJournals?.filter((j) => j.completion_status === "미완료").length || 0;
     const completeCount = totalCount - incompleteCount;
+
+    // 신규사업장 발굴률 계산 (건설업 제외, 비고에 '최초실시'가 포함된 건)
+    const isConstruction = (category: string | null) => {
+      if (!category) return false;
+      const cleanCat = category.trim();
+      return cleanCat.includes("건설") || cleanCat.includes("건설업");
+    };
+    const nonConstructionJournals = allJournals?.filter((j) => !isConstruction(j.business_category)) || [];
+    const totalNonConstruction = nonConstructionJournals.length;
+    const newBusinessCount = nonConstructionJournals.filter((j) => j.note?.includes("최초실시")).length;
+    const newBusinessRate = totalNonConstruction > 0 ? (newBusinessCount / totalNonConstruction) * 100 : 0;
+
+    const newBusinessList = nonConstructionJournals
+      .filter((j) => j.note?.includes("최초실시"))
+      .map((j) => ({
+        code: j.code,
+        business_name: j.business_name,
+        period: j.measurement_period,
+        designated_office: j.designated_office || "미지정",
+        manager_name: j.manager_name || "-",
+        manager_mobile: j.manager_mobile || "-"
+      }));
 
     // 2. 매출현황 (측정비/기타매출 분리)
     const { data: revenueData, error: revenueError } = await supabase
@@ -380,6 +402,12 @@ export async function GET() {
       incompleteCount,
       completeCount,
       completionRate: Math.round(completionRate * 10) / 10,
+      newBusinessStats: {
+        total: totalNonConstruction,
+        newCount: newBusinessCount,
+        rate: Math.round(newBusinessRate * 10) / 10,
+        list: newBusinessList
+      },
 
       // 매출현황
       revenue: {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 import { K2BService } from '@/lib/automation/k2b-service';
 import { createClient } from '@/lib/supabase/server';
 import { findReportFiles } from '@/lib/utils/findReportFiles';

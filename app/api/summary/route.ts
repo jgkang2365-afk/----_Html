@@ -123,8 +123,9 @@ export async function GET(request: NextRequest) {
     if (codes.length > 0) {
       const { data: surveyData, error: surveyError } = await supabase
         .from("preliminary_survey")
-        .select("id, code, measurement_date, end_date, measurement_weekdays, preliminary_surveyor, actual_measurer, report_writer, survey_code, created_at")
-        .in("code", codes);
+        .select("id, code, year, period, measurement_date, end_date, measurement_weekdays, preliminary_surveyor, actual_measurer, report_writer, survey_code, created_at")
+        .in("code", codes)
+        .order("measurement_date", { ascending: true });
 
       if (surveyError) {
         console.error("예비조사 조회 오류:", surveyError);
@@ -137,10 +138,24 @@ export async function GET(request: NextRequest) {
     // 측정사업장 정보 조회 (개시번호, 담당자 정보, 계산서 이메일 가져오기)
     let measurementBusinesses: any[] = [];
     if (codes.length > 0) {
-      const { data: mbData, error: mbError } = await supabase
+      let { data: mbData, error: mbError } = await supabase
         .from("measurement_business")
-        .select("code, representative_name, commencement_number, manager_name, manager_position, manager_mobile, manager_email, invoice_email")
-        .in("code", codes);
+        .select("code, year, period, representative_name, commencement_number, manager_name, manager_position, manager_mobile, manager_phone, manager_email, invoice_email")
+        .in("code", codes)
+        .order("year", { ascending: false })
+        .order("period", { ascending: false });
+
+      if (mbError && (mbError.message?.includes("manager_phone") || mbError.code === "PGRST204")) {
+        const fallbackResult = await supabase
+          .from("measurement_business")
+          .select("code, year, period, representative_name, commencement_number, manager_name, manager_position, manager_mobile, manager_email, invoice_email")
+          .in("code", codes)
+          .order("year", { ascending: false })
+          .order("period", { ascending: false });
+
+        mbData = fallbackResult.data?.map((row) => ({ ...row, manager_phone: null })) || null;
+        mbError = fallbackResult.error;
+      }
 
       if (mbError) {
         console.warn("측정사업장 조회 오류 (개시번호 및 담당자):", mbError);
@@ -149,18 +164,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // code를 키로 하는 측정사업장 맵 생성
-    const mbMap = new Map<string, any>();
+    // 측정사업장 맵 생성: 현재 연도/주기 정확 매칭을 우선하고, 없을 때만 코드별 최신 이력을 사용
+    const mbExactMap = new Map<string, any>();
+    const mbLatestMap = new Map<string, any>();
     measurementBusinesses.forEach((mb) => {
       if (mb.code) {
-        mbMap.set(mb.code, mb);
+        mbExactMap.set(`${mb.code}-${mb.year}-${mb.period}`, mb);
+        if (!mbLatestMap.has(mb.code)) {
+          mbLatestMap.set(mb.code, mb);
+        }
       }
     });
 
     // 사업장 정보(business_info) 조회 (대표자명 가져오기)
     let businessInfos: any[] = [];
     if (codes.length > 0) {
-      const { data: biData, error: biError } = await supabase
+      let { data: biData, error: biError } = await supabase
         .from("business_info")
         .select("code, representative_name, total_employees")
         .in("code", codes);
@@ -185,7 +204,7 @@ export async function GET(request: NextRequest) {
     if (codes.length > 0) {
       const { data: targetData, error: targetError } = await supabase
         .from("measurement_target_business")
-        .select("code, year, period, national_support_status, measurement_date")
+        .select("code, year, period, national_support_status, measurement_date, plan_manager")
         .in("code", codes);
 
       if (targetError) {
@@ -196,21 +215,44 @@ export async function GET(request: NextRequest) {
     }
 
     // 예비조사 정보를 조인하여 요약 데이터 생성
+    const normalizePhoneLikeValue = (value: any, managerName?: any) => {
+      const text = String(value || "").trim();
+      if (!text) return null;
+
+      const nameText = String(managerName || "").trim();
+      const digitCount = (text.match(/\d/g) || []).length;
+      const containsKorean = /[가-힣]/.test(text);
+
+      if (nameText && text === nameText) return null;
+      if (containsKorean && digitCount < 7) return null;
+      if (digitCount > 0 && digitCount < 7) return null;
+
+      return text;
+    };
+
+    const findFirstPhoneLikeValue = (managerName: any, ...values: any[]) => {
+      for (const value of values) {
+        const normalized = normalizePhoneLikeValue(value, managerName);
+        if (normalized) return normalized;
+      }
+      return null;
+    };
+
     const summaryData = (journals || []).map((journal: any) => {
-      const mb = journal.code ? mbMap.get(journal.code) : null;
+      const exactKey = `${journal.code}-${journal.measurement_year}-${journal.measurement_period}`;
+      const mb = journal.code ? (mbExactMap.get(exactKey) || mbLatestMap.get(journal.code)) : null;
       const bi = journal.code ? biMap.get(journal.code) : null;
 
       // 해당 코드의 모든 예비조사 필터링 (다중 일자 지원을 위해 목록 전체 유지)
       const businessSurveys = surveys.filter(s => s.code === journal.code);
 
-      // 현재 저널의 주기(year, period)와 일치하는 예비조사만 필터링
+      // 측정일의 월이 아니라 저장된 년도/주기로 연결한다.
+      // 반기 경계 밖의 일정도 사용자가 지정한 업무 주기에 그대로 포함되어야 한다.
       const relatedSurveys = businessSurveys.filter(s => {
-        if (!s.measurement_date) return false;
-        const sDate = new Date(s.measurement_date);
-        const sYear = sDate.getFullYear();
-        const sMonth = sDate.getMonth() + 1;
-        const sPeriod = sMonth <= 6 ? "상반기" : "하반기";
-        return sYear === journal.measurement_year && (journal.measurement_period.includes(sPeriod));
+        const surveyPeriod = String(s.period || "").replace("(수시)", "").trim();
+        const journalPeriod = String(journal.measurement_period || "").replace("(수시)", "").trim();
+
+        return Number(s.year) === Number(journal.measurement_year) && surveyPeriod === journalPeriod;
       });
 
       // 기존 UI 호환성을 위한 대표 survey (첫 번째 항목)
@@ -233,6 +275,7 @@ export async function GET(request: NextRequest) {
       }
 
       const nationalSupportStatus = journal.national_support_status || target?.national_support_status || null;
+      const managerName = journal.manager_name || mb?.manager_name || null;
 
       return {
         id: journal.id,
@@ -271,9 +314,9 @@ export async function GET(request: NextRequest) {
         industrial_accident_number: journal.industrial_accident_number,
         commencement_number: journal.commencement_number || mb?.commencement_number || bi?.commencement_number || null,
         national_support_status: nationalSupportStatus,
-        manager_name: journal.manager_name || mb?.manager_name || null,
+        manager_name: managerName,
         manager_position: journal.manager_position || mb?.manager_position || null,
-        manager_mobile: journal.manager_mobile || mb?.manager_mobile || null,
+        manager_mobile: findFirstPhoneLikeValue(managerName, journal.manager_mobile, mb?.manager_mobile, mb?.manager_phone),
         manager_email: journal.manager_email || mb?.manager_email || null,
         invoice_email: journal.invoice_email || mb?.invoice_email || null,
         invoice_email_2: journal.invoice_email_2,
@@ -292,7 +335,9 @@ export async function GET(request: NextRequest) {
         measurement_fee_national: journal.measurement_fee_national,
         special_notes: journal.special_notes,
         completion_status: journal.completion_status,
+        designated_office_report_status: journal.designated_office_report_status || "미접수",
         target_measurement_date: target?.measurement_date || null,
+        plan_manager: target?.plan_manager || null,
         created_at: journal.created_at,
         updated_at: journal.updated_at,
       };

@@ -7,6 +7,106 @@ import { toShortName } from "@/lib/constants/designated-offices";
 import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
+import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
+import { hasNationalSupportLookupInformation, isAdHocMeasurement } from "@/lib/national-support/eligibility";
+import { preserveFinalNationalSupportStatus } from "@/lib/national-support/workflow";
+
+async function queueFinalNationalSupportLookup(
+  supabase: any,
+  input: {
+    targetId?: number | string | null;
+    code: string;
+    year: number | string;
+    period: string;
+    sanjae?: string | null;
+    commencement?: string | null;
+    representative?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
+    requestedBy: number | string;
+  },
+) {
+  if (isAdHocMeasurement(input.period)) return false;
+  let targetId = input.targetId;
+  if (!targetId) {
+    const { data: target } = await supabase
+      .from("measurement_target_business")
+      .select("id, national_support_status")
+      .eq("code", input.code)
+      .eq("year", Number(input.year))
+      .eq("period", input.period)
+      .maybeSingle();
+    targetId = target?.id;
+    if (target?.national_support_status === "대상" || target?.national_support_status === "비대상") {
+      return false;
+    }
+  }
+  if (!targetId) return false;
+  const { data: targetState } = await supabase
+    .from("measurement_target_business")
+    .select("national_support_status")
+    .eq("id", targetId)
+    .maybeSingle();
+  if (targetState?.national_support_status === "대상" || targetState?.national_support_status === "비대상") {
+    return false;
+  }
+  if (!hasNationalSupportLookupInformation({
+    industrial_accident_number: input.sanjae,
+    commencement_number: input.commencement,
+    representative_name: input.representative,
+  })) return false;
+
+  const { data: activeJobs, error: activeJobError } = await supabase
+    .from("background_jobs")
+    .select("id")
+    .eq("job_type", "national_support")
+    .in("status", ["pending", "processing", "cancel_requested"])
+    .contains("payload", { target_id: targetId, mode: "final_lookup" })
+    .limit(1);
+  if (activeJobError || (activeJobs && activeJobs.length > 0)) return false;
+
+  const { error: lockError } = await supabase
+    .from("measurement_target_business")
+    .update({
+      sync_status: "조회중",
+      sync_error_message: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", targetId);
+  if (lockError) return false;
+
+  const { error: queueError } = await supabase
+    .from("background_jobs")
+    .insert({
+      job_type: "national_support",
+      status: "pending",
+      payload: {
+        target_id: targetId,
+        sanjae: cleanToDigits(input.sanjae),
+        commencement: cleanToDigits(input.commencement),
+        representative: normalizeRepresentativeName(input.representative) || input.representative,
+        contact_name: normalizeContactName(input.contactName) || "",
+        contact_phone: input.contactPhone || "",
+        period: input.period,
+        code: input.code,
+        year: input.year,
+        mode: "final_lookup",
+        requested_by: input.requestedBy,
+      },
+    });
+
+  if (queueError) {
+    await supabase
+      .from("measurement_target_business")
+      .update({
+        sync_status: "실패",
+        sync_error_message: `측정일지 등록 후 최종 조회 작업 등록 실패: ${queueError.message}`,
+      })
+      .eq("id", targetId);
+    return false;
+  }
+  return true;
+}
 
 /**
  * 측정일지 등록 API
@@ -136,6 +236,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const { data: targetStateBeforeSave } = await supabase
+      .from("measurement_target_business")
+      .select("id, national_support_status")
+      .eq("code", code)
+      .eq("year", Number(measurementYear))
+      .eq("period", measurementPeriod)
+      .maybeSingle();
+
     // business_info 테이블에서 추가 정보 가져오기
     const { data: businessInfo, error: businessInfoError } = await supabase
       .from("business_info")
@@ -154,7 +262,7 @@ export async function POST(request: NextRequest) {
 
     const { data: allExistingJournals, error: existingError } = await supabase
       .from("measurement_journal")
-      .select("id, code, business_name, document_number, sequence_number, five_plus_sequence, commencement_number, updated_at, created_at")
+      .select("id, code, business_name, document_number, sequence_number, five_plus_sequence, commencement_number, national_support_status, updated_at, created_at")
       .eq("code", code)
       .eq("measurement_year", measurementYear)
       .eq("measurement_period", measurementPeriod)
@@ -231,6 +339,13 @@ export async function POST(request: NextRequest) {
             updateData[key] = null;
           }
         });
+
+        updateData.national_support_status = preserveFinalNationalSupportStatus(
+          body.national_support_status,
+          existingJournal.national_support_status,
+          businessData.national_support_status,
+          targetStateBeforeSave?.national_support_status,
+        );
 
         // note 필드 처리
         if (body.note) {
@@ -334,6 +449,18 @@ export async function POST(request: NextRequest) {
             console.log(`[POST /api/journal] 중복 항목 없음`);
           }
         }
+
+        await queueFinalNationalSupportLookup(supabase, {
+          code,
+          year: measurementYear,
+          period: measurementPeriod,
+          sanjae: updateData.industrial_accident_number || businessData.industrial_accident_number,
+          commencement: updateData.commencement_number || businessData.commencement_number,
+          representative: updateData.representative_name || businessInfo?.representative_name || businessData.representative_name,
+          contactName: updateData.manager_name || businessData.manager_name,
+          contactPhone: updateData.manager_mobile || businessData.manager_mobile,
+          requestedBy: user.id,
+        });
 
         // 업데이트 후 기존 측정일지 ID 반환
         return NextResponse.json({
@@ -478,7 +605,11 @@ export async function POST(request: NextRequest) {
       phone: businessInfo?.phone || null,
       fax: businessInfo?.fax || null,
       business_category: body.business_category || businessData.business_category || null,
-      national_support_status: body.national_support_status || businessData.national_support_status || null,
+      national_support_status: preserveFinalNationalSupportStatus(
+        body.national_support_status,
+        businessData.national_support_status,
+        targetStateBeforeSave?.national_support_status,
+      ),
       // measurement_business에서 담당자 정보 가져오기 (사용자 입력 값 우선)
       industrial_accident_number: cleanToDigits(body.industrial_accident_number || businessData.industrial_accident_number),
       manager_name: (() => {
@@ -496,8 +627,22 @@ export async function POST(request: NextRequest) {
       manager_position: body.manager_position || businessData.manager_position || null,
       manager_mobile: body.manager_mobile || businessData.manager_mobile || null,
       manager_email: body.manager_email || businessData.manager_email || null,
-      invoice_email: body.invoice_email || businessData.invoice_email || null,
-      invoice_email_2: body.invoice_email_2 || null,
+      invoice_email: (() => {
+        const rawEmail = body.invoice_email || businessData.invoice_email || null;
+        if (rawEmail && (rawEmail.includes(',') || rawEmail.includes(';'))) {
+          const parts = rawEmail.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+          return parts[0] || null;
+        }
+        return rawEmail;
+      })(),
+      invoice_email_2: (() => {
+        const rawEmail = body.invoice_email || businessData.invoice_email || null;
+        if (rawEmail && (rawEmail.includes(',') || rawEmail.includes(';'))) {
+          const parts = rawEmail.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+          return parts[1] || body.invoice_email_2 || null;
+        }
+        return body.invoice_email_2 || null;
+      })(),
       // 측정비 정보 (body에서 가져오기)
       measurement_fee_total: body.measurement_fee_total ? parseFloat(String(body.measurement_fee_total).replace(/,/g, "")) || null : null,
       measurement_fee_business: body.measurement_fee_business ? parseFloat(String(body.measurement_fee_business).replace(/,/g, "")) || null : null,
@@ -521,6 +666,12 @@ export async function POST(request: NextRequest) {
       // 특이사항 (body에서 가져오기)
       special_notes: body.special_notes || null,
       completion_status: "미완료",
+      designated_office_report_status:
+        (user.role === "관리자" || user.is_designated_office_report_manager) &&
+        toShortName(designatedOffice || "") === "천안" &&
+        body.designated_office_report_status === "접수"
+          ? "접수"
+          : "미접수",
       created_by: user.name,
       updated_by: user.name,
     };
@@ -593,7 +744,7 @@ export async function POST(request: NextRequest) {
     // 측정 대상 사업장 계획 업데이트 (진행률 파목 및 데이터 동기화)
     const { data: existingPlan, error: planCheckError } = await supabase
       .from("measurement_target_business")
-      .select("id")
+      .select("id, national_support_status")
       .eq("code", code)
       .eq("year", measurementYear)
       .eq("period", measurementPeriod)
@@ -615,7 +766,11 @@ export async function POST(request: NextRequest) {
             total_employees: journalData.total_employees,
             address: journalData.address,
             office_jurisdiction: journalData.office_jurisdiction,
-            national_support_status: body.national_support_status || journalData.national_support_status || null,
+            national_support_status: preserveFinalNationalSupportStatus(
+              body.national_support_status,
+              journalData.national_support_status,
+              existingPlan.national_support_status,
+            ),
             manager_name: journalData.manager_name,
             manager_mobile: journalData.manager_mobile,
             manager_phone: journalData.phone,
@@ -639,7 +794,12 @@ export async function POST(request: NextRequest) {
               invoice_email: journalData.invoice_email,
               invoice_email_2: journalData.invoice_email_2,
               business_category: journalData.business_category,
-              national_support_status: body.national_support_status || null,
+              national_support_status: preserveFinalNationalSupportStatus(
+                body.national_support_status,
+                journalData.national_support_status,
+                existingPlan.national_support_status,
+                businessData.national_support_status,
+              ),
               industrial_accident_number: journalData.industrial_accident_number,
               total_employees: journalData.total_employees,
               representative_name: journalData.representative_name,
@@ -675,6 +835,19 @@ export async function POST(request: NextRequest) {
     } catch (syncError) {
       console.error(`[Journal POST Sync] Calendar sync failed:`, syncError);
     }
+
+    await queueFinalNationalSupportLookup(supabase, {
+      targetId: existingPlan?.id,
+      code,
+      year: measurementYear,
+      period: measurementPeriod,
+      sanjae: journalData.industrial_accident_number,
+      commencement: journalData.commencement_number,
+      representative: journalData.representative_name,
+      contactName: journalData.manager_name,
+      contactPhone: journalData.manager_mobile,
+      requestedBy: user.id,
+    });
 
     return NextResponse.json({
       success: true,

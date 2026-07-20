@@ -101,6 +101,21 @@ export async function GET(request: Request) {
         business_category: findFirstValue("business_category"),
       };
 
+      const normalizePhoneLikeValue = (value: any, managerName?: any) => {
+        const text = String(value || "").trim();
+        if (!text) return "";
+
+        const nameText = String(managerName || "").trim();
+        const digitCount = (text.match(/\d/g) || []).length;
+        const containsKorean = /[가-힣]/.test(text);
+
+        if (nameText && text === nameText) return "";
+        if (containsKorean && digitCount < 7) return "";
+        if (digitCount > 0 && digitCount < 7) return "";
+
+        return text;
+      };
+
       // 3. measurement_journal 조회 (담당자 정보 우선순위: journal > business)
       // 최근 5개 journal 데이터에서 담당자 정보 및 산재관리번호 등을 찾아옴 (마지막 데이터가 비어있을 수 있으므로)
       let journalManagerInfo: Record<string, any> = {};
@@ -137,6 +152,8 @@ export async function GET(request: Request) {
       console.log(`[API /api/journal/businesses] prioritizedDefaults for ${code}:`, prioritizedDefaults);
       console.log(`[API /api/journal/businesses] journalManagerInfo for ${code}:`, journalManagerInfo);
 
+      const mergedManagerName = (baseBusinessData?.manager_name || "") || prioritizedDefaults.manager_name || journalManagerInfo?.manager_name || "";
+
       const business = {
         ...businessInfo,
         ...baseBusinessData, // 요청한 연도의 기본 데이터
@@ -156,9 +173,9 @@ export async function GET(request: Request) {
         commencement_number: (baseBusinessData?.commencement_number || "") || prioritizedDefaults.commencement_number || journalManagerInfo?.commencement_number || businessInfo?.commencement_number || "",
 
         // 담당자 정보: BaseData > History > Journal
-        manager_name: (baseBusinessData?.manager_name || "") || prioritizedDefaults.manager_name || journalManagerInfo?.manager_name || "",
+        manager_name: mergedManagerName,
         manager_position: (baseBusinessData?.manager_position || "") || prioritizedDefaults.manager_position || journalManagerInfo?.manager_position || "",
-        manager_mobile: (baseBusinessData?.manager_mobile || "") || prioritizedDefaults.manager_mobile || journalManagerInfo?.manager_mobile || "",
+        manager_mobile: normalizePhoneLikeValue((baseBusinessData?.manager_mobile || "") || prioritizedDefaults.manager_mobile || journalManagerInfo?.manager_mobile, mergedManagerName),
         manager_phone: (baseBusinessData?.manager_phone || "") || prioritizedDefaults.manager_phone || journalManagerInfo?.manager_phone || "",
 
         // 총인원: 1순위(현재 연도/주기), 2순위(과거 이력 최신값), 3순위(마스터 정보)

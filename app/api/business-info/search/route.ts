@@ -2,6 +2,31 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { mapBusinessInfoToRegistrationSearchResult } from "@/lib/business-info/registration-search";
+
+const BUSINESS_INFO_SELECT = [
+  "code",
+  "business_name",
+  "business_number",
+  "representative_name",
+  "address1",
+  "address2",
+  "business_category",
+  "phone",
+  "fax",
+  "invoice_email",
+  "invoice_manager",
+  "manager_position",
+  "manager_contact",
+  "manager_name",
+  "notes",
+  "office_jurisdiction",
+].join(",");
+
+const BUSINESS_INFO_FALLBACK_SELECT = BUSINESS_INFO_SELECT
+  .split(",")
+  .filter(field => field !== "office_jurisdiction")
+  .join(",");
 
 /**
  * 사업장정보 검색 API
@@ -10,7 +35,7 @@ import { checkPermission } from "@/lib/auth/check-permission";
 export async function GET(request: NextRequest) {
   try {
     // 권한 체크
-    await checkPermission("survey:read");
+    await checkPermission("journal:read");
 
     const { searchParams } = new URL(request.url);
     const code = searchParams.get("code")?.trim() || null;
@@ -18,13 +43,14 @@ export async function GET(request: NextRequest) {
     const designatedOffice = searchParams.get("designatedOffice")?.trim() || null;
     const officeJurisdiction = searchParams.get("officeJurisdiction")?.trim() || null; // 소재지 관할청
     const address = searchParams.get("address")?.trim() || null;
+    const searchQuery = searchParams.get("q")?.trim() || null;
 
     const supabase = await createClient();
 
     // business_info에서 기본 검색 (office_jurisdiction 포함)
     let query = supabase
       .from("business_info")
-      .select("code, business_name, business_number, address1, address2, office_jurisdiction")
+      .select(BUSINESS_INFO_SELECT)
       .not("business_name", "ilike", "%번외%") // "*번외*" 포함 사업장 제외
       .order("business_name", { ascending: true });
 
@@ -39,6 +65,20 @@ export async function GET(request: NextRequest) {
 
     if (address) {
       query = query.or(`address1.ilike.%${address}%,address2.ilike.%${address}%`);
+    }
+
+    if (searchQuery) {
+      const safeQuery = searchQuery.replace(/[,()%_]/g, " ").trim();
+      if (safeQuery) {
+        query = query.or([
+          `code.ilike.%${safeQuery}%`,
+          `business_name.ilike.%${safeQuery}%`,
+          `business_number.ilike.%${safeQuery}%`,
+          `representative_name.ilike.%${safeQuery}%`,
+          `address1.ilike.%${safeQuery}%`,
+          `address2.ilike.%${safeQuery}%`,
+        ].join(",")).limit(30);
+      }
     }
 
     // 소재지 관할청 필터링 (business_info 테이블의 office_jurisdiction 필드 사용)
@@ -57,7 +97,7 @@ export async function GET(request: NextRequest) {
         // 기본 쿼리 재실행 (office_jurisdiction 제외)
         let fallbackQuery = supabase
           .from("business_info")
-          .select("code, business_name, business_number, address1, address2")
+          .select(BUSINESS_INFO_FALLBACK_SELECT)
           .not("business_name", "ilike", "%번외%") // "*번외*" 포함 사업장 제외
           .order("business_name", { ascending: true });
 
@@ -70,6 +110,19 @@ export async function GET(request: NextRequest) {
         if (address) {
           fallbackQuery = fallbackQuery.or(`address1.ilike.%${address}%,address2.ilike.%${address}%`);
         }
+        if (searchQuery) {
+          const safeQuery = searchQuery.replace(/[,()%_]/g, " ").trim();
+          if (safeQuery) {
+            fallbackQuery = fallbackQuery.or([
+              `code.ilike.%${safeQuery}%`,
+              `business_name.ilike.%${safeQuery}%`,
+              `business_number.ilike.%${safeQuery}%`,
+              `representative_name.ilike.%${safeQuery}%`,
+              `address1.ilike.%${safeQuery}%`,
+              `address2.ilike.%${safeQuery}%`,
+            ].join(",")).limit(30);
+          }
+        }
 
         const { data: fallbackList, error: fallbackError } = await fallbackQuery;
         if (fallbackError) {
@@ -81,12 +134,14 @@ export async function GET(request: NextRequest) {
 
         // measurement_business에서 관할청 정보 가져오기
         const codes = fallbackList?.map((b: any) => b.code) || [];
-        const { data: measurementBusinessList } = await supabase
-          .from("measurement_business")
-          .select("code, office_jurisdiction")
-          .in("code", codes)
-          .order("year", { ascending: false })
-          .order("period", { ascending: false });
+        const measurementBusinessList = searchQuery || codes.length === 0
+          ? []
+          : (await supabase
+              .from("measurement_business")
+              .select("code, office_jurisdiction")
+              .in("code", codes)
+              .order("year", { ascending: false })
+              .order("period", { ascending: false })).data || [];
 
         const officeJurisdictionMap = new Map<string, string>();
         if (measurementBusinessList) {
@@ -135,14 +190,13 @@ export async function GET(request: NextRequest) {
           });
         }
 
-        const businesses = filteredList.map((business: any) => ({
-          code: business.code,
-          business_number: business.business_number || "",
-          business_name: business.business_name,
-          address: [business.address1, business.address2].filter(Boolean).join(" ").trim() || "",
-          office_jurisdiction: officeJurisdictionMap.get(business.code) || "",
-          unpaid_count: unpaidCountMap.get(business.business_name) || 0,
-        }));
+        const businesses = filteredList.map((business: any) =>
+          mapBusinessInfoToRegistrationSearchResult(
+            business,
+            searchQuery ? "" : (officeJurisdictionMap.get(business.code) || ""),
+            unpaidCountMap.get(business.business_name) || 0,
+          )
+        );
 
         return NextResponse.json(
           { businesses },
@@ -168,12 +222,14 @@ export async function GET(request: NextRequest) {
 
     // measurement_business에서 지정한계_관할지청(office_jurisdiction) 정보 가져오기 (참고용)
     const codes = businessInfoList.map((b: any) => b.code);
-    const { data: measurementBusinessList } = await supabase
-      .from("measurement_business")
-      .select("code, office_jurisdiction")
-      .in("code", codes)
-      .order("year", { ascending: false })
-      .order("period", { ascending: false });
+    const measurementBusinessList = searchQuery || codes.length === 0
+      ? []
+      : (await supabase
+          .from("measurement_business")
+          .select("code, office_jurisdiction")
+          .in("code", codes)
+          .order("year", { ascending: false })
+          .order("period", { ascending: false })).data || [];
 
     // 지정한계_관할지청으로 필터링 (필요한 경우)
     let filteredBusinessInfo = businessInfoList;
@@ -259,15 +315,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const businesses = filteredBusinessInfo.map((business: any) => ({
-      code: business.code,
-      business_number: business.business_number || "",
-      business_name: business.business_name,
-      address: [business.address1, business.address2].filter(Boolean).join(" ").trim() || "",
-      office_jurisdiction: business.office_jurisdiction || officeJurisdictionMap.get(business.code) || "",
-      unpaid_count: unpaidCountMap.get(business.business_name) || 0,
-      national_unpaid_count: nationalUnpaidCountMap.get(business.business_name) || 0,
-    }));
+    const businesses = filteredBusinessInfo.map((business: any) =>
+      mapBusinessInfoToRegistrationSearchResult(
+        business,
+        business.office_jurisdiction || (searchQuery ? "" : officeJurisdictionMap.get(business.code)) || "",
+        unpaidCountMap.get(business.business_name) || 0,
+        nationalUnpaidCountMap.get(business.business_name) || 0,
+      )
+    );
 
     return NextResponse.json({ businesses });
   } catch (error) {
