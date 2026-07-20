@@ -719,19 +719,7 @@ function parseMeasurementBusiness(
       business_category: normalizeBusinessCategory(businessCategory, validCategories),
     };
 
-    // [NEW] 지청별/업종별 예외 발행일 로직 (대전/천안지청 & 공업사)
-    // 규칙: 전자계산서 발행일(billing_date)을 측정일 익일(워킹데이 기준)로 자동 기록
-    const officeStr = String(baseData.office_jurisdiction || "");
-    const categoryStr = String(baseData.business_category || "");
-    
-    if ((officeStr.includes("대전") || officeStr.includes("천안")) && categoryStr.includes("공업사")) {
-      // [Check] 2026-04-11(금일)부터 적용, 소급적용하지 않음
-      if (baseData.measurement_date && baseData.measurement_date >= "2026-04-11") {
-        // measurement_date는 이미 YYYY-MM-DD 형식
-        baseData.electronic_invoice_date = getNextWorkingDay(baseData.measurement_date);
-        console.log(`[Exception Billing] ${baseData.business_name} (${baseData.code}): ${baseData.measurement_date} -> ${baseData.electronic_invoice_date}`);
-      }
-    }
+
 
     const optionalFields: any = {};
     const managerName = row["담당자명"] || row["담당자"] || row["담당자 성명"] || null;

@@ -84,8 +84,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   // 기존의 isCompleted 변수 (일부 버튼 비활성화 등에 사용됨)
   const isCompleted = isLockedByCompletion;
 
-  // 측정 시작일 변경 감지를 위한 ref
-  const prevStartDateRef = useRef<string | null>(normalizeDateForInput(entry.measurement_start_date));
+
 
   useEffect(() => {
     setMounted(true);
@@ -930,8 +929,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     setOriginalYear(entry.measurement_year);
     setOriginalPeriod(entry.measurement_period);
 
-    // entry 변경 시 ref도 업데이트
-    prevStartDateRef.current = normalizeDateForInput(entry.measurement_start_date);
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     entry.id, 
@@ -1009,15 +1007,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     }
   }, [formData.measurement_fee_total, formData.deposit_total, formData.measurement_start_date, formData.k2b_send_date, formData.completion_status]);
 
-  // 업종분류가 '대전/천안 공업사'일 때 자동화 로직 (그 외에는 빈값)
+  // 업종분류가 '대전/천안 공업사'일 때 자동화 로직 (비고 자동 체크만 수행)
   useEffect(() => {
     const isTargetArea = ["대전", "천안"].includes(formData.designated_office);
     const isAutoRepair = formData.business_category === "공업사";
 
     if (isTargetArea && isAutoRepair) {
-      // ref 업데이트 전 변경 여부 확인 (setFormData 내부가 아닌 여기서 캡처)
-      const isStartDateChanged = prevStartDateRef.current !== formData.measurement_start_date;
-
       setFormData(prev => {
         const updates: any = {};
         let hasUpdates = false;
@@ -1032,42 +1027,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           hasUpdates = true;
         }
 
-        // 2. 전자계산서 발행일: 측정 시작일 + 1일 (워킹데이 기준)
-        const currentStartDate = prev.measurement_start_date;
-        const shouldUpdateDate = isStartDateChanged || !prev.electronic_invoice_date;
-
-        if (currentStartDate && shouldUpdateDate) {
-          const startDate = new Date(currentStartDate);
-          const nextDate = new Date(startDate);
-          nextDate.setDate(startDate.getDate() + 1);
-
-          const day = nextDate.getDay(); // 0: 일, 6: 토
-          if (day === 6) { // 토요일 -> 월요일 (2일 추가)
-            nextDate.setDate(nextDate.getDate() + 2);
-          } else if (day === 0) { // 일요일 -> 월요일 (1일 추가)
-            nextDate.setDate(nextDate.getDate() + 1);
-          }
-
-          const nextWorkingDay = normalizeDateForInput(nextDate.toISOString());
-
-          if (prev.electronic_invoice_date !== nextWorkingDay) {
-            updates.electronic_invoice_date = nextWorkingDay;
-            hasUpdates = true;
-            console.log('[JournalEditForm] 대전/천안 공업사 자동 계산:', nextWorkingDay);
-          }
-        }
-
         if (hasUpdates) {
           return { ...prev, ...updates };
         }
         return prev;
       });
     }
-
-    // ref 업데이트
-    prevStartDateRef.current = formData.measurement_start_date;
-
-  }, [formData.business_category, formData.designated_office, formData.measurement_start_date]);
+  }, [formData.business_category, formData.designated_office]);
 
   // 측정년도/측정주기 변경 검증 (수정 모드에서만)
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1613,195 +1579,235 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     );
   };
 
-  const renderFeeInfo = () => (
-    <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
-      <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
-        측정비 정보
-      </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Input
-          label="측정비(합계)"
-          type="text"
-          value={formatCurrency(formData.measurement_fee_total)}
-          disabled
-          className="bg-surface-50"
-          placeholder="자동 계산됩니다"
-        />
-        <div>
+  const renderFeeInfo = () => {
+    const isTargetArea = ["대전", "천안"].includes(formData.designated_office);
+    const isAutoRepair = formData.business_category === "공업사";
+    const hasFee = (Number(formData.measurement_fee_business) || 0) > 0;
+    const hasStartDate = !!formData.measurement_start_date;
+
+    const shouldShowConfirm1 = isTargetArea && isAutoRepair && hasFee && hasStartDate && !formData.electronic_invoice_date;
+    const shouldShowConfirm2 = isTargetArea && isAutoRepair && hasFee && hasStartDate && !formData.electronic_invoice_date_2;
+    
+    const recommendedDate = hasStartDate ? getRecommendedInvoiceDate(formData.measurement_start_date) : "";
+
+    return (
+      <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
+        <h3 className="text-lg font-bold text-text-900 mb-4 pb-2 border-b-2 border-primary-500">
+          측정비 정보
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <Input
-            label="측정비(사업장)"
+            label="측정비(합계)"
             type="text"
-            value={formatCurrency(formData.measurement_fee_business)}
-            onChange={(e) => {
-              const parsed = parseCurrency(e.target.value);
-              setFormData({ ...formData, measurement_fee_business: parsed });
-            }}
-            list="business-fee-options"
-            placeholder={previousMeasurementFee.business ? `전회: ${formatCurrency(String(previousMeasurementFee.business))}원` : "숫자 입력 또는 선택"}
+            value={formatCurrency(formData.measurement_fee_total)}
+            disabled
+            className="bg-surface-50"
+            placeholder="자동 계산됩니다"
           />
-          <datalist id="business-fee-options">
-            <option value="200000">200,000원</option>
-            {previousMeasurementFee.business && (() => {
-              const previousValue = String(previousMeasurementFee.business);
-              if (previousValue !== "200000") {
-                return <option key={previousValue} value={previousValue}>{formatCurrency(previousValue)}원 (전회치)</option>;
-              }
-              return null;
-            })()}
-          </datalist>
-          {previousMeasurementFee.business && (
-            <p className="mt-1 text-sm text-text-600 font-medium">
-              전회: {formatCurrency(String(previousMeasurementFee.business))}원 (참고용)
-            </p>
-          )}
-        </div>
-        <div>
-          <Input
-            label="측정비(국고)"
-            type="text"
-            value={formatCurrency(formData.measurement_fee_national)}
-            onChange={(e) => {
-              const parsed = parseCurrency(e.target.value);
-              setFormData({ ...formData, measurement_fee_national: parsed });
-            }}
-            disabled={formData.national_support_status === "비대상"}
-            list="national-fee-options"
-            placeholder={previousMeasurementFee.national ? `전회: ${formatCurrency(String(previousMeasurementFee.national))}원` : "숫자 입력 또는 선택"}
-            className={formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}
-          />
-          <datalist id="national-fee-options">
-            <option value="400000">400,000원</option>
-            <option value="1000000">1,000,000원</option>
-          </datalist>
-          {previousMeasurementFee.national && (
-            <p className="mt-1 text-sm text-text-600 font-medium">
-              전회: {formatCurrency(String(previousMeasurementFee.national))}원 (참고용)
-            </p>
-          )}
-        </div>
-        <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-2 pt-4 border-t border-dashed border-gray-300">
-          <div className="flex flex-col gap-1 relative pb-5">
+          <div>
             <Input
-              label="계산서 메일"
-              type="email"
-              value={formData.invoice_email}
-              onChange={(e) =>
-                setFormData({ ...formData, invoice_email: e.target.value })
-              }
-              className="email-mono-font"
+              label="측정비(사업장)"
+              type="text"
+              value={formatCurrency(formData.measurement_fee_business)}
+              onChange={(e) => {
+                const parsed = parseCurrency(e.target.value);
+                setFormData({ ...formData, measurement_fee_business: parsed });
+              }}
+              list="business-fee-options"
+              placeholder={previousMeasurementFee.business ? `전회: ${formatCurrency(String(previousMeasurementFee.business))}원` : "숫자 입력 또는 선택"}
             />
-            {previousEmails.invoice_email && (
-              <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email}`}>
-                전회: {previousEmails.invoice_email}
-              </div>
+            <datalist id="business-fee-options">
+              <option value="200000">200,000원</option>
+              {previousMeasurementFee.business && (() => {
+                const previousValue = String(previousMeasurementFee.business);
+                if (previousValue !== "200000") {
+                  return <option key={previousValue} value={previousValue}>{formatCurrency(previousValue)}원 (전회치)</option>;
+                }
+                return null;
+              })()}
+            </datalist>
+            {previousMeasurementFee.business && (
+              <p className="mt-1 text-sm text-text-600 font-medium">
+                전회: {formatCurrency(String(previousMeasurementFee.business))}원 (참고용)
+              </p>
             )}
           </div>
-          <div className="flex flex-col gap-1 pb-5">
-            <label className="block text-sm font-medium text-text-700 mb-1">
-              전자계산서 발행일
-            </label>
-            <div className="relative">
+          <div>
+            <Input
+              label="측정비(국고)"
+              type="text"
+              value={formatCurrency(formData.measurement_fee_national)}
+              onChange={(e) => {
+                const parsed = parseCurrency(e.target.value);
+                setFormData({ ...formData, measurement_fee_national: parsed });
+              }}
+              disabled={formData.national_support_status === "비대상"}
+              list="national-fee-options"
+              placeholder={previousMeasurementFee.national ? `전회: ${formatCurrency(String(previousMeasurementFee.national))}원` : "숫자 입력 또는 선택"}
+              className={formData.national_support_status === "비대상" ? "bg-gray-100 cursor-not-allowed" : ""}
+            />
+            <datalist id="national-fee-options">
+              <option value="400000">400,000원</option>
+              <option value="1000000">1,000,000원</option>
+            </datalist>
+            {previousMeasurementFee.national && (
+              <p className="mt-1 text-sm text-text-600 font-medium">
+                전회: {formatCurrency(String(previousMeasurementFee.national))}원 (참고용)
+              </p>
+            )}
+          </div>
+          <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-2 pt-4 border-t border-dashed border-gray-300">
+            <div className="flex flex-col gap-1 relative pb-5">
               <Input
-                className="text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
-                type="text"
-                placeholder="YY-MM-DD"
-                value={formatToYYMMDD(formData.electronic_invoice_date)}
+                label="계산서 메일"
+                type="email"
+                value={formData.invoice_email}
                 onChange={(e) =>
-                  setFormData({ ...formData, electronic_invoice_date: e.target.value })
+                  setFormData({ ...formData, invoice_email: e.target.value })
                 }
+                className="email-mono-font"
               />
-              <button
-                type="button"
-                onClick={(e) => {
-                  const container = e.currentTarget.parentElement;
-                  const hiddenDateInput = container?.querySelector('input[type="date"]') as HTMLInputElement;
-                  if (hiddenDateInput) {
-                    if (typeof hiddenDateInput.showPicker === 'function') {
-                      hiddenDateInput.showPicker();
-                    } else {
-                      hiddenDateInput.click();
-                    }
-                  }
-                }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </button>
-              <input
-                type="date"
-                className="absolute opacity-0 pointer-events-none w-0 h-0"
-                value={normalizeDateForInput(formData.electronic_invoice_date)}
-                onChange={(e) =>
-                  setFormData({ ...formData, electronic_invoice_date: e.target.value })
-                }
-              />
+              {previousEmails.invoice_email && (
+                <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email}`}>
+                  전회: {previousEmails.invoice_email}
+                </div>
+              )}
             </div>
-          </div>
-          <div className="flex flex-col gap-1 relative pb-5">
-            <Input
-              label="계산서 메일2"
-              type="email"
-              value={formData.invoice_email_2}
-              onChange={(e) =>
-                setFormData({ ...formData, invoice_email_2: e.target.value })
-              }
-              className="email-mono-font"
-            />
-            {previousEmails.invoice_email_2 && (
-              <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email_2}`}>
-                전회: {previousEmails.invoice_email_2}
+            <div className="flex flex-col gap-1 pb-5">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
+                <label className="block text-sm font-medium text-text-700">
+                  전자계산서 발행일
+                </label>
+                {shouldShowConfirm1 && recommendedDate && (
+                  <div className="flex items-center gap-1.5 text-xs bg-primary-50 px-2 py-0.5 rounded border border-primary-200 w-fit self-start sm:self-auto shadow-xs">
+                    <span className="text-primary-700 font-medium">추천: {formatToYYMMDD(recommendedDate)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, electronic_invoice_date: recommendedDate })}
+                      className="px-1.5 py-0.5 bg-primary-600 text-white rounded hover:bg-primary-700 active:bg-primary-800 font-bold transition-all duration-150 shadow-xs"
+                    >
+                      확정
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div className="flex flex-col gap-1 pb-5">
-            <label className="block text-sm font-medium text-text-700 mb-1">
-              전자계산서 발행일2
-            </label>
-            <div className="relative">
-              <Input
-                className="text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
-                type="text"
-                placeholder="YY-MM-DD"
-                value={formatToYYMMDD(formData.electronic_invoice_date_2)}
-                onChange={(e) =>
-                  setFormData({ ...formData, electronic_invoice_date_2: e.target.value })
-                }
-              />
-              <button
-                type="button"
-                onClick={(e) => {
-                  const container = e.currentTarget.parentElement;
-                  const hiddenDateInput = container?.querySelector('input[type="date"]') as HTMLInputElement;
-                  if (hiddenDateInput) {
-                    if (typeof hiddenDateInput.showPicker === 'function') {
-                      hiddenDateInput.showPicker();
-                    } else {
-                      hiddenDateInput.click();
-                    }
+              <div className="relative">
+                <Input
+                  className="text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
+                  type="text"
+                  placeholder="YY-MM-DD"
+                  value={formatToYYMMDD(formData.electronic_invoice_date)}
+                  onChange={(e) =>
+                    setFormData({ ...formData, electronic_invoice_date: e.target.value })
                   }
-                }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </button>
-              <input
-                type="date"
-                className="absolute opacity-0 pointer-events-none w-0 h-0"
-                value={normalizeDateForInput(formData.electronic_invoice_date_2)}
+                />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    const container = e.currentTarget.parentElement;
+                    const hiddenDateInput = container?.querySelector('input[type="date"]') as HTMLInputElement;
+                    if (hiddenDateInput) {
+                      if (typeof hiddenDateInput.showPicker === 'function') {
+                        hiddenDateInput.showPicker();
+                      } else {
+                        hiddenDateInput.click();
+                      }
+                    }
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </button>
+                <input
+                  type="date"
+                  className="absolute opacity-0 pointer-events-none w-0 h-0"
+                  value={normalizeDateForInput(formData.electronic_invoice_date)}
+                  onChange={(e) =>
+                    setFormData({ ...formData, electronic_invoice_date: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1 relative pb-5">
+              <Input
+                label="계산서 메일2"
+                type="email"
+                value={formData.invoice_email_2}
                 onChange={(e) =>
-                  setFormData({ ...formData, electronic_invoice_date_2: e.target.value })
+                  setFormData({ ...formData, invoice_email_2: e.target.value })
                 }
+                className="email-mono-font"
               />
+              {previousEmails.invoice_email_2 && (
+                <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email_2}`}>
+                  전회: {previousEmails.invoice_email_2}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col gap-1 pb-5">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
+                <label className="block text-sm font-medium text-text-700">
+                  전자계산서 발행일2
+                </label>
+                {shouldShowConfirm2 && recommendedDate && (
+                  <div className="flex items-center gap-1.5 text-xs bg-primary-50 px-2 py-0.5 rounded border border-primary-200 w-fit self-start sm:self-auto shadow-xs">
+                    <span className="text-primary-700 font-medium">추천: {formatToYYMMDD(recommendedDate)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, electronic_invoice_date_2: recommendedDate })}
+                      className="px-1.5 py-0.5 bg-primary-600 text-white rounded hover:bg-primary-700 active:bg-primary-800 font-bold transition-all duration-150 shadow-xs"
+                    >
+                      확정
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <Input
+                  className="text-base md:text-sm shadow-sm print:text-center pr-10 email-mono-font"
+                  type="text"
+                  placeholder="YY-MM-DD"
+                  value={formatToYYMMDD(formData.electronic_invoice_date_2)}
+                  onChange={(e) =>
+                    setFormData({ ...formData, electronic_invoice_date_2: e.target.value })
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    const container = e.currentTarget.parentElement;
+                    const hiddenDateInput = container?.querySelector('input[type="date"]') as HTMLInputElement;
+                    if (hiddenDateInput) {
+                      if (typeof hiddenDateInput.showPicker === 'function') {
+                        hiddenDateInput.showPicker();
+                      } else {
+                        hiddenDateInput.click();
+                      }
+                    }
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-primary-600 focus:outline-none"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </button>
+                <input
+                  type="date"
+                  className="absolute opacity-0 pointer-events-none w-0 h-0"
+                  value={normalizeDateForInput(formData.electronic_invoice_date_2)}
+                  onChange={(e) =>
+                    setFormData({ ...formData, electronic_invoice_date_2: e.target.value })
+                  }
+                />
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderK2BInfo = () => (
     <div className="bg-surface-50 rounded-lg p-5 border border-surface-200">
@@ -2352,5 +2358,27 @@ const formatToYYMMDD = (dateStr: string | null | undefined): string => {
     return `${match[1].slice(2)}-${match[2]}-${match[3]}`;
   }
   return dateStr;
+};
+
+// 대전/천안 공업사 추천 발행일 계산 함수 (워킹데이 기준 측정일 + 1일)
+const getRecommendedInvoiceDate = (startDateStr: string | null | undefined): string => {
+  if (!startDateStr) return "";
+  try {
+    const startDate = new Date(startDateStr);
+    const nextDate = new Date(startDate);
+    nextDate.setDate(startDate.getDate() + 1);
+
+    const day = nextDate.getDay(); // 0: 일, 6: 토
+    if (day === 6) { // 토요일 -> 월요일 (2일 추가)
+      nextDate.setDate(nextDate.getDate() + 2);
+    } else if (day === 0) { // 일요일 -> 월요일 (1일 추가)
+      nextDate.setDate(nextDate.getDate() + 1);
+    }
+
+    return nextDate.toISOString().split("T")[0];
+  } catch (e) {
+    console.error("[getRecommendedInvoiceDate] 에러:", e);
+    return "";
+  }
 };
 
