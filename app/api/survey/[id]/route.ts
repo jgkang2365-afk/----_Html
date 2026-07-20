@@ -8,7 +8,10 @@ import {
   MEASURER_OVERLAP_LIMIT_CODE,
   rebalanceSurveyCodesForDate,
   resolveSurveyAssignment,
+  getActiveMeasurerCount,
+  calculateActualSlots,
 } from "@/lib/utils/survey-assignment";
+import { getUser } from "@/lib/auth/get-user";
 
 /**
  * 예비조사 수정/삭제 API
@@ -41,6 +44,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       report_writer,
       assignee_manual_override,
       confirm_measurer_overlap,
+      confirm_limit_over,
     } = body;
 
     // 필수 필드 검증
@@ -64,31 +68,48 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "수정할 예비조사를 찾을 수 없습니다." }, { status: 404 });
     }
 
-    // 1. 자기 자신을 제외하고 해당 일자에는 최대 6개 업체까지만 등록 가능
-    const { count: dateCount, error: dateCountError } = await supabase
+    // 1. 자기 자신을 제외하고 해당 일자 동적 등록 제한 체크 (활성 측정자 수 기반)
+    const limitCount = await getActiveMeasurerCount(supabase);
+    const { data: dateSurveys, error: dateSurveysError } = await supabase
       .from("preliminary_survey")
-      .select("id", { count: "exact", head: true })
+      .select("survey_code")
       .eq("measurement_date", measurement_date)
       .neq("id", surveyId);
 
-    if (dateCountError) {
-      console.error("일자별 등록 건수 조회 오류:", dateCountError);
+    if (dateSurveysError) {
+      console.error("일자별 등록 건수 조회 오류:", dateSurveysError);
       return NextResponse.json(
         { error: "일자별 등록 건수를 확인하지 못해 저장을 중단했습니다." },
         { status: 500 }
       );
     }
 
-    if ((dateCount || 0) >= 6) {
-      return NextResponse.json(
-        {
-          error:
-            "해당 일자(" +
-            measurement_date +
-            ")에는 이미 6개 업체가 등록되어 있어 변경할 수 없습니다.",
-        },
-        { status: 400 }
-      );
+    const actualSlots = calculateActualSlots(dateSurveys || []);
+
+    if (actualSlots >= limitCount) {
+      // 로그인된 사용자 정보 및 권한 확인
+      const currentUser = await getUser();
+      const isAuthorized =
+        currentUser?.role === "관리자" || currentUser?.is_journal_manager === true;
+
+      // 권한이 있고, 프론트에서 초과 확인(confirm_limit_over)을 보낸 경우에만 저장을 허용합니다.
+      if (isAuthorized && confirm_limit_over === true) {
+        // 예외 허용 처리하여 통과합니다.
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              "해당 일자(" +
+              measurement_date +
+              `)에는 이미 ${limitCount}개 업체가 등록되어 있어 변경할 수 없습니다.`,
+            code: "LIMIT_EXCEEDED",
+            limitCount,
+            actualSlots,
+            isAuthorized,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // 2. 첫 번째 측정자를 기준으로 공시료 코드를 자동 결정

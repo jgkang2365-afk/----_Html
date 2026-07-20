@@ -779,7 +779,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, 
 
       const method = isEditMode ? "PUT" : "POST";
 
-      const submitRequest = async (confirmOverlap = false) => {
+      const submitRequest = async (confirmOverlap = false, confirmLimitOver = false) => {
         const response = await fetch(url, {
           method,
           headers: {
@@ -788,6 +788,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, 
           body: JSON.stringify({
             ...formData,
             confirm_measurer_overlap: confirmOverlap,
+            confirm_limit_over: confirmLimitOver,
           }),
         });
 
@@ -799,6 +800,7 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, 
 
       let { response, data } = await submitRequest();
 
+      // 측정자 중복 확인 처리
       if (response.status === 409 && data.code === "MEASURER_OVERLAP_CONFIRMATION_REQUIRED") {
         const conflictBusinesses = (data.conflicts || [])
           .map((conflict: { businessName: string }) => "- " + conflict.businessName)
@@ -816,7 +818,21 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, 
         );
 
         if (!confirmed) return;
-        ({ response, data } = await submitRequest(true));
+        ({ response, data } = await submitRequest(true, false));
+      }
+
+      // 등록 제한 수 초과 확인 및 관리자/담당자 예외 승인 처리
+      if (response.status === 400 && data.code === "LIMIT_EXCEEDED" && data.isAuthorized) {
+        const confirmed = window.confirm(
+          "해당 일자(" +
+            formData.measurement_date +
+            ")에는 이미 " +
+            data.limitCount +
+            "개 업체(실질 슬롯 수 기준)가 등록되어 있습니다.\n\n그래도 저장하시겠습니까?"
+        );
+
+        if (!confirmed) return;
+        ({ response, data } = await submitRequest(false, true));
       }
 
       if (response.ok) {

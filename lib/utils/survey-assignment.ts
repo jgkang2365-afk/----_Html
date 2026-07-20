@@ -175,3 +175,47 @@ export async function rebalanceSurveyCodesForDate(
     }
   }
 }
+
+/**
+ * 활성화된 측정 담당자 수를 조회합니다.
+ */
+export async function getActiveMeasurerCount(supabase: SupabaseClient): Promise<number> {
+  const { count, error } = await supabase
+    .from("users")
+    .select("id", { count: "exact", head: true })
+    .eq("job", "측정")
+    .eq("is_active", true);
+
+  if (error) {
+    console.error("활성 측정 담당자 수 조회 오류:", error);
+    // 데이터베이스 오류 발생 시 기본값으로 6을 반환합니다.
+    return 6;
+  }
+
+  return count || 0;
+}
+
+/**
+ * 예비조사 목록을 분석하여 실질적으로 차지하는 공시료 슬롯(팀) 수를 계산합니다.
+ * 접미사가 붙거나 반복되는 코드(예: C, CC)는 동일한 1개의 슬롯으로 카운트합니다.
+ */
+export function calculateActualSlots(surveys: Array<{ survey_code?: string | null }>): number {
+  const uniqueBaseCodes = new Set<string>();
+  let nullOrEmptyCount = 0;
+
+  for (const survey of surveys) {
+    const code = survey.survey_code?.trim().toUpperCase();
+    if (!code) {
+      // 공시료 코드가 없는 경우 각각을 독립된 슬롯으로 취급합니다.
+      nullOrEmptyCount++;
+      continue;
+    }
+
+    // CC -> C, DD -> D 처럼 동일 문자가 반복되는 부분을 첫 번째 문자로 변환합니다.
+    const baseCode = code.charAt(0);
+    uniqueBaseCodes.add(baseCode);
+  }
+
+  return uniqueBaseCodes.size + nullOrEmptyCount;
+}
+
