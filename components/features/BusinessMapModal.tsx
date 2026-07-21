@@ -298,7 +298,12 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
       });
     }
 
-  }, [mapScriptLoaded, mapBusinesses, isOpen]);
+    // 지도 컨테이너 크기 재계산 (로딩 오버레이 소멸 및 모달 애니메이션 대응)
+    if (map) {
+      map.checkSize();
+    }
+
+  }, [mapScriptLoaded, mapBusinesses, isOpen, geocodingLoading]);
 
   // 지도 범위 강제 재조정
   const handleRecenter = () => {
