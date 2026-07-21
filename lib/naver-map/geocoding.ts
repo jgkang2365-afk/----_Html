@@ -72,22 +72,9 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
   const searchApiKey = process.env.JUSO_SEARCH_API_KEY;
   const coordApiKey = process.env.JUSO_COORD_API_KEY;
 
-  // Juso 좌표 API 키가 미승인 상태인 경우, 1단계를 거치지 않고 천안시청 가상 좌표로 즉시 성공 반환 (테스트 용도)
-  if (coordApiKey === "your_juso_coord_api_key") {
-    const isExact = Math.random() > 0.5;
-    const testLat = 36.81512 + (isExact ? 0 : (Math.random() - 0.5) * 0.002);
-    const testLng = 127.11387 + (isExact ? 0 : (Math.random() - 0.5) * 0.002);
-    
-    return {
-      latitude: testLat,
-      longitude: testLng,
-      geocoded_address: normalized || "충청남도 천안시 서북구 번영로 156 (천안시청 임시)",
-      geocoded_source_address: address,
-      geocoding_status: "SUCCESS",
-      geocoding_error: "천안시청 가상 보정 좌표 (좌표 API 승인 대기중)",
-      geocoded_at: new Date().toISOString()
-    };
-  }
+  // 각 사업장별 실제 원본 주소를 마스킹하여 로그에 출력
+  const maskedAddress = address.length > 8 ? `${address.substring(0, 8)}***` : address;
+  console.log(`[Geocoding] 주소 변환 프로세스 진입 - 원본 주소: ${maskedAddress}`);
 
   if (!searchApiKey || !coordApiKey) {
     console.error("행안부 주소 API 키(JUSO_SEARCH_API_KEY, JUSO_COORD_API_KEY)가 환경변수에 누락되었습니다.");
@@ -147,16 +134,19 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
     }
 
     const bestJuso = jusoList[0];
-    const { admCd, rnMgtSn, udrtYn, buldMngrNo, roadAddr } = bestJuso;
+    const { admCd, rnMgtSn, udrtYn, buldMnnm, buldSlno, roadAddr } = bestJuso;
 
-    if (!admCd || !rnMgtSn || !udrtYn || !buldMngrNo) {
+    // 도로명주소 검색 API 결과 상세 로그 출력 (좌표 API 전송 인자 검증용)
+    console.log(`[Geocoding] 1단계 검색 성공 - 정규화 주소: ${roadAddr}, admCd: ${admCd}, rnMgtSn: ${rnMgtSn}, udrtYn: ${udrtYn}, buldMnnm: ${buldMnnm}, buldSlno: ${buldSlno}`);
+
+    if (!admCd || !rnMgtSn || !udrtYn || !buldMnnm || !buldSlno) {
       return {
         latitude: null,
         longitude: null,
         geocoded_address: roadAddr || null,
         geocoded_source_address: address,
         geocoding_status: "FAILED",
-        geocoding_error: "주소 필수 코드 정보가 누락되었습니다.",
+        geocoding_error: "주소 필수 코드 정보(본번/부번)가 누락되었습니다.",
         geocoded_at: new Date().toISOString()
       };
     }
@@ -168,7 +158,8 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
       admCd,
       rnMgtSn,
       udrtYn,
-      buldMngrNo,
+      buldMnnm,
+      buldSlno,
       resultType: "json"
     });
 
@@ -221,9 +212,15 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
       };
     }
 
+    // entX, entY 반환 정보 상세 출력
+    console.log(`[Geocoding] 2단계 좌표 획득 성공 - entX: ${entX}, entY: ${entY}`);
+
     // 3단계: GRS80 UTM-K (EPSG:5179) -> WGS84 (EPSG:4326) 좌표계 변환 수행
     // proj4는 [longitude, latitude] 순으로 리턴함
     const [longitude, latitude] = proj4("EPSG:5179", "EPSG:4326", [entX, entY]);
+
+    // proj4 변환 결과 상세 출력
+    console.log(`[Geocoding] 3단계 proj4 변환 완료 - 입력: [X:${entX}, Y:${entY}] -> 출력 위경도: [Lat:${latitude}, Lng:${longitude}]`);
 
     // 위/경도 유효 범위 체크
     const isValidLat = !isNaN(latitude) && latitude >= -90 && latitude <= 90;
