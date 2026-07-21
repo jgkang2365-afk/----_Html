@@ -72,6 +72,23 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
   const searchApiKey = process.env.JUSO_SEARCH_API_KEY;
   const coordApiKey = process.env.JUSO_COORD_API_KEY;
 
+  // Juso 좌표 API 키가 미승인 상태인 경우, 1단계를 거치지 않고 천안시청 가상 좌표로 즉시 성공 반환 (테스트 용도)
+  if (coordApiKey === "your_juso_coord_api_key") {
+    const isExact = Math.random() > 0.5;
+    const testLat = 36.81512 + (isExact ? 0 : (Math.random() - 0.5) * 0.002);
+    const testLng = 127.11387 + (isExact ? 0 : (Math.random() - 0.5) * 0.002);
+    
+    return {
+      latitude: testLat,
+      longitude: testLng,
+      geocoded_address: normalized || "충청남도 천안시 서북구 번영로 156 (천안시청 임시)",
+      geocoded_source_address: address,
+      geocoding_status: "SUCCESS",
+      geocoding_error: "천안시청 가상 보정 좌표 (좌표 API 승인 대기중)",
+      geocoded_at: new Date().toISOString()
+    };
+  }
+
   if (!searchApiKey || !coordApiKey) {
     console.error("행안부 주소 API 키(JUSO_SEARCH_API_KEY, JUSO_COORD_API_KEY)가 환경변수에 누락되었습니다.");
     return {
@@ -140,23 +157,6 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
         geocoded_source_address: address,
         geocoding_status: "FAILED",
         geocoding_error: "주소 필수 코드 정보가 누락되었습니다.",
-        geocoded_at: new Date().toISOString()
-      };
-    }
-
-    // Juso 좌표 API 키가 미승인 상태인 경우, 테스트용 천안시청 좌표(동일 및 인접 테스트용 난수 오차 적용)를 즉시 반환합니다.
-    if (coordApiKey === "your_juso_coord_api_key") {
-      const isExact = Math.random() > 0.5;
-      const testLat = 36.81512 + (isExact ? 0 : (Math.random() - 0.5) * 0.002);
-      const testLng = 127.11387 + (isExact ? 0 : (Math.random() - 0.5) * 0.002);
-      
-      return {
-        latitude: testLat,
-        longitude: testLng,
-        geocoded_address: roadAddr || "충청남도 천안시 서북구 번영로 156 (천안시청 임시)",
-        geocoded_source_address: address,
-        geocoding_status: "SUCCESS",
-        geocoding_error: "천안시청 가상 보정 좌표 (좌표 API 승인 대기중)",
         geocoded_at: new Date().toISOString()
       };
     }
