@@ -13,6 +13,7 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
+import { normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
@@ -379,8 +380,11 @@ export async function PATCH(request: NextRequest) {
     // [New Feature] Fetch existing date for notification check
     let existingDate = null;
     let businessNameForNote = "";
-    if (updates.hasOwnProperty('measurement_date')) {
-      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name");
+    let existingAddress: string | null = null;
+    let coordinateLocked = false;
+
+    if (updates.hasOwnProperty('measurement_date') || updates.hasOwnProperty('address')) {
+      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name, address, coordinate_locked");
       if (id) {
         bQuery = bQuery.eq("id", id);
       } else if (code && year && period) {
@@ -390,6 +394,8 @@ export async function PATCH(request: NextRequest) {
       if (oldData) {
         existingDate = oldData.measurement_date;
         businessNameForNote = oldData.business_name;
+        existingAddress = oldData.address;
+        coordinateLocked = !!oldData.coordinate_locked;
       }
     }
 
@@ -401,6 +407,8 @@ export async function PATCH(request: NextRequest) {
       "measurement_end_date", "future_measurement_period", "future_measurement_date",
       "measurer_id", "period", "collaborators", "daily_staff", "representative_name",
       "industrial_accident_number", "commencement_number",
+      "latitude", "longitude", "geocoded_address", "geocoding_status",
+      "coordinate_locked", "geocoding_method"
     ]);
     const updatePayload: any = Object.fromEntries(
       Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
@@ -430,6 +438,19 @@ export async function PATCH(request: NextRequest) {
       const office = findOfficeByAddress(updates.address);
       if (office) {
         updatePayload.office_jurisdiction = office;
+      }
+
+      // 주소 변경 시 좌표 무효화 (동일 주소가 아니고 수동 고정 상태가 아닌 경우에만 STALE 처리)
+      const normalizedOld = normalizeAddressForGeocoding(existingAddress);
+      const normalizedNew = normalizeAddressForGeocoding(updates.address);
+      
+      if (normalizedOld !== normalizedNew && !coordinateLocked) {
+        updatePayload.latitude = null;
+        updatePayload.longitude = null;
+        updatePayload.geocoding_status = "STALE";
+        updatePayload.geocoded_address = null;
+        updatePayload.geocoded_at = null;
+        updatePayload.geocoding_error = null;
       }
     }
 

@@ -10,6 +10,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
 import { NewBusinessDocumentGeneration } from "@/components/features/NewBusinessDocumentGeneration";
+import { BusinessMapModal } from "@/components/features/BusinessMapModal";
 import {
     Table,
     TableHeader,
@@ -169,10 +170,64 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const isAdmin = user?.role === "관리자";
     const [loading, setLoading] = useState(false);
 
+    // 다중 선택 상태 (최대 10개)
+    const [selectedBusinessIds, setSelectedBusinessIds] = useState<Set<string | number>>(new Set());
+    
+    // 네이버 지도 모달 열림 상태
+    const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+
+    // 개별 체크박스 토글
+    const handleToggleSelect = (id: string | number) => {
+        setSelectedBusinessIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                if (next.size >= 10) {
+                    alert("사업장은 한 번에 최대 10개까지만 선택할 수 있습니다.");
+                    return prev;
+                }
+                next.add(id);
+            }
+            return next;
+        });
+    };
+
+    // 전체 선택/해제 토글 (현재 화면의 filteredData 기준)
+    const handleToggleAllSelect = () => {
+        const visibleIds = filteredData.map(item => item.id);
+        const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedBusinessIds.has(id));
+
+        if (allVisibleSelected) {
+            // 모두 선택되어 있으면, 보이는 것들만 선택 해제
+            setSelectedBusinessIds(prev => {
+                const next = new Set(prev);
+                visibleIds.forEach(id => next.delete(id));
+                return next;
+            });
+        } else {
+            // 안 보이는/기존 선택 유지한 채로, 보이는 것들 중 미선택된 것을 추가하되 10개 제한 적용
+            setSelectedBusinessIds(prev => {
+                const next = new Set(prev);
+                const toAdd = visibleIds.filter(id => !next.has(id));
+                
+                for (const id of toAdd) {
+                    if (next.size >= 10) {
+                        alert("사업장은 한 번에 최대 10개까지만 선택할 수 있습니다. 10개까지만 선택되었습니다.");
+                        break;
+                    }
+                    next.add(id);
+                }
+                return next;
+            });
+        }
+    };
+
     // Data State
     const [data, setData] = useState<BusinessEntry[]>([]);
     const [filteredData, setFilteredData] = useState<BusinessEntry[]>([]);
     const dataFetchInFlightRef = useRef(false);
+
 
     // 국고 일괄 조회를 위한 상태 정의
     const [isBulkProcessing, setIsBulkProcessing] = useState(false);
@@ -667,6 +722,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             const fetchedData = result.businesses || [];
 
             setData(fetchedData);
+            setSelectedBusinessIds(new Set());
         } catch (error) {
             console.error("Error fetching businesses:", error);
         } finally {
@@ -1279,8 +1335,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     // Grid Column Template
-    // 18 Columns: No(45), 주기(60), 실시여부(80), 국고(100), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 실시일(110), 비고(80), 관리(40)
-    const gridTemplateCols = "45px 60px 80px 100px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
+    // 19 Columns: Checkbox(40), No(45), 주기(60), 실시여부(80), 국고(100), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 실시일(110), 비고(80), 관리(40)
+    const gridTemplateCols = "40px 45px 60px 80px 100px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
 
     const renderSortIcon = (key: string) => {
         const isSorted = sortConfig?.key === key;
@@ -1399,6 +1455,19 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             <Button onClick={openAddModal} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap">
                                 신규등록
                             </Button>
+                            <Button
+                                onClick={() => {
+                                    if (selectedBusinessIds.size === 0) {
+                                        alert("지도에 표시할 사업장을 먼저 선택해주세요.");
+                                        return;
+                                    }
+                                    setIsMapModalOpen(true);
+                                }}
+                                variant="secondary"
+                                className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                            >
+                                지도에서 위치 보기 {selectedBusinessIds.size > 0 ? `(${selectedBusinessIds.size})` : ""}
+                            </Button>
                             <a href="/api/templates/measurement-target" download="측정대상사업장_등록양식.xlsx"
                                 className="h-9 px-3 inline-flex items-center justify-center rounded-lg font-medium hover:bg-slate-100 border border-slate-200 text-slate-700 text-sm whitespace-nowrap ml-2" title="양식 다운로드">
                                 <span className="text-lg leading-none">⬇</span>
@@ -1441,6 +1510,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
                     {/* Grid Header Row */}
                     <div className="bg-sky-100 font-bold text-sm text-black grid items-center text-center border-x border-t border-slate-200 border-b-2 border-sky-200" style={{ gridTemplateColumns: gridTemplateCols }}>
+                        <div className="py-3 flex items-center justify-center">
+                            <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                checked={filteredData.length > 0 && filteredData.every(item => selectedBusinessIds.has(item.id))}
+                                onChange={handleToggleAllSelect}
+                                aria-label="전체 사업장 선택"
+                            />
+                        </div>
                         <div className="py-3 text-center">No</div>
                         <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("period")}>
                             주기 {renderSortIcon("period")}
@@ -1525,7 +1603,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     {/* 표준 호버 인디케이터 바 */}
                                     <div className="absolute left-0 top-1 bottom-1 w-[4px] bg-blue-600 rounded-r-sm opacity-0 group-hover:opacity-100 scale-y-0 group-hover:scale-y-100 transition-all duration-200 origin-center pointer-events-none" />
 
-                                <div className="text-center font-medium">{index + 1}</div>
+                                    <div className="py-2 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                            type="checkbox"
+                                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            checked={selectedBusinessIds.has(item.id)}
+                                            onChange={() => handleToggleSelect(item.id)}
+                                            aria-label={`${item.business_name} 선택`}
+                                        />
+                                    </div>
+                                    <div className="text-center font-medium">{index + 1}</div>
                                 <div className={`text-center text-xs ${item.period.includes("(수시)") ? "text-red-600 font-bold" : ""}`}>
                                     {item.period}
                                 </div>
@@ -2626,6 +2713,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+
+            {/* 네이버 지도 모달 */}
+            <BusinessMapModal
+                isOpen={isMapModalOpen}
+                onClose={() => setIsMapModalOpen(false)}
+                initialSelectedIds={Array.from(selectedBusinessIds)}
+                allBusinesses={data}
+            />
         </div >
     );
 };
