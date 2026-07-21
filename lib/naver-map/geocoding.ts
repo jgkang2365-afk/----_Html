@@ -1,4 +1,4 @@
-import { normalizeString } from "@/lib/utils/data-utils";
+import proj4 from "proj4";
 
 interface GeocodeResult {
   latitude: number | null;
@@ -9,6 +9,18 @@ interface GeocodeResult {
   geocoding_error: string | null;
   geocoded_at: string | null;
 }
+
+// Proj4 정의 추가 (EPSG:5179 & EPSG:4326)
+// EPSG:5179: Korea 2000 / Unified CS (UTM-K)
+// EPSG:4326: WGS84 (경위도)
+proj4.defs(
+  "EPSG:5179",
+  "+proj=tmerc +lat_0=38 +lon_0=127.5 +k=0.9996 +x_0=1000000 +y_0=2000000 +ellps=GRS80 +units=m +no_defs"
+);
+proj4.defs(
+  "EPSG:4326",
+  "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+);
 
 /**
  * 주소 텍스트를 간략히 정규화합니다.
@@ -40,7 +52,7 @@ export function isValidAddress(address: string | null | undefined): boolean {
 }
 
 /**
- * 네이버 Maps API를 이용하여 주소를 위/경도 좌표로 변환합니다.
+ * 행정안전부 도로명주소 API 및 주소별 좌표정보 API를 이용해 주소를 위경도(WGS84) 좌표로 변환합니다.
  */
 export async function geocodeAddress(address: string): Promise<GeocodeResult> {
   const normalized = normalizeAddressForGeocoding(address);
@@ -57,62 +69,55 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
     };
   }
 
-  const clientId = process.env.NAVER_MAP_CLIENT_ID;
-  const clientSecret = process.env.NAVER_MAP_CLIENT_SECRET;
+  const searchApiKey = process.env.JUSO_SEARCH_API_KEY;
+  const coordApiKey = process.env.JUSO_COORD_API_KEY;
 
-  if (!clientId || !clientSecret) {
-    console.error("Naver Geocoding API keys are missing in environment variables.");
+  if (!searchApiKey || !coordApiKey) {
+    console.error("행안부 주소 API 키(JUSO_SEARCH_API_KEY, JUSO_COORD_API_KEY)가 환경변수에 누락되었습니다.");
     return {
       latitude: null,
       longitude: null,
       geocoded_address: null,
       geocoded_source_address: address,
       geocoding_status: "FAILED",
-      geocoding_error: "서버 설정 오류 (API 키 누락)",
+      geocoding_error: "서버 설정 오류 (행안부 API 키 누락)",
       geocoded_at: new Date().toISOString()
     };
   }
 
   try {
-    const url = `https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode?query=${encodeURIComponent(normalized)}`;
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "X-NCP-APIGW-API-KEY-ID": clientId,
-        "X-NCP-APIGW-API-KEY": clientSecret,
-        "Accept": "application/json"
-      }
+    // 1단계: 행안부 도로명주소 검색 API 호출
+    const searchUrl = "https://business.juso.go.kr/addrlink/addrLinkApi.do";
+    const searchParams = new URLSearchParams({
+      confmKey: searchApiKey,
+      currentPage: "1",
+      countPerPage: "1",
+      keyword: normalized,
+      resultType: "json"
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Naver Geocoding API error (HTTP ${response.status}):`, errorText);
+    const searchResponse = await fetch(searchUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: searchParams.toString()
+    });
+
+    if (!searchResponse.ok) {
       return {
         latitude: null,
         longitude: null,
         geocoded_address: null,
         geocoded_source_address: address,
         geocoding_status: "FAILED",
-        geocoding_error: `API 요청 실패 (HTTP ${response.status})`,
+        geocoding_error: `주소 검색 API 실패 (HTTP ${searchResponse.status})`,
         geocoded_at: new Date().toISOString()
       };
     }
 
-    const data = await response.json();
-    
-    if (data.status !== "OK") {
-      return {
-        latitude: null,
-        longitude: null,
-        geocoded_address: null,
-        geocoded_source_address: address,
-        geocoding_status: "FAILED",
-        geocoding_error: data.errorMessage || "API 오류",
-        geocoded_at: new Date().toISOString()
-      };
-    }
+    const searchData = await searchResponse.json();
+    const jusoList = searchData.results?.juso;
 
-    if (!data.addresses || data.addresses.length === 0) {
+    if (!jusoList || jusoList.length === 0) {
       return {
         latitude: null,
         longitude: null,
@@ -124,52 +129,126 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
       };
     }
 
-    const bestMatch = data.addresses[0];
-    const lng = parseFloat(bestMatch.x);
-    const lat = parseFloat(bestMatch.y);
+    const bestJuso = jusoList[0];
+    const { admCd, rnMgtSn, udrtYn, buldMngrNo, roadAddr } = bestJuso;
 
-    // 좌표 유효 범위 검증 (위도 -90 ~ 90, 경도 -180 ~ 180)
-    // 한국 바운더리 체크 (남한 기준 대략 위도 33 ~ 39, 경도 124 ~ 132)
-    const isValidLat = !isNaN(lat) && lat >= -90 && lat <= 90;
-    const isValidLng = !isNaN(lng) && lng >= -180 && lng <= 180;
+    if (!admCd || !rnMgtSn || !udrtYn || !buldMngrNo) {
+      return {
+        latitude: null,
+        longitude: null,
+        geocoded_address: roadAddr || null,
+        geocoded_source_address: address,
+        geocoding_status: "FAILED",
+        geocoding_error: "주소 필수 코드 정보가 누락되었습니다.",
+        geocoded_at: new Date().toISOString()
+      };
+    }
+
+    // 2단계: 행안부 주소별 좌표정보조회 API 호출
+    const coordUrl = "https://business.juso.go.kr/addrlink/addrCoordApi.do";
+    const coordParams = new URLSearchParams({
+      confmKey: coordApiKey,
+      admCd,
+      rnMgtSn,
+      udrtYn,
+      buldMngrNo,
+      resultType: "json"
+    });
+
+    const coordResponse = await fetch(coordUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: coordParams.toString()
+    });
+
+    if (!coordResponse.ok) {
+      return {
+        latitude: null,
+        longitude: null,
+        geocoded_address: roadAddr || null,
+        geocoded_source_address: address,
+        geocoding_status: "FAILED",
+        geocoding_error: `좌표 조회 API 실패 (HTTP ${coordResponse.status})`,
+        geocoded_at: new Date().toISOString()
+      };
+    }
+
+    const coordData = await coordResponse.json();
+    const coordList = coordData.results?.juso;
+
+    if (!coordList || coordList.length === 0) {
+      return {
+        latitude: null,
+        longitude: null,
+        geocoded_address: roadAddr || null,
+        geocoded_source_address: address,
+        geocoding_status: "FAILED",
+        geocoding_error: "해당 주소의 좌표정보를 찾을 수 없습니다.",
+        geocoded_at: new Date().toISOString()
+      };
+    }
+
+    const bestCoord = coordList[0];
+    const entX = parseFloat(bestCoord.entX);
+    const entY = parseFloat(bestCoord.entY);
+
+    if (isNaN(entX) || isNaN(entY)) {
+      return {
+        latitude: null,
+        longitude: null,
+        geocoded_address: roadAddr || null,
+        geocoded_source_address: address,
+        geocoding_status: "FAILED",
+        geocoding_error: "유효하지 않은 좌표형식이 반환되었습니다.",
+        geocoded_at: new Date().toISOString()
+      };
+    }
+
+    // 3단계: GRS80 UTM-K (EPSG:5179) -> WGS84 (EPSG:4326) 좌표계 변환 수행
+    // proj4는 [longitude, latitude] 순으로 리턴함
+    const [longitude, latitude] = proj4("EPSG:5179", "EPSG:4326", [entX, entY]);
+
+    // 위/경도 유효 범위 체크
+    const isValidLat = !isNaN(latitude) && latitude >= -90 && latitude <= 90;
+    const isValidLng = !isNaN(longitude) && longitude >= -180 && longitude <= 180;
 
     if (!isValidLat || !isValidLng) {
       return {
         latitude: null,
         longitude: null,
-        geocoded_address: bestMatch.roadAddress || bestMatch.jibunAddress || null,
+        geocoded_address: roadAddr || null,
         geocoded_source_address: address,
         geocoding_status: "FAILED",
-        geocoding_error: `유효하지 않은 위경도 범위가 반환되었습니다. (위도: ${lat}, 경도: ${lng})`,
+        geocoding_error: `변환된 위경도 범위를 초과했습니다. (위도: ${latitude}, 경도: ${longitude})`,
         geocoded_at: new Date().toISOString()
       };
     }
 
-    // 대한민국 이외의 쌩뚱맞은 해외 좌표(예: 위경도 0, 0 또는 한국 범위를 완전히 벗어난 경우)에 대한 추가 방어막
-    const isInsideKorea = lat >= 30 && lat <= 43 && lng >= 120 && lng <= 135;
+    // 대한민국 영토 경계 필터링
+    const isInsideKorea = latitude >= 30 && latitude <= 43 && longitude >= 120 && longitude <= 135;
     if (!isInsideKorea) {
       return {
-        latitude: lat,
-        longitude: lng,
-        geocoded_address: bestMatch.roadAddress || bestMatch.jibunAddress || null,
+        latitude: latitude,
+        longitude: longitude,
+        geocoded_address: roadAddr || null,
         geocoded_source_address: address,
         geocoding_status: "FAILED",
-        geocoding_error: `한국 이외의 지역으로 판정된 좌표입니다. (위도: ${lat}, 경도: ${lng})`,
+        geocoding_error: `한국 이외의 지역으로 판정된 좌표입니다. (위도: ${latitude}, 경도: ${longitude})`,
         geocoded_at: new Date().toISOString()
       };
     }
 
     return {
-      latitude: lat,
-      longitude: lng,
-      geocoded_address: bestMatch.roadAddress || bestMatch.jibunAddress || null,
+      latitude,
+      longitude,
+      geocoded_address: roadAddr || null,
       geocoded_source_address: address,
       geocoding_status: "SUCCESS",
       geocoding_error: null,
       geocoded_at: new Date().toISOString()
     };
   } catch (error: any) {
-    console.error("Geocoding exception:", error);
+    console.error("행안부 Geocoding 변환 예외 발생:", error);
     return {
       latitude: null,
       longitude: null,
