@@ -151,6 +151,21 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
       };
     }
 
+    // JUSO_COORD_API_KEY가 미승인 상태이거나 설정되지 않은 경우, 
+    // 임의/대표 좌표를 채우지 않고 API_NOT_READY 상태 및 null 좌표로 반환하여 실주소 좌표 맵 표시에서 제외함.
+    if (coordApiKey === "your_juso_coord_api_key" || !coordApiKey) {
+      console.log(`[Geocoding] 좌표 API 키 미승인 상태 - API_NOT_READY 처리 (원본: ${maskedAddress})`);
+      return {
+        latitude: null,
+        longitude: null,
+        geocoded_address: roadAddr || null,
+        geocoded_source_address: address,
+        geocoding_status: "FAILED",
+        geocoding_error: "좌표 조회 API 승인 대기중 (JUSO_COORD_API_KEY 미설정)",
+        geocoded_at: new Date().toISOString()
+      };
+    }
+
     // 2단계: 행안부 주소별 좌표정보조회 API 호출
     const coordUrl = "https://business.juso.go.kr/addrlink/addrCoordApi.do";
     const coordParams = new URLSearchParams({
