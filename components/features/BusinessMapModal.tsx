@@ -169,7 +169,11 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
   useEffect(() => {
     if (!mapScriptLoaded || !mapContainerRef.current || !isOpen) return;
 
-    const naverMaps = (window as any).naver.maps;
+    const naverMaps = (window as any).naver?.maps;
+    if (!naverMaps) {
+      console.warn("Naver maps object is not ready yet.");
+      return;
+    }
 
     // 지도 객체가 없으면 새로 생성
     if (!mapRef.current) {
