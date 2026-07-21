@@ -83,23 +83,47 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
       return;
     }
 
-    const existingScript = document.getElementById("naver-map-script");
+    const targetSrc = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(clientId)}`;
+    const existingScript = document.getElementById("naver-map-script") as HTMLScriptElement | null;
+    
     if (existingScript) {
-      // 이미 스크립트 엘리먼트는 생성되었으나 로드 대기 중인 상태일 수 있음
-      const handleLoad = () => setMapScriptLoaded(true);
-      existingScript.addEventListener("load", handleLoad);
-      return () => existingScript.removeEventListener("load", handleLoad);
+      // 기존 스크립트가 신형 ncpKeyId를 사용하지 않거나 Client ID가 다르면 제거 후 다시 로드
+      if (!existingScript.src.includes(`ncpKeyId=${encodeURIComponent(clientId)}`)) {
+        existingScript.remove();
+      } else {
+        // 동일 스크립트가 로드되었거나 대기 중인 경우 바인딩
+        if ((window as any).naver && (window as any).naver.maps) {
+          setMapScriptLoaded(true);
+        } else {
+          const handleLoad = () => {
+            if ((window as any).naver && (window as any).naver.maps) {
+              setMapScriptLoaded(true);
+            } else {
+              setMapScriptError("네이버 지도 API 스크립트가 로드되었으나 maps 객체를 찾을 수 없습니다.");
+            }
+          };
+          existingScript.addEventListener("load", handleLoad);
+          return () => existingScript.removeEventListener("load", handleLoad);
+        }
+        return;
+      }
     }
 
     const script = document.createElement("script");
     script.id = "naver-map-script";
-    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${clientId}&submodules=geocoder`;
+    script.src = targetSrc;
     script.async = true;
     script.onload = () => {
-      setMapScriptLoaded(true);
+      if ((window as any).naver && (window as any).naver.maps) {
+        setMapScriptLoaded(true);
+      } else {
+        setMapScriptError("네이버 지도 API 스크립트가 정상 로드되었으나 maps 객체를 찾을 수 없습니다.");
+      }
     };
     script.onerror = () => {
-      setMapScriptError("네이버 지도 API 스크립트를 로드하는 데 실패했습니다. 네트워크 상태 및 클라이언트 ID를 확인하세요.");
+      const maskedId = clientId ? `${clientId.substring(0, 3)}***` : "null";
+      console.error(`네이버 지도 로드 실패: 파라미터(ncpKeyId) 사용 중. ClientID: ${maskedId}`);
+      setMapScriptError(`네이버 지도 API 스크립트를 로드하는 데 실패했습니다. 파라미터 ncpKeyId(키 앞부분: ${maskedId})를 사용 중입니다.`);
     };
 
     document.head.appendChild(script);
