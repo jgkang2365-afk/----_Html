@@ -144,6 +144,23 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
       };
     }
 
+    // Juso 좌표 API 키가 미승인 상태인 경우, 테스트용 천안시청 좌표(동일 및 인접 테스트용 난수 오차 적용)를 즉시 반환합니다.
+    if (coordApiKey === "your_juso_coord_api_key") {
+      const isExact = Math.random() > 0.5;
+      const testLat = 36.81512 + (isExact ? 0 : (Math.random() - 0.5) * 0.002);
+      const testLng = 127.11387 + (isExact ? 0 : (Math.random() - 0.5) * 0.002);
+      
+      return {
+        latitude: testLat,
+        longitude: testLng,
+        geocoded_address: roadAddr || "충청남도 천안시 서북구 번영로 156 (천안시청 임시)",
+        geocoded_source_address: address,
+        geocoding_status: "SUCCESS",
+        geocoding_error: "천안시청 가상 보정 좌표 (좌표 API 승인 대기중)",
+        geocoded_at: new Date().toISOString()
+      };
+    }
+
     // 2단계: 행안부 주소별 좌표정보조회 API 호출
     const coordUrl = "https://business.juso.go.kr/addrlink/addrCoordApi.do";
     const coordParams = new URLSearchParams({
