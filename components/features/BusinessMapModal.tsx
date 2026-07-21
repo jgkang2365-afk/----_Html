@@ -56,7 +56,7 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
   const [searchResults, setSearchResults] = useState<BusinessEntry[]>([]);
 
   // 클라이언트 ID 획득
-  const clientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID;
+  const clientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID?.trim();
 
   // ESC 키로 모달 닫기
   useEffect(() => {
