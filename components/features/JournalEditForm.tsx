@@ -13,6 +13,7 @@ import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber, isValidDigitCount } from "@/lib/utils/business-number";
 import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
+import { splitEmails, getDynamicEmailFontSize } from "@/lib/utils/email-utils";
 
 interface JournalEntry {
   id: number | null;
@@ -158,9 +159,17 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     // K2B 정보
     k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
     k2b_sender: (entry.report_writer ? entry.report_writer.split(',')[0].trim() : "") || entry.k2b_sender || "",
-    invoice_email: entry.invoice_email || "",
+    invoice_email: (() => {
+      const email = entry.invoice_email || "";
+      const parts = splitEmails(email);
+      return parts.length > 0 ? parts[0] : email;
+    })(),
     electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
-    invoice_email_2: entry.invoice_email_2 || "",
+    invoice_email_2: (() => {
+      const email = entry.invoice_email || "";
+      const parts = splitEmails(email);
+      return parts.length > 1 ? parts[1] : (entry.invoice_email_2 || "");
+    })(),
     electronic_invoice_date_2: normalizeDateForInput(entry.electronic_invoice_date_2),
 
     // 측정비 정보
@@ -382,8 +391,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 if (ref.business_category) {
                   updated.business_category = ref.business_category;
                 }
-                if (ref.invoice_email) updated.invoice_email = ref.invoice_email;
-                if (ref.invoice_email_2) updated.invoice_email_2 = ref.invoice_email_2;
+                if (ref.invoice_email) {
+                  const parts = splitEmails(ref.invoice_email);
+                  updated.invoice_email = parts.length > 0 ? parts[0] : ref.invoice_email;
+                  updated.invoice_email_2 = parts.length > 1 ? parts[1] : (ref.invoice_email_2 || "");
+                } else {
+                  if (ref.invoice_email_2) updated.invoice_email_2 = ref.invoice_email_2;
+                }
                 if (ref.representative_name) updated.representative_name = ref.representative_name;
                 if (ref.phone) updated.phone = ref.phone;
                 if (ref.fax) updated.fax = ref.fax;
@@ -417,8 +431,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 updated.manager_position = updated.manager_position || pPosition;
                 updated.manager_mobile = updated.manager_mobile || data.previousData.manager_mobile || "";
                 updated.manager_email = updated.manager_email || data.previousData.manager_email || "";
-                updated.invoice_email = updated.invoice_email || data.previousData.invoice_email || "";
-                updated.invoice_email_2 = updated.invoice_email_2 || data.previousData.invoice_email_2 || "";
+                if (data.previousData.invoice_email) {
+                  const parts = splitEmails(data.previousData.invoice_email);
+                  updated.invoice_email = updated.invoice_email || parts[0] || "";
+                  updated.invoice_email_2 = updated.invoice_email_2 || parts[1] || data.previousData.invoice_email_2 || "";
+                } else {
+                  updated.invoice_email = updated.invoice_email || "";
+                  updated.invoice_email_2 = updated.invoice_email_2 || data.previousData.invoice_email_2 || "";
+                }
                 updated.measurer = updated.measurer || data.previousData.measurer || "";
                 
                 if (!updated.industrial_accident_number && data.previousData.industrial_accident_number) {
@@ -460,8 +480,16 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 // 전회 이메일 정보 저장 (힌트용)
                 setPreviousEmails({
                   manager_email: data.previousData.manager_email || null,
-                  invoice_email: data.previousData.invoice_email || null,
-                  invoice_email_2: data.previousData.invoice_email_2 || null,
+                  invoice_email: (() => {
+                    const email = data.previousData.invoice_email || "";
+                    const parts = splitEmails(email);
+                    return parts.length > 0 ? parts[0] : null;
+                  })(),
+                  invoice_email_2: (() => {
+                    const email = data.previousData.invoice_email || "";
+                    const parts = splitEmails(email);
+                    return parts.length > 1 ? parts[1] : (data.previousData.invoice_email_2 || null);
+                  })(),
                 });
               }
 
@@ -897,9 +925,17 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       // K2B 정보
       k2b_send_date: normalizeDateForInput(entry.k2b_send_date),
       k2b_sender: entry.k2b_sender || "",
-      invoice_email: entry.invoice_email || "",
+      invoice_email: (() => {
+        const email = entry.invoice_email || "";
+        const parts = splitEmails(email);
+        return parts.length > 0 ? parts[0] : email;
+      })(),
       electronic_invoice_date: normalizeDateForInput(entry.electronic_invoice_date),
-      invoice_email_2: entry.invoice_email_2 || "",
+      invoice_email_2: (() => {
+        const email = entry.invoice_email || "";
+        const parts = splitEmails(email);
+        return parts.length > 1 ? parts[1] : (entry.invoice_email_2 || "");
+      })(),
       electronic_invoice_date_2: normalizeDateForInput(entry.electronic_invoice_date_2),
 
       // 측정비 정보
@@ -1660,7 +1696,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <div className="flex flex-col gap-1 relative pb-5">
               <Input
                 label="계산서 메일"
-                type="email"
+                type="text"
                 value={formData.invoice_email}
                 onChange={(e) =>
                   setFormData({ ...formData, invoice_email: e.target.value })
@@ -1733,7 +1769,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             <div className="flex flex-col gap-1 relative pb-5">
               <Input
                 label="계산서 메일2"
-                type="email"
+                type="text"
                 value={formData.invoice_email_2}
                 onChange={(e) =>
                   setFormData({ ...formData, invoice_email_2: e.target.value })
@@ -2196,7 +2232,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         <div className="flex flex-col gap-1">
           <Input
             label="담당자 e-mail"
-            type="email"
+            type="text"
             value={formData.manager_email}
             onChange={(e) =>
               setFormData({ ...formData, manager_email: e.target.value })

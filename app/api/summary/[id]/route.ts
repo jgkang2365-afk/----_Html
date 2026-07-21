@@ -217,6 +217,16 @@ export async function PATCH(
       filteredUpdateData.manager_mobile = normalizePhoneLikeValue(filteredUpdateData.manager_mobile, filteredUpdateData.manager_name);
     }
 
+    // 계산서 메일 콤마(,) 구분 처리 및 자동 분리 저장 보완
+    if (filteredUpdateData.invoice_email !== undefined) {
+      const rawEmail = filteredUpdateData.invoice_email;
+      if (rawEmail && (rawEmail.includes(',') || rawEmail.includes(';'))) {
+        const parts = rawEmail.split(/[,;]/).map((e: string) => e.trim()).filter(Boolean);
+        filteredUpdateData.invoice_email = parts[0] || null;
+        filteredUpdateData.invoice_email_2 = parts[1] || filteredUpdateData.invoice_email_2 || null;
+      }
+    }
+
     // 측정일지 업데이트
     const { data: updatedJournal, error: updateError } = await supabase
       .from("measurement_journal")

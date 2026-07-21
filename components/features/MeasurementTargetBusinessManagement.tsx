@@ -2427,7 +2427,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1 text-slate-700">계산서 이메일</label>
-                                    <Input type="email" value={addForm.invoice_email || ""} onChange={(e) => setAddForm(prev => ({ ...prev, invoice_email: e.target.value }))} />
+                                    <Input type="text" value={addForm.invoice_email || ""} onChange={(e) => setAddForm(prev => ({ ...prev, invoice_email: e.target.value }))} />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1 text-slate-700">계획담당</label>
