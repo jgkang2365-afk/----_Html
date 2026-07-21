@@ -163,7 +163,8 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
     };
 
     loadInitialBusinesses();
-  }, [isOpen, initialSelectedIds, allBusinesses]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   // 지도 인스턴스 초기화 및 갱신
   useEffect(() => {

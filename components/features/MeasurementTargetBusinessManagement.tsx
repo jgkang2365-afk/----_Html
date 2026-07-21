@@ -2715,12 +2715,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             </Modal>
 
             {/* 네이버 지도 모달 */}
-            <BusinessMapModal
-                isOpen={isMapModalOpen}
-                onClose={() => setIsMapModalOpen(false)}
-                initialSelectedIds={Array.from(selectedBusinessIds)}
-                allBusinesses={data}
-            />
+            {isMapModalOpen && (
+                <BusinessMapModal
+                    isOpen={isMapModalOpen}
+                    onClose={() => setIsMapModalOpen(false)}
+                    initialSelectedIds={Array.from(selectedBusinessIds)}
+                    allBusinesses={data}
+                />
+            )}
         </div >
     );
 };
