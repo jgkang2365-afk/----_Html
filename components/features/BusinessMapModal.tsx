@@ -245,6 +245,12 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
       const [latStr, lngStr] = key.split(",");
       const lat = parseFloat(latStr);
       const lng = parseFloat(lngStr);
+      
+      // 대한민국 영역(위도: 33~39, 경도: 124~132) 및 숫자 유효성 엄격 검증
+      if (isNaN(lat) || isNaN(lng) || lat < 33 || lat > 39 || lng < 124 || lng > 132) {
+        return;
+      }
+
       const position = new naverMaps.LatLng(lat, lng);
       
       bounds.extend(position);
@@ -252,15 +258,19 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
 
       const isMulti = group.length > 1;
 
-      // 마커 아이콘 커스텀
-      // 다중 마커일 경우 갯수를 표시하는 뱃지 스타일 적용 (Premium Glassmorphism 느낌)
+      // 마커 아이콘 커스텀 (컴팩트한 크기 및 슬림한 펄스 애니메이션)
       const markerHtml = isMulti
-        ? `<div class="relative flex items-center justify-center w-8 h-8 rounded-full bg-indigo-600 text-white font-bold text-xs shadow-lg border border-indigo-400 hover:scale-110 transition-transform duration-150">
-            ${group.length}
-            <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping"></span>
+        ? `<div class="relative flex items-center justify-center cursor-pointer group">
+            <div class="absolute w-8 h-8 rounded-full bg-indigo-500/40 animate-ping"></div>
+            <div class="relative flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-black text-xs shadow-md border-2 border-white hover:scale-110 transition-transform duration-200">
+              ${group.length}
+            </div>
            </div>`
-        : `<div class="flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white font-bold text-[10px] shadow-md border border-blue-400 hover:scale-110 transition-transform duration-150">
-            📍
+        : `<div class="relative flex items-center justify-center cursor-pointer group">
+            <div class="absolute w-8 h-8 rounded-full bg-rose-500/45 animate-ping"></div>
+            <div class="relative flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-rose-600 via-red-500 to-amber-400 text-white font-bold text-xs shadow-md border-2 border-white hover:scale-110 transition-transform duration-200">
+              📍
+            </div>
            </div>`;
 
       const marker = new naverMaps.Marker({
@@ -272,14 +282,31 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
         },
       });
 
+      // 전역 닫기 헬퍼 등록
+      if (typeof window !== "undefined") {
+        (window as any).__closeMapInfoWindow = () => {
+          if (infoWindowRef.current) {
+            infoWindowRef.current.close();
+          }
+        };
+      }
+
       // 마커 클릭 시 정보창(InfoWindow) 렌더링
       naverMaps.Event.addListener(marker, "click", () => {
         const infoHtml = `
-          <div class="bg-white/95 backdrop-blur-md p-4 rounded-xl shadow-2xl border border-slate-200/80 min-w-[280px] max-w-[340px] text-slate-800">
+          <div class="bg-white/95 backdrop-blur-md p-4 rounded-xl shadow-2xl border border-slate-200/80 min-w-[280px] max-w-[340px] text-slate-800 relative">
             <div class="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-100">
-              <span class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+              <span class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">
                 ${isMulti ? `동일 위치 사업장 (${group.length}개)` : "사업장 위치 정보"}
               </span>
+              <button
+                type="button"
+                onclick="window.__closeMapInfoWindow && window.__closeMapInfoWindow()"
+                class="w-5 h-5 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors font-bold text-xs"
+                title="닫기"
+              >
+                ✕
+              </button>
             </div>
             <div class="space-y-3 max-h-[220px] overflow-y-auto pr-1">
               ${group
@@ -308,6 +335,13 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
       });
 
       markersRef.current.push(marker);
+    });
+
+    // 지도 바탕 클릭 시 정보창 자동 닫기 이벤트
+    naverMaps.Event.addListener(map, "click", () => {
+      if (infoWindowRef.current) {
+        infoWindowRef.current.close();
+      }
     });
 
     // 모든 마커가 보이도록 bounds 자동 조정 (최소 1개 이상일 때)

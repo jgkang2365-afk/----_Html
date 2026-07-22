@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { geocodeAddress, normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
+import { geocodeAddress, normalizeAddressForGeocoding, isValidAddress } from "@/lib/naver-map/geocoding";
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
 
     // 2. 요청 Body 파싱 및 검증
     const body = await request.json();
-    const { businessIds } = body;
+    const { businessIds, forceRefetch } = body;
 
     if (!businessIds || !Array.isArray(businessIds)) {
       return NextResponse.json(
@@ -55,19 +55,53 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 4. 주소 우선순위 적용을 위한 사업장 정보(business_info) 조회
+    const codes = Array.from(new Set(businesses.map((b: any) => b.code).filter(Boolean)));
+    const businessInfoMap = new Map<string, { address1?: string | null; address2?: string | null }>();
+
+    if (codes.length > 0) {
+      const { data: infoData } = await supabase
+        .from("business_info")
+        .select("code, address1, address2")
+        .in("code", codes);
+
+      if (infoData) {
+        infoData.forEach((info: any) => {
+          businessInfoMap.set(info.code, info);
+        });
+      }
+    }
+
     // 결과를 담을 배열
     const results = [];
     
     // 이번 요청 내에서 주소별로 Geocoding 결과를 임시 저장할 캐시 맵
-    // 동일한 정규화 주소에 대한 중복 API 호출을 방지합니다.
     const geocodeCache = new Map<string, any>();
 
     for (const biz of businesses) {
       const bizId = biz.id;
-      const currentAddress = biz.address || "";
-      const normalizedCurrent = normalizeAddressForGeocoding(currentAddress);
+      const bInfo = businessInfoMap.get(biz.code);
 
-      // 이미 수동 수정으로 잠금 처리된 경우 자동 변환은 패스하고 기존 정보를 그대로 반환
+      // 주소 선택 우선순위 결정:
+      // 1. 도로명주소 (business_info.address1)
+      // 2. 지번주소 (business_info.address2)
+      // 3. 기존 통합 주소 (measurement_target_business.address)
+      let targetAddress = "";
+      const addr1 = normalizeAddressForGeocoding(bInfo?.address1);
+      const addr2 = normalizeAddressForGeocoding(bInfo?.address2);
+      const mainAddr = normalizeAddressForGeocoding(biz.address);
+
+      if (isValidAddress(addr1)) {
+        targetAddress = addr1;
+      } else if (isValidAddress(addr2)) {
+        targetAddress = addr2;
+      } else if (isValidAddress(mainAddr)) {
+        targetAddress = mainAddr;
+      }
+
+      const normalizedTarget = normalizeAddressForGeocoding(targetAddress);
+
+      // 이미 수동 수정으로 잠금 처리된 경우 자동 변환은 패스하고 기존 정보 유지
       if (biz.coordinate_locked) {
         results.push({
           id: bizId,
@@ -85,11 +119,12 @@ export async function POST(request: NextRequest) {
       }
 
       // 주소 검증
-      if (!currentAddress || normalizedCurrent === "") {
-        // 주소 없음 처리
+      if (!targetAddress || normalizedTarget === "") {
         const updateData = {
+          latitude: null,
+          longitude: null,
           geocoding_status: "ADDRESS_MISSING",
-          geocoding_error: "주소가 등록되어 있지 않습니다.",
+          geocoding_error: "등록된 유효 주소가 없습니다.",
           geocoded_at: new Date().toISOString()
         };
 
@@ -107,20 +142,21 @@ export async function POST(request: NextRequest) {
           longitude: null,
           geocoding_status: "ADDRESS_MISSING",
           geocoded_address: null,
-          geocoding_error: "주소가 등록되어 있지 않습니다.",
+          geocoding_error: "등록된 유효 주소가 없습니다.",
           coordinate_locked: false
         });
         continue;
       }
 
-      // 기존 좌표의 유효성 검사:
-      // 이미 SUCCESS 상태이고, 위/경도가 존재하며, 기존에 변환했던 주소(geocoded_source_address)와 현재 주소가 동일하다면 재변환하지 않고 재사용.
+      // 기존 좌표의 재사용 조건:
+      // forceRefetch가 false이고, 이미 SUCCESS 상태이며, 위/경도가 존재하고, 이전 변환 원본 주소와 현재 대상 주소가 동일할 때
       const normalizedSource = normalizeAddressForGeocoding(biz.geocoded_source_address);
       if (
+        !forceRefetch &&
         biz.geocoding_status === "SUCCESS" &&
         biz.latitude !== null &&
         biz.longitude !== null &&
-        normalizedCurrent === normalizedSource
+        normalizedTarget === normalizedSource
       ) {
         results.push({
           id: bizId,
@@ -137,32 +173,32 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // 4. Geocoding 호출 (캐싱 활용)
+      // Geocoding API 호출 (캐싱 활용)
       let geocodeResult;
-      if (geocodeCache.has(normalizedCurrent)) {
-        geocodeResult = geocodeCache.get(normalizedCurrent);
+      if (geocodeCache.has(normalizedTarget)) {
+        geocodeResult = geocodeCache.get(normalizedTarget);
       } else {
-        // 실제 API 호출
-        geocodeResult = await geocodeAddress(currentAddress);
-        geocodeCache.set(normalizedCurrent, geocodeResult);
+        geocodeResult = await geocodeAddress(targetAddress);
+        geocodeCache.set(normalizedTarget, geocodeResult);
       }
 
-      // 5. DB 업데이트
-      const updateData = {
+      // DB 업데이트 데이터 객체 (이전 회차 결과 재사용 방지를 위해 독립 생성)
+      const updateData: any = {
         latitude: geocodeResult.latitude,
         longitude: geocodeResult.longitude,
         geocoded_address: geocodeResult.geocoded_address,
-        geocoded_source_address: currentAddress, // 원본 주소 저장
+        geocoded_source_address: targetAddress,
         geocoding_status: geocodeResult.geocoding_status,
         geocoded_at: geocodeResult.geocoded_at,
-        geocoding_error: geocodeResult.geocoding_error
+        geocoding_error: geocodeResult.geocoding_error,
+        geocode_provider: geocodeResult.geocode_provider
       };
 
       const { error: updateError } = await supabase
         .from("measurement_target_business")
         .update(updateData)
         .eq("id", bizId)
-        .eq("coordinate_locked", false); // 안전장치: lock이 걸리지 않은 경우만 업데이트
+        .eq("coordinate_locked", false);
 
       if (updateError) {
         console.error(`사업장 ID ${bizId} 좌표 저장 실패:`, updateError);
@@ -194,8 +230,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ results });
   } catch (error: any) {
-    console.error("Geocoding API Route error:", error);
-    // 보안을 위해 내부 에러 메시지를 가급적 숨기고 정규화된 오류 반환
+    console.error("Geocoding API 라우트 예외 발생:", error);
     return NextResponse.json(
       { error: "서버 내부 처리 중 오류가 발생했습니다." },
       { status: 500 }

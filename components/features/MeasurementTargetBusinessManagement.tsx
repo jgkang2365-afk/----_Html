@@ -82,6 +82,15 @@ interface BusinessEntry {
     commencement_number?: string | null; // 사업개시번호
     invoice_email?: string | null;
     fax?: string | null;
+    latitude?: number | null; // 위도
+    longitude?: number | null; // 경도
+    geocoded_address?: string | null; // Geocoding 결과 정규화 주소
+    geocoded_source_address?: string | null; // Geocoding 원본 주소
+    geocoding_status?: string | null; // Geocoding 상태 (SUCCESS, FAILED, ADDRESS_MISSING, STALE 등)
+    geocoding_error?: string | null; // Geocoding 에러 메시지
+    geocoded_at?: string | null; // Geocoding 완료 시각
+    geocode_provider?: string | null; // Geocoding 공급자 (kakao, juso 등)
+    coordinate_locked?: boolean; // 수동 고정 여부
 }
 
 interface BusinessInfoSearchResult {
@@ -238,6 +247,163 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [bulkFailedCount, setBulkFailedCount] = useState(0);
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [bulkLogs, setBulkLogs] = useState<string[]>([]);
+
+    // 좌표 일괄 재조회를 위한 상태 정의
+    const [isGeocodeProcessing, setIsGeocodeProcessing] = useState(false);
+    const [geocodeTotal, setGeocodeTotal] = useState(0);
+    const [geocodeProcessed, setGeocodeProcessed] = useState(0);
+    const [geocodeSuccessCount, setGeocodeSuccessCount] = useState(0);
+    const [geocodeFailedCount, setGeocodeFailedCount] = useState(0);
+    const [geocodeSkippedCount, setGeocodeSkippedCount] = useState(0);
+    const [showGeocodeModal, setShowGeocodeModal] = useState(false);
+    const [geocodeLogs, setGeocodeLogs] = useState<string[]>([]);
+
+    // 좌표 재조회 실행 공통 핸들러 함수 (3개씩 동시 요청 제한 배칭 적용)
+    const handleGeocodeBatch = async (
+        type: 'selected' | 'missing' | 'suspicious' | 'single',
+        singleTargetId?: string | number
+    ) => {
+        if (isGeocodeProcessing) return;
+
+        let targets: BusinessEntry[] = [];
+
+        if (type === 'single' && singleTargetId) {
+            targets = data.filter((item) => String(item.id) === String(singleTargetId));
+        } else if (type === 'selected') {
+            targets = data.filter((item) => selectedBusinessIds.has(item.id));
+            if (targets.length === 0) {
+                alert("선택된 사업장이 없습니다. 사업장을 선택한 후 다시 시도하세요.");
+                return;
+            }
+        } else if (type === 'missing') {
+            targets = filteredData.filter(
+                (item) => !item.latitude || !item.longitude || item.geocoding_status !== "SUCCESS"
+            );
+            if (targets.length === 0) {
+                alert("좌표가 없는 사업장이 없습니다.");
+                return;
+            }
+        } else if (type === 'suspicious') {
+            // 동일 위도/경도를 2개 이상 공유하는 사업장 그룹 추출
+            const coordMap = new Map<string, BusinessEntry[]>();
+            filteredData.forEach((item) => {
+                if (item.latitude && item.longitude) {
+                    const key = `${item.latitude.toFixed(5)},${item.longitude.toFixed(5)}`;
+                    const group = coordMap.get(key) || [];
+                    group.push(item);
+                    coordMap.set(key, group);
+                }
+            });
+
+            const suspiciousList: BusinessEntry[] = [];
+            coordMap.forEach((group) => {
+                if (group.length >= 2) {
+                    suspiciousList.push(...group);
+                }
+            });
+
+            targets = suspiciousList;
+            if (targets.length === 0) {
+                alert("동일 좌표로 의심되는 중복 사업장이 없습니다.");
+                return;
+            }
+        }
+
+        const typeNameMap = {
+            single: "단건",
+            selected: `선택 (${targets.length}건)`,
+            missing: `좌표 미등록 (${targets.length}건)`,
+            suspicious: `동일 좌표 의심 (${targets.length}건)`
+        };
+
+        if (!confirm(`${typeNameMap[type]} 사업장에 대해 좌표 재조회를 진행하시겠습니까?`)) {
+            return;
+        }
+
+        setIsGeocodeProcessing(true);
+        setGeocodeTotal(targets.length);
+        setGeocodeProcessed(0);
+        setGeocodeSuccessCount(0);
+        setGeocodeFailedCount(0);
+        setGeocodeSkippedCount(0);
+        setGeocodeLogs([`[시작] 총 ${targets.length}건에 대한 좌표 재조회를 시작합니다.`]);
+        setShowGeocodeModal(true);
+
+        // 동시 요청 3개 제한 배칭 (Chunking: 청크당 3개씩 분할 및 순차 처리)
+        const chunkSize = 3;
+        let successCnt = 0;
+        let failedCnt = 0;
+        let skippedCnt = 0;
+        let processedCnt = 0;
+
+        for (let i = 0; i < targets.length; i += chunkSize) {
+            const chunk = targets.slice(i, i + chunkSize);
+            const chunkIds = chunk.map((t) => t.id);
+
+            try {
+                const response = await fetch("/api/businesses/geocode", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        businessIds: chunkIds,
+                        forceRefetch: true
+                    }),
+                });
+
+                if (!response.ok) {
+                    const errJson = await response.json();
+                    const errMsg = errJson.error || "API 호출 실패";
+                    chunk.forEach((t) => {
+                        failedCnt++;
+                        processedCnt++;
+                        setGeocodeLogs((prev) => [...prev, `[실패] ${t.business_name}: ${errMsg}`]);
+                    });
+                } else {
+                    const resData = await response.json();
+                    const results: any[] = resData.results || [];
+
+                    results.forEach((res) => {
+                        processedCnt++;
+                        if (res.coordinate_locked) {
+                            skippedCnt++;
+                            setGeocodeLogs((prev) => [...prev, `[건너뀀] ${res.business_name}: 수동 고정 좌표`]);
+                        } else if (res.geocoding_status === "SUCCESS" && res.latitude && res.longitude) {
+                            successCnt++;
+                            setGeocodeLogs((prev) => [
+                                ...prev,
+                                `[성공] ${res.business_name}: (${res.latitude.toFixed(5)}, ${res.longitude.toFixed(5)})`
+                            ]);
+                        } else {
+                            failedCnt++;
+                            setGeocodeLogs((prev) => [
+                                ...prev,
+                                `[실패] ${res.business_name}: ${res.geocoding_error || "좌표 변환 실패"}`
+                            ]);
+                        }
+                    });
+                }
+            } catch (err: any) {
+                chunk.forEach((t) => {
+                    failedCnt++;
+                    processedCnt++;
+                    setGeocodeLogs((prev) => [...prev, `[오류] ${t.business_name}: ${err.message || "네트워크 오류"}`]);
+                });
+            }
+
+            setGeocodeProcessed(processedCnt);
+            setGeocodeSuccessCount(successCnt);
+            setGeocodeFailedCount(failedCnt);
+            setGeocodeSkippedCount(skippedCnt);
+        }
+
+        setGeocodeLogs((prev) => [
+            ...prev,
+            `[완료] 총 ${targets.length}건 처리 완료 (성공: ${successCnt}, 실패: ${failedCnt}, 건너뀀: ${skippedCnt})`
+        ]);
+        setIsGeocodeProcessing(false);
+        fetchData();
+    };
+
 
     // 국고 일괄 조회 실행 핸들러
     const handleBulkCheckResult = async () => {
@@ -1467,6 +1633,30 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
                             >
                                 지도에서 위치 보기 {selectedBusinessIds.size > 0 ? `(${selectedBusinessIds.size})` : ""}
+                            </Button>
+                            <Button
+                                onClick={() => handleGeocodeBatch('selected')}
+                                variant="secondary"
+                                className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100"
+                                title="선택한 사업장의 좌표를 다시 조회합니다."
+                            >
+                                🗺️ 선택 좌표 재조회
+                            </Button>
+                            <Button
+                                onClick={() => handleGeocodeBatch('missing')}
+                                variant="secondary"
+                                className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200"
+                                title="좌표가 없는 사업장만 일괄 재조회합니다."
+                            >
+                                🔍 미등록 좌표 재조회
+                            </Button>
+                            <Button
+                                onClick={() => handleGeocodeBatch('suspicious')}
+                                variant="secondary"
+                                className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+                                title="동일한 위경도를 공유하는 의심 사업장을 재조회합니다."
+                            >
+                                ⚠️ 동일좌표 의심 재조회
                             </Button>
                             <a href="/api/templates/measurement-target" download="측정대상사업장_등록양식.xlsx"
                                 className="h-9 px-3 inline-flex items-center justify-center rounded-lg font-medium hover:bg-slate-100 border border-slate-200 text-slate-700 text-sm whitespace-nowrap ml-2" title="양식 다운로드">
@@ -2707,6 +2897,81 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             variant="secondary"
                             onClick={() => setShowBulkModal(false)}
                             disabled={isBulkProcessing}
+                        >
+                            닫기
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* 좌표 일괄 재조회 진행 현황 모달 */}
+            <Modal
+                isOpen={showGeocodeModal}
+                onClose={() => {
+                    if (isGeocodeProcessing) {
+                        if (!confirm("현재 좌표 재조회가 진행 중입니다. 정말 닫으시겠습니까?")) {
+                            return;
+                        }
+                    }
+                    setShowGeocodeModal(false);
+                }}
+                title="좌표 재조회 진행 현황"
+            >
+                <div className="space-y-4">
+                    <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                        <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                            <div className="text-slate-500 font-medium">전체 대상</div>
+                            <div className="text-lg font-bold text-slate-900 mt-1">{geocodeTotal}건</div>
+                        </div>
+                        <div className="bg-green-50 p-2 rounded border border-green-100">
+                            <div className="text-green-600 font-medium">성공</div>
+                            <div className="text-lg font-bold text-green-700 mt-1">{geocodeSuccessCount}건</div>
+                        </div>
+                        <div className="bg-amber-50 p-2 rounded border border-amber-100">
+                            <div className="text-amber-600 font-medium">건너뀀</div>
+                            <div className="text-lg font-bold text-amber-700 mt-1">{geocodeSkippedCount}건</div>
+                        </div>
+                        <div className="bg-red-50 p-2 rounded border border-red-100">
+                            <div className="text-red-600 font-medium">실패</div>
+                            <div className="text-lg font-bold text-red-700 mt-1">{geocodeFailedCount}건</div>
+                        </div>
+                    </div>
+
+                    {/* 프로그레스 바 */}
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-slate-500 font-medium">
+                            <span>진행률</span>
+                            <span>{geocodeProcessed} / {geocodeTotal} 건 ({geocodeTotal > 0 ? Math.round((geocodeProcessed / geocodeTotal) * 100) : 0}%)</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-3.5 overflow-hidden">
+                            <div
+                                className="bg-amber-500 h-3.5 rounded-full transition-all duration-300"
+                                style={{ width: `${geocodeTotal > 0 ? (geocodeProcessed / geocodeTotal) * 100 : 0}%` }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* 진행 로그 창 */}
+                    <div className="space-y-1">
+                        <label className="block text-xs font-bold text-slate-500">실시간 좌표 조회 로그</label>
+                        <div className="h-48 overflow-y-auto border border-slate-200 rounded p-2.5 bg-slate-900 text-slate-200 text-xs font-mono space-y-1 custom-scrollbar">
+                            {geocodeLogs.map((log, idx) => (
+                                <div key={idx} className={
+                                    log.includes("[성공]") ? "text-green-400" :
+                                    log.includes("[건너뀀]") ? "text-amber-400" :
+                                    log.includes("[실패]") || log.includes("[오류]") ? "text-red-400" : "text-slate-300"
+                                }>
+                                    {log}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowGeocodeModal(false)}
+                            disabled={isGeocodeProcessing}
                         >
                             닫기
                         </Button>

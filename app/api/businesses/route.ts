@@ -451,6 +451,7 @@ export async function PATCH(request: NextRequest) {
         updatePayload.geocoded_address = null;
         updatePayload.geocoded_at = null;
         updatePayload.geocoding_error = null;
+        updatePayload.geocode_provider = null;
       }
     }
 

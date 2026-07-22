@@ -46,7 +46,7 @@ test("K2B Windows 10 파일 선택은 주소창 경로 입력과 단계별 오�
   assert.match(source, /resolveWindowsDialogPath/);
   assert.match(source, /path\.win32\.dirname\(dialogFilePath\)/);
   assert.match(source, /path\.win32\.basename\(dialogFilePath\)/);
-  assert.match(source, /SendWait\('\^l'\)/);
+  assert.match(source, /SendWait\('%[dl]'\)/);
   assert.match(source, /SendWait\('%n'\)/);
   assert.match(source, /REPORT_STORAGE_UNC_ROOT/);
   assert.match(source, /'-Sta'/);

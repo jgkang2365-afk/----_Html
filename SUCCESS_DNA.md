@@ -427,8 +427,21 @@
   1. **좌표 무효화 & allowedColumns 연동:** `app/api/businesses/route.ts`의 PATCH API 내에 주소 변경을 감지하고 `coordinate_locked`가 false인 경우 기존 좌표 정보를 `STALE`로 무효화 처리함.
   2. **서버 사이드 Geocoding API Route 구현:** `app/api/businesses/geocode/route.ts` 에서 관리자 권한을 검증하고, 동일 주소에 대한 중복 호출을 막기 위해 단일 요청 내 캐싱(`geocodeCache` 맵 객체)을 수립함.
   3. **좌표계 변환 탑재:** `proj4` 패키지를 설치하여 행안부 X, Y 좌표 정보를 `proj4("EPSG:5179", "EPSG:4326", [x, y])`를 통해 WGS84 위도·경도로 정교하게 변환하여 DB에 저장함.
-  4. **고품격 지도 모달 구현:** `components/features/BusinessMapModal.tsx`를 신설하여 네이버 지도를 레이지 로드(Lazy load)하고, 동일 좌표의 사업장들은 겹치지 않게 숫자 뱃지 마커로 묶어 표출하며 클릭 시 InfoWindow에 리스트를 띄우도록 바인딩함. 모달 내에서 추가 검색 및 추가/제외가 가능하게 처리함.
+
+
+### [2026-07-22] 카카오 Local REST API 좌표 연동, 공급자 패턴 분리 및 잘못된 동일 좌표 보정 (v1.1.0)
+* **원인:**
+  1. 행정안전부 JUSO 좌표 API 승인 대기 중으로 인해 기존 좌표 기능 서비스 구동이 차단되었음.
+  2. 이전 가상 보정 좌표 대입 로직으로 인해 서로 다른 주소를 가진 사업장 3곳(콜러벤처스인크 천안지점, 알디솔루션 천안공장, 천안시청)이 동일한 위경도(`36.81512, 127.11387`)로 묶여 동일 위치에 표시되는 데이터 오염 문제가 존재했음.
+  3. 공급자(Kakao/Juso) 교체가 용이한 유연한 설계가 요구됨.
+* **해결법:**
+  1. **좌표 공급자 패턴(`GeocodingProvider`) 분리:** `lib/naver-map/geocoding.ts`에 `GeocodingProvider` 인터페이스와 `KakaoGeocodingProvider` 및 `JusoGeocodingProvider` 클래스를 구현하여, 환경변수(`GEOCODING_PROVIDER=kakao`) 변경만으로 공급자가 즉시 스위칭되도록 구조화함.
+  2. **주소 선택 우선순위 정교화:** `business_info` 테이블 조인을 통해 `address1`(도로명주소 1순위) -> `address2`(지번주소 2순위) -> `address`(통합주소 3순위) 순으로 검색 대상을 자동 결정하도록 조치함.
+  3. **대한민국 범위 검증 강화:** 위도 33~39, 경도 124~132 범위를 벗어나는 변환 결과는 `latitude=null, longitude=null, success=false`로 처리하여 임시/가상 좌표 생성을 원천 차단함.
+  4. **안전한 좌표 보정 스크립트:** `scratch/fix_incorrect_coordinates.ts`를 작성하여 카카오 API 연결 확인 및 단건 테스트 검증 통과 완료 후에만 기존의 잘못된 천안시청 대표 좌표 3건을 보정 업데이트하도록 구현함.
+  5. **UI 좌표 재조회 컨트롤 및 3개 배칭:** `MeasurementTargetBusinessManagement.tsx` 상에 선택, 미등록, 동일좌표 의심 건에 대한 좌표 재조회 버튼과 3개씩 동시 요청을 제한하는 안전 순차 배칭(Chunking) 및 실시간 처리 현황 모달 UI를 완성함.
 * **재발 방지 대책:**
-  - 외부 API 키 설정 시 실제 운영용 비밀키는 깃허브 등에 유출되지 않도록 반드시 `.env.local` 에만 기입하고, `.env.example` 에는 자리표시자(placeholder)를 유지하여 보안 유출 사고를 원천 방어할 것.
-  - 좌표계가 서로 다른 공공 API와 상용 지도 SDK(네이버/카카오 등)를 연동할 때는, `proj4` 정의를 이용해 정확한 투영법 수식을 적용해 변환함으로써 지도 위 마커 오위치 버그를 예방할 것.
+  - 지자체 대표 좌표나 가상 좌표를 실패 시 기본값(Fallback)으로 DB에 저장하지 말고, 항상 `latitude=null`로 실패 상태를 명확히 유지하여 지도 오위치 표출 버그를 사전에 방지할 것.
+  - 외부 API 공급자를 도입할 때는 추상화 인터페이스를 두어 서비스 영향 없이 환경변수 전환만으로 공급자를 교체할 수 있는 구조를 유지할 것.
+
 
