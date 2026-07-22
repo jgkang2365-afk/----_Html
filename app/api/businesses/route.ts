@@ -315,7 +315,7 @@ export async function GET(request: NextRequest) {
       // 건강디딤돌 담당자는 사용자 저장값을 우선하고, 정확한 연도·주기의 MES 값은 빈칸만 보완한다.
       const managerName = item.manager_name || exactInfo?.manager_name || null;
       const managerMobile = item.manager_mobile || exactInfo?.manager_mobile || null;
-      const managerEmail = item.manager_email || exactInfo?.manager_email || null;
+      const managerEmail = item.manager_email ?? null;
       const totalEmployees = exactInfo?.total_employees ?? null;
 
       const industrialAccidentNumber = bInfo?.industrial_accident_number || jInfo?.industrial_accident_number || item.industrial_accident_number;
