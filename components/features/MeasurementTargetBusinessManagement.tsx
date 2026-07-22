@@ -1621,6 +1621,28 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             <Button onClick={openAddModal} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap">
                                 신규등록
                             </Button>
+                            <a href="/api/templates/measurement-target" download="측정대상사업장_등록양식.xlsx"
+                                className="h-9 px-3 inline-flex items-center justify-center rounded-lg font-medium hover:bg-slate-100 border border-slate-200 text-slate-700 text-sm whitespace-nowrap ml-1" title="양식 다운로드">
+                                <span className="text-lg leading-none">⬇</span>
+                            </a>
+                        </div>
+                    </div>
+                </Card>
+
+                {/* Table Header Group (Title + Column Headers) */}
+                <div className="bg-white border-b-0">
+                    {/* Table Title & Count & Center Action Buttons & Filters */}
+                    <div className="flex items-center justify-between px-3 py-2 border border-slate-200 border-b-0 rounded-t-xl bg-white gap-4 flex-wrap">
+                        {/* Title & Count */}
+                        <h3 className="text-lg font-bold text-slate-800 shrink-0 ml-1">
+                            측정 대상 사업장 목록
+                            <span className="ml-2 text-sm font-medium text-slate-500">
+                                ({filteredData.length}/{data.length})
+                            </span>
+                        </h3>
+
+                        {/* Center Action Buttons (Map & Geocoding) */}
+                        <div className="flex items-center gap-2 flex-wrap justify-center">
                             <Button
                                 onClick={() => {
                                     if (selectedBusinessIds.size === 0) {
@@ -1630,14 +1652,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     setIsMapModalOpen(true);
                                 }}
                                 variant="secondary"
-                                className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                                className="h-8 px-3 text-xs font-medium whitespace-nowrap bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
                             >
                                 지도에서 위치 보기 {selectedBusinessIds.size > 0 ? `(${selectedBusinessIds.size})` : ""}
                             </Button>
                             <Button
                                 onClick={() => handleGeocodeBatch('selected')}
                                 variant="secondary"
-                                className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100"
+                                className="h-8 px-2.5 text-xs font-medium whitespace-nowrap bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100"
                                 title="선택한 사업장의 좌표를 다시 조회합니다."
                             >
                                 🗺️ 선택 좌표 재조회
@@ -1645,7 +1667,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             <Button
                                 onClick={() => handleGeocodeBatch('missing')}
                                 variant="secondary"
-                                className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200"
+                                className="h-8 px-2.5 text-xs font-medium whitespace-nowrap bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200"
                                 title="좌표가 없는 사업장만 일괄 재조회합니다."
                             >
                                 🔍 미등록 좌표 재조회
@@ -1653,46 +1675,31 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             <Button
                                 onClick={() => handleGeocodeBatch('suspicious')}
                                 variant="secondary"
-                                className="h-9 px-3 text-sm font-medium whitespace-nowrap bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+                                className="h-8 px-2.5 text-xs font-medium whitespace-nowrap bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
                                 title="동일한 위경도를 공유하는 의심 사업장을 재조회합니다."
                             >
                                 ⚠️ 동일좌표 의심 재조회
                             </Button>
-                            <a href="/api/templates/measurement-target" download="측정대상사업장_등록양식.xlsx"
-                                className="h-9 px-3 inline-flex items-center justify-center rounded-lg font-medium hover:bg-slate-100 border border-slate-200 text-slate-700 text-sm whitespace-nowrap ml-2" title="양식 다운로드">
-                                <span className="text-lg leading-none">⬇</span>
-                            </a>
                         </div>
-                    </div>
-                </Card>
 
-                {/* Table Header Group (Title + Column Headers) */}
-                <div className="bg-white border-b-0">
-                    {/* Table Title & Count */}
-                    <div className="flex items-center justify-between px-1 py-4 border border-slate-200 border-b-0 rounded-t-xl bg-white">
-                        <h3 className="text-lg font-bold text-slate-800 ml-3">
-                            측정 대상 사업장 목록
-                            <span className="ml-2 text-sm font-medium text-slate-500">
-                                ({filteredData.length}/{data.length})
-                            </span>
-                        </h3>
-                        <div className="flex items-center gap-4 mr-3">
+                        {/* Right Filters */}
+                        <div className="flex items-center gap-4 shrink-0 mr-1">
                             <div className="flex items-center gap-2">
-                                <span className="text-base font-semibold whitespace-nowrap">업종분류 :</span>
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">업종분류 :</span>
                                 <Select
                                     options={businessCategories.length > 0 ? businessCategories : [{ value: "", label: "전체" }]}
                                     value={filters.businessCategory}
                                     onChange={(e) => setFilters(prev => ({ ...prev, businessCategory: e.target.value }))}
-                                    className="w-[120px] h-10 py-2 text-base text-center"
+                                    className="w-[120px] h-9 py-1 text-sm text-center"
                                 />
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-base font-semibold whitespace-nowrap">계획담당자 :</span>
+                                <span className="text-sm font-semibold whitespace-nowrap text-slate-700">계획담당자 :</span>
                                 <Select
                                     options={MANAGER_OPTIONS}
                                     value={filters.planManager}
                                     onChange={(e) => setFilters(prev => ({ ...prev, planManager: e.target.value }))}
-                                    className="w-[120px] h-10 py-2 text-base text-center"
+                                    className="w-[120px] h-9 py-1 text-sm text-center"
                                 />
                             </div>
                         </div>
