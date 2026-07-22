@@ -38,6 +38,7 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
+  const polylinesRef = useRef<any[]>([]);
   const infoWindowRef = useRef<any>(null);
 
   // 지도 로딩 상태
@@ -54,6 +55,11 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
   // 모달 내부 검색 관련 상태
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<BusinessEntry[]>([]);
+
+  // 최적 동선 계산 상태
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimalRouteResult, setOptimalRouteResult] = useState<any | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
 
   // 클라이언트 ID 획득
   const clientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID?.trim();
@@ -221,121 +227,216 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
 
     const map = mapRef.current;
 
-    // 기존 마커들 삭제
+    // 기존 마커 및 경로선(Polyline) 삭제
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
-
-    // 동일 좌표 묶기
-    // 좌표 key: "lat,lng"
-    const coordGroups = new Map<string, BusinessEntry[]>();
-    mapBusinesses.forEach((biz) => {
-      if (biz.latitude && biz.longitude) {
-        // 소수점 6자리까지 문자열화하여 동일 좌표 여부 판단 (약 10cm 정밀도)
-        const key = `${biz.latitude.toFixed(6)},${biz.longitude.toFixed(6)}`;
-        const group = coordGroups.get(key) || [];
-        group.push(biz);
-        coordGroups.set(key, group);
-      }
-    });
+    polylinesRef.current.forEach((p) => p.setMap(null));
+    polylinesRef.current = [];
 
     const bounds = new naverMaps.LatLngBounds();
     let validCoordsCount = 0;
 
-    coordGroups.forEach((group, key) => {
-      const [latStr, lngStr] = key.split(",");
-      const lat = parseFloat(latStr);
-      const lng = parseFloat(lngStr);
-      
-      // 대한민국 영역(위도: 33~39, 경도: 124~132) 및 숫자 유효성 엄격 검증
-      if (isNaN(lat) || isNaN(lng) || lat < 33 || lat > 39 || lng < 124 || lng > 132) {
-        return;
-      }
+    // 최적 동선 결과가 있는 경우: 1, 2, 3, 4 번호 마커 및 도로 경로선(Polyline) 렌더링
+    if (optimalRouteResult && Array.isArray(optimalRouteResult.orderedBusinesses)) {
+      const orderedBusinesses: BusinessEntry[] = optimalRouteResult.orderedBusinesses;
 
-      const position = new naverMaps.LatLng(lat, lng);
-      
-      bounds.extend(position);
-      validCoordsCount++;
+      // 1. 번호 마커 (1, 2, 3, 4...) 생성
+      orderedBusinesses.forEach((biz, idx) => {
+        if (!biz.latitude || !biz.longitude) return;
+        const position = new naverMaps.LatLng(biz.latitude, biz.longitude);
+        bounds.extend(position);
+        validCoordsCount++;
 
-      const isMulti = group.length > 1;
+        const orderNum = idx + 1;
+        const isStart = idx === 0;
 
-      // 마커 아이콘 커스텀 (컴팩트한 크기 및 슬림한 펄스 애니메이션)
-      const markerHtml = isMulti
-        ? `<div class="relative flex items-center justify-center cursor-pointer group">
-            <div class="absolute w-8 h-8 rounded-full bg-indigo-500/40 animate-ping"></div>
-            <div class="relative flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-black text-xs shadow-md border-2 border-white hover:scale-110 transition-transform duration-200">
-              ${group.length}
-            </div>
-           </div>`
-        : `<div class="relative flex items-center justify-center cursor-pointer group">
-            <div class="absolute w-8 h-8 rounded-full bg-rose-500/45 animate-ping"></div>
-            <div class="relative flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-rose-600 via-red-500 to-amber-400 text-white font-bold text-xs shadow-md border-2 border-white hover:scale-110 transition-transform duration-200">
-              📍
-            </div>
-           </div>`;
-
-      const marker = new naverMaps.Marker({
-        position,
-        map,
-        icon: {
-          content: markerHtml,
-          anchor: new naverMaps.Point(14, 14),
-        },
-      });
-
-      // 전역 닫기 헬퍼 등록
-      if (typeof window !== "undefined") {
-        (window as any).__closeMapInfoWindow = () => {
-          if (infoWindowRef.current) {
-            infoWindowRef.current.close();
-          }
-        };
-      }
-
-      // 마커 클릭 시 정보창(InfoWindow) 렌더링
-      naverMaps.Event.addListener(marker, "click", () => {
-        const infoHtml = `
-          <div class="bg-white/95 backdrop-blur-md p-4 rounded-xl shadow-2xl border border-slate-200/80 min-w-[280px] max-w-[340px] text-slate-800 relative">
-            <div class="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-100">
-              <span class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">
-                ${isMulti ? `동일 위치 사업장 (${group.length}개)` : "사업장 위치 정보"}
-              </span>
-              <button
-                type="button"
-                onclick="window.__closeMapInfoWindow && window.__closeMapInfoWindow()"
-                class="w-5 h-5 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors font-bold text-xs"
-                title="닫기"
-              >
-                ✕
-              </button>
-            </div>
-            <div class="space-y-3 max-h-[220px] overflow-y-auto pr-1">
-              ${group
-                .map(
-                  (biz) => `
-                <div class="text-xs">
-                  <div class="font-bold text-sm text-slate-900 mb-0.5">${biz.business_name}</div>
-                  <div class="text-slate-500 flex gap-2 mb-1">
-                    <span>코드: ${biz.code}</span>
-                    <span>상태: <span class="${biz.is_registered_text === '실시' ? 'text-green-600 font-semibold' : 'text-amber-600'}">${biz.is_registered_text || '미실시'}</span></span>
-                  </div>
-                  <div class="text-slate-600 bg-slate-50 p-1.5 rounded leading-relaxed break-all">${biz.address || "주소 없음"}</div>
-                </div>
-              `
-                )
-                .join('<div class="border-t border-slate-100 my-2"></div>')}
-            </div>
-            <div class="mt-3 text-[10px] text-slate-400 text-right">
-              좌표: ${lat.toFixed(5)}, ${lng.toFixed(5)}
+        const markerHtml = `
+          <div class="relative flex items-center justify-center cursor-pointer group">
+            <div class="absolute w-9 h-9 rounded-full ${isStart ? 'bg-amber-500/50' : 'bg-emerald-500/40'} animate-ping"></div>
+            <div class="relative flex items-center justify-center w-8 h-8 rounded-full ${
+              isStart
+                ? 'bg-gradient-to-tr from-amber-600 via-orange-500 to-yellow-400'
+                : 'bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-500'
+            } text-white font-black text-sm shadow-xl border-2 border-white hover:scale-110 transition-transform duration-200">
+              ${orderNum}
             </div>
           </div>
         `;
 
-        infoWindowRef.current.setContent(infoHtml);
-        infoWindowRef.current.open(map, marker);
+        const marker = new naverMaps.Marker({
+          position,
+          map,
+          icon: {
+            content: markerHtml,
+            anchor: new naverMaps.Point(16, 16),
+          },
+        });
+
+        // 전역 닫기 헬퍼 등록
+        if (typeof window !== "undefined") {
+          (window as any).__closeMapInfoWindow = () => {
+            if (infoWindowRef.current) {
+              infoWindowRef.current.close();
+            }
+          };
+        }
+
+        // 최적 동선 마커 클릭 시 정보창
+        naverMaps.Event.addListener(marker, "click", () => {
+          const infoHtml = `
+            <div class="bg-white/95 backdrop-blur-md p-4 rounded-xl shadow-2xl border border-slate-200/80 min-w-[260px] text-slate-800 relative">
+              <div class="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-100">
+                <span class="text-xs font-bold ${isStart ? 'text-amber-600 bg-amber-50' : 'text-emerald-600 bg-emerald-50'} px-2.5 py-0.5 rounded-full">
+                  ${isStart ? `출발지 (방문순서 1)` : `방문순서 ${orderNum}`}
+                </span>
+                <button
+                  type="button"
+                  onclick="window.__closeMapInfoWindow && window.__closeMapInfoWindow()"
+                  class="w-5 h-5 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors font-bold text-xs"
+                >
+                  ✕
+                </button>
+              </div>
+              <div class="text-sm font-bold text-slate-900 mb-1">${biz.business_name}</div>
+              <div class="text-xs text-slate-500 bg-slate-50 p-2 rounded leading-relaxed">${biz.address || "주소 미등록"}</div>
+            </div>
+          `;
+
+          infoWindowRef.current.setContent(infoHtml);
+          infoWindowRef.current.open(map, marker);
+        });
+
+        markersRef.current.push(marker);
       });
 
-      markersRef.current.push(marker);
-    });
+      // 2. 도로 경로선(Polyline) 렌더링
+      if (Array.isArray(optimalRouteResult.segments)) {
+        optimalRouteResult.segments.forEach((seg: any) => {
+          if (Array.isArray(seg.path) && seg.path.length > 0) {
+            const linePath = seg.path.map(
+              (pt: { lat: number; lng: number }) => new naverMaps.LatLng(pt.lat, pt.lng)
+            );
+
+            linePath.forEach((pt: any) => bounds.extend(pt));
+
+            const polyline = new naverMaps.Polyline({
+              map,
+              path: linePath,
+              strokeColor: "#10B981", // 에메랄드 메인 경로선
+              strokeOpacity: 0.85,
+              strokeWeight: 6,
+              strokeStyle: "solid",
+              lineCap: "round",
+              lineJoin: "round",
+            });
+
+            polylinesRef.current.push(polyline);
+          }
+        });
+      }
+    } else {
+      // 일반 마커 표시 모드 (동일 좌표 묶기)
+      const coordGroups = new Map<string, BusinessEntry[]>();
+      mapBusinesses.forEach((biz) => {
+        if (biz.latitude && biz.longitude) {
+          const key = `${biz.latitude.toFixed(6)},${biz.longitude.toFixed(6)}`;
+          const group = coordGroups.get(key) || [];
+          group.push(biz);
+          coordGroups.set(key, group);
+        }
+      });
+
+      coordGroups.forEach((group, key) => {
+        const [latStr, lngStr] = key.split(",");
+        const lat = parseFloat(latStr);
+        const lng = parseFloat(lngStr);
+
+        if (isNaN(lat) || isNaN(lng) || lat < 33 || lat > 39 || lng < 124 || lng > 132) {
+          return;
+        }
+
+        const position = new naverMaps.LatLng(lat, lng);
+        bounds.extend(position);
+        validCoordsCount++;
+
+        const isMulti = group.length > 1;
+
+        const markerHtml = isMulti
+          ? `<div class="relative flex items-center justify-center cursor-pointer group">
+              <div class="absolute w-8 h-8 rounded-full bg-indigo-500/40 animate-ping"></div>
+              <div class="relative flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-black text-xs shadow-md border-2 border-white hover:scale-110 transition-transform duration-200">
+                ${group.length}
+              </div>
+             </div>`
+          : `<div class="relative flex items-center justify-center cursor-pointer group">
+              <div class="absolute w-8 h-8 rounded-full bg-rose-500/45 animate-ping"></div>
+              <div class="relative flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-rose-600 via-red-500 to-amber-400 text-white font-bold text-xs shadow-md border-2 border-white hover:scale-110 transition-transform duration-200">
+                📍
+              </div>
+             </div>`;
+
+        const marker = new naverMaps.Marker({
+          position,
+          map,
+          icon: {
+            content: markerHtml,
+            anchor: new naverMaps.Point(14, 14),
+          },
+        });
+
+        if (typeof window !== "undefined") {
+          (window as any).__closeMapInfoWindow = () => {
+            if (infoWindowRef.current) {
+              infoWindowRef.current.close();
+            }
+          };
+        }
+
+        naverMaps.Event.addListener(marker, "click", () => {
+          const infoHtml = `
+            <div class="bg-white/95 backdrop-blur-md p-4 rounded-xl shadow-2xl border border-slate-200/80 min-w-[280px] max-w-[340px] text-slate-800 relative">
+              <div class="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-100">
+                <span class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">
+                  ${isMulti ? `동일 위치 사업장 (${group.length}개)` : "사업장 위치 정보"}
+                </span>
+                <button
+                  type="button"
+                  onclick="window.__closeMapInfoWindow && window.__closeMapInfoWindow()"
+                  class="w-5 h-5 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors font-bold text-xs"
+                  title="닫기"
+                >
+                  ✕
+                </button>
+              </div>
+              <div class="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+                ${group
+                  .map(
+                    (biz) => `
+                  <div class="text-xs">
+                    <div class="font-bold text-sm text-slate-900 mb-0.5">${biz.business_name}</div>
+                    <div class="text-slate-500 flex gap-2 mb-1">
+                      <span>코드: ${biz.code}</span>
+                      <span>상태: <span class="${biz.is_registered_text === '실시' ? 'text-green-600 font-semibold' : 'text-amber-600'}">${biz.is_registered_text || '미실시'}</span></span>
+                    </div>
+                    <div class="text-slate-600 bg-slate-50 p-1.5 rounded leading-relaxed break-all">${biz.address || "주소 없음"}</div>
+                  </div>
+                `
+                  )
+                  .join('<div class="border-t border-slate-100 my-2"></div>')}
+              </div>
+              <div class="mt-3 text-[10px] text-slate-400 text-right">
+                좌표: ${lat.toFixed(5)}, ${lng.toFixed(5)}
+              </div>
+            </div>
+          `;
+
+          infoWindowRef.current.setContent(infoHtml);
+          infoWindowRef.current.open(map, marker);
+        });
+
+        markersRef.current.push(marker);
+      });
+    }
 
     // 지도 바탕 클릭 시 정보창 자동 닫기 이벤트
     naverMaps.Event.addListener(map, "click", () => {
@@ -344,16 +445,16 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
       }
     });
 
-    // 모든 마커가 보이도록 bounds 자동 조정 (최소 1개 이상일 때)
+    // 모든 마커가 보이도록 bounds 자동 조정
     if (validCoordsCount === 1) {
       map.setCenter(bounds.getCenter());
       map.setZoom(15);
     } else if (validCoordsCount > 1) {
       map.fitBounds(bounds, {
-        top: 40,
-        right: 40,
-        bottom: 40,
-        left: 40,
+        top: 50,
+        right: 50,
+        bottom: 50,
+        left: 50,
       });
     }
 
@@ -362,7 +463,7 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
       window.dispatchEvent(new Event("resize"));
     }
 
-  }, [mapScriptLoaded, mapBusinesses, isOpen, geocodingLoading]);
+  }, [mapScriptLoaded, mapBusinesses, isOpen, geocodingLoading, optimalRouteResult]);
 
   // 지도 범위 강제 재조정
   const handleRecenter = () => {
@@ -472,8 +573,59 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
     }
   };
 
+  // 최적 동선 계산 요청
+  const handleOptimizeRoute = async () => {
+    if (mapBusinesses.length < 2) {
+      alert("최적 동선을 계산하려면 지도에 표시된 사업장이 최소 2개 이상이어야 합니다.");
+      return;
+    }
+
+    setOptimizing(true);
+    setRouteError(null);
+
+    try {
+      const payload = mapBusinesses.map((b) => ({
+        id: b.id,
+        business_name: b.business_name,
+        latitude: b.latitude,
+        longitude: b.longitude,
+        address: b.address,
+      }));
+
+      const res = await fetch("/api/businesses/route-optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businesses: payload }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        const errMsg = data.error || "모든 방문 순서 후보에서 경로 계산에 실패했습니다.";
+        setRouteError(errMsg);
+        setOptimalRouteResult(null);
+      } else {
+        setOptimalRouteResult(data.optimalRoute);
+        setRouteError(null);
+      }
+    } catch (error: any) {
+      console.error("최적 동선 요청 오류:", error);
+      setRouteError(error.message || "동선 계산 중 네트워크 오류가 발생했습니다.");
+      setOptimalRouteResult(null);
+    } finally {
+      setOptimizing(false);
+    }
+  };
+
+  // 최적 동선 초기화 (일반 지도 모드로 복귀)
+  const handleResetRoute = () => {
+    setOptimalRouteResult(null);
+    setRouteError(null);
+  };
+
   // 사업장 제외
   const handleRemoveBusiness = (id: string | number, isFailed = false) => {
+    setOptimalRouteResult(null);
     if (isFailed) {
       setFailedBusinesses((prev) => prev.filter((b) => String(b.id) !== String(id)));
     } else {
@@ -503,6 +655,30 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              onClick={handleOptimizeRoute}
+              disabled={mapBusinesses.length < 2 || optimizing}
+              variant="primary"
+              className="h-9 px-3.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-bold border-none shadow-md disabled:bg-slate-800 disabled:text-slate-500 transition-colors"
+            >
+              {optimizing ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  동선 계산 중...
+                </span>
+              ) : (
+                "⚡ 최적 동선 계산"
+              )}
+            </Button>
+            {optimalRouteResult && (
+              <Button
+                onClick={handleResetRoute}
+                variant="secondary"
+                className="h-9 px-3 text-xs bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+              >
+                🔄 동선 초기화
+              </Button>
+            )}
             <Button
               onClick={handleRecenter}
               disabled={mapBusinesses.length === 0}
@@ -535,10 +711,12 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
                 <div className="font-semibold text-lg">지도 로드 실패</div>
                 <div className="text-sm text-slate-400 mt-1 max-w-md">{mapScriptError}</div>
               </div>
-            ) : !mapScriptLoaded || geocodingLoading ? (
+            ) : !mapScriptLoaded || geocodingLoading || optimizing ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/70 z-10">
                 <LoadingSpinner />
-                <span className="mt-3 text-sm text-slate-400 animate-pulse">지도 및 좌표 정보를 불러오는 중...</span>
+                <span className="mt-3 text-sm text-slate-300 font-semibold animate-pulse">
+                  {optimizing ? "승용차 기준 최적 동선을 계산하는 중..." : "지도 및 좌표 정보를 불러오는 중..."}
+                </span>
               </div>
             ) : null}
 
@@ -547,125 +725,225 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
           </div>
 
           {/* 오른쪽: 상세 패널 영역 */}
-          <div className="w-full lg:w-[420px] bg-slate-900 flex flex-col overflow-hidden">
-            {/* 1. 상단: 지도 포함 사업장 목록 */}
-            <div className="flex-1 p-4 flex flex-col overflow-hidden">
-              <h3 className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">지도 표시 사업장 ({mapBusinesses.length})</h3>
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                {mapBusinesses.length === 0 && !geocodingLoading ? (
-                  <div className="h-20 flex items-center justify-center border border-dashed border-slate-800 rounded-xl text-xs text-slate-500">
-                    지도에 표시할 사업장이 없습니다.
+          <div className="w-full lg:w-[420px] bg-slate-900 flex flex-col overflow-hidden border-l border-slate-800">
+            {routeError && (
+              <div className="p-4 bg-red-950/50 border-b border-red-800/60 text-red-300 text-xs flex items-start justify-between gap-2 animate-fadeIn">
+                <div>
+                  <div className="font-bold flex items-center gap-1.5 mb-1 text-red-400 text-sm">
+                    ⚠️ 최적 동선 계산 실패
                   </div>
-                ) : (
-                  mapBusinesses.map((biz) => (
-                    <div key={biz.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-start justify-between gap-3 hover:border-slate-700 transition-colors">
-                      <div className="flex-1 min-w-0">
-                        <div className="font-bold text-sm text-slate-200 truncate">{biz.business_name}</div>
-                        <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-1">
-                          <span>코드: {biz.code}</span>
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                          <span className="text-green-400">위치 확인 완료</span>
-                        </div>
-                        <div className="text-xs text-slate-500 mt-1.5 break-all line-clamp-2 leading-relaxed" title={biz.address || ""}>
-                          {biz.address || "주소 미등록"}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveBusiness(biz.id, false)}
-                        className="p-1 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors shrink-0"
-                        title="제외"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* 2. 중단: 지도 표시 실패 / 예외 항목 */}
-            {failedBusinesses.length > 0 && (
-              <div className="p-4 bg-slate-950/40 border-t border-slate-800 max-h-[160px] flex flex-col">
-                <h3 className="text-xs font-bold text-red-400 mb-2 uppercase tracking-wider flex items-center gap-1.5">
-                  ⚠️ 지도 표시 실패 ({failedBusinesses.length})
-                </h3>
-                <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
-                  {failedBusinesses.map((biz) => (
-                    <div key={biz.id} className="p-2 bg-red-950/20 border border-red-900/30 rounded-lg flex items-center justify-between text-xs">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-slate-200 truncate">{biz.business_name}</div>
-                        <div className="text-[10px] text-red-400 truncate mt-0.5">
-                          {biz.geocoding_error || "주소 불명확 또는 API 에러"}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveBusiness(biz.id, true)}
-                        className="text-slate-500 hover:text-red-400 p-1"
-                        title="지우기"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
+                  <div>{routeError}</div>
                 </div>
+                <button
+                  onClick={() => setRouteError(null)}
+                  className="text-red-400 hover:text-white text-xs font-bold"
+                >
+                  ✕
+                </button>
               </div>
             )}
 
-            {/* 3. 하단: 사업장 추가 검색창 */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-col h-[280px]">
-              <h3 className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">지도에 사업장 추가</h3>
-              <div className="flex gap-2 mb-3">
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  placeholder="사업장명, 코드, 주소 검색"
-                  className="bg-slate-900 border-slate-800 text-white placeholder:text-slate-500 text-sm h-9 flex-1"
-                />
-                <Button onClick={handleSearch} variant="primary" className="h-9 px-3 text-xs shrink-0">
-                  검색
-                </Button>
-              </div>
-
-              {/* 검색 결과 리스트 */}
-              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-                {searchResults.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-xs text-slate-600">
-                    {searchQuery ? "검색 결과가 없습니다." : "추가할 업체를 검색하세요."}
+            {optimalRouteResult ? (
+              /* 최적 동선 결과 표출 패널 */
+              <div className="flex-1 flex flex-col p-5 overflow-y-auto custom-scrollbar bg-slate-900">
+                <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🗺️</span>
+                    <h3 className="text-base font-bold text-white">추천 방문 동선 결과</h3>
                   </div>
-                ) : (
-                  searchResults.map((biz) => {
-                    const isAdded =
-                      mapBusinesses.some((b) => String(b.id) === String(biz.id)) ||
-                      failedBusinesses.some((b) => String(b.id) === String(biz.id));
-                    return (
-                      <div key={biz.id} className="p-2 bg-slate-900 border border-slate-850 rounded-lg flex items-center justify-between gap-3 text-xs hover:border-slate-750">
-                        <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-slate-200 truncate">{biz.business_name}</div>
-                          <div className="text-[10px] text-slate-500 truncate mt-0.5">
-                            {biz.code} | {biz.address || "주소 없음"}
-                          </div>
-                        </div>
-                        <Button
-                          disabled={isAdded || totalCount >= 10}
-                          onClick={() => handleAddBusiness(biz)}
-                          variant="secondary"
-                          className={`h-7 px-2 text-[10px] shrink-0 font-bold ${
-                            isAdded
-                              ? "bg-slate-850 text-slate-600 border-none cursor-default"
-                              : "bg-indigo-600 hover:bg-indigo-500 text-white border-none"
-                          }`}
-                        >
-                          {isAdded ? "추가됨" : "추가"}
-                        </Button>
+                  <button
+                    onClick={handleResetRoute}
+                    className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 transition-colors font-medium"
+                  >
+                    일반 목록 보기
+                  </button>
+                </div>
+
+                {/* 1. 출발 사업장 정보 */}
+                <div className="mb-4 p-3.5 bg-amber-950/30 border border-amber-500/30 rounded-xl">
+                  <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <span>🚩 출발 사업장 (고정)</span>
+                  </div>
+                  <div className="font-bold text-sm text-slate-100">
+                    1. {optimalRouteResult.orderedBusinesses[0]?.business_name}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1 line-clamp-1">
+                    {optimalRouteResult.orderedBusinesses[0]?.address || "주소 미등록"}
+                  </div>
+                </div>
+
+                {/* 2. 각 구간 추천 방문 순서 및 이동거리/시간 */}
+                <div className="flex-1 space-y-3.5 mb-5">
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                    <span>추천 방문 순서 ({optimalRouteResult.segments.length}개 구간)</span>
+                    <span className="text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded-full">
+                      승용차 추천 경로
+                    </span>
+                  </div>
+
+                  {optimalRouteResult.segments.map((seg: any, idx: number) => (
+                    <div
+                      key={idx}
+                      className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl hover:border-emerald-500/50 transition-colors"
+                    >
+                      <div className="flex items-center justify-between text-xs font-bold text-emerald-400 mb-1.5">
+                        <span>{idx + 1}. {seg.fromName}</span>
                       </div>
-                    );
-                  })
-                )}
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-100 my-1 pl-2">
+                        <span className="text-emerald-400 font-bold">→</span>
+                        <span>{seg.toName}: {seg.formattedDistance} / {seg.formattedDuration}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 3. 전체 총 이동거리 및 총 이동시간 요약 카드 */}
+                <div className="p-4 bg-gradient-to-br from-emerald-950/40 via-slate-950 to-teal-950/40 border border-emerald-500/40 rounded-xl shadow-xl">
+                  <div className="text-xs font-bold text-emerald-400 mb-2 uppercase tracking-wider flex items-center justify-between">
+                    <span>전체 경로 요약</span>
+                    <span className="text-[10px] text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                      최단 이동시간 순
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 text-sm font-semibold">
+                    <div className="flex justify-between items-center text-slate-200">
+                      <span className="text-slate-400">총 이동거리:</span>
+                      <span className="text-base font-bold text-emerald-400">
+                        {optimalRouteResult.formattedTotalDistance}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-200">
+                      <span className="text-slate-400">총 이동시간:</span>
+                      <span className="text-base font-bold text-teal-400">
+                        {optimalRouteResult.formattedTotalDuration}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              /* 일반 지도 사업장 목록 패널 (기존) */
+              <>
+                {/* 1. 상단: 지도 포함 사업장 목록 */}
+                <div className="flex-1 p-4 flex flex-col overflow-hidden">
+                  <h3 className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">지도 표시 사업장 ({mapBusinesses.length})</h3>
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {mapBusinesses.length === 0 && !geocodingLoading ? (
+                      <div className="h-20 flex items-center justify-center border border-dashed border-slate-800 rounded-xl text-xs text-slate-500">
+                        지도에 표시할 사업장이 없습니다.
+                      </div>
+                    ) : (
+                      mapBusinesses.map((biz) => (
+                        <div key={biz.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-start justify-between gap-3 hover:border-slate-700 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-sm text-slate-200 truncate">{biz.business_name}</div>
+                            <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-1">
+                              <span>코드: {biz.code}</span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                              <span className="text-green-400">위치 확인 완료</span>
+                            </div>
+                            <div className="text-xs text-slate-500 mt-1.5 break-all line-clamp-2 leading-relaxed" title={biz.address || ""}>
+                              {biz.address || "주소 미등록"}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveBusiness(biz.id, false)}
+                            className="p-1 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors shrink-0"
+                            title="제외"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. 중단: 지도 표시 실패 / 예외 항목 */}
+                {failedBusinesses.length > 0 && (
+                  <div className="p-4 bg-slate-950/40 border-t border-slate-800 max-h-[160px] flex flex-col">
+                    <h3 className="text-xs font-bold text-red-400 mb-2 uppercase tracking-wider flex items-center gap-1.5">
+                      ⚠️ 지도 표시 실패 ({failedBusinesses.length})
+                    </h3>
+                    <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                      {failedBusinesses.map((biz) => (
+                        <div key={biz.id} className="p-2 bg-red-950/20 border border-red-900/30 rounded-lg flex items-center justify-between text-xs">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-slate-200 truncate">{biz.business_name}</div>
+                            <div className="text-[10px] text-red-400 truncate mt-0.5">
+                              {biz.geocoding_error || "주소 불명확 또는 API 에러"}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveBusiness(biz.id, true)}
+                            className="text-slate-500 hover:text-red-400 p-1"
+                            title="지우기"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. 하단: 사업장 추가 검색창 */}
+                <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-col h-[280px]">
+                  <h3 className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">지도에 사업장 추가</h3>
+                  <div className="flex gap-2 mb-3">
+                    <Input
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                      placeholder="사업장명, 코드, 주소 검색"
+                      className="bg-slate-900 border-slate-800 text-white placeholder:text-slate-500 text-sm h-9 flex-1"
+                    />
+                    <Button onClick={handleSearch} variant="primary" className="h-9 px-3 text-xs shrink-0">
+                      검색
+                    </Button>
+                  </div>
+
+                  {/* 검색 결과 리스트 */}
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
+                    {searchResults.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-xs text-slate-600">
+                        {searchQuery ? "검색 결과가 없습니다." : "추가할 업체를 검색하세요."}
+                      </div>
+                    ) : (
+                      searchResults.map((biz) => {
+                        const isAdded =
+                          mapBusinesses.some((b) => String(b.id) === String(biz.id)) ||
+                          failedBusinesses.some((b) => String(b.id) === String(biz.id));
+                        return (
+                          <div key={biz.id} className="p-2 bg-slate-900 border border-slate-850 rounded-lg flex items-center justify-between gap-3 text-xs hover:border-slate-750">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-slate-200 truncate">{biz.business_name}</div>
+                              <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                                {biz.code} | {biz.address || "주소 없음"}
+                              </div>
+                            </div>
+                            <Button
+                              disabled={isAdded || totalCount >= 10}
+                              onClick={() => handleAddBusiness(biz)}
+                              variant="secondary"
+                              className={`h-7 px-2 text-[10px] shrink-0 font-bold ${
+                                isAdded
+                                  ? "bg-slate-850 text-slate-600 border-none cursor-default"
+                                  : "bg-indigo-600 hover:bg-indigo-500 text-white border-none"
+                              }`}
+                            >
+                              {isAdded ? "추가됨" : "추가"}
+                            </Button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
