@@ -22,6 +22,13 @@ import {
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
+import {
+    MEASUREMENT_MAP_CHANNEL,
+    MEASUREMENT_MAP_VIEWER_NAME,
+    MEASUREMENT_MAP_VIEWER_PATH,
+    MeasurementMapMessage,
+    sanitizeBusinessForMap,
+} from "@/lib/measurement-map/types";
 import * as XLSX from "xlsx";
 import { useUser } from "@/hooks/use-user";
 import {
@@ -184,6 +191,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     
     // 네이버 지도 모달 열림 상태
     const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+    const mapViewerRef = useRef<Window | null>(null);
+    const mapChannelRef = useRef<BroadcastChannel | null>(null);
+    const mapSelectionSignatureRef = useRef("");
 
     // 개별 체크박스 토글
     const handleToggleSelect = (id: string | number) => {
@@ -537,6 +547,114 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         planManager: "",
         confirmedDate: "",
     });
+
+    const buildMapInitializeMessage = useCallback((): MeasurementMapMessage | null => {
+        const [yearText, period] = filters.yearPeriod.split("-");
+        const year = Number(yearText);
+        if (!Number.isInteger(year) || !period) return null;
+
+        const selectedBusinesses = data
+            .filter((business) =>
+                Array.from(selectedBusinessIds).some((id) => String(id) === String(business.id))
+            )
+            .map(sanitizeBusinessForMap);
+
+        if (selectedBusinesses.length === 0) return null;
+        return {
+            type: "MAP_INITIALIZE",
+            payload: {
+                context: { year, period },
+                businesses: selectedBusinesses,
+                baseBusinessId: selectedBusinesses[0].id,
+            },
+        };
+    }, [data, filters.yearPeriod, selectedBusinessIds]);
+
+    const postMapMessage = useCallback((message: MeasurementMapMessage) => {
+        mapChannelRef.current?.postMessage(message);
+        const viewer = mapViewerRef.current;
+        if (viewer && !viewer.closed) {
+            viewer.postMessage(message, window.location.origin);
+        }
+    }, []);
+
+    const handleOpenMapViewer = useCallback(() => {
+        const message = buildMapInitializeMessage();
+        if (!message) {
+            alert("지도에 표시할 사업장을 먼저 선택해주세요.");
+            return;
+        }
+        if (message.type !== "MAP_INITIALIZE") return;
+
+        let viewer = mapViewerRef.current;
+        if (!viewer || viewer.closed) {
+            viewer = window.open(
+                MEASUREMENT_MAP_VIEWER_PATH,
+                MEASUREMENT_MAP_VIEWER_NAME,
+                "width=1500,height=900,resizable=yes,scrollbars=yes"
+            );
+            mapViewerRef.current = viewer;
+        }
+        if (!viewer) {
+            alert("지도 창을 열지 못했습니다. 브라우저의 팝업 차단 설정을 확인해주세요.");
+            return;
+        }
+
+        viewer.focus();
+        mapSelectionSignatureRef.current = `${message.payload.context.year}-${message.payload.context.period}|${message.payload.businesses
+            .map((business) => String(business.id))
+            .sort()
+            .join(",")}`;
+        postMapMessage(message);
+        window.setTimeout(() => postMapMessage(message), 350);
+    }, [buildMapInitializeMessage, postMapMessage]);
+
+    useEffect(() => {
+        if (!("BroadcastChannel" in window)) return;
+        const channel = new BroadcastChannel(MEASUREMENT_MAP_CHANNEL);
+        mapChannelRef.current = channel;
+        channel.onmessage = (event) => {
+            if (event.data?.type === "VIEWER_READY") {
+                const message = buildMapInitializeMessage();
+                if (message) postMapMessage(message);
+            }
+        };
+        return () => {
+            channel.close();
+            mapChannelRef.current = null;
+        };
+    }, [buildMapInitializeMessage, postMapMessage]);
+
+    useEffect(() => {
+        const onViewerMessage = (event: MessageEvent) => {
+            if (event.origin !== window.location.origin || event.data?.type !== "VIEWER_READY") return;
+            const message = buildMapInitializeMessage();
+            if (message) postMapMessage(message);
+        };
+        window.addEventListener("message", onViewerMessage);
+        return () => window.removeEventListener("message", onViewerMessage);
+    }, [buildMapInitializeMessage, postMapMessage]);
+
+    useEffect(() => {
+        const viewer = mapViewerRef.current;
+        if (!viewer || viewer.closed) return;
+        const signature = `${filters.yearPeriod}|${Array.from(selectedBusinessIds)
+            .map(String)
+            .sort()
+            .join(",")}`;
+        if (signature === mapSelectionSignatureRef.current) return;
+        mapSelectionSignatureRef.current = signature;
+        const message = buildMapInitializeMessage();
+        postMapMessage(message || { type: "RESET_MAP" });
+    }, [buildMapInitializeMessage, filters.yearPeriod, postMapMessage, selectedBusinessIds]);
+
+    useEffect(() => {
+        const [yearText, period] = filters.yearPeriod.split("-");
+        const year = Number(yearText);
+        if (!Number.isInteger(year) || !period) return;
+        postMapMessage({ type: "SET_CONTEXT", payload: { year, period } });
+        postMapMessage({ type: "RESET_MAP" });
+    }, [filters.yearPeriod, postMapMessage]);
 
     // Load Filters
     useEffect(() => {
@@ -1644,17 +1762,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         {/* Center Action Buttons (Map & Geocoding) */}
                         <div className="flex items-center gap-2 flex-wrap justify-center">
                             <Button
-                                onClick={() => {
-                                    if (selectedBusinessIds.size === 0) {
-                                        alert("지도에 표시할 사업장을 먼저 선택해주세요.");
-                                        return;
-                                    }
-                                    setIsMapModalOpen(true);
-                                }}
+                                onClick={handleOpenMapViewer}
                                 variant="secondary"
                                 className="h-8 px-3 text-xs font-medium whitespace-nowrap bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                                title="지도에서 위치 보기 - 별도 창으로 엽니다."
                             >
-                                지도에서 위치 보기 {selectedBusinessIds.size > 0 ? `(${selectedBusinessIds.size})` : ""}
+                                지도 열기 {selectedBusinessIds.size > 0 ? `(${selectedBusinessIds.size})` : ""}
                             </Button>
                             <Button
                                 onClick={() => handleGeocodeBatch('selected')}

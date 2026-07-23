@@ -1,4 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkPermission } from "@/lib/auth/check-permission";
+import {
+  isValidKoreanCoordinate,
+  LONG_SEGMENT_WARNING_MINUTES,
+  MAX_OPTIMIZATION_BUSINESSES,
+} from "@/lib/measurement-map/types";
+
+const SEGMENT_CACHE_TTL_MS = 5 * 60 * 1000;
+const segmentTtlCache = new Map<string, { expiresAt: number; value: SegmentResult }>();
 
 // 사업장 입력 데이터 인터페이스
 interface BusinessInput {
@@ -63,7 +72,8 @@ function getPermutations<T>(array: T[]): T[][] {
 async function fetchDirectionsSegment(
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number },
-  apiKey: string
+  apiKey: string,
+  signal: AbortSignal,
 ): Promise<SegmentResult> {
   try {
     const url = new URL("https://apis-navi.kakaomobility.com/v1/directions");
@@ -76,6 +86,7 @@ async function fetchDirectionsSegment(
       headers: {
         Authorization: `KakaoAK ${apiKey}`,
       },
+      signal,
     });
 
     if (!response.ok) {
@@ -144,6 +155,7 @@ async function fetchDirectionsSegment(
 
 export async function POST(request: NextRequest) {
   try {
+    await checkPermission("journal:read");
     const apiKey = process.env.KAKAO_REST_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -164,7 +176,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (businesses.length > 6) {
+    if (businesses.length > MAX_OPTIMIZATION_BUSINESSES) {
       return NextResponse.json(
         {
           success: false,
@@ -191,9 +203,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const uniqueIds = new Set(businesses.map((business) => String(business.id)));
+    if (uniqueIds.size !== businesses.length) {
+      return NextResponse.json(
+        { success: false, error: "동일한 사업장이 중복으로 포함되어 있습니다." },
+        { status: 400 }
+      );
+    }
+
     // 3. 좌표 유효성 검사
     for (const biz of businesses) {
-      if (!biz.latitude || !biz.longitude || isNaN(biz.latitude) || isNaN(biz.longitude)) {
+      if (!isValidKoreanCoordinate(biz.latitude, biz.longitude)) {
         return NextResponse.json(
           { success: false, error: `사업장 '${biz.business_name}'의 유효한 위도/경도 좌표가 없습니다.` },
           { status: 400 }
@@ -209,10 +229,11 @@ export async function POST(request: NextRequest) {
     const remainingPermutations = getPermutations(remainingBusinesses);
 
     // 3. 구간별 경로 캐시맵 (중복 API 호출 방지)
-    // key: "fromId->toId"
+    // 좌표 조합을 키로 사용하여 같은 위치 쌍을 짧은 TTL 동안 재사용한다.
     const segmentCache = new Map<string, SegmentResult>();
 
-    const getSegmentKey = (from: BusinessInput, to: BusinessInput) => `${from.id}->${to.id}`;
+    const getSegmentKey = (from: BusinessInput, to: BusinessInput) =>
+      `${from.latitude.toFixed(6)},${from.longitude.toFixed(6)}->${to.latitude.toFixed(6)},${to.longitude.toFixed(6)}`;
 
     // 4. 모든 순열의 경로 탐색 및 최적 순열 비교
     let bestRoute: {
@@ -228,6 +249,7 @@ export async function POST(request: NextRequest) {
         duration: number;
         formattedDistance: string;
         formattedDuration: string;
+        isLongSegment: boolean;
         path: { lat: number; lng: number }[];
       }[];
     } | null = null;
@@ -248,11 +270,24 @@ export async function POST(request: NextRequest) {
 
         let segmentRes = segmentCache.get(key);
         if (!segmentRes) {
-          segmentRes = await fetchDirectionsSegment(
-            { lat: from.latitude, lng: from.longitude },
-            { lat: to.latitude, lng: to.longitude },
-            apiKey
-          );
+          const cached = segmentTtlCache.get(key);
+          if (cached && cached.expiresAt > Date.now()) {
+            segmentRes = cached.value;
+          } else {
+            if (cached) segmentTtlCache.delete(key);
+            segmentRes = await fetchDirectionsSegment(
+              { lat: from.latitude, lng: from.longitude },
+              { lat: to.latitude, lng: to.longitude },
+              apiKey,
+              request.signal,
+            );
+            if (segmentRes.success) {
+              segmentTtlCache.set(key, {
+                expiresAt: Date.now() + SEGMENT_CACHE_TTL_MS,
+                value: segmentRes,
+              });
+            }
+          }
           segmentCache.set(key, segmentRes);
         }
 
@@ -273,6 +308,7 @@ export async function POST(request: NextRequest) {
           duration: segmentRes.duration,
           formattedDistance: formatDistance(segmentRes.distance),
           formattedDuration: formatDuration(segmentRes.duration),
+          isLongSegment: segmentRes.duration >= LONG_SEGMENT_WARNING_MINUTES * 60,
           path: segmentRes.path,
         });
       }
@@ -319,9 +355,12 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error("경로 최적화 API 오류:", error);
+    if (error?.name === "AbortError") {
+      return NextResponse.json({ success: false, error: "경로 계산 요청이 취소되었습니다." }, { status: 499 });
+    }
+    console.error("경로 최적화 API 오류:", error instanceof Error ? error.message : "unknown");
     return NextResponse.json(
-      { success: false, error: error.message || "서버 내부 오류가 발생했습니다." },
+      { success: false, error: "서버 내부 오류가 발생했습니다." },
       { status: 500 }
     );
   }
