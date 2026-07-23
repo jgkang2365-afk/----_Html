@@ -268,6 +268,20 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [geocodeSkippedCount, setGeocodeSkippedCount] = useState(0);
     const [showGeocodeModal, setShowGeocodeModal] = useState(false);
     const [geocodeLogs, setGeocodeLogs] = useState<string[]>([]);
+    const [coordinateSummary, setCoordinateSummary] = useState({ total: 0, valid: 0, missing: 0, invalid: 0, pending: 0 });
+
+    const refreshCoordinateSummary = useCallback(async () => {
+        try {
+            const response = await fetch("/api/businesses/geocode", { cache: "no-store" });
+            if (response.ok) setCoordinateSummary(await response.json());
+        } catch {
+            // 현황 집계 실패가 사업장 목록 사용을 막지 않도록 조용히 유지한다.
+        }
+    }, []);
+
+    useEffect(() => {
+        void refreshCoordinateSummary();
+    }, [refreshCoordinateSummary]);
 
     // 좌표 재조회 실행 공통 핸들러 함수 (3개씩 동시 요청 제한 배칭 적용)
     const handleGeocodeBatch = async (
@@ -357,7 +371,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         businessIds: chunkIds,
-                        forceRefetch: true
+                        forceRefetch: type !== 'missing'
                     }),
                 });
 
@@ -413,6 +427,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         ]);
         setIsGeocodeProcessing(false);
         fetchData();
+        void refreshCoordinateSummary();
     };
 
 
@@ -511,6 +526,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         alert("국고 일괄 조회 요청 등록이 완료되었습니다. 깡통컴 처리 결과는 목록에 자동 반영됩니다.");
         setIsBulkProcessing(false);
         fetchData();
+        void refreshCoordinateSummary();
     };
     const [measurers, setMeasurers] = useState<User[]>([]); // 측정자 목록
     const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
@@ -1226,6 +1242,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const handleSearch = () => {
         fetchData();
+        void refreshCoordinateSummary();
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1768,6 +1785,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
                         {/* Center Action Buttons (Map & Geocoding) */}
                         <div className="flex items-center gap-2 flex-wrap justify-center">
+                            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600" title="사업장 코드 기준 좌표 현황">
+                                <span>전체 {coordinateSummary.total}</span>
+                                <span className="text-emerald-700">정상 {coordinateSummary.valid}</span>
+                                <span className="text-amber-700">미등록 {coordinateSummary.missing}</span>
+                                <span className="text-rose-700">오류 {coordinateSummary.invalid}</span>
+                            </div>
                             <Button
                                 onClick={handleOpenMapViewer}
                                 variant="secondary"
@@ -1790,7 +1813,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 className="h-8 px-2.5 text-xs font-medium whitespace-nowrap bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200"
                                 title="좌표가 없는 사업장만 일괄 재조회합니다."
                             >
-                                🔍 미등록 좌표 재조회
+                                미등록·오류 좌표 일괄 등록
                             </Button>
                             <Button
                                 onClick={() => handleGeocodeBatch('suspicious')}

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { ensureBusinessCoordinate } from "@/lib/business-coordinates/service";
 
 export async function POST(request: NextRequest) {
     try {
@@ -73,9 +74,25 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        let geocodeResult = null;
+        try {
+            geocodeResult = await ensureBusinessCoordinate(supabase, {
+                code: finalCode,
+                businessName: finalBusinessName,
+                fallbackAddress: otherFields.address,
+            });
+        } catch (coordinateError) {
+            console.error("[BusinessCoordinates] 간편 등록 후 좌표 처리 실패:", coordinateError instanceof Error ? coordinateError.message : "unknown");
+        }
+
         return NextResponse.json({
             success: true,
+            businessCreated: true,
             business: insertedData,
+            geocodeStatus: geocodeResult?.geocoding_status?.toLowerCase() || "failed",
+            latitude: geocodeResult?.latitude ?? null,
+            longitude: geocodeResult?.longitude ?? null,
+            geocodeMessage: geocodeResult?.geocoding_error || undefined,
         });
 
     } catch (error) {

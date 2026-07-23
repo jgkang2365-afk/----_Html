@@ -237,66 +237,16 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
     document.head.appendChild(script);
   }, [isOpen, clientId]);
 
-  // 초기 선택 사업장들을 바탕으로 Geocoding API를 호출하여 데이터 채우기
+  // 지도에서는 DB에 저장되어 전달된 좌표만 사용한다.
   useEffect(() => {
     if (!isOpen) return;
-
-    const loadInitialBusinesses = async () => {
-      setGeocodingLoading(true);
-      try {
-        const response = await fetch("/api/businesses/geocode", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ businessIds: initialSelectedIds }),
-        });
-
-        if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error || "Geocoding 요청 실패");
-        }
-
-        const data = await response.json();
-        const results: any[] = data.results || [];
-
-        // 성공한 항목들과 실패한 항목 분류
-        const successList: BusinessEntry[] = [];
-        const failedList: BusinessEntry[] = [];
-
-        results.forEach((res) => {
-          // original business 데이터와 머지
-          const original = allBusinesses.find((b) => String(b.id) === String(res.id));
-          if (original) {
-            const updatedBiz = {
-              ...original,
-              latitude: res.latitude,
-              longitude: res.longitude,
-              geocoding_status: res.geocoding_status,
-              geocoding_error: res.geocoding_error,
-              geocoded_address: res.geocoded_address,
-              coordinate_locked: res.coordinate_locked,
-            };
-
-            if (res.geocoding_status === "SUCCESS" && res.latitude && res.longitude) {
-              successList.push(updatedBiz);
-            } else {
-              failedList.push(updatedBiz);
-            }
-          }
-        });
-
-        setMapBusinesses(successList);
-        setFailedBusinesses(failedList);
-      } catch (error: any) {
-        console.error("Geocoding 초기화 오류:", error);
-        alert(`좌표를 조회하는 중 오류가 발생했습니다: ${error.message}`);
-      } finally {
-        setGeocodingLoading(false);
-      }
-    };
-
-    loadInitialBusinesses();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+    const selected = initialSelectedIds
+      .map((id) => allBusinesses.find((business) => String(business.id) === String(id)))
+      .filter((business): business is BusinessEntry => Boolean(business));
+    setMapBusinesses(selected.filter((business) => Boolean(business.latitude && business.longitude)));
+    setFailedBusinesses(selected.filter((business) => !business.latitude || !business.longitude));
+    setGeocodingLoading(false);
+  }, [allBusinesses, initialSelectedIds, isOpen]);
 
   // 지도 인스턴스 초기화 및 갱신
   useEffect(() => {
@@ -653,63 +603,26 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
     setSearchResults(results.slice(0, 15)); // 최대 15개만 표출
   };
 
-  // 사업장 지도 묶음에 추가
-  const handleAddBusiness = async (biz: BusinessEntry) => {
+  // 사업장 지도 묶음에 추가: DB 좌표가 없으면 좌표 관리 대상으로만 표시한다.
+  const handleAddBusiness = (biz: BusinessEntry) => {
     const totalCount = mapBusinesses.length + failedBusinesses.length;
     if (totalCount >= 10) {
       alert("지도에 표시할 사업장은 최대 10개까지 선택 가능합니다.");
       return;
     }
-
-    // 중복 체크
     if (
-      mapBusinesses.some((b) => String(b.id) === String(biz.id)) ||
-      failedBusinesses.some((b) => String(b.id) === String(biz.id))
+      mapBusinesses.some((business) => String(business.id) === String(biz.id)) ||
+      failedBusinesses.some((business) => String(business.id) === String(biz.id))
     ) {
       alert("이미 지도에 포함된 사업장입니다.");
       return;
     }
 
-    setGeocodingLoading(true);
-    try {
-      const response = await fetch("/api/businesses/geocode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessIds: [biz.id] }),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Geocoding 요청 실패");
-      }
-
-      const data = await response.json();
-      const res = data.results && data.results[0];
-
-      if (res) {
-        const updatedBiz = {
-          ...biz,
-          latitude: res.latitude,
-          longitude: res.longitude,
-          geocoding_status: res.geocoding_status,
-          geocoding_error: res.geocoding_error,
-          geocoded_address: res.geocoded_address,
-          coordinate_locked: res.coordinate_locked,
-        };
-
-        if (res.geocoding_status === "SUCCESS" && res.latitude && res.longitude) {
-          setMapBusinesses((prev) => [...prev, updatedBiz]);
-          alert(`${biz.business_name}이(가) 지도에 추가되었습니다.`);
-        } else {
-          setFailedBusinesses((prev) => [...prev, updatedBiz]);
-          alert(`${biz.business_name}의 좌표 변환에 실패하여 오류 목록에 추가되었습니다.`);
-        }
-      }
-    } catch (error: any) {
-      console.error("추가 중 좌표 조회 오류:", error);
-      alert(`좌표 조회 중 오류가 발생했습니다: ${error.message}`);
-    } finally {
-      setGeocodingLoading(false);
+    if (biz.latitude && biz.longitude) {
+      setMapBusinesses((previous) => [...previous, biz]);
+    } else {
+      setFailedBusinesses((previous) => [...previous, biz]);
+      alert(`${biz.business_name}은(는) 좌표 미등록 상태입니다. 좌표 관리에서 조회한 뒤 다시 열어주세요.`);
     }
   };
 

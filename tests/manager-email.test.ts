@@ -93,7 +93,7 @@ test("담당자 메일은 건강디딤돌 조회 및 신청 자격에 영향을 
 test("수정 모달 연락 및 정산 정보는 지정된 원본을 읽기 전용으로 사용한다", () => {
   assert.match(
     routeSource,
-    /\.select\("code, business_number, phone, fax, invoice_email"\)/,
+    /\.select\("code, business_number, phone, fax, invoice_email,[^\"]*latitude[^\"]*longitude[^\"]*"\)/,
   );
   assert.match(
     routeSource,

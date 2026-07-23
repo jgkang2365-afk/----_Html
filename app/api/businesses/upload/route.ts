@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import * as XLSX from "xlsx";
 import { syncBusinessData, normalizeBusinessStatus } from "@/lib/utils/sync-helper";
+import { ensureBusinessCoordinate } from "@/lib/business-coordinates/service";
 
 // 최대 처리 행 수 (타임아웃 방지)
 const MAX_ROWS = 500;
@@ -115,7 +116,7 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`[Upload] Starting upload for ${rawData.length} rows...`);
-        const BATCH_SIZE = 20;
+        const BATCH_SIZE = 3;
 
         for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
             const batch = rawData.slice(i, i + BATCH_SIZE);
@@ -232,6 +233,17 @@ export async function POST(request: NextRequest) {
                         .upsert(upsertData, { onConflict: "code,year,period" });
 
                     if (error) throw error;
+
+                    try {
+                        await ensureBusinessCoordinate(supabase, {
+                            code,
+                            businessName: finalData.business_name,
+                            fallbackAddress: finalData.address,
+                        });
+                    } catch (coordinateError) {
+                        // 좌표 실패는 업로드 성공 건수를 실패로 바꾸지 않는다.
+                        console.error(`[BusinessCoordinates] 업로드 좌표 처리 실패 (${code}):`, coordinateError instanceof Error ? coordinateError.message : "unknown");
+                    }
 
                     results.success++;
                 } catch (error) {

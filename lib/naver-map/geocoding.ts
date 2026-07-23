@@ -19,6 +19,20 @@ export interface GeocodingProvider {
   geocode(address: string): Promise<GeocodeResult>;
 }
 
+async function fetchWithGeocodingPolicy(url: string, init: RequestInit) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, { ...init, signal: AbortSignal.timeout(8_000) });
+      if (response.status !== 429 && response.status < 500) return response;
+      lastError = new Error(`좌표 공급자 일시 오류 (HTTP ${response.status})`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("좌표 공급자 요청에 실패했습니다.");
+}
+
 // Proj4 정의 추가 (EPSG:5179 & EPSG:4326)
 // EPSG:5179: 한국 2000 / 통합 좌표계 (UTM-K)
 // EPSG:4326: WGS84 (경위도)
@@ -96,7 +110,7 @@ export class KakaoGeocodingProvider implements GeocodingProvider {
       const url = new URL("https://dapi.kakao.com/v2/local/search/address.json");
       url.searchParams.append("query", normalized);
 
-      const response = await fetch(url.toString(), {
+      const response = await fetchWithGeocodingPolicy(url.toString(), {
         method: "GET",
         headers: {
           Authorization: `KakaoAK ${apiKey}`,

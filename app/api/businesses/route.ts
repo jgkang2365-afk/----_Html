@@ -17,6 +17,10 @@ import { normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
+import {
+  ensureBusinessCoordinate,
+  invalidateBusinessCoordinateForAddress,
+} from "@/lib/business-coordinates/service";
 import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
 import {
@@ -225,7 +229,7 @@ export async function GET(request: NextRequest) {
     // 3순위 보완: 사업장정보(business_info)에만 있는 기본 사업자등록번호와 대표전화
     const { data: businessInfoData } = await supabase
       .from("business_info")
-      .select("code, business_number, phone, fax, invoice_email")
+      .select("code, business_number, phone, fax, invoice_email, latitude, longitude, geocoded_address, geocoded_source_address, geocoding_status, geocoding_error, geocoded_at, geocode_provider, coordinate_locked")
       .in("code", codes);
 
     // Map: Code -> Latest Info (Business)
@@ -347,6 +351,16 @@ export async function GET(request: NextRequest) {
         representative_name: representativeName,
         industrial_accident_number: industrialAccidentNumber,
         commencement_number: commencementNumber,
+        // 좌표는 business_info 기본 위치를 우선 사용하고 대상 테이블은 배포 호환 fallback으로만 사용한다.
+        latitude: basicInfo?.latitude ?? item.latitude ?? null,
+        longitude: basicInfo?.longitude ?? item.longitude ?? null,
+        geocoded_address: basicInfo?.geocoded_address ?? item.geocoded_address ?? null,
+        geocoded_source_address: basicInfo?.geocoded_source_address ?? item.geocoded_source_address ?? null,
+        geocoding_status: basicInfo?.geocoding_status ?? item.geocoding_status ?? "PENDING",
+        geocoding_error: basicInfo?.geocoding_error ?? item.geocoding_error ?? null,
+        geocoded_at: basicInfo?.geocoded_at ?? item.geocoded_at ?? null,
+        geocode_provider: basicInfo?.geocode_provider ?? item.geocode_provider ?? null,
+        coordinate_locked: basicInfo?.coordinate_locked ?? item.coordinate_locked ?? false,
       };
     });
 
@@ -469,6 +483,26 @@ export async function PATCH(request: NextRequest) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    let geocodeResult = null;
+    if (updates.hasOwnProperty('address') && code) {
+      try {
+        const invalidation = await invalidateBusinessCoordinateForAddress(supabase, {
+          code,
+          businessName: updatedData.business_name,
+          fallbackAddress: updatedData.address,
+        });
+        if (invalidation.addressChanged) {
+          geocodeResult = await ensureBusinessCoordinate(supabase, {
+            code,
+            businessName: updatedData.business_name,
+            fallbackAddress: updatedData.address,
+          });
+        }
+      } catch (coordinateError) {
+        console.error("[BusinessCoordinates] 주소 변경 후 좌표 갱신 실패:", coordinateError instanceof Error ? coordinateError.message : "unknown");
+      }
     }
 
     const supportInfoChanged = [
@@ -762,7 +796,7 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, data: updatedData });
+    return NextResponse.json({ success: true, data: updatedData, geocodeStatus: geocodeResult?.geocoding_status || null });
 
   } catch (error: any) {
     console.error("PATCH API Critical Error:", error);
@@ -923,9 +957,25 @@ export async function POST(request: NextRequest) {
     const eligibility = Array.isArray(eligibilityRows) ? eligibilityRows[0] : eligibilityRows;
     const newBusinessCodeCreated = eligibility?.new_business_code_created === true;
 
+    let geocodeResult = null;
+    try {
+      geocodeResult = await ensureBusinessCoordinate(supabase, {
+        code,
+        businessName: business_name,
+        fallbackAddress: address,
+      });
+    } catch (coordinateError) {
+      console.error("[BusinessCoordinates] 신규 등록 후 좌표 처리 실패:", coordinateError instanceof Error ? coordinateError.message : "unknown");
+    }
+
     return NextResponse.json({
       success: true,
+      businessCreated: true,
       data: newTarget,
+      geocodeStatus: geocodeResult?.geocoding_status?.toLowerCase() || "failed",
+      latitude: geocodeResult?.latitude ?? null,
+      longitude: geocodeResult?.longitude ?? null,
+      geocodeMessage: geocodeResult?.geocoding_error || undefined,
       newBusinessCodeCreated,
       documentGenerationJobId: eligibility?.job_id || null,
       nationalSupportFollowUp: {

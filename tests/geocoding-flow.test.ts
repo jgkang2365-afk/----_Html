@@ -49,11 +49,11 @@ test("Geocoding API Route에 필수 검증 및 RLS 권한 확인이 구현되어
   assert.match(geocodeRouteSource, /checkPermission\("journal:write"\)/);
   
   // 2. 최대 10개 검증
-  assert.match(geocodeRouteSource, /businessIds\.length > 10/);
+  assert.match(geocodeRouteSource, /businessIds\.length > MAX_BATCH_SIZE/);
   
   // 3. 중복 주소 캐싱 맵 존재 여부
   assert.match(geocodeRouteSource, /new Map/);
-  assert.match(geocodeRouteSource, /geocodeCache\.has/);
+  assert.match(geocodeRouteSource, /resultByAddress\.get/);
   
   // 4. coordinate_locked 시 덮어쓰기 방지
   assert.match(geocodeRouteSource, /coordinate_locked/);

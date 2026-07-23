@@ -70,7 +70,15 @@ export async function GET(request: NextRequest) {
       console.error("[NearbyBusinesses] 기준 사업장 조회 실패:", baseError.code);
       return NextResponse.json({ error: "기준 사업장을 조회하지 못했습니다." }, { status: 500 });
     }
-    const baseBusiness = base as unknown as CandidateRow | null;
+    let baseBusiness = base as unknown as CandidateRow | null;
+    if (baseBusiness) {
+      const { data: baseInfo } = await supabase
+        .from("business_info")
+        .select("latitude, longitude")
+        .eq("code", baseBusiness.code)
+        .maybeSingle();
+      if (baseInfo) baseBusiness = { ...baseBusiness, latitude: baseInfo.latitude, longitude: baseInfo.longitude };
+    }
     if (
       !baseBusiness ||
       !isValidKoreanCoordinate(baseBusiness.latitude, baseBusiness.longitude)
@@ -91,7 +99,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "주변 사업장을 조회하지 못했습니다." }, { status: 500 });
     }
 
-    const candidates = ((data || []) as unknown as CandidateRow[])
+    const candidateRows = (data || []) as unknown as CandidateRow[];
+    const candidateCodes = Array.from(new Set(candidateRows.map((business) => business.code)));
+    const { data: coordinateInfos } = candidateCodes.length
+      ? await supabase.from("business_info").select("code, latitude, longitude").in("code", candidateCodes)
+      : { data: [] };
+    const coordinateMap = new Map((coordinateInfos || []).map((info: any) => [info.code, info]));
+    const candidates = candidateRows
+      .map((business) => {
+        const coordinate: any = coordinateMap.get(business.code);
+        return coordinate ? { ...business, latitude: coordinate.latitude, longitude: coordinate.longitude } : business;
+      })
       .filter((business) => {
         const managementStatus = (business.management_status || "").replace(/\s/g, "");
         const inactive =
