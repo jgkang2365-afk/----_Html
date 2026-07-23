@@ -55,6 +55,12 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
   // 모달 내부 검색 관련 상태
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<BusinessEntry[]>([]);
+  const [nearbyBusinesses, setNearbyBusinesses] = useState<Array<BusinessEntry & { distanceKm?: number }>>([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyError, setNearbyError] = useState<string | null>(null);
+  const [nearbyPage, setNearbyPage] = useState(0);
+  const [nearbyTotal, setNearbyTotal] = useState(0);
+  const [nearbyHasNext, setNearbyHasNext] = useState(false);
 
   // 최적 동선 계산 상태
   const [optimizing, setOptimizing] = useState(false);
@@ -626,6 +632,45 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
     }
   };
 
+  const handleLoadNearbyBusinesses = async (baseBusiness: BusinessEntry, page = 0) => {
+    if (!baseBusiness.latitude || !baseBusiness.longitude) {
+      setNearbyError("기준 사업장의 저장 좌표가 없습니다.");
+      return;
+    }
+    setNearbyLoading(true);
+    setNearbyError(null);
+    try {
+      const params = new URLSearchParams({
+        year: String(baseBusiness.year),
+        period: baseBusiness.period,
+        baseId: String(baseBusiness.id),
+        page: String(page),
+        includeScheduled: "false",
+        excludeIds: mapBusinesses.map((business) => String(business.id)).join(","),
+      });
+      const response = await fetch(`/api/businesses/nearby?${params.toString()}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "주변 업체를 조회하지 못했습니다.");
+
+      const candidates = (payload.candidates || []).map((candidate: any) => ({
+        ...candidate,
+        business_number: null,
+        isRegistered: false,
+        is_registered_text: candidate.is_registered_text || "미실시",
+      }));
+      setNearbyBusinesses(candidates);
+      setNearbyPage(payload.page || 0);
+      setNearbyTotal(payload.total || 0);
+      setNearbyHasNext(payload.hasNext === true);
+      setSearchResults([]);
+    } catch (error) {
+      setNearbyBusinesses([]);
+      setNearbyError(error instanceof Error ? error.message : "주변 업체 조회 중 오류가 발생했습니다.");
+    } finally {
+      setNearbyLoading(false);
+    }
+  };
+
   // 최적 동선 계산 요청
   const handleOptimizeRoute = async () => {
     // 1. 포함 사업장 최소 개수 검증
@@ -1089,6 +1134,15 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
                                   {isStart ? "🚩 출발지 해제" : "🚩 출발지로 지정"}
                                 </button>
                               )}
+                              {isStart && !isExcluded && (
+                                <button
+                                  onClick={() => handleLoadNearbyBusinesses(biz, 0)}
+                                  disabled={nearbyLoading}
+                                  className="px-2.5 py-1 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900 disabled:text-indigo-400 text-white transition-colors"
+                                >
+                                  {nearbyLoading ? "조회 중..." : "주변 업체 조회"}
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleToggleExclude(biz.id)}
                                 className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
@@ -1136,7 +1190,83 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
                 )}
 
                 {/* 3. 하단: 사업장 추가 검색창 */}
-                <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-col h-[280px] shrink-0">
+                <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-col h-[360px] shrink-0">
+                  <div className="mb-3 rounded-lg border border-indigo-900/60 bg-indigo-950/20 p-2.5">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-indigo-300">
+                        주변 미실시 업체 {nearbyTotal > 0 ? `(${nearbyTotal}개)` : ""}
+                      </div>
+                      {nearbyBusinesses.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setNearbyBusinesses([]);
+                            setNearbyError(null);
+                            setNearbyTotal(0);
+                          }}
+                          className="text-[10px] text-slate-500 hover:text-slate-300"
+                        >
+                          닫기
+                        </button>
+                      )}
+                    </div>
+                    {nearbyError && <div className="text-[11px] text-red-400">{nearbyError}</div>}
+                    {!nearbyError && nearbyBusinesses.length === 0 && (
+                      <div className="text-[11px] text-slate-500">
+                        출발지를 지정한 뒤 ‘주변 업체 조회’를 누르세요.
+                      </div>
+                    )}
+                    {nearbyBusinesses.length > 0 && (
+                      <>
+                        <div className="max-h-24 space-y-1 overflow-y-auto pr-1 custom-scrollbar">
+                          {nearbyBusinesses.map((business) => {
+                            const isAdded = mapBusinesses.some((item) => String(item.id) === String(business.id));
+                            return (
+                              <div key={business.id} className="flex items-center justify-between gap-2 rounded bg-slate-900 px-2 py-1.5 text-xs">
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate font-semibold text-slate-200">{business.business_name}</div>
+                                  <div className="text-[10px] text-indigo-300">
+                                    {typeof business.distanceKm === "number" ? `${business.distanceKm.toFixed(1)}km` : "거리 확인 중"}
+                                  </div>
+                                </div>
+                                <Button
+                                  disabled={isAdded || totalCount >= 10}
+                                  onClick={() => handleAddBusiness(business)}
+                                  variant="secondary"
+                                  className="h-6 px-2 text-[10px]"
+                                >
+                                  {isAdded ? "추가됨" : "추가"}
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-2 flex items-center justify-center gap-2">
+                          <button
+                            disabled={nearbyPage === 0 || nearbyLoading}
+                            onClick={() => {
+                              const base = mapBusinesses.find((business) => String(business.id) === String(selectedStartId));
+                              if (base) void handleLoadNearbyBusinesses(base, nearbyPage - 1);
+                            }}
+                            className="text-[10px] text-slate-400 disabled:text-slate-700"
+                          >
+                            이전
+                          </button>
+                          <span className="text-[10px] text-slate-500">{nearbyPage + 1}페이지</span>
+                          <button
+                            disabled={!nearbyHasNext || nearbyLoading}
+                            onClick={() => {
+                              const base = mapBusinesses.find((business) => String(business.id) === String(selectedStartId));
+                              if (base) void handleLoadNearbyBusinesses(base, nearbyPage + 1);
+                            }}
+                            className="text-[10px] text-slate-400 disabled:text-slate-700"
+                          >
+                            다음
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   <h3 className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">지도에 사업장 추가</h3>
                   <div className="flex gap-2 mb-3">
                     <Input
