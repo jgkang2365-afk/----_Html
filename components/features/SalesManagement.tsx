@@ -1753,6 +1753,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                     deposit: number;
                     unpaid: number;
                     depositDate: string | null;
+                    invoiceDate: string | null;
                     designatedOffice: string | null;
                     representative: string | null;
                     unpaidType?: "both" | "business" | "national";
@@ -1797,6 +1798,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                         deposit: deposit,
                         unpaid: unpaid,
                         depositDate: item.deposit_date_business || item.deposit_date_national || null,
+                        invoiceDate: item.electronic_invoice_date || item.electronic_invoice_date_2 || null,
                         designatedOffice: item.designated_office || null,
                         representative: item.representative_name || null,
                         unpaidType: unpaidType,
@@ -1821,6 +1823,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                         deposit: deposit,
                         unpaid: unpaid,
                         depositDate: item.deposit_date || null,
+                        invoiceDate: item.invoice_date || null,
                         designatedOffice: item.designated_office || null,
                         representative: item.representative_name || null,
                         phone: null,
@@ -2151,13 +2154,25 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                                   <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
                                 </div>
                               </TableHead>
+                              <TableHead className="w-[130px]">
+                                <div className="space-y-1">
+                                  <div
+                                    className="flex items-center justify-center cursor-pointer hover:text-primary-600"
+                                    onClick={() => handleSort("invoiceDate")}
+                                  >
+                                    계산서 발행일
+                                    <SortIcon column="invoiceDate" />
+                                  </div>
+                                  <div className="text-xs text-text-500 h-8 flex items-center justify-center">-</div>
+                                </div>
+                              </TableHead>
                               <TableHead className="w-[180px] text-center">관리</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {filteredItems.length === 0 ? (
                               <TableRow>
-                                <TableCell colSpan={10} className="text-center text-text-500 py-8">
+                                <TableCell colSpan={12} className="text-center text-text-500 py-8">
                                   {unpaidItems.length === 0
                                     ? "미수금이 있는 항목이 없습니다."
                                     : "필터 조건에 맞는 항목이 없습니다."}
@@ -2208,6 +2223,9 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                                         ) : "text-warning-600"
                                       )}>
                                         {formatCurrency(item.unpaid)}원
+                                      </TableCell>
+                                      <TableCell className="text-center">
+                                        {item.invoiceDate ? formatDateYYYYMMDD(item.invoiceDate) : "-"}
                                       </TableCell>
                                       <TableCell className="text-center">
                                         <div className="flex justify-center items-center gap-1.5">
@@ -2279,12 +2297,13 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                                   );
                                 })}
                                 <TableRow className="bg-surface-50">
-                                  <TableCell colSpan={8} className="text-right font-semibold">
+                                  <TableCell colSpan={9} className="text-right font-semibold">
                                     미수금 합계
                                   </TableCell>
                                   <TableCell className="text-right font-bold text-warning-600 text-lg">
                                     {formatCurrency(totalUnpaid)}원
                                   </TableCell>
+                                  <TableCell>{""}</TableCell>
                                   <TableCell>{""}</TableCell>
                                 </TableRow>
                               </>
