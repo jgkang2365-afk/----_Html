@@ -161,3 +161,13 @@ export function sanitizeBusinessForMap(value: {
     included: true,
   };
 }
+
+export function retainAvailableBusinessIds(
+  selectedIds: Iterable<string | number>,
+  businesses: Array<{ id: string | number }>,
+): Set<string | number> {
+  const availableIds = new Set(businesses.map((business) => String(business.id)));
+  return new Set(
+    Array.from(selectedIds).filter((id) => availableIds.has(String(id))),
+  );
+}

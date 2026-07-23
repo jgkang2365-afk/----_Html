@@ -83,6 +83,7 @@ export function MeasurementMapViewer() {
   const routeAbortRef = useRef<AbortController | null>(null);
   const routeRequestIdRef = useRef(0);
   const messageHandlerRef = useRef<(message: unknown) => void>(() => undefined);
+  const lastCenteredBaseIdRef = useRef<string | null>(null);
 
   const [connected, setConnected] = useState(false);
   const [context, setContext] = useState<MeasurementMapContext | null>(null);
@@ -95,6 +96,7 @@ export function MeasurementMapViewer() {
   const [candidateTotal, setCandidateTotal] = useState(0);
   const [candidateLoading, setCandidateLoading] = useState(false);
   const [candidateError, setCandidateError] = useState<string | null>(null);
+  const [candidateReloadKey, setCandidateReloadKey] = useState(0);
   const [includeScheduled, setIncludeScheduled] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -315,6 +317,7 @@ export function MeasurementMapViewer() {
     if (!baseBusiness || !context || !isValidKoreanCoordinate(baseBusiness.latitude, baseBusiness.longitude)) {
       setCandidates([]);
       setCandidateTotal(0);
+      setCandidateLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -347,7 +350,7 @@ export function MeasurementMapViewer() {
         if (!controller.signal.aborted) setCandidateLoading(false);
       });
     return () => controller.abort();
-  }, [baseBusiness, businesses, candidatePage, context, includeScheduled]);
+  }, [baseBusiness, businesses, candidatePage, candidateReloadKey, context, includeScheduled]);
 
   const addCandidate = useCallback(
     (id: string | number) => {
@@ -365,12 +368,22 @@ export function MeasurementMapViewer() {
 
   const chooseBase = useCallback(
     (id: string | number) => {
-      if (idMatches(id, baseBusinessId)) return;
-      invalidateRoute();
-      setBaseBusinessId(id);
+      const sameBase = idMatches(id, baseBusinessId);
+      if (!sameBase) {
+        invalidateRoute();
+        setBaseBusinessId(id);
+      }
       setCandidatePage(0);
       setCandidates([]);
-      setNotice({ text: "기준 사업장이 변경되어 기존 동선 결과를 초기화했습니다." });
+      setCandidateTotal(0);
+      setCandidateError(null);
+      setCandidateLoading(true);
+      setCandidateReloadKey((current) => current + 1);
+      setNotice({
+        text: sameBase
+          ? "주변 미실시 후보를 다시 조회합니다."
+          : "기준 사업장이 변경되어 기존 동선 결과를 초기화했습니다.",
+      });
       infoWindowRef.current?.close();
     },
     [baseBusinessId, invalidateRoute],
@@ -482,7 +495,7 @@ export function MeasurementMapViewer() {
         const isBase = idMatches(business.id, baseBusinessId);
         const isStart = idMatches(business.id, startBusinessId);
         const color = isStart ? "#d97706" : isBase ? "#0284c7" : "#e11d48";
-        const label = isStart ? "S" : isBase ? "기준" : "●";
+        const label = isStart ? "🚩" : isBase ? "기준" : "●";
         addMarker(
           business,
           `<div style="min-width:34px;height:34px;padding:0 7px;border-radius:18px;display:flex;align-items:center;justify-content:center;background:${color};border:3px solid white;color:white;font-size:${isBase ? "10px" : "14px"};font-weight:800;box-shadow:0 3px 10px #0006">${label}</div>`,
@@ -500,14 +513,29 @@ export function MeasurementMapViewer() {
     }
 
     naverMaps.Event.addListener(map, "click", () => infoWindowRef.current?.close());
-    if (coordinateCount === 1) {
+    if (
+      !routeResult &&
+      baseBusiness &&
+      isValidKoreanCoordinate(baseBusiness.latitude, baseBusiness.longitude)
+    ) {
+      const basePosition = new naverMaps.LatLng(baseBusiness.latitude, baseBusiness.longitude);
+      const baseKey = String(baseBusiness.id);
+      map.setCenter(basePosition);
+      if (lastCenteredBaseIdRef.current !== baseKey) {
+        map.setZoom(12);
+        lastCenteredBaseIdRef.current = baseKey;
+      }
+    } else if (coordinateCount === 1) {
+      lastCenteredBaseIdRef.current = null;
       map.setCenter(bounds.getCenter());
       map.setZoom(15);
     } else if (coordinateCount > 1) {
+      lastCenteredBaseIdRef.current = null;
       map.fitBounds(bounds, { top: 60, right: 60, bottom: 60, left: 60 });
     }
     window.dispatchEvent(new Event("resize"));
   }, [
+    baseBusiness,
     baseBusinessId,
     candidates,
     includedBusinesses,
@@ -803,7 +831,7 @@ export function MeasurementMapViewer() {
                   </button>
                 </div>
               </div>
-              <div className="mt-3 max-h-[220px] space-y-2 overflow-y-auto pr-1">
+              <div data-section="selected-businesses" className="mt-3 space-y-2">
                 {businesses.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-slate-700 p-5 text-center text-xs text-slate-500">
                     메인 화면에서 기준 사업장을 선택하세요.
@@ -831,7 +859,7 @@ export function MeasurementMapViewer() {
                             </div>
                             <div className="mt-1 flex gap-1">
                               {isBase && <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] text-sky-300">기준점</span>}
-                              {isStart && <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-300">출발지</span>}
+                              {isStart && <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-300">🚩 출발지</span>}
                               {excluded && <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px]">제외됨</span>}
                               {!isValidKoreanCoordinate(business.latitude, business.longitude) && (
                                 <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-300">좌표 미등록</span>
@@ -881,7 +909,7 @@ export function MeasurementMapViewer() {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div data-section="nearby-candidates" className="min-h-[160px] flex-1 overflow-y-auto p-4">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-bold">주변 미실시 후보</h2>
                 <label className="flex items-center gap-1.5 text-[11px] text-slate-400">

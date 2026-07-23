@@ -27,6 +27,7 @@ import {
     MEASUREMENT_MAP_VIEWER_NAME,
     MEASUREMENT_MAP_VIEWER_PATH,
     MeasurementMapMessage,
+    retainAvailableBusinessIds,
     sanitizeBusinessForMap,
 } from "@/lib/measurement-map/types";
 import * as XLSX from "xlsx";
@@ -1003,10 +1004,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             if (!response.ok) throw new Error("Failed to fetch data");
 
             const result = await response.json();
-            const fetchedData = result.businesses || [];
+            const fetchedData: BusinessEntry[] = result.businesses || [];
 
             setData(fetchedData);
-            setSelectedBusinessIds(new Set());
+            if (options?.silent) {
+                setSelectedBusinessIds((previous) =>
+                    retainAvailableBusinessIds(previous, fetchedData)
+                );
+            } else {
+                setSelectedBusinessIds(new Set());
+            }
         } catch (error) {
             console.error("Error fetching businesses:", error);
         } finally {
