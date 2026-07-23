@@ -154,15 +154,44 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const businesses: BusinessInput[] = body.businesses;
+    const startBusinessId = body.startBusinessId;
 
+    // 1. 사업장 개수 검증 (최소 2개, 최대 6개)
     if (!Array.isArray(businesses) || businesses.length < 2) {
       return NextResponse.json(
-        { success: false, error: "최적 동선 계산을 위해 최소 2개 이상의 사업장이 필요합니다." },
+        { success: false, error: "동선을 계산하려면 사업장을 2개 이상 포함하세요." },
         { status: 400 }
       );
     }
 
-    // 좌표 유효성 검사
+    if (businesses.length > 6) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "현재 최적 동선 계산은 최대 6개 사업장까지 지원합니다. 일부 사업장을 제외한 후 다시 계산하세요.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2. 출발지 지정 여부 검증
+    if (startBusinessId === undefined || startBusinessId === null || startBusinessId === "") {
+      return NextResponse.json(
+        { success: false, error: "지도에서 출발 사업장을 먼저 선택하세요." },
+        { status: 400 }
+      );
+    }
+
+    // 출발지 사업장 찾기
+    const originIndex = businesses.findIndex((b) => String(b.id) === String(startBusinessId));
+    if (originIndex === -1) {
+      return NextResponse.json(
+        { success: false, error: "지정된 출발 사업장이 포함 사업장 목록에 존재하지 않습니다." },
+        { status: 400 }
+      );
+    }
+
+    // 3. 좌표 유효성 검사
     for (const biz of businesses) {
       if (!biz.latitude || !biz.longitude || isNaN(biz.latitude) || isNaN(biz.longitude)) {
         return NextResponse.json(
@@ -172,9 +201,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 1. 첫 번째 사업장을 출발지로 고정
-    const originBusiness = businesses[0];
-    const remainingBusinesses = businesses.slice(1);
+    // 4. 지정된 출발지 사업장을 originBusiness로 설정하고 나머지 사업장 분리
+    const originBusiness = businesses[originIndex];
+    const remainingBusinesses = businesses.filter((_, idx) => idx !== originIndex);
 
     // 2. 나머지 사업장들의 모든 방문 순열(Permutations) 생성
     const remainingPermutations = getPermutations(remainingBusinesses);

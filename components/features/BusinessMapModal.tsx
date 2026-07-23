@@ -61,6 +61,108 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
   const [optimalRouteResult, setOptimalRouteResult] = useState<any | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
 
+  // 포함/제외 상태 관리 (제외된 사업장 ID 집합)
+  const [excludedIds, setExcludedIds] = useState<Set<string | number>>(new Set());
+  // 출발지 지정 사업장 ID
+  const [selectedStartId, setSelectedStartId] = useState<string | number | null>(null);
+  // 안내/알림 메시지 상태
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  // 제외된 사업장 목록 접기/펼치기 상태
+  const [showExcludedAccordion, setShowExcludedAccordion] = useState(false);
+
+  // 윈도우 전역 함수 연동용 Ref
+  const selectStartHandlerRef = useRef<(id: string | number) => void>(() => {});
+
+  // 파생 상태: 포함 사업장 / 제외 사업장
+  const includedBusinesses = mapBusinesses.filter(
+    (b) => !excludedIds.has(b.id) && !excludedIds.has(String(b.id)) && !excludedIds.has(Number(b.id))
+  );
+
+  const excludedBusinesses = mapBusinesses.filter(
+    (b) => excludedIds.has(b.id) || excludedIds.has(String(b.id)) || excludedIds.has(Number(b.id))
+  );
+
+  // 출발지 선택 핸들러
+  const handleSelectStartBusiness = (id: string | number) => {
+    // 만약 제외 상태 사업장이면 포함으로 자동 전환
+    if (excludedIds.has(id) || excludedIds.has(String(id)) || excludedIds.has(Number(id))) {
+      setExcludedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        next.delete(String(id));
+        next.delete(Number(id));
+        return next;
+      });
+    }
+
+    setSelectedStartId((prev) => (String(prev) === String(id) ? null : id));
+    setOptimalRouteResult(null);
+    setNoticeMessage(null);
+  };
+
+  // selectStartHandlerRef 갱신
+  selectStartHandlerRef.current = handleSelectStartBusiness;
+
+  // 전역 윈도우 함수 바인딩
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__closeMapInfoWindow = () => {
+        if (infoWindowRef.current) infoWindowRef.current.close();
+      };
+      (window as any).__selectStartBusiness = (id: string | number) => {
+        selectStartHandlerRef.current(id);
+      };
+    }
+  }, []);
+
+  // 사업장 단일 포함/제외 토글 핸들러
+  const handleToggleExclude = (id: string | number) => {
+    setOptimalRouteResult(null);
+    setNoticeMessage(null);
+
+    const isExcluded = excludedIds.has(id) || excludedIds.has(String(id)) || excludedIds.has(Number(id));
+
+    if (isExcluded) {
+      // 다시 포함
+      setExcludedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        next.delete(String(id));
+        next.delete(Number(id));
+        return next;
+      });
+    } else {
+      // 제외하기
+      setExcludedIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+
+      // 만약 현재 출발지로 지정된 사업장을 제외하는 경우: 출발지 지정 해제 및 안내
+      if (selectedStartId !== null && String(selectedStartId) === String(id)) {
+        setSelectedStartId(null);
+        setNoticeMessage("출발지가 제외되었습니다. 포함된 사업장 중 출발지를 다시 지정하세요.");
+      }
+    }
+  };
+
+  // 전체 포함 핸들러
+  const handleSelectAll = () => {
+    setExcludedIds(new Set());
+    setOptimalRouteResult(null);
+    setNoticeMessage(null);
+  };
+
+  // 전체 제외 핸들러
+  const handleExcludeAll = () => {
+    const allIds = new Set(mapBusinesses.map((b) => b.id));
+    setExcludedIds(allIds);
+    setSelectedStartId(null);
+    setOptimalRouteResult(null);
+    setNoticeMessage("모든 사업장이 제외되었습니다. 동선을 계산하려면 사업장을 포함하세요.");
+  };
+
   // 클라이언트 ID 획득
   const clientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID?.trim();
 
@@ -335,9 +437,9 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
         });
       }
     } else {
-      // 일반 마커 표시 모드 (동일 좌표 묶기)
+      // 일반 마커 표시 모드 (포함 사업장만, 동일 좌표 묶기)
       const coordGroups = new Map<string, BusinessEntry[]>();
-      mapBusinesses.forEach((biz) => {
+      includedBusinesses.forEach((biz) => {
         if (biz.latitude && biz.longitude) {
           const key = `${biz.latitude.toFixed(6)},${biz.longitude.toFixed(6)}`;
           const group = coordGroups.get(key) || [];
@@ -360,20 +462,37 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
         validCoordsCount++;
 
         const isMulti = group.length > 1;
+        const hasStart = group.some((biz) => String(biz.id) === String(selectedStartId));
 
-        const markerHtml = isMulti
-          ? `<div class="relative flex items-center justify-center cursor-pointer group">
+        let markerHtml = "";
+        if (hasStart) {
+          markerHtml = `
+            <div class="relative flex items-center justify-center cursor-pointer group">
+              <div class="absolute w-9 h-9 rounded-full bg-amber-500/50 animate-ping"></div>
+              <div class="relative flex items-center justify-center px-2 py-1 rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white font-black text-xs shadow-xl border-2 border-white hover:scale-110 transition-transform duration-200">
+                🚩 출발 ${isMulti ? `(${group.length})` : ""}
+              </div>
+            </div>
+          `;
+        } else if (isMulti) {
+          markerHtml = `
+            <div class="relative flex items-center justify-center cursor-pointer group">
               <div class="absolute w-8 h-8 rounded-full bg-indigo-500/40 animate-ping"></div>
               <div class="relative flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-black text-xs shadow-md border-2 border-white hover:scale-110 transition-transform duration-200">
                 ${group.length}
               </div>
-             </div>`
-          : `<div class="relative flex items-center justify-center cursor-pointer group">
+             </div>
+          `;
+        } else {
+          markerHtml = `
+            <div class="relative flex items-center justify-center cursor-pointer group">
               <div class="absolute w-8 h-8 rounded-full bg-rose-500/45 animate-ping"></div>
               <div class="relative flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-rose-600 via-red-500 to-amber-400 text-white font-bold text-xs shadow-md border-2 border-white hover:scale-110 transition-transform duration-200">
                 📍
               </div>
-             </div>`;
+             </div>
+          `;
+        }
 
         const marker = new naverMaps.Marker({
           position,
@@ -410,18 +529,39 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
               </div>
               <div class="space-y-3 max-h-[220px] overflow-y-auto pr-1">
                 ${group
-                  .map(
-                    (biz) => `
+                  .map((biz) => {
+                    const isSelectedStart = String(biz.id) === String(selectedStartId);
+                    return `
                   <div class="text-xs">
-                    <div class="font-bold text-sm text-slate-900 mb-0.5">${biz.business_name}</div>
-                    <div class="text-slate-500 flex gap-2 mb-1">
-                      <span>코드: ${biz.code}</span>
-                      <span>상태: <span class="${biz.is_registered_text === '실시' ? 'text-green-600 font-semibold' : 'text-amber-600'}">${biz.is_registered_text || '미실시'}</span></span>
+                    <div class="flex items-center justify-between gap-1 mb-0.5">
+                      <div class="font-bold text-sm text-slate-900 truncate">${biz.business_name}</div>
+                      ${
+                        isSelectedStart
+                          ? `<span class="shrink-0 text-[10px] font-extrabold bg-amber-100 text-amber-700 border border-amber-300 px-2 py-0.5 rounded-full">🚩 출발지</span>`
+                          : ""
+                      }
                     </div>
-                    <div class="text-slate-600 bg-slate-50 p-1.5 rounded leading-relaxed break-all">${biz.address || "주소 없음"}</div>
+                    <div class="text-slate-500 flex gap-2 mb-1 text-[11px]">
+                      <span>코드: ${biz.code}</span>
+                      <span>상태: <span class="${biz.is_registered_text === "실시" ? "text-green-600 font-semibold" : "text-amber-600"}">${biz.is_registered_text || "미실시"}</span></span>
+                    </div>
+                    <div class="text-slate-600 bg-slate-50 p-1.5 rounded leading-relaxed break-all mb-2">${biz.address || "주소 없음"}</div>
+                    <div class="flex justify-end">
+                      <button
+                        type="button"
+                        onclick="window.__selectStartBusiness && window.__selectStartBusiness('${biz.id}'); window.__closeMapInfoWindow && window.__closeMapInfoWindow();"
+                        class="px-2.5 py-1 text-[11px] font-bold rounded-lg ${
+                          isSelectedStart
+                            ? "bg-amber-500 text-white shadow"
+                            : "bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200"
+                        } transition-colors flex items-center gap-1"
+                      >
+                        ${isSelectedStart ? "🚩 출발지 지정 해제" : "🚩 출발지로 지정"}
+                      </button>
+                    </div>
                   </div>
-                `
-                  )
+                `;
+                  })
                   .join('<div class="border-t border-slate-100 my-2"></div>')}
               </div>
               <div class="mt-3 text-[10px] text-slate-400 text-right">
@@ -575,16 +715,51 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
 
   // 최적 동선 계산 요청
   const handleOptimizeRoute = async () => {
-    if (mapBusinesses.length < 2) {
-      alert("최적 동선을 계산하려면 지도에 표시된 사업장이 최소 2개 이상이어야 합니다.");
+    // 1. 포함 사업장 최소 개수 검증
+    if (includedBusinesses.length < 2) {
+      alert("동선을 계산하려면 사업장을 2개 이상 포함하세요.");
+      return;
+    }
+
+    // 2. 포함 사업장 최대 개수 검증 (최대 6개)
+    if (includedBusinesses.length > 6) {
+      alert("현재 최적 동선 계산은 최대 6개 사업장까지 지원합니다. 일부 사업장을 제외한 후 다시 계산하세요.");
+      return;
+    }
+
+    // 3. 출발지 지정 여부 검증
+    if (selectedStartId === null || !includedBusinesses.some((b) => String(b.id) === String(selectedStartId))) {
+      alert("지도에서 출발 사업장을 먼저 선택하세요.");
+      return;
+    }
+
+    // 4. 출발지 좌표 검증
+    const startBiz = includedBusinesses.find((b) => String(b.id) === String(selectedStartId));
+    if (!startBiz || !startBiz.latitude || !startBiz.longitude) {
+      alert("지정된 출발 사업장의 유효한 좌표 정보가 없어 동선을 계산할 수 없습니다.");
+      return;
+    }
+
+    // 5. 포함 사업장 중 좌표 유효성 필터링
+    const invalidBusinesses = includedBusinesses.filter((b) => !b.latitude || !b.longitude);
+    const validIncludedBusinesses = includedBusinesses.filter((b) => b.latitude && b.longitude);
+
+    if (invalidBusinesses.length > 0) {
+      const invalidNames = invalidBusinesses.map((b) => b.business_name).join(", ");
+      alert(`좌표가 없는 사업장 (${invalidNames})은 동선 계산 대상에서 제외됩니다.`);
+    }
+
+    if (validIncludedBusinesses.length < 2) {
+      alert("좌표가 유효한 포함 사업장이 2개 미만이어서 동선을 계산할 수 없습니다.");
       return;
     }
 
     setOptimizing(true);
     setRouteError(null);
+    setNoticeMessage(null);
 
     try {
-      const payload = mapBusinesses.map((b) => ({
+      const payload = validIncludedBusinesses.map((b) => ({
         id: b.id,
         business_name: b.business_name,
         latitude: b.latitude,
@@ -595,7 +770,10 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
       const res = await fetch("/api/businesses/route-optimize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businesses: payload }),
+        body: JSON.stringify({
+          businesses: payload,
+          startBusinessId: selectedStartId,
+        }),
       });
 
       const data = await res.json();
@@ -623,9 +801,26 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
     setRouteError(null);
   };
 
-  // 사업장 제외
+  // 사업장 삭제 (선택 목록에서 완전히 제거)
   const handleRemoveBusiness = (id: string | number, isFailed = false) => {
     setOptimalRouteResult(null);
+    setNoticeMessage(null);
+
+    // 삭제 대상이 출발지면 지정 해제 및 안내
+    if (selectedStartId !== null && String(selectedStartId) === String(id)) {
+      setSelectedStartId(null);
+      setNoticeMessage("출발지가 삭제되었습니다. 포함된 사업장 중 출발지를 다시 지정하세요.");
+    }
+
+    // 제외 목록에서도 해당 ID 정리
+    setExcludedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      next.delete(String(id));
+      next.delete(Number(id));
+      return next;
+    });
+
     if (isFailed) {
       setFailedBusinesses((prev) => prev.filter((b) => String(b.id) !== String(id)));
     } else {
@@ -646,18 +841,41 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
         role="dialog"
         aria-modal="true"
       >
+        {/* 알림 메시지 배너 */}
+        {noticeMessage && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 px-6 py-2.5 text-xs text-amber-300 font-semibold flex items-center justify-between animate-fadeIn shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🔔</span>
+              <span>{noticeMessage}</span>
+            </div>
+            <button
+              onClick={() => setNoticeMessage(null)}
+              className="text-amber-400 hover:text-amber-200 text-xs font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* 모달 헤더 */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-950/80 border-b border-slate-800">
+        <div className="flex items-center justify-between px-6 py-4 bg-slate-950/80 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold text-slate-100">선택 사업장 위치 확인</h2>
-            <span className="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2.5 py-1 rounded-full font-semibold">
-              현재 포함: {totalCount} / 10개
-            </span>
+            <h2 className="text-xl font-bold text-slate-100">선택 사업장 위치 확인 및 최적 동선</h2>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2.5 py-1 rounded-full font-semibold">
+                포함: {includedBusinesses.length} / 총 {mapBusinesses.length}개
+              </span>
+              {excludedBusinesses.length > 0 && (
+                <span className="text-xs bg-slate-800 text-slate-400 border border-slate-700 px-2.5 py-1 rounded-full font-semibold">
+                  제외: {excludedBusinesses.length}개
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button
               onClick={handleOptimizeRoute}
-              disabled={mapBusinesses.length < 2 || optimizing}
+              disabled={includedBusinesses.length < 2 || optimizing}
               variant="primary"
               className="h-9 px-3.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-bold border-none shadow-md disabled:bg-slate-800 disabled:text-slate-500 transition-colors"
             >
@@ -681,7 +899,7 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
             )}
             <Button
               onClick={handleRecenter}
-              disabled={mapBusinesses.length === 0}
+              disabled={includedBusinesses.length === 0}
               variant="secondary"
               className="h-9 px-3 text-xs bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
             >
@@ -725,9 +943,9 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
           </div>
 
           {/* 오른쪽: 상세 패널 영역 */}
-          <div className="w-full lg:w-[420px] bg-slate-900 flex flex-col overflow-hidden border-l border-slate-800">
+          <div className="w-full lg:w-[440px] bg-slate-900 flex flex-col overflow-hidden border-l border-slate-800 shrink-0">
             {routeError && (
-              <div className="p-4 bg-red-950/50 border-b border-red-800/60 text-red-300 text-xs flex items-start justify-between gap-2 animate-fadeIn">
+              <div className="p-4 bg-red-950/50 border-b border-red-800/60 text-red-300 text-xs flex items-start justify-between gap-2 animate-fadeIn shrink-0">
                 <div>
                   <div className="font-bold flex items-center gap-1.5 mb-1 text-red-400 text-sm">
                     ⚠️ 최적 동선 계산 실패
@@ -759,10 +977,16 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
                   </button>
                 </div>
 
+                {/* 개요 요약 (포함 / 제외 수) */}
+                <div className="flex items-center justify-between text-xs text-slate-400 bg-slate-950 p-2.5 rounded-lg border border-slate-800 mb-3">
+                  <span>계산 포함: <strong className="text-emerald-400 font-bold">{includedBusinesses.length}개</strong></span>
+                  <span>계산 제외: <strong className="text-slate-400 font-bold">{excludedBusinesses.length}개</strong></span>
+                </div>
+
                 {/* 1. 출발 사업장 정보 */}
-                <div className="mb-4 p-3.5 bg-amber-950/30 border border-amber-500/30 rounded-xl">
+                <div className="mb-4 p-3.5 bg-amber-950/30 border border-amber-500/40 rounded-xl">
                   <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                    <span>🚩 출발 사업장 (고정)</span>
+                    <span>🚩 출발지 사업장</span>
                   </div>
                   <div className="font-bold text-sm text-slate-100">
                     1. {optimalRouteResult.orderedBusinesses[0]?.business_name}
@@ -773,7 +997,7 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
                 </div>
 
                 {/* 2. 각 구간 추천 방문 순서 및 이동거리/시간 */}
-                <div className="flex-1 space-y-3.5 mb-5">
+                <div className="flex-1 space-y-3 mb-4">
                   <div className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
                     <span>추천 방문 순서 ({optimalRouteResult.segments.length}개 구간)</span>
                     <span className="text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded-full">
@@ -786,7 +1010,7 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
                       key={idx}
                       className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl hover:border-emerald-500/50 transition-colors"
                     >
-                      <div className="flex items-center justify-between text-xs font-bold text-emerald-400 mb-1.5">
+                      <div className="flex items-center justify-between text-xs font-bold text-emerald-400 mb-1">
                         <span>{idx + 1}. {seg.fromName}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-100 my-1 pl-2">
@@ -798,7 +1022,7 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
                 </div>
 
                 {/* 3. 전체 총 이동거리 및 총 이동시간 요약 카드 */}
-                <div className="p-4 bg-gradient-to-br from-emerald-950/40 via-slate-950 to-teal-950/40 border border-emerald-500/40 rounded-xl shadow-xl">
+                <div className="p-4 bg-gradient-to-br from-emerald-950/40 via-slate-950 to-teal-950/40 border border-emerald-500/40 rounded-xl shadow-xl mb-4">
                   <div className="text-xs font-bold text-emerald-400 mb-2 uppercase tracking-wider flex items-center justify-between">
                     <span>전체 경로 요약</span>
                     <span className="text-[10px] text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
@@ -820,50 +1044,159 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* 4. 접을 수 있는 보조 영역: 제외된 사업장 목록 */}
+                {excludedBusinesses.length > 0 && (
+                  <div className="border border-slate-800 rounded-xl bg-slate-950/50 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowExcludedAccordion((prev) => !prev)}
+                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-bold text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      <span>🚫 동선 계산 제외 사업장 ({excludedBusinesses.length}개)</span>
+                      <span>{showExcludedAccordion ? "▲ 접기" : "▼ 펼치기"}</span>
+                    </button>
+                    {showExcludedAccordion && (
+                      <div className="p-3 border-t border-slate-800/60 space-y-2 text-xs">
+                        {excludedBusinesses.map((b) => (
+                          <div key={b.id} className="p-2 bg-slate-900/60 rounded-lg flex items-center justify-between text-slate-400">
+                            <div className="truncate min-w-0 pr-2">
+                              <span className="font-semibold text-slate-300">{b.business_name}</span>
+                              <span className="text-[10px] text-slate-500 ml-2">({b.code})</span>
+                            </div>
+                            <span className="text-[10px] text-slate-500 shrink-0">사용자 제외 설정</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
-              /* 일반 지도 사업장 목록 패널 (기존) */
+              /* 일반 지도 사업장 목록 패널 */
               <>
-                {/* 1. 상단: 지도 포함 사업장 목록 */}
+                {/* 1. 상단: 지도 사업장 목록 */}
                 <div className="flex-1 p-4 flex flex-col overflow-hidden">
-                  <h3 className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">지도 표시 사업장 ({mapBusinesses.length})</h3>
-                  <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800 shrink-0">
+                    <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      지도 사업장 목록 ({mapBusinesses.length}개)
+                    </h3>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={handleSelectAll}
+                        className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded font-medium transition-colors"
+                      >
+                        전체 포함
+                      </button>
+                      <button
+                        onClick={handleExcludeAll}
+                        className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded font-medium transition-colors"
+                      >
+                        전체 제외
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 custom-scrollbar">
                     {mapBusinesses.length === 0 && !geocodingLoading ? (
                       <div className="h-20 flex items-center justify-center border border-dashed border-slate-800 rounded-xl text-xs text-slate-500">
                         지도에 표시할 사업장이 없습니다.
                       </div>
                     ) : (
-                      mapBusinesses.map((biz) => (
-                        <div key={biz.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-start justify-between gap-3 hover:border-slate-700 transition-colors">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-bold text-sm text-slate-200 truncate">{biz.business_name}</div>
-                            <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-1">
-                              <span>코드: {biz.code}</span>
-                              <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                              <span className="text-green-400">위치 확인 완료</span>
+                      mapBusinesses.map((biz, idx) => {
+                        const isExcluded = excludedIds.has(biz.id) || excludedIds.has(String(biz.id)) || excludedIds.has(Number(biz.id));
+                        const isStart = selectedStartId !== null && String(selectedStartId) === String(biz.id);
+
+                        return (
+                          <div
+                            key={biz.id}
+                            className={`p-3.5 rounded-xl border flex flex-col gap-2 transition-all ${
+                              isExcluded
+                                ? "bg-slate-950/40 border-slate-850/60 opacity-50 grayscale"
+                                : isStart
+                                ? "bg-amber-950/20 border-amber-500/50 shadow-md shadow-amber-950/30"
+                                : "bg-slate-950 border-slate-800 hover:border-slate-700"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-sm text-slate-200 truncate">{biz.business_name}</span>
+                                  {isStart && (
+                                    <span className="text-[10px] font-extrabold bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2 py-0.5 rounded-full shrink-0">
+                                      🚩 출발지
+                                    </span>
+                                  )}
+                                  {isExcluded && (
+                                    <span className="text-[10px] font-bold bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full shrink-0">
+                                      제외됨
+                                    </span>
+                                  )}
+                                  {!isStart && !isExcluded && idx === 0 && selectedStartId === null && (
+                                    <span className="text-[10px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.5 rounded shrink-0">
+                                      💡 출발지 후보
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-1">
+                                  <span>코드: {biz.code}</span>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${isExcluded ? "bg-slate-600" : "bg-green-500"}`}></span>
+                                  <span className={isExcluded ? "text-slate-500" : "text-green-400"}>
+                                    {isExcluded ? "동선 계산 제외" : "위치 확인 완료"}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-500 mt-1 break-all line-clamp-2 leading-relaxed" title={biz.address || ""}>
+                                  {biz.address || "주소 미등록"}
+                                </div>
+                              </div>
+
+                              {/* 삭제 버튼 (목록에서 완전히 제거) */}
+                              <button
+                                onClick={() => handleRemoveBusiness(biz.id, false)}
+                                className="p-1 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors shrink-0"
+                                title="삭제 (지도 선택 목록에서 제거)"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
                             </div>
-                            <div className="text-xs text-slate-500 mt-1.5 break-all line-clamp-2 leading-relaxed" title={biz.address || ""}>
-                              {biz.address || "주소 미등록"}
+
+                            {/* 하단 조작 버튼 영역 */}
+                            <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-850">
+                              {!isExcluded && (
+                                <button
+                                  onClick={() => handleSelectStartBusiness(biz.id)}
+                                  className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 ${
+                                    isStart
+                                      ? "bg-amber-500 text-white shadow hover:bg-amber-600"
+                                      : "bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700"
+                                  }`}
+                                >
+                                  {isStart ? "🚩 출발지 해제" : "🚩 출발지로 지정"}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleToggleExclude(biz.id)}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                                  isExcluded
+                                    ? "bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600/50"
+                                    : "bg-slate-800/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-slate-750"
+                                }`}
+                              >
+                                {isExcluded ? "다시 포함" : "동선에서 제외"}
+                              </button>
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleRemoveBusiness(biz.id, false)}
-                            className="p-1 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors shrink-0"
-                            title="제외"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
 
                 {/* 2. 중단: 지도 표시 실패 / 예외 항목 */}
                 {failedBusinesses.length > 0 && (
-                  <div className="p-4 bg-slate-950/40 border-t border-slate-800 max-h-[160px] flex flex-col">
+                  <div className="p-4 bg-slate-950/40 border-t border-slate-800 max-h-[160px] flex flex-col shrink-0">
                     <h3 className="text-xs font-bold text-red-400 mb-2 uppercase tracking-wider flex items-center gap-1.5">
                       ⚠️ 지도 표시 실패 ({failedBusinesses.length})
                     </h3>
@@ -890,7 +1223,7 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
                 )}
 
                 {/* 3. 하단: 사업장 추가 검색창 */}
-                <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-col h-[280px]">
+                <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-col h-[280px] shrink-0">
                   <h3 className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">지도에 사업장 추가</h3>
                   <div className="flex gap-2 mb-3">
                     <Input
@@ -948,7 +1281,7 @@ export const BusinessMapModal: React.FC<BusinessMapModalProps> = ({
         </div>
 
         {/* 모달 푸터 */}
-        <div className="px-6 py-4 bg-slate-950 border-t border-slate-850 flex justify-end gap-3">
+        <div className="px-6 py-4 bg-slate-950 border-t border-slate-850 flex justify-end gap-3 shrink-0">
           <Button
             onClick={onClose}
             variant="secondary"
