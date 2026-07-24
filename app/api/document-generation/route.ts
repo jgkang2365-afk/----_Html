@@ -3,6 +3,7 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  ANNUAL_TEMPLATE_PERIOD,
   buildDocumentOutputPath,
   DocumentType,
   isDocumentType,
@@ -13,6 +14,7 @@ import {
   DOCUMENT_GENERATION_JOURNAL_ERROR,
   findActualMeasurementJournal,
 } from "@/lib/document-generation/journal";
+import { selectApplicableDocumentTemplates } from "@/lib/document-generation/template-selection";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,7 @@ async function getContext(businessId: number) {
   if (!target) throw new Error("DOCUMENT_TARGET_NOT_FOUND");
 
   const eligible = target.document_generation_enabled === true;
+  const period = normalizeMeasurementPeriod(target.period);
   const actualJournal = await findActualMeasurementJournal(admin, target);
   const { data: jobRows, error } = await admin
     .from("document_generation_jobs")
@@ -48,24 +51,33 @@ async function getContext(businessId: number) {
       job,
       templates: [],
       outputPath: null,
+      measurementYear: target.year,
+      measurementPeriod: period,
     };
   }
 
-  const period = normalizeMeasurementPeriod(target.period);
-  const { data: templates, error: templateError } = await admin
+  if (!period) throw new Error("지원하지 않는 측정주기입니다.");
+  const { data: templateCandidates, error: templateError } = await admin
     .from("document_templates")
     .select("*")
     .eq("measurement_year", target.year)
-    .eq("measurement_period", period || "")
+    .in("measurement_period", [period, ANNUAL_TEMPLATE_PERIOD])
     .eq("is_active", true);
   if (templateError) throw templateError;
+  const templates = selectApplicableDocumentTemplates(
+    templateCandidates || [],
+    target.year,
+    period
+  );
   const { snapshot } = await buildDocumentSnapshot(admin, businessId);
   return {
     eligible,
     hasActualMeasurementJournal: false,
     job,
-    templates: templates || [],
+    templates,
     snapshot,
+    measurementYear: target.year,
+    measurementPeriod: period,
     outputPath: buildDocumentOutputPath(
       outputRoot(),
       target.year,
@@ -124,7 +136,9 @@ export async function POST(request: NextRequest) {
     );
     if (selected.some((type) => !templateMap.has(type)))
       return NextResponse.json(
-        { error: "선택한 문서 중 해당 연도·주기의 활성 템플릿이 없는 항목이 있습니다." },
+        {
+          error: `선택한 문서 중 ${context.measurementYear}년 ${context.measurementPeriod}에 적용 가능한 활성 양식이 없는 항목이 있습니다.`,
+        },
         { status: 400 }
       );
 

@@ -6,7 +6,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   DOCUMENT_TYPE_META,
   isDocumentType,
-  normalizeMeasurementPeriod,
+  parseTemplateMeasurementPeriod,
+  templateMeasurementPeriodStorageSegment,
 } from "@/lib/document-generation/constants";
 
 export const dynamic = "force-dynamic";
@@ -43,8 +44,11 @@ export async function GET(request: NextRequest) {
       .order("document_type")
       .order("version", { ascending: false });
     const year = Number(searchParams.get("year"));
-    const period = normalizeMeasurementPeriod(searchParams.get("period"));
+    const periodValue = searchParams.get("period");
+    const period = parseTemplateMeasurementPeriod(periodValue);
     if (Number.isInteger(year)) query = query.eq("measurement_year", year);
+    if (periodValue !== null && !period)
+      return NextResponse.json({ error: "지원하지 않는 적용 주기입니다." }, { status: 400 });
     if (period) query = query.eq("measurement_period", period);
     if (activeOnly) query = query.eq("is_active", true);
     const { data, error } = await query;
@@ -70,14 +74,11 @@ export async function POST(request: NextRequest) {
     const file = form.get("file");
     const documentType = form.get("document_type");
     const year = Number(form.get("measurement_year"));
-    const period = normalizeMeasurementPeriod(form.get("measurement_period"));
+    const period = parseTemplateMeasurementPeriod(form.get("measurement_period"));
     const activate = String(form.get("activate")) !== "false";
-    if (
-      !isUploadedFile(file) ||
-      !isDocumentType(documentType) ||
-      !Number.isInteger(year) ||
-      !period
-    )
+    if (!period)
+      return NextResponse.json({ error: "지원하지 않는 적용 주기입니다." }, { status: 400 });
+    if (!isUploadedFile(file) || !isDocumentType(documentType) || !Number.isInteger(year))
       return NextResponse.json(
         { error: "문서 종류, 연도, 주기, 파일을 확인해 주세요." },
         { status: 400 }
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
     if (versionError) throw versionError;
     const version = Number(latest?.version || 0) + 1;
     const bytes = Buffer.from(await file.arrayBuffer());
-    const periodSegment = period === "상반기" ? "first-half" : "second-half";
+    const periodSegment = templateMeasurementPeriodStorageSegment(period);
     uploadedPath = `${year}/${periodSegment}/${documentType}/v${version}-${randomUUID()}${extension}`;
     stage = "STORAGE_UPLOAD";
     const { error: uploadError } = await admin.storage
