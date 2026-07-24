@@ -9,6 +9,10 @@ import {
   normalizeMeasurementPeriod,
 } from "@/lib/document-generation/constants";
 import { buildDocumentSnapshot } from "@/lib/document-generation/snapshot";
+import {
+  DOCUMENT_GENERATION_JOURNAL_ERROR,
+  findActualMeasurementJournal,
+} from "@/lib/document-generation/journal";
 
 export const dynamic = "force-dynamic";
 
@@ -18,32 +22,56 @@ function outputRoot() {
 
 async function getContext(businessId: number) {
   const admin = createAdminClient();
-  const { data: job, error } = await admin
+  const { data: target, error: targetError } = await admin
+    .from("measurement_target_business")
+    .select("*")
+    .eq("id", businessId)
+    .maybeSingle();
+  if (targetError) throw targetError;
+  if (!target) throw new Error("DOCUMENT_TARGET_NOT_FOUND");
+
+  const eligible = target.document_generation_enabled === true;
+  const actualJournal = await findActualMeasurementJournal(admin, target);
+  const { data: jobRows, error } = await admin
     .from("document_generation_jobs")
     .select("*")
     .eq("business_id", businessId)
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
   if (error) throw error;
-  if (!job?.new_business_code_created) return { job: null, templates: [], outputPath: null };
-  const period = normalizeMeasurementPeriod(job.measurement_period);
+  const job = jobRows?.[0] || null;
+
+  if (!eligible || actualJournal) {
+    return {
+      eligible,
+      hasActualMeasurementJournal: Boolean(actualJournal),
+      job,
+      templates: [],
+      outputPath: null,
+    };
+  }
+
+  const period = normalizeMeasurementPeriod(target.period);
   const { data: templates, error: templateError } = await admin
     .from("document_templates")
     .select("*")
-    .eq("measurement_year", job.measurement_year)
+    .eq("measurement_year", target.year)
     .eq("measurement_period", period || "")
     .eq("is_active", true);
   if (templateError) throw templateError;
-  const { target, snapshot } = await buildDocumentSnapshot(admin, businessId);
+  const { snapshot } = await buildDocumentSnapshot(admin, businessId);
   return {
+    eligible,
+    hasActualMeasurementJournal: false,
     job,
     templates: templates || [],
     snapshot,
     outputPath: buildDocumentOutputPath(
       outputRoot(),
-      job.measurement_year,
-      job.measurement_period,
+      target.year,
+      target.period,
       target.business_name,
-      job.business_code
+      target.code
     ),
   };
 }
@@ -82,15 +110,15 @@ export async function POST(request: NextRequest) {
 
     const admin = createAdminClient();
     const context = await getContext(businessId);
-    if (!context.job)
+    if (!context.eligible)
       return NextResponse.json(
-        { error: "신규 사업장 코드로 등록된 업체만 문서를 생성할 수 있습니다." },
+        { error: "문서 생성 자격이 없는 측정대상사업장입니다." },
         { status: 403 }
       );
-    if (["PENDING", "PROCESSING"].includes(context.job.status))
+    if (context.hasActualMeasurementJournal)
+      return NextResponse.json({ error: DOCUMENT_GENERATION_JOURNAL_ERROR }, { status: 409 });
+    if (context.job && ["PENDING", "PROCESSING"].includes(context.job.status))
       return NextResponse.json({ error: "이미 문서 생성 작업이 진행 중입니다." }, { status: 409 });
-    if (context.job.status === "COMPLETED")
-      return NextResponse.json({ error: "신규 문서 생성이 이미 완료되었습니다." }, { status: 409 });
     const templateMap = new Map(
       (context.templates || []).map((template: any) => [template.document_type, template])
     );
@@ -128,7 +156,7 @@ export async function POST(request: NextRequest) {
       templates,
       output_path: context.outputPath,
       selected_documents: selected,
-      new_business_code_created: true,
+      document_generation_enabled: true,
     };
     const { data: queued, error } = await admin.rpc("queue_document_generation_job", {
       p_business_id: businessId,
@@ -141,6 +169,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { error: "이미 문서 생성 작업이 진행 중입니다." },
           { status: 409 }
+        );
+      if (String(error.message).includes("DOCUMENT_GENERATION_JOURNAL_EXISTS"))
+        return NextResponse.json({ error: DOCUMENT_GENERATION_JOURNAL_ERROR }, { status: 409 });
+      if (String(error.message).includes("DOCUMENT_GENERATION_NOT_ELIGIBLE"))
+        return NextResponse.json(
+          { error: "문서 생성 자격이 없는 측정대상사업장입니다." },
+          { status: 403 }
         );
       throw error;
     }

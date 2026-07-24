@@ -8,9 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic'; // Force dynamic rendering
 
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { getUser } from "@/lib/auth/get-user";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
 import { normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
@@ -915,6 +913,7 @@ export async function POST(request: NextRequest) {
         industrial_accident_number: industrialAccidentNumber,
         commencement_number: commencementNumber,
         representative_name: representative_name || null,
+        document_generation_enabled: true,
         is_registered: "미실시", // Default
         created_at: new Date().toISOString()
       })
@@ -930,32 +929,6 @@ export async function POST(request: NextRequest) {
       }
       throw new Error(`Target Insert Error: ${insertError.message}`);
     }
-
-    const currentUser = await getUser();
-    const admin = createAdminClient();
-    const { data: eligibilityRows, error: eligibilityError } = await admin.rpc(
-      "register_new_business_document_eligibility",
-      {
-        p_business_id: newTarget.id,
-        p_requested_by: currentUser ? Number(currentUser.id) : null,
-      },
-    );
-
-    if (eligibilityError) {
-      console.error("[POST /api/businesses] 신규 문서 생성 자격 저장 실패:", {
-        code: eligibilityError.code,
-        message: eligibilityError.message,
-        targetId: newTarget.id,
-      });
-      await admin.from("measurement_target_business").delete().eq("id", newTarget.id);
-      return NextResponse.json(
-        { error: "신규 사업장 등록 준비에 실패했습니다. 문서 생성 migration 적용 여부를 확인해 주세요." },
-        { status: 500 },
-      );
-    }
-
-    const eligibility = Array.isArray(eligibilityRows) ? eligibilityRows[0] : eligibilityRows;
-    const newBusinessCodeCreated = eligibility?.new_business_code_created === true;
 
     let geocodeResult = null;
     try {
@@ -976,8 +949,8 @@ export async function POST(request: NextRequest) {
       latitude: geocodeResult?.latitude ?? null,
       longitude: geocodeResult?.longitude ?? null,
       geocodeMessage: geocodeResult?.geocoding_error || undefined,
-      newBusinessCodeCreated,
-      documentGenerationJobId: eligibility?.job_id || null,
+      documentGenerationEnabled: true,
+      documentGenerationJobId: null,
       nationalSupportFollowUp: {
         eligible: initialSupportState.shouldQueueLookup,
         mode: initialSupportState.shouldAutoApply ? "apply_if_missing" : "lookup_only",
