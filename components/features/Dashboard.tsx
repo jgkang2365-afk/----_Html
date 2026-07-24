@@ -602,7 +602,7 @@ export const Dashboard: React.FC<{ startYear: string; endYear: string; period: s
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-500">
-            현재 필터 조건(조회 기간 및 주기)에 따라 비고가 <strong>"최초실시"</strong>이고 건설업종이 아닌 신규 발굴 사업장 리스트입니다. (사업장명 클릭 시 일지 작성으로 바로 이동합니다.)
+            현재 필터 조건(조회 기간 및 주기)에 따라 비고가 <strong>&quot;최초실시&quot;</strong>이고 건설업종이 아닌 신규 발굴 사업장 리스트입니다. (사업장명 클릭 시 일지 작성으로 바로 이동합니다.)
           </p>
           <div className="overflow-x-auto border border-slate-100 rounded-xl">
             <Table>
