@@ -91,15 +91,16 @@ test("XLSM 수정 대상은 B1 G1 C2 F2 I2뿐이다", () => {
   assert.ok(!("O2" in XLSM_TARGET_CELLS));
 });
 
-test("신규 코드 판정은 서버 RPC 결과로 응답한다", () => {
+test("신규 등록 API는 사업장 코드의 과거 존재와 무관하게 대상 행에 자격을 저장한다", () => {
   const source = readFileSync("app/api/businesses/route.ts", "utf8");
-  assert.match(source, /register_new_business_document_eligibility/);
-  assert.match(source, /newBusinessCodeCreated/);
+  assert.match(source, /document_generation_enabled: true/);
+  assert.doesNotMatch(source, /register_new_business_document_eligibility/);
 });
 
-test("기존 업체에는 자격 작업이 없으므로 버튼 컴포넌트가 렌더링되지 않는다", () => {
+test("자격이 없거나 실제 측정일지가 있으면 버튼 컴포넌트가 렌더링되지 않는다", () => {
   const source = readFileSync("components/features/NewBusinessDocumentGeneration.tsx", "utf8");
-  assert.match(source, /!context\?\.job \|\| !hasRequiredContext\) return null/);
+  assert.match(source, /!context\?\.eligible/);
+  assert.match(source, /context\.hasActualMeasurementJournal/);
 });
 
 test("작업 요청은 선택 문서와 템플릿 버전을 payload에 고정한다", () => {
@@ -111,7 +112,7 @@ test("작업 요청은 선택 문서와 템플릿 버전을 payload에 고정한
 
 test("템플릿 조회는 연도와 주기를 정확히 일치시킨다", () => {
   const source = readFileSync("app/api/document-generation/route.ts", "utf8");
-  assert.match(source, /eq\("measurement_year", job\.measurement_year\)/);
+  assert.match(source, /eq\("measurement_year", target\.year\)/);
   assert.match(source, /eq\("measurement_period", period \|\| ""\)/);
 });
 

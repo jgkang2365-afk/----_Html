@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, FilePlus2, Loader2, RotateCcw } from "lucide-react";
+import { FilePlus2, Loader2, RotateCcw } from "lucide-react";
 import { Button, Modal } from "@/components/ui";
 import {
   DOCUMENT_TYPE_META,
@@ -15,6 +15,8 @@ interface Props {
 }
 
 interface GenerationContext {
+  eligible: boolean;
+  hasActualMeasurementJournal: boolean;
   job: null | {
     id: string;
     status: "NOT_REQUESTED" | "PENDING" | "PROCESSING" | "COMPLETED" | "PARTIAL_SUCCESS" | "FAILED";
@@ -38,11 +40,11 @@ interface GenerationContext {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  NOT_REQUESTED: "신규 문서 생성",
-  PENDING: "요청 대기",
-  PROCESSING: "처리 중",
-  COMPLETED: "생성 완료",
-  PARTIAL_SUCCESS: "일부 실패",
+  NOT_REQUESTED: "문서 생성",
+  PENDING: "문서 생성 중",
+  PROCESSING: "문서 생성 중",
+  COMPLETED: "문서 재생성",
+  PARTIAL_SUCCESS: "다시 생성",
   FAILED: "다시 생성",
 };
 
@@ -138,9 +140,10 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
     String(business.code ?? "").trim()
   );
 
-  if (loading || !context?.job || !hasRequiredContext) return null;
+  if (loading || !context?.eligible || context.hasActualMeasurementJournal || !hasRequiredContext)
+    return null;
 
-  const status = context.job.status;
+  const status = context.job?.status || "NOT_REQUESTED";
   const isRunning = status === "PENDING" || status === "PROCESSING";
   const isComplete = status === "COMPLETED";
 
@@ -179,24 +182,27 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
       >
         {isRunning ? (
           <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-        ) : isComplete ? (
-          <CheckCircle2 className="mr-1.5 h-4 w-4 text-emerald-600" />
-        ) : status === "FAILED" || status === "PARTIAL_SUCCESS" ? (
+        ) : isComplete || status === "FAILED" || status === "PARTIAL_SUCCESS" ? (
           <RotateCcw className="mr-1.5 h-4 w-4" />
         ) : (
           <FilePlus2 className="mr-1.5 h-4 w-4" />
         )}
-        {STATUS_LABELS[status] || "신규 문서 생성"}
+        {STATUS_LABELS[status] || "문서 생성"}
       </Button>
 
-      <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} title="신규 문서 생성" size="lg">
+      <Modal
+        isOpen={isOpen}
+        onClose={() => setIsOpen(false)}
+        title={isComplete ? "문서 재생성" : "문서 생성"}
+        size="lg"
+      >
         <div className="space-y-5 p-1 pt-5">
           <div className="border-y border-slate-200 bg-slate-50 px-4 py-3 text-sm">
             <p className="font-semibold text-slate-800">저장 예정 경로</p>
             <p className="mt-1 break-all font-mono text-xs text-slate-600">{context.outputPath}</p>
           </div>
 
-          {context.job.result_files && context.job.result_files.length > 0 && (
+          {context.job?.result_files && context.job.result_files.length > 0 && (
             <div className="border-y border-slate-200">
               {context.job.result_files.map((file) => (
                 <div
@@ -223,12 +229,12 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
               return (
                 <label
                   key={type}
-                  className={`flex items-start gap-3 border-b border-slate-100 px-1 py-3 ${template && !isComplete ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
+                  className={`flex items-start gap-3 border-b border-slate-100 px-1 py-3 ${template ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
                 >
                   <input
                     type="checkbox"
                     className="mt-1"
-                    disabled={!template || isComplete}
+                    disabled={!template}
                     checked={selected.includes(type)}
                     onChange={(event) =>
                       setSelected((previous) =>
@@ -262,7 +268,7 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
             })}
           </div>
 
-          {(status === "FAILED" || status === "PARTIAL_SUCCESS") && context.job.error_message && (
+          {(status === "FAILED" || status === "PARTIAL_SUCCESS") && context.job?.error_message && (
             <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {context.job.error_message}
             </p>
@@ -277,24 +283,17 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
           </p>
 
           <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
-            {isComplete ? (
-              <Button type="button" onClick={() => setIsOpen(false)}>
-                확인
-              </Button>
-            ) : (
-              <>
-                <Button type="button" variant="secondary" onClick={() => setIsOpen(false)}>
-                  취소
-                </Button>
-                <Button
-                  type="button"
-                  onClick={requestGeneration}
-                  disabled={submitting || available.size === 0}
-                >
-                  {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}선택 문서 생성
-                </Button>
-              </>
-            )}
+            <Button type="button" variant="secondary" onClick={() => setIsOpen(false)}>
+              취소
+            </Button>
+            <Button
+              type="button"
+              onClick={requestGeneration}
+              disabled={submitting || available.size === 0}
+            >
+              {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {isComplete ? "선택 문서 재생성" : "선택 문서 생성"}
+            </Button>
           </div>
         </div>
       </Modal>
