@@ -200,32 +200,34 @@ test("실패 재시도 선택창은 실제 실패한 문서만 기본 선택한�
   assert.match(source, /\["PARTIAL_SUCCESS", "FAILED"\]\.includes/);
   assert.match(source, /file\.status !== "COMPLETED"/);
 });
-test("문서 Worker는 Realtime 신호와 300초 복구 폴링을 사용한다", () => {
+test("문서 Worker는 Realtime 신호와 6시간 안전 확인을 사용한다", () => {
   const worker = readFileSync("document_worker.py", "utf8");
   const runtime = readFileSync("document_worker_realtime.py", "utf8");
   assert.match(worker, /DOCUMENT_WORKER_RECOVERY_POLL_SECONDS/);
   assert.match(worker, /DOCUMENT_WORKER_REALTIME_ENABLED/);
-  assert.match(runtime, /DEFAULT_RECOVERY_POLL_SECONDS = 300/);
-  assert.match(runtime, /await self\.coordinator\.wake\("startup"\)/);
-  assert.match(runtime, /asyncio\.Lock\(\)/);
-  assert.match(runtime, /await self\.to_thread\(self\.process_next\)/);
-  assert.match(runtime, /while processed < self\.max_drain_jobs/);
+  assert.ok(runtime.includes("DEFAULT_RECOVERY_POLL_SECONDS = 6 * 60 * 60"));
+  assert.ok(runtime.includes("REALTIME_DEBOUNCE_SECONDS = 0.75"));
+  assert.ok(runtime.includes("REALTIME_EMPTY_RETRY_DELAYS = (2, 3)"));
+  assert.ok(runtime.includes('await self.coordinator.wake("startup")'));
+  assert.ok(runtime.includes('await self.coordinator.wake("realtime-connected")'));
+  assert.ok(runtime.includes("asyncio.Lock()"));
+  assert.ok(runtime.includes("while processed < self.max_drain_jobs"));
 });
 
-test("Realtime 신호는 최소 Broadcast payload만 사용하고 claim API를 유지한다", () => {
+test("Realtime은 개인정보 없는 pending INSERT 신호만 구독하고 claim API를 유지한다", () => {
   const runtime = readFileSync("document_worker_realtime.py", "utf8");
   const migration = readFileSync(
     "supabase/migrations/20260719_add_document_worker_realtime_wakeup.sql",
     "utf8"
   );
   const claimRoute = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
-  assert.match(runtime, /DOCUMENT_JOB_TYPE = "GENERATE_NEW_BUSINESS_DOCUMENTS"/);
-  assert.match(migration, /should_notify BOOLEAN := FALSE/);
-  assert.match(runtime, /on_broadcast\(REALTIME_EVENT/);
-  assert.match(migration, /realtime\.send/);
-  assert.match(migration, /'status', NEW\.status/);
-  assert.match(migration, /'job_type', NEW\.job_type/);
-  assert.doesNotMatch(migration, /NEW\.payload/);
+  assert.match(runtime, /event="INSERT"/);
+  assert.match(runtime, /filter=REALTIME_FILTER/);
+  assert.match(runtime, /document_job_pending_signals/);
+  assert.match(migration, /AFTER INSERT ON public.document_generation_jobs/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public.document_job_pending_signals/);
+  assert.doesNotMatch(migration, /realtime.send/);
+  assert.doesNotMatch(migration, /ADD TABLE public.document_generation_jobs/);
   assert.match(claimRoute, /claim_next_document_generation_job/);
 });
 

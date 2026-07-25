@@ -8,8 +8,12 @@ from typing import Any, Awaitable, Callable
 LOGGER = logging.getLogger("document-worker")
 DOCUMENT_JOB_TYPE = "GENERATE_NEW_BUSINESS_DOCUMENTS"
 REALTIME_TOPIC = "document-worker-jobs"
-REALTIME_EVENT = "document_generation_pending"
-DEFAULT_RECOVERY_POLL_SECONDS = 300
+REALTIME_SCHEMA = "public"
+REALTIME_TABLE = "document_job_pending_signals"
+REALTIME_FILTER = "status=eq.PENDING"
+DEFAULT_RECOVERY_POLL_SECONDS = 6 * 60 * 60
+REALTIME_DEBOUNCE_SECONDS = 0.75
+REALTIME_EMPTY_RETRY_DELAYS = (2, 3)
 MAX_DRAIN_JOBS = 100
 RECONNECT_DELAYS = (5, 10, 30, 60)
 
@@ -43,6 +47,11 @@ def safe_error_message(error: Exception, secret: str = "") -> str:
 def event_record(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
+    data = payload.get("data")
+    if isinstance(data, dict):
+        record = data.get("record")
+        if isinstance(record, dict):
+            return record
     nested = payload.get("payload")
     return nested if isinstance(nested, dict) else payload
 
@@ -70,22 +79,29 @@ class ClaimCoordinator:
         *,
         to_thread: Callable[..., Awaitable[Any]] = asyncio.to_thread,
         max_drain_jobs: int = MAX_DRAIN_JOBS,
+        realtime_empty_retry_delays: tuple[float, ...] = REALTIME_EMPTY_RETRY_DELAYS,
     ) -> None:
         self.process_next = process_next
         self.to_thread = to_thread
         self.max_drain_jobs = max_drain_jobs
+        self.realtime_empty_retry_delays = realtime_empty_retry_delays
         self.lock = asyncio.Lock()
         self.wake_requested = False
+        self.realtime_wake_requested = False
 
     async def wake(self, reason: str) -> None:
         if self.lock.locked():
             self.wake_requested = True
+            if reason == "realtime-event":
+                self.realtime_wake_requested = True
             LOGGER.info("중복 claim 요청 억제 reason=%s", reason)
             return
 
         async with self.lock:
             current_reason = reason
             processed = 0
+            empty_retry_index = 0
+            realtime_retry_allowed = reason == "realtime-event"
             while processed < self.max_drain_jobs:
                 self.wake_requested = False
                 try:
@@ -96,14 +112,40 @@ class ClaimCoordinator:
 
                 if job_id is None:
                     if self.wake_requested:
-                        current_reason = "coalesced-event"
+                        if self.realtime_wake_requested:
+                            current_reason = "realtime-event"
+                            realtime_retry_allowed = True
+                            self.realtime_wake_requested = False
+                        else:
+                            current_reason = "coalesced-event"
+                        continue
+                    if (
+                        realtime_retry_allowed
+                        and empty_retry_index < len(self.realtime_empty_retry_delays)
+                    ):
+                        delay = self.realtime_empty_retry_delays[empty_retry_index]
+                        empty_retry_index += 1
+                        LOGGER.info(
+                            "Realtime 반영 대기 후 claim 재확인 delay=%ss attempt=%s",
+                            delay,
+                            empty_retry_index + 1,
+                        )
+                        await asyncio.sleep(delay)
                         continue
                     LOGGER.info("대기 문서 작업 없음 reason=%s", current_reason)
                     return
 
                 processed += 1
                 LOGGER.info("문서 작업 선점 및 처리 완료 id=%s reason=%s", job_id, current_reason)
-                current_reason = "queue-drain"
+                if self.realtime_wake_requested:
+                    current_reason = "realtime-event"
+                    realtime_retry_allowed = True
+                    empty_retry_index = 0
+                    self.realtime_wake_requested = False
+                else:
+                    current_reason = "queue-drain"
+                    realtime_retry_allowed = False
+                    empty_retry_index = len(self.realtime_empty_retry_delays)
 
             LOGGER.warning("claim drain 안전 한도 도달 count=%s", self.max_drain_jobs)
 
@@ -130,12 +172,13 @@ class DocumentWorkerRuntime:
         self.stop_event = asyncio.Event()
         self.realtime_client: Any = None
         self.realtime_channel: Any = None
+        self.pending_event_task: asyncio.Task[Any] | None = None
 
     @staticmethod
     def _default_realtime_factory(supabase_url: str, key: str) -> Any:
-        from supabase_realtime_broadcast import SupabaseRealtimeBroadcastClient
+        from supabase_realtime_postgres_changes import SupabaseRealtimePostgresClient
 
-        return SupabaseRealtimeBroadcastClient(supabase_url, key)
+        return SupabaseRealtimePostgresClient(supabase_url, key)
 
     async def run(self) -> None:
         await self.coordinator.wake("startup")
@@ -143,13 +186,19 @@ class DocumentWorkerRuntime:
         if self.settings.enabled:
             tasks.append(asyncio.create_task(self._realtime_loop(), name="document-worker-realtime"))
         else:
-            LOGGER.warning("Realtime 비활성: 5분 복구 폴링 전용 모드")
+            LOGGER.warning(
+                "Realtime 비활성: %s초 안전 확인 전용 모드",
+                self.settings.recovery_poll_seconds,
+            )
         try:
             await self.stop_event.wait()
         finally:
             self.stop_event.set()
             for task in tasks:
                 task.cancel()
+            if self.pending_event_task is not None:
+                self.pending_event_task.cancel()
+                tasks.append(self.pending_event_task)
             await asyncio.gather(*tasks, return_exceptions=True)
             await self._close_realtime()
 
@@ -187,7 +236,14 @@ class DocumentWorkerRuntime:
                 self.realtime_channel = channel
 
                 def on_event(payload: Any) -> None:
-                    asyncio.create_task(self.coordinator.handle_realtime_event(payload))
+                    if not is_pending_document_event(payload):
+                        return
+                    if self.pending_event_task is not None:
+                        self.pending_event_task.cancel()
+                    self.pending_event_task = asyncio.create_task(
+                        self._debounced_realtime_wake(),
+                        name="document-worker-realtime-debounce",
+                    )
 
                 def on_subscribe(status: Any, error: Exception | None) -> None:
                     state = str(getattr(status, "value", status))
@@ -201,7 +257,13 @@ class DocumentWorkerRuntime:
                         )
                         failed.set()
 
-                channel.on_broadcast(REALTIME_EVENT, on_event)
+                channel.on_postgres_changes(
+                    event="INSERT",
+                    schema=REALTIME_SCHEMA,
+                    table=REALTIME_TABLE,
+                    filter=REALTIME_FILTER,
+                    callback=on_event,
+                )
                 await channel.subscribe(on_subscribe)
 
                 subscribe_task = asyncio.create_task(subscribed.wait())
@@ -220,13 +282,15 @@ class DocumentWorkerRuntime:
                     raise ConnectionError("Realtime 채널 구독에 실패했습니다.")
 
                 LOGGER.info(
-                    "Realtime 구독 성공 topic=%s event=%s",
-                    REALTIME_TOPIC,
-                    REALTIME_EVENT,
+                    "Realtime 구독 성공 table=%s.%s event=INSERT filter=%s",
+                    REALTIME_SCHEMA,
+                    REALTIME_TABLE,
+                    REALTIME_FILTER,
                 )
                 if failure_count:
                     LOGGER.info("Realtime 재연결 성공")
                 failure_count = 0
+                await self.coordinator.wake("realtime-connected")
 
                 while not self.stop_event.is_set():
                     listen_task = getattr(client, "_listen_task", None)
@@ -255,6 +319,15 @@ class DocumentWorkerRuntime:
                     continue
             finally:
                 await self._close_realtime()
+
+    async def _debounced_realtime_wake(self) -> None:
+        try:
+            await asyncio.sleep(REALTIME_DEBOUNCE_SECONDS)
+            self.pending_event_task = None
+            LOGGER.info("Realtime 신규 pending 문서 작업 신호 수신")
+            await self.coordinator.wake("realtime-event")
+        except asyncio.CancelledError:
+            raise
 
     async def _close_realtime(self) -> None:
         channel, client = self.realtime_channel, self.realtime_client

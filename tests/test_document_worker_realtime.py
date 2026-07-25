@@ -2,8 +2,8 @@ import asyncio
 import unittest
 from types import SimpleNamespace
 
-from supabase_realtime_broadcast import (
-    SupabaseRealtimeBroadcastClient,
+from supabase_realtime_postgres_changes import (
+    SupabaseRealtimePostgresClient,
     build_realtime_websocket_url,
 )
 
@@ -25,12 +25,14 @@ async def direct_to_thread(function):
 
 class FakeChannel:
     def __init__(self):
-        self.broadcast_callback = None
+        self.postgres_callback = None
         self.unsubscribed = False
 
-    def on_broadcast(self, event, callback):
-        self.event = event
-        self.broadcast_callback = callback
+    def on_postgres_changes(self, *, event, schema, table, filter, callback):
+        self.binding = {
+            "event": event, "schema": schema, "table": table, "filter": filter
+        }
+        self.postgres_callback = callback
         return self
 
     async def subscribe(self, callback):
@@ -106,32 +108,40 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
             "wss://abcd.supabase.co/realtime/v1/websocket?apikey=public-key&vsn=1.0.0",
         )
 
-    async def test_direct_broadcast_client_joins_and_dispatches_minimal_signal(self):
+    async def test_direct_postgres_client_joins_and_dispatches_minimal_signal(self):
         import json
 
         received = []
         websocket = FakeWebSocket()
-        client = SupabaseRealtimeBroadcastClient(
+        client = SupabaseRealtimePostgresClient(
             "https://abcd.supabase.co", "public-key", heartbeat_seconds=3600
         )
         client.websocket = websocket
         client._connected = True
         client._listen_task = asyncio.create_task(client._listen())
         channel = client.channel("document-worker-jobs")
-        channel.on_broadcast("document_generation_pending", received.append)
+        channel.on_postgres_changes(
+            event="INSERT",
+            schema="public",
+            table="document_job_pending_signals",
+            filter="status=eq.PENDING",
+            callback=received.append,
+        )
         await channel.subscribe()
         await websocket.messages.put(
             json.dumps(
                 {
                     "topic": "realtime:document-worker-jobs",
-                    "event": "broadcast",
+                    "event": "postgres_changes",
                     "payload": {
-                        "event": "document_generation_pending",
-                        "payload": {
-                            "status": "PENDING",
-                            "job_type": DOCUMENT_JOB_TYPE,
+                        "ids": [],
+                        "data": {
+                            "type": "INSERT",
+                            "record": {
+                                "status": "PENDING",
+                                "job_type": DOCUMENT_JOB_TYPE,
+                            },
                         },
-                        "type": "broadcast",
                     },
                     "ref": None,
                 }
@@ -142,7 +152,10 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
                 break
             await asyncio.sleep(0)
         await client.close()
-        self.assertEqual(received[0]["payload"]["status"], "PENDING")
+        self.assertEqual(received[0]["data"]["record"]["status"], "PENDING")
+        binding = websocket.sent[0]["payload"]["config"]["postgres_changes"][0]
+        self.assertEqual(binding["event"], "INSERT")
+        self.assertEqual(binding["filter"], "status=eq.PENDING")
         self.assertTrue(websocket.closed)
     def test_event_filter_only_accepts_pending_document_jobs(self):
         valid = {
@@ -167,7 +180,7 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("***", message)
 
     def test_defaults_and_boolean_fallback(self):
-        self.assertEqual(DEFAULT_RECOVERY_POLL_SECONDS, 300)
+        self.assertEqual(DEFAULT_RECOVERY_POLL_SECONDS, 21600)
         self.assertTrue(env_flag(None))
         self.assertFalse(env_flag("false"))
 
@@ -177,6 +190,16 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
             lambda: responses.pop(0), to_thread=direct_to_thread
         )
         await coordinator.wake("startup")
+        self.assertEqual(responses, [])
+
+    async def test_realtime_empty_claim_retries_at_two_and_five_seconds(self):
+        responses = [None, None, "job-1", None]
+        coordinator = ClaimCoordinator(
+            lambda: responses.pop(0),
+            to_thread=direct_to_thread,
+            realtime_empty_retry_delays=(0, 0),
+        )
+        await coordinator.wake("realtime-event")
         self.assertEqual(responses, [])
 
     async def test_non_target_event_does_not_claim(self):
@@ -192,6 +215,28 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
             {"payload": {"status": "FAILED", "job_type": DOCUMENT_JOB_TYPE}}
         )
         self.assertEqual(calls, 0)
+
+    async def test_realtime_retry_is_preserved_when_startup_claim_is_running(self):
+        started = asyncio.Event()
+        release = asyncio.Event()
+        responses = [None, None, None, None]
+
+        async def blocked_to_thread(function):
+            started.set()
+            await release.wait()
+            return function()
+
+        coordinator = ClaimCoordinator(
+            lambda: responses.pop(0),
+            to_thread=blocked_to_thread,
+            realtime_empty_retry_delays=(0, 0),
+        )
+        startup = asyncio.create_task(coordinator.wake("startup"))
+        await started.wait()
+        await coordinator.wake("realtime-event")
+        release.set()
+        await startup
+        self.assertEqual(responses, [])
 
     async def test_concurrent_events_are_single_flight(self):
         started = asyncio.Event()
@@ -232,7 +277,9 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
 
         fake_client = FakeRealtimeClient()
         settings = RealtimeSettings(True, "https://project.supabase.co", "anon", 300)
-        coordinator = ClaimCoordinator(process_next, to_thread=direct_to_thread)
+        coordinator = ClaimCoordinator(
+            process_next, to_thread=direct_to_thread, realtime_empty_retry_delays=()
+        )
         runtime = DocumentWorkerRuntime(
             coordinator,
             settings,
@@ -241,19 +288,25 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         )
         task = asyncio.create_task(runtime.run())
         for _ in range(20):
-            if fake_client.channel_instance.broadcast_callback:
+            if fake_client.channel_instance.postgres_callback:
                 break
             await asyncio.sleep(0)
-        fake_client.channel_instance.broadcast_callback(
-            {"payload": {"status": "PENDING", "job_type": DOCUMENT_JOB_TYPE}}
-        )
+        for _ in range(3):
+            fake_client.channel_instance.postgres_callback(
+                {
+                    "data": {
+                        "type": "INSERT",
+                        "record": {"status": "PENDING", "job_type": DOCUMENT_JOB_TYPE},
+                    }
+                }
+            )
         for _ in range(20):
-            if calls >= 2:
+            if calls >= 3:
                 break
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.05)
         runtime.stop()
         await task
-        self.assertGreaterEqual(calls, 2)
+        self.assertGreaterEqual(calls, 3)
         self.assertTrue(fake_client.channel_instance.unsubscribed)
         self.assertTrue(fake_client.closed)
 
