@@ -798,41 +798,59 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, 
         };
       };
 
-      let { response, data } = await submitRequest();
+      let confirmOverlap = false;
+      let confirmLimitOver = false;
+      let { response, data } = await submitRequest(confirmOverlap, confirmLimitOver);
 
-      // 측정자 중복 확인 처리
-      if (response.status === 409 && data.code === "MEASURER_OVERLAP_CONFIRMATION_REQUIRED") {
-        const conflictBusinesses = (data.conflicts || [])
-          .map((conflict: { businessName: string }) => "- " + conflict.businessName)
-          .join("\n");
-        const confirmed = window.confirm(
-          data.primaryMeasurer +
-            "님이 " +
-            formData.measurement_date +
-            "에 이미 다른 업체를 측정합니다.\n\n" +
-            conflictBusinesses +
-            "\n\n" +
-            "인근 사업장 추가 측정으로 공시료 코드 [" +
-            data.suggestedSurveyCode +
-            "]를 자동 부여하여 저장하시겠습니까?"
-        );
+      // 서버가 두 확인을 어느 순서로 요구하더라도 승인값을 누적해 재요청한다.
+      while (true) {
+        if (
+          response.status === 409 &&
+          data.code === "MEASURER_OVERLAP_CONFIRMATION_REQUIRED" &&
+          !confirmOverlap
+        ) {
+          const conflictBusinesses = (data.conflicts || [])
+            .map((conflict: { businessName: string }) => "- " + conflict.businessName)
+            .join("\n");
+          const confirmed = window.confirm(
+            data.primaryMeasurer +
+              "님이 " +
+              formData.measurement_date +
+              "에 이미 다른 업체를 측정합니다.\n\n" +
+              conflictBusinesses +
+              "\n\n" +
+              "인근 사업장 추가 측정으로 공시료 코드 [" +
+              data.suggestedSurveyCode +
+              "]를 자동 부여하여 저장하시겠습니까?"
+          );
 
-        if (!confirmed) return;
-        ({ response, data } = await submitRequest(true, false));
-      }
+          if (!confirmed) return;
+          confirmOverlap = true;
+          ({ response, data } = await submitRequest(confirmOverlap, confirmLimitOver));
+          continue;
+        }
 
-      // 등록 제한 수 초과 확인 및 관리자/담당자 예외 승인 처리
-      if (response.status === 400 && data.code === "LIMIT_EXCEEDED" && data.isAuthorized) {
-        const confirmed = window.confirm(
-          "해당 일자(" +
-            formData.measurement_date +
-            ")에는 이미 " +
-            data.limitCount +
-            "개 업체(실질 슬롯 수 기준)가 등록되어 있습니다.\n\n그래도 저장하시겠습니까?"
-        );
+        if (
+          response.status === 400 &&
+          data.code === "LIMIT_EXCEEDED" &&
+          data.isAuthorized &&
+          !confirmLimitOver
+        ) {
+          const confirmed = window.confirm(
+            "해당 일자(" +
+              formData.measurement_date +
+              ")에는 이미 " +
+              data.limitCount +
+              "개 업체(실질 슬롯 수 기준)가 등록되어 있습니다.\n\n그래도 저장하시겠습니까?"
+          );
 
-        if (!confirmed) return;
-        ({ response, data } = await submitRequest(false, true));
+          if (!confirmed) return;
+          confirmLimitOver = true;
+          ({ response, data } = await submitRequest(confirmOverlap, confirmLimitOver));
+          continue;
+        }
+
+        break;
       }
 
       if (response.ok) {

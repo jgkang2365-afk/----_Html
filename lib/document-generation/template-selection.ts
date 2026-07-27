@@ -8,6 +8,7 @@ import {
 
 export interface DocumentTemplateCandidate {
   document_type: string;
+  document_definition_id?: string;
   measurement_year: number;
   measurement_period: string;
   is_active: boolean;
@@ -54,4 +55,32 @@ export function selectApplicableDocumentTemplates<T extends DocumentTemplateCand
   }
 
   return Array.from(selected.values(), ({ template }) => template);
+}
+
+export function selectApplicableDefinitionTemplates<T extends DocumentTemplateCandidate>(
+  candidates: readonly T[],
+  measurementYear: unknown,
+  measurementPeriod: unknown
+): Map<string, T> {
+  const year = Number(measurementYear);
+  const exactPeriod = normalizeMeasurementPeriod(measurementPeriod);
+  const selected = new Map<string, { template: T; priority: number }>();
+  if (!Number.isInteger(year) || !exactPeriod) return new Map();
+
+  for (const template of candidates) {
+    const definitionId = String(template.document_definition_id ?? "").trim();
+    if (!definitionId || !template.is_active || Number(template.measurement_year) !== year)
+      continue;
+    const priority =
+      template.measurement_period === exactPeriod
+        ? 0
+        : template.measurement_period === ANNUAL_TEMPLATE_PERIOD
+          ? 1
+          : Number.POSITIVE_INFINITY;
+    if (!Number.isFinite(priority)) continue;
+    const current = selected.get(definitionId);
+    if (!current || priority < current.priority) selected.set(definitionId, { template, priority });
+  }
+
+  return new Map(Array.from(selected, ([key, { template }]) => [key, template]));
 }

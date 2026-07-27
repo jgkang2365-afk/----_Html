@@ -32,7 +32,7 @@ export async function GET(
   const admin = createAdminClient();
   const { data: job } = await admin
     .from("document_generation_jobs")
-    .select("status, selected_documents, measurement_year, measurement_period")
+    .select("status, selected_documents, measurement_year, measurement_period, payload")
     .eq("id", params.id)
     .maybeSingle();
   if (!job)
@@ -50,6 +50,51 @@ export async function GET(
   }
 
   const requestedTemplateId = normalizedId(params.templateId);
+  const payloadDocuments = Array.isArray((job.payload as any)?.documents)
+    ? (job.payload as any).documents
+    : [];
+  const snapshotDocument = payloadDocuments.find(
+    (document: any) => normalizedId(document?.template?.template_id) === requestedTemplateId
+  );
+  const selectedDocuments = selectedDocumentTypes(job.selected_documents);
+  if (snapshotDocument) {
+    if (!selectedDocuments.includes(String(snapshotDocument.code))) {
+      return NextResponse.json(
+        { error: "작업에서 선택하지 않은 문서 템플릿입니다." },
+        { status: 403 }
+      );
+    }
+    const storagePath = String(snapshotDocument.template?.storage_path ?? "").trim();
+    if (!storagePath)
+      return NextResponse.json({ error: "작업에 고정된 템플릿 경로가 없습니다." }, { status: 409 });
+    const { data: file, error } = await admin.storage
+      .from("document-templates")
+      .download(storagePath);
+    if (error || !file)
+      return NextResponse.json({ error: "템플릿 파일 다운로드 실패" }, { status: 500 });
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const fileFormat = String(snapshotDocument.file_format ?? "").toUpperCase();
+    return new NextResponse(bytes, {
+      status: 200,
+      headers: {
+        "Content-Type":
+          fileFormat === "XLSM"
+            ? "application/vnd.ms-excel.sheet.macroEnabled.12"
+            : fileFormat === "XLSX"
+              ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              : "application/octet-stream",
+        "Content-Length": String(bytes.byteLength),
+        "Cache-Control": "private, no-store",
+      },
+    });
+  }
+  if (payloadDocuments.length > 0)
+    return NextResponse.json(
+      { error: "작업 snapshot에 포함되지 않은 템플릿입니다." },
+      { status: 403 }
+    );
+
+  // 새 payload 형식 배포 전에 대기 중이던 작업만 기존 검증 경로로 처리한다.
   const { data: template } = await admin
     .from("document_templates")
     .select("*")
@@ -58,7 +103,6 @@ export async function GET(
   if (!template)
     return NextResponse.json({ error: "요청한 템플릿을 찾을 수 없습니다." }, { status: 404 });
 
-  const selectedDocuments = selectedDocumentTypes(job.selected_documents);
   if (!selectedDocuments.includes(template.document_type)) {
     console.warn("[DocumentWorker] 작업에서 선택하지 않은 문서 템플릿 요청:", {
       jobId: params.id,

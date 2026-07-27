@@ -49,6 +49,8 @@ interface BusinessEntry {
     code: string;
     year: number;
     period: string;
+    document_generation_enabled?: boolean;
+    has_actual_measurement_journal?: boolean;
     business_name: string;
     business_number: string | null; // 사업자등록번호
     business_category: string | null; // 업종
@@ -2157,12 +2159,20 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 onClose={() => setIsEditModalOpen(false)}
                 title="사업장 상세 정보 수정"
                 size="lg"
-                headerActions={editingItem ? (
+                headerActions={
+                    editingItem &&
+                    editingItem.year === 2026 &&
+                    editingItem.period === "하반기" &&
+                    editingItem.document_generation_enabled === true &&
+                    editingItem.has_actual_measurement_journal === false ? (
                     <NewBusinessDocumentGeneration
                         businessId={Number(editingItem.id)}
                         business={editForm as unknown as Record<string, any>}
+                        documentGenerationEnabled={editingItem.document_generation_enabled}
+                        hasActualMeasurementJournal={editingItem.has_actual_measurement_journal}
                     />
-                ) : undefined}
+                ) : undefined
+                }
             >
                 <div className="p-6">
                     {/* 섹션 1: 기본 정보 */}
