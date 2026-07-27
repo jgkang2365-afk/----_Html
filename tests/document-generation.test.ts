@@ -205,6 +205,8 @@ test("문서 Worker는 Realtime 신호와 6시간 안전 확인을 사용한다"
   const runtime = readFileSync("document_worker_realtime.py", "utf8");
   assert.match(worker, /DOCUMENT_WORKER_RECOVERY_POLL_SECONDS/);
   assert.match(worker, /DOCUMENT_WORKER_REALTIME_ENABLED/);
+  assert.match(worker, /Global\\MeasurementJournalDocumentWorker/);
+  assert.match(worker, /이미 실행 중인 문서 Worker가 있어 중복 프로세스를 종료합니다/);
   assert.ok(runtime.includes("DEFAULT_RECOVERY_POLL_SECONDS = 6 * 60 * 60"));
   assert.ok(runtime.includes("REALTIME_DEBOUNCE_SECONDS = 0.75"));
   assert.ok(runtime.includes("REALTIME_EMPTY_RETRY_DELAYS = (2, 3)"));
@@ -212,6 +214,14 @@ test("문서 Worker는 Realtime 신호와 6시간 안전 확인을 사용한다"
   assert.ok(runtime.includes('await self.coordinator.wake("realtime-connected")'));
   assert.ok(runtime.includes("asyncio.Lock()"));
   assert.ok(runtime.includes("while processed < self.max_drain_jobs"));
+});
+
+test("Node WorkerDaemon의 5초 루프는 background_jobs 전용이고 문서 claim을 호출하지 않는다", () => {
+  const source = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  assert.match(source, /background_jobs 전용 작업기/);
+  assert.match(source, /문서 생성 Worker와 별도 실행/);
+  assert.match(source, /setInterval\(\(\) => this\.poll\(\), 5000\)/);
+  assert.doesNotMatch(source, /document-worker\/jobs\/claim/);
 });
 
 test("Realtime은 개인정보 없는 pending INSERT 신호만 구독하고 claim API를 유지한다", () => {
@@ -242,6 +252,15 @@ test("트레이는 문서 Worker 전용 가상환경을 우선 사용한다", ()
   const source = readFileSync("server-tray.ps1", "utf8");
   assert.match(source, /\.venv-document-worker\\Scripts\\python\.exe/);
   assert.match(source, /if \(-not \(Test-Path -LiteralPath \$workerPython\)\)/);
+});
+test("Windows 트레이는 서버와 Python Worker 로그를 UTF-8로 실행하고 읽는다", () => {
+  const source = readFileSync("server-tray.ps1", "utf8");
+  assert.match(source, /\[Console\]::InputEncoding = \$utf8NoBom/);
+  assert.match(source, /\[Console\]::OutputEncoding = \$utf8NoBom/);
+  assert.match(source, /\$env:PYTHONUTF8 = "1"/);
+  assert.match(source, /\$env:PYTHONIOENCODING = "utf-8"/);
+  assert.match(source, /chcp 65001 > nul && npm run dev:turbo/);
+  assert.match(source, /Get-Content -Path .* -Encoding UTF8 -Tail 120 -Wait/);
 });
 test("Python 3.14 Worker는 충돌을 피한 전용 websockets 의존성을 사용한다", () => {
   const requirements = readFileSync("requirements-document-worker.in", "utf8");

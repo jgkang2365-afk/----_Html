@@ -181,6 +181,7 @@ class DocumentWorkerRuntime:
         return SupabaseRealtimePostgresClient(supabase_url, key)
 
     async def run(self) -> None:
+        LOGGER.info("시작 확인 claim 실행")
         await self.coordinator.wake("startup")
         tasks = [asyncio.create_task(self._recovery_loop(), name="document-worker-recovery")]
         if self.settings.enabled:
@@ -213,7 +214,10 @@ class DocumentWorkerRuntime:
                 )
                 return
             except asyncio.TimeoutError:
-                LOGGER.info("복구 폴링 claim 시작 interval=%ss", self.settings.recovery_poll_seconds)
+                LOGGER.info(
+                    "6시간 안전 확인 claim 실행 interval=%ss",
+                    self.settings.recovery_poll_seconds,
+                )
                 await self.coordinator.wake("recovery-poll")
 
     async def _realtime_loop(self) -> None:
@@ -223,7 +227,7 @@ class DocumentWorkerRuntime:
             failed = asyncio.Event()
             try:
                 LOGGER.info(
-                    "Realtime 연결 시작 url=%s",
+                    "Supabase Realtime 연결 중 url=%s",
                     masked_supabase_url(self.settings.supabase_url),
                 )
                 client = self.realtime_factory(
@@ -282,7 +286,7 @@ class DocumentWorkerRuntime:
                     raise ConnectionError("Realtime 채널 구독에 실패했습니다.")
 
                 LOGGER.info(
-                    "Realtime 구독 성공 table=%s.%s event=INSERT filter=%s",
+                    "Realtime 구독 완료 table=%s.%s event=INSERT filter=%s",
                     REALTIME_SCHEMA,
                     REALTIME_TABLE,
                     REALTIME_FILTER,
@@ -290,6 +294,7 @@ class DocumentWorkerRuntime:
                 if failure_count:
                     LOGGER.info("Realtime 재연결 성공")
                 failure_count = 0
+                LOGGER.info("Realtime 연결 확인 claim 실행")
                 await self.coordinator.wake("realtime-connected")
 
                 while not self.stop_event.is_set():
