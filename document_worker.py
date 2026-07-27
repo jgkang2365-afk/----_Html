@@ -48,7 +48,7 @@ XLSM_CELLS = {
 }
 
 LOGGER = logging.getLogger("document-worker")
-WORKER_VERSION = "2026.07.19.4"
+WORKER_VERSION = "2026.07.25.1"
 
 
 def load_env_file(path: Path) -> None:
@@ -430,7 +430,7 @@ def run_worker(once: bool = False) -> int:
 
     try:
         recovery_poll_seconds = max(
-            10, int(os.environ.get("DOCUMENT_WORKER_RECOVERY_POLL_SECONDS", "300"))
+            10, int(os.environ.get("DOCUMENT_WORKER_RECOVERY_POLL_SECONDS", "21600"))
         )
     except ValueError:
         LOGGER.error("DOCUMENT_WORKER_RECOVERY_POLL_SECONDS는 정수여야 합니다.")
@@ -444,7 +444,7 @@ def run_worker(once: bool = False) -> int:
     )
     if realtime_enabled and (not supabase_url or not realtime_key):
         LOGGER.error(
-            "Realtime 환경변수가 부족하여 복구 폴링 전용으로 실행합니다. "
+            "Realtime 환경변수가 부족하여 6시간 안전 확인 전용으로 실행합니다. "
             "SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL 및 "
             "SUPABASE_REALTIME_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY를 확인하세요."
         )

@@ -6,6 +6,8 @@ export const DOCUMENT_TYPES = [
 
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 export type StandardMeasurementPeriod = "상반기" | "하반기";
+export const ANNUAL_TEMPLATE_PERIOD = "annual" as const;
+export type TemplateMeasurementPeriod = StandardMeasurementPeriod | typeof ANNUAL_TEMPLATE_PERIOD;
 
 export const DOCUMENT_TYPE_META: Record<
   DocumentType,
@@ -68,6 +70,22 @@ export function normalizeMeasurementPeriod(value: unknown): StandardMeasurementP
   if (["상반기", "1", "상"].includes(normalized)) return "상반기";
   if (["하반기", "2", "하"].includes(normalized)) return "하반기";
   return null;
+}
+
+export function parseTemplateMeasurementPeriod(value: unknown): TemplateMeasurementPeriod | null {
+  const normalized = normalizeText(value);
+  if (normalized === "상반기" || normalized === "하반기" || normalized === ANNUAL_TEMPLATE_PERIOD)
+    return normalized;
+  return null;
+}
+
+export function templateMeasurementPeriodLabel(value: unknown): string {
+  return value === ANNUAL_TEMPLATE_PERIOD ? "연간 공통" : normalizeText(value);
+}
+
+export function templateMeasurementPeriodStorageSegment(period: TemplateMeasurementPeriod): string {
+  if (period === ANNUAL_TEMPLATE_PERIOD) return "annual";
+  return period === "상반기" ? "first-half" : "second-half";
 }
 
 export function formatBusinessNumber(value: unknown): string {

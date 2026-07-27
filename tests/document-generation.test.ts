@@ -110,10 +110,11 @@ test("작업 요청은 선택 문서와 템플릿 버전을 payload에 고정한
   assert.match(source, /selected_documents: selected/);
 });
 
-test("템플릿 조회는 연도와 주기를 정확히 일치시킨다", () => {
+test("템플릿 조회는 같은 연도의 정확 주기와 annual 후보로 제한한다", () => {
   const source = readFileSync("app/api/document-generation/route.ts", "utf8");
   assert.match(source, /eq\("measurement_year", target\.year\)/);
-  assert.match(source, /eq\("measurement_period", period \|\| ""\)/);
+  assert.match(source, /in\("measurement_period", \[period, ANNUAL_TEMPLATE_PERIOD\]\)/);
+  assert.match(source, /selectApplicableDocumentTemplates/);
 });
 
 test("Worker API는 Bearer token 인증을 사용한다", () => {
@@ -158,8 +159,11 @@ test("템플릿 업로드는 배포 런타임의 전역 File 객체에 의존하
 });
 test("Storage 내부 경로는 한글 원본 파일명 대신 ASCII 키를 사용한다", () => {
   const source = readFileSync("app/api/document-templates/route.ts", "utf8");
-  assert.match(source, /"first-half"/);
-  assert.match(source, /"second-half"/);
+  const constants = readFileSync("lib/document-generation/constants.ts", "utf8");
+  assert.match(constants, /"first-half"/);
+  assert.match(constants, /"second-half"/);
+  assert.match(constants, /"annual"/);
+  assert.match(source, /templateMeasurementPeriodStorageSegment/);
   assert.doesNotMatch(source, /uploadedPath = .*file\.name/);
   assert.match(source, /original_filename: file\.name/);
 });
@@ -188,7 +192,7 @@ test("Worker 템플릿 API는 선택 문서와 연도·주기로 다운로드 �
   );
   assert.match(route, /selected_documents, measurement_year, measurement_period/);
   assert.match(route, /selectedDocuments\.includes\(template\.document_type\)/);
-  assert.match(route, /template\.measurement_period !== job\.measurement_period/);
+  assert.match(route, /isTemplatePeriodApplicable/);
   assert.doesNotMatch(route, /payload\.templates|payloadTemplateIds/);
 });
 test("실패 재시도 선택창은 실제 실패한 문서만 기본 선택한다", () => {
@@ -196,32 +200,34 @@ test("실패 재시도 선택창은 실제 실패한 문서만 기본 선택한�
   assert.match(source, /\["PARTIAL_SUCCESS", "FAILED"\]\.includes/);
   assert.match(source, /file\.status !== "COMPLETED"/);
 });
-test("문서 Worker는 Realtime 신호와 300초 복구 폴링을 사용한다", () => {
+test("문서 Worker는 Realtime 신호와 6시간 안전 확인을 사용한다", () => {
   const worker = readFileSync("document_worker.py", "utf8");
   const runtime = readFileSync("document_worker_realtime.py", "utf8");
   assert.match(worker, /DOCUMENT_WORKER_RECOVERY_POLL_SECONDS/);
   assert.match(worker, /DOCUMENT_WORKER_REALTIME_ENABLED/);
-  assert.match(runtime, /DEFAULT_RECOVERY_POLL_SECONDS = 300/);
-  assert.match(runtime, /await self\.coordinator\.wake\("startup"\)/);
-  assert.match(runtime, /asyncio\.Lock\(\)/);
-  assert.match(runtime, /await self\.to_thread\(self\.process_next\)/);
-  assert.match(runtime, /while processed < self\.max_drain_jobs/);
+  assert.ok(runtime.includes("DEFAULT_RECOVERY_POLL_SECONDS = 6 * 60 * 60"));
+  assert.ok(runtime.includes("REALTIME_DEBOUNCE_SECONDS = 0.75"));
+  assert.ok(runtime.includes("REALTIME_EMPTY_RETRY_DELAYS = (2, 3)"));
+  assert.ok(runtime.includes('await self.coordinator.wake("startup")'));
+  assert.ok(runtime.includes('await self.coordinator.wake("realtime-connected")'));
+  assert.ok(runtime.includes("asyncio.Lock()"));
+  assert.ok(runtime.includes("while processed < self.max_drain_jobs"));
 });
 
-test("Realtime 신호는 최소 Broadcast payload만 사용하고 claim API를 유지한다", () => {
+test("Realtime은 개인정보 없는 pending INSERT 신호만 구독하고 claim API를 유지한다", () => {
   const runtime = readFileSync("document_worker_realtime.py", "utf8");
   const migration = readFileSync(
     "supabase/migrations/20260719_add_document_worker_realtime_wakeup.sql",
     "utf8"
   );
   const claimRoute = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
-  assert.match(runtime, /DOCUMENT_JOB_TYPE = "GENERATE_NEW_BUSINESS_DOCUMENTS"/);
-  assert.match(migration, /should_notify BOOLEAN := FALSE/);
-  assert.match(runtime, /on_broadcast\(REALTIME_EVENT/);
-  assert.match(migration, /realtime\.send/);
-  assert.match(migration, /'status', NEW\.status/);
-  assert.match(migration, /'job_type', NEW\.job_type/);
-  assert.doesNotMatch(migration, /NEW\.payload/);
+  assert.match(runtime, /event="INSERT"/);
+  assert.match(runtime, /filter=REALTIME_FILTER/);
+  assert.match(runtime, /document_job_pending_signals/);
+  assert.match(migration, /AFTER INSERT ON public.document_generation_jobs/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public.document_job_pending_signals/);
+  assert.doesNotMatch(migration, /realtime.send/);
+  assert.doesNotMatch(migration, /ADD TABLE public.document_generation_jobs/);
   assert.match(claimRoute, /claim_next_document_generation_job/);
 });
 

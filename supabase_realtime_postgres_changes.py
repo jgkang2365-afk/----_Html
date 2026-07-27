@@ -15,24 +15,31 @@ def build_realtime_websocket_url(supabase_url: str, key: str) -> str:
     return f"{base}/realtime/v1/websocket?apikey={quote(key, safe='')}&vsn=1.0.0"
 
 
-class SupabaseBroadcastChannel:
-    def __init__(self, client: "SupabaseRealtimeBroadcastClient", topic: str) -> None:
+class SupabasePostgresChangesChannel:
+    def __init__(self, client: "SupabaseRealtimePostgresClient", topic: str) -> None:
         self.client = client
         self.topic = topic
-        self.event = ""
+        self.binding: dict[str, str] = {}
         self.callback: Callable[[dict[str, Any]], None] | None = None
         self.join_ref = ""
+        self.binding_ids: set[int] = set()
 
-    def on_broadcast(
-        self, event: str, callback: Callable[[dict[str, Any]], None]
-    ) -> "SupabaseBroadcastChannel":
-        self.event = event
+    def on_postgres_changes(
+        self,
+        *,
+        event: str,
+        schema: str,
+        table: str,
+        filter: str,
+        callback: Callable[[dict[str, Any]], None],
+    ) -> "SupabasePostgresChangesChannel":
+        self.binding = {"event": event, "schema": schema, "table": table, "filter": filter}
         self.callback = callback
         return self
 
     async def subscribe(
         self, callback: Callable[[str, Exception | None], None] | None = None
-    ) -> "SupabaseBroadcastChannel":
+    ) -> "SupabasePostgresChangesChannel":
         try:
             self.join_ref = self.client.next_ref()
             self.client._channel = self
@@ -45,6 +52,7 @@ class SupabaseBroadcastChannel:
                         "config": {
                             "broadcast": {"ack": False, "self": False},
                             "presence": {"key": "", "enabled": False},
+                            "postgres_changes": [self.binding],
                             "private": False,
                         },
                         "access_token": self.client.key,
@@ -52,7 +60,13 @@ class SupabaseBroadcastChannel:
                     "ref": self.join_ref,
                 }
             )
-            await asyncio.wait_for(self.client.join_future, timeout=20)
+            response = await asyncio.wait_for(self.client.join_future, timeout=20)
+            changes = (response or {}).get("postgres_changes") or []
+            self.binding_ids = {
+                int(change["id"])
+                for change in changes
+                if isinstance(change, dict) and change.get("id") is not None
+            }
             if callback:
                 callback("SUBSCRIBED", None)
             return self
@@ -73,14 +87,23 @@ class SupabaseBroadcastChannel:
             }
         )
 
+    def dispatch(self, payload: dict[str, Any]) -> None:
+        ids = {
+            int(value)
+            for value in payload.get("ids") or []
+            if isinstance(value, (int, str)) and str(value).isdigit()
+        }
+        if self.callback and (not self.binding_ids or not ids or self.binding_ids & ids):
+            self.callback(payload)
 
-class SupabaseRealtimeBroadcastClient:
+
+class SupabaseRealtimePostgresClient:
     def __init__(self, supabase_url: str, key: str, heartbeat_seconds: int = 25) -> None:
         self.supabase_url = supabase_url
         self.key = key
         self.heartbeat_seconds = heartbeat_seconds
         self.websocket: Any = None
-        self._channel: SupabaseBroadcastChannel | None = None
+        self._channel: SupabasePostgresChangesChannel | None = None
         self.join_future: asyncio.Future[Any] | None = None
         self._listen_task: asyncio.Task[Any] | None = None
         self._heartbeat_task: asyncio.Task[Any] | None = None
@@ -110,8 +133,8 @@ class SupabaseRealtimeBroadcastClient:
             self._heartbeat(), name="supabase-realtime-heartbeat"
         )
 
-    def channel(self, topic: str) -> SupabaseBroadcastChannel:
-        return SupabaseBroadcastChannel(self, topic)
+    def channel(self, topic: str) -> SupabasePostgresChangesChannel:
+        return SupabasePostgresChangesChannel(self, topic)
 
     async def send(self, message: dict[str, Any]) -> None:
         if not self.websocket or not self._connected:
@@ -139,10 +162,8 @@ class SupabaseRealtimeBroadcastClient:
                         )
                     continue
 
-                if message.get("event") == "broadcast" and self._channel:
-                    payload = message.get("payload") or {}
-                    if payload.get("event") == self._channel.event and self._channel.callback:
-                        self._channel.callback(payload)
+                if message.get("event") == "postgres_changes" and self._channel:
+                    self._channel.dispatch(message.get("payload") or {})
                 elif message.get("event") in {"phx_error", "phx_close"}:
                     raise ConnectionError(f"Realtime channel 종료: {message.get('event')}")
         finally:

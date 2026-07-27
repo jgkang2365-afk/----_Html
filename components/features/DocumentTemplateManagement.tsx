@@ -4,16 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, FileSpreadsheet, FileText, Upload } from "lucide-react";
 import { Button, Input, Select } from "@/components/ui";
 import {
+  ANNUAL_TEMPLATE_PERIOD,
   DOCUMENT_TYPE_META,
   DOCUMENT_TYPES,
   DocumentType,
+  TemplateMeasurementPeriod,
+  templateMeasurementPeriodLabel,
 } from "@/lib/document-generation/constants";
 
 interface TemplateRow {
   id: string;
   document_type: DocumentType;
   measurement_year: number;
-  measurement_period: "상반기" | "하반기";
+  measurement_period: TemplateMeasurementPeriod;
   version: number;
   original_filename: string;
   is_active: boolean;
@@ -29,7 +32,7 @@ export function DocumentTemplateManagement() {
   const [form, setForm] = useState({
     document_type: DOCUMENT_TYPES[0] as DocumentType,
     measurement_year: new Date().getFullYear(),
-    measurement_period: "하반기" as "상반기" | "하반기",
+    measurement_period: "하반기" as TemplateMeasurementPeriod,
     activate: true,
   });
   const [file, setFile] = useState<File | null>(null);
@@ -164,12 +167,13 @@ export function DocumentTemplateManagement() {
                 onChange={(event) =>
                   setForm((previous) => ({
                     ...previous,
-                    measurement_period: event.target.value as "상반기" | "하반기",
+                    measurement_period: event.target.value as TemplateMeasurementPeriod,
                   }))
                 }
                 options={[
                   { value: "상반기", label: "상반기" },
                   { value: "하반기", label: "하반기" },
+                  { value: ANNUAL_TEMPLATE_PERIOD, label: "연간 공통" },
                 ]}
               />
             </div>
@@ -194,7 +198,7 @@ export function DocumentTemplateManagement() {
                   setForm((previous) => ({ ...previous, activate: event.target.checked }))
                 }
               />
-              등록 후 이 버전을 활성 템플릿으로 사용
+              이 연도·주기의 기본 양식으로 지정
             </label>
           </form>
           {message && <p className="mt-3 text-sm font-medium text-blue-700">{message}</p>}
@@ -211,7 +215,8 @@ export function DocumentTemplateManagement() {
             grouped.map(([group, rows]) => (
               <div key={group} className="bg-white">
                 <h2 className="border-b border-slate-200 px-4 py-3 text-base font-bold text-slate-800">
-                  {group.replace("-", "년 ")}
+                  {rows[0].measurement_year}년{" "}
+                  {templateMeasurementPeriodLabel(rows[0].measurement_period)}
                 </h2>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[850px] text-sm">

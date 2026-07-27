@@ -3319,7 +3319,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
 
           <div className="flex justify-end pt-4 border-t gap-2">
             <p className="mr-auto text-xs text-gray-400 flex items-center">
-              💡 실패한 항목의 '결과 메시지'를 확인하여 엑셀 데이터를 수정한 뒤 다시 업로드해주세요.
+              💡 실패한 항목의 &apos;결과 메시지&apos;를 확인하여 엑셀 데이터를 수정한 뒤 다시 업로드해주세요.
             </p>
             <Button variant="secondary" onClick={() => setIsPaymentResultsModalOpen(false)}>닫기</Button>
           </div>

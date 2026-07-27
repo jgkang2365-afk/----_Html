@@ -17,7 +17,7 @@ DOCUMENT_WORKER_TOKEN=충분히_긴_임의의_비밀값
 DOCUMENT_WORKER_API_URL=http://localhost:3000
 DOCUMENT_OUTPUT_ROOT=Z:\data\측정팀\측정보고서
 DOCUMENT_WORKER_REALTIME_ENABLED=true
-DOCUMENT_WORKER_RECOVERY_POLL_SECONDS=300
+DOCUMENT_WORKER_RECOVERY_POLL_SECONDS=21600
 SUPABASE_URL=https://프로젝트참조.supabase.co
 SUPABASE_REALTIME_KEY=NEXT_PUBLIC_SUPABASE_ANON_KEY와_동일한_값
 ```
@@ -100,30 +100,32 @@ Worker 로그:
 Worker는 한 번에 하나의 PENDING 작업만 원자적으로 선점합니다. 사용자가 열어 둔 Excel 또는 한글 프로세스는 종료하지 않습니다.
 ## Realtime 작업 감지
 
-기본 실행은 Supabase Realtime Broadcast 신호와 300초 복구 폴링을 함께 사용합니다.
+기본 실행은 Supabase Realtime Postgres Changes 신호와 6시간(21,600초) 안전 확인을 함께 사용합니다.
 
-1. Worker 시작 시 `/claim`을 즉시 호출하여 기존 `PENDING` 작업을 모두 처리합니다.
-2. DB 트리거는 작업이 `PENDING`으로 전환될 때 `status`, `job_type`만 Broadcast합니다.
-3. Worker는 신호를 직접 실행 데이터로 사용하지 않고 인증된 `/claim` API를 호출합니다.
-4. 중복 신호는 Worker 내부 단일 실행 lock으로 합쳐집니다.
-5. Realtime 장애 중에도 300초마다 `/claim`을 호출합니다.
+1. Worker 시작 시와 Realtime 연결·재연결 성공 시 `/claim`을 즉시 한 번 호출합니다.
+2. `document_generation_jobs`에 `PENDING` 작업이 INSERT되면 DB 트리거가 개인정보 없는 `document_job_pending_signals` 행을 INSERT합니다.
+3. Worker는 신호 테이블의 `INSERT + status=PENDING`만 구독하고, 실제 작업 데이터는 인증된 `/claim` API로 받습니다.
+4. 연속 INSERT는 0.75초 디바운스하고, 모든 claim/처리 진입은 single-flight lock으로 합칩니다.
+5. 신호 직후 첫 claim이 비어 있으면 DB 반영 시차에 대비해 2초 후, 다시 3초 후(신호 기준 약 5초)까지 최대 3회 확인합니다.
+6. 작업을 선점하면 완료 후 계속 claim하여 큐가 빌 때까지 처리합니다.
+7. Realtime 누락 대비 안전 확인은 6시간마다 한 번만 수행합니다.
 
-`document_generation_jobs`에는 연락처 등 스냅샷이 있으므로 테이블 자체를 anon Postgres Changes에 공개하지 않습니다. Broadcast topic에는 작업 ID나 개인정보가 포함되지 않습니다. `SUPABASE_REALTIME_KEY`에는 service-role secret이 아니라 기존 anon key를 사용합니다.
+민감한 `document_generation_jobs.payload`는 Realtime publication에 포함하지 않습니다. 공개되는 신호 테이블에는 작업 ID, 상태, 고정 job type, 생성 시각만 있으며 Worker는 신호의 작업 ID도 처리 데이터로 사용하지 않습니다. `SUPABASE_REALTIME_KEY`에는 기존 anon key를 사용합니다.
 
 정상 시작 로그:
 
 ```text
-문서 Worker 시작 version=2026.07.19.4 ... realtime=True recovery=300s
+문서 Worker 시작 version=2026.07.25.1 ... realtime=True recovery=21600s
 Realtime 연결 시작
 Realtime WebSocket 연결 성공
-Realtime 구독 성공 topic=document-worker-jobs event=document_generation_pending
+Realtime 구독 성공 table=public.document_job_pending_signals event=INSERT filter=status=eq.PENDING
 ```
 
-Realtime을 끄고 복구 폴링만 사용할 때:
+Realtime을 끄고 6시간 안전 확인만 사용할 때:
 
 ```env
 DOCUMENT_WORKER_REALTIME_ENABLED=false
-DOCUMENT_WORKER_RECOVERY_POLL_SECONDS=300
+DOCUMENT_WORKER_RECOVERY_POLL_SECONDS=21600
 ```
 
 ## Python 3.14 의존성
@@ -138,29 +140,9 @@ Worker는 `websockets==16.1.1`을 사용합니다. 이 버전은 Windows Python 
 
 ## Migration 적용 확인
 
-SQL Editor에서 다음 파일 전체를 실행합니다.
+SQL Editor에서 `supabase/migrations/20260719_add_document_worker_realtime_wakeup.sql`을 실행한 뒤 `supabase/verification/20260719_verify_document_worker_realtime_wakeup.sql`을 실행합니다.
 
-```text
-supabase/migrations/20260719_add_document_worker_realtime_wakeup.sql
-```
-
-검증 파일:
-
-```text
-supabase/verification/20260719_verify_document_worker_realtime_wakeup.sql
-```
-
-핵심 확인 SQL:
-
-```sql
-SELECT trigger_name, event_manipulation
-FROM information_schema.triggers
-WHERE event_object_schema = 'public'
-  AND event_object_table = 'document_generation_jobs'
-  AND trigger_name = 'trg_document_generation_pending_wakeup';
-```
-
-`INSERT`, `UPDATE` 두 행이 조회되어야 합니다. 작업 테이블의 직접 publication 여부는 `false`가 정상이며 Broadcast가 사용하는 `realtime.messages`가 `supabase_realtime` publication에 포함되어 있어야 합니다.
+검증 결과는 `pending_signals_published=true`, `sensitive_jobs_not_published=true`여야 하며 원본 작업 테이블 트리거는 `INSERT` 한 행만 조회되어야 합니다.
 
 ## Windows 수동 통합 테스트
 
@@ -175,7 +157,7 @@ WHERE event_object_schema = 'public'
 9. 수 초 내 `Realtime 신규 문서 작업 신호 수신`과 `/claim` 실행을 확인합니다.
 10. HWPX와 XLSM 결과 및 DB 완료 상태를 확인합니다.
 11. 같은 신호가 중복되어도 파일이 한 번만 생성되는지 확인합니다.
-12. Realtime 연결을 차단한 상태에서 작업을 등록하고 최대 5분 내 복구 폴링 처리를 확인합니다.
+12. Realtime 이벤트 누락 상황은 6시간 안전 확인 설정과 Worker 시작 즉시 claim으로 복구되는지 확인합니다.
 13. 연결 복구 후 다시 수 초 내 실행되는지 확인합니다.
 
 Worker 로그는 `logs/document-worker.log`, 오류 로그는 `logs/document-worker-error.log`에서 확인합니다. 강제 종료된 `PROCESSING` 작업을 자동 재대기시키는 정책은 이번 변경에 포함하지 않았으므로, 문서 생성 중 PC 전원이 꺼진 경우 DB 상태를 운영자가 확인해야 합니다.

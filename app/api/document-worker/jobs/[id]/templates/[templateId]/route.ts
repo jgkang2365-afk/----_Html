@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAuthorizedDocumentWorker } from "@/lib/document-generation/worker-auth";
+import { isTemplatePeriodApplicable } from "@/lib/document-generation/template-selection";
 
 export const dynamic = "force-dynamic";
 
 function normalizedId(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function selectedDocumentTypes(value: unknown): string[] {
@@ -63,11 +66,14 @@ export async function GET(
       documentType: template.document_type,
       selectedDocuments,
     });
-    return NextResponse.json({ error: "작업에서 선택하지 않은 문서 템플릿입니다." }, { status: 403 });
+    return NextResponse.json(
+      { error: "작업에서 선택하지 않은 문서 템플릿입니다." },
+      { status: 403 }
+    );
   }
   if (
     Number(template.measurement_year) !== Number(job.measurement_year) ||
-    template.measurement_period !== job.measurement_period
+    !isTemplatePeriodApplicable(template.measurement_period, job.measurement_period)
   ) {
     console.warn("[DocumentWorker] 작업 연도·주기와 다른 템플릿 요청:", {
       jobId: params.id,

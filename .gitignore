@@ -63,4 +63,10 @@ google-credentials.json
 /측정일지 구현 정보.txt
 /건강디딤돌 신청 및 결과 조회/
 
+# 임시 파일
+__pycache__/
+*.pyc
+logs/
+scratch/__pycache__/
+
 
