@@ -1,44 +1,55 @@
 "use client";
-
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FilePlus2, Loader2, RotateCcw } from "lucide-react";
+import { FilePlus2, FileSpreadsheet, FileText, Loader2, RotateCcw } from "lucide-react";
 import { Button, Modal } from "@/components/ui";
-import {
-  DOCUMENT_TYPE_META,
-  DOCUMENT_TYPES,
-  DocumentType,
-} from "@/lib/document-generation/constants";
-
-interface Props {
-  businessId: number;
-  business: Record<string, any>;
-}
-
-interface GenerationContext {
+type Document = {
+  definition?: {
+    id: string;
+    code?: string;
+    name?: string;
+    file_format?: string;
+    default_selected?: boolean;
+  };
+  document_definition_id?: string;
+  id?: string;
+  code?: string;
+  name?: string;
+  document_name?: string;
+  file_format?: string;
+  default_selected?: boolean;
+  template?: {
+    id: string;
+    version?: number;
+    original_filename?: string;
+    measurement_period?: string;
+  } | null;
+  available?: boolean;
+  reason?: string;
+  unavailable_reason?: string;
+};
+type ResultFile = {
+  document_definition_id?: string;
+  document_type?: string;
+  document_name?: string;
+  status: string;
+  filename?: string;
+  path?: string;
+  error?: string;
+};
+type Context = {
   eligible: boolean;
   hasActualMeasurementJournal: boolean;
+  outputPath: string | null;
+  documents?: Document[];
+  templates?: unknown[];
   job: null | {
     id: string;
-    status: "NOT_REQUESTED" | "PENDING" | "PROCESSING" | "COMPLETED" | "PARTIAL_SUCCESS" | "FAILED";
+    status: string;
     error_message?: string | null;
-    result_files?: Array<{
-      document_type: DocumentType;
-      status: string;
-      filename?: string;
-      path?: string;
-      error?: string;
-    }>;
+    result_files?: ResultFile[];
   };
-  templates: Array<{
-    id: string;
-    document_type: DocumentType;
-    version: number;
-    original_filename: string;
-  }>;
-  outputPath: string | null;
-  snapshot?: Record<string, any>;
-}
-
+  snapshot?: Record<string, unknown>;
+};
 const STATUS_LABELS: Record<string, string> = {
   NOT_REQUESTED: "문서 생성",
   PENDING: "문서 생성 중",
@@ -47,46 +58,34 @@ const STATUS_LABELS: Record<string, string> = {
   PARTIAL_SUCCESS: "다시 생성",
   FAILED: "다시 생성",
 };
-
-function missingValues(type: DocumentType, business: Record<string, any>) {
-  const common: Array<[string, string]> = [
-    ["representative_name", "대표자"],
-    ["address", "주소"],
-    ["business_category", "업종"],
-    ["phone", "전화번호"],
-    ["main_product", "주요 생산품"],
-    ["fax", "팩스번호"],
-    ["total_employees", "총 근로자 수"],
-    ["manager_name", "담당자명"],
-    ["manager_email", "담당자 메일"],
-  ];
-  const fields =
-    type === "GENERAL_PRELIMINARY_SURVEY"
-      ? [
-          ...common,
-          ["preliminary_surveyor", "예비조사자"] as [string, string],
-          ["business_number", "사업자등록번호"] as [string, string],
-          ["industrial_accident_number", "산재관리번호"] as [string, string],
-        ]
-      : type === "FIELD_PRELIMINARY_SURVEY"
-        ? common
-        : ([
-            ["manager_name", "담당자명"],
-            ["manager_email", "담당자 메일"],
-            ["invoice_email", "계산서 메일"],
-          ] as Array<[string, string]>);
-  return fields.filter(([key]) => !String(business[key] ?? "").trim()).map(([, label]) => label);
-}
-
-export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
-  const [context, setContext] = useState<GenerationContext | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
-  const [selected, setSelected] = useState<DocumentType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-
-  const loadContext = useCallback(
+const documentId = (document: Document) =>
+  document.definition?.id || document.document_definition_id || document.id || document.code || "";
+// API는 code와 definition id를 모두 허용한다. UI 상태는 항상 안정적인 definition id로 유지한다.
+const documentSelection = (document: Document) => documentId(document);
+const documentCode = (document: Document) => document.definition?.code || document.code || "";
+const documentName = (document: Document) =>
+  document.definition?.name ||
+  document.name ||
+  document.document_name ||
+  document.definition?.code ||
+  document.code ||
+  "문서";
+const isAvailable = (document: Document) =>
+  document.available !== false && Boolean(document.template || document.available);
+export function NewBusinessDocumentGeneration({
+  businessId,
+  business,
+}: {
+  businessId: number;
+  business: Record<string, any>;
+}) {
+  const [context, setContext] = useState<Context | null>(null),
+    [isOpen, setIsOpen] = useState(false),
+    [selected, setSelected] = useState<string[]>([]),
+    [loading, setLoading] = useState(true),
+    [submitting, setSubmitting] = useState(false),
+    [error, setError] = useState("");
+  const load = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
@@ -105,55 +104,63 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
     },
     [businessId]
   );
-
   useEffect(() => {
-    void loadContext();
-  }, [loadContext]);
+    void load();
+  }, [load]);
   useEffect(() => {
     if (!context?.job || !["PENDING", "PROCESSING"].includes(context.job.status)) return;
-    const timer = window.setInterval(() => void loadContext(true), 3000);
+    const timer = window.setInterval(() => void load(true), 3000);
     return () => window.clearInterval(timer);
-  }, [context?.job, loadContext]);
-
-  const available = useMemo(
-    () => new Set((context?.templates || []).map((template) => template.document_type)),
-    [context?.templates]
+  }, [context?.job, load]);
+  const documents = useMemo(
+    () => (Array.isArray(context?.documents) ? context!.documents : []),
+    [context]
   );
-  const openSelector = () => {
-    const failedTypes = (context?.job?.result_files || [])
-      .filter((file) => file.status !== "COMPLETED" && available.has(file.document_type))
-      .map((file) => file.document_type);
-    setSelected(
-      ["PARTIAL_SUCCESS", "FAILED"].includes(context?.job?.status || "") && failedTypes.length > 0
-        ? failedTypes
-        : DOCUMENT_TYPES.filter((type) => available.has(type))
-    );
-    setError("");
-    setIsOpen(true);
-  };
-
-  const hasRequiredContext = Boolean(
+  const status = context?.job?.status || "NOT_REQUESTED";
+  const isRunning = ["PENDING", "PROCESSING"].includes(status);
+  const isComplete = status === "COMPLETED";
+  const canRender = Boolean(
     businessId &&
     String(business.business_name ?? "").trim() &&
     String(business.year ?? "").trim() &&
     String(business.period ?? "").trim() &&
     String(business.code ?? "").trim()
   );
-
-  if (loading || !context?.eligible || context.hasActualMeasurementJournal || !hasRequiredContext)
-    return null;
-
-  const status = context.job?.status || "NOT_REQUESTED";
-  const isRunning = status === "PENDING" || status === "PROCESSING";
-  const isComplete = status === "COMPLETED";
-
-  const requestGeneration = async () => {
-    if (selected.length === 0) {
-      setError("생성할 문서를 하나 이상 선택해 주세요.");
-      return;
-    }
-    setSubmitting(true);
+  const open = () => {
+    const failed = new Set(
+      (context?.job?.result_files || [])
+        .filter((file) => file.status !== "COMPLETED")
+        .map((file) => file.document_definition_id || file.document_type)
+    );
+    const retry = ["PARTIAL_SUCCESS", "FAILED"].includes(status)
+      ? documents
+          .filter(
+            (document) =>
+              failed.has(documentId(document)) ||
+              failed.has(documentSelection(document)) ||
+              failed.has(documentCode(document))
+          )
+          .map(documentSelection)
+          .filter(Boolean)
+      : [];
+    setSelected(
+      retry.length
+        ? retry
+        : documents
+            .filter(
+              (document) =>
+                isAvailable(document) &&
+                (document.definition?.default_selected ?? document.default_selected ?? true)
+            )
+            .map(documentSelection)
+            .filter(Boolean)
+    );
     setError("");
+    setIsOpen(true);
+  };
+  const submit = async () => {
+    if (!selected.length) return setError("생성할 문서를 하나 이상 선택해 주세요.");
+    setSubmitting(true);
     try {
       const response = await fetch("/api/document-generation", {
         method: "POST",
@@ -162,7 +169,7 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "문서 생성 요청 실패");
-      await loadContext(true);
+      await load(true);
       setIsOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "문서 생성 요청 실패");
@@ -170,14 +177,15 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
       setSubmitting(false);
     }
   };
-
+  if (loading || !context?.eligible || context.hasActualMeasurementJournal || !canRender)
+    return null;
   return (
     <>
       <Button
         type="button"
         variant={isComplete ? "secondary" : "primary"}
         disabled={isRunning}
-        onClick={openSelector}
+        onClick={open}
         className="whitespace-nowrap"
       >
         {isRunning ? (
@@ -189,7 +197,6 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
         )}
         {STATUS_LABELS[status] || "문서 생성"}
       </Button>
-
       <Modal
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
@@ -198,98 +205,93 @@ export function NewBusinessDocumentGeneration({ businessId, business }: Props) {
       >
         <div className="space-y-5 p-1 pt-5">
           <div className="border-y border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-            <p className="font-semibold text-slate-800">저장 예정 경로</p>
+            <p className="font-semibold">저장 예정 경로</p>
             <p className="mt-1 break-all font-mono text-xs text-slate-600">{context.outputPath}</p>
           </div>
-
-          {context.job?.result_files && context.job.result_files.length > 0 && (
-            <div className="border-y border-slate-200">
-              {context.job.result_files.map((file) => (
-                <div
-                  key={`${file.document_type}-${file.filename || file.error}`}
-                  className="border-b border-slate-100 px-4 py-3 last:border-0"
-                >
-                  <p className="text-sm font-semibold text-slate-800">
-                    {DOCUMENT_TYPE_META[file.document_type]?.label || file.document_type}:{" "}
-                    {file.status === "COMPLETED" ? "완료" : "실패"}
-                  </p>
-                  {file.filename && <p className="mt-1 text-xs text-slate-600">{file.filename}</p>}
-                  {file.path && (
-                    <p className="mt-1 break-all font-mono text-xs text-slate-500">{file.path}</p>
-                  )}
-                  {file.error && <p className="mt-1 text-xs text-red-600">{file.error}</p>}
-                </div>
-              ))}
+          {(context.job?.result_files || []).map((file, index) => (
+            <div
+              key={`${file.document_definition_id || file.document_type || index}-${file.filename || file.error}`}
+              className="border-b border-slate-100 px-1 py-2 text-sm"
+            >
+              <b>
+                {file.document_name || file.document_type || "문서"}:{" "}
+                {file.status === "COMPLETED" ? "완료" : "실패"}
+              </b>
+              {file.filename && <p className="text-xs text-slate-600">{file.filename}</p>}
+              {file.error && <p className="text-xs text-red-600">{file.error}</p>}
             </div>
-          )}
-          <div className="space-y-3">
-            {DOCUMENT_TYPES.map((type) => {
-              const template = context.templates.find((item) => item.document_type === type);
-              const missing = missingValues(type, context.snapshot || business);
+          ))}
+          <div className="space-y-2">
+            {documents.map((document) => {
+              const id = documentId(document),
+                available = isAvailable(document),
+                format = document.definition?.file_format || document.file_format;
               return (
                 <label
-                  key={type}
-                  className={`flex items-start gap-3 border-b border-slate-100 px-1 py-3 ${template ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
+                  key={id || documentName(document)}
+                  className={`flex gap-3 border-b border-slate-100 px-1 py-3 ${available ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
                 >
                   <input
-                    type="checkbox"
                     className="mt-1"
-                    disabled={!template}
-                    checked={selected.includes(type)}
+                    type="checkbox"
+                    disabled={!available}
+                    checked={selected.includes(id)}
                     onChange={(event) =>
                       setSelected((previous) =>
                         event.target.checked
-                          ? [...previous, type]
-                          : previous.filter((item) => item !== type)
+                          ? [...previous, id]
+                          : previous.filter((value) => value !== id)
                       )
                     }
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-slate-800">
-                      {DOCUMENT_TYPE_META[type].label}
+                    <span className="flex items-center gap-1 font-semibold text-slate-800">
+                      {format === "HWPX" ? (
+                        <FileText className="h-4 w-4 text-blue-600" />
+                      ) : (
+                        <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                      )}
+                      {documentName(document)}{" "}
+                      <small className="font-normal text-slate-500">{format}</small>
                     </span>
-                    {template ? (
+                    {available && document.template ? (
                       <span className="block text-xs text-slate-500">
-                        v{template.version} · {template.original_filename}
+                        v{document.template.version} ·{" "}
+                        {document.template.measurement_period === "annual"
+                          ? "연간 공통"
+                          : document.template.measurement_period}{" "}
+                        · {document.template.original_filename}
                       </span>
                     ) : (
                       <span className="block text-xs text-red-600">
-                        해당 연도·주기의 활성 템플릿이 없습니다.
-                      </span>
-                    )}
-                    {template && missing.length > 0 && (
-                      <span className="mt-1 block text-xs text-amber-700">
-                        빈칸 생성: {missing.join(", ")}
+                        {document.reason ||
+                          document.unavailable_reason ||
+                          "해당 연도·주기의 활성 템플릿이 없습니다."}
                       </span>
                     )}
                   </span>
                 </label>
               );
             })}
+            {!documents.length && (
+              <p className="py-5 text-center text-sm text-slate-500">
+                적용 가능한 문서 정의가 없습니다.
+              </p>
+            )}
           </div>
-
-          {(status === "FAILED" || status === "PARTIAL_SUCCESS") && context.job?.error_message && (
-            <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {context.job.error_message}
-            </p>
-          )}
           {error && (
-            <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {error}
             </p>
           )}
-          <p className="text-xs text-slate-500">
-            누락된 값은 빈칸으로 생성됩니다. 현재 DB에 저장된 값을 기준으로 계속하시겠습니까?
-          </p>
-
-          <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <div className="flex justify-end gap-2 border-t pt-4">
             <Button type="button" variant="secondary" onClick={() => setIsOpen(false)}>
               취소
             </Button>
             <Button
               type="button"
-              onClick={requestGeneration}
-              disabled={submitting || available.size === 0}
+              disabled={submitting || !documents.some(isAvailable)}
+              onClick={() => void submit()}
             >
               {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               {isComplete ? "선택 문서 재생성" : "선택 문서 생성"}

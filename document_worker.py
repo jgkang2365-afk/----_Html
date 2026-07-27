@@ -47,8 +47,14 @@ XLSM_CELLS = {
     "I2": "invoice_email",
 }
 
+FILE_FORMAT_EXTENSIONS = {
+    "HWPX": ".hwpx",
+    "XLSX": ".xlsx",
+    "XLSM": ".xlsm",
+}
+
 LOGGER = logging.getLogger("document-worker")
-WORKER_VERSION = "2026.07.25.1"
+WORKER_VERSION = "2026.07.27.1"
 
 
 def load_env_file(path: Path) -> None:
@@ -108,6 +114,73 @@ def build_filename(document_type: str, snapshot: dict[str, Any]) -> str:
     if document_type == "MEASUREMENT_PLAN_XLSM":
         return f"★ {name}({year}{period})_화학물질입력 및 측정계획(V2.0).xlsm"
     raise ValueError(f"지원하지 않는 문서 종류입니다: {document_type}")
+
+
+def build_filename_from_definition(
+    definition: dict[str, Any], snapshot: dict[str, Any]
+) -> str:
+    file_format = normalize_text(definition.get("file_format")).upper()
+    extension = FILE_FORMAT_EXTENSIONS.get(file_format)
+    if not extension:
+        raise ValueError(f"지원하지 않는 파일 형식입니다: {file_format or '(빈 값)'}")
+    pattern = normalize_text(definition.get("filename_pattern"))
+    if not pattern:
+        raise ValueError("작업에 고정된 파일명 규칙이 없습니다.")
+    if re.search(r"\.(?:hwpx|xlsx|xlsm)$", pattern, re.IGNORECASE):
+        raise ValueError("파일명 규칙에는 확장자를 포함할 수 없습니다.")
+
+    year = normalize_text(snapshot.get("measurement_year"))
+    period = normalize_measurement_period(snapshot.get("measurement_period"))
+    replacements = {
+        "business_name": normalize_text(snapshot.get("business_name")),
+        "business_code": normalize_text(snapshot.get("business_code")),
+        "year": year,
+        "short_year": year[-2:],
+        "period": period,
+        "short_period": "상" if period == "상반기" else "하",
+        "document_name": normalize_text(definition.get("name")),
+    }
+    unknown_variables: list[str] = []
+
+    def replace_variable(match: re.Match[str]) -> str:
+        variable = match.group(1)
+        if variable not in replacements:
+            unknown_variables.append(variable)
+            return ""
+        return replacements[variable]
+
+    rendered = re.sub(r"\{([^{}]+)\}", replace_variable, pattern)
+    if unknown_variables:
+        raise ValueError(
+            "지원하지 않는 파일명 변수입니다: "
+            + ", ".join(sorted(set(unknown_variables)))
+        )
+    fallback = (
+        normalize_text(definition.get("name"))
+        or normalize_text(snapshot.get("business_code"))
+        or "문서"
+    )
+    return sanitize_windows_filename(rendered, fallback) + extension
+
+
+def resolve_mapping_values(
+    mappings: list[dict[str, Any]], snapshot: dict[str, Any], document_name: str
+) -> list[dict[str, Any]]:
+    resolved: list[dict[str, Any]] = []
+    missing_sources: list[str] = []
+    for mapping in sorted(mappings, key=lambda item: int(item.get("sort_order") or 0)):
+        source_field = normalize_text(mapping.get("source_field"))
+        value = normalize_text(snapshot.get(source_field))
+        if not value:
+            value = normalize_text(mapping.get("default_value"))
+        if bool(mapping.get("required")) and not value:
+            missing_sources.append(source_field or "(알 수 없는 필드)")
+        resolved.append({**mapping, "value": value})
+    if missing_sources:
+        raise RuntimeError(
+            f"{document_name} 필수 입력값 누락: " + ", ".join(missing_sources)
+        )
+    return resolved
 
 
 def unique_destination(path: Path) -> Path:
@@ -183,8 +256,9 @@ class HwpxAutomation:
                 raise RuntimeError("누락된 HWPX 누름틀: " + ", ".join(missing))
 
             stage = "누름틀 값 입력"
-            for field in required_fields:
-                hwp.PutFieldText(field, normalize_text(values.get(field)))
+            for field, value in values.items():
+                if field in available:
+                    hwp.PutFieldText(field, normalize_text(value))
 
             stage = "문서 저장"
             if not hwp.Save(True):
@@ -221,6 +295,52 @@ class ExcelAutomation:
                 target = cell.MergeArea.Cells(1, 1) if cell.MergeCells else cell
                 target.Value = normalize_text(values.get(value_key))
             workbook.Save()
+        finally:
+            if workbook is not None:
+                try:
+                    workbook.Close(SaveChanges=False)
+                except Exception:
+                    pass
+            if excel is not None:
+                try:
+                    excel.Quit()
+                except Exception:
+                    pass
+            del workbook
+            del excel
+            gc.collect()
+
+    def fill_mappings(self, path: Path, mappings: list[dict[str, Any]]) -> None:
+        import win32com.client  # type: ignore
+
+        excel = None
+        workbook = None
+        stage = "COM 객체 생성"
+        try:
+            excel = win32com.client.DispatchEx("Excel.Application")
+            excel.Visible = False
+            excel.DisplayAlerts = False
+            stage = "문서 열기"
+            workbook = excel.Workbooks.Open(str(path))
+            for mapping in mappings:
+                sheet_name = normalize_text(mapping.get("target_sheet"))
+                cell_address = normalize_text(mapping.get("target_address")).upper()
+                if not sheet_name:
+                    raise RuntimeError("Excel 시트명이 비어 있습니다.")
+                if not re.fullmatch(r"[A-Z]{1,3}[1-9][0-9]*", cell_address):
+                    raise RuntimeError(f"Excel 셀 주소가 A1 형식이 아닙니다: {cell_address}")
+                stage = f"셀 입력({sheet_name}!{cell_address})"
+                try:
+                    sheet = workbook.Worksheets(sheet_name)
+                except Exception as error:
+                    raise RuntimeError(f"Excel 시트를 찾을 수 없습니다: {sheet_name}") from error
+                cell = sheet.Range(cell_address)
+                target = cell.MergeArea.Cells(1, 1) if cell.MergeCells else cell
+                target.Value = normalize_text(mapping.get("value"))
+            stage = "문서 저장"
+            workbook.Save()
+        except Exception as error:
+            raise RuntimeError(f"Excel {stage} 단계 실패: {error}") from error
         finally:
             if workbook is not None:
                 try:
@@ -309,6 +429,12 @@ def process_job(
     )
     templates = payload.get("templates") or {}
     selected = payload.get("selected_documents") or job.get("selected_documents") or []
+    document_snapshots = payload.get("documents") or []
+    dynamic_documents = {
+        normalize_text(document.get("code")): document
+        for document in document_snapshots
+        if isinstance(document, dict) and normalize_text(document.get("code"))
+    }
     final_folder = build_output_path(output_root, snapshot)
     final_folder.mkdir(parents=True, exist_ok=True)
     hwpx = hwpx or HwpxAutomation()
@@ -327,6 +453,104 @@ def process_job(
         for document_type in selected:
             result: dict[str, Any] = {"document_type": document_type, "status": "FAILED"}
             try:
+                dynamic_document = dynamic_documents.get(document_type)
+                if dynamic_document:
+                    result.update(
+                        {
+                            "document_definition_id": dynamic_document.get(
+                                "document_definition_id"
+                            ),
+                            "document_name": dynamic_document.get("name"),
+                            "file_format": normalize_text(
+                                dynamic_document.get("file_format")
+                            ).upper(),
+                        }
+                    )
+                    template = dynamic_document.get("template") or {}
+                    file_format = result["file_format"]
+                    extension = FILE_FORMAT_EXTENSIONS.get(file_format)
+                    if not extension or not template:
+                        raise RuntimeError("작업에 고정된 문서 정의 또는 템플릿 정보가 없습니다.")
+                    if (
+                        normalize_text(template.get("extension")).lower()
+                        and normalize_text(template.get("extension")).lower() != extension
+                    ):
+                        raise RuntimeError("문서 형식과 템플릿 확장자가 일치하지 않습니다.")
+
+                    template_file = temporary_root / (
+                        f"template-{sanitize_windows_filename(document_type, 'document')}{extension}"
+                    )
+                    client.download_template(
+                        str(job["id"]), str(template["template_id"]), template_file
+                    )
+                    verify_download(template_file, template)
+                    working_file = temporary_root / build_filename_from_definition(
+                        dynamic_document, snapshot
+                    )
+                    shutil.copy2(template_file, working_file)
+                    raw_mappings = dynamic_document.get("mappings") or []
+                    if not isinstance(raw_mappings, list):
+                        raise RuntimeError("작업에 고정된 입력 매핑 형식이 올바르지 않습니다.")
+                    resolved_mappings = resolve_mapping_values(
+                        raw_mappings,
+                        snapshot,
+                        normalize_text(dynamic_document.get("name")) or document_type,
+                    )
+
+                    if file_format == "HWPX":
+                        if not resolved_mappings:
+                            raise RuntimeError("HWPX 입력 매핑이 없습니다.")
+                        if any(
+                            mapping.get("target_type") != "HWPX_FIELD"
+                            for mapping in resolved_mappings
+                        ):
+                            raise RuntimeError("HWPX 문서에 Excel 셀 매핑이 포함되어 있습니다.")
+                        target_values = {
+                            normalize_text(mapping.get("target_address")): normalize_text(
+                                mapping.get("value")
+                            )
+                            for mapping in resolved_mappings
+                        }
+                        # 설정한 누름틀은 모두 템플릿에 존재해야 한다. required는
+                        # 누름틀 존재 여부가 아니라 입력값의 필수 여부에만 사용한다.
+                        required_targets = list(target_values)
+                        hwpx.fill(working_file, target_values, required_targets)
+                    else:
+                        if any(
+                            mapping.get("target_type") != "EXCEL_CELL"
+                            for mapping in resolved_mappings
+                        ):
+                            raise RuntimeError("Excel 문서에 HWPX 누름틀 매핑이 포함되어 있습니다.")
+                        if hasattr(excel, "fill_mappings"):
+                            excel.fill_mappings(working_file, resolved_mappings)
+                        else:
+                            excel.fill(
+                                working_file,
+                                {
+                                    f"{mapping.get('target_sheet')}!{mapping.get('target_address')}": mapping.get(
+                                        "value"
+                                    )
+                                    for mapping in resolved_mappings
+                                },
+                            )
+
+                    if not working_file.exists() or working_file.stat().st_size <= 0:
+                        raise RuntimeError("저장 검증에 실패했습니다.")
+                    destination = publish_file(working_file, final_folder / working_file.name)
+                    result.update(
+                        {
+                            "input_fields": [
+                                mapping.get("source_field") for mapping in resolved_mappings
+                            ],
+                            "status": "COMPLETED",
+                            "filename": destination.name,
+                            "path": str(destination),
+                        }
+                    )
+                    results.append(result)
+                    continue
+
+                # 배포 전에 생성된 기존 payload 작업은 기존 3종 고정 규칙으로 처리한다.
                 definition = DOCUMENT_TYPES.get(document_type)
                 template = templates.get(document_type)
                 if not definition or not template:
