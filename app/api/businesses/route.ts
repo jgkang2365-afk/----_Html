@@ -224,6 +224,13 @@ export async function GET(request: NextRequest) {
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false });
 
+    // 문서 생성 버튼은 같은 사업장 코드라도 현재 대상의 연도·주기 일지에만 막힌다.
+    const actualMeasurementJournalKeys = new Set(
+      (latestJournalData || []).map((item: any) =>
+        JSON.stringify([item.code, item.measurement_year, item.measurement_period])
+      )
+    );
+
     // 3순위 보완: 사업장정보(business_info)에만 있는 기본 사업자등록번호와 대표전화
     const { data: businessInfoData } = await supabase
       .from("business_info")
@@ -290,6 +297,9 @@ export async function GET(request: NextRequest) {
       const exactInfo = exactMeasurementInfoMap.get(item.code);
       const jInfo = journalInfoMap.get(item.code);
       const basicInfo = businessBasicInfoMap.get(item.code);
+      const hasActualMeasurementJournal = actualMeasurementJournalKeys.has(
+        JSON.stringify([item.code, item.year, item.period])
+      );
 
       // 실시여부 로직: 기 입력된 값이 '거래종료', '종료', '실시', '미실시' 등 정규화된 값이면 유지.
       // 그 외(null 등)의 경우 기본값('미실시')으로 처리
@@ -329,6 +339,7 @@ export async function GET(request: NextRequest) {
         unpaid_count: businessCount, // 사업장 미수 (Calculated)
         national_unpaid_count: nationalCount, // 국고 미수 (Calculated)
         unpaid_details: filteredDetails, // Filtered details
+        has_actual_measurement_journal: hasActualMeasurementJournal,
         // UI 호환성을 위한 필드 매핑
         designated_office: item.office_jurisdiction, // 임시 매핑
         isRegistered: isRegisteredText === "실시", // Frontend 호환성

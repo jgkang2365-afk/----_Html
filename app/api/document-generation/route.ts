@@ -16,6 +16,7 @@ import {
   selectApplicableDefinitionTemplates,
   selectApplicableDocumentTemplates,
 } from "@/lib/document-generation/template-selection";
+import { isDocumentDefinitionVisibleForJurisdiction } from "@/lib/document-generation/selection-report-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,14 @@ async function getContext(businessId: number) {
     .maybeSingle();
   if (targetError) throw targetError;
   if (!target) throw new Error("DOCUMENT_TARGET_NOT_FOUND");
+
+  const { data: businessInfo, error: businessInfoError } = await admin
+    .from("business_info")
+    .select("office_jurisdiction")
+    .eq("code", target.code)
+    .maybeSingle();
+  if (businessInfoError) throw businessInfoError;
+  const officeJurisdiction = String(businessInfo?.office_jurisdiction ?? "").trim();
 
   const eligible = target.document_generation_enabled === true;
   const period = normalizeMeasurementPeriod(target.period);
@@ -80,7 +89,11 @@ async function getContext(businessId: number) {
     .order("sort_order")
     .order("created_at");
   if (definitionsError) throw definitionsError;
-  const documents = (definitions || []).map((definition: any) => {
+  const applicableDefinitions = (definitions || []).filter(
+    (definition: any) =>
+      isDocumentDefinitionVisibleForJurisdiction(definition.name, officeJurisdiction)
+  );
+  const documents = applicableDefinitions.map((definition: any) => {
     const template: any = selectedTemplateMap.get(definition.id) || null;
     return {
       document_definition_id: definition.id,

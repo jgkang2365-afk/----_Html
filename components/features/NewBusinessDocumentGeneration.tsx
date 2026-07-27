@@ -75,9 +75,13 @@ const isAvailable = (document: Document) =>
 export function NewBusinessDocumentGeneration({
   businessId,
   business,
+  documentGenerationEnabled,
+  hasActualMeasurementJournal,
 }: {
   businessId: number;
   business: Record<string, any>;
+  documentGenerationEnabled?: boolean;
+  hasActualMeasurementJournal?: boolean;
 }) {
   const [context, setContext] = useState<Context | null>(null),
     [isOpen, setIsOpen] = useState(false),
@@ -126,6 +130,8 @@ export function NewBusinessDocumentGeneration({
     String(business.period ?? "").trim() &&
     String(business.code ?? "").trim()
   );
+  const canShowWhileLoading =
+    loading && documentGenerationEnabled === true && hasActualMeasurementJournal === false;
   const open = () => {
     const failed = new Set(
       (context?.job?.result_files || [])
@@ -177,25 +183,28 @@ export function NewBusinessDocumentGeneration({
       setSubmitting(false);
     }
   };
-  if (loading || !context?.eligible || context.hasActualMeasurementJournal || !canRender)
+  if (
+    !canRender ||
+    (!canShowWhileLoading && (!context?.eligible || context.hasActualMeasurementJournal))
+  )
     return null;
   return (
     <>
       <Button
         type="button"
         variant={isComplete ? "secondary" : "primary"}
-        disabled={isRunning}
+        disabled={loading || isRunning}
         onClick={open}
         className="whitespace-nowrap"
       >
-        {isRunning ? (
+        {loading || isRunning ? (
           <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
         ) : isComplete || status === "FAILED" || status === "PARTIAL_SUCCESS" ? (
           <RotateCcw className="mr-1.5 h-4 w-4" />
         ) : (
           <FilePlus2 className="mr-1.5 h-4 w-4" />
         )}
-        {STATUS_LABELS[status] || "문서 생성"}
+        {loading ? "문서 생성" : STATUS_LABELS[status] || "문서 생성"}
       </Button>
       <Modal
         isOpen={isOpen}
@@ -206,9 +215,9 @@ export function NewBusinessDocumentGeneration({
         <div className="space-y-5 p-1 pt-5">
           <div className="border-y border-slate-200 bg-slate-50 px-4 py-3 text-sm">
             <p className="font-semibold">저장 예정 경로</p>
-            <p className="mt-1 break-all font-mono text-xs text-slate-600">{context.outputPath}</p>
+            <p className="mt-1 break-all font-mono text-xs text-slate-600">{context?.outputPath}</p>
           </div>
-          {(context.job?.result_files || []).map((file, index) => (
+          {(context?.job?.result_files || []).map((file, index) => (
             <div
               key={`${file.document_definition_id || file.document_type || index}-${file.filename || file.error}`}
               className="border-b border-slate-100 px-1 py-2 text-sm"
