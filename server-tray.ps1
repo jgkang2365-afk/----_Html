@@ -1,6 +1,13 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = $utf8NoBom
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+
 $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $logDir = Join-Path $projectDir "logs"
 $stdoutLog = Join-Path $logDir "server.log"
@@ -86,7 +93,7 @@ function Start-JournalServer {
     try {
         $script:serverProcess = Start-Process `
             -FilePath "cmd.exe" `
-            -ArgumentList "/c npm run dev:turbo" `
+            -ArgumentList "/d", "/s", "/c", '"chcp 65001 > nul && npm run dev:turbo"' `
             -WorkingDirectory $projectDir `
             -WindowStyle Hidden `
             -RedirectStandardOutput $stdoutLog `
@@ -119,7 +126,7 @@ function Open-LiveServerLog {
         New-Item -ItemType File -Path $stdoutLog | Out-Null
     }
 
-    $command = "Get-Content -Path `"$stdoutLog`" -Tail 120 -Wait"
+    $command = "Get-Content -Path `"$stdoutLog`" -Encoding UTF8 -Tail 120 -Wait"
     Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $command
 }
 
@@ -152,7 +159,7 @@ $documentLogItem = New-Object System.Windows.Forms.ToolStripMenuItem
 $documentLogItem.Text = "Open document worker log"
 $documentLogItem.Add_Click({
     if (-not (Test-Path $documentWorkerLog)) { New-Item -ItemType File -Path $documentWorkerLog | Out-Null }
-    $command = "Get-Content -Path `"$documentWorkerLog`" -Tail 120 -Wait"
+    $command = "Get-Content -Path `"$documentWorkerLog`" -Encoding UTF8 -Tail 120 -Wait"
     Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $command
 })
 $contextMenu.Items.Add($documentLogItem) | Out-Null

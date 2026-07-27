@@ -62,7 +62,10 @@ export class WorkerDaemon {
             console.log('[WorkerDaemon] 구글 캘린더 동기화 설정 확인 완료.');
         }
 
-        console.log("[WorkerDaemon] 백그라운드 작업기(Worker Daemon)를 시작합니다. (5초 간격 감시)");
+        console.log(
+            "[WorkerDaemon] background_jobs 전용 작업기를 시작합니다. " +
+            "(문서 생성 Worker와 별도 실행)"
+        );
         this.pollingInterval = setInterval(() => this.poll(), 5000);
     }
 

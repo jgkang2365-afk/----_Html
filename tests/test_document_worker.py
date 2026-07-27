@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from document_worker import (
+    WindowsWorkerMutex,
     XLSM_CELLS,
     build_filename,
     build_manager_contact,
@@ -51,6 +52,32 @@ class DocumentWorkerTest(unittest.TestCase):
         self.assertEqual(format_business_number("1234567890"), "123-45-67890")
         self.assertEqual(build_manager_contact("", "041-123-4567"), "041-123-4567")
         self.assertEqual(set(XLSM_CELLS), {"B1", "G1", "C2", "F2", "I2"})
+
+    def test_windows_mutex_rejects_duplicate_and_closes_duplicate_handle(self):
+        closed = []
+        mutex = WindowsWorkerMutex(
+            platform_name="nt",
+            create_mutex=lambda *_: 123,
+            get_last_error=lambda: 183,
+            close_handle=closed.append,
+        )
+
+        self.assertFalse(mutex.acquire())
+        self.assertEqual(closed, [123])
+
+    def test_windows_mutex_releases_owned_handle(self):
+        closed = []
+        mutex = WindowsWorkerMutex(
+            platform_name="nt",
+            create_mutex=lambda *_: 456,
+            get_last_error=lambda: 0,
+            close_handle=closed.append,
+        )
+
+        self.assertTrue(mutex.acquire())
+        mutex.release()
+        mutex.release()
+        self.assertEqual(closed, [456])
 
     def test_h0507_output_path_and_filename(self):
         path = build_output_path(Path("Z:/data/측정팀/측정보고서"), self.snapshot)

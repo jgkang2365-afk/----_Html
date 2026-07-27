@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import atexit
 import gc
 import hashlib
 import json
@@ -17,6 +18,60 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+WINDOWS_WORKER_MUTEX_NAME = r"Global\MeasurementJournalDocumentWorker"
+ERROR_ALREADY_EXISTS = 183
+
+
+class WindowsWorkerMutex:
+    def __init__(
+        self,
+        name: str = WINDOWS_WORKER_MUTEX_NAME,
+        *,
+        platform_name: str | None = None,
+        create_mutex: Any = None,
+        get_last_error: Any = None,
+        close_handle: Any = None,
+    ) -> None:
+        self.name = name
+        self.platform_name = os.name if platform_name is None else platform_name
+        self.create_mutex = create_mutex
+        self.get_last_error = get_last_error
+        self.close_handle = close_handle
+        self.handle: Any = None
+
+        if self.platform_name == "nt" and self.create_mutex is None:
+            import ctypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+            kernel32.CreateMutexW.restype = ctypes.c_void_p
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            kernel32.CloseHandle.restype = ctypes.c_bool
+            self.create_mutex = kernel32.CreateMutexW
+            self.get_last_error = ctypes.get_last_error
+            self.close_handle = kernel32.CloseHandle
+
+    def acquire(self) -> bool:
+        if self.platform_name != "nt":
+            return True
+
+        handle = self.create_mutex(None, False, self.name)
+        last_error = self.get_last_error()
+        if not handle:
+            raise OSError(last_error, "CreateMutexW failed")
+        if last_error == ERROR_ALREADY_EXISTS:
+            self.close_handle(handle)
+            return False
+
+        self.handle = handle
+        return True
+
+    def release(self) -> None:
+        if self.handle is not None:
+            self.close_handle(self.handle)
+            self.handle = None
+
 
 DOCUMENT_TYPES = {
     "GENERAL_PRELIMINARY_SURVEY": {
@@ -411,6 +466,17 @@ def run_worker(once: bool = False) -> int:
         LOGGER.error("DOCUMENT_WORKER_TOKEN이 설정되지 않았습니다.")
         return 2
 
+    if not once:
+        worker_mutex = WindowsWorkerMutex()
+        try:
+            if not worker_mutex.acquire():
+                LOGGER.error("이미 실행 중인 문서 Worker가 있어 중복 프로세스를 종료합니다.")
+                return 0
+        except Exception:
+            LOGGER.exception("문서 Worker 중복 실행 잠금 초기화에 실패했습니다.")
+            return 2
+        atexit.register(worker_mutex.release)
+
     client = DocumentWorkerClient(base_url, token, worker_id)
     process_next = lambda: process_next_queued_job(client, output_root)
     if once:
@@ -466,6 +532,7 @@ def run_worker(once: bool = False) -> int:
         recovery_poll_seconds,
         masked_supabase_url(supabase_url),
     )
+    LOGGER.info("안전 확인 주기: 6시간 (%s초)", recovery_poll_seconds)
 
     coordinator = ClaimCoordinator(process_next)
     runtime = DocumentWorkerRuntime(coordinator, settings)
