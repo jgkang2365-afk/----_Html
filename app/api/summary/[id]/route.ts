@@ -288,7 +288,7 @@ export async function PATCH(
 
       // 2. 측정사업장 마스터 업데이트 (담당자 정보, 계산서 메일 등 권위 필드 반영)
       try {
-        await supabase
+        const { error: masterUpdateError } = await supabase
           .from("measurement_business")
           .update({
             manager_name: updatedJournal.manager_name,
@@ -296,7 +296,6 @@ export async function PATCH(
             manager_mobile: updatedJournal.manager_mobile,
             manager_email: updatedJournal.manager_email,
             invoice_email: updatedJournal.invoice_email,
-            invoice_email_2: updatedJournal.invoice_email_2,
             business_category: updatedJournal.business_category,
             national_support_status: updatedJournal.national_support_status || null,
             industrial_accident_number: updatedJournal.industrial_accident_number,
@@ -308,10 +307,22 @@ export async function PATCH(
           .eq("code", code)
           .eq("year", measurementYear)
           .eq("period", measurementPeriod);
+
+        if (masterUpdateError) {
+          console.error(`[Summary Sync] Master business update failed:`, masterUpdateError);
+          return NextResponse.json(
+            { error: "측정사업장 정보 동기화에 실패했습니다.", details: masterUpdateError.message },
+            { status: 500 },
+          );
+        }
         
         console.log(`[Summary Sync] Master business info updated for ${code} (${measurementYear}/${measurementPeriod})`);
       } catch (masterError) {
         console.error(`[Summary Sync] Master business update failed:`, masterError);
+        return NextResponse.json(
+          { error: "측정사업장 정보 동기화에 실패했습니다." },
+          { status: 500 },
+        );
       }
 
       // 3. 구글 캘린더 동기화 실행

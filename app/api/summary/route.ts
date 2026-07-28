@@ -135,12 +135,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 측정사업장 정보 조회 (개시번호, 담당자 정보, 계산서 이메일 가져오기)
+    // 측정사업장 정보 조회 (요약 수정 API와 양방향 동기화되는 담당자/계산서 정보)
     let measurementBusinesses: any[] = [];
     if (codes.length > 0) {
       let { data: mbData, error: mbError } = await supabase
         .from("measurement_business")
-        .select("code, year, period, representative_name, commencement_number, manager_name, manager_position, manager_mobile, manager_phone, manager_email, invoice_email")
+        .select("code, year, period, representative_name, total_employees, industrial_accident_number, phone, fax, commencement_number, manager_name, manager_position, manager_mobile, manager_phone, manager_email, invoice_email")
         .in("code", codes)
         .order("year", { ascending: false })
         .order("period", { ascending: false });
@@ -148,12 +148,20 @@ export async function GET(request: NextRequest) {
       if (mbError && (mbError.message?.includes("manager_phone") || mbError.code === "PGRST204")) {
         const fallbackResult = await supabase
           .from("measurement_business")
+          // 레거시 스키마에서도 보장된 기존 필드로 재시도한다.
           .select("code, year, period, representative_name, commencement_number, manager_name, manager_position, manager_mobile, manager_email, invoice_email")
           .in("code", codes)
           .order("year", { ascending: false })
           .order("period", { ascending: false });
 
-        mbData = fallbackResult.data?.map((row) => ({ ...row, manager_phone: null })) || null;
+        mbData = fallbackResult.data?.map((row) => ({
+          ...row,
+          total_employees: null,
+          industrial_accident_number: null,
+          phone: null,
+          fax: null,
+          manager_phone: null,
+        })) || null;
         mbError = fallbackResult.error;
       }
 
@@ -176,7 +184,7 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // 사업장 정보(business_info) 조회 (대표자명 가져오기)
+    // 사업장 정보(business_info) 조회 (대표자명과 근로자수 보완)
     let businessInfos: any[] = [];
     if (codes.length > 0) {
       let { data: biData, error: biError } = await supabase
@@ -238,10 +246,21 @@ export async function GET(request: NextRequest) {
       return null;
     };
 
+    const hasValue = (value: any) =>
+      value !== null && value !== undefined && String(value).trim() !== "";
+
+    const targetExactMap = new Map<string, any>();
+    targets.forEach((target) => {
+      if (target.code) {
+        targetExactMap.set(`${target.code}-${target.year}-${target.period}`, target);
+      }
+    });
+
     const summaryData = (journals || []).map((journal: any) => {
       const exactKey = `${journal.code}-${journal.measurement_year}-${journal.measurement_period}`;
       const mb = journal.code ? (mbExactMap.get(exactKey) || mbLatestMap.get(journal.code)) : null;
       const bi = journal.code ? biMap.get(journal.code) : null;
+      const exactTarget = journal.code ? targetExactMap.get(exactKey) : null;
 
       // 해당 코드의 모든 예비조사 필터링 (다중 일자 지원을 위해 목록 전체 유지)
       const businessSurveys = surveys.filter(s => s.code === journal.code);
@@ -259,11 +278,7 @@ export async function GET(request: NextRequest) {
       const survey = relatedSurveys.length > 0 ? relatedSurveys[0] : null;
 
       // Find target for National Support Status fallback
-      let target = targets.find(t =>
-        t.code === journal.code &&
-        t.year === journal.measurement_year &&
-        t.period === journal.measurement_period
-      );
+      let target = exactTarget;
 
       // 2. Loose match (if strictly not found) - handle "(수시)" etc.
       if (!target) {
@@ -275,7 +290,27 @@ export async function GET(request: NextRequest) {
       }
 
       const nationalSupportStatus = journal.national_support_status || target?.national_support_status || null;
-      const managerName = journal.manager_name || mb?.manager_name || null;
+      // 요약 수정 API가 measurement_business에도 저장하는 필드만 최신 동기화 원본을 우선한다.
+      // 그 외 일지 고유 필드는 스냅샷을 유지해 저장 직후 이전 값으로 되돌아 보이지 않게 한다.
+      const reference = mb ? {
+        representative_name: mb.representative_name || null,
+        total_employees: hasValue(mb.total_employees) ? mb.total_employees : null,
+        industrial_accident_number: mb.industrial_accident_number || null,
+        phone: mb.phone || null,
+        fax: mb.fax || null,
+        manager_name: mb.manager_name || null,
+        manager_position: mb.manager_position || null,
+        manager_mobile: findFirstPhoneLikeValue(mb.manager_name, mb.manager_mobile, mb.manager_phone),
+        manager_email: mb.manager_email || null,
+        invoice_email: mb.invoice_email || null,
+      } : {
+        representative_name: bi?.representative_name || null,
+        total_employees: null,
+        industrial_accident_number: null,
+        phone: null,
+        fax: null,
+      };
+      const managerName = reference.manager_name || journal.manager_name || null;
 
       return {
         id: journal.id,
@@ -303,26 +338,28 @@ export async function GET(request: NextRequest) {
         office_jurisdiction: journal.office_jurisdiction,
         designated_office: journal.designated_office ? toShortName(journal.designated_office) : null,
         business_name: journal.business_name,
-        representative_name: journal.representative_name || mb?.representative_name || bi?.representative_name || null,
+        representative_name: reference.representative_name || journal.representative_name || null,
         total_employees: (() => {
-          const val = journal.total_employees ?? mb?.total_employees ?? bi?.total_employees;
+          const val = hasValue(reference.total_employees)
+            ? reference.total_employees
+            : (hasValue(journal.total_employees) ? journal.total_employees : bi?.total_employees);
           if (val === null || val === undefined) return null;
           const num = typeof val === 'string' ? parseInt(val.replace(/,/g, "")) : val;
           return isNaN(num as any) ? val : num;
         })(),
         business_number: journal.business_number,
-        industrial_accident_number: journal.industrial_accident_number,
-        commencement_number: journal.commencement_number || mb?.commencement_number || bi?.commencement_number || null,
+        industrial_accident_number: reference.industrial_accident_number || journal.industrial_accident_number,
+        commencement_number: journal.commencement_number || mb?.commencement_number || null,
         national_support_status: nationalSupportStatus,
         manager_name: managerName,
-        manager_position: journal.manager_position || mb?.manager_position || null,
-        manager_mobile: findFirstPhoneLikeValue(managerName, journal.manager_mobile, mb?.manager_mobile, mb?.manager_phone),
-        manager_email: journal.manager_email || mb?.manager_email || null,
-        invoice_email: journal.invoice_email || mb?.invoice_email || null,
+        manager_position: reference.manager_position || journal.manager_position || null,
+        manager_mobile: reference.manager_mobile || findFirstPhoneLikeValue(managerName, journal.manager_mobile),
+        manager_email: reference.manager_email || journal.manager_email || null,
+        invoice_email: reference.invoice_email || journal.invoice_email || null,
         invoice_email_2: journal.invoice_email_2,
         address: journal.address,
-        phone: journal.phone,
-        fax: journal.fax,
+        phone: reference.phone || journal.phone,
+        fax: reference.fax || journal.fax,
         k2b_send_date: journal.k2b_send_date,
         k2b_sender: journal.k2b_sender,
         electronic_invoice_date: journal.electronic_invoice_date,
