@@ -123,3 +123,13 @@ export function canManageUsers(role: UserRole): boolean {
   return hasPermission(role, "users:manage");
 }
 
+/**
+ * MES 수동 동기화 실행 가능 여부 확인
+ */
+export function canTriggerMesSync(
+  role: UserRole,
+  job?: string | null,
+): boolean {
+  return role === "관리자" || job === "측정";
+}
+
