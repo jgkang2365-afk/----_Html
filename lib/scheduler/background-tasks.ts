@@ -196,11 +196,14 @@ export class BackgroundTasks {
         
         // 당일 날짜 구하기 (KST 기준 YYYY-MM-DD)
         const kstToday = getKSTISOString().slice(0, 10);
+        const mesRegistrationCutoffDate = new Date(`${kstToday}T00:00:00.000+09:00`);
+        mesRegistrationCutoffDate.setUTCDate(mesRegistrationCutoffDate.getUTCDate() - 14);
+        const mesRegistrationCutoff = mesRegistrationCutoffDate.toISOString();
         
         // 1. 오늘의 예비조사 목록 조회
         const { data: todaySurveys, error: surveyError } = await supabase
             .from("preliminary_survey")
-            .select("code, business_name")
+            .select("code, business_name, year, period")
             .eq("measurement_date", kstToday);
             
         if (surveyError) {
@@ -213,27 +216,85 @@ export class BackgroundTasks {
             return;
         }
         
-        // 2. 실제 적재된 측정대상 사업장 목록 조회
-        const { data: mbRows, error: mbError } = await supabase
-            .from("measurement_business")
-            .select("code, business_name, business_number");
-            
-        if (mbError) {
-            console.error("[BackgroundTasks] 측정대상 사업장 목록 조회 실패:", mbError.message);
+        const validTodaySurveys = todaySurveys.filter(survey => {
+            const rawYear = survey.year;
+            const year = Number(rawYear);
+            const period = String(survey.period || "").trim();
+            return rawYear !== null
+                && rawYear !== undefined
+                && String(rawYear).trim() !== ""
+                && Number.isInteger(year)
+                && year > 0
+                && period !== "";
+        });
+
+        if (validTodaySurveys.length < todaySurveys.length) {
+            console.warn(
+                `[BackgroundTasks] 연도/주기 정보가 없는 오늘 예비조사 ${todaySurveys.length - validTodaySurveys.length}건은 오탐 방지를 위해 MES 미등록 점검에서 제외합니다.`
+            );
+        }
+
+        if (validTodaySurveys.length === 0) {
+            console.error("[BackgroundTasks] 연도와 주기가 확인되는 오늘 예비조사가 없어 MES 등록 여부를 확인할 수 없습니다.");
             return;
         }
-        
-        const mbList = mbRows || [];
+
+        const surveyYears = [...new Set(
+            validTodaySurveys.map(survey => Number(survey.year))
+        )];
+        const surveyPeriods = [...new Set(
+            validTodaySurveys.map(survey => String(survey.period).trim())
+        )];
+
+        // 2. 오늘 예비조사와 같은 연도/주기의 측정대상 사업장을 모두 조회
+        // Supabase 기본 조회 한도(통상 1,000건)로 기존 등록분이 누락되지 않도록 페이지 단위로 조회한다.
+        const mbList: Array<{
+            code: string | null;
+            business_name: string | null;
+            year: number | string | null;
+            period: string | null;
+        }> = [];
+        const pageSize = 1000;
+
+        for (let from = 0; ; from += pageSize) {
+            const { data: mbRows, error: mbError } = await supabase
+                .from("measurement_business")
+                .select("code, business_name, year, period")
+                .in("year", surveyYears)
+                .in("period", surveyPeriods)
+                .gte("created_at", mesRegistrationCutoff)
+                .order("year", { ascending: true })
+                .order("period", { ascending: true })
+                .order("code", { ascending: true })
+                .range(from, from + pageSize - 1);
+
+            if (mbError) {
+                console.error("[BackgroundTasks] 측정대상 사업장 목록 조회 실패:", mbError.message);
+                return;
+            }
+
+            const pageRows = mbRows || [];
+            mbList.push(...pageRows);
+            if (pageRows.length < pageSize) break;
+        }
+
         const unregisteredNames: string[] = [];
         
-        for (const survey of todaySurveys) {
+        for (const survey of validTodaySurveys) {
             const sCode = String(survey.code || "").trim();
             const sName = String(survey.business_name || "").trim();
+            const sYear = Number(survey.year);
+            const sPeriod = String(survey.period || "").trim();
             
             // 매칭 비교 (3단계 알고리즘 대조)
             const isRegistered = mbList.some(row => {
                 const rCode = String(row.code || "").trim();
                 const rName = String(row.business_name || "").trim();
+                const rYear = Number(row.year);
+                const rPeriod = String(row.period || "").trim();
+
+                // 해당 예비조사의 연도/주기에 등록된 MES 자료만 인정
+                if (sYear !== rYear || sPeriod !== rPeriod) return false;
                 
                 // 1단계: 코드 매칭
                 if (sCode && rCode && sCode === rCode) return true;
