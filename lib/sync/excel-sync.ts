@@ -9,6 +9,7 @@ import { join } from "path";
 import { readFileSync, existsSync } from "fs";
 import { getKSTISOString, getKSTYear, getNextWorkingDay } from "@/lib/utils/date-utils";
 import { normalizePhoneLikeValue } from "@/lib/business/reference-data";
+import { canonicalizeBusinessInfoOfficeJurisdiction } from "@/lib/sync/office-jurisdiction";
 
 // [The Joo Rule] 국고지원 상태값 정규화 함수
 const normalizeNationalSupportStatus = (val: any): string | null => {
@@ -305,9 +306,9 @@ function parseBusinessInfo(data: any[]): any[] {
     // null, undefined, 빈 문자열 모두 체크
     const officeJurisdictionValue = row["관할청"];
     if (officeJurisdictionValue !== undefined && officeJurisdictionValue !== null && officeJurisdictionValue !== "") {
-      const trimmedValue = String(officeJurisdictionValue).trim();
-      if (trimmedValue) {
-        optionalFields.office_jurisdiction = trimmedValue;
+      const canonicalValue = canonicalizeBusinessInfoOfficeJurisdiction(officeJurisdictionValue);
+      if (canonicalValue) {
+        optionalFields.office_jurisdiction = canonicalValue;
       }
     }
 
