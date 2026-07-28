@@ -1,10 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkPermission } from "@/lib/auth/check-permission";
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/auth/session";
+import { canTriggerMesSync, type UserRole } from "@/lib/permissions";
 
 const MES_QUEUE_ID = 1;
 const STALE_TIMEOUT_MINUTES = 15;
+
+async function requireMesSyncAccess() {
+  const session = await getSession();
+  if (!session) throw new Error("Unauthorized");
+
+  const supabase = await createClient();
+  const { data: user, error } = await supabase
+    .from("users")
+    .select("role, job")
+    .eq("id", session.userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[MES 트리거 API] 사용자 권한 조회 실패:", error);
+    throw error;
+  }
+
+  if (!user || !canTriggerMesSync(user.role as UserRole, user.job)) {
+    throw new Error("Forbidden");
+  }
+
+  return { session, supabase };
+}
 
 /**
  * MES 데이터 즉시 동기화 수동 트리거 API
@@ -15,11 +38,7 @@ const STALE_TIMEOUT_MINUTES = 15;
  */
 export async function POST(request: NextRequest) {
   try {
-    // 권한 검증: 관리자 전용 시스템 설정 접근 권한 필요
-    await checkPermission("system:settings");
-    const session = await getSession();
-    if (!session) throw new Error("Unauthorized");
-    const supabase = await createClient();
+    const { session, supabase } = await requireMesSyncAccess();
 
     const timeoutLimit = new Date(
       Date.now() - STALE_TIMEOUT_MINUTES * 60 * 1000
@@ -93,11 +112,7 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    // 권한 검증: 관리자 전용 시스템 설정 접근 권한 필요
-    await checkPermission("system:settings");
-    const session = await getSession();
-    if (!session) throw new Error("Unauthorized");
-    const supabase = await createClient();
+    const { supabase } = await requireMesSyncAccess();
 
     const { data, error } = await supabase
       .from("mes_sync_queue")
@@ -132,10 +147,7 @@ export async function GET(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
-    await checkPermission("system:settings");
-    const session = await getSession();
-    if (!session) throw new Error("Unauthorized");
-    const supabase = await createClient();
+    const { session, supabase } = await requireMesSyncAccess();
 
     const { data, error } = await supabase
       .from("mes_sync_queue")

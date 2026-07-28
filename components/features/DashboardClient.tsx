@@ -6,11 +6,13 @@ import { ExcelUpload } from "@/components/features/ExcelUpload";
 import { SyncStatus } from "@/components/features/SyncStatus";
 import { InconsistencyAlert } from "@/components/features/InconsistencyAlert";
 import { Select } from "@/components/ui/Select";
+import { canTriggerMesSync } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 interface DashboardClientProps {
     user?: {
         role: "관리자" | "사용자";
+        job?: string | null;
         is_journal_manager: boolean;
     } | null;
 }
@@ -138,8 +140,8 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 self-end md:self-auto shrink-0">
-                    {/* MES 수동 동기화 버튼 (관리자 전용) */}
-                    {user?.role === "관리자" && (
+                    {/* MES 수동 동기화 버튼 (관리자 또는 측정 직무) */}
+                    {user && canTriggerMesSync(user.role, user.job) && (
                         <button
                             onClick={handleMesSync}
                             disabled={isSyncing}
