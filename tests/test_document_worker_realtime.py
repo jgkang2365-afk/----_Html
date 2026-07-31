@@ -13,6 +13,7 @@ from document_worker_realtime import (
     ClaimCoordinator,
     DocumentWorkerRuntime,
     RealtimeSettings,
+    effective_recovery_poll_seconds,
     env_flag,
     is_pending_document_event,
     safe_error_message,
@@ -181,6 +182,9 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
 
     def test_defaults_and_boolean_fallback(self):
         self.assertEqual(DEFAULT_RECOVERY_POLL_SECONDS, 21600)
+        self.assertEqual(effective_recovery_poll_seconds(None), 21600)
+        self.assertEqual(effective_recovery_poll_seconds("300"), 21600)
+        self.assertEqual(effective_recovery_poll_seconds("43200"), 43200)
         self.assertTrue(env_flag(None))
         self.assertFalse(env_flag("false"))
 

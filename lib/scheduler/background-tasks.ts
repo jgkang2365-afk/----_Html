@@ -196,9 +196,6 @@ export class BackgroundTasks {
         
         // 당일 날짜 구하기 (KST 기준 YYYY-MM-DD)
         const kstToday = getKSTISOString().slice(0, 10);
-        const mesRegistrationCutoffDate = new Date(`${kstToday}T00:00:00.000+09:00`);
-        mesRegistrationCutoffDate.setUTCDate(mesRegistrationCutoffDate.getUTCDate() - 14);
-        const mesRegistrationCutoff = mesRegistrationCutoffDate.toISOString();
         
         // 1. 오늘의 예비조사 목록 조회
         const { data: todaySurveys, error: surveyError } = await supabase
@@ -262,7 +259,6 @@ export class BackgroundTasks {
                 .select("code, business_name, year, period")
                 .in("year", surveyYears)
                 .in("period", surveyPeriods)
-                .gte("created_at", mesRegistrationCutoff)
                 .order("year", { ascending: true })
                 .order("period", { ascending: true })
                 .order("code", { ascending: true })
