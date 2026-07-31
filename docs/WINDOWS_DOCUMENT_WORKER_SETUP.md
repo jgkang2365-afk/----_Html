@@ -110,6 +110,8 @@ Worker는 한 번에 하나의 PENDING 작업만 원자적으로 선점합니다
 6. 작업을 선점하면 완료 후 계속 claim하여 큐가 빌 때까지 처리합니다.
 7. Realtime 누락 대비 안전 확인은 6시간마다 한 번만 수행합니다.
 
+`DOCUMENT_WORKER_RECOVERY_POLL_SECONDS`에 21,600보다 작은 과거 설정값이 남아 있어도 Worker는 최소 6시간으로 보정합니다.
+
 민감한 `document_generation_jobs.payload`는 Realtime publication에 포함하지 않습니다. 공개되는 신호 테이블에는 작업 ID, 상태, 고정 job type, 생성 시각만 있으며 Worker는 신호의 작업 ID도 처리 데이터로 사용하지 않습니다. `SUPABASE_REALTIME_KEY`에는 기존 anon key를 사용합니다.
 
 정상 시작 로그:

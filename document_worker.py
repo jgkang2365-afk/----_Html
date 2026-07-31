@@ -671,6 +671,7 @@ def run_worker(once: bool = False) -> int:
         ClaimCoordinator,
         DocumentWorkerRuntime,
         RealtimeSettings,
+        effective_recovery_poll_seconds,
         env_flag,
         masked_supabase_url,
     )
@@ -719,12 +720,21 @@ def run_worker(once: bool = False) -> int:
             return 1
 
     try:
-        recovery_poll_seconds = max(
-            10, int(os.environ.get("DOCUMENT_WORKER_RECOVERY_POLL_SECONDS", "21600"))
+        configured_recovery_poll_seconds = int(
+            os.environ.get("DOCUMENT_WORKER_RECOVERY_POLL_SECONDS", "21600")
+        )
+        recovery_poll_seconds = effective_recovery_poll_seconds(
+            str(configured_recovery_poll_seconds)
         )
     except ValueError:
         LOGGER.error("DOCUMENT_WORKER_RECOVERY_POLL_SECONDS는 정수여야 합니다.")
         return 2
+    if configured_recovery_poll_seconds < recovery_poll_seconds:
+        LOGGER.warning(
+            "DOCUMENT_WORKER_RECOVERY_POLL_SECONDS=%s는 최소 안전 확인 주기보다 짧아 %s초로 보정합니다.",
+            configured_recovery_poll_seconds,
+            recovery_poll_seconds,
+        )
 
     realtime_enabled = env_flag(os.environ.get("DOCUMENT_WORKER_REALTIME_ENABLED"), True)
     supabase_url = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")

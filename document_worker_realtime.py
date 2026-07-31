@@ -18,6 +18,11 @@ MAX_DRAIN_JOBS = 100
 RECONNECT_DELAYS = (5, 10, 30, 60)
 
 
+def effective_recovery_poll_seconds(value: str | None) -> int:
+    configured = int(value or DEFAULT_RECOVERY_POLL_SECONDS)
+    return max(DEFAULT_RECOVERY_POLL_SECONDS, configured)
+
+
 def env_flag(value: str | None, default: bool = True) -> bool:
     if value is None:
         return default

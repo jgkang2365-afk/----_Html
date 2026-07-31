@@ -208,6 +208,7 @@ test("문서 Worker는 Realtime 신호와 6시간 안전 확인을 사용한다"
   assert.match(worker, /Global\\MeasurementJournalDocumentWorker/);
   assert.match(worker, /이미 실행 중인 문서 Worker가 있어 중복 프로세스를 종료합니다/);
   assert.ok(runtime.includes("DEFAULT_RECOVERY_POLL_SECONDS = 6 * 60 * 60"));
+  assert.ok(runtime.includes("max(DEFAULT_RECOVERY_POLL_SECONDS, configured)"));
   assert.ok(runtime.includes("REALTIME_DEBOUNCE_SECONDS = 0.75"));
   assert.ok(runtime.includes("REALTIME_EMPTY_RETRY_DELAYS = (2, 3)"));
   assert.ok(runtime.includes('await self.coordinator.wake("startup")'));
