@@ -101,6 +101,66 @@ interface BusinessEntry {
     geocoded_at?: string | null; // Geocoding 완료 시각
     geocode_provider?: string | null; // Geocoding 공급자 (kakao, juso 등)
     coordinate_locked?: boolean; // 수동 고정 여부
+    preliminary_survey_rule_type?: string;
+    requires_field_preliminary_survey?: boolean;
+    preliminary_survey_plan?: {
+        id: string;
+        status: string;
+        responsible_user_id?: number;
+        experienced_user_id?: number | null;
+        recommended_date: string | null;
+        confirmed_date: string | null;
+        responsible_user_name?: string | null;
+        experienced_user_name?: string | null;
+        visit_mode: string | null;
+        recommendation_reason?: Record<string, unknown>;
+        warnings?: string[];
+        review_reasons?: string[];
+        alternatives?: Array<{
+            date?: string;
+            responsibleUserId?: number;
+            responsibleUserName?: string;
+            experiencedUserId?: number | null;
+            experiencedUserName?: string | null;
+            warnings?: string[];
+        }>;
+        row_version: number;
+    } | null;
+}
+
+type PreliminarySurveyPlan = NonNullable<BusinessEntry["preliminary_survey_plan"]>;
+
+function buildPreliminaryRecommendationOptions(plan: PreliminarySurveyPlan) {
+    const primaryDate = plan.confirmed_date || plan.recommended_date;
+    const candidates = [
+        ...(primaryDate ? [{
+            date: primaryDate,
+            responsibleUserId: Number(plan.responsible_user_id),
+            responsibleUserName: plan.responsible_user_name || "담당자",
+            experiencedUserId: plan.experienced_user_id || null,
+            experiencedUserName: plan.experienced_user_name || null,
+            isPrimary: true,
+            calendarStatus: String(plan.recommendation_reason?.calendarStatus || "not_checked"),
+            calendarPreferred: plan.recommendation_reason?.calendarPreferenceApplied === true,
+        }] : []),
+        ...((plan.status === "confirmed" ? [] : plan.alternatives || []).map((alternative) => ({
+            date: String(alternative.date || ""),
+            responsibleUserId: Number(alternative.responsibleUserId || plan.responsible_user_id),
+            responsibleUserName: alternative.responsibleUserName || plan.responsible_user_name || "담당자",
+            experiencedUserId: alternative.experiencedUserId || null,
+            experiencedUserName: alternative.experiencedUserName || null,
+            isPrimary: false,
+            calendarStatus: String(plan.recommendation_reason?.calendarStatus || "not_checked"),
+            calendarPreferred: false,
+        }))),
+    ].filter((candidate) => candidate.date && Number.isInteger(candidate.responsibleUserId));
+
+    const unique = new Map<string, typeof candidates[number]>();
+    for (const candidate of candidates) {
+        const key = `${candidate.date}|${candidate.responsibleUserId}|${candidate.experiencedUserId || ""}`;
+        if (!unique.has(key)) unique.set(key, candidate);
+    }
+    return [...unique.values()].slice(0, 3);
 }
 
 interface BusinessInfoSearchResult {
@@ -127,6 +187,9 @@ interface User {
     id: number;
     name: string;
     job?: string;
+    is_active?: boolean;
+    is_preliminary_survey_experienced?: boolean;
+    is_preliminary_survey_support_assignable?: boolean;
 }
 
 // State for Persistence
@@ -702,7 +765,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     const result = await response.json();
                     if (result.users) {
                         // Job이 '측정'인 사용자만 필터링 (기본값이 '측정'이므로 없어도 포함될 수 있으나 명시적 확인)
-                        const filtered = result.users.filter((u: User) => u.job === '측정' || !u.job); // job이 null인 경우도 포함할지? API default is '측정'.
+                        const filtered = result.users.filter((u: User) =>
+                            (u.job === '측정' || !u.job) && u.is_active !== false
+                        ); // 활성 측정 직원만 일정 및 추천 선택에 사용한다.
                         
                         // 사용자의 시인성을 위해 공식 순서로 정렬 (이태환, 한기문, 강종구, 이주형, 배윤민, 김민영, 고유빈 순)
                         const officialOrder = ["이태환", "한기문", "강종구", "이주형", "배윤민", "김민영", "고유빈"];
@@ -748,6 +813,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [showPreliminarySurveyInfo, setShowPreliminarySurveyInfo] = useState(false);
+    const [isPreliminarySurveyRecommending, setIsPreliminarySurveyRecommending] = useState(false);
+    const [manualPreliminaryDate, setManualPreliminaryDate] = useState("");
+    const [manualPreliminaryUserId, setManualPreliminaryUserId] = useState("");
+    const [manualPreliminaryExperiencedUserId, setManualPreliminaryExperiencedUserId] = useState("");
+    const [manualPreliminaryMessage, setManualPreliminaryMessage] = useState<{
+        type: "success" | "warning" | "error";
+        text: string;
+    } | null>(null);
+    const [isManualPreliminarySaving, setIsManualPreliminarySaving] = useState(false);
 
     // Unpaid Details Modal State
     const [isUnpaidModalOpen, setIsUnpaidModalOpen] = useState(false);
@@ -760,6 +835,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         year: new Date().getFullYear(),
         period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
         manager_email: "",
+        preliminary_survey_rule_type: "",
     });
     const [businessInfoQuery, setBusinessInfoQuery] = useState("");
     const [businessInfoResults, setBusinessInfoResults] = useState<BusinessInfoSearchResult[]>([]);
@@ -862,6 +938,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             manager_name: "",
             manager_mobile: "",
             manager_email: "",
+            preliminary_survey_rule_type: "",
+            measurement_date: null,
+            measurer_id: null,
         });
         setBusinessInfoQuery("");
         setBusinessInfoResults([]);
@@ -925,6 +1004,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const handleAddSubmit = async () => {
+        if (!addForm.preliminary_survey_rule_type) {
+            alert("예비조사 대상 구분을 반드시 선택해주세요.");
+            return;
+        }
         if (!isValidOptionalManagerEmail(addForm.manager_email)) {
             alert("담당자 메일 형식을 확인해 주세요.");
             return;
@@ -938,7 +1021,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             });
 
             const createResult = await response.json();
-            if (!response.ok) throw new Error(createResult.error || "등록에 실패했습니다.");
+            if (!response.ok) throw new Error(createResult.details || createResult.error || "등록에 실패했습니다.");
 
             let completionMessage = "사업장 등록이 완료되었습니다.";
             if (createResult.nationalSupportFollowUp?.eligible && createResult.data?.id) {
@@ -1253,6 +1336,27 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const handleEditClick = (item: BusinessEntry) => {
         setEditingItem(item);
+        setShowPreliminarySurveyInfo(false);
+        setManualPreliminaryDate(
+            item.preliminary_survey_plan?.confirmed_date ||
+            item.preliminary_survey_plan?.recommended_date ||
+            "",
+        );
+        setManualPreliminaryUserId(
+            item.preliminary_survey_plan?.responsible_user_id
+                ? String(item.preliminary_survey_plan.responsible_user_id)
+                : String(measurers.find((user) =>
+                    user.name === item.preliminary_survey_plan?.responsible_user_name
+                )?.id || ""),
+        );
+        setManualPreliminaryExperiencedUserId(
+            item.preliminary_survey_plan?.experienced_user_id
+                ? String(item.preliminary_survey_plan.experienced_user_id)
+                : String(measurers.find((user) =>
+                    user.name === item.preliminary_survey_plan?.experienced_user_name
+                )?.id || ""),
+        );
+        setManualPreliminaryMessage(null);
         
         // 1일 측정인 경우 보고서 담당자를 측정자에 강제 포함 (데이터 정합성 유지)
         let initialForm = { 
@@ -1414,7 +1518,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     'manager_name', 'manager_mobile', 'manager_email',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
-                    'representative_name', 'industrial_accident_number', 'commencement_number'
+                    'representative_name', 'industrial_accident_number', 'commencement_number',
+                    'preliminary_survey_rule_type'
                 ];
 
                 const sanitized: any = {};
@@ -1434,6 +1539,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 if (raw.representative_name !== undefined) sanitized.representative_name = raw.representative_name;
 
                 if (raw.measurement_date === "") sanitized.measurement_date = null;
+                if (raw.measurement_end_date === "") sanitized.measurement_end_date = null;
                 if (raw.future_measurement_date === "") sanitized.future_measurement_date = null;
 
                 Object.keys(raw).forEach(key => {
@@ -1489,6 +1595,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 throw new Error(errData.details || errData.error || "Failed to update");
             }
 
+            const saved = await response.json();
+            if (saved.preliminarySurveyRecommendation) {
+                await fetchData({ silent: true });
+            }
+            return saved;
+
         } catch (error) {
             console.error("Update error:", error);
             alert(`수정 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
@@ -1509,6 +1621,232 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             updates.is_registered_text = "실시";
         }
         saveChanges(item.code, updates);
+    };
+
+    const handlePreliminarySurveyRecommend = async (item: BusinessEntry) => {
+        const replaceConfirmed = item.preliminary_survey_plan?.status === "confirmed";
+        if (
+            replaceConfirmed &&
+            !window.confirm("기존 확정 예비조사일과 예비조사자 정보를 취소하고 다시 추천하시겠습니까?")
+        ) {
+            return;
+        }
+        try {
+            const response = await fetch("/api/preliminary-survey-plans/recommend", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    measurementTargetBusinessId: Number(item.id),
+                    replaceConfirmed,
+                }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "예비조사 추천에 실패했습니다.");
+            const recommendation = result.preliminarySurveyRecommendation;
+            const updatedPlan = result.plan
+                ? {
+                    ...result.plan,
+                    responsible_user_name: recommendation?.responsibleUserName || null,
+                    experienced_user_name: recommendation?.experiencedUserName || null,
+                }
+                : null;
+            if (updatedPlan) {
+                setData((previous) => previous.map((business) =>
+                    String(business.id) === String(item.id)
+                        ? { ...business, preliminary_survey_plan: updatedPlan }
+                        : business
+                ));
+                if (String(editingItem?.id) === String(item.id)) {
+                    setEditForm((previous) => ({
+                        ...previous,
+                        preliminary_survey_plan: updatedPlan,
+                    }));
+                    setEditingItem((previous) => previous
+                        ? { ...previous, preliminary_survey_plan: updatedPlan }
+                        : previous
+                    );
+                    setManualPreliminaryDate(updatedPlan.recommended_date || "");
+                    setManualPreliminaryUserId(
+                        updatedPlan.responsible_user_id
+                            ? String(updatedPlan.responsible_user_id)
+                            : "",
+                    );
+                    setManualPreliminaryExperiencedUserId(
+                        updatedPlan.experienced_user_id
+                            ? String(updatedPlan.experienced_user_id)
+                            : "",
+                    );
+                    setManualPreliminaryMessage(null);
+                }
+            }
+            await fetchData({ silent: true });
+            return updatedPlan;
+        } catch (error) {
+            alert(error instanceof Error ? error.message : "예비조사 추천에 실패했습니다.");
+            return null;
+        }
+    };
+
+    const hasUnsavedPreliminarySurveySource = () => {
+        if (!editingItem) return false;
+        return ([
+            "measurer_id",
+            "measurement_date",
+            "daily_staff",
+            "address",
+            "preliminary_survey_rule_type",
+        ] as const).some((field) =>
+            JSON.stringify(editForm[field] ?? null) !==
+            JSON.stringify(editingItem[field] ?? null)
+        );
+    };
+
+    const handleEditPreliminarySurveyRecommend = async () => {
+        if (!editingItem || isPreliminarySurveyRecommending) return;
+        setShowPreliminarySurveyInfo(true);
+        setIsPreliminarySurveyRecommending(true);
+        try {
+            let recommendationTarget = editingItem;
+            if (hasUnsavedPreliminarySurveySource()) {
+                const sourceUpdates: Partial<BusinessEntry> = {
+                    measurer_id: editForm.measurer_id,
+                    measurement_date: editForm.measurement_date,
+                    daily_staff: editForm.daily_staff,
+                    address: editForm.address,
+                    preliminary_survey_rule_type:
+                        editForm.preliminary_survey_rule_type || "existing",
+                };
+                await saveChanges(editingItem.code, sourceUpdates, editingItem);
+                recommendationTarget = { ...editingItem, ...sourceUpdates };
+                setEditingItem((previous) => previous
+                    ? { ...previous, ...sourceUpdates }
+                    : previous
+                );
+            }
+            await handlePreliminarySurveyRecommend(recommendationTarget);
+        } catch (error) {
+            console.error("추천 기준 변경사항 저장 실패:", error);
+        } finally {
+            setIsPreliminarySurveyRecommending(false);
+        }
+    };
+
+    const handleManualPreliminarySurveySave = async () => {
+        const plan = editForm.preliminary_survey_plan;
+        if (!editingItem || !plan || isManualPreliminarySaving) return;
+        if (!manualPreliminaryDate || !manualPreliminaryUserId) {
+            setManualPreliminaryMessage({
+                type: "error",
+                text: "예비조사일과 예비조사자를 모두 선택해 주세요.",
+            });
+            return;
+        }
+        const selectedManualUser = measurers.find(
+            (user) => user.id === Number(manualPreliminaryUserId),
+        );
+        if (
+            editForm.preliminary_survey_rule_type !== "existing" &&
+            selectedManualUser &&
+            !selectedManualUser.is_preliminary_survey_experienced &&
+            !manualPreliminaryExperiencedUserId
+        ) {
+            setManualPreliminaryMessage({
+                type: "error",
+                text: "초보자를 주 조사자로 선택하면 동행 경력자를 함께 선택해야 합니다.",
+            });
+            return;
+        }
+
+        const errorLabels: Record<string, string> = {
+            INVALID_RECOMMENDED_DATE: "올바른 예비조사일을 선택해 주세요.",
+            NON_WORKING_DAY: "주말 또는 공휴일은 선택할 수 없습니다. 다른 날짜를 선택해 주세요.",
+            RECOMMENDED_DATE_OUT_OF_RANGE: "예비조사일은 측정일 전 1~30워킹데이 범위에서 선택해 주세요.",
+            RESPONSIBLE_USER_UNAVAILABLE: "선택한 직원이 비활성 상태이거나 측정 직원이 아닙니다.",
+            MANUAL_NOVICE_REQUIRES_EXPERIENCED_COMPANION: "초보자를 주 조사자로 선택하면 동행 경력자를 함께 선택해야 합니다.",
+            EXPERIENCED_COMPANION_UNAVAILABLE: "선택한 동행자가 경력자 동행 조건을 충족하지 않습니다.",
+            RECOMMENDATION_OPTION_NOT_ALLOWED: "현재 추천된 조합만 선택할 수 있습니다. 추천 정보를 다시 불러와 주세요.",
+            JULY_2026_PRELIMINARY_SURVEYOR_MUST_MATCH_MEASURER: "2026년 7월 측정 건은 공시료 기준 측정자를 예비조사 주 담당자로 유지해야 합니다. 일정이 겹치지 않는 추천일을 선택해 주세요.",
+            USER_SCHEDULE_BLOCK_CONFLICT: "선택한 직원의 예비조사 제외 일정과 겹칩니다. 다른 날짜나 직원을 선택해 주세요.",
+            DIFFERENT_REGION_MEASUREMENT_CONFLICT: "선택한 직원의 다른 지역 측정·예비조사 일정과 겹칩니다. 다른 날짜나 직원을 선택해 주세요.",
+            GOOGLE_CALENDAR_PRELIMINARY_CONFLICT: "선택한 직원의 Google Calendar 다른 예비조사 일정과 겹칩니다. 다른 날짜나 직원을 선택해 주세요.",
+            ADDRESS_REGION_UNAVAILABLE: "사업장 주소에서 지역을 확인할 수 없습니다.",
+            PLAN_VERSION_CONFLICT: "다른 사용자가 계획을 변경했습니다. 추천 정보를 다시 불러와 주세요.",
+            CONFIRMED_PLAN_REQUIRES_CANCEL: "이미 확정된 계획은 취소 후 변경할 수 있습니다.",
+        };
+        setIsManualPreliminarySaving(true);
+        setManualPreliminaryMessage(null);
+        try {
+            const response = await fetch(
+                `/api/preliminary-survey-plans/${plan.id}/manual`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        recommendedDate: manualPreliminaryDate,
+                        responsibleUserId: Number(manualPreliminaryUserId),
+                        experiencedUserId: manualPreliminaryExperiencedUserId
+                            ? Number(manualPreliminaryExperiencedUserId)
+                            : null,
+                        expectedRowVersion: plan.row_version,
+                    }),
+                },
+            );
+            const result = await response.json();
+            if (!response.ok) {
+                const matchedCode = Object.keys(errorLabels).find((code) =>
+                    String(result.error || "").includes(code)
+                );
+                setManualPreliminaryMessage({
+                    type: "error",
+                    text: matchedCode ? errorLabels[matchedCode] : result.error || "추천 변경을 저장하지 못했습니다.",
+                });
+                return;
+            }
+
+            const selectedUser = measurers.find(
+                (user) => user.id === Number(manualPreliminaryUserId),
+            );
+            const selectedExperiencedUser = measurers.find(
+                (user) => user.id === Number(result.plan?.experienced_user_id),
+            );
+            const updatedPlan = {
+                ...result.plan,
+                responsible_user_name: selectedUser?.name || null,
+                experienced_user_name: selectedExperiencedUser?.name || null,
+            };
+            setEditForm((previous) => ({ ...previous, preliminary_survey_plan: updatedPlan }));
+            setEditingItem((previous) => previous
+                ? { ...previous, preliminary_survey_plan: updatedPlan }
+                : previous
+            );
+            setData((previous) => previous.map((business) =>
+                String(business.id) === String(editingItem.id)
+                    ? { ...business, preliminary_survey_plan: updatedPlan }
+                    : business
+            ));
+            const warnings: string[] = result.warnings || [];
+            const warningText = warnings.includes("RESPONSIBLE_DIFFERS_FROM_MEASURER")
+                ? "저장했습니다. 일정 충돌로 보고서 담당자와 다른 예비조사자가 선택되었습니다. 최종 일정을 확인해 주세요."
+                : warnings.includes("SAME_REGION_SCHEDULE_TIME_CHECK_REQUIRED")
+                ? "저장했습니다. 같은 지역 일정과 시간이 겹치지 않는지 확인해 주세요."
+                : warnings.includes("UNKNOWN_REGION_SCHEDULE_CHECK_REQUIRED")
+                    ? "저장했습니다. 지역을 확인할 수 없는 기존 일정이 있어 시간을 확인해 주세요."
+                    : warnings.includes("GOOGLE_CALENDAR_DATA_UNAVAILABLE")
+                        ? "저장했습니다. Google Calendar를 확인하지 못했으므로 일정 충돌을 별도로 확인해 주세요."
+                        : "예비조사일과 예비조사자를 검토하여 저장했습니다.";
+            setManualPreliminaryMessage({
+                type: warnings.length > 0 ? "warning" : "success",
+                text: warningText,
+            });
+            await fetchData({ silent: true });
+        } catch {
+            setManualPreliminaryMessage({
+                type: "error",
+                text: "추천 변경을 저장하는 중 오류가 발생했습니다. 다시 시도해 주세요.",
+            });
+        } finally {
+            setIsManualPreliminarySaving(false);
+        }
     };
 
     const handleNotesChange = (item: BusinessEntry, newNotes: string) => {
@@ -1645,8 +1983,48 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     // Grid Column Template
-    // 19 Columns: Checkbox(40), No(45), 주기(60), 실시여부(80), 국고(100), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 실시일(110), 비고(80), 관리(40)
-    const gridTemplateCols = "40px 45px 60px 80px 100px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
+    const gridTemplateCols = "40px 45px 60px 80px 100px 70px 90px minmax(140px, 1.5fr) 90px 210px minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
+
+    const preliminaryRuleLabel = (type?: string) => ({
+        existing: "기존업체",
+        general_new: "일반 신규",
+        other_org_new: "타기관 신규",
+        unconfirmed_new: "신규 유형 미확정",
+    }[type || "existing"] || "기존업체");
+
+    const preliminaryReasonLabel = (item: BusinessEntry) => {
+        const reasonLabels: Record<string, string> = {
+            MEASURER_REQUIRED: "담당자 필요",
+            MEASUREMENT_DATE_REQUIRED: "측정예정일 필요",
+            ADDRESS_REQUIRED: "주소 필요",
+            ADDRESS_REGION_UNAVAILABLE: "주소 권역 확인 필요",
+            NO_AVAILABLE_EXPERIENCED_USER: "가용 경력자 없음",
+            NO_AVAILABLE_DATE: "가능 날짜 없음",
+            USER_SCHEDULE_BLOCK_CONFLICT: "직원 제외 일정 충돌",
+            DIFFERENT_REGION_MEASUREMENT_CONFLICT: "다른 지역 측정 일정 충돌",
+            GOOGLE_CALENDAR_PRELIMINARY_CONFLICT: "Google Calendar의 다른 예비조사 일정과 충돌",
+            GOOGLE_CALENDAR_DATA_UNAVAILABLE: "Google Calendar 확인 불가",
+            HOLIDAY_DATA_REVIEW_REQUIRED: "공휴일 확인 필요",
+            RECOMMENDATION_CREATED: "현장방문 일정 추천 완료",
+            EXISTING_VISIT_RECOMMENDATION_CREATED: "방문 가정 일정 추천 완료(유선 가능)",
+            MANUAL_SELECTION_APPLIED: "사용자 선택 적용 완료",
+        };
+        const plan = item.preliminary_survey_plan;
+        const code =
+            plan?.review_reasons?.[0] ||
+            String(plan?.recommendation_reason?.code || "") ||
+            plan?.warnings?.[0];
+        if (code) return reasonLabels[code] || code;
+        if (!item.measurer_id) return reasonLabels.MEASURER_REQUIRED;
+        const hasDailyMeasurementDate =
+            Array.isArray(item.daily_staff) &&
+            item.daily_staff.some((entry: any) => Boolean(entry?.date));
+        if (!item.measurement_date && !hasDailyMeasurementDate) {
+            return reasonLabels.MEASUREMENT_DATE_REQUIRED;
+        }
+        if (!item.address?.trim()) return reasonLabels.ADDRESS_REQUIRED;
+        return null;
+    };
 
     const renderSortIcon = (key: string) => {
         const isSorted = sortConfig?.key === key;
@@ -1894,6 +2272,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="py-3 px-2 flex items-center justify-start pl-4 cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("business_name")}>
                             사업장명 {renderSortIcon("business_name")}
                         </div>
+                        <div className="py-3 text-center">예비조사 구분</div>
+                        <div className="py-3 text-center">예비조사 추천</div>
                         <div className="py-3 px-2 flex items-center justify-start pl-4 cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("address")}>
                             소재지 {renderSortIcon("address")}
                         </div>
@@ -2031,6 +2411,79 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <div className="text-center text-xs px-1">{item.plan_manager || "-"}</div>
                                 <div className="px-1 text-center text-xs break-words break-keep" title={item.business_category || ""}>{item.business_category || "-"}</div>
                                 <div className="px-1 text-left font-medium break-words break-keep" title={item.business_name}>{item.business_name}</div>
+                                <div className="px-1 text-center text-[11px]">
+                                    <span className={`inline-flex rounded-full px-1.5 py-0.5 font-semibold ${
+                                        item.preliminary_survey_rule_type === "unconfirmed_new"
+                                            ? "bg-amber-100 text-amber-800"
+                                            : item.preliminary_survey_rule_type === "existing" || !item.preliminary_survey_rule_type
+                                                ? "bg-slate-100 text-slate-600"
+                                                : "bg-blue-100 text-blue-700"
+                                    }`}>
+                                        {preliminaryRuleLabel(item.preliminary_survey_rule_type)}
+                                    </span>
+                                </div>
+                                <div className="px-1 py-1 text-[11px] leading-tight">
+                                    <div className="space-y-0.5">
+                                            <div className="font-semibold text-slate-700">
+                                                {item.preliminary_survey_plan?.confirmed_date ||
+                                                    item.preliminary_survey_plan?.recommended_date ||
+                                                    "추천 대기"}
+                                                {" · "}
+                                                {item.preliminary_survey_plan?.visit_mode === "experienced_solo_visit" ||
+                                                item.preliminary_survey_plan?.visit_mode === "existing_field_visit"
+                                                    ? item.preliminary_survey_plan.responsible_user_name || "담당자"
+                                                    : item.preliminary_survey_plan?.visit_mode === "joint_field_visit"
+                                                        ? `${item.preliminary_survey_plan.responsible_user_name || "담당자"} + ${item.preliminary_survey_plan.experienced_user_name || "경력자"}`
+                                                        : "예비조사자 미정"}
+                                            </div>
+                                            <div className={
+                                                item.preliminary_survey_plan?.status === "needs_review"
+                                                    ? "font-bold text-red-600"
+                                                    : "text-slate-500"
+                                            }>
+                                                {{
+                                                    pending: "추천 대기",
+                                                    recommended: "추천 완료",
+                                                    confirmed: "확정",
+                                                    needs_review: "재검토 필요",
+                                                    cancelled: "취소",
+                                                }[item.preliminary_survey_plan?.status || "pending"]}
+                                                {item.preliminary_survey_plan?.visit_mode === "experienced_solo_visit"
+                                                    ? " · 경력자 단독"
+                                                    : item.preliminary_survey_plan?.visit_mode === "joint_field_visit"
+                                                        ? " · 공동 방문"
+                                                        : item.preliminary_survey_plan?.visit_mode === "existing_field_visit"
+                                                            ? " · 방문 가정(유선 가능)"
+                                                        : ""}
+                                            </div>
+                                            {item.preliminary_survey_rule_type === "existing" && (
+                                                <div className="text-slate-500">유선 파악 가능 · 추천은 방문 일정 기준</div>
+                                            )}
+                                            {preliminaryReasonLabel(item) && (
+                                                <div
+                                                    className="truncate text-amber-700"
+                                                    title={preliminaryReasonLabel(item) || ""}
+                                                >
+                                                    {preliminaryReasonLabel(item)}
+                                                </div>
+                                            )}
+                                            <div className="flex justify-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    className="text-blue-600 hover:underline"
+                                                    onClick={() => handlePreliminarySurveyRecommend(item)}
+                                                >
+                                                    {item.preliminary_survey_plan ? "다시 추천" : "추천"}
+                                                </button>
+                                                <a
+                                                    className="text-slate-500 hover:underline"
+                                                    href={`/survey?tab=plans&targetId=${item.id}`}
+                                                >
+                                                    상세
+                                                </a>
+                                            </div>
+                                        </div>
+                                </div>
                                 <div className="px-1 text-left text-xs leading-tight break-words break-keep">{item.address}</div>
                                 <div className="text-center text-xs px-1">{toShortName(item.office_jurisdiction || "")}</div>
                                 <div className="text-center px-1">
@@ -2619,6 +3072,179 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         })}
                                     </div>
                                 )}
+
+                                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">예비조사 대상 구분</label>
+                                    <Select
+                                        value={editForm.preliminary_survey_rule_type || "existing"}
+                                        onChange={(e) =>
+                                            setEditForm((prev) => ({
+                                                ...prev,
+                                                preliminary_survey_rule_type: e.target.value,
+                                            }))
+                                        }
+                                        options={[
+                                            { value: "existing", label: "기존업체" },
+                                            { value: "general_new", label: "일반 신규" },
+                                            { value: "other_org_new", label: "타기관 신규" },
+                                            { value: "unconfirmed_new", label: "신규 여부 미확정" },
+                                        ]}
+                                    />
+                                    {editForm.preliminary_survey_rule_type === "unconfirmed_new" && (
+                                        <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
+                                            신규 유형 미확정
+                                        </span>
+                                    )}
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                        전회 측정값이 없으면 기존업체로 저장할 수 없으며 일반 신규 또는 타기관 신규로 분류해야 합니다.
+                                    </p>
+                                </div>
+
+                                {showPreliminarySurveyInfo && (
+                                    <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-4">
+                                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                            <div>
+                                                <h5 className="text-sm font-bold text-slate-800">예비조사 추천 정보</h5>
+                                                <p className="mt-0.5 text-[11px] text-slate-500">
+                                                    {editForm.preliminary_survey_rule_type === "existing" || !editForm.preliminary_survey_rule_type
+                                                        ? "방문 일정으로 가정해 중복이 적은 날짜를 추천하며, 실제 조사는 유선으로 진행할 수 있습니다."
+                                                        : "신규업체는 현장방문을 전제로 중복이 적은 날짜와 조사자를 추천합니다."}
+                                                </p>
+                                            </div>
+                                            {editForm.preliminary_survey_rule_type === "unconfirmed_new" && (
+                                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
+                                                    신규 유형 미확정
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <div className="space-y-3 text-sm">
+                                            {!hasUnsavedPreliminarySurveySource() &&
+                                            editForm.preliminary_survey_plan &&
+                                            buildPreliminaryRecommendationOptions(editForm.preliminary_survey_plan).length > 0 ? (
+                                                <div className="grid gap-2">
+                                                    {buildPreliminaryRecommendationOptions(editForm.preliminary_survey_plan).map((option, index) => {
+                                                        const selected =
+                                                            manualPreliminaryDate === option.date &&
+                                                            Number(manualPreliminaryUserId) === option.responsibleUserId &&
+                                                            Number(manualPreliminaryExperiencedUserId || 0) === Number(option.experiencedUserId || 0);
+                                                        const disabled =
+                                                            hasUnsavedPreliminarySurveySource() ||
+                                                            isPreliminarySurveyRecommending ||
+                                                            editForm.preliminary_survey_plan?.status === "confirmed";
+                                                        return (
+                                                            <button
+                                                                key={`${option.date}-${option.responsibleUserId}-${option.experiencedUserId || "solo"}`}
+                                                                type="button"
+                                                                disabled={disabled}
+                                                                onClick={() => {
+                                                                    setManualPreliminaryDate(option.date);
+                                                                    setManualPreliminaryUserId(String(option.responsibleUserId));
+                                                                    setManualPreliminaryExperiencedUserId(
+                                                                        option.experiencedUserId ? String(option.experiencedUserId) : "",
+                                                                    );
+                                                                    setManualPreliminaryMessage(null);
+                                                                }}
+                                                                className={`grid w-full grid-cols-[28px_95px_1fr] items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
+                                                                    selected
+                                                                        ? "border-indigo-500 bg-indigo-100 ring-1 ring-indigo-400"
+                                                                        : "border-indigo-100 bg-white hover:border-indigo-300 hover:bg-indigo-50"
+                                                                } disabled:cursor-default disabled:opacity-80`}
+                                                            >
+                                                                <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                                                                    selected ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                                                                }`}>
+                                                                    {index + 1}
+                                                                </span>
+                                                                <span>
+                                                                    <span className="block text-[10px] font-semibold text-slate-500">예비조사일</span>
+                                                                    <span className="font-bold text-slate-800">{option.date}</span>
+                                                                </span>
+                                                                <span>
+                                                                    <span className="block text-[10px] font-semibold text-slate-500">예비조사 조합</span>
+                                                                    <span className="font-semibold text-slate-800">
+                                                                        {option.responsibleUserName}
+                                                                        {option.experiencedUserName ? ` + ${option.experiencedUserName}` : " (단독)"}
+                                                                    </span>
+                                                                    {option.isPrimary && (
+                                                                        <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
+                                                                            최우선 추천
+                                                                        </span>
+                                                                    )}
+                                                                    {option.calendarPreferred ? (
+                                                                        <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                                                                            캘린더 일정 반영
+                                                                        </span>
+                                                                    ) : option.isPrimary && option.calendarStatus === "unavailable" ? (
+                                                                        <span className="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                                                                            캘린더 확인 실패
+                                                                        </span>
+                                                                    ) : option.isPrimary && option.calendarStatus === "not_checked" ? (
+                                                                        <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+                                                                            캘린더 미확인
+                                                                        </span>
+                                                                    ) : null}
+                                                                </span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <div className="rounded-md border border-indigo-100 bg-white px-3 py-3 text-sm text-slate-500">
+                                                    {hasUnsavedPreliminarySurveySource()
+                                                        ? "변경된 대상 구분과 추천 기준 정보는 추천 버튼을 누르면 먼저 저장한 뒤 새 추천안을 계산합니다."
+                                                        : "추천 전 · 예비조사 정보 추천 버튼을 눌러 추천안 3개를 생성해 주세요."}
+                                                </div>
+                                            )}
+
+                                            {hasUnsavedPreliminarySurveySource() ? (
+                                                <div className="rounded-md bg-amber-100 px-3 py-2 text-sm text-amber-900">
+                                                    예비조사 정보 추천을 누르면 변경한 측정일·담당자·측정자·주소·대상 구분을 저장하고, 모달을 닫지 않은 채 추천안 3개를 새로 계산합니다.
+                                                </div>
+                                            ) : isPreliminarySurveyRecommending ? (
+                                                <div className="flex items-center gap-2 py-3 text-sm text-indigo-700">
+                                                    <LoadingSpinner />
+                                                    추천 가능한 날짜와 담당자 일정을 확인하고 있습니다.
+                                                </div>
+                                            ) : editForm.preliminary_survey_plan ? (
+                                                <>
+                                                {editForm.preliminary_survey_plan.status !== "confirmed" && (
+                                                    <div className="flex justify-end">
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            disabled={
+                                                                isManualPreliminarySaving ||
+                                                                !manualPreliminaryDate ||
+                                                                !manualPreliminaryUserId
+                                                            }
+                                                            onClick={() => void handleManualPreliminarySurveySave()}
+                                                        >
+                                                            {isManualPreliminarySaving ? "검토 중..." : "선택한 추천안 적용"}
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                                {manualPreliminaryMessage && (
+                                                    <div className={`rounded-md px-3 py-2 text-xs ${
+                                                        manualPreliminaryMessage.type === "error"
+                                                            ? "bg-red-50 text-red-700"
+                                                            : manualPreliminaryMessage.type === "warning"
+                                                                ? "bg-amber-50 text-amber-800"
+                                                                : "bg-green-50 text-green-700"
+                                                    }`}>
+                                                        {manualPreliminaryMessage.text}
+                                                    </div>
+                                                )}
+                                                {preliminaryReasonLabel(editForm as BusinessEntry) && (
+                                                    <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                                        {preliminaryReasonLabel(editForm as BusinessEntry)}
+                                                    </div>
+                                                )}
+                                                </>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -2634,14 +3260,23 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         />
                     </div>
 
-                    <div className="flex justify-between items-center mt-8 pt-4 border-t border-slate-200">
+                    <div className="grid grid-cols-3 items-center mt-8 pt-4 border-t border-slate-200">
                         <Button
-                            className="bg-red-600 hover:bg-red-700 text-white"
+                            className="justify-self-start bg-red-600 hover:bg-red-700 text-white"
                             onClick={handleDelete}
                         >
                             삭제
                         </Button>
-                        <div className="flex gap-2">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            className="justify-self-center whitespace-nowrap border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                            disabled={isPreliminarySurveyRecommending}
+                            onClick={() => void handleEditPreliminarySurveyRecommend()}
+                        >
+                            {isPreliminarySurveyRecommending ? "추천 중..." : "예비조사 정보 추천"}
+                        </Button>
+                        <div className="flex justify-self-end gap-2">
                             <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>취소</Button>
                             <Button variant="primary" onClick={handleSaveEdit}>저장</Button>
                         </div>
@@ -2734,6 +3369,31 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div>
                             <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">필수 정보</h4>
                             <div className="grid grid-cols-2 gap-4">
+                                <div className="col-span-2">
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">
+                                        예비조사 대상 구분 <span className="text-red-500">*</span>
+                                    </label>
+                                    <Select
+                                        value={addForm.preliminary_survey_rule_type || ""}
+                                        onChange={(e) =>
+                                            setAddForm((prev) => ({
+                                                ...prev,
+                                                preliminary_survey_rule_type: e.target.value,
+                                            }))
+                                        }
+                                        options={[
+                                            { value: "", label: "반드시 선택하세요" },
+                                            { value: "existing", label: "기존업체" },
+                                            { value: "general_new", label: "일반 신규" },
+                                            { value: "other_org_new", label: "타기관 신규" },
+                                            { value: "unconfirmed_new", label: "신규 여부 미확정" },
+                                        ]}
+                                        required
+                                    />
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                        전회 측정값이 없으면 일반 신규 또는 타기관 신규를 선택하세요. 신규 여부 미확정은 신규임은 확인되었으나 일반·타기관 구분만 미정인 경우에 사용합니다.
+                                    </p>
+                                </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1 text-slate-700">
                                         측정 년도 <span className="text-red-500">*</span>
@@ -2817,6 +3477,38 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         onChange={(e) => setAddForm(prev => ({ ...prev, business_name: e.target.value }))}
                                         placeholder="사업장명 입력"
                                         required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">보고서 담당자</label>
+                                    <Select
+                                        value={addForm.measurer_id?.toString() || ""}
+                                        onChange={(e) =>
+                                            setAddForm((prev) => ({
+                                                ...prev,
+                                                measurer_id: e.target.value ? Number(e.target.value) : null,
+                                            }))
+                                        }
+                                        options={[
+                                            { value: "", label: "추후 지정" },
+                                            ...measurers.map((user) => ({
+                                                value: String(user.id),
+                                                label: user.name,
+                                            })),
+                                        ]}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">측정예정일</label>
+                                    <Input
+                                        type="date"
+                                        value={addForm.measurement_date || ""}
+                                        onChange={(e) =>
+                                            setAddForm((prev) => ({
+                                                ...prev,
+                                                measurement_date: e.target.value || null,
+                                            }))
+                                        }
                                     />
                                 </div>
                             </div>

@@ -9,7 +9,11 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
-import { formatDateYYYYMMDD, calculateMeasurementWeekdays } from "@/lib/utils/date-utils";
+import {
+  formatDateYYYYMMDD,
+  calculateMeasurementWeekdays,
+  calculateMeasurementWeekdaysFromDates,
+} from "@/lib/utils/date-utils";
 import { normalizeForDateInput, isValidDateString } from "@/lib/utils/date-validator";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { MEASURER_LIST, getSurveyCode, getMeasurerList } from "@/lib/utils/survey-code";
@@ -61,7 +65,12 @@ interface SurveyFormData {
 }
 
 interface SurveyFormProps {
-  initialData?: Partial<SurveyFormData> & { id?: number };
+  initialData?: Partial<SurveyFormData> & {
+    id?: number;
+    measurement_schedule_dates?: string[];
+    preliminary_survey_date?: string;
+    preliminary_survey_plan_surveyors?: string;
+  };
   onSuccess?: () => void;
   onCancel?: () => void;
 }
@@ -208,7 +217,10 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, 
         period: initialData.period || "상반기",
         measurement_date: normalizedMeasurementDate,
         end_date: normalizedEndDate || normalizedMeasurementDate, // 종료일이 없으면 측정일과 동일하게
-        measurement_weekdays: initialData.measurement_weekdays || "",
+        measurement_weekdays:
+          calculateMeasurementWeekdaysFromDates(initialData.measurement_schedule_dates || []) ||
+          initialData.measurement_weekdays ||
+          "",
         code: initialData.code || "",
         business_name: initialData.business_name || "",
         business_number: initialData.business_number || "",
@@ -547,6 +559,13 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, 
 
   // 측정요일 업데이트
   const updateMeasurementWeekdays = (startDate: string, endDate: string) => {
+    const scheduledWeekdays = calculateMeasurementWeekdaysFromDates(
+      initialData?.measurement_schedule_dates || []
+    );
+    if (scheduledWeekdays) {
+      setFormData((prev) => ({ ...prev, measurement_weekdays: scheduledWeekdays }));
+      return;
+    }
     if (startDate && endDate) {
       const weekdays = calculateMeasurementWeekdays(startDate, endDate);
       setFormData((prev) => ({ ...prev, measurement_weekdays: weekdays }));
@@ -1010,6 +1029,35 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, 
           <Input label="주소" value={formData.address} readOnly className="bg-surface-50" />
         </div>
       </Card>
+      {/* 예비조사 정보 */}
+      {initialData?.id && (
+        <Card className="border-indigo-200 bg-indigo-50/40 p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-text-900">예비조사 정보</h3>
+            <p className="mt-1 text-xs text-text-500">
+              측정대상 사업장의 추천 또는 확정된 예비조사 계획입니다.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Input
+              label="예비조사일"
+              value={initialData.preliminary_survey_date || "미정"}
+              readOnly
+              className="bg-white"
+            />
+            <Input
+              label="예비조사자"
+              value={
+                initialData.preliminary_survey_plan_surveyors ||
+                formData.preliminary_surveyor ||
+                "미정"
+              }
+              readOnly
+              className="bg-white"
+            />
+          </div>
+        </Card>
+      )}
       {/* 측정자 정보 */}
       <Card className="p-6">
         <h3 className="mb-4 text-lg font-semibold text-text-900">측정자 정보</h3>

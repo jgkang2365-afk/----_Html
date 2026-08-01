@@ -30,6 +30,85 @@ import {
   isValidOptionalManagerEmail,
   normalizeOptionalManagerEmail,
 } from "@/lib/business/manager-email";
+import { getSession } from "@/lib/auth/session";
+import {
+  recommendAndPersistPreliminarySurvey,
+  refreshPlanReview,
+} from "@/lib/preliminary-survey/service";
+import { resolveSurveyAssignment } from "@/lib/utils/survey-assignment";
+import {
+  isPreliminarySurveyRuleType,
+  requiresFieldPreliminarySurvey,
+} from "@/lib/preliminary-survey/types";
+import { hasPreviousMeasurementValueFromRows } from "@/lib/preliminary-survey/classification";
+
+async function hasPreviousMeasurementValue(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  input: {
+    code: string;
+    year: number;
+    period: string;
+    currentTarget?: Record<string, any> | null;
+  },
+) {
+  const { data, error } = await supabase
+    .from("measurement_journal")
+    .select("measurement_year, measurement_period, measurement_start_date, measurement_end_date")
+    .eq("code", input.code)
+    .lte("measurement_year", input.year)
+    .order("measurement_year", { ascending: false })
+    .limit(50);
+  if (error) throw new Error(`PREVIOUS_MEASUREMENT_QUERY_FAILED:${error.message}`);
+
+  return hasPreviousMeasurementValueFromRows(
+    input.currentTarget,
+    data || [],
+    input.year,
+    input.period,
+  );
+}
+
+function previousMeasurementRequiredResponse() {
+  return NextResponse.json(
+    {
+      error: "PREVIOUS_MEASUREMENT_REQUIRED_FOR_EXISTING",
+      details: "전회 측정값이 없는 사업장은 기존업체로 분류할 수 없습니다. 일반 신규 또는 타기관 신규를 선택해 주세요.",
+    },
+    { status: 400 },
+  );
+}
+
+async function runAutomaticPreliminarySurveyRecommendation(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  targetId: number,
+) {
+  const deadlineAt = Date.now() + 5_000;
+  try {
+    const session = await getSession();
+    if (!session) return null;
+    const recommendation = await recommendAndPersistPreliminarySurvey(supabase, {
+      targetId,
+      actorUserId: session.userId,
+      manual: false,
+      deadlineAt,
+    });
+    return {
+      ...recommendation.result,
+      planId: recommendation.plan?.id || null,
+      rowVersion: recommendation.plan?.row_version || null,
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "RECOMMENDATION_ERROR";
+    if (
+      reason.includes("TARGET_NOT_SUPPORTED_PRELIMINARY_SURVEY") ||
+      reason.includes("PLAN_CANCELLED_MANUAL_RESTART_REQUIRED")
+    ) {
+      return null;
+    }
+    console.error("[PreliminarySurvey] automatic recommendation failed:", reason);
+    return { status: "failed", reason: "RECOMMENDATION_ERROR", details: reason };
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -197,6 +276,46 @@ export async function GET(request: NextRequest) {
       .in("code", codes);
 
     const surveyRegisteredCodes = new Set(surveys?.map((s: any) => s.code));
+
+    const targetIds = businesses.map((business: any) => Number(business.id));
+    const { data: rawPlans } = targetIds.length
+      ? await supabase
+          .from("preliminary_survey_plans")
+          .select("*")
+          .in("measurement_target_business_id", targetIds)
+          .in("status", ["pending", "recommended", "confirmed", "needs_review"])
+      : { data: [] as any[] };
+    const reviewedPlans: any[] = [];
+    for (const plan of rawPlans || []) {
+      try {
+        reviewedPlans.push(await refreshPlanReview(supabase, plan as any));
+      } catch {
+        reviewedPlans.push(plan);
+      }
+    }
+    const planUserIds = [
+      ...new Set(
+        reviewedPlans
+          .flatMap((plan: any) => [plan.responsible_user_id, plan.experienced_user_id])
+          .filter(Boolean),
+      ),
+    ];
+    const { data: planUsers } = planUserIds.length
+      ? await supabase.from("users").select("id, name").in("id", planUserIds)
+      : { data: [] as any[] };
+    const planUserMap = new Map((planUsers || []).map((user: any) => [user.id, user.name]));
+    const planMap = new Map(
+      reviewedPlans.map((plan: any) => [
+        Number(plan.measurement_target_business_id),
+        {
+          ...plan,
+          responsible_user_name: planUserMap.get(plan.responsible_user_id) || null,
+          experienced_user_name: plan.experienced_user_id
+            ? planUserMap.get(plan.experienced_user_id) || null
+            : null,
+        },
+      ]),
+    );
 
     // 향후 측정주기 및 최신 사업장 정보 (measurement_business 테이블에서 최신값 조회)
     // 1순위: measurement_business
@@ -370,6 +489,7 @@ export async function GET(request: NextRequest) {
         geocoded_at: basicInfo?.geocoded_at ?? item.geocoded_at ?? null,
         geocode_provider: basicInfo?.geocode_provider ?? item.geocode_provider ?? null,
         coordinate_locked: basicInfo?.coordinate_locked ?? item.coordinate_locked ?? false,
+        preliminary_survey_plan: planMap.get(Number(item.id)) || null,
       };
     });
 
@@ -432,11 +552,63 @@ export async function PATCH(request: NextRequest) {
       "industrial_accident_number", "commencement_number",
       "latitude", "longitude", "geocoded_address", "geocoding_status",
       "coordinate_locked", "geocoding_method"
+      ,"preliminary_survey_rule_type"
     ]);
     const updatePayload: any = Object.fromEntries(
       Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
     );
     updatePayload.updated_at = new Date().toISOString();
+
+    // HTML date input을 지우면 빈 문자열이 오므로 PostgreSQL date 컬럼에는 null로 저장한다.
+    for (const dateColumn of [
+      "measurement_date",
+      "measurement_end_date",
+      "future_measurement_date",
+    ]) {
+      if (updatePayload[dateColumn] === "") updatePayload[dateColumn] = null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, "preliminary_survey_rule_type")) {
+      if (!isPreliminarySurveyRuleType(updates.preliminary_survey_rule_type)) {
+        return NextResponse.json(
+          { error: "INVALID_PRELIMINARY_SURVEY_RULE_TYPE" },
+          { status: 400 },
+        );
+      }
+      updatePayload.preliminary_survey_rule_type =
+        updates.preliminary_survey_rule_type;
+      updatePayload.requires_field_preliminary_survey =
+        requiresFieldPreliminarySurvey(updates.preliminary_survey_rule_type);
+
+      if (updates.preliminary_survey_rule_type === "existing") {
+        let currentTargetQuery = supabase
+          .from("measurement_target_business")
+          .select("*");
+        if (id) {
+          currentTargetQuery = currentTargetQuery.eq("id", id);
+        } else {
+          currentTargetQuery = currentTargetQuery
+            .eq("code", code)
+            .eq("year", year)
+            .eq("period", period);
+        }
+        const { data: currentTarget, error: currentTargetError } =
+          await currentTargetQuery.maybeSingle();
+        if (currentTargetError) {
+          return NextResponse.json(
+            { error: "전회 측정값 확인 중 오류가 발생했습니다." },
+            { status: 500 },
+          );
+        }
+        const hasPreviousMeasurement = await hasPreviousMeasurementValue(supabase, {
+          code: String(currentTarget?.code || code || ""),
+          year: Number(currentTarget?.year || year),
+          period: String(currentTarget?.period || period || ""),
+          currentTarget,
+        });
+        if (!hasPreviousMeasurement) return previousMeasurementRequiredResponse();
+      }
+    }
 
     if (Object.prototype.hasOwnProperty.call(updatePayload, "manager_email")) {
       if (!isValidOptionalManagerEmail(updatePayload.manager_email)) {
@@ -591,7 +763,7 @@ export async function PATCH(request: NextRequest) {
           // 2. Fetch existing surveys to manage diffs (Add/Update/Delete)
           const { data: existingSurveys, error: existingSurveysError } = await supabase
             .from("preliminary_survey")
-            .select("id, measurement_date, google_event_id")
+            .select("id, measurement_date, google_event_id, measurer, survey_code")
             .eq("code", code).eq("year", year).eq("period", period);
 
           if (existingSurveysError) {
@@ -646,7 +818,40 @@ export async function PATCH(request: NextRequest) {
             const mId = entry.measurer_id;
             const { data: userData } = mId ? await supabase.from("users").select("name").eq("id", mId).single() : { data: null };
             const reportWriterName = userData?.name || null;
-            const entryCollabs = entry.collaborators || [];
+            const entryCollabs = (entry.collaborators || [])
+              .map((name: string) => String(name || "").trim())
+              .filter(Boolean);
+            const measurementMeasurers = entryCollabs.filter(
+              (name: string) => name !== reportWriterName,
+            );
+            const scheduledMeasurers = measurementMeasurers.length > 0
+              ? measurementMeasurers
+              : entryCollabs.length > 0
+                ? entryCollabs
+                : reportWriterName
+                  ? [reportWriterName]
+                  : [];
+            const scheduledMeasurer = scheduledMeasurers.join(", ");
+            const existing = existingSurveys?.find(s => s.measurement_date === entry.date);
+            let surveyCode = existing?.survey_code || null;
+            if (scheduledMeasurer) {
+              try {
+                const assignment = await resolveSurveyAssignment({
+                  supabase,
+                  measurementDate: entry.date,
+                  measurer: scheduledMeasurer,
+                  surveyId: existing?.id,
+                  currentSurveyCode: existing?.survey_code,
+                  confirmOverlap: true,
+                });
+                surveyCode = assignment.surveyCode;
+              } catch (assignmentError) {
+                console.error(
+                  `[Integrated Sync] 공시료 코드 연동 실패 (${code}, ${entry.date}):`,
+                  assignmentError,
+                );
+              }
+            }
             
             // Build actual_measurer string for this specific date
             // 측정자 목록(collaborators)을 그대로 사용 - 보고서 담당자는 자동 합산하지 않음
@@ -657,11 +862,12 @@ export async function PATCH(request: NextRequest) {
               measurement_date: entry.date,
               end_date: entry.date,
               report_writer: reportWriterName,
+              measurer: scheduledMeasurer || null,
+              survey_code: surveyCode,
               actual_measurer: actualMeasurer,
               business_name: updates.business_name || updatedData.business_name
             };
 
-            const existing = existingSurveys?.find(s => s.measurement_date === entry.date);
             if (existing) {
               await supabase.from("preliminary_survey").update(surveyPayload).eq("id", existing.id);
             } else {
@@ -805,7 +1011,18 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, data: updatedData, geocodeStatus: geocodeResult?.geocoding_status || null });
+    const preliminarySurveyRecommendation =
+      await runAutomaticPreliminarySurveyRecommendation(
+        supabase,
+        Number(updatedData.id),
+      );
+
+    return NextResponse.json({
+      success: true,
+      data: updatedData,
+      geocodeStatus: geocodeResult?.geocoding_status || null,
+      preliminarySurveyRecommendation,
+    });
 
   } catch (error: any) {
     console.error("PATCH API Critical Error:", error);
@@ -841,6 +1058,10 @@ export async function POST(request: NextRequest) {
       manager_email,
       total_employees,
       office_jurisdiction,
+      measurer_id,
+      measurement_date,
+      daily_staff,
+      preliminary_survey_rule_type,
     } = body;
 
     // Validation
@@ -848,6 +1069,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "필수 정보가 누락되었습니다. (코드, 년도, 주기, 사업장명)" },
         { status: 400 }
+      );
+    }
+
+    if (
+      preliminary_survey_rule_type === null ||
+      preliminary_survey_rule_type === undefined ||
+      preliminary_survey_rule_type === ""
+    ) {
+      return NextResponse.json(
+        { error: "PRELIMINARY_SURVEY_RULE_TYPE_REQUIRED" },
+        { status: 400 },
+      );
+    }
+    if (!isPreliminarySurveyRuleType(preliminary_survey_rule_type)) {
+      return NextResponse.json(
+        { error: "INVALID_PRELIMINARY_SURVEY_RULE_TYPE" },
+        { status: 400 },
       );
     }
 
@@ -860,6 +1098,15 @@ export async function POST(request: NextRequest) {
 
     const normalizedManagerEmail = normalizeOptionalManagerEmail(manager_email);
     const supabase = await createClient();
+
+    if (preliminary_survey_rule_type === "existing") {
+      const hasPreviousMeasurement = await hasPreviousMeasurementValue(supabase, {
+        code: String(code),
+        year: Number(year),
+        period: String(period),
+      });
+      if (!hasPreviousMeasurement) return previousMeasurementRequiredResponse();
+    }
 
     // 1. 코드 + 연도 + 주기 중복 등록 방지
     const { data: existing } = await supabase
@@ -924,6 +1171,12 @@ export async function POST(request: NextRequest) {
         industrial_accident_number: industrialAccidentNumber,
         commencement_number: commencementNumber,
         representative_name: representative_name || null,
+        measurer_id: measurer_id ? Number(measurer_id) : null,
+        measurement_date: measurement_date || null,
+        daily_staff: Array.isArray(daily_staff) ? daily_staff : null,
+        preliminary_survey_rule_type,
+        requires_field_preliminary_survey:
+          requiresFieldPreliminarySurvey(preliminary_survey_rule_type),
         document_generation_enabled: true,
         is_registered: "미실시", // Default
         created_at: new Date().toISOString()
@@ -952,6 +1205,12 @@ export async function POST(request: NextRequest) {
       console.error("[BusinessCoordinates] 신규 등록 후 좌표 처리 실패:", coordinateError instanceof Error ? coordinateError.message : "unknown");
     }
 
+    const preliminarySurveyRecommendation =
+      await runAutomaticPreliminarySurveyRecommendation(
+        supabase,
+        Number(newTarget.id),
+      );
+
     return NextResponse.json({
       success: true,
       businessCreated: true,
@@ -967,6 +1226,7 @@ export async function POST(request: NextRequest) {
         mode: initialSupportState.shouldAutoApply ? "apply_if_missing" : "lookup_only",
         status: initialSupportState.syncStatus,
       },
+      preliminarySurveyRecommendation,
     });
 
   } catch (error: any) {

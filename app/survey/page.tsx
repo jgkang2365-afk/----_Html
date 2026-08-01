@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { SurveyForm } from "@/components/features/SurveyForm";
 import { BulkRegisterModal } from "@/components/features/BulkRegisterModal";
+import { PreliminarySurveyPlans } from "@/components/features/PreliminarySurveyPlans";
+import { UserScheduleBlockManagement } from "@/components/features/UserScheduleBlockManagement";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -28,11 +30,15 @@ interface Survey {
   measurement_date: string;
   end_date: string | null;
   measurement_weekdays: string | null;
+  measurement_schedule_dates?: string[];
   business_name: string;
   measurer: string | null;
   survey_code: string | null;
   address: string | null;
   preliminary_surveyor: string | null;
+  preliminary_survey_date?: string | null;
+  preliminary_survey_plan_surveyors?: string | null;
+  preliminary_survey_plan_status?: string | null;
   actual_measurer: string | null;
   report_writer: string | null;
   assignee_manual_override: boolean;
@@ -66,14 +72,16 @@ export default function SurveyPage() {
   const [editingSurvey, setEditingSurvey] = useState<Survey | null>(null);
   const [selectedBusinessForForm, setSelectedBusinessForForm] = useState<BusinessInfo | null>(null); // 선택된 사업장 정보
   // 탭 상태
-  const [activeTab, setActiveTab] = useState<"search" | "list">("list");
+  const [activeTab, setActiveTab] = useState<"search" | "list" | "plans" | "schedule-blocks">("list");
 
   // 초기 로드 시 localStorage에서 탭 상태 복원 (Client-side only)
   useEffect(() => {
     if (typeof window !== "undefined") {
+      const requestedTab = new URLSearchParams(window.location.search).get("tab");
       const savedTab = localStorage.getItem("surveyActiveTab");
-      if (savedTab === "search" || savedTab === "list") {
-        setActiveTab(savedTab);
+      const nextTab = requestedTab || savedTab;
+      if (nextTab === "search" || nextTab === "list" || nextTab === "plans" || nextTab === "schedule-blocks") {
+        setActiveTab(nextTab);
       }
     }
   }, []);
@@ -390,8 +398,31 @@ export default function SurveyPage() {
           >
             사업장 검색
           </button>
+          <button
+            onClick={() => setActiveTab("plans")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === "plans"
+                ? "border-b-2 border-primary-500 text-primary-500"
+                : "text-text-700 hover:text-text-900"
+            }`}
+          >
+            예비조사 계획
+          </button>
+          <button
+            onClick={() => setActiveTab("schedule-blocks")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === "schedule-blocks"
+                ? "border-b-2 border-primary-500 text-primary-500"
+                : "text-text-700 hover:text-text-900"
+            }`}
+          >
+            직원 일정 제외 관리
+          </button>
         </div>
       </div>
+
+      {activeTab === "plans" && <PreliminarySurveyPlans />}
+      {activeTab === "schedule-blocks" && <UserScheduleBlockManagement />}
 
       {/* 검색 폼 (사업장 검색 탭에서만 표시) */}
       {activeTab === "search" && (
@@ -910,6 +941,7 @@ export default function SurveyPage() {
                         </th>
                         <th className="w-[90px] px-2 py-3 text-center">종료일</th>
                         <th className="w-[120px] px-2 py-3 text-center">측정요일</th>
+                        <th className="w-[100px] px-2 py-3 text-center">예비조사일</th>
                         <th className="px-2 py-3 text-left">사업장명</th>
                         <th className="w-[120px] px-2 py-3 text-center">사업자번호</th>
                         <th className="w-[100px] px-2 py-3 text-center">측정자</th>
@@ -979,6 +1011,11 @@ export default function SurveyPage() {
                               ) ||
                               "-"}
                           </td>
+                          <td className="px-2 py-2 text-center font-medium text-indigo-700">
+                            {survey.preliminary_survey_date
+                              ? formatDateYYYYMMDD(new Date(survey.preliminary_survey_date))
+                              : "-"}
+                          </td>
                           <td
                             className="max-w-[150px] truncate px-2 py-2 font-medium"
                             title={survey.business_name}
@@ -999,9 +1036,9 @@ export default function SurveyPage() {
                           </td>
                           <td
                             className="max-w-[130px] truncate px-2 py-2 text-center font-medium"
-                            title={survey.preliminary_surveyor || ""}
+                            title={survey.preliminary_survey_plan_surveyors || survey.preliminary_surveyor || ""}
                           >
-                            {survey.preliminary_surveyor || "-"}
+                            {survey.preliminary_survey_plan_surveyors || survey.preliminary_surveyor || "-"}
                           </td>
                           <td
                             className="max-w-[100px] truncate px-2 py-2 text-center font-medium"
@@ -1071,10 +1108,14 @@ export default function SurveyPage() {
                     measurement_date: editingSurvey.measurement_date,
                     end_date: editingSurvey.end_date ?? undefined,
                     measurement_weekdays: editingSurvey.measurement_weekdays ?? undefined,
+                    measurement_schedule_dates: editingSurvey.measurement_schedule_dates,
                     measurer: editingSurvey.measurer ?? undefined,
                     survey_code: editingSurvey.survey_code ?? undefined,
                     address: editingSurvey.address ?? undefined,
                     preliminary_surveyor: editingSurvey.preliminary_surveyor ?? undefined,
+                    preliminary_survey_date: editingSurvey.preliminary_survey_date ?? undefined,
+                    preliminary_survey_plan_surveyors:
+                      editingSurvey.preliminary_survey_plan_surveyors ?? undefined,
                     actual_measurer: editingSurvey.actual_measurer ?? undefined,
                     report_writer: editingSurvey.report_writer ?? undefined,
                     assignee_manual_override: editingSurvey.assignee_manual_override,
