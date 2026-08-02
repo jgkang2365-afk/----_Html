@@ -78,6 +78,42 @@ export function workingDaysBefore(
   return result;
 }
 
+export function currentDateOnly(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+/** 오늘 이후이면서 측정예정일보다 이전인 모든 근무일을 측정일 역순으로 반환합니다. */
+export function futureWorkingDaysBefore(
+  measurementDate: string,
+  today = currentDateOnly(),
+): Array<{ date: string; workingDaysBefore: number }> {
+  if (!parseDateOnly(measurementDate) || !parseDateOnly(today) || measurementDate <= today) {
+    return [];
+  }
+  const result: Array<{ date: string; workingDaysBefore: number }> = [];
+  let cursor = measurementDate;
+  let workingDayCount = 0;
+  let guard = 0;
+
+  while (guard < 730) {
+    cursor = subtractCalendarDays(cursor, 1);
+    guard += 1;
+    if (cursor <= today) break;
+    if (!isWorkingDay(cursor)) continue;
+    workingDayCount += 1;
+    result.push({ date: cursor, workingDaysBefore: workingDayCount });
+  }
+
+  return result;
+}
+
 export function workingDayDistance(
   earlierDate: string,
   laterDate: string,
@@ -88,7 +124,7 @@ export function workingDayDistance(
   let cursor = laterDate;
   let count = 0;
   let guard = 0;
-  while (cursor > earlierDate && guard < 370) {
+  while (cursor > earlierDate && guard < 800) {
     cursor = subtractCalendarDays(cursor, 1);
     guard += 1;
     if (isWorkingDay(cursor)) count += 1;

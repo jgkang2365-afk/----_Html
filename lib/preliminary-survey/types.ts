@@ -42,14 +42,6 @@ export interface ScheduleBlock {
   end_date: string;
 }
 
-export interface CalendarRecommendationSignal {
-  userId: number;
-  date: string;
-  kind: "preferred" | "occupied";
-  eventId: string | null;
-  eventUpdatedAt: string | null;
-}
-
 export interface WorkloadSummary {
   halfYear: number;
   recent30Days: number;
@@ -58,6 +50,7 @@ export interface WorkloadSummary {
 
 export interface RecommendationAlternative {
   date: string;
+  slot?: "default" | "earlier" | "later";
   experiencedUserId: number | null;
   experiencedUserName: string | null;
   score: number;

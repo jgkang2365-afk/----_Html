@@ -3,7 +3,6 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { recommendAndPersistPreliminarySurvey } from "@/lib/preliminary-survey/service";
-import { loadPreliminarySurveyCalendarSignals } from "@/lib/preliminary-survey/google-calendar-signals";
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,15 +16,11 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const calendar = await loadPreliminarySurveyCalendarSignals(supabase, targetId);
     const recommendation = await recommendAndPersistPreliminarySurvey(supabase, {
       targetId,
       actorUserId: session.userId,
       manual: true,
       replaceConfirmed: body.replaceConfirmed === true,
-      calendarSignals: calendar.signals,
-      calendarStatus: calendar.status,
-      calendarCheckedAt: calendar.checkedAt,
     });
     return NextResponse.json({
       success: true,

@@ -106,7 +106,7 @@ test("사업장 수정 모달은 측정자 아래와 하단 중앙 버튼에서 
   );
 
   assert.match(component, /showPreliminarySurveyInfo/);
-  assert.match(component, />예비조사일</);
+  assert.match(component, /예비조사일 ·/);
   assert.match(component, /예비조사 조합/);
   assert.match(component, /최우선 추천/);
   assert.match(component, /선택한 추천안 적용/);
@@ -182,19 +182,34 @@ test("예비조사 목록은 추천 계획의 날짜와 초보·경력 조사자
   assert.match(surveyPage, /preliminary_survey_plan_surveyors \|\| survey\.preliminary_surveyor/);
   assert.match(service, /MANUAL_NOVICE_REQUIRES_EXPERIENCED_COMPANION/);
   assert.match(service, /p_responsible_user_id: result\.responsibleUserId/);
-  assert.match(service, /RESPONSIBLE_DIFFERS_FROM_MEASURER/);
+  assert.match(service, /PRELIMINARY_SURVEYOR_MUST_MATCH_MEASURER/);
+  assert.doesNotMatch(service, /RESPONSIBLE_DIFFERS_FROM_MEASURER/);
 });
 
-test("추천은 공시료 기준 측정자를 우선하고 2026년 7월은 다른 주 담당자로 대체하지 않는다", () => {
+test("추천 책임자는 모든 측정기간에서 공시료 기준 측정자로 고정한다", () => {
   const service = read("lib/preliminary-survey/service.ts");
+  const engine = read("lib/preliminary-survey/engine.ts");
   const businessRoute = read("app/api/businesses/route.ts");
   const assignment = read("lib/utils/survey-assignment.ts");
 
   assert.match(service, /preliminary_survey[\s\S]*select\("measurer, measurement_date"\)/);
-  assert.match(service, /measurementDate >= "2026-07-01"[\s\S]*measurementDate <= "2026-07-31"/);
-  assert.match(service, /strictPublicSampleMeasurerMatch \? \[\] : users\.filter/);
+  assert.match(service, /selectedUser\.id !== Number\(target\.measurer_id\)/);
+  assert.doesNotMatch(service, /fallbackResponsibles/);
+  assert.doesNotMatch(engine, /RESPONSIBLE_DIFFERS_FROM_MEASURER/);
   assert.match(service, /syncPlanSurveyorsToPreliminarySurvey/);
   assert.match(businessRoute, /measurer: scheduledMeasurer \|\| null/);
   assert.match(businessRoute, /resolveSurveyAssignment\([\s\S]*confirmOverlap: true/);
   assert.match(assignment, /assignmentNumber === 2 \? `\$\{baseCode\}\$\{baseCode\}` : baseCode/);
+});
+
+test("예비조사 추천 경로는 Google Calendar 신호를 읽거나 저장하지 않는다", () => {
+  const engine = read("lib/preliminary-survey/engine.ts");
+  const service = read("lib/preliminary-survey/service.ts");
+  const recommendRoute = read("app/api/preliminary-survey-plans/recommend/route.ts");
+  const manualRoute = read("app/api/preliminary-survey-plans/[planId]/manual/route.ts");
+  const confirmRoute = read("app/api/preliminary-survey-plans/[planId]/confirm/route.ts");
+
+  for (const source of [engine, service, recommendRoute, manualRoute, confirmRoute]) {
+    assert.doesNotMatch(source, /calendarSignals|calendarPreference|GOOGLE_CALENDAR/);
+  }
 });

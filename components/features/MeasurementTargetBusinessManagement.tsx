@@ -131,6 +131,32 @@ interface BusinessEntry {
 type PreliminarySurveyPlan = NonNullable<BusinessEntry["preliminary_survey_plan"]>;
 
 function buildPreliminaryRecommendationOptions(plan: PreliminarySurveyPlan) {
+    const slotLabels = {
+        default: "1안 · 30~20근무일 전",
+        earlier: "2안 · 30근무일보다 이전",
+        later: "3안 · 20근무일보다 가까움",
+    } as const;
+    const reasonSlots = Array.isArray(plan.recommendation_reason?.recommendationSlots)
+        ? plan.recommendation_reason.recommendationSlots as Array<Record<string, unknown>>
+        : [];
+    if (plan.status !== "confirmed" && reasonSlots.length > 0) {
+        return (["default", "earlier", "later"] as const).map((slot) => {
+            const entry = reasonSlots.find((candidate) => candidate.slot === slot);
+            return {
+                slot,
+                slotLabel: slotLabels[slot],
+                date: typeof entry?.date === "string" ? entry.date : "",
+                responsibleUserId: Number(plan.responsible_user_id),
+                responsibleUserName: plan.responsible_user_name || "측정담당자",
+                experiencedUserId: Number(entry?.experiencedUserId || 0) || null,
+                experiencedUserName: typeof entry?.experiencedUserName === "string"
+                    ? entry.experiencedUserName
+                    : null,
+                isPrimary: plan.recommended_date === entry?.date,
+                emptyReason: typeof entry?.emptyReason === "string" ? entry.emptyReason : null,
+            };
+        });
+    }
     const primaryDate = plan.confirmed_date || plan.recommended_date;
     const candidates = [
         ...(primaryDate ? [{
@@ -140,8 +166,9 @@ function buildPreliminaryRecommendationOptions(plan: PreliminarySurveyPlan) {
             experiencedUserId: plan.experienced_user_id || null,
             experiencedUserName: plan.experienced_user_name || null,
             isPrimary: true,
-            calendarStatus: String(plan.recommendation_reason?.calendarStatus || "not_checked"),
-            calendarPreferred: plan.recommendation_reason?.calendarPreferenceApplied === true,
+            slot: "default" as const,
+            slotLabel: plan.status === "confirmed" ? "확정안" : "1안",
+            emptyReason: null,
         }] : []),
         ...((plan.status === "confirmed" ? [] : plan.alternatives || []).map((alternative) => ({
             date: String(alternative.date || ""),
@@ -150,8 +177,9 @@ function buildPreliminaryRecommendationOptions(plan: PreliminarySurveyPlan) {
             experiencedUserId: alternative.experiencedUserId || null,
             experiencedUserName: alternative.experiencedUserName || null,
             isPrimary: false,
-            calendarStatus: String(plan.recommendation_reason?.calendarStatus || "not_checked"),
-            calendarPreferred: false,
+            slot: "later" as const,
+            slotLabel: "대안",
+            emptyReason: null,
         }))),
     ].filter((candidate) => candidate.date && Number.isInteger(candidate.responsibleUserId));
 
@@ -1760,15 +1788,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         const errorLabels: Record<string, string> = {
             INVALID_RECOMMENDED_DATE: "올바른 예비조사일을 선택해 주세요.",
             NON_WORKING_DAY: "주말 또는 공휴일은 선택할 수 없습니다. 다른 날짜를 선택해 주세요.",
-            RECOMMENDED_DATE_OUT_OF_RANGE: "예비조사일은 측정일 전 1~30워킹데이 범위에서 선택해 주세요.",
+            RECOMMENDED_DATE_OUT_OF_RANGE: "예비조사일은 측정예정일보다 이전이어야 합니다.",
+            PAST_PRELIMINARY_SURVEY_DATE: "오늘 또는 과거 날짜는 선택할 수 없습니다. 내일 이후 근무일을 선택해 주세요.",
             RESPONSIBLE_USER_UNAVAILABLE: "선택한 직원이 비활성 상태이거나 측정 직원이 아닙니다.",
             MANUAL_NOVICE_REQUIRES_EXPERIENCED_COMPANION: "초보자를 주 조사자로 선택하면 동행 경력자를 함께 선택해야 합니다.",
             EXPERIENCED_COMPANION_UNAVAILABLE: "선택한 동행자가 경력자 동행 조건을 충족하지 않습니다.",
             RECOMMENDATION_OPTION_NOT_ALLOWED: "현재 추천된 조합만 선택할 수 있습니다. 추천 정보를 다시 불러와 주세요.",
-            JULY_2026_PRELIMINARY_SURVEYOR_MUST_MATCH_MEASURER: "2026년 7월 측정 건은 공시료 기준 측정자를 예비조사 주 담당자로 유지해야 합니다. 일정이 겹치지 않는 추천일을 선택해 주세요.",
+            PRELIMINARY_SURVEYOR_MUST_MATCH_MEASURER: "예비조사 책임자는 해당 사업장의 측정담당자로 고정됩니다. 다른 추천일을 선택해 주세요.",
             USER_SCHEDULE_BLOCK_CONFLICT: "선택한 직원의 예비조사 제외 일정과 겹칩니다. 다른 날짜나 직원을 선택해 주세요.",
             DIFFERENT_REGION_MEASUREMENT_CONFLICT: "선택한 직원의 다른 지역 측정·예비조사 일정과 겹칩니다. 다른 날짜나 직원을 선택해 주세요.",
-            GOOGLE_CALENDAR_PRELIMINARY_CONFLICT: "선택한 직원의 Google Calendar 다른 예비조사 일정과 겹칩니다. 다른 날짜나 직원을 선택해 주세요.",
             ADDRESS_REGION_UNAVAILABLE: "사업장 주소에서 지역을 확인할 수 없습니다.",
             PLAN_VERSION_CONFLICT: "다른 사용자가 계획을 변경했습니다. 추천 정보를 다시 불러와 주세요.",
             CONFIRMED_PLAN_REQUIRES_CANCEL: "이미 확정된 계획은 취소 후 변경할 수 있습니다.",
@@ -1825,15 +1853,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     : business
             ));
             const warnings: string[] = result.warnings || [];
-            const warningText = warnings.includes("RESPONSIBLE_DIFFERS_FROM_MEASURER")
-                ? "저장했습니다. 일정 충돌로 보고서 담당자와 다른 예비조사자가 선택되었습니다. 최종 일정을 확인해 주세요."
-                : warnings.includes("SAME_REGION_SCHEDULE_TIME_CHECK_REQUIRED")
+            const warningText = warnings.includes("SAME_REGION_SCHEDULE_TIME_CHECK_REQUIRED")
                 ? "저장했습니다. 같은 지역 일정과 시간이 겹치지 않는지 확인해 주세요."
                 : warnings.includes("UNKNOWN_REGION_SCHEDULE_CHECK_REQUIRED")
                     ? "저장했습니다. 지역을 확인할 수 없는 기존 일정이 있어 시간을 확인해 주세요."
-                    : warnings.includes("GOOGLE_CALENDAR_DATA_UNAVAILABLE")
-                        ? "저장했습니다. Google Calendar를 확인하지 못했으므로 일정 충돌을 별도로 확인해 주세요."
-                        : "예비조사일과 예비조사자를 검토하여 저장했습니다.";
+                    : "예비조사일과 예비조사자를 검토하여 저장했습니다.";
             setManualPreliminaryMessage({
                 type: warnings.length > 0 ? "warning" : "success",
                 text: warningText,
@@ -2002,8 +2026,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             NO_AVAILABLE_DATE: "가능 날짜 없음",
             USER_SCHEDULE_BLOCK_CONFLICT: "직원 제외 일정 충돌",
             DIFFERENT_REGION_MEASUREMENT_CONFLICT: "다른 지역 측정 일정 충돌",
-            GOOGLE_CALENDAR_PRELIMINARY_CONFLICT: "Google Calendar의 다른 예비조사 일정과 충돌",
-            GOOGLE_CALENDAR_DATA_UNAVAILABLE: "Google Calendar 확인 불가",
             HOLIDAY_DATA_REVIEW_REQUIRED: "공휴일 확인 필요",
             RECOMMENDATION_CREATED: "현장방문 일정 추천 완료",
             EXISTING_VISIT_RECOMMENDATION_CREATED: "방문 가정 일정 추천 완료(유선 가능)",
@@ -3129,15 +3151,17 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                             Number(manualPreliminaryUserId) === option.responsibleUserId &&
                                                             Number(manualPreliminaryExperiencedUserId || 0) === Number(option.experiencedUserId || 0);
                                                         const disabled =
+                                                            !option.date ||
                                                             hasUnsavedPreliminarySurveySource() ||
                                                             isPreliminarySurveyRecommending ||
                                                             editForm.preliminary_survey_plan?.status === "confirmed";
                                                         return (
                                                             <button
-                                                                key={`${option.date}-${option.responsibleUserId}-${option.experiencedUserId || "solo"}`}
+                                                                key={`${option.slot}-${option.date || "empty"}`}
                                                                 type="button"
                                                                 disabled={disabled}
                                                                 onClick={() => {
+                                                                    if (!option.date) return;
                                                                     setManualPreliminaryDate(option.date);
                                                                     setManualPreliminaryUserId(String(option.responsibleUserId));
                                                                     setManualPreliminaryExperiencedUserId(
@@ -3157,33 +3181,31 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                     {index + 1}
                                                                 </span>
                                                                 <span>
-                                                                    <span className="block text-[10px] font-semibold text-slate-500">예비조사일</span>
-                                                                    <span className="font-bold text-slate-800">{option.date}</span>
+                                                                    <span className="block text-[10px] font-semibold text-slate-500">예비조사일 · {option.slotLabel}</span>
+                                                                    <span className="font-bold text-slate-800">{option.date || "추천 가능한 날짜 없음"}</span>
                                                                 </span>
                                                                 <span>
                                                                     <span className="block text-[10px] font-semibold text-slate-500">예비조사 조합</span>
-                                                                    <span className="font-semibold text-slate-800">
-                                                                        {option.responsibleUserName}
-                                                                        {option.experiencedUserName ? ` + ${option.experiencedUserName}` : " (단독)"}
-                                                                    </span>
+                                                                    {option.date ? (
+                                                                        <span className="font-semibold text-slate-800">
+                                                                            {option.responsibleUserName}
+                                                                            {option.experiencedUserName ? ` + ${option.experiencedUserName} (동행 지원)` : " (단독)"}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="font-semibold text-amber-700">
+                                                                            {{
+                                                                                NO_FUTURE_WORKING_DAY_IN_RANGE: "해당 구간에 미래 근무일이 없습니다.",
+                                                                                RESPONSIBLE_SCHEDULE_CONFLICT: "측정담당자의 가능한 일정이 없습니다.",
+                                                                                NO_AVAILABLE_EXPERIENCED_USER: "동행 가능한 경력자가 없습니다.",
+                                                                                NO_AVAILABLE_DATE: "조건을 만족하는 날짜가 없습니다.",
+                                                                            }[option.emptyReason || ""] || option.emptyReason || "추천 사유를 확인해 주세요."}
+                                                                        </span>
+                                                                    )}
                                                                     {option.isPrimary && (
                                                                         <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
                                                                             최우선 추천
                                                                         </span>
                                                                     )}
-                                                                    {option.calendarPreferred ? (
-                                                                        <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
-                                                                            캘린더 일정 반영
-                                                                        </span>
-                                                                    ) : option.isPrimary && option.calendarStatus === "unavailable" ? (
-                                                                        <span className="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
-                                                                            캘린더 확인 실패
-                                                                        </span>
-                                                                    ) : option.isPrimary && option.calendarStatus === "not_checked" ? (
-                                                                        <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
-                                                                            캘린더 미확인
-                                                                        </span>
-                                                                    ) : null}
                                                                 </span>
                                                             </button>
                                                         );

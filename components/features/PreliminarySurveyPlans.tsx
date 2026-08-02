@@ -23,7 +23,9 @@ const REASON_LABELS: Record<string, string> = {
   ADDRESS_REQUIRED: "주소가 필요합니다.",
   ADDRESS_REGION_UNAVAILABLE: "주소에서 시·군·구를 확인할 수 없습니다.",
   NO_AVAILABLE_EXPERIENCED_USER: "가용한 동행 경력자가 없습니다.",
-  NO_AVAILABLE_DATE: "1~30워킹데이 안에 가능한 날짜가 없습니다.",
+  NO_AVAILABLE_DATE: "가능한 미래 근무일이 없어 수동 조정이 필요합니다.",
+  NO_FUTURE_WORKING_DAY_IN_RANGE: "해당 구간에 미래 근무일이 없습니다.",
+  RESPONSIBLE_SCHEDULE_CONFLICT: "측정담당자의 가능한 일정이 없습니다.",
   MEASURER_CHANGED: "보고서 담당자가 변경되었습니다.",
   MEASUREMENT_DATE_CHANGED: "측정예정일이 변경되었습니다.",
   ADDRESS_CHANGED: "주소가 변경되었습니다.",
@@ -31,7 +33,11 @@ const REASON_LABELS: Record<string, string> = {
   USER_SCHEDULE_BLOCK_CONFLICT: "직원 제외 일정과 겹칩니다.",
   EXPERIENCED_USER_UNAVAILABLE: "동행 경력자의 자격 또는 활성 상태가 변경되었습니다.",
   RESPONSIBLE_USER_UNAVAILABLE: "담당자의 활성 상태 또는 직무가 변경되었습니다.",
-  WORKING_DAY_RANGE_CHANGED: "현재 측정일 기준 1~30워킹데이 범위를 벗어납니다.",
+  WORKING_DAY_RANGE_CHANGED: "예비조사일이 오늘 이후·측정일 이전 조건을 벗어납니다.",
+  PAST_PRELIMINARY_SURVEY_DATE: "오늘 또는 과거 날짜는 사용할 수 없습니다.",
+  RESPONSIBLE_MUST_MATCH_MEASURER: "예비조사 책임자가 측정담당자와 달라 재추천이 필요합니다.",
+  EXISTING_VISIT_RULE_CHANGED: "기존업체 방문 추천 규칙과 달라 재추천이 필요합니다.",
+  UNNECESSARY_EXPERIENCED_COMPANION: "경력 측정담당자에게 불필요한 동행자가 지정되어 있습니다.",
   DIFFERENT_REGION_MEASUREMENT_CONFLICT: "다른 지역 측정 일정과 겹칩니다.",
   RESPONSIBLE_EXPERIENCE_CHANGED: "담당자의 예비조사 경력자 자격이 변경되었습니다.",
   HOLIDAY_DATA_REVIEW_REQUIRED: "공휴일 데이터를 관리자 확인해야 합니다.",
@@ -50,6 +56,8 @@ interface Plan {
   id: string;
   status: string;
   row_version: number;
+  responsible_user_id: number;
+  experienced_user_id: number | null;
   recommended_date: string | null;
   confirmed_date: string | null;
   visit_mode: string | null;
@@ -159,6 +167,29 @@ export function PreliminarySurveyPlans() {
     await loadPlans();
   };
 
+  const selectRecommendationSlot = async (
+    plan: Plan,
+    slot: Record<string, any>,
+  ) => {
+    if (!slot.date) return;
+    const response = await fetch(
+      `/api/preliminary-survey-plans/${plan.id}/manual`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recommendedDate: slot.date,
+          responsibleUserId: plan.responsible_user_id,
+          experiencedUserId: slot.experiencedUserId || null,
+          expectedRowVersion: plan.row_version,
+        }),
+      },
+    );
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "추천안 적용 실패");
+    await loadPlans();
+  };
+
   const cancelPlan = async (plan: Plan) => {
     if (!window.confirm("이 예비조사 계획을 취소하시겠습니까?")) return;
     const response = await fetch(
@@ -195,6 +226,9 @@ export function PreliminarySurveyPlans() {
       ) : (
         plans.map((plan) => {
           const reasonCode = String(plan.recommendation_reason?.code || "");
+          const recommendationSlots = Array.isArray(
+            plan.recommendation_reason?.recommendationSlots,
+          ) ? plan.recommendation_reason.recommendationSlots : [];
           return (
             <Card key={plan.id} className="p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -247,23 +281,32 @@ export function PreliminarySurveyPlans() {
                 </div>
               )}
 
-              {plan.alternatives?.length > 0 && (
+              {recommendationSlots.length > 0 && plan.status !== "confirmed" && (
                 <div className="mt-4">
-                  <div className="mb-2 text-sm font-bold text-slate-700">대안 후보</div>
-                  <div className="flex flex-wrap gap-2">
-                    {plan.alternatives.map((alternative, index) => (
+                  <div className="mb-2 text-sm font-bold text-slate-700">추천안 3개</div>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    {recommendationSlots.map((slot: Record<string, any>, index: number) => (
                       <button
                         type="button"
-                        key={`${alternative.date}-${index}`}
-                        className="rounded border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50"
-                        onClick={() =>
-                          setConfirmDates((previous) => ({
-                            ...previous,
-                            [plan.id]: alternative.date || "",
-                          }))
-                        }
+                        key={String(slot.slot || index)}
+                        disabled={!slot.date || plan.recommended_date === slot.date}
+                        className="rounded border border-slate-200 bg-white px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:cursor-default disabled:bg-slate-50"
+                        onClick={() => void run(() => selectRecommendationSlot(plan, slot))}
                       >
-                        {alternative.date} · {alternative.experiencedUserName || plan.responsible_user_name}
+                        <div className="text-xs font-bold text-slate-500">
+                          {index === 0 ? "1안 · 30~20근무일 전" : index === 1 ? "2안 · 30근무일보다 이전" : "3안 · 20근무일보다 가까움"}
+                        </div>
+                        {slot.date ? (
+                          <div className="mt-1 font-semibold">
+                            {slot.date} · {plan.responsible_user_name}
+                            {slot.experiencedUserName ? ` + ${slot.experiencedUserName} (동행)` : " (단독)"}
+                            {plan.recommended_date === slot.date ? " · 현재 적용" : ""}
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-amber-700">
+                            {REASON_LABELS[String(slot.emptyReason || "")] || slot.emptyReason || "추천 가능한 날짜 없음"}
+                          </div>
+                        )}
                       </button>
                     ))}
                   </div>

@@ -6,7 +6,6 @@ import {
   applyManualPlanSelection,
   PlanView,
 } from "@/lib/preliminary-survey/service";
-import { loadPreliminarySurveyCalendarSignals } from "@/lib/preliminary-survey/google-calendar-signals";
 
 export async function POST(
   request: NextRequest,
@@ -44,19 +43,11 @@ export async function POST(
       return NextResponse.json({ error: "PLAN_VERSION_CONFLICT" }, { status: 409 });
     }
 
-    const calendar = await loadPreliminarySurveyCalendarSignals(
-      supabase,
-      Number(plan.measurement_target_business_id),
-    );
-
     const result = await applyManualPlanSelection(supabase, plan as PlanView, {
       recommendedDate,
       responsibleUserId,
       experiencedUserId,
       expectedRowVersion,
-      calendarSignals: calendar.signals,
-      calendarStatus: calendar.status,
-      calendarCheckedAt: calendar.checkedAt,
     });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
@@ -66,7 +57,6 @@ export async function POST(
       "CONFIRMED_PLAN_REQUIRES_CANCEL",
       "USER_SCHEDULE_BLOCK_CONFLICT",
       "DIFFERENT_REGION_MEASUREMENT_CONFLICT",
-      "GOOGLE_CALENDAR_PRELIMINARY_CONFLICT",
     ];
     const validationCodes = [
       "INVALID_RECOMMENDED_DATE",
@@ -77,7 +67,8 @@ export async function POST(
       "MANUAL_NOVICE_REQUIRES_EXPERIENCED_COMPANION",
       "EXPERIENCED_COMPANION_UNAVAILABLE",
       "RECOMMENDATION_OPTION_NOT_ALLOWED",
-      "JULY_2026_PRELIMINARY_SURVEYOR_MUST_MATCH_MEASURER",
+      "PRELIMINARY_SURVEYOR_MUST_MATCH_MEASURER",
+      "PAST_PRELIMINARY_SURVEY_DATE",
       "ADDRESS_REGION_UNAVAILABLE",
     ];
     const status = message === "Unauthorized"

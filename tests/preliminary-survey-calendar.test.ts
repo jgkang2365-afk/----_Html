@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  currentDateOnly,
+  futureWorkingDaysBefore,
   isWorkingDay,
   workingDayDistance,
   workingDaysBefore,
 } from "../lib/preliminary-survey/calendar";
+
+test("오늘 기준은 서버 위치와 무관하게 한국 날짜를 사용한다", () => {
+  assert.equal(currentDateOnly(new Date("2026-08-02T15:30:00Z")), "2026-08-03");
+});
 
 test("주말과 대한민국 공휴일을 제외해 30워킹데이 후보를 만든다", () => {
   const candidates = workingDaysBefore("2026-01-12", 30);
@@ -22,15 +28,12 @@ test("주말과 대한민국 공휴일을 제외해 30워킹데이 후보를 만
   assert.equal(isWorkingDay("2026-01-10"), false);
 });
 
-test("정확히 30워킹데이 전은 허용하고 31워킹데이 전은 범위 밖이다", () => {
-  const candidates = workingDaysBefore("2026-08-31", 31);
+test("30근무일 이전 구간도 유지하되 오늘 이후 날짜만 후보로 만든다", () => {
+  const candidates = futureWorkingDaysBefore("2026-10-30", "2026-08-03");
+  const thirtieth = candidates.find((candidate) => candidate.workingDaysBefore === 30)!;
+  const thirtyFirst = candidates.find((candidate) => candidate.workingDaysBefore === 31)!;
 
-  assert.equal(workingDayDistance(candidates[29].date, "2026-08-31"), 30);
-  assert.equal(workingDayDistance(candidates[30].date, "2026-08-31"), 31);
-  assert.equal(
-    workingDaysBefore("2026-08-31", 30).some(
-      (candidate) => candidate.date === candidates[30].date,
-    ),
-    false,
-  );
+  assert.equal(workingDayDistance(thirtieth.date, "2026-10-30"), 30);
+  assert.equal(workingDayDistance(thirtyFirst.date, "2026-10-30"), 31);
+  assert.ok(candidates.every((candidate) => candidate.date > "2026-08-03"));
 });

@@ -9,14 +9,14 @@ import {
   ScheduleConflict,
   WorkloadSummary,
   PreliminarySurveyRuleType,
-  CalendarRecommendationSignal,
 } from "./types";
 import {
+  currentDateOnly,
+  futureWorkingDaysBefore,
   getHolidayCoverageWarning,
   isWorkingDay,
   parseDateOnly,
   workingDayDistance,
-  workingDaysBefore,
 } from "./calendar";
 import { getFirstMeasurer } from "@/lib/utils/survey-code";
 
@@ -168,12 +168,6 @@ async function loadTarget(supabase: DbClient, targetId: number): Promise<TargetR
   return measurementMeasurer?.id
     ? { ...target, measurer_id: Number(measurementMeasurer.id) }
     : target;
-}
-
-function requiresPublicSampleMeasurerMatch(target: TargetRow, measurementDate: string | null) {
-  return target.year === 2026 &&
-    target.period.startsWith("하반기") &&
-    Boolean(measurementDate && measurementDate >= "2026-07-01" && measurementDate <= "2026-07-31");
 }
 
 async function syncPlanSurveyorsToPreliminarySurvey(
@@ -491,9 +485,6 @@ export async function recommendAndPersistPreliminarySurvey(
     manual: boolean;
     replaceConfirmed?: boolean;
     deadlineAt?: number;
-    calendarSignals?: CalendarRecommendationSignal[];
-    calendarStatus?: "available" | "unavailable" | "not_applicable";
-    calendarCheckedAt?: string;
   },
 ): Promise<{ result: RecommendationResult; plan: PlanView | null }> {
   const target = await loadTarget(supabase, options.targetId);
@@ -612,20 +603,12 @@ export async function recommendAndPersistPreliminarySurvey(
       user.is_preliminary_survey_experienced &&
       user.is_preliminary_survey_support_assignable,
   );
-  const candidateDates = workingDaysBefore(measurementDate, 30);
+  const candidateDates = futureWorkingDaysBefore(measurementDate);
   const minDate = candidateDates[candidateDates.length - 1]?.date || measurementDate;
   const maxDate = candidateDates[0]?.date || measurementDate;
-  const strictPublicSampleMeasurerMatch = requiresPublicSampleMeasurerMatch(
-    target,
-    measurementDate,
-  );
-  const fallbackResponsibles = strictPublicSampleMeasurerMatch ? [] : users.filter(
-    (user) => user.is_active && user.job === "측정" && user.id !== responsible.id,
-  );
   const participantIds = [
     ...new Set([
       responsible.id,
-      ...fallbackResponsibles.map((user) => user.id),
       ...supports.map((user) => user.id),
     ]),
   ];
@@ -643,7 +626,7 @@ export async function recommendAndPersistPreliminarySurvey(
   ]);
   ensureTimeBudget(options.deadlineAt);
 
-  let result = recommendPreliminarySurvey({
+  const result = recommendPreliminarySurvey({
     ruleType: target.preliminary_survey_rule_type as PreliminarySurveyRuleType,
     measurementDate,
     targetRegion,
@@ -652,54 +635,7 @@ export async function recommendAndPersistPreliminarySurvey(
     blocks,
     schedules,
     workloads,
-    calendarSignals: options.calendarSignals,
   });
-  if (
-    result.status === "pending" &&
-    [
-      "NO_AVAILABLE_DATE",
-      "NO_AVAILABLE_EXPERIENCED_USER",
-      "RESPONSIBLE_USER_UNAVAILABLE",
-    ].includes(result.reason)
-  ) {
-    const fallbackResults = fallbackResponsibles
-      .map((candidate) => recommendPreliminarySurvey({
-        ruleType: target.preliminary_survey_rule_type as PreliminarySurveyRuleType,
-        measurementDate,
-        targetRegion,
-        responsible: candidate,
-        supportCandidates: supports,
-        blocks,
-        schedules,
-        workloads,
-        calendarSignals: options.calendarSignals,
-      }))
-      .filter((candidate) => candidate.status === "recommended")
-      .sort(
-        (a, b) =>
-          Number(a.score ?? Number.MAX_SAFE_INTEGER) -
-            Number(b.score ?? Number.MAX_SAFE_INTEGER) ||
-          a.responsibleUserId - b.responsibleUserId,
-      );
-    if (fallbackResults[0]) {
-      result = fallbackResults[0];
-      result.warnings = [
-        ...new Set([...result.warnings, "RESPONSIBLE_DIFFERS_FROM_MEASURER"]),
-      ];
-      result.reasonDetails = {
-        ...result.reasonDetails,
-        fallbackFromMeasurerId: responsible.id,
-        fallbackFromMeasurerName: responsible.name,
-        responsibleFallbackApplied: true,
-      };
-    }
-  }
-  if (options.calendarStatus === "unavailable") {
-    result.warnings = [...new Set([...result.warnings, "GOOGLE_CALENDAR_DATA_UNAVAILABLE"])];
-  }
-  result.reasonDetails.calendarStatus = options.calendarStatus || "not_checked";
-  result.reasonDetails.calendarCheckedAt = options.calendarCheckedAt || null;
-  result.reasonDetails.publicSampleMeasurerMatchRequired = strictPublicSampleMeasurerMatch;
   ensureTimeBudget(options.deadlineAt);
   const latestTarget = await loadTarget(supabase, target.id);
   if (latestTarget.updated_at !== target.updated_at) throw new Error("PLAN_SOURCE_CHANGED");
@@ -738,6 +674,9 @@ export async function refreshPlanReview(
     .in("id", participantIds);
   const responsible = users?.find((user: any) => user.id === plan.responsible_user_id);
   const experienced = users?.find((user: any) => user.id === plan.experienced_user_id);
+  if (Number(plan.responsible_user_id) !== Number(target.measurer_id)) {
+    reasons.push("RESPONSIBLE_MUST_MATCH_MEASURER");
+  }
   if (!responsible?.is_active || responsible?.job !== "측정") {
     reasons.push("RESPONSIBLE_USER_UNAVAILABLE");
   }
@@ -754,6 +693,19 @@ export async function refreshPlanReview(
       !experienced?.is_preliminary_survey_support_assignable)
   ) {
     reasons.push("EXPERIENCED_USER_UNAVAILABLE");
+  }
+  if (
+    target.preliminary_survey_rule_type === "existing" &&
+    (plan.experienced_user_id || plan.visit_mode !== "existing_field_visit")
+  ) {
+    reasons.push("EXISTING_VISIT_RULE_CHANGED");
+  }
+  if (
+    target.preliminary_survey_rule_type !== "existing" &&
+    responsible?.is_preliminary_survey_experienced &&
+    plan.experienced_user_id
+  ) {
+    reasons.push("UNNECESSARY_EXPERIENCED_COMPANION");
   }
 
   if (planDate) {
@@ -783,7 +735,10 @@ export async function refreshPlanReview(
     const distance = measurementDate
       ? workingDayDistance(planDate, measurementDate)
       : null;
-    if (distance === null || distance < 1 || distance > 30) {
+    if (planDate <= currentDateOnly()) {
+      reasons.push("PAST_PRELIMINARY_SURVEY_DATE");
+    }
+    if (distance === null || distance < 1) {
       reasons.push("WORKING_DAY_RANGE_CHANGED");
     }
   }
@@ -800,6 +755,7 @@ export async function validatePlanConfirmation(
 ): Promise<{ warnings: string[] }> {
   if (!parseDateOnly(confirmedDate)) throw new Error("INVALID_CONFIRMED_DATE");
   if (!isWorkingDay(confirmedDate)) throw new Error("NON_WORKING_DAY");
+  if (confirmedDate <= currentDateOnly()) throw new Error("PAST_PRELIMINARY_SURVEY_DATE");
 
   const reviewed = await refreshPlanReview(supabase, plan);
   if (reviewed.status === "needs_review") throw new Error("PLAN_SOURCE_CHANGED");
@@ -809,7 +765,7 @@ export async function validatePlanConfirmation(
   const distance = measurementDate
     ? workingDayDistance(confirmedDate, measurementDate)
     : null;
-  if (distance === null || distance < 1 || distance > 30) {
+  if (distance === null || distance < 1) {
     throw new Error("CONFIRMED_DATE_OUT_OF_RANGE");
   }
 
@@ -860,9 +816,6 @@ export async function applyManualPlanSelection(
     responsibleUserId: number;
     experiencedUserId?: number | null;
     expectedRowVersion: number;
-    calendarSignals?: CalendarRecommendationSignal[];
-    calendarStatus?: "available" | "unavailable" | "not_applicable";
-    calendarCheckedAt?: string;
   },
 ): Promise<{ plan: PlanView; warnings: string[] }> {
   if (plan.status === "confirmed") {
@@ -870,6 +823,9 @@ export async function applyManualPlanSelection(
   }
   if (!parseDateOnly(options.recommendedDate)) throw new Error("INVALID_RECOMMENDED_DATE");
   if (!isWorkingDay(options.recommendedDate)) throw new Error("NON_WORKING_DAY");
+  if (options.recommendedDate <= currentDateOnly()) {
+    throw new Error("PAST_PRELIMINARY_SURVEY_DATE");
+  }
   if (!Number.isInteger(options.responsibleUserId)) {
     throw new Error("INVALID_RESPONSIBLE_USER_ID");
   }
@@ -901,7 +857,7 @@ export async function applyManualPlanSelection(
   const distance = measurementDate
     ? workingDayDistance(options.recommendedDate, measurementDate)
     : null;
-  if (distance === null || distance < 1 || distance > 30) {
+  if (distance === null || distance < 1) {
     throw new Error("RECOMMENDED_DATE_OUT_OF_RANGE");
   }
 
@@ -910,11 +866,8 @@ export async function applyManualPlanSelection(
   if (!selectedUser || !selectedUser.is_active || selectedUser.job !== "측정") {
     throw new Error("RESPONSIBLE_USER_UNAVAILABLE");
   }
-  if (
-    requiresPublicSampleMeasurerMatch(target, measurementDate) &&
-    selectedUser.id !== Number(target.measurer_id)
-  ) {
-    throw new Error("JULY_2026_PRELIMINARY_SURVEYOR_MUST_MATCH_MEASURER");
+  if (selectedUser.id !== Number(target.measurer_id)) {
+    throw new Error("PRELIMINARY_SURVEYOR_MUST_MATCH_MEASURER");
   }
   const isExisting = target.preliminary_survey_rule_type === "existing";
   const requestedExperiencedUser = options.experiencedUserId
@@ -941,17 +894,6 @@ export async function applyManualPlanSelection(
   const participantIds = [selectedUser.id, experiencedUser?.id].filter(
     (value): value is number => value !== undefined,
   );
-  if (
-    options.calendarSignals?.some(
-      (signal) =>
-        participantIds.includes(signal.userId) &&
-        signal.date === options.recommendedDate &&
-        signal.kind === "occupied",
-    )
-  ) {
-    throw new Error("GOOGLE_CALENDAR_PRELIMINARY_CONFLICT");
-  }
-
   const address = await loadAddress(supabase, target);
   const region = normalizeRegionKey(address);
   if (!region) throw new Error("ADDRESS_REGION_UNAVAILABLE");
@@ -980,9 +922,6 @@ export async function applyManualPlanSelection(
   }
 
   const warnings: string[] = [];
-  if (selectedUser.id !== Number(target.measurer_id)) {
-    warnings.push("RESPONSIBLE_DIFFERS_FROM_MEASURER");
-  }
   if (selectedSchedules.some((schedule) => schedule.kind === "same_region")) {
     warnings.push("SAME_REGION_SCHEDULE_TIME_CHECK_REQUIRED");
   }
@@ -991,16 +930,6 @@ export async function applyManualPlanSelection(
   }
   const holidayWarning = getHolidayCoverageWarning(options.recommendedDate);
   if (holidayWarning) warnings.push(holidayWarning);
-  if (options.calendarStatus === "unavailable") {
-    warnings.push("GOOGLE_CALENDAR_DATA_UNAVAILABLE");
-  }
-  const calendarPreference = options.calendarSignals?.find(
-    (signal) =>
-      participantIds.includes(signal.userId) &&
-      signal.date === options.recommendedDate &&
-      signal.kind === "preferred",
-  );
-
   const { data, error } = await supabase
     .from("preliminary_survey_plans")
     .update({
@@ -1022,13 +951,9 @@ export async function applyManualPlanSelection(
       recommendation_reason: {
         code: "MANUAL_SELECTION_APPLIED",
         selectedByUser: true,
-        sourceMeasurerPreferred: selectedUser.id === Number(target.measurer_id),
+        responsibleFixedToMeasurer: true,
         phoneSurveyAllowed: isExisting,
         recommendationAssumption: isExisting ? "field_visit" : "field_visit_required",
-        calendarStatus: options.calendarStatus || "not_checked",
-        calendarCheckedAt: options.calendarCheckedAt || null,
-        calendarPreferenceApplied: Boolean(calendarPreference),
-        calendarSignalSnapshot: calendarPreference ? [calendarPreference] : [],
       },
       recommendation_score: null,
       warnings,

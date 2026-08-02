@@ -6,7 +6,6 @@ import {
   PlanView,
   validatePlanConfirmation,
 } from "@/lib/preliminary-survey/service";
-import { loadPreliminarySurveyCalendarSignals } from "@/lib/preliminary-survey/google-calendar-signals";
 
 export async function POST(
   request: NextRequest,
@@ -47,27 +46,6 @@ export async function POST(
       plan as PlanView,
       confirmedDate,
     );
-    const calendar = await loadPreliminarySurveyCalendarSignals(
-      supabase,
-      Number(plan.measurement_target_business_id),
-    );
-    const participantIds = [
-      Number(plan.responsible_user_id),
-      Number(plan.experienced_user_id),
-    ].filter((id) => id > 0);
-    if (
-      calendar.signals.some(
-        (signal) =>
-          signal.date === confirmedDate &&
-          signal.kind === "occupied" &&
-          participantIds.includes(signal.userId),
-      )
-    ) {
-      throw new Error("GOOGLE_CALENDAR_PRELIMINARY_CONFLICT");
-    }
-    if (calendar.status === "unavailable") {
-      validation.warnings.push("GOOGLE_CALENDAR_DATA_UNAVAILABLE");
-    }
     if (validation.warnings.includes("HOLIDAY_DATA_REVIEW_REQUIRED")) {
       if (session.role !== "관리자") {
         return NextResponse.json(
@@ -101,6 +79,7 @@ export async function POST(
       "INVALID_CONFIRMED_DATE",
       "NON_WORKING_DAY",
       "CONFIRMED_DATE_OUT_OF_RANGE",
+      "PAST_PRELIMINARY_SURVEY_DATE",
       "DIFFERENT_REGION_MEASUREMENT_CONFLICT",
       "HOLIDAY_OVERRIDE_REASON_REQUIRED",
     ];
@@ -111,7 +90,6 @@ export async function POST(
       "RESPONSIBLE_USER_UNAVAILABLE",
       "EXPERIENCED_USER_UNAVAILABLE",
       "USER_SCHEDULE_BLOCK_CONFLICT",
-      "GOOGLE_CALENDAR_PRELIMINARY_CONFLICT",
     ];
     const status =
       message === "Unauthorized"
