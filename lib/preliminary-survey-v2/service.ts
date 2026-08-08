@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { recommendBatch } from "./engine";
 import { targetChangeRecommendationPolicy } from "./policy";
 import { createRouteMetrics } from "./route-metrics";
@@ -16,10 +17,6 @@ function regionFromAddress(value: unknown): string | null {
   return `${parts[0]} ${parts[1]}`;
 }
 
-function isNewRule(value: unknown) {
-  return value !== "existing";
-}
-
 export interface CalculationOptions {
   targetIds?: number[];
   measurementDateFrom?: string;
@@ -34,6 +31,7 @@ export interface CalculationOutput {
   missing: Array<{
     targetId: number; code: string; name: string; measurementDate: string;
     kind: "new" | "existing"; fields: string[];
+    classificationSource: SurveyTarget["classificationSource"];
   }>;
   blockedKeys: string[];
 }
@@ -44,7 +42,7 @@ export async function calculateV2Recommendations(
   options: CalculationOptions = {},
 ): Promise<CalculationOutput> {
   let targetQuery = supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, preliminary_survey_rule_type, created_at",
+    "id, code, year, period, business_name, address, measurement_date, measurer_id, created_at",
   ).not("measurement_date", "is", null);
   if (options.targetIds?.length) targetQuery = targetQuery.in("id", options.targetIds);
   if (options.measurementDateFrom) targetQuery = targetQuery.gte("measurement_date", options.measurementDateFrom);
@@ -63,6 +61,18 @@ export async function calculateV2Recommendations(
   const userById = new Map(users.map((user) => [user.id, user]));
   const userIdByName = new Map(users.map((user) => [user.name, user.id]));
   const codes = [...new Set((rawTargets ?? []).map((target: any) => target.code))];
+  const years = [...new Set((rawTargets ?? []).map((target: any) => Number(target.year)))];
+  let journalQuery = supabase.from("measurement_journal").select(
+    "id, code, measurement_year, measurement_period, note, updated_at, created_at",
+  );
+  if (codes.length) journalQuery = journalQuery.in("code", codes);
+  if (years.length) journalQuery = journalQuery.in("measurement_year", years);
+  const { data: rawJournals, error: journalError } = codes.length
+    ? await journalQuery.order("updated_at", { ascending: false }).order("created_at", { ascending: false })
+    : { data: [], error: null };
+  if (journalError) throw new Error(`V2_JOURNAL_QUERY_FAILED:${journalError.message}`);
+  const journalRows = (rawJournals ?? []) as MeasurementJournalClassificationRow[];
+
   const { data: infoRows, error: infoError } = codes.length
     ? await supabase.from("business_info").select("code, latitude, longitude").in("code", codes)
     : { data: [], error: null };
@@ -73,14 +83,25 @@ export async function calculateV2Recommendations(
 
   const missing: CalculationOutput["missing"] = [];
   const targets = (rawTargets ?? []).flatMap((row: any) => {
+    const classification = classifyMeasurementJournalBusiness({
+      code: row.code,
+      year: Number(row.year),
+      period: row.period,
+    }, journalRows);
+    const classificationSource = {
+      journalId: classification.journalId,
+      rawValue: classification.rawValue,
+      measurementYear: Number(row.year),
+      measurementPeriod: String(row.period).trim(),
+    };
     const responsible = userById.get(Number(row.measurer_id));
     const fields = [!row.measurement_date && "measurement_date", !responsible && "responsible_user"].filter(Boolean) as string[];
     if (fields.length) {
       missing.push({
         targetId: Number(row.id), code: row.code, name: row.business_name,
         measurementDate: row.measurement_date,
-        kind: isNewRule(row.preliminary_survey_rule_type) ? "new" : "existing",
-        fields,
+        kind: classification.kind,
+        fields, classificationSource,
       });
       return [];
     }
@@ -89,9 +110,9 @@ export async function calculateV2Recommendations(
       rawCoordinate.longitude >= 124 && rawCoordinate.longitude <= 132
       ? rawCoordinate : null;
     return [{
-      id: Number(row.id), code: row.code, name: row.business_name, kind: isNewRule(row.preliminary_survey_rule_type) ? "new" : "existing",
+      id: Number(row.id), code: row.code, name: row.business_name, kind: classification.kind,
       measurementDate: row.measurement_date, responsible: responsible!, address: row.address,
-      region: regionFromAddress(row.address), coordinate, createdAt: row.created_at,
+      region: regionFromAddress(row.address), coordinate, createdAt: row.created_at, classificationSource,
     } satisfies SurveyTarget];
   });
 

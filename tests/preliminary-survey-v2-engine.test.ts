@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { recommendationDates } from "../lib/preliminary-survey-v2/calendar";
+import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "../lib/preliminary-survey-v2/classification";
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { targetChangeRecommendationPolicy } from "../lib/preliminary-survey-v2/policy";
 import type { RouteMetric, SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
@@ -17,6 +18,66 @@ const route = (durationMinutes: number | null = 30, source: RouteMetric["source"
   between: async (): Promise<RouteMetric> => ({ source, durationMinutes, distanceKm: 10, sameRegion: true }),
 });
 const available = (blocked = new Set<string>()) => ({ isBlocked: (userId: number, date: string) => blocked.has(`${userId}:${date}`) });
+
+const journal = (
+  note: unknown,
+  overrides: Partial<MeasurementJournalClassificationRow> = {},
+): MeasurementJournalClassificationRow => ({
+  id: 1,
+  code: "H0001",
+  measurement_year: 2026,
+  measurement_period: "하반기",
+  note,
+  updated_at: "2026-08-01T00:00:00Z",
+  ...overrides,
+});
+const classificationTarget = { code: "H0001", year: 2026, period: "하반기" };
+
+test("측정일지 신규 구분값이 신규이면 new", () => {
+  assert.equal(classifyMeasurementJournalBusiness(classificationTarget, [journal("신규")]).kind, "new");
+  assert.equal(classifyMeasurementJournalBusiness(classificationTarget, [journal("최초실시")]).kind, "new");
+});
+
+test("측정일지 신규 구분값이 타기관 신규이면 new", () => {
+  assert.equal(classifyMeasurementJournalBusiness(classificationTarget, [journal("공정 변경,타기관 신규")]).kind, "new");
+});
+
+test("일반 기존 측정일지는 existing", () => {
+  assert.equal(classifyMeasurementJournalBusiness(classificationTarget, [journal("공정 변경")]).kind, "existing");
+});
+
+test("과거에는 신규였어도 현재 반기가 기존이면 existing", () => {
+  const rows = [
+    journal("최초실시", { measurement_period: "상반기" }),
+    journal("공정 변경", { id: 2, measurement_period: "하반기" }),
+  ];
+  assert.equal(classifyMeasurementJournalBusiness(classificationTarget, rows).kind, "existing");
+});
+
+test("동일 code의 다른 연도와 반기 측정일지를 혼동하지 않음", () => {
+  const rows = [
+    journal("타기관 신규", { measurement_year: 2025 }),
+    journal("신규", { id: 2, measurement_period: "상반기" }),
+    journal(null, { id: 3 }),
+  ];
+  assert.equal(classifyMeasurementJournalBusiness(classificationTarget, rows).kind, "existing");
+});
+
+test("측정일지 신규 구분 누락 시 임의로 new 처리하지 않음", () => {
+  assert.equal(classifyMeasurementJournalBusiness(classificationTarget, []).kind, "existing");
+  assert.equal(classifyMeasurementJournalBusiness(classificationTarget, [journal(null)]).kind, "existing");
+});
+
+test("동일 code/year/period 측정일지가 여러 건이면 최신 일지 값을 사용", () => {
+  const rows = [
+    journal("최초실시", { id: 1, updated_at: "2026-07-01T00:00:00Z" }),
+    journal("공정 변경", { id: 2, updated_at: "2026-08-01T00:00:00Z" }),
+  ];
+  const result = classifyMeasurementJournalBusiness(classificationTarget, rows);
+  assert.equal(result.kind, "existing");
+  assert.equal(result.journalId, 2);
+  assert.equal(result.rawValue, "공정 변경");
+});
 
 test("A: 현재 날짜가 측정일 이후여도 측정일 기준 과거 후보를 생성한다", async () => {
   const user = experienced(1);
@@ -104,11 +165,13 @@ test("Q-V: 단일 추천 저장/UI/수동수정/Google 신호 배제/score 제�
   const recommendRoute = readFileSync("app/api/preliminary-survey-v2/recommend/route.ts", "utf8");
   const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
   const engine = readFileSync("lib/preliminary-survey-v2/engine.ts", "utf8");
+  const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
   const migration = readFileSync("supabase/migrations/20260808_add_preliminary_survey_v2.sql", "utf8");
   assert.match(recommendRoute, /recommendAndPersistV2/);
   assert.match(ui, /예비조사자\(복수선택 가능\)/);
   assert.doesNotMatch(ui, /선택한 추천안 적용|추천일 숨김/);
   assert.match(manualRoute, /plan_origin[\s\S]*manual/);
   assert.doesNotMatch(engine, /Google|preferred|occupied/);
+  assert.doesNotMatch(service, /preliminary_survey_rule_type/);
   assert.doesNotMatch(migration, /recommendation_score\s+(integer|bigint)/i);
 });

@@ -26,6 +26,16 @@ async function snapshot() {
   ]);
 }
 
+async function legacyClassifications() {
+  const { data, error } = await supabase.from("measurement_target_business").select(
+    "id, code, business_name, year, period, preliminary_survey_rule_type",
+  ).gte("measurement_date", "2026-07-01")
+    .lte("measurement_date", "2026-08-07")
+    .lte("created_at", "2026-08-07T23:59:59.999+09:00");
+  if (error) throw new Error(`LEGACY_CLASSIFICATION_QUERY_FAILED:${error.message}`);
+  return data ?? [];
+}
+
 async function main() {
 const before = await snapshot();
 const output = await calculateV2Recommendations(supabase, {
@@ -34,11 +44,48 @@ const output = await calculateV2Recommendations(supabase, {
   createdBeforeOrAt: "2026-08-07T23:59:59.999+09:00",
   allowExternalRoutes: false,
 });
+const legacyRows = await legacyClassifications();
 const after = await snapshot();
 const databaseUnchanged = JSON.stringify(before) === JSON.stringify(after);
 if (!databaseUnchanged) throw new Error(`DRY_RUN_DATABASE_CHANGED:${JSON.stringify({ before, after })}`);
 
 const targetById = new Map(output.targets.map(target => [target.id, target]));
+const classifiedBusinesses = [
+  ...output.targets.map(target => ({
+    targetId: target.id,
+    code: target.code,
+    name: target.name,
+    kind: target.kind,
+    classificationSource: target.classificationSource,
+  })),
+  ...output.missing.map(target => ({
+    targetId: target.targetId,
+    code: target.code,
+    name: target.name,
+    kind: target.kind,
+    classificationSource: target.classificationSource,
+  })),
+];
+const currentKindById = new Map(classifiedBusinesses.map(item => [item.targetId, item]));
+const legacyStats = {
+  new: legacyRows.filter(row => row.preliminary_survey_rule_type !== "existing").length,
+  existing: legacyRows.filter(row => row.preliminary_survey_rule_type === "existing").length,
+};
+const changedClassifications = legacyRows.flatMap(row => {
+  const current = currentKindById.get(Number(row.id));
+  if (!current) return [];
+  const previousKind = row.preliminary_survey_rule_type !== "existing" ? "new" : "existing";
+  if (previousKind === current.kind) return [];
+  return [{
+    code: row.code,
+    name: row.business_name,
+    year: Number(row.year),
+    period: String(row.period).trim(),
+    previousKind,
+    currentKind: current.kind,
+    rawValue: current.classificationSource?.rawValue ?? null,
+  }];
+});
 const recommended = output.results.filter(result => result.status === "recommended");
 const failures: string[] = [];
 const byUserDate = new Map<string, typeof recommended>();
@@ -91,6 +138,9 @@ const stats = {
 };
 
 const escape = (value: unknown) => String(value ?? "-").replaceAll("|", "\\|").replaceAll("\n", " ");
+const changedRows = changedClassifications.map(item =>
+  `| ${escape(item.code)} | ${escape(item.name)} | ${item.year} | ${escape(item.period)} | ${item.previousKind === "new" ? "신규" : "기존"} | ${item.currentKind === "new" ? "신규" : "기존"} | ${escape(item.rawValue)} |`,
+);
 const businessRows = output.results.map(result => {
   const target = targetById.get(result.targetId)!;
   const route = result.evidence.route;
@@ -155,8 +205,11 @@ const report = `# 2026년 하반기 실제 데이터 Sample Dry-run 결과
 | 항목 | 값 |
 |---|---:|
 | 대상 사업장 총수 | ${stats.total} |
-| 신규업체 수 | ${stats.new} |
-| 기존업체 수 | ${stats.existing} |
+| 수정 전 신규업체 수 | ${legacyStats.new} |
+| 수정 후 신규업체 수 | ${stats.new} |
+| 수정 전 기존업체 수 | ${legacyStats.existing} |
+| 수정 후 기존업체 수 | ${stats.existing} |
+| 분류 변경 사업장 수 | ${changedClassifications.length} |
 | 정상 자동추천 수 | ${stats.recommended} |
 | 추천 불가/입력 누락 수 | ${stats.manualRequired} |
 | -30~-20 기본구간 배정 수 | ${stats.primary} |
@@ -171,6 +224,16 @@ const report = `# 2026년 하반기 실제 데이터 Sample Dry-run 결과
 | 차량시간 미확인/단독 수 | ${stats.unknownRoute} |
 | 직원 실제/제외 일정 충돌로 -30에서 이동한 수 | ${stats.scheduleShifted} |
 | 지역 최적화 때문에 날짜가 변경된 수 | 0 |
+
+## 신규/기존 분류 변경 사업장
+
+- 수정 전: \`measurement_target_business.preliminary_survey_rule_type\` 기반 기존 V2 판정 재현(비교 전용)
+- 수정 후: 동일 \`code/year/period\`의 최신 \`measurement_journal.note\` 기반 판정
+- 측정일지 일반 신규 체크의 실제 저장값: \`최초실시\` (업무 용어 \`신규\` 호환), 타기관 신규 저장값: \`타기관 신규\`
+
+| 코드 | 사업장명 | 측정년도 | 반기 | 수정 전 | 수정 후 | 측정일지 신규 구분 원본값(note) |
+|---|---|---:|---|---|---|---|
+${changedRows.length ? changedRows.join("\n") : "| 변경 없음 | - | - | - | - | - | - |"}
 
 ## 사업장별 전체 결과표
 
@@ -191,7 +254,7 @@ ${userRows.join("\n")}
 ## 차량 이동시간 및 fallback 실제 배정 사례
 
 - 차량 이동시간을 이용한 실제 배정: 0건. 개인정보·사업장 좌표의 외부 경로 서비스 전송 승인이 없어 Sample에서는 외부 API를 비활성화했습니다.
-- 거리/행정구역 fallback으로 신규 2건을 묶은 사례: 0건. 이번 Sample은 신규 6건이 모두 하루 1건 우선 분산으로 배정되어 묶음 판단이 필요하지 않았습니다.
+- 거리/행정구역 fallback으로 신규 2건을 묶은 사례: ${stats.doubleNewDates}건. 이번 Sample의 신규 ${stats.new}건은 하루 1건 우선 분산 규칙을 먼저 적용했습니다.
 
 ## 추천 실패 사례와 원인
 

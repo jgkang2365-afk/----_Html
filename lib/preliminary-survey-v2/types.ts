@@ -18,6 +18,12 @@ export interface SurveyTarget {
   region: string | null;
   coordinate: Coordinate | null;
   createdAt: string | null;
+  classificationSource?: {
+    journalId: number | null;
+    rawValue: string | null;
+    measurementYear: number;
+    measurementPeriod: string;
+  };
 }
 export interface ExistingAssignment {
   targetId: number;
