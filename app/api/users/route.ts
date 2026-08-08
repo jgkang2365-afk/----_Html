@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     // 1차 조회 시도: is_national_support_manager 포함
     const primaryQuery = await supabase
       .from("users")
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active, created_at, updated_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_active, created_at, updated_at")
       .order("name", { ascending: true });
 
     let finalUsers = [];
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       // 2차 조회 시도: 해당 컬럼 제외 (레거시 대응)
       const fallbackQuery = await supabase
         .from("users")
-        .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_active, created_at, updated_at")
+        .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_preliminary_survey_experienced, is_active, created_at, updated_at")
         .order("name", { ascending: true });
 
       if (fallbackQuery.error) {

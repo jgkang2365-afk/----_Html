@@ -30,6 +30,7 @@ import {
   isValidOptionalManagerEmail,
   normalizeOptionalManagerEmail,
 } from "@/lib/business/manager-email";
+import { reconcileV2AfterTargetChange } from "@/lib/preliminary-survey-v2/service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -197,6 +198,18 @@ export async function GET(request: NextRequest) {
       .in("code", codes);
 
     const surveyRegisteredCodes = new Set(surveys?.map((s: any) => s.code));
+
+    const targetIds = businesses.map((business: any) => Number(business.id));
+    const { data: preliminarySurveyV2Plans, error: v2PlanError } = targetIds.length
+      ? await supabase.from("preliminary_survey_v2_plans").select("*")
+          .in("measurement_target_business_id", targetIds)
+      : { data: [], error: null };
+    if (v2PlanError) {
+      console.error("V2 예비조사 계획 조회 오류:", v2PlanError);
+    }
+    const preliminarySurveyV2PlanMap = new Map(
+      (preliminarySurveyV2Plans || []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]),
+    );
 
     // 향후 측정주기 및 최신 사업장 정보 (measurement_business 테이블에서 최신값 조회)
     // 1순위: measurement_business
@@ -370,6 +383,7 @@ export async function GET(request: NextRequest) {
         geocoded_at: basicInfo?.geocoded_at ?? item.geocoded_at ?? null,
         geocode_provider: basicInfo?.geocode_provider ?? item.geocode_provider ?? null,
         coordinate_locked: basicInfo?.coordinate_locked ?? item.coordinate_locked ?? false,
+        preliminary_survey_v2_plan: preliminarySurveyV2PlanMap.get(Number(item.id)) || null,
       };
     });
 
@@ -405,9 +419,10 @@ export async function PATCH(request: NextRequest) {
     let businessNameForNote = "";
     let existingAddress: string | null = null;
     let coordinateLocked = false;
+    let existingMeasurerId: number | null = null;
 
-    if (updates.hasOwnProperty('measurement_date') || updates.hasOwnProperty('address')) {
-      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name, address, coordinate_locked");
+    if (updates.hasOwnProperty('measurement_date') || updates.hasOwnProperty('address') || updates.hasOwnProperty('measurer_id')) {
+      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name, address, coordinate_locked, measurer_id");
       if (id) {
         bQuery = bQuery.eq("id", id);
       } else if (code && year && period) {
@@ -419,6 +434,7 @@ export async function PATCH(request: NextRequest) {
         businessNameForNote = oldData.business_name;
         existingAddress = oldData.address;
         coordinateLocked = !!oldData.coordinate_locked;
+        existingMeasurerId = oldData.measurer_id;
       }
     }
 
@@ -431,7 +447,7 @@ export async function PATCH(request: NextRequest) {
       "measurer_id", "period", "collaborators", "daily_staff", "representative_name",
       "industrial_accident_number", "commencement_number",
       "latitude", "longitude", "geocoded_address", "geocoding_status",
-      "coordinate_locked", "geocoding_method"
+      "coordinate_locked", "geocoding_method", "preliminary_survey_rule_type"
     ]);
     const updatePayload: any = Object.fromEntries(
       Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
@@ -805,7 +821,25 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, data: updatedData, geocodeStatus: geocodeResult?.geocoding_status || null });
+    let preliminarySurveyV2Notice = null;
+    const responsibleChanged = Object.prototype.hasOwnProperty.call(updates, "measurer_id") &&
+      Number(existingMeasurerId) !== Number(updatedData.measurer_id);
+    const measurementDateChanged = Object.prototype.hasOwnProperty.call(updates, "measurement_date") &&
+      existingDate !== updatedData.measurement_date;
+    if (responsibleChanged || measurementDateChanged) {
+      preliminarySurveyV2Notice = await reconcileV2AfterTargetChange(
+        supabase,
+        Number(updatedData.id),
+        { responsibleChanged, measurementDateChanged },
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: updatedData,
+      geocodeStatus: geocodeResult?.geocoding_status || null,
+      preliminarySurveyV2Notice,
+    });
 
   } catch (error: any) {
     console.error("PATCH API Critical Error:", error);
@@ -841,6 +875,7 @@ export async function POST(request: NextRequest) {
       manager_email,
       total_employees,
       office_jurisdiction,
+      preliminary_survey_rule_type,
     } = body;
 
     // Validation
@@ -849,6 +884,9 @@ export async function POST(request: NextRequest) {
         { error: "필수 정보가 누락되었습니다. (코드, 년도, 주기, 사업장명)" },
         { status: 400 }
       );
+    }
+    if (!["existing", "general_new", "other_org_new", "unconfirmed_new"].includes(preliminary_survey_rule_type)) {
+      return NextResponse.json({ error: "신규/기존 구분을 선택해 주세요." }, { status: 400 });
     }
 
     if (!isValidOptionalManagerEmail(manager_email)) {
@@ -924,6 +962,7 @@ export async function POST(request: NextRequest) {
         industrial_accident_number: industrialAccidentNumber,
         commencement_number: commencementNumber,
         representative_name: representative_name || null,
+        preliminary_survey_rule_type,
         document_generation_enabled: true,
         is_registered: "미실시", // Default
         created_at: new Date().toISOString()

@@ -101,6 +101,18 @@ interface BusinessEntry {
     geocoded_at?: string | null; // Geocoding 완료 시각
     geocode_provider?: string | null; // Geocoding 공급자 (kakao, juso 등)
     coordinate_locked?: boolean; // 수동 고정 여부
+    preliminary_survey_rule_type?: string;
+    preliminary_survey_v2_plan?: {
+        id: string;
+        recommended_date: string | null;
+        responsible_user_id: number;
+        experienced_reviewer_id: number | null;
+        participant_user_ids: number[];
+        participant_names: string[];
+        status: "recommended" | "manual_required";
+        plan_origin: "automatic" | "manual";
+        recommendation_reason: { reason?: string } | null;
+    } | null;
 }
 
 interface BusinessInfoSearchResult {
@@ -127,6 +139,7 @@ interface User {
     id: number;
     name: string;
     job?: string;
+    is_preliminary_survey_experienced?: boolean;
 }
 
 // State for Persistence
@@ -249,6 +262,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [data, setData] = useState<BusinessEntry[]>([]);
     const [filteredData, setFilteredData] = useState<BusinessEntry[]>([]);
     const dataFetchInFlightRef = useRef(false);
+    const [recommendingTargetIds, setRecommendingTargetIds] = useState<Set<number>>(new Set());
 
 
     // 국고 일괄 조회를 위한 상태 정의
@@ -760,6 +774,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         year: new Date().getFullYear(),
         period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
         manager_email: "",
+        preliminary_survey_rule_type: "",
     });
     const [businessInfoQuery, setBusinessInfoQuery] = useState("");
     const [businessInfoResults, setBusinessInfoResults] = useState<BusinessInfoSearchResult[]>([]);
@@ -862,6 +877,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             manager_name: "",
             manager_mobile: "",
             manager_email: "",
+            preliminary_survey_rule_type: "",
         });
         setBusinessInfoQuery("");
         setBusinessInfoResults([]);
@@ -925,6 +941,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const handleAddSubmit = async () => {
+        if (!addForm.preliminary_survey_rule_type) {
+            alert("신규/기존 구분을 선택해 주세요.");
+            return;
+        }
         if (!isValidOptionalManagerEmail(addForm.manager_email)) {
             alert("담당자 메일 형식을 확인해 주세요.");
             return;
@@ -1414,7 +1434,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     'manager_name', 'manager_mobile', 'manager_email',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
-                    'representative_name', 'industrial_accident_number', 'commencement_number'
+                    'representative_name', 'industrial_accident_number', 'commencement_number',
+                    'preliminary_survey_rule_type'
                 ];
 
                 const sanitized: any = {};
@@ -1500,6 +1521,51 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const handleMeasurerChange = (item: BusinessEntry, newMeasurerId: string) => {
         const measurerId = newMeasurerId ? parseInt(newMeasurerId) : null;
         saveChanges(item.code, { measurer_id: measurerId });
+    };
+
+    const handlePreliminarySurveyRecommendation = async (targetIds: number[]) => {
+        if (!targetIds.length) return;
+        setRecommendingTargetIds(prev => new Set([...prev, ...targetIds]));
+        try {
+            const response = await fetch("/api/preliminary-survey-v2/recommend", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetIds }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "예비조사 추천에 실패했습니다.");
+            const planByTargetId = new Map((result.plans || []).map((plan: any) => [
+                Number(plan.measurement_target_business_id), plan,
+            ]));
+            setData(previous => previous.map(item => {
+                const plan = planByTargetId.get(Number(item.id));
+                return plan ? { ...item, preliminary_survey_v2_plan: plan as BusinessEntry["preliminary_survey_v2_plan"] } : item;
+            }));
+            const manualRequired = (result.results || []).filter((item: any) => item.status === "manual_required").length;
+            alert(manualRequired
+                ? `${targetIds.length}건 계산 완료, ${manualRequired}건은 수동 조정이 필요합니다.`
+                : `${targetIds.length}건의 예비조사 추천을 즉시 반영했습니다.`);
+        } catch (error) {
+            alert(error instanceof Error ? error.message : "예비조사 추천에 실패했습니다.");
+        } finally {
+            setRecommendingTargetIds(previous => {
+                const next = new Set(previous); targetIds.forEach(id => next.delete(id)); return next;
+            });
+        }
+    };
+
+    const handleManualV2PlanChange = async (recommendedDate: string, participantUserIds: number[]) => {
+        if (!editingItem) return;
+        const response = await fetch(`/api/preliminary-survey-v2/${editingItem.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ recommendedDate, participantUserIds }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "예비조사 계획 수정에 실패했습니다.");
+        setEditForm(previous => ({ ...previous, preliminary_survey_v2_plan: result.plan }));
+        setData(previous => previous.map(item => String(item.id) === String(editingItem.id)
+            ? { ...item, preliminary_survey_v2_plan: result.plan } : item));
     };
 
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
@@ -1645,8 +1711,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     // Grid Column Template
-    // 19 Columns: Checkbox(40), No(45), 주기(60), 실시여부(80), 국고(100), 계획담당(70), 업종분류(90), 사업장명(minmax(140,1.5fr)), 소재지(minmax(160,2fr)), 관할(60), 미수(50), 전회측정(80), 향후측정주기(80), 예정월(50), 예정일(80), 보고서담당(90), 실시일(110), 비고(80), 관리(40)
-    const gridTemplateCols = "40px 45px 60px 80px 100px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
+    // V2 예비조사 추천 결과를 항상 노출한다.
+    const gridTemplateCols = "40px 45px 60px 80px 100px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 170px 80px 40px";
 
     const renderSortIcon = (key: string) => {
         const isSorted = sortConfig?.key === key;
@@ -1827,6 +1893,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             </Button>
                         </div>
 
+                        <Button
+                            variant="secondary"
+                            className="h-8 px-3 text-xs whitespace-nowrap"
+                            disabled={selectedBusinessIds.size === 0}
+                            onClick={() => handlePreliminarySurveyRecommendation([...selectedBusinessIds].map(Number))}
+                        >
+                            선택 사업장 예비조사 추천
+                        </Button>
+
                         {/* Right Filters */}
                         <div className="flex items-center gap-4 shrink-0 mr-1">
                             <div className="flex items-center gap-2">
@@ -1921,6 +1996,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("measurement_date")}>
                             실시일 {renderSortIcon("measurement_date")}
                         </div>
+                        <div className="py-3 text-center">예비조사 추천</div>
                         <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("notes")}>
                             비고 {renderSortIcon("notes")}
                         </div>
@@ -2115,6 +2191,26 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                             </div>
                                         )}
                                     </div>
+                                </div>
+                                <div className="px-1 text-center text-[11px] leading-tight">
+                                    {item.preliminary_survey_v2_plan?.status === "recommended" ? (
+                                        <div>
+                                            <div className="font-semibold text-blue-700">{item.preliminary_survey_v2_plan.recommended_date}</div>
+                                            <div className="truncate" title={item.preliminary_survey_v2_plan.participant_names.join(", ")}>
+                                                {item.preliminary_survey_v2_plan.participant_names.join(" + ")}
+                                            </div>
+                                        </div>
+                                    ) : item.preliminary_survey_v2_plan?.status === "manual_required" ? (
+                                        <div className="text-amber-700 font-semibold">수동 조정 필요</div>
+                                    ) : <div className="text-slate-400">미추천</div>}
+                                    <button
+                                        type="button"
+                                        className="mt-1 rounded bg-blue-50 px-2 py-0.5 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                                        disabled={recommendingTargetIds.has(Number(item.id)) || !item.measurement_date || !item.measurer_id}
+                                        onClick={() => handlePreliminarySurveyRecommendation([Number(item.id)])}
+                                    >
+                                        {recommendingTargetIds.has(Number(item.id)) ? "계산 중" : "예비조사 추천"}
+                                    </button>
                                 </div>
                                 <div className="px-1">
                                     <input
@@ -2623,6 +2719,89 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         </div>
                     </div>
 
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium mb-1 text-slate-700">신규/기존 구분</label>
+                        <Select
+                            options={[
+                                { value: "existing", label: "기존업체" },
+                                { value: "general_new", label: "신규업체" },
+                            ]}
+                            value={editForm.preliminary_survey_rule_type || "existing"}
+                            onChange={(event) => setEditForm(previous => ({
+                                ...previous, preliminary_survey_rule_type: event.target.value,
+                            }))}
+                        />
+                    </div>
+
+                    {/* V2 예비조사 결과: 자동추천 기본값 + 관리자 수동 수정 */}
+                    {editForm.preliminary_survey_v2_plan && (
+                        <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50/40 p-4">
+                            <div className="mb-3 flex items-center justify-between">
+                                <h4 className="font-bold text-slate-800">예비조사 자동추천 V2</h4>
+                                <span className="text-xs text-slate-500">
+                                    {editForm.preliminary_survey_v2_plan.plan_origin === "manual" ? "관리자 수정" : "자동추천"}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">추천일</label>
+                                    <Input
+                                        type="date"
+                                        value={editForm.preliminary_survey_v2_plan.recommended_date || ""}
+                                        onChange={(event) => setEditForm(previous => ({
+                                            ...previous,
+                                            preliminary_survey_v2_plan: previous.preliminary_survey_v2_plan
+                                                ? { ...previous.preliminary_survey_v2_plan, recommended_date: event.target.value }
+                                                : null,
+                                        }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-sm font-medium text-slate-700">예비조사자(복수선택 가능)</label>
+                                    <div className="flex flex-wrap gap-2 rounded border border-slate-200 bg-white p-2">
+                                        {measurers.map(measurer => {
+                                            const plan = editForm.preliminary_survey_v2_plan!;
+                                            const checked = plan.participant_user_ids.includes(measurer.id);
+                                            const responsible = measurer.id === editForm.measurer_id;
+                                            return (
+                                                <label key={measurer.id} className="flex items-center gap-1 text-xs">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked || responsible}
+                                                        disabled={responsible}
+                                                        onChange={(event) => {
+                                                            const ids = event.target.checked
+                                                                ? [...plan.participant_user_ids, measurer.id]
+                                                                : plan.participant_user_ids.filter(id => id !== measurer.id);
+                                                            setEditForm(previous => ({
+                                                                ...previous,
+                                                                preliminary_survey_v2_plan: previous.preliminary_survey_v2_plan
+                                                                    ? { ...previous.preliminary_survey_v2_plan, participant_user_ids: [...new Set(ids)] }
+                                                                    : null,
+                                                            }));
+                                                        }}
+                                                    />
+                                                    {measurer.name}{responsible ? " (담당)" : ""}
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-3 flex justify-end">
+                                <Button type="button" variant="secondary" onClick={async () => {
+                                    const plan = editForm.preliminary_survey_v2_plan!;
+                                    try {
+                                        await handleManualV2PlanChange(plan.recommended_date || "", plan.participant_user_ids);
+                                        alert("예비조사 추천일과 조사자를 수정했습니다.");
+                                    } catch (error) {
+                                        alert(error instanceof Error ? error.message : "수동 수정에 실패했습니다.");
+                                    }
+                                }}>예비조사 계획 수정 저장</Button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* 섹션 5: 비고 */}
                     <div>
                         <label className="block text-sm font-medium mb-1 text-slate-700">비고</label>
@@ -2826,6 +3005,22 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div>
                             <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">추가 정보 (선택)</h4>
                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700">
+                                        신규/기존 구분 <span className="text-red-500">*</span>
+                                    </label>
+                                    <Select
+                                        options={[
+                                            { value: "", label: "선택" },
+                                            { value: "existing", label: "기존업체" },
+                                            { value: "general_new", label: "신규업체" },
+                                        ]}
+                                        value={addForm.preliminary_survey_rule_type || ""}
+                                        onChange={(event) => setAddForm(previous => ({
+                                            ...previous, preliminary_survey_rule_type: event.target.value,
+                                        }))}
+                                    />
+                                </div>
                                 <div className="col-span-2">
                                     <label className="block text-sm font-medium mb-1 text-slate-700">소재지</label>
                                     <Input
