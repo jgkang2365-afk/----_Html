@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { recommendBatch } from "./engine";
+import { validateManualPlanHardRules } from "./manual-validation";
 import { targetChangeRecommendationPolicy } from "./policy";
 import { createRouteMetrics } from "./route-metrics";
-import type { ExistingAssignment, RecommendationResult, SurveyTarget, SurveyUser } from "./types";
+import { surveyMethodForKind, type ExistingAssignment, type RecommendationResult, type RouteMetrics, type SurveyTarget, type SurveyUser } from "./types";
 
 type Client = SupabaseClient<any, "public", any>;
 
@@ -17,12 +18,93 @@ function regionFromAddress(value: unknown): string | null {
   return `${parts[0]} ${parts[1]}`;
 }
 
+function coordinateFromRow(row: any) {
+  const coordinate = row && { latitude: Number(row.latitude), longitude: Number(row.longitude) };
+  return coordinate && coordinate.latitude >= 33 && coordinate.latitude <= 39 &&
+    coordinate.longitude >= 124 && coordinate.longitude <= 132 ? coordinate : null;
+}
+
+export async function loadV2ManualContext(supabase: Client, targetId: number, recommendedDate: string) {
+  const { data: targetRow, error: targetError } = await supabase.from("measurement_target_business").select(
+    "id, code, year, period, business_name, address, measurement_date, measurer_id, created_at",
+  ).eq("id", targetId).single();
+  if (targetError || !targetRow) throw new Error("TARGET_NOT_FOUND");
+  const [{ data: userRows, error: userError }, { data: infoRow, error: infoError }, { data: journalRows, error: journalError }] = await Promise.all([
+    supabase.from("users").select("id, name, job, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
+    supabase.from("business_info").select("code, latitude, longitude").eq("code", targetRow.code).maybeSingle(),
+    supabase.from("measurement_journal").select(
+      "id, code, measurement_year, measurement_period, note, updated_at, created_at",
+    ).eq("code", targetRow.code).eq("measurement_year", targetRow.year).eq("measurement_period", targetRow.period)
+      .order("updated_at", { ascending: false }).order("created_at", { ascending: false }),
+  ]);
+  if (userError) throw new Error(`V2_USER_QUERY_FAILED:${userError.message}`);
+  if (infoError) throw new Error(`V2_COORDINATE_QUERY_FAILED:${infoError.message}`);
+  if (journalError) throw new Error(`V2_JOURNAL_QUERY_FAILED:${journalError.message}`);
+  const users: SurveyUser[] = (userRows ?? []).map((user: any) => ({
+    id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
+  }));
+  const responsible = users.find((user) => user.id === Number(targetRow.measurer_id));
+  if (!responsible) throw new Error("RESPONSIBLE_USER_MISSING");
+  const classification = classifyMeasurementJournalBusiness({
+    code: targetRow.code, year: Number(targetRow.year), period: targetRow.period,
+  }, (journalRows ?? []) as MeasurementJournalClassificationRow[]);
+  const target: SurveyTarget = {
+    id: Number(targetRow.id), code: targetRow.code, name: targetRow.business_name,
+    kind: classification.kind, measurementDate: targetRow.measurement_date, responsible,
+    address: targetRow.address, region: regionFromAddress(targetRow.address), coordinate: coordinateFromRow(infoRow),
+    createdAt: targetRow.created_at,
+    classificationSource: {
+      journalId: classification.journalId, rawValue: classification.rawValue,
+      measurementYear: Number(targetRow.year), measurementPeriod: String(targetRow.period).trim(),
+    },
+  };
+
+  const { data: planRows, error: planError } = await supabase.from("preliminary_survey_v2_plans").select(
+    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status",
+  ).eq("status", "recommended").eq("recommended_date", recommendedDate).neq("measurement_target_business_id", targetId);
+  const v2TableMissing = planError?.code === "42P01" || planError?.code === "PGRST205";
+  if (planError && !v2TableMissing) throw new Error(`V2_PLAN_QUERY_FAILED:${planError.message}`);
+  const plans = v2TableMissing ? [] : (planRows ?? []);
+  const otherIds = plans.map((plan: any) => Number(plan.measurement_target_business_id));
+  const { data: otherTargets, error: otherTargetError } = otherIds.length
+    ? await supabase.from("measurement_target_business").select("id, code, year, period, address").in("id", otherIds)
+    : { data: [], error: null };
+  if (otherTargetError) throw new Error(`V2_TARGET_QUERY_FAILED:${otherTargetError.message}`);
+  const otherCodes = [...new Set((otherTargets ?? []).map((row: any) => row.code))];
+  const [{ data: otherJournals, error: otherJournalError }, { data: otherInfo, error: otherInfoError }] = await Promise.all([
+    otherCodes.length ? supabase.from("measurement_journal").select(
+      "id, code, measurement_year, measurement_period, note, updated_at, created_at",
+    ).in("code", otherCodes) : Promise.resolve({ data: [], error: null }),
+    otherCodes.length ? supabase.from("business_info").select("code, latitude, longitude").in("code", otherCodes)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (otherJournalError) throw new Error(`V2_JOURNAL_QUERY_FAILED:${otherJournalError.message}`);
+  if (otherInfoError) throw new Error(`V2_COORDINATE_QUERY_FAILED:${otherInfoError.message}`);
+  const otherTargetById = new Map((otherTargets ?? []).map((row: any) => [Number(row.id), row]));
+  const otherInfoByCode = new Map((otherInfo ?? []).map((row: any) => [row.code, row]));
+  const assignments: ExistingAssignment[] = plans.flatMap((plan: any) => {
+    const row: any = otherTargetById.get(Number(plan.measurement_target_business_id));
+    if (!row) return [];
+    const kind = classifyMeasurementJournalBusiness({ code: row.code, year: Number(row.year), period: row.period },
+      (otherJournals ?? []) as MeasurementJournalClassificationRow[]).kind;
+    return [{
+      targetId: Number(row.id), businessCode: row.code, kind, date: plan.recommended_date,
+      participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
+      responsibleUserId: Number(plan.responsible_user_id),
+      experiencedReviewerId: plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
+      coordinate: coordinateFromRow(otherInfoByCode.get(row.code)), region: regionFromAddress(row.address),
+    }];
+  });
+  return { target, users, assignments };
+}
+
 export interface CalculationOptions {
   targetIds?: number[];
   measurementDateFrom?: string;
   measurementDateTo?: string;
   createdBeforeOrAt?: string;
   allowExternalRoutes?: boolean;
+  routeMetrics?: RouteMetrics;
 }
 
 export interface CalculationOutput {
@@ -149,7 +231,7 @@ export async function calculateV2Recommendations(
   }
 
   const { data: queriedPlanRows, error: planError } = await supabase.from("preliminary_survey_v2_plans").select(
-    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status",
+    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status, source_rule_type",
   ).eq("status", "recommended");
   const v2TableMissing = planError?.code === "42P01" || planError?.code === "PGRST205";
   if (planError && !v2TableMissing) throw new Error(`V2_PLAN_QUERY_FAILED:${planError.message}`);
@@ -160,7 +242,7 @@ export async function calculateV2Recommendations(
     const target = targetById.get(Number(plan.measurement_target_business_id));
     return [{
       targetId: Number(plan.measurement_target_business_id), businessCode: target?.code ?? String(plan.measurement_target_business_id),
-      kind: target?.kind ?? "existing", date: plan.recommended_date,
+      kind: target?.kind ?? (plan.source_rule_type === "new" ? "new" : "existing"), date: plan.recommended_date,
       participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
       responsibleUserId: Number(plan.responsible_user_id), experiencedReviewerId: plan.experienced_reviewer_id ? Number(plan.experienced_reviewer_id) : null,
       coordinate: target?.coordinate ?? null, region: target?.region ?? null,
@@ -170,7 +252,7 @@ export async function calculateV2Recommendations(
   const results = await recommendBatch({
     targets, experiencedUsers: users.filter((user) => user.experienced && user.active !== false), existingAssignments,
     availability: { isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`) },
-    routes: createRouteMetrics(options.allowExternalRoutes === false ? "" : undefined),
+    routes: options.routeMetrics ?? createRouteMetrics(options.allowExternalRoutes === false ? "" : undefined),
   });
   return { targets, results, missing, blockedKeys: [...blockedKeys] };
 }
@@ -193,6 +275,7 @@ export async function persistV2Recommendations(supabase: Client, output: Calcula
       p_source_measurement_date: target.measurementDate,
       p_source_responsible_user_id: target.responsible.id,
       p_source_rule_type: target.kind,
+      p_survey_method: result.surveyMethod,
       p_recommendation_reason: { reason: result.reason, evidence: result.evidence },
       p_route_evidence: {
         ...(result.evidence.route ?? {}),
@@ -238,6 +321,17 @@ export async function reconcileV2AfterTargetChange(
     if (policy === "recalculate") {
       const result = await recommendAndPersistV2(supabase, [targetId]);
       return { message: "측정예정일 변경으로 기존 예비조사 계획이 불가능해 자동 재추천되었습니다.", result };
+    }
+    const context = await loadV2ManualContext(supabase, targetId, plan.recommended_date);
+    const participantIds = Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [];
+    const participants = participantIds.flatMap((id: number) => context.users.find((user) => user.id === id) ?? []);
+    const validation = await validateManualPlanHardRules({
+      target: context.target, recommendedDate: plan.recommended_date, participants,
+      existingAssignments: context.assignments, routes: createRouteMetrics(),
+    });
+    if (!validation.valid || plan.source_rule_type !== context.target.kind) {
+      const result = await recommendAndPersistV2(supabase, [targetId]);
+      return { message: "측정예정일 변경 후 기존 예비조사 계획의 업무규칙을 충족하지 않아 자동 재추천되었습니다.", result };
     }
     await supabase.from("preliminary_survey_v2_plans").update({
       source_measurement_date: target.measurement_date, updated_at: new Date().toISOString(),

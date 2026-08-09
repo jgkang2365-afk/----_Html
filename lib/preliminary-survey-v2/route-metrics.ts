@@ -45,21 +45,36 @@ async function vehicleMetric(left: Coordinate, right: Coordinate, apiKey: string
 /** 추천 세션별 캐시 + 서버 5분 TTL 캐시. DB에는 경로 결과를 저장하지 않는다. */
 export function createRouteMetrics(apiKey = process.env.KAKAO_REST_API_KEY): RouteMetrics {
   const sessionCache = new Map<string, Promise<RouteMetric>>();
+  const stats = {
+    requests: 0, externalCalls: 0, successes: 0, failures: 0,
+    sessionCacheHits: 0, sharedCacheHits: 0, coordinateUnavailable: 0,
+  };
   return {
+    stats,
     between(left: SurveyTarget | ExistingAssignment, right: SurveyTarget | ExistingAssignment) {
+      stats.requests += 1;
       const leftCoordinate = left.coordinate;
       const rightCoordinate = right.coordinate;
       const sameRegion = Boolean(left.region && right.region && left.region === right.region);
       if (!validCoordinate(leftCoordinate) || !validCoordinate(rightCoordinate)) {
+        stats.coordinateUnavailable += 1;
         return Promise.resolve({ source: sameRegion ? "region" : "unknown", durationMinutes: null, distanceKm: null, sameRegion });
       }
       const key = pairKey(leftCoordinate, rightCoordinate);
       const session = sessionCache.get(key);
-      if (session) return session;
+      if (session) {
+        stats.sessionCacheHits += 1;
+        return session;
+      }
       const promise = (async () => {
         const cached = sharedCache.get(key);
-        if (cached && cached.expiresAt > Date.now()) return { ...cached.value, sameRegion };
+        if (cached && cached.expiresAt > Date.now()) {
+          stats.sharedCacheHits += 1;
+          return { ...cached.value, sameRegion };
+        }
+        if (apiKey) stats.externalCalls += 1;
         const vehicle = apiKey ? await vehicleMetric(leftCoordinate, rightCoordinate, apiKey) : null;
+        if (apiKey) vehicle ? stats.successes += 1 : stats.failures += 1;
         const value: RouteMetric = vehicle
           ? { ...vehicle, sameRegion }
           : { source: "distance", durationMinutes: null, distanceKm: haversineKm(leftCoordinate, rightCoordinate), sameRegion };

@@ -4,8 +4,9 @@ import { readFileSync } from "node:fs";
 import { recommendationDates } from "../lib/preliminary-survey-v2/calendar";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "../lib/preliminary-survey-v2/classification";
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
+import { validateManualPlanHardRules } from "../lib/preliminary-survey-v2/manual-validation";
 import { targetChangeRecommendationPolicy } from "../lib/preliminary-survey-v2/policy";
-import type { ExistingAssignment, RouteMetric, RouteMetrics, SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
+import { surveyMethodForKind, type ExistingAssignment, type RouteMetric, type RouteMetrics, type SurveyTarget, type SurveyUser } from "../lib/preliminary-survey-v2/types";
 
 const experienced = (id: number, name = `경력${id}`): SurveyUser => ({ id, name, experienced: true, active: true });
 const novice = (id: number, name = `비경력${id}`): SurveyUser => ({ id, name, experienced: false, active: true });
@@ -100,6 +101,16 @@ test("동일 code/year/period 측정일지가 여러 건이면 최신 일지 값
   assert.equal(result.rawValue, "공정 변경");
 });
 
+test("target 레거시 구분과 무관하게 측정일지만으로 신규/기존을 판정", () => {
+  assert.equal(classifyMeasurementJournalBusiness({ ...classificationTarget, preliminary_survey_rule_type: "existing" } as any, [journal("최초실시")]).kind, "new");
+  assert.equal(classifyMeasurementJournalBusiness({ ...classificationTarget, preliminary_survey_rule_type: "general_new" } as any, [journal("일반 기존")]).kind, "existing");
+});
+
+test("조사방식 기본값은 신규 field, 기존 phone", () => {
+  assert.equal(surveyMethodForKind("new"), "field");
+  assert.equal(surveyMethodForKind("existing"), "phone");
+});
+
 test("A: 현재 날짜가 측정일 이후여도 측정일 기준 과거 후보를 생성한다", async () => {
   const user = experienced(1);
   const [result] = await recommendBatch({ targets: [target(1, "new", user)], experiencedUsers: [user], availability: available(), routes: route() });
@@ -131,6 +142,17 @@ test("E/F: 경력 담당자는 단독, 비경력 담당자는 담당자+경력�
   const results = await recommendBatch({ targets: [target(1, "new", senior), target(2, "new", novice(2))], experiencedUsers: [senior], availability: available(), routes: route() });
   assert.deepEqual(results[0].participants.map(item => item.id), [10]);
   assert.deepEqual(results[1].participants.map(item => item.id), [2, 10]);
+  assert.equal(results[0].surveyMethod, "field");
+  assert.equal(results[1].evidence.surveyMethod, "field");
+});
+
+test("기존업체 자동추천 조사방식은 phone", async () => {
+  const senior = experienced(10);
+  const [result] = await recommendBatch({
+    targets: [target(1, "existing", senior)], experiencedUsers: [senior], availability: available(), routes: route(),
+  });
+  assert.equal(result.surveyMethod, "phone");
+  assert.equal(result.evidence.surveyMethod, "phone");
 });
 
 test("G: 신규업체는 가능한 날짜에 하루 1건씩 먼저 분산한다", async () => {
@@ -328,7 +350,7 @@ test("J: 기존업체는 동일 담당자 하루 최대 3건", async () => {
   assert.notEqual(results[3].date, results[0].date);
 });
 
-test("K/L: 기존 경력 검토는 무제한이며 신규 경력자 균등 카운트에서 제외", async () => {
+test("K/L: 기존 경력 검토는 일 6건까지이며 신규 경력자 균등 카운트에서 제외", async () => {
   const reviewer1 = experienced(10);
   const reviewer2 = experienced(11);
   const existing = await recommendBatch({
@@ -339,6 +361,107 @@ test("K/L: 기존 경력 검토는 무제한이며 신규 경력자 균등 카�
   assert.ok(existing.every(item => item.evidence.experiencedNewAssignments === 0));
 });
 
+test("기존 검토는 같은 날 신규 현장이 없는 다른 경력자를 우선", async () => {
+  const date = recommendationDates("2026-07-14")[0].date;
+  const [result] = await recommendBatch({
+    targets: [target(1, "existing", novice(1))], experiencedUsers: [experienced(10), experienced(11)],
+    existingAssignments: [existingAssignment(100, "N100", 10, date)], availability: available(), routes: route(),
+  });
+  assert.equal(result.date, date);
+  assert.equal(result.experiencedReviewer?.id, 11);
+  assert.equal(result.evidence.crossTypeOverlap, false);
+  assert.equal(result.evidence.crossTypeOverlapAvoided, true);
+});
+
+test("기존 검토는 같은 날 신규 현장 중복보다 다음 적절한 날짜를 우선", async () => {
+  const dates = recommendationDates("2026-07-14");
+  const [result] = await recommendBatch({
+    targets: [target(1, "existing", novice(1))], experiencedUsers: [experienced(10)],
+    existingAssignments: [existingAssignment(100, "N100", 10, dates[0].date)], availability: available(), routes: route(),
+  });
+  assert.equal(result.date, dates[1].date);
+  assert.equal(result.evidence.crossTypeOverlap, false);
+  assert.equal(result.evidence.crossTypeOverlapAvoided, true);
+});
+
+test("다른 경력자와 날짜가 모두 없으면 기존 검토의 cross-type 중복을 evidence와 함께 허용", async () => {
+  const dates = recommendationDates("2026-07-14");
+  const [result] = await recommendBatch({
+    targets: [target(1, "existing", novice(1))], experiencedUsers: [experienced(10)],
+    existingAssignments: dates.map((item, index) => existingAssignment(100 + index, `N${index}`, 10, item.date)),
+    availability: available(), routes: route(),
+  });
+  assert.equal(result.status, "recommended");
+  assert.equal(result.date, dates[0].date);
+  assert.equal(result.evidence.crossTypeOverlap, true);
+  assert.equal(result.evidence.crossTypeOverlapReason, "unavoidable_cross_type_overlap");
+});
+
+test("측정일 순서상 기존 검토가 먼저 확정돼도 뒤 신규 현장을 보존하고 기존 검토 날짜를 옮김", async () => {
+  const reviewer = experienced(10);
+  const existingTarget = target(1, "existing", novice(1), "2026-07-13");
+  const newTarget = target(2, "new", novice(20), "2026-07-14");
+  const existingDates = recommendationDates(existingTarget.measurementDate);
+  const newDates = recommendationDates(newTarget.measurementDate);
+  const sharedDate = newDates.find((item) => existingDates.some((existing) => existing.date === item.date))!.date;
+  const blocked = new Set([
+    ...existingDates.slice(0, existingDates.findIndex((item) => item.date === sharedDate))
+      .map((item) => `${existingTarget.responsible.id}:${item.date}`),
+    ...newDates.filter((item) => item.date !== sharedDate).map((item) => `${newTarget.responsible.id}:${item.date}`),
+  ]);
+  const results = await recommendBatch({
+    targets: [existingTarget, newTarget], experiencedUsers: [reviewer], availability: available(blocked), routes: route(),
+  });
+  const existingResult = results.find((result) => result.targetId === existingTarget.id)!;
+  const newResult = results.find((result) => result.targetId === newTarget.id)!;
+  assert.equal(newResult.date, sharedDate);
+  assert.notEqual(existingResult.date, sharedDate);
+  assert.equal(existingResult.evidence.crossTypeOverlap, false);
+  assert.equal(existingResult.evidence.crossTypeOverlapAvoided, true);
+});
+
+test("기존 경력 검토자는 하루 6건을 초과하지 않음", async () => {
+  const dates = recommendationDates("2026-07-14");
+  const reviews: ExistingAssignment[] = Array.from({ length: 6 }, (_, index) => ({
+    targetId: 200 + index, businessCode: `E${index}`, kind: "existing", date: dates[0].date,
+    participants: [20 + index, 10], responsibleUserId: 20 + index, experiencedReviewerId: 10,
+    coordinate: null, region: null,
+  }));
+  const [result] = await recommendBatch({
+    targets: [target(1, "existing", novice(1))], experiencedUsers: [experienced(10)],
+    existingAssignments: reviews, availability: available(), routes: route(),
+  });
+  assert.equal(result.date, dates[1].date);
+});
+
+test("수동 신규 2건은 실제 차량 30분이면 허용하고 61분/미검증이면 거부", async () => {
+  const responsible = experienced(1);
+  const current = target(2, "new", responsible);
+  const date = recommendationDates(current.measurementDate)[0].date;
+  const other = existingAssignment(1, "C1", responsible.id, date);
+  for (const [metrics, valid] of [[route(30), true], [route(61), false], [route(null, "distance"), false]] as const) {
+    const result = await validateManualPlanHardRules({
+      target: current, recommendedDate: date, participants: [responsible], existingAssignments: [other], routes: metrics,
+    });
+    assert.equal(result.valid, valid);
+  }
+});
+
+test("수동 기존 담당자의 같은 날 네 번째 계획은 거부", async () => {
+  const responsible = experienced(1);
+  const current = target(4, "existing", responsible);
+  const date = recommendationDates(current.measurementDate)[0].date;
+  const assignments: ExistingAssignment[] = [1, 2, 3].map((id) => ({
+    targetId: id, businessCode: `E${id}`, kind: "existing", date, participants: [responsible.id],
+    responsibleUserId: responsible.id, experiencedReviewerId: null, coordinate: null, region: null,
+  }));
+  const result = await validateManualPlanHardRules({
+    target: current, recommendedDate: date, participants: [responsible], existingAssignments: assignments, routes: route(),
+  });
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(" "), /하루 최대 3건/);
+});
+
 test("M/N: 보고서 담당자 변경은 자동/수동 계획 구분 없이 재추천", () => {
   for (const manual of [false, true]) {
     assert.equal(targetChangeRecommendationPolicy({ responsibleChanged: true, measurementDateChanged: false, existingRecommendedDate: manual ? "2026-06-01" : "2026-06-02", nextMeasurementDate: "2026-07-14" }), "recalculate");
@@ -346,9 +469,11 @@ test("M/N: 보고서 담당자 변경은 자동/수동 계획 구분 없이 재�
 });
 
 test("O/P: 측정일 단순 변경은 유지하고 -3 이내/이후만 재추천", () => {
-  assert.equal(targetChangeRecommendationPolicy({ responsibleChanged: false, measurementDateChanged: true, existingRecommendedDate: "2026-06-01", nextMeasurementDate: "2026-07-20" }), "keep");
+  const validDate = recommendationDates("2026-07-20").find((item) => item.workingDaysBefore === 20)!.date;
+  assert.equal(targetChangeRecommendationPolicy({ responsibleChanged: false, measurementDateChanged: true, existingRecommendedDate: validDate, nextMeasurementDate: "2026-07-20" }), "keep");
   assert.equal(targetChangeRecommendationPolicy({ responsibleChanged: false, measurementDateChanged: true, existingRecommendedDate: "2026-07-17", nextMeasurementDate: "2026-07-20" }), "recalculate");
   assert.equal(targetChangeRecommendationPolicy({ responsibleChanged: false, measurementDateChanged: true, existingRecommendedDate: "2026-07-21", nextMeasurementDate: "2026-07-20" }), "recalculate");
+  assert.equal(targetChangeRecommendationPolicy({ responsibleChanged: false, measurementDateChanged: true, existingRecommendedDate: "2026-05-01", nextMeasurementDate: "2026-07-20" }), "recalculate");
 });
 
 test("Q-V: 단일 추천 저장/UI/수동수정/Google 신호 배제/score 제거 구조", () => {
@@ -364,5 +489,9 @@ test("Q-V: 단일 추천 저장/UI/수동수정/Google 신호 배제/score 제�
   assert.match(manualRoute, /plan_origin[\s\S]*manual/);
   assert.doesNotMatch(engine, /Google|occupied|preferredDate|preferred_date/);
   assert.doesNotMatch(service, /preliminary_survey_rule_type/);
+  assert.doesNotMatch(manualRoute, /preliminary_survey_rule_type/);
+  assert.match(manualRoute, /loadV2ManualContext/);
+  assert.match(migration, /survey_method text NOT NULL/);
+  assert.match(migration, /measurement_journal[\s\S]*V2_CLASSIFICATION_SOURCE_MISMATCH/);
   assert.doesNotMatch(migration, /recommendation_score\s+(integer|bigint)/i);
 });

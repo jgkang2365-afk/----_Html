@@ -41,12 +41,26 @@ CREATE TABLE IF NOT EXISTS public.preliminary_survey_v2_plans (
   source_measurement_date date NOT NULL,
   source_responsible_user_id integer NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT,
   source_rule_type text NOT NULL,
+  survey_method text NOT NULL,
   recommendation_reason jsonb NOT NULL DEFAULT '{}'::jsonb,
   route_evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
   warnings jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(warnings) = 'array'),
   created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE public.preliminary_survey_v2_plans
+  ADD COLUMN IF NOT EXISTS survey_method text;
+UPDATE public.preliminary_survey_v2_plans
+SET survey_method = CASE WHEN source_rule_type = 'new' THEN 'field' ELSE 'phone' END
+WHERE survey_method IS NULL;
+ALTER TABLE public.preliminary_survey_v2_plans
+  ALTER COLUMN survey_method SET NOT NULL;
+ALTER TABLE public.preliminary_survey_v2_plans
+  DROP CONSTRAINT IF EXISTS preliminary_survey_v2_plans_survey_method_check;
+ALTER TABLE public.preliminary_survey_v2_plans
+  ADD CONSTRAINT preliminary_survey_v2_plans_survey_method_check
+  CHECK (survey_method IN ('field', 'phone'));
 
 COMMENT ON TABLE public.preliminary_survey_v2_plans IS
 'V2 단일 최적안. recommendation_score를 사용하지 않고 구조화된 판단 근거를 저장한다.';
@@ -55,6 +69,10 @@ COMMENT ON COLUMN public.preliminary_survey_v2_plans.plan_origin IS
 
 CREATE INDEX IF NOT EXISTS idx_preliminary_survey_v2_date
   ON public.preliminary_survey_v2_plans(recommended_date, status);
+
+DROP FUNCTION IF EXISTS public.persist_preliminary_survey_v2_plan(
+  bigint, date, integer, integer, jsonb, jsonb, text, text, date, integer, text, jsonb, jsonb, jsonb
+);
 
 CREATE OR REPLACE FUNCTION public.persist_preliminary_survey_v2_plan(
   p_target_id bigint,
@@ -68,6 +86,7 @@ CREATE OR REPLACE FUNCTION public.persist_preliminary_survey_v2_plan(
   p_source_measurement_date date,
   p_source_responsible_user_id integer,
   p_source_rule_type text,
+  p_survey_method text,
   p_recommendation_reason jsonb,
   p_route_evidence jsonb,
   p_warnings jsonb
@@ -75,8 +94,11 @@ CREATE OR REPLACE FUNCTION public.persist_preliminary_survey_v2_plan(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   target_row public.measurement_target_business;
+  journal_is_new boolean;
+  journal_rule_type text;
 BEGIN
-  IF p_status NOT IN ('recommended', 'manual_required') OR p_plan_origin NOT IN ('automatic', 'manual') THEN
+  IF p_status NOT IN ('recommended', 'manual_required') OR p_plan_origin NOT IN ('automatic', 'manual')
+    OR p_survey_method NOT IN ('field', 'phone') THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'INVALID_V2_PLAN_PAYLOAD';
   END IF;
   SELECT * INTO target_row FROM public.measurement_target_business WHERE id = p_target_id FOR UPDATE;
@@ -85,17 +107,32 @@ BEGIN
     OR target_row.measurer_id IS DISTINCT FROM p_source_responsible_user_id THEN
     RAISE EXCEPTION USING ERRCODE = '40001', MESSAGE = 'V2_PLAN_SOURCE_CHANGED';
   END IF;
+  SELECT EXISTS (
+    SELECT 1
+    FROM unnest(string_to_array(COALESCE(journal.note, ''), ',')) AS token(value)
+    WHERE btrim(token.value) IN ('신규', '최초실시', '타기관 신규')
+  ) INTO journal_is_new
+  FROM public.measurement_journal AS journal
+  WHERE journal.code = target_row.code
+    AND journal.measurement_year = target_row.year
+    AND btrim(journal.measurement_period) = btrim(target_row.period)
+  ORDER BY journal.updated_at DESC NULLS LAST, journal.created_at DESC NULLS LAST, journal.id DESC
+  LIMIT 1;
+  journal_rule_type := CASE WHEN COALESCE(journal_is_new, false) THEN 'new' ELSE 'existing' END;
+  IF p_source_rule_type IS DISTINCT FROM journal_rule_type THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'V2_CLASSIFICATION_SOURCE_MISMATCH';
+  END IF;
 
   RETURN QUERY
   INSERT INTO public.preliminary_survey_v2_plans (
     measurement_target_business_id, recommended_date, responsible_user_id, experienced_reviewer_id,
     participant_user_ids, participant_names, status, plan_origin, source_measurement_date,
-    source_responsible_user_id, source_rule_type, recommendation_reason, route_evidence, warnings
+    source_responsible_user_id, source_rule_type, survey_method, recommendation_reason, route_evidence, warnings
   ) VALUES (
     p_target_id, p_recommended_date, p_responsible_user_id, p_experienced_reviewer_id,
     COALESCE(p_participant_user_ids, '[]'::jsonb), COALESCE(p_participant_names, '[]'::jsonb),
     p_status, p_plan_origin, p_source_measurement_date, p_source_responsible_user_id,
-    p_source_rule_type, COALESCE(p_recommendation_reason, '{}'::jsonb),
+    p_source_rule_type, p_survey_method, COALESCE(p_recommendation_reason, '{}'::jsonb),
     COALESCE(p_route_evidence, '{}'::jsonb), COALESCE(p_warnings, '[]'::jsonb)
   ) ON CONFLICT (measurement_target_business_id) DO UPDATE SET
     recommended_date = EXCLUDED.recommended_date,
@@ -108,6 +145,7 @@ BEGIN
     source_measurement_date = EXCLUDED.source_measurement_date,
     source_responsible_user_id = EXCLUDED.source_responsible_user_id,
     source_rule_type = EXCLUDED.source_rule_type,
+    survey_method = EXCLUDED.survey_method,
     recommendation_reason = EXCLUDED.recommendation_reason,
     route_evidence = EXCLUDED.route_evidence,
     warnings = EXCLUDED.warnings,
@@ -127,10 +165,10 @@ $$;
 REVOKE ALL ON TABLE public.preliminary_survey_v2_plans FROM PUBLIC, anon, authenticated;
 GRANT ALL ON TABLE public.preliminary_survey_v2_plans TO service_role;
 REVOKE ALL ON FUNCTION public.persist_preliminary_survey_v2_plan(
-  bigint, date, integer, integer, jsonb, jsonb, text, text, date, integer, text, jsonb, jsonb, jsonb
+  bigint, date, integer, integer, jsonb, jsonb, text, text, date, integer, text, text, jsonb, jsonb, jsonb
 ) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.persist_preliminary_survey_v2_plan(
-  bigint, date, integer, integer, jsonb, jsonb, text, text, date, integer, text, jsonb, jsonb, jsonb
+  bigint, date, integer, integer, jsonb, jsonb, text, text, date, integer, text, text, jsonb, jsonb, jsonb
 ) TO service_role;
 
 NOTIFY pgrst, 'reload schema';

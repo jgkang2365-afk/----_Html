@@ -447,7 +447,7 @@ export async function PATCH(request: NextRequest) {
       "measurer_id", "period", "collaborators", "daily_staff", "representative_name",
       "industrial_accident_number", "commencement_number",
       "latitude", "longitude", "geocoded_address", "geocoding_status",
-      "coordinate_locked", "geocoding_method", "preliminary_survey_rule_type"
+      "coordinate_locked", "geocoding_method"
     ]);
     const updatePayload: any = Object.fromEntries(
       Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
@@ -875,7 +875,6 @@ export async function POST(request: NextRequest) {
       manager_email,
       total_employees,
       office_jurisdiction,
-      preliminary_survey_rule_type,
     } = body;
 
     // Validation
@@ -885,10 +884,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!["existing", "general_new", "other_org_new", "unconfirmed_new"].includes(preliminary_survey_rule_type)) {
-      return NextResponse.json({ error: "신규/기존 구분을 선택해 주세요." }, { status: 400 });
-    }
-
     if (!isValidOptionalManagerEmail(manager_email)) {
       return NextResponse.json(
         { error: "담당자 메일 형식을 확인해 주세요." },
@@ -962,7 +957,6 @@ export async function POST(request: NextRequest) {
         industrial_accident_number: industrialAccidentNumber,
         commencement_number: commencementNumber,
         representative_name: representative_name || null,
-        preliminary_survey_rule_type,
         document_generation_enabled: true,
         is_registered: "미실시", // Default
         created_at: new Date().toISOString()

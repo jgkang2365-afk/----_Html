@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { workingDayDistance } from "@/lib/preliminary-survey-v2/calendar";
+import { validateManualPlanHardRules } from "@/lib/preliminary-survey-v2/manual-validation";
+import { createRouteMetrics } from "@/lib/preliminary-survey-v2/route-metrics";
+import { loadV2ManualContext } from "@/lib/preliminary-survey-v2/service";
+import { surveyMethodForKind, type SurveyUser } from "@/lib/preliminary-survey-v2/types";
 
 export async function PATCH(request: NextRequest, { params }: { params: { targetId: string } }) {
   const session = await getSession();
@@ -12,41 +15,38 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
     const body = await request.json();
     const participantIds = [...new Set((body.participantUserIds ?? []).map(Number).filter(Number.isFinite))];
     const supabase = await createClient();
-    const { data: target, error: targetError } = await supabase.from("measurement_target_business").select(
-      "id, measurement_date, measurer_id, preliminary_survey_rule_type",
-    ).eq("id", targetId).single();
-    if (targetError || !target) throw new Error("TARGET_NOT_FOUND");
-    const distance = workingDayDistance(body.recommendedDate, target.measurement_date);
-    if (distance === null || distance < 3) {
-      return NextResponse.json({ error: "예비조사일은 측정일보다 최소 3 워킹데이 이전이어야 합니다." }, { status: 400 });
-    }
-    if (!participantIds.includes(Number(target.measurer_id))) {
-      return NextResponse.json({ error: "보고서 담당자는 예비조사자에 반드시 포함되어야 합니다." }, { status: 400 });
-    }
-    const { data: users, error: userError } = await supabase.from("users").select(
-      "id, name, is_preliminary_survey_experienced",
-    ).in("id", participantIds);
-    if (userError || (users ?? []).length !== participantIds.length) throw new Error("PARTICIPANT_NOT_FOUND");
-    const responsible = users!.find((user: any) => Number(user.id) === Number(target.measurer_id));
-    const reviewer = users!.find((user: any) => Number(user.id) !== Number(target.measurer_id) && user.is_preliminary_survey_experienced);
-    if (!responsible?.is_preliminary_survey_experienced && !reviewer) {
-      return NextResponse.json({ error: "비경력 보고서 담당자에게는 경력자 1명이 필요합니다." }, { status: 400 });
-    }
-    const ordered = [responsible, ...(reviewer ? [reviewer] : [])];
+    const { target, users, assignments } = await loadV2ManualContext(supabase, targetId, body.recommendedDate);
+    const participants = participantIds.map((id) => users.find((user) => user.id === id))
+      .filter((user): user is SurveyUser => Boolean(user));
+    if (participants.length !== participantIds.length) throw new Error("PARTICIPANT_NOT_FOUND");
+    const validation = await validateManualPlanHardRules({
+      target, recommendedDate: body.recommendedDate, participants,
+      existingAssignments: assignments, routes: createRouteMetrics(),
+    });
+    if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
+    const ordered = [...participants].sort((left, right) =>
+      Number(right.id === target.responsible.id) - Number(left.id === target.responsible.id) || left.id - right.id,
+    );
+    const surveyMethod = body.surveyMethod === "field" || body.surveyMethod === "phone"
+      ? body.surveyMethod
+      : surveyMethodForKind(target.kind);
     const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan", {
       p_target_id: targetId,
       p_recommended_date: body.recommendedDate,
-      p_responsible_user_id: Number(target.measurer_id),
-      p_experienced_reviewer_id: reviewer?.id ?? null,
-      p_participant_user_ids: ordered.map((user: any) => user.id),
-      p_participant_names: ordered.map((user: any) => user.name),
+      p_responsible_user_id: target.responsible.id,
+      p_experienced_reviewer_id: validation.experiencedReviewer?.id ?? null,
+      p_participant_user_ids: ordered.map((user) => user.id),
+      p_participant_names: ordered.map((user) => user.name),
       p_status: "recommended",
       p_plan_origin: "manual",
-      p_source_measurement_date: target.measurement_date,
-      p_source_responsible_user_id: Number(target.measurer_id),
-      p_source_rule_type: target.preliminary_survey_rule_type === "existing" ? "existing" : "new",
-      p_recommendation_reason: { reason: "관리자 수동 수정" },
-      p_route_evidence: {},
+      p_source_measurement_date: target.measurementDate,
+      p_source_responsible_user_id: target.responsible.id,
+      p_source_rule_type: target.kind,
+      p_survey_method: surveyMethod,
+      p_recommendation_reason: {
+        reason: "관리자 수동 수정", classificationSource: target.classificationSource, surveyMethod,
+      },
+      p_route_evidence: { sameDayRoutes: validation.routeEvidence },
       p_warnings: [],
     });
     if (error) throw new Error(error.message);

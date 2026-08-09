@@ -1,8 +1,10 @@
 import { holidayCoverageWarning, recommendationDates } from "./calendar";
+import { evaluateSameDayRoute, type EvaluatedSameDayRoute } from "./route-policy";
 import type {
   Availability, ExistingAssignment, RecommendationEvidence, RecommendationResult,
   RouteMetric, RouteMetrics, SameDayRouteEvidence, SurveyTarget, SurveyUser,
 } from "./types";
+import { surveyMethodForKind } from "./types";
 
 export interface RecommendBatchInput {
   targets: SurveyTarget[];
@@ -36,6 +38,12 @@ function newFieldCount(assignments: ExistingAssignment[], userId: number, date?:
   ).length;
 }
 
+function existingReviewCount(assignments: ExistingAssignment[], userId: number, date: string) {
+  return assignments.filter((item) =>
+    item.kind === "existing" && item.date === date && item.experiencedReviewerId === userId,
+  ).length;
+}
+
 function hasExistingFieldResponsibility(assignments: ExistingAssignment[], userId: number, date: string) {
   return assignments.some((item) =>
     item.kind === "existing" && item.date === date && item.responsibleUserId === userId,
@@ -64,11 +72,6 @@ function asAssignment(target: SurveyTarget, result: RecommendationResult): Exist
   };
 }
 
-interface EvaluatedSameDayRoute {
-  evidence: SameDayRouteEvidence;
-  selectedRoute: RouteMetric | null;
-}
-
 async function routeAgainstSameDayNew(
   target: SurveyTarget,
   userId: number,
@@ -81,43 +84,7 @@ async function routeAgainstSameDayNew(
   );
   if (!other) return null;
 
-  const [routeAB, routeBA] = await Promise.all([
-    routes.between(other, target),
-    routes.between(target, other),
-  ]);
-  const routeABMinutes = routeAB.source === "vehicle" ? routeAB.durationMinutes : null;
-  const routeBAMinutes = routeBA.source === "vehicle" ? routeBA.durationMinutes : null;
-  const successful = [
-    routeABMinutes === null ? null : { minutes: routeABMinutes, order: [other.businessCode, target.code] as [string, string], route: routeAB },
-    routeBAMinutes === null ? null : { minutes: routeBAMinutes, order: [target.code, other.businessCode] as [string, string], route: routeBA },
-  ].filter((item): item is { minutes: number; order: [string, string]; route: RouteMetric } => item !== null)
-    .sort((left, right) => left.minutes - right.minutes || left.order.join("->").localeCompare(right.order.join("->")));
-  const selected = successful[0] ?? null;
-  let routeDecision: SameDayRouteEvidence["routeDecision"];
-  if (routeABMinutes !== null && routeBAMinutes !== null) {
-    routeDecision = selected!.minutes <= 60 ? "same_day_allowed" : "both_directions_over_60";
-  } else if (selected?.minutes !== undefined && selected.minutes <= 60) {
-    routeDecision = "same_day_allowed";
-  } else if (routeABMinutes !== null) {
-    routeDecision = "reverse_direction_unavailable";
-  } else if (routeBAMinutes !== null) {
-    routeDecision = "forward_direction_unavailable";
-  } else {
-    routeDecision = "both_directions_failed";
-  }
-  return {
-    evidence: {
-      firstBusinessCode: other.businessCode,
-      secondBusinessCode: target.code,
-      routeABMinutes,
-      routeBAMinutes,
-      selectedRouteMinutes: selected?.minutes ?? null,
-      selectedVisitOrder: routeDecision === "same_day_allowed" ? selected!.order : null,
-      routeDecision,
-      routeSource: selected ? "vehicle" : "unverified",
-    },
-    selectedRoute: routeDecision === "same_day_allowed" ? selected!.route : null,
-  };
+  return evaluateSameDayRoute(other, target, routes);
 }
 
 function compareRoute(left: EvaluatedSameDayRoute | null, right: EvaluatedSameDayRoute | null) {
@@ -145,7 +112,8 @@ async function chooseReviewer(
       return {
         user,
         blocked: availability.isBlocked(user.id, date),
-        hardConflict: availability.isBlocked(user.id, date) || (
+        hardConflict: availability.isBlocked(user.id, date) ||
+          (target.kind === "existing" && existingReviewCount(assignments, user.id, date) >= 6) || (
           target.kind === "new" && (
             sameDayNewCount >= capacityPass ||
             hasExistingFieldResponsibility(assignments, user.id, date) ||
@@ -153,18 +121,103 @@ async function chooseReviewer(
           )
         ),
         route,
+        crossTypeOverlap: target.kind === "existing"
+          ? sameDayNewCount > 0
+          : existingReviewCount(assignments, user.id, date) > 0,
         newCount: newFieldCount(assignments, user.id),
         allFieldCount: allFieldCount(assignments, user.id),
       };
     }));
   choices.sort((left, right) =>
     Number(left.hardConflict) - Number(right.hardConflict) ||
+    (target.kind === "existing" ? Number(left.crossTypeOverlap) - Number(right.crossTypeOverlap) : 0) ||
     compareRoute(left.route, right.route) ||
+    (target.kind === "new" ? Number(left.crossTypeOverlap) - Number(right.crossTypeOverlap) : 0) ||
     left.newCount - right.newCount ||
     left.allFieldCount - right.allFieldCount ||
     left.user.id - right.user.id,
   );
-  return choices[0] ?? null;
+  const selected = choices[0] ?? null;
+  return selected ? {
+    ...selected,
+    crossTypeOverlapAvoided: !selected.crossTypeOverlap && choices.some((choice) => !choice.hardConflict && choice.crossTypeOverlap),
+  } : null;
+}
+
+async function reconcileEarlierExistingReviewOverlaps(
+  input: RecommendBatchInput,
+  results: RecommendationResult[],
+) {
+  const targetById = new Map(input.targets.map((target) => [target.id, target]));
+  let assignments = [
+    ...(input.existingAssignments ?? []),
+    ...results.filter((result) => result.status === "recommended").map((result) =>
+      asAssignment(targetById.get(result.targetId)!, result),
+    ),
+  ];
+
+  for (const result of results) {
+    const target = targetById.get(result.targetId);
+    const reviewer = result.experiencedReviewer;
+    if (!target || target.kind !== "existing" || result.status !== "recommended" || !result.date || !reviewer) continue;
+    const hasOverlap = assignments.some((assignment) =>
+      assignment.kind === "new" && assignment.date === result.date && assignment.participants.includes(reviewer.id),
+    );
+    if (!hasOverlap) continue;
+
+    const withoutCurrent = assignments.filter((assignment) => assignment.targetId !== target.id);
+    const tryDate = async (date: string) => {
+      if (input.availability.isBlocked(target.responsible.id, date)) return null;
+      if (newFieldCount(withoutCurrent, target.responsible.id, date) > 0) return null;
+      if (existingResponsibleCount(withoutCurrent, target.responsible.id, date) >= 3) return null;
+      const choice = await chooseReviewer(
+        target, date, input.experiencedUsers, withoutCurrent, input.availability, input.routes, 1,
+      );
+      return choice && !choice.hardConflict && !choice.crossTypeOverlap ? choice : null;
+    };
+
+    let nextDate = result.date;
+    let choice = await tryDate(nextDate);
+    if (!choice) {
+      for (const candidate of recommendationDates(target.measurementDate)) {
+        if (candidate.date === result.date) continue;
+        choice = await tryDate(candidate.date);
+        if (!choice) continue;
+        nextDate = candidate.date;
+        result.evidence.workingDaysBefore = candidate.workingDaysBefore;
+        result.evidence.range = candidate.workingDaysBefore >= 20 ? "primary" : "fallback";
+        result.reason = `${result.evidence.range === "primary" ? "기본구간" : "후순위구간"} -${candidate.workingDaysBefore} 워킹데이; 기존업체 배정 규칙; 신규 현장 중복 회피`;
+        break;
+      }
+    }
+
+    if (choice) {
+      result.date = nextDate;
+      result.experiencedReviewer = choice.user;
+      result.participants = [target.responsible, choice.user];
+      result.evidence.crossTypeOverlap = false;
+      result.evidence.crossTypeOverlapAvoided = true;
+      result.evidence.crossTypeOverlapReason = null;
+      result.evidence.experiencedNewAssignments = newFieldCount(withoutCurrent, choice.user.id);
+      result.evidence.experiencedAllFieldAssignments = allFieldCount(withoutCurrent, choice.user.id);
+      assignments = [...withoutCurrent, asAssignment(target, result)];
+    } else {
+      result.evidence.crossTypeOverlap = true;
+      result.evidence.crossTypeOverlapReason = "unavoidable_cross_type_overlap";
+    }
+  }
+  for (const result of results) {
+    const target = targetById.get(result.targetId);
+    if (target?.kind !== "new") continue;
+    const participantIds = new Set(result.participants.map((user) => user.id));
+    const externalOverlap = (input.existingAssignments ?? []).some((assignment) =>
+      assignment.kind === "existing" && assignment.date === result.date &&
+      assignment.experiencedReviewerId !== null && participantIds.has(assignment.experiencedReviewerId),
+    );
+    result.evidence.crossTypeOverlap = externalOverlap;
+    result.evidence.crossTypeOverlapAvoided = false;
+    result.evidence.crossTypeOverlapReason = externalOverlap ? "unavoidable_cross_type_overlap" : null;
+  }
 }
 
 export async function recommendBatch(input: RecommendBatchInput): Promise<RecommendationResult[]> {
@@ -224,7 +277,12 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       }
 
       const reviewer = reviewerChoice?.user ?? null;
+      const crossTypeOverlap = target.kind === "new"
+        ? existingReviewCount(virtual, target.responsible.id, candidate.date) > 0 || Boolean(reviewerChoice?.crossTypeOverlap)
+        : Boolean(reviewerChoice?.crossTypeOverlap);
       const evidence: RecommendationEvidence = {
+        classificationSource: target.classificationSource,
+        surveyMethod: surveyMethodForKind(target.kind),
         workingDaysBefore: candidate.workingDaysBefore,
         range: candidate.workingDaysBefore >= 20 ? "primary" : "fallback",
         capacityPass,
@@ -241,6 +299,9 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         selectionReason: "single_available",
         experiencedNewAssignments: reviewer ? newFieldCount(virtual, reviewer.id) : null,
         experiencedAllFieldAssignments: reviewer ? allFieldCount(virtual, reviewer.id) : null,
+        crossTypeOverlap,
+        crossTypeOverlapAvoided: Boolean(reviewerChoice?.crossTypeOverlapAvoided),
+        crossTypeOverlapReason: crossTypeOverlap ? "unavoidable_cross_type_overlap" : null,
         warnings: [holidayCoverageWarning(target.measurementDate)].filter((value): value is string => Boolean(value)),
       };
       return {
@@ -250,6 +311,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         participants: reviewer ? [target.responsible, reviewer] : [target.responsible],
         responsible: target.responsible,
         experiencedReviewer: reviewer,
+        surveyMethod: surveyMethodForKind(target.kind),
         evidence,
         reason: `${evidence.range === "primary" ? "기본구간" : "후순위구간"} -${candidate.workingDaysBefore} 워킹데이`,
       };
@@ -278,11 +340,20 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
     };
 
     if (target.kind === "existing") {
+      let overlapFallback: RecommendationResult | null = null;
       for (const candidate of dates) {
         const result = await evaluateCandidate(candidate, 1);
         if (!result) continue;
+        if (result.evidence.crossTypeOverlap) {
+          overlapFallback ??= result;
+          continue;
+        }
+        result.evidence.crossTypeOverlapAvoided ||= Boolean(overlapFallback);
         selected = finalize(result, "single", "single_available", true, null);
         break;
+      }
+      if (!selected && overlapFallback) {
+        selected = finalize(overlapFallback, "single", "single_available", true, null);
       }
     } else {
       for (const range of ["primary", "fallback"] as const) {
@@ -346,7 +417,10 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       participants: [],
       responsible: target.responsible,
       experiencedReviewer: null,
+      surveyMethod: surveyMethodForKind(target.kind),
       evidence: {
+        classificationSource: target.classificationSource,
+        surveyMethod: surveyMethodForKind(target.kind),
         workingDaysBefore: null, range: null, capacityPass: null,
         responsibleConflict: true, reviewerConflict: !target.responsible.experienced,
         route: null, experiencedNewAssignments: null, experiencedAllFieldAssignments: null,
@@ -359,10 +433,14 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         selectionReason: rejectedSameDayRoutes.some((route) => route.routeDecision === "both_directions_over_60")
           ? "over_60_rejected"
           : rejectedSameDayRoutes.length ? "route_unverified_rejected" : "no_available_date",
+        crossTypeOverlap: false,
+        crossTypeOverlapAvoided: false,
+        crossTypeOverlapReason: null,
         warnings: ["NO_AVAILABLE_DATE_THROUGH_MINUS_3"],
       },
       reason: "-3 워킹데이까지 추천 가능한 날짜가 없습니다.",
     });
   }
+  await reconcileEarlierExistingReviewOverlaps(input, results);
   return results;
 }

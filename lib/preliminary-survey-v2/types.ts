@@ -1,4 +1,9 @@
 export type BusinessKind = "new" | "existing";
+export type SurveyMethod = "field" | "phone";
+
+export function surveyMethodForKind(kind: BusinessKind): SurveyMethod {
+  return kind === "new" ? "field" : "phone";
+}
 
 export interface Coordinate { latitude: number; longitude: number }
 export interface SurveyUser {
@@ -59,6 +64,8 @@ export interface SameDayRouteEvidence {
   routeSource: "vehicle" | "unverified";
 }
 export interface RecommendationEvidence {
+  classificationSource: SurveyTarget["classificationSource"];
+  surveyMethod: SurveyMethod;
   workingDaysBefore: number | null;
   range: "primary" | "fallback" | null;
   capacityPass: 1 | 2 | null;
@@ -82,6 +89,9 @@ export interface RecommendationEvidence {
     | "no_available_date";
   experiencedNewAssignments: number | null;
   experiencedAllFieldAssignments: number | null;
+  crossTypeOverlap: boolean;
+  crossTypeOverlapAvoided: boolean;
+  crossTypeOverlapReason: "unavoidable_cross_type_overlap" | null;
   warnings: string[];
 }
 export interface RecommendationResult {
@@ -91,6 +101,7 @@ export interface RecommendationResult {
   participants: SurveyUser[];
   responsible: SurveyUser;
   experiencedReviewer: SurveyUser | null;
+  surveyMethod: SurveyMethod;
   evidence: RecommendationEvidence;
   reason: string;
 }
@@ -99,4 +110,13 @@ export interface Availability {
 }
 export interface RouteMetrics {
   between(left: SurveyTarget | ExistingAssignment, right: SurveyTarget | ExistingAssignment): Promise<RouteMetric>;
+  stats?: {
+    requests: number;
+    externalCalls: number;
+    successes: number;
+    failures: number;
+    sessionCacheHits: number;
+    sharedCacheHits: number;
+    coordinateUnavailable: number;
+  };
 }

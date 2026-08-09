@@ -101,7 +101,6 @@ interface BusinessEntry {
     geocoded_at?: string | null; // Geocoding 완료 시각
     geocode_provider?: string | null; // Geocoding 공급자 (kakao, juso 등)
     coordinate_locked?: boolean; // 수동 고정 여부
-    preliminary_survey_rule_type?: string;
     preliminary_survey_v2_plan?: {
         id: string;
         recommended_date: string | null;
@@ -111,6 +110,7 @@ interface BusinessEntry {
         participant_names: string[];
         status: "recommended" | "manual_required";
         plan_origin: "automatic" | "manual";
+        survey_method: "field" | "phone";
         recommendation_reason: { reason?: string } | null;
     } | null;
 }
@@ -774,7 +774,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         year: new Date().getFullYear(),
         period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
         manager_email: "",
-        preliminary_survey_rule_type: "",
     });
     const [businessInfoQuery, setBusinessInfoQuery] = useState("");
     const [businessInfoResults, setBusinessInfoResults] = useState<BusinessInfoSearchResult[]>([]);
@@ -877,7 +876,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             manager_name: "",
             manager_mobile: "",
             manager_email: "",
-            preliminary_survey_rule_type: "",
         });
         setBusinessInfoQuery("");
         setBusinessInfoResults([]);
@@ -941,10 +939,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const handleAddSubmit = async () => {
-        if (!addForm.preliminary_survey_rule_type) {
-            alert("신규/기존 구분을 선택해 주세요.");
-            return;
-        }
         if (!isValidOptionalManagerEmail(addForm.manager_email)) {
             alert("담당자 메일 형식을 확인해 주세요.");
             return;
@@ -1434,8 +1428,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     'manager_name', 'manager_mobile', 'manager_email',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
-                    'representative_name', 'industrial_accident_number', 'commencement_number',
-                    'preliminary_survey_rule_type'
+                    'representative_name', 'industrial_accident_number', 'commencement_number'
                 ];
 
                 const sanitized: any = {};
@@ -2719,20 +2712,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="mb-6">
-                        <label className="block text-sm font-medium mb-1 text-slate-700">신규/기존 구분</label>
-                        <Select
-                            options={[
-                                { value: "existing", label: "기존업체" },
-                                { value: "general_new", label: "신규업체" },
-                            ]}
-                            value={editForm.preliminary_survey_rule_type || "existing"}
-                            onChange={(event) => setEditForm(previous => ({
-                                ...previous, preliminary_survey_rule_type: event.target.value,
-                            }))}
-                        />
-                    </div>
-
                     {/* V2 예비조사 결과: 자동추천 기본값 + 관리자 수동 수정 */}
                     {editForm.preliminary_survey_v2_plan && (
                         <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50/40 p-4">
@@ -2740,6 +2719,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <h4 className="font-bold text-slate-800">예비조사 자동추천 V2</h4>
                                 <span className="text-xs text-slate-500">
                                     {editForm.preliminary_survey_v2_plan.plan_origin === "manual" ? "관리자 수정" : "자동추천"}
+                                    {` · ${editForm.preliminary_survey_v2_plan.survey_method === "field" ? "현장" : "전화"} 예비조사`}
                                 </span>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -3005,22 +2985,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div>
                             <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">추가 정보 (선택)</h4>
                             <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">
-                                        신규/기존 구분 <span className="text-red-500">*</span>
-                                    </label>
-                                    <Select
-                                        options={[
-                                            { value: "", label: "선택" },
-                                            { value: "existing", label: "기존업체" },
-                                            { value: "general_new", label: "신규업체" },
-                                        ]}
-                                        value={addForm.preliminary_survey_rule_type || ""}
-                                        onChange={(event) => setAddForm(previous => ({
-                                            ...previous, preliminary_survey_rule_type: event.target.value,
-                                        }))}
-                                    />
-                                </div>
                                 <div className="col-span-2">
                                     <label className="block text-sm font-medium mb-1 text-slate-700">소재지</label>
                                     <Input

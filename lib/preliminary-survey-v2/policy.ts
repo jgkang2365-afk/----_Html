@@ -10,5 +10,5 @@ export function targetChangeRecommendationPolicy(input: {
   if (!input.measurementDateChanged) return "keep" as const;
   if (!input.existingRecommendedDate || !input.nextMeasurementDate) return "recalculate" as const;
   const distance = workingDayDistance(input.existingRecommendedDate, input.nextMeasurementDate);
-  return distance === null || distance < 3 ? "recalculate" as const : "keep" as const;
+  return distance === null || distance < 3 || distance > 30 ? "recalculate" as const : "keep" as const;
 }
