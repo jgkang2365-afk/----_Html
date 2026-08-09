@@ -159,7 +159,8 @@ export async function calculateV2Recommendations(
     if (!plan.recommended_date || options.targetIds?.includes(Number(plan.measurement_target_business_id))) return [];
     const target = targetById.get(Number(plan.measurement_target_business_id));
     return [{
-      targetId: Number(plan.measurement_target_business_id), kind: target?.kind ?? "existing", date: plan.recommended_date,
+      targetId: Number(plan.measurement_target_business_id), businessCode: target?.code ?? String(plan.measurement_target_business_id),
+      kind: target?.kind ?? "existing", date: plan.recommended_date,
       participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
       responsibleUserId: Number(plan.responsible_user_id), experiencedReviewerId: plan.experienced_reviewer_id ? Number(plan.experienced_reviewer_id) : null,
       coordinate: target?.coordinate ?? null, region: target?.region ?? null,
@@ -193,7 +194,11 @@ export async function persistV2Recommendations(supabase: Client, output: Calcula
       p_source_responsible_user_id: target.responsible.id,
       p_source_rule_type: target.kind,
       p_recommendation_reason: { reason: result.reason, evidence: result.evidence },
-      p_route_evidence: result.evidence.route ?? {},
+      p_route_evidence: {
+        ...(result.evidence.route ?? {}),
+        ...(result.evidence.sameDayRoute ?? {}),
+        rejectedSameDayRoutes: result.evidence.rejectedSameDayRoutes,
+      },
       p_warnings: result.evidence.warnings,
     });
     if (error) throw new Error(`V2_PLAN_SAVE_FAILED:${error.message}`);

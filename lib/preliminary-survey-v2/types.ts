@@ -27,6 +27,7 @@ export interface SurveyTarget {
 }
 export interface ExistingAssignment {
   targetId: number;
+  businessCode: string;
   kind: BusinessKind;
   date: string;
   participants: number[];
@@ -41,6 +42,22 @@ export interface RouteMetric {
   distanceKm: number | null;
   sameRegion: boolean;
 }
+export type SameDayRouteDecision =
+  | "same_day_allowed"
+  | "both_directions_over_60"
+  | "forward_direction_unavailable"
+  | "reverse_direction_unavailable"
+  | "both_directions_failed";
+export interface SameDayRouteEvidence {
+  firstBusinessCode: string;
+  secondBusinessCode: string;
+  routeABMinutes: number | null;
+  routeBAMinutes: number | null;
+  selectedRouteMinutes: number | null;
+  selectedVisitOrder: [string, string] | null;
+  routeDecision: SameDayRouteDecision;
+  routeSource: "vehicle" | "unverified";
+}
 export interface RecommendationEvidence {
   workingDaysBefore: number | null;
   range: "primary" | "fallback" | null;
@@ -48,6 +65,8 @@ export interface RecommendationEvidence {
   responsibleConflict: boolean;
   reviewerConflict: boolean;
   route: RouteMetric | null;
+  sameDayRoute: SameDayRouteEvidence | null;
+  rejectedSameDayRoutes: SameDayRouteEvidence[];
   experiencedNewAssignments: number | null;
   experiencedAllFieldAssignments: number | null;
   warnings: string[];

@@ -5,7 +5,7 @@ import { recommendationDates } from "../lib/preliminary-survey-v2/calendar";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "../lib/preliminary-survey-v2/classification";
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { targetChangeRecommendationPolicy } from "../lib/preliminary-survey-v2/policy";
-import type { RouteMetric, SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
+import type { ExistingAssignment, RouteMetric, RouteMetrics, SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
 
 const experienced = (id: number, name = `경력${id}`): SurveyUser => ({ id, name, experienced: true, active: true });
 const novice = (id: number, name = `비경력${id}`): SurveyUser => ({ id, name, experienced: false, active: true });
@@ -16,6 +16,27 @@ const target = (id: number, kind: "new" | "existing", responsible: SurveyUser, m
 });
 const route = (durationMinutes: number | null = 30, source: RouteMetric["source"] = "vehicle") => ({
   between: async (): Promise<RouteMetric> => ({ source, durationMinutes, distanceKm: 10, sameRegion: true }),
+});
+const directionalRoutes = (minutes: Record<string, number | null>, calls: string[] = []): RouteMetrics => ({
+  between: async (left, right): Promise<RouteMetric> => {
+    const leftCode = "code" in left ? left.code : left.businessCode;
+    const rightCode = "code" in right ? right.code : right.businessCode;
+    const key = `${leftCode}->${rightCode}`;
+    calls.push(key);
+    const durationMinutes = minutes[key] ?? null;
+    return durationMinutes === null
+      ? { source: "distance", durationMinutes: null, distanceKm: 10, sameRegion: true }
+      : { source: "vehicle", durationMinutes, distanceKm: 10, sameRegion: true };
+  },
+});
+const existingAssignment = (
+  targetId: number,
+  businessCode: string,
+  userId: number,
+  date: string,
+): ExistingAssignment => ({
+  targetId, businessCode, kind: "new", date, participants: [userId], responsibleUserId: userId,
+  experiencedReviewerId: null, coordinate: { latitude: 36.8, longitude: 127.1 }, region: "충남 천안시",
 });
 const available = (blocked = new Set<string>()) => ({ isBlocked: (userId: number, date: string) => blocked.has(`${userId}:${date}`) });
 
@@ -128,6 +149,94 @@ test("H/I: 날짜 부족 시 신규 2건을 60분 이내만 허용한다", async
   assert.equal(okay[1].evidence.capacityPass, 2);
   const denied = await recommendBatch({ targets: [target(1, "new", user), target(2, "new", user)], experiencedUsers: [user], availability: available(blocked), routes: route(61) });
   assert.equal(denied[1].status, "manual_required");
+});
+
+async function recommendTwoNewWithOnlyFirstDate(routes: RouteMetrics) {
+  const user = experienced(1);
+  const dates = recommendationDates("2026-07-14");
+  const blocked = new Set(dates.slice(1).map(item => `${user.id}:${item.date}`));
+  return recommendBatch({
+    targets: [target(1, "new", user), target(2, "new", user)],
+    experiencedUsers: [user], availability: available(blocked), routes,
+  });
+}
+
+test("신규 2건 A→B 50분/B→A 55분이면 A→B 순서로 허용", async () => {
+  const results = await recommendTwoNewWithOnlyFirstDate(directionalRoutes({ "C1->C2": 50, "C2->C1": 55 }));
+  assert.equal(results[1].status, "recommended");
+  assert.equal(results[1].evidence.sameDayRoute?.selectedRouteMinutes, 50);
+  assert.deepEqual(results[1].evidence.sameDayRoute?.selectedVisitOrder, ["C1", "C2"]);
+  assert.equal(results[1].evidence.sameDayRoute?.routeDecision, "same_day_allowed");
+});
+
+test("신규 2건 A→B 67분/B→A 54분이면 B→A 순서로 허용", async () => {
+  const results = await recommendTwoNewWithOnlyFirstDate(directionalRoutes({ "C1->C2": 67, "C2->C1": 54 }));
+  assert.equal(results[1].status, "recommended");
+  assert.equal(results[1].evidence.sameDayRoute?.routeABMinutes, 67);
+  assert.equal(results[1].evidence.sameDayRoute?.routeBAMinutes, 54);
+  assert.deepEqual(results[1].evidence.sameDayRoute?.selectedVisitOrder, ["C2", "C1"]);
+});
+
+test("신규 2건 양방향 모두 60분 초과면 같은 날 배정하지 않음", async () => {
+  const results = await recommendTwoNewWithOnlyFirstDate(directionalRoutes({ "C1->C2": 64, "C2->C1": 71 }));
+  assert.equal(results[1].status, "manual_required");
+  assert.equal(results[1].evidence.rejectedSameDayRoutes[0]?.routeDecision, "both_directions_over_60");
+});
+
+test("신규 2건 A→B 실패/B→A 48분이면 B→A 순서로 허용", async () => {
+  const results = await recommendTwoNewWithOnlyFirstDate(directionalRoutes({ "C1->C2": null, "C2->C1": 48 }));
+  assert.equal(results[1].status, "recommended");
+  assert.equal(results[1].evidence.sameDayRoute?.routeABMinutes, null);
+  assert.deepEqual(results[1].evidence.sameDayRoute?.selectedVisitOrder, ["C2", "C1"]);
+});
+
+test("신규 2건 A→B 70분/B→A 실패면 판단 불가로 같은 날 배정하지 않음", async () => {
+  const results = await recommendTwoNewWithOnlyFirstDate(directionalRoutes({ "C1->C2": 70, "C2->C1": null }));
+  assert.equal(results[1].status, "manual_required");
+  assert.equal(results[1].evidence.rejectedSameDayRoutes[0]?.routeDecision, "reverse_direction_unavailable");
+});
+
+test("신규 2건 양방향 실패면 같은 날 배정하지 않음", async () => {
+  const results = await recommendTwoNewWithOnlyFirstDate(directionalRoutes({ "C1->C2": null, "C2->C1": null }));
+  assert.equal(results[1].status, "manual_required");
+  assert.equal(results[1].evidence.rejectedSameDayRoutes[0]?.routeDecision, "both_directions_failed");
+});
+
+test("기존업체 경력 검토자 선정은 차량경로를 조회하거나 반영하지 않음", async () => {
+  const date = recommendationDates("2026-07-14")[0].date;
+  const calls: string[] = [];
+  const routes: RouteMetrics = {
+    between: async () => {
+      calls.push("unexpected");
+      throw new Error("기존업체 검토자 선정에서 경로를 조회하면 안 됩니다.");
+    },
+  };
+  const [result] = await recommendBatch({
+    targets: [target(1, "existing", novice(1))],
+    experiencedUsers: [experienced(10), experienced(11)],
+    existingAssignments: [existingAssignment(100, "R10", 10, date), existingAssignment(101, "R11", 11, date)],
+    availability: available(), routes,
+  });
+  assert.equal(result.experiencedReviewer?.id, 10);
+  assert.deepEqual(calls, []);
+  assert.equal(result.evidence.route, null);
+});
+
+test("신규업체 경력 동행자 선정은 양방향 차량경로 우선순위를 적용", async () => {
+  const date = recommendationDates("2026-07-14")[0].date;
+  const [result] = await recommendBatch({
+    targets: [target(1, "new", novice(1))],
+    experiencedUsers: [experienced(10), experienced(11)],
+    existingAssignments: [existingAssignment(100, "R10", 10, date), existingAssignment(101, "R11", 11, date)],
+    availability: available(),
+    routes: directionalRoutes({
+      "R10->C1": 100, "C1->R10": 95,
+      "R11->C1": 20, "C1->R11": 25,
+    }),
+  });
+  assert.equal(result.experiencedReviewer?.id, 11);
+  assert.equal(result.evidence.sameDayRoute?.selectedRouteMinutes, 20);
+  assert.deepEqual(result.evidence.sameDayRoute?.selectedVisitOrder, ["R11", "C1"]);
 });
 
 test("J: 기존업체는 동일 담당자 하루 최대 3건", async () => {
