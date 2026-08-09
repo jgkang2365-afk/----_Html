@@ -67,6 +67,19 @@ export interface RecommendationEvidence {
   route: RouteMetric | null;
   sameDayRoute: SameDayRouteEvidence | null;
   rejectedSameDayRoutes: SameDayRouteEvidence[];
+  singleCandidateAvailable: boolean;
+  sameRouteMinutes: number | null;
+  sameRouteThresholdMinutes: 30;
+  hardMaximumMinutes: 60;
+  selectionMode: "single" | "same_route_preferred" | "two_job_fallback" | null;
+  selectionReason:
+    | "single_available"
+    | "same_route_preferred_under_30"
+    | "single_day_preferred_over_30"
+    | "two_job_fallback_no_single_day"
+    | "over_60_rejected"
+    | "route_unverified_rejected"
+    | "no_available_date";
   experiencedNewAssignments: number | null;
   experiencedAllFieldAssignments: number | null;
   warnings: string[];

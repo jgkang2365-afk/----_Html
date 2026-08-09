@@ -151,6 +151,88 @@ test("H/I: 날짜 부족 시 신규 2건을 60분 이내만 허용한다", async
   assert.equal(denied[1].status, "manual_required");
 });
 
+test("-30의 10분 same-route는 -29 단독보다 우선", async () => {
+  const user = experienced(1);
+  const dates = recommendationDates("2026-07-14");
+  const [result] = await recommendBatch({
+    targets: [target(2, "new", user)], experiencedUsers: [user], availability: available(),
+    existingAssignments: [existingAssignment(1, "C1", user.id, dates[0].date)],
+    routes: directionalRoutes({ "C1->C2": 10, "C2->C1": 12 }),
+  });
+  assert.equal(result.date, dates[0].date);
+  assert.equal(result.evidence.selectionMode, "same_route_preferred");
+  assert.equal(result.evidence.selectionReason, "same_route_preferred_under_30");
+  assert.equal(result.evidence.singleCandidateAvailable, true);
+});
+
+test("-30의 38분 묶음보다 -29 단독을 우선", async () => {
+  const user = experienced(1);
+  const dates = recommendationDates("2026-07-14");
+  const [result] = await recommendBatch({
+    targets: [target(2, "new", user)], experiencedUsers: [user], availability: available(),
+    existingAssignments: [existingAssignment(1, "C1", user.id, dates[0].date)],
+    routes: directionalRoutes({ "C1->C2": 38, "C2->C1": 40 }),
+  });
+  assert.equal(result.date, dates[1].date);
+  assert.equal(result.evidence.selectionMode, "single");
+  assert.equal(result.evidence.selectionReason, "single_day_preferred_over_30");
+  assert.equal(result.evidence.sameRouteMinutes, 38);
+});
+
+test("기본구간 단독 날짜가 없으면 -30의 55분 묶음을 fallback으로 허용", async () => {
+  const user = experienced(1);
+  const dates = recommendationDates("2026-07-14");
+  const blocked = new Set(dates.filter((item) => item.workingDaysBefore >= 20).slice(1).map((item) => `${user.id}:${item.date}`));
+  const [result] = await recommendBatch({
+    targets: [target(2, "new", user)], experiencedUsers: [user], availability: available(blocked),
+    existingAssignments: [existingAssignment(1, "C1", user.id, dates[0].date)],
+    routes: directionalRoutes({ "C1->C2": 55, "C2->C1": 58 }),
+  });
+  assert.equal(result.date, dates[0].date);
+  assert.equal(result.evidence.selectionMode, "two_job_fallback");
+  assert.equal(result.evidence.selectionReason, "two_job_fallback_no_single_day");
+  assert.equal(result.evidence.singleCandidateAvailable, false);
+});
+
+test("기본구간 단독 날짜가 없어도 61분 묶음은 금지하고 다음 구간 탐색", async () => {
+  const user = experienced(1);
+  const dates = recommendationDates("2026-07-14");
+  const blocked = new Set(dates.filter((item) => item.workingDaysBefore >= 20).slice(1).map((item) => `${user.id}:${item.date}`));
+  const [result] = await recommendBatch({
+    targets: [target(2, "new", user)], experiencedUsers: [user], availability: available(blocked),
+    existingAssignments: [existingAssignment(1, "C1", user.id, dates[0].date)],
+    routes: directionalRoutes({ "C1->C2": 61, "C2->C1": 65 }),
+  });
+  assert.notEqual(result.date, dates[0].date);
+  assert.equal(result.evidence.range, "fallback");
+  assert.ok(result.evidence.rejectedSameDayRoutes.some((item) => item.routeDecision === "both_directions_over_60"));
+});
+
+test("기본구간 단독 불가 시 후순위구간 단독을 우선", async () => {
+  const user = experienced(1);
+  const dates = recommendationDates("2026-07-14");
+  const blocked = new Set(dates.filter((item) => item.workingDaysBefore >= 20).map((item) => `${user.id}:${item.date}`));
+  const [result] = await recommendBatch({
+    targets: [target(1, "new", user)], experiencedUsers: [user], availability: available(blocked), routes: route(),
+  });
+  assert.equal(result.evidence.workingDaysBefore, 19);
+  assert.equal(result.evidence.selectionMode, "single");
+});
+
+test("기본구간 단독 불가 시 25분 same-route를 기본구간에서 허용", async () => {
+  const user = experienced(1);
+  const dates = recommendationDates("2026-07-14");
+  const blocked = new Set(dates.filter((item) => item.workingDaysBefore >= 20).slice(1).map((item) => `${user.id}:${item.date}`));
+  const [result] = await recommendBatch({
+    targets: [target(2, "new", user)], experiencedUsers: [user], availability: available(blocked),
+    existingAssignments: [existingAssignment(1, "C1", user.id, dates[0].date)],
+    routes: directionalRoutes({ "C1->C2": 25, "C2->C1": 28 }),
+  });
+  assert.equal(result.date, dates[0].date);
+  assert.equal(result.evidence.selectionMode, "same_route_preferred");
+  assert.equal(result.evidence.sameRouteMinutes, 25);
+});
+
 async function recommendTwoNewWithOnlyFirstDate(routes: RouteMetrics) {
   const user = experienced(1);
   const dates = recommendationDates("2026-07-14");
@@ -280,7 +362,7 @@ test("Q-V: 단일 추천 저장/UI/수동수정/Google 신호 배제/score 제�
   assert.match(ui, /예비조사자\(복수선택 가능\)/);
   assert.doesNotMatch(ui, /선택한 추천안 적용|추천일 숨김/);
   assert.match(manualRoute, /plan_origin[\s\S]*manual/);
-  assert.doesNotMatch(engine, /Google|preferred|occupied/);
+  assert.doesNotMatch(engine, /Google|occupied|preferredDate|preferred_date/);
   assert.doesNotMatch(service, /preliminary_survey_rule_type/);
   assert.doesNotMatch(migration, /recommendation_score\s+(integer|bigint)/i);
 });
