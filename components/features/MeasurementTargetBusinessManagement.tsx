@@ -1220,7 +1220,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         ["신청중", "조회중", "신청완료대기"].includes(item.sync_status || "")
     );
 
-    // 깡통컴의 DB 변경을 화면에 반영합니다. 진행 중에는 빠르게, 평상시에는 낮은 빈도로 확인합니다.
+    // 깡통컴의 DB 변경을 화면에 반영합니다. 진행 중일 때만 주기적으로 확인하고,
+    // 평상시에는 창이 다시 활성화될 때 갱신해 불필요한 전체 목록 조회를 피합니다.
     useEffect(() => {
         const refreshWhenVisible = () => {
             if (document.visibilityState === "visible") {
@@ -1228,15 +1229,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             }
         };
 
-        const timer = window.setInterval(
-            refreshWhenVisible,
-            hasPendingNationalSupport ? 3000 : 15000,
-        );
+        const timer = hasPendingNationalSupport
+            ? window.setInterval(refreshWhenVisible, 10000)
+            : null;
         window.addEventListener("focus", refreshWhenVisible);
         document.addEventListener("visibilitychange", refreshWhenVisible);
 
         return () => {
-            window.clearInterval(timer);
+            if (timer !== null) {
+                window.clearInterval(timer);
+            }
             window.removeEventListener("focus", refreshWhenVisible);
             document.removeEventListener("visibilitychange", refreshWhenVisible);
         };

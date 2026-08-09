@@ -52,7 +52,7 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
             
             const data = await res.json();
             if (res.ok && data.success) {
-                // 수동 동기화 시작 후 3초 간격 폴링 시작
+                // 수동 동기화가 실행 중일 때만 5초 간격으로 상태를 확인합니다.
                 const pollInterval = setInterval(async () => {
                     try {
                         const statusRes = await fetch("/api/cron/mes-trigger");
@@ -78,7 +78,7 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                     } catch (pollErr) {
                         console.error("[DashboardClient] 동기화 상태 폴링 중 실패:", pollErr);
                     }
-                }, 3000);
+                }, 5000);
             } else {
                 setMesSyncStatus('error');
                 setSyncErrorMessage(data.error || "동기화 요청이 거부되었습니다.");

@@ -8,6 +8,9 @@ import { getCalendarConfigurationStatus } from "../google/calendar";
 import { processNationalSupportJob } from "./national-support-worker";
 import { enqueueNationalSupportJob } from "../national-support/job-queue";
 
+const JOB_POLL_INTERVAL_MS = 15_000;
+const STALE_JOB_RECOVERY_INTERVAL_MS = 5 * 60 * 1000;
+
 /**
  * 백그라운드 작업기 데몬 (Worker Daemon)
  * 로컬 서버 환경에서만 가동되며, background_jobs 테이블을 감시해
@@ -19,6 +22,7 @@ export class WorkerDaemon {
     private isProcessing: boolean = false;
     private currentK2BService: K2BService | null = null;
     private currentJobId: string | null = null;
+    private lastStaleJobRecoveryAt = 0;
 
     private constructor() {
         // 프로세스 종료 시 Graceful Shutdown을 위한 이벤트 등록
@@ -66,7 +70,8 @@ export class WorkerDaemon {
             "[WorkerDaemon] background_jobs 전용 작업기를 시작합니다. " +
             "(문서 생성 Worker와 별도 실행)"
         );
-        this.pollingInterval = setInterval(() => this.poll(), 5000);
+        void this.poll();
+        this.pollingInterval = setInterval(() => void this.poll(), JOB_POLL_INTERVAL_MS);
     }
 
     /**
@@ -92,7 +97,11 @@ export class WorkerDaemon {
         try {
             const supabase = await createClient();
 
-            await this.recoverStaleNationalSupportJobs(supabase);
+            const now = Date.now();
+            if (now - this.lastStaleJobRecoveryAt >= STALE_JOB_RECOVERY_INTERVAL_MS) {
+                this.lastStaleJobRecoveryAt = now;
+                await this.recoverStaleNationalSupportJobs(supabase);
+            }
 
             // PENDING 상태인 가장 오래된 작업 1개 획득
             const { data: jobs, error } = await supabase
