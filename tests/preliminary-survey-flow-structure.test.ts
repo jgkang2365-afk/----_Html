@@ -213,3 +213,20 @@ test("예비조사 추천 경로는 Google Calendar 신호를 읽거나 저장�
     assert.doesNotMatch(source, /calendarSignals|calendarPreference|GOOGLE_CALENDAR/);
   }
 });
+
+test("조 단위 추천 점수는 BIGINT 컬럼과 BIGINT RPC 인자로 저장한다", () => {
+  const migration = read(
+    "supabase/migrations/20260809_expand_preliminary_survey_recommendation_score.sql",
+  );
+
+  assert.match(migration, /ALTER COLUMN recommendation_score TYPE BIGINT/);
+  assert.match(migration, /p_recommendation_score BIGINT/);
+  assert.match(
+    migration,
+    /DROP FUNCTION IF EXISTS public\.persist_preliminary_survey_recommendation\([\s\S]*JSONB, INTEGER, JSONB, JSONB, INTEGER[\s\S]*\);/,
+  );
+  assert.match(
+    migration,
+    /GRANT EXECUTE ON FUNCTION public\.persist_preliminary_survey_recommendation\([\s\S]*JSONB, BIGINT, JSONB, JSONB, INTEGER[\s\S]*\) TO service_role/,
+  );
+});
