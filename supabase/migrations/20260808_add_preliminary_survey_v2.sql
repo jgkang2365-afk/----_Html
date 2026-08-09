@@ -151,14 +151,6 @@ BEGIN
     warnings = EXCLUDED.warnings,
     updated_at = CURRENT_TIMESTAMP
   RETURNING *;
-
-  -- 기존 복수선택 필드에 자동추천 결과를 기본 반영한다. 행이 없으면 새 legacy 행을 만들지 않는다.
-  UPDATE public.preliminary_survey
-  SET preliminary_surveyor = (
-    SELECT string_agg(value, ', ' ORDER BY ordinality)
-    FROM jsonb_array_elements_text(COALESCE(p_participant_names, '[]'::jsonb)) WITH ORDINALITY AS names(value, ordinality)
-  )
-  WHERE code = target_row.code AND year = target_row.year AND period = target_row.period;
 END;
 $$;
 

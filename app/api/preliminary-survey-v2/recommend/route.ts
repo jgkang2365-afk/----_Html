@@ -6,6 +6,9 @@ import { recommendAndPersistV2 } from "@/lib/preliminary-survey-v2/service";
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  if (session.role !== "관리자") {
+    return NextResponse.json({ error: "관리자만 V2 추천을 생성할 수 있습니다." }, { status: 403 });
+  }
   try {
     const body = await request.json();
     const targetIds = Array.isArray(body.targetIds) ? body.targetIds.map(Number).filter(Number.isFinite) : [];
