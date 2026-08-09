@@ -130,9 +130,8 @@ async function chooseReviewer(
     }));
   choices.sort((left, right) =>
     Number(left.hardConflict) - Number(right.hardConflict) ||
-    (target.kind === "existing" ? Number(left.crossTypeOverlap) - Number(right.crossTypeOverlap) : 0) ||
+    Number(left.crossTypeOverlap) - Number(right.crossTypeOverlap) ||
     compareRoute(left.route, right.route) ||
-    (target.kind === "new" ? Number(left.crossTypeOverlap) - Number(right.crossTypeOverlap) : 0) ||
     left.newCount - right.newCount ||
     left.allFieldCount - right.allFieldCount ||
     left.user.id - right.user.id,
@@ -356,6 +355,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         selected = finalize(overlapFallback, "single", "single_available", true, null);
       }
     } else {
+      let twoJobFallback: RecommendationResult | null = null;
       for (const range of ["primary", "fallback"] as const) {
         const rangeDates = dates.filter((candidate) =>
           range === "primary" ? candidate.workingDaysBefore >= 20 : candidate.workingDaysBefore < 20,
@@ -399,12 +399,15 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
             sameRoute.evidence.sameDayRoute!.selectedRouteMinutes,
           );
         } else if (pairCandidates[0]) {
-          selected = finalize(
-            pairCandidates[0], "two_job_fallback", "two_job_fallback_no_single_day", false,
-            pairCandidates[0].evidence.sameDayRoute!.selectedRouteMinutes,
-          );
+          twoJobFallback ??= pairCandidates[0];
         }
         if (selected) break;
+      }
+      if (!selected && twoJobFallback) {
+        selected = finalize(
+          twoJobFallback, "two_job_fallback", "two_job_fallback_no_single_day", false,
+          twoJobFallback.evidence.sameDayRoute!.selectedRouteMinutes,
+        );
       }
     }
 

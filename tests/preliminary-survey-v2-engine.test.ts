@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { recommendationDates } from "../lib/preliminary-survey-v2/calendar";
+import { buildScheduleBlockKeys } from "../lib/preliminary-survey-v2/availability";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "../lib/preliminary-survey-v2/classification";
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { validateManualPlanHardRules } from "../lib/preliminary-survey-v2/manual-validation";
@@ -118,6 +119,74 @@ test("A: 현재 날짜가 측정일 이후여도 측정일 기준 과거 후보�
   assert.ok(result.date! < "2026-07-14");
 });
 
+test("제외일 담당자는 해당 날짜 신규 현장 담당자로 추천하지 않고 다른 날짜를 선택", async () => {
+  const responsible = experienced(1);
+  const dates = recommendationDates("2026-07-14");
+  const [result] = await recommendBatch({
+    targets: [target(1, "new", responsible)],
+    experiencedUsers: [responsible],
+    availability: available(new Set([`${responsible.id}:${dates[0].date}`])),
+    routes: route(),
+  });
+  assert.equal(result.status, "recommended");
+  assert.equal(result.date, dates[1].date);
+});
+
+test("제외일 경력자는 신규업체 경력 동행자로 선택하지 않음", async () => {
+  const dates = recommendationDates("2026-07-14");
+  const [result] = await recommendBatch({
+    targets: [target(1, "new", novice(1))],
+    experiencedUsers: [experienced(10), experienced(11)],
+    availability: available(new Set([`10:${dates[0].date}`])),
+    routes: route(),
+  });
+  assert.equal(result.date, dates[0].date);
+  assert.equal(result.experiencedReviewer?.id, 11);
+});
+
+test("제외일 경력자는 기존업체 전화 경력 검토자로 선택하지 않음", async () => {
+  const dates = recommendationDates("2026-07-14");
+  const [result] = await recommendBatch({
+    targets: [target(1, "existing", novice(1))],
+    experiencedUsers: [experienced(10), experienced(11)],
+    availability: available(new Set([`10:${dates[0].date}`])),
+    routes: route(),
+  });
+  assert.equal(result.date, dates[0].date);
+  assert.equal(result.experiencedReviewer?.id, 11);
+});
+
+test("가능한 담당자와 날짜가 전혀 없으면 강제 배정하지 않음", async () => {
+  const responsible = novice(1);
+  const reviewer = experienced(10);
+  const blocked = new Set(recommendationDates("2026-07-14").flatMap(({ date }) => [
+    `${responsible.id}:${date}`,
+    `${reviewer.id}:${date}`,
+  ]));
+  const [result] = await recommendBatch({
+    targets: [target(1, "new", responsible)],
+    experiencedUsers: [reviewer],
+    availability: available(blocked),
+    routes: route(),
+  });
+  assert.equal(result.status, "manual_required");
+  assert.equal(result.date, null);
+  assert.deepEqual(result.participants, []);
+});
+
+test("제외일 범위는 시작일과 종료일을 모두 포함", () => {
+  const blocked = buildScheduleBlockKeys([{
+    user_id: 7,
+    start_date: "2026-08-10",
+    end_date: "2026-08-12",
+  }]);
+  assert.deepEqual([...blocked], [
+    "7:2026-08-10",
+    "7:2026-08-11",
+    "7:2026-08-12",
+  ]);
+});
+
 test("B: -30~-20 기본구간에서 -30을 우선한다", () => {
   assert.equal(recommendationDates("2026-07-14")[0].workingDaysBefore, 30);
 });
@@ -201,10 +270,24 @@ test("-30의 38분 묶음보다 -29 단독을 우선", async () => {
   assert.equal(result.evidence.sameRouteMinutes, 38);
 });
 
-test("기본구간 단독 날짜가 없으면 -30의 55분 묶음을 fallback으로 허용", async () => {
+test("기본구간 -30의 55분 묶음보다 후순위구간 정상 단독 날짜를 우선", async () => {
   const user = experienced(1);
   const dates = recommendationDates("2026-07-14");
   const blocked = new Set(dates.filter((item) => item.workingDaysBefore >= 20).slice(1).map((item) => `${user.id}:${item.date}`));
+  const [result] = await recommendBatch({
+    targets: [target(2, "new", user)], experiencedUsers: [user], availability: available(blocked),
+    existingAssignments: [existingAssignment(1, "C1", user.id, dates[0].date)],
+    routes: directionalRoutes({ "C1->C2": 55, "C2->C1": 58 }),
+  });
+  assert.equal(result.evidence.workingDaysBefore, 19);
+  assert.equal(result.evidence.selectionMode, "single");
+  assert.equal(result.evidence.singleCandidateAvailable, true);
+});
+
+test("전체 허용기간에 단독 날짜가 없을 때만 55분 묶음을 fallback으로 허용", async () => {
+  const user = experienced(1);
+  const dates = recommendationDates("2026-07-14");
+  const blocked = new Set(dates.slice(1).map((item) => `${user.id}:${item.date}`));
   const [result] = await recommendBatch({
     targets: [target(2, "new", user)], experiencedUsers: [user], availability: available(blocked),
     existingAssignments: [existingAssignment(1, "C1", user.id, dates[0].date)],
@@ -341,6 +424,40 @@ test("신규업체 경력 동행자 선정은 양방향 차량경로 우선순�
   assert.equal(result.experiencedReviewer?.id, 11);
   assert.equal(result.evidence.sameDayRoute?.selectedRouteMinutes, 20);
   assert.deepEqual(result.evidence.sameDayRoute?.selectedVisitOrder, ["R11", "C1"]);
+});
+
+test("신규 경력 동행자는 차량경로보다 cross-type 비중복을 우선", async () => {
+  const dates = recommendationDates("2026-07-14");
+  const responsible = novice(1);
+  const blocked = new Set(dates.slice(1).map((item) => `${responsible.id}:${item.date}`));
+  const existingReviewByA: ExistingAssignment = {
+    targetId: 200,
+    businessCode: "E200",
+    kind: "existing",
+    date: dates[0].date,
+    participants: [20, 10],
+    responsibleUserId: 20,
+    experiencedReviewerId: 10,
+    coordinate: null,
+    region: "충남 천안시",
+  };
+  const [result] = await recommendBatch({
+    targets: [target(1, "new", responsible)],
+    experiencedUsers: [experienced(10), experienced(11)],
+    existingAssignments: [
+      existingAssignment(100, "R10", 10, dates[0].date),
+      existingAssignment(101, "R11", 11, dates[0].date),
+      existingReviewByA,
+    ],
+    availability: available(blocked),
+    routes: directionalRoutes({
+      "R10->C1": 10, "C1->R10": 12,
+      "R11->C1": 20, "C1->R11": 22,
+    }),
+  });
+  assert.equal(result.experiencedReviewer?.id, 11);
+  assert.equal(result.evidence.crossTypeOverlap, false);
+  assert.equal(result.evidence.sameDayRoute?.selectedRouteMinutes, 20);
 });
 
 test("J: 기존업체는 동일 담당자 하루 최대 3건", async () => {

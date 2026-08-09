@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
+import { buildScheduleBlockKeys } from "./availability";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
 import { targetChangeRecommendationPolicy } from "./policy";
@@ -212,14 +213,7 @@ export async function calculateV2Recommendations(
         .gte("measurement_date", "2024-01-01").lte("measurement_date", latest)
     : { data: [], error: null };
   if (scheduleError) throw new Error(`V2_MEASUREMENT_SCHEDULE_QUERY_FAILED:${scheduleError.message}`);
-  const blockedKeys = new Set<string>();
-  for (const block of blocks ?? []) {
-    let cursor = String(block.start_date);
-    while (cursor <= String(block.end_date)) {
-      blockedKeys.add(`${block.user_id}:${cursor}`);
-      const date = new Date(`${cursor}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); cursor = date.toISOString().slice(0, 10);
-    }
-  }
+  const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
   for (const schedule of measurementRows ?? []) {
     const participantNames = new Set([
       ...names(schedule.measurer), ...names(schedule.actual_measurer), ...names(schedule.report_writer),
