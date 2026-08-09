@@ -1,3 +1,4 @@
+import asyncio
 import os
 import subprocess
 import sys
@@ -5,6 +6,14 @@ import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+
+from mes_daemon_realtime import (
+    MesDaemonRuntime,
+    MesRealtimeSettings,
+    MesWakeCoordinator,
+    effective_safety_check_seconds,
+    env_flag,
+)
 
 
 try:
@@ -26,7 +35,6 @@ if load_dotenv:
     load_dotenv(ROOT_DIR / ".env")
 
 QUEUE_ID = 1
-POLL_SECONDS = int(os.getenv("MES_DAEMON_POLL_SECONDS", "15"))
 IDLE_RESET_SECONDS = int(os.getenv("MES_DAEMON_IDLE_RESET_SECONDS", "10"))
 MACRO_TIMEOUT_SECONDS = int(os.getenv("MES_DAEMON_MACRO_TIMEOUT_SECONDS", "600"))
 DRY_RUN = os.getenv("MES_DAEMON_DRY_RUN", "").lower() in ("1", "true", "yes", "y")
@@ -36,7 +44,7 @@ def utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def get_supabase():
+def get_supabase_config():
     supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 
@@ -46,10 +54,11 @@ def get_supabase():
             "또는 SUPABASE_URL/SUPABASE_KEY를 설정하세요."
         )
 
-    return create_client(supabase_url, supabase_key)
+    return supabase_url, supabase_key
 
 
-supabase = get_supabase()
+SUPABASE_URL, SUPABASE_KEY = get_supabase_config()
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 def update_queue(status, error_message=None):
@@ -148,9 +157,19 @@ def run_mes_macro():
         raise RuntimeError(detail[-3000:])
 
 
-def handle_pending_request():
-    print("[MES Daemon] pending 요청을 감지했습니다.")
-    update_queue("running")
+def claim_pending_request():
+    response = (
+        supabase.table("mes_sync_queue")
+        .update({"status": "running", "error_message": None, "updated_at": utc_now_iso()})
+        .eq("id", QUEUE_ID)
+        .eq("status", "pending")
+        .execute()
+    )
+    return bool(response.data)
+
+
+def handle_claimed_request():
+    print("[MES Daemon] pending 요청을 선점했습니다.")
 
     try:
         run_mes_macro()
@@ -186,28 +205,33 @@ def handle_pending_request():
             print(f"[MES Daemon] idle 복귀 중 오류: {exc}")
 
 
-def poll_forever():
-    print("[MES Daemon] MES 동기화 데몬을 시작합니다.")
-    print(f"[MES Daemon] {POLL_SECONDS}초마다 mes_sync_queue 상태를 확인합니다.")
+def check_and_handle_pending():
+    response = supabase.table("mes_sync_queue").select("status").eq("id", QUEUE_ID).single().execute()
+    status = response.data.get("status") if response.data else None
+    if status != "pending" or not claim_pending_request():
+        return False
+    handle_claimed_request()
+    return True
 
-    while True:
-        try:
-            response = supabase.table("mes_sync_queue").select("status").eq("id", QUEUE_ID).single().execute()
-            status = response.data.get("status") if response.data else None
 
-            if status == "pending":
-                handle_pending_request()
-            else:
-                time.sleep(POLL_SECONDS)
-        except KeyboardInterrupt:
-            print("[MES Daemon] 사용자 요청으로 종료합니다.")
-            break
-        except Exception as exc:
-            print(f"[MES Daemon] 폴링 중 오류: {exc}")
-            time.sleep(POLL_SECONDS)
+async def run_daemon():
+    print("[MES Daemon] MES 동기화 Realtime 데몬을 시작합니다.")
+    settings = MesRealtimeSettings(
+        enabled=env_flag(os.getenv("MES_DAEMON_REALTIME_ENABLED")),
+        supabase_url=SUPABASE_URL,
+        realtime_key=SUPABASE_KEY,
+        safety_check_seconds=effective_safety_check_seconds(
+            os.getenv("MES_DAEMON_SAFETY_CHECK_SECONDS")
+        ),
+    )
+    runtime = MesDaemonRuntime(MesWakeCoordinator(check_and_handle_pending), settings)
+    await runtime.run()
 
 
 if __name__ == "__main__":
-    poll_forever()
+    try:
+        asyncio.run(run_daemon())
+    except KeyboardInterrupt:
+        print("[MES Daemon] 사용자 요청으로 종료합니다.")
 
 

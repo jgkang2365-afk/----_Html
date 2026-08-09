@@ -7,9 +7,19 @@ import { syncBusinessToCalendar } from "../google/sync-service";
 import { getCalendarConfigurationStatus } from "../google/calendar";
 import { processNationalSupportJob } from "./national-support-worker";
 import { enqueueNationalSupportJob } from "../national-support/job-queue";
+import {
+    millisecondsUntil,
+    RealtimeWakeCoordinator,
+    runQueueDrainCycle,
+    type WorkerWakeReason,
+} from "./realtime-wake-coordinator";
 
-const JOB_POLL_INTERVAL_MS = 15_000;
-const STALE_JOB_RECOVERY_INTERVAL_MS = 5 * 60 * 1000;
+const SAFETY_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const REALTIME_RECONNECT_DELAYS_MS = [5_000, 10_000, 30_000, 60_000] as const;
+const MAX_QUEUE_DRAIN_JOBS = 100;
+const MAX_TIMER_DELAY_MS = 2_147_000_000;
+const REALTIME_CHANNEL_NAME = "background-jobs-worker";
+const REALTIME_SIGNAL_TABLE = "background_job_pending_signals";
 
 /**
  * 백그라운드 작업기 데몬 (Worker Daemon)
@@ -18,11 +28,20 @@ const STALE_JOB_RECOVERY_INTERVAL_MS = 5 * 60 * 1000;
  */
 export class WorkerDaemon {
     private static instance: WorkerDaemon;
-    private pollingInterval: NodeJS.Timeout | null = null;
-    private isProcessing: boolean = false;
+    private started = false;
+    private safetyCheckTimer: NodeJS.Timeout | null = null;
+    private futureJobTimer: NodeJS.Timeout | null = null;
+    private futureJobWakeAt: number | null = null;
+    private reconnectTimer: NodeJS.Timeout | null = null;
+    private reconnectAttempt = 0;
+    private realtimeHasSubscribed = false;
+    private realtimeClient: any = null;
+    private realtimeChannel: any = null;
     private currentK2BService: K2BService | null = null;
     private currentJobId: string | null = null;
-    private lastStaleJobRecoveryAt = 0;
+    private readonly wakeCoordinator = new RealtimeWakeCoordinator(
+        (reason, includeMaintenance) => this.runWakeCycle(reason, includeMaintenance)
+    );
 
     private constructor() {
         // 프로세스 종료 시 Graceful Shutdown을 위한 이벤트 등록
@@ -51,10 +70,12 @@ export class WorkerDaemon {
             return;
         }
 
-        if (this.pollingInterval) {
+        if (this.started) {
             console.log("[WorkerDaemon] 이미 워커가 실행 중입니다.");
             return;
         }
+
+        this.started = true;
 
         const calendarConfiguration = getCalendarConfigurationStatus();
         if (!calendarConfiguration.valid) {
@@ -67,84 +88,95 @@ export class WorkerDaemon {
         }
 
         console.log(
-            "[WorkerDaemon] background_jobs 전용 작업기를 시작합니다. " +
+            "[WorkerDaemon] background_jobs 전용 Realtime 작업기를 시작합니다. " +
             "(문서 생성 Worker와 별도 실행)"
         );
-        void this.poll();
-        this.pollingInterval = setInterval(() => void this.poll(), JOB_POLL_INTERVAL_MS);
+        this.safetyCheckTimer = setInterval(
+            () => void this.wakeCoordinator.wake("safety-check", true),
+            SAFETY_CHECK_INTERVAL_MS
+        );
+        void this.wakeCoordinator.wake("startup", true);
+        void this.connectRealtime();
     }
 
     /**
      * 워커 정지
      */
-    public stop() {
-        if (this.pollingInterval) {
-            clearInterval(this.pollingInterval);
-            this.pollingInterval = null;
-            console.log("[WorkerDaemon] 백그라운드 작업기(Worker Daemon)를 정지했습니다.");
+    public async stop() {
+        if (!this.started) return;
+        this.started = false;
+        this.wakeCoordinator.stop();
+
+        if (this.safetyCheckTimer) clearInterval(this.safetyCheckTimer);
+        if (this.futureJobTimer) clearTimeout(this.futureJobTimer);
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.safetyCheckTimer = null;
+        this.futureJobTimer = null;
+        this.futureJobWakeAt = null;
+        this.reconnectTimer = null;
+        await this.closeRealtime();
+        console.log("[WorkerDaemon] 백그라운드 작업기(Worker Daemon)를 정지했습니다.");
+    }
+
+    private async runWakeCycle(reason: WorkerWakeReason, includeMaintenance: boolean) {
+        try {
+            const supabase = await createClient();
+            const processed = await runQueueDrainCycle({
+                includeMaintenance,
+                maxJobs: MAX_QUEUE_DRAIN_JOBS,
+                shouldContinue: () => this.started,
+                recoverStale: () => this.recoverStaleNationalSupportJobs(supabase),
+                processNext: () => this.processNextAvailableJob(supabase),
+                scheduleNext: () => this.scheduleNextAvailableJob(supabase),
+            });
+
+            if (processed >= MAX_QUEUE_DRAIN_JOBS) {
+                console.warn(`[WorkerDaemon] 큐 drain 안전 한도 도달: ${MAX_QUEUE_DRAIN_JOBS}`);
+            }
+            console.log(`[WorkerDaemon] 큐 확인 완료 reason=${reason} processed=${processed}`);
+        } catch (e: any) {
+            console.error(`[WorkerDaemon] 큐 확인 오류 reason=${reason}:`, e.message);
         }
     }
 
-    /**
-     * 큐 폴링 함수
-     */
-    private async poll() {
-        // 현재 작업을 처리 중이면 중복 폴링 패스
-        if (this.isProcessing) return;
+    private async processNextAvailableJob(supabase: any): Promise<boolean> {
+        const { data: jobs, error } = await supabase
+            .from('background_jobs')
+            .select('*')
+            .eq('status', 'pending')
+            .lte('available_at', new Date().toISOString())
+            .order('available_at', { ascending: true })
+            .order('created_at', { ascending: true })
+            .limit(1);
 
-        this.isProcessing = true;
+        if (error) throw error;
+        if (!jobs || jobs.length === 0) return false;
+
+        const job = jobs[0];
+
+        // Realtime은 깨우기 신호일 뿐이며 실제 선점은 기존 조건부 갱신으로 보장합니다.
+        const { data: updatedJobs, error: lockError } = await supabase
+            .from('background_jobs')
+            .update({
+                status: 'processing',
+                updated_at: getKSTISOString()
+            })
+            .eq('id', job.id)
+            .eq('status', 'pending')
+            .lte('available_at', new Date().toISOString())
+            .select();
+
+        if (lockError) throw lockError;
+
+        if (!updatedJobs || updatedJobs.length === 0) {
+            console.log(`[WorkerDaemon] 작업 선점 실패 (이미 다른 프로세스가 처리 중): ${job.id}`);
+            return true;
+        }
+
+        console.log(`[WorkerDaemon] 작업 선점 성공: ID = ${job.id}, Type = ${job.job_type}`);
+        this.currentJobId = job.id;
 
         try {
-            const supabase = await createClient();
-
-            const now = Date.now();
-            if (now - this.lastStaleJobRecoveryAt >= STALE_JOB_RECOVERY_INTERVAL_MS) {
-                this.lastStaleJobRecoveryAt = now;
-                await this.recoverStaleNationalSupportJobs(supabase);
-            }
-
-            // PENDING 상태인 가장 오래된 작업 1개 획득
-            const { data: jobs, error } = await supabase
-                .from('background_jobs')
-                .select('*')
-                .eq('status', 'pending')
-                .lte('available_at', new Date().toISOString())
-                .order('available_at', { ascending: true })
-                .order('created_at', { ascending: true })
-                .limit(1);
-
-            if (error) throw error;
-            if (!jobs || jobs.length === 0) {
-                this.isProcessing = false;
-                return;
-            }
-
-            const job = jobs[0];
-
-            // 낙관적 락(Optimistic Lock): 상태를 'processing'으로 업데이트하여 선점 시도
-            const { data: updatedJobs, error: lockError } = await supabase
-                .from('background_jobs')
-                .update({ 
-                    status: 'processing',
-                    updated_at: getKSTISOString()
-                })
-                .eq('id', job.id)
-                .eq('status', 'pending')
-                .select();
-
-            if (lockError) throw lockError;
-
-            // 이미 다른 워커가 가져갔거나 낙관적 락 획득 실패 시 다음 루프로 패스
-            if (!updatedJobs || updatedJobs.length === 0) {
-                console.log(`[WorkerDaemon] 작업 선점 실패 (이미 다른 프로세스가 처리 중): ${job.id}`);
-                this.isProcessing = false;
-                return;
-            }
-
-            console.log(`[WorkerDaemon] 작업 선점 성공: ID = ${job.id}, Type = ${job.job_type}`);
-            this.currentJobId = job.id;
-
-            // 실제 작업 처리 분기
             if (job.job_type === 'email') {
                 await this.processEmailJob(job);
             } else if (job.job_type === 'k2b') {
@@ -154,13 +186,130 @@ export class WorkerDaemon {
             } else {
                 throw new Error(`알 수 없는 작업 유형: ${job.job_type}`);
             }
-
-        } catch (e: any) {
-            console.error("[WorkerDaemon] 폴링 루프 오류:", e.message);
         } finally {
-            this.isProcessing = false;
             this.currentJobId = null;
         }
+        return true;
+    }
+
+    private async scheduleNextAvailableJob(supabase: any) {
+        const { data, error } = await supabase
+            .from('background_jobs')
+            .select('available_at')
+            .eq('status', 'pending')
+            .gt('available_at', new Date().toISOString())
+            .order('available_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data?.available_at) {
+            if (this.futureJobTimer) clearTimeout(this.futureJobTimer);
+            this.futureJobTimer = null;
+            this.futureJobWakeAt = null;
+            return;
+        }
+
+        const delay = millisecondsUntil(data.available_at);
+        if (delay === null) return;
+        const wakeAt = Date.now() + delay;
+        if (this.futureJobTimer && this.futureJobWakeAt === wakeAt) return;
+
+        if (this.futureJobTimer) clearTimeout(this.futureJobTimer);
+        this.futureJobWakeAt = wakeAt;
+        this.futureJobTimer = setTimeout(() => {
+            this.futureJobTimer = null;
+            this.futureJobWakeAt = null;
+            void this.wakeCoordinator.wake("available-at");
+        }, Math.min(delay, MAX_TIMER_DELAY_MS));
+        console.log(`[WorkerDaemon] 미래 예약 작업 깨우기 예약: ${data.available_at}`);
+    }
+
+    private async connectRealtime() {
+        if (!this.started || this.realtimeChannel) return;
+
+        try {
+            const client = await createClient();
+            const channel = client
+                .channel(REALTIME_CHANNEL_NAME)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: REALTIME_SIGNAL_TABLE,
+                        filter: 'status=eq.pending',
+                    },
+                    (payload: any) => {
+                        const record = payload?.new || payload?.record || {};
+                        if (record.status !== 'pending') return;
+                        void this.wakeCoordinator.wake("realtime-event");
+                    }
+                );
+
+            this.realtimeClient = client;
+            this.realtimeChannel = channel;
+            channel.subscribe((status: string, error?: Error) => {
+                if (status === 'SUBSCRIBED') {
+                    const reason: WorkerWakeReason = this.realtimeHasSubscribed
+                        ? "realtime-reconnected"
+                        : "startup";
+                    this.realtimeHasSubscribed = true;
+                    this.reconnectAttempt = 0;
+                    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+                    this.reconnectTimer = null;
+                    console.log(`[WorkerDaemon] Realtime 구독 완료 table=${REALTIME_SIGNAL_TABLE}`);
+                    // 구독 설치 뒤 다시 확인해 시작/재연결 사이에 생긴 작업도 놓치지 않습니다.
+                    void this.wakeCoordinator.wake(reason, true);
+                    return;
+                }
+
+                if (['TIMED_OUT', 'CLOSED', 'CHANNEL_ERROR'].includes(status)) {
+                    console.error(
+                        `[WorkerDaemon] Realtime 상태 오류 status=${status}`,
+                        error ? this.safeRealtimeError(error) : ''
+                    );
+                    this.scheduleRealtimeReconnect();
+                }
+            });
+        } catch (error: any) {
+            console.error('[WorkerDaemon] Realtime 연결 실패:', this.safeRealtimeError(error));
+            this.scheduleRealtimeReconnect();
+        }
+    }
+
+    private scheduleRealtimeReconnect() {
+        if (!this.started || this.reconnectTimer) return;
+
+        const delay = REALTIME_RECONNECT_DELAYS_MS[
+            Math.min(this.reconnectAttempt, REALTIME_RECONNECT_DELAYS_MS.length - 1)
+        ];
+        this.reconnectAttempt += 1;
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            void this.closeRealtime().then(() => this.connectRealtime());
+        }, delay);
+        console.log(`[WorkerDaemon] Realtime 재연결 예약 delay=${delay}ms`);
+    }
+
+    private async closeRealtime() {
+        const client = this.realtimeClient;
+        const channel = this.realtimeChannel;
+        this.realtimeClient = null;
+        this.realtimeChannel = null;
+        if (!client || !channel) return;
+
+        try {
+            await client.removeChannel(channel);
+        } catch (error: any) {
+            console.warn('[WorkerDaemon] Realtime 채널 정리 실패:', this.safeRealtimeError(error));
+        }
+    }
+
+    private safeRealtimeError(error: unknown): string {
+        const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+        const message = error instanceof Error ? error.message : String(error);
+        return (secret ? message.replaceAll(secret, '***') : message).slice(0, 500);
     }
 
     private async recoverStaleNationalSupportJobs(supabase: any) {
@@ -735,7 +884,7 @@ export class WorkerDaemon {
      */
     private async handleShutdown(signal: string) {
         console.log(`[WorkerDaemon] ${signal} 종료 신호 감지. 자원 정지 및 클린업을 시작합니다...`);
-        this.stop();
+        await this.stop();
 
         // 1. 실행 중인 크롬 브라우저 닫기
         if (this.currentK2BService) {
