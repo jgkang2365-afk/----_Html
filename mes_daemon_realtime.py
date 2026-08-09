@@ -92,6 +92,52 @@ class MesWakeCoordinator:
                 current_reason = "coalesced-event"
 
 
+async def smoke_test_subscription(
+    settings: MesRealtimeSettings,
+    *,
+    realtime_factory: Callable[[str, str], Any] | None = None,
+    timeout_seconds: float = 20,
+) -> None:
+    """Realtime 연결과 구독만 확인하고 pending 작업은 조회하거나 실행하지 않는다."""
+    factory = realtime_factory or MesDaemonRuntime._default_realtime_factory
+    client: Any = None
+    channel: Any = None
+    subscribed = asyncio.Event()
+
+    try:
+        client = factory(settings.supabase_url, settings.realtime_key)
+        await client.connect()
+        channel = client.channel(REALTIME_TOPIC)
+        channel.on_postgres_changes(
+            event="UPDATE",
+            schema=REALTIME_SCHEMA,
+            table=REALTIME_TABLE,
+            filter=REALTIME_FILTER,
+            callback=lambda _payload: None,
+        )
+
+        def on_subscribe(status: Any, error: Exception | None) -> None:
+            state = str(getattr(status, "value", status))
+            if state == "SUBSCRIBED":
+                subscribed.set()
+            elif error is not None:
+                raise error
+
+        await channel.subscribe(on_subscribe)
+        await asyncio.wait_for(subscribed.wait(), timeout=timeout_seconds)
+    finally:
+        if channel is not None:
+            try:
+                await channel.unsubscribe()
+            except Exception:
+                pass
+        if client is not None:
+            try:
+                await client.close()
+            except Exception:
+                pass
+
+
 class MesDaemonRuntime:
     def __init__(
         self,

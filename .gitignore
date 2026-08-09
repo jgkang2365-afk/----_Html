@@ -66,6 +66,8 @@ google-credentials.json
 # 임시 파일
 __pycache__/
 *.pyc
+*.egg-info/
+.venv-mes-daemon/
 logs/
 scratch/__pycache__/
 

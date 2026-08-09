@@ -8,11 +8,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from mes_daemon_realtime import (
+    DEFAULT_SAFETY_CHECK_SECONDS,
     MesDaemonRuntime,
     MesRealtimeSettings,
     MesWakeCoordinator,
     effective_safety_check_seconds,
     env_flag,
+    smoke_test_subscription,
 )
 
 
@@ -24,7 +26,11 @@ except ImportError:
 try:
     from supabase import create_client
 except ImportError:
-    print("[MES Daemon] supabase 패키지가 필요합니다. 먼저 `pip install supabase python-dotenv`를 실행하세요.")
+    print(
+        "[MES Daemon] Python 의존성이 없습니다. "
+        "먼저 `.venv-mes-daemon\\Scripts\\python.exe -m pip install "
+        "-r requirements-mes-daemon.in`을 실행하세요."
+    )
     raise
 
 
@@ -228,9 +234,24 @@ async def run_daemon():
     await runtime.run()
 
 
+async def run_realtime_smoke_test():
+    """MES 작업이나 DB 조회 없이 Realtime 채널 연결과 구독만 검증한다."""
+    settings = MesRealtimeSettings(
+        enabled=True,
+        supabase_url=SUPABASE_URL,
+        realtime_key=SUPABASE_KEY,
+        safety_check_seconds=DEFAULT_SAFETY_CHECK_SECONDS,
+    )
+    await smoke_test_subscription(settings)
+    print("[MES Daemon] Realtime 구독 smoke test 성공: mes_sync_queue")
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(run_daemon())
+        if "--realtime-smoke-test" in sys.argv[1:]:
+            asyncio.run(run_realtime_smoke_test())
+        else:
+            asyncio.run(run_daemon())
     except KeyboardInterrupt:
         print("[MES Daemon] 사용자 요청으로 종료합니다.")
 

@@ -11,6 +11,11 @@ $script:allowRestart = $true
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 function Get-PythonCommand {
+    $venvPython = Join-Path $projectDir ".venv-mes-daemon\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython) {
+        return @{ File = $venvPython; Arguments = "`"$projectDir\mes_daemon.py`"" }
+    }
+
     $python = Get-Command python.exe -ErrorAction SilentlyContinue
     if ($python) {
         return @{ File = $python.Source; Arguments = "`"$projectDir\mes_daemon.py`"" }

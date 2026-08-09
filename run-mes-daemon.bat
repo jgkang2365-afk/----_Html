@@ -4,6 +4,11 @@ cd /d "%~dp0"
 
 set "MES_DAEMON_DRY_RUN=false"
 
+if exist ".venv-mes-daemon\Scripts\python.exe" (
+    ".venv-mes-daemon\Scripts\python.exe" mes_daemon.py
+    goto END
+)
+
 where python >nul 2>&1
 if %errorlevel% equ 0 (
     python mes_daemon.py

@@ -9,6 +9,7 @@ from mes_daemon_realtime import (
     MesWakeCoordinator,
     effective_safety_check_seconds,
     is_pending_mes_event,
+    smoke_test_subscription,
 )
 
 
@@ -60,6 +61,22 @@ class FakeRealtimeClient:
 
 
 class MesDaemonRealtimeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_smoke_test_only_subscribes_and_cleans_up(self):
+        fake_client = FakeRealtimeClient()
+        settings = MesRealtimeSettings(
+            True, "https://project.supabase.co", "secret", 21600
+        )
+
+        await smoke_test_subscription(
+            settings, realtime_factory=lambda _url, _key: fake_client
+        )
+
+        self.assertEqual(fake_client.topic, "mes-sync-queue-worker")
+        self.assertEqual(fake_client.channel_instance.binding["event"], "UPDATE")
+        self.assertEqual(fake_client.channel_instance.binding["filter"], "id=eq.1")
+        self.assertTrue(fake_client.channel_instance.unsubscribed)
+        self.assertTrue(fake_client.closed)
+
     def test_event_only_accepts_pending_queue_row(self):
         self.assertTrue(is_pending_mes_event({"new": {"id": 1, "status": "pending"}}))
         self.assertFalse(is_pending_mes_event({"new": {"id": 1, "status": "running"}}))
