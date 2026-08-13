@@ -27,6 +27,27 @@ export function areEquivalentWindowsDialogPaths(expected: string, actual: string
     return actual.trim().length > 0 && normalize(expected) === normalize(actual);
 }
 
+const LOGIN_POPUP_SELECTORS = [
+    'div#mainframe_VFrameSet_LoginFrame_form_div_popup_361_btn_close',
+    'div#mainframe_VFrameSet_LoginFrame_form_div_popup_360_btn_close'
+];
+
+export async function closeExistingK2BLoginPopups(
+    driver: Pick<WebDriver, 'findElements'>
+): Promise<number> {
+    let closedCount = 0;
+
+    for (const selector of LOGIN_POPUP_SELECTORS) {
+        const buttons = await driver.findElements(By.css(selector));
+        if (buttons.length === 0) continue;
+
+        await buttons[0].click();
+        closedCount++;
+    }
+
+    return closedCount;
+}
+
 type FileDialogDiagnosticContext = {
     businessCode: string;
     phase: 'TXT' | 'DRAWINGS';
@@ -91,7 +112,7 @@ type K2BUploadResult = {
  * 핵심 포인트:
  * - Nexacro 기반 K2B 사이트는 일반 input[type=file]이 아닌 OS 파일 대화상자를 사용
  * - 파이썬의 pyperclip + pyautogui 로직을 PowerShell SendKeys로 대체
- * - 모든 sleep 시간은 원본 파이썬 스크립트와 동일하게 유지
+ * - 로그인 요소는 고정 대기 대신 준비 조건을 우선 사용
  */
 export class K2BService {
     private driver: WebDriver | null = null;
@@ -143,14 +164,12 @@ export class K2BService {
     /**
      * K2B 로그인 및 파일전송(신) 메뉴 진입
      * 
-     * 파이썬 원본 흐름:
-     * 1. k2b_url 접속 → sleep(2)
-     * 2. 로그인 화면 팝업 닫기 (2개) → 각각 sleep(1)
-     * 3. sleep(2) (로그인 페이지 이동 대기)
-     * 4. ID 입력 → PW 입력 → 로그인 버튼 클릭
-     * 5. title_contains("K2B") 대기 (20초)
-     * 6. 내부 팝업 닫기 → sleep(1)
-     * 7. '파일전송(신)' 클릭 → sleep(3)
+     * 로그인 흐름:
+     * 1. k2b_url 접속
+     * 2. 현재 존재하는 로그인 화면 팝업 닫기
+     * 3. ID/PW/로그인 버튼이 준비되는 즉시 입력 및 클릭
+     * 4. 로그인 성공 화면 대기
+     * 5. 내부 팝업 닫기 후 '파일전송(신)' 진입
      */
     async login(id?: string, pw?: string) {
         if (!this.driver) throw new Error('Driver not initialized');
@@ -158,27 +177,9 @@ export class K2BService {
         // Step 0: K2B 접속
         console.log('[K2B] 사이트 접속 중: https://k2b.kosha.or.kr/index.do');
         await this.driver.get('https://k2b.kosha.or.kr/index.do');
-        await this.driver.sleep(2000); // time.sleep(2)
 
-        // Step 1: 로그인 화면 팝업 닫기 (2개)
-        const popupSelectors = [
-            'div#mainframe_VFrameSet_LoginFrame_form_div_popup_361_btn_close',
-            'div#mainframe_VFrameSet_LoginFrame_form_div_popup_360_btn_close'
-        ];
-        for (const selector of popupSelectors) {
-            try {
-                const btn = await this.driver.wait(
-                    until.elementLocated(By.css(selector)), 5000
-                );
-                await btn.click();
-                await this.driver.sleep(1000); // time.sleep(1)
-            } catch (e) {
-                // 팝업이 없으면 무시 (except TimeoutException: pass)
-            }
-        }
-
-        // 로그인 페이지 이동 대기
-        await this.driver.sleep(2000); // time.sleep(2)
+        // Step 1: 현재 DOM에 존재하는 로그인 화면 팝업만 즉시 닫기
+        await closeExistingK2BLoginPopups(this.driver);
 
         // Step 2: 로그인 정보 입력
         const loginId = id || process.env.K2B_ID;
