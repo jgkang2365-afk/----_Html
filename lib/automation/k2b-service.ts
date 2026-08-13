@@ -2,6 +2,7 @@ import { Builder, By, Key, until, WebDriver, WebElement } from 'selenium-webdriv
 import chrome from 'selenium-webdriver/chrome';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { execFileSync } from 'child_process';
 import { resolveWindowsDialogPath } from './windows-file-path';
 
@@ -49,6 +50,60 @@ export function logFileDialogError(
 ): void {
     const message = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').trim();
     console.log(`${fileDialogLogPrefix(context)} FILE_DIALOG_ERROR=${message}`);
+}
+
+type PowerShellExecFile = (
+    file: string,
+    args: string[],
+    options: {
+        windowsHide: boolean;
+        stdio: ['ignore', 'pipe', 'pipe'];
+        timeout?: number;
+    }
+) => Buffer | string;
+
+export function executePowerShellScriptFile(
+    command: string,
+    timeoutMs?: number,
+    execute: PowerShellExecFile = execFileSync as PowerShellExecFile
+): string {
+    const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'k2b-powershell-'));
+    const scriptPath = path.join(tempDirectory, 'file-dialog.ps1');
+
+    try {
+        // Windows PowerShell 5.1에서 한글과 특수문자를 안정적으로 읽도록 UTF-16LE BOM으로 기록합니다.
+        fs.writeFileSync(scriptPath, `\uFEFF${command}`, 'utf16le');
+        const output = execute(
+            'powershell.exe',
+            ['-NoProfile', '-Sta', '-NonInteractive', '-File', scriptPath],
+            { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs }
+        );
+        return Buffer.isBuffer(output) ? output.toString('utf8') : String(output);
+    } finally {
+        try {
+            fs.rmSync(tempDirectory, { recursive: true, force: true });
+        } catch {
+            // 임시 파일 정리 실패가 K2B 본 작업 결과를 덮어쓰지 않게 합니다.
+        }
+    }
+}
+
+export function getPowerShellSpawnErrorMetadata(error: unknown) {
+    const spawnError = error as NodeJS.ErrnoException & { signal?: string | null };
+    return {
+        code: spawnError?.code ?? 'unknown',
+        errno: spawnError?.errno ?? 'unknown',
+        syscall: spawnError?.syscall ?? 'unknown',
+        message: String(spawnError?.message || error || 'unknown').replace(/\s+/g, ' ').trim(),
+        signal: spawnError?.signal ?? 'none'
+    };
+}
+
+export function getPowerShellCommandLengths(command: string) {
+    return {
+        commandLength: command.length,
+        encodedCommandLength: Buffer.from(command, 'utf16le').toString('base64').length
+    };
 }
 
 type K2BFailureStage =
@@ -288,21 +343,29 @@ export class K2BService {
         }
     }
 
-    private runEncodedPowerShell(
+    private runPowerShellScript(
         command: string,
         diagnosticContext?: FileDialogDiagnosticContext,
         timeoutMs?: number
     ) {
-        const encodedCommand = Buffer.from(command, 'utf16le').toString('base64');
+        const commandLengths = getPowerShellCommandLengths(command);
+        if (diagnosticContext) {
+            console.log(`${fileDialogLogPrefix(diagnosticContext)} POWERSHELL_COMMAND_LENGTH=${commandLengths.commandLength}`);
+            console.log(`${fileDialogLogPrefix(diagnosticContext)} POWERSHELL_ENCODED_LENGTH=${commandLengths.encodedCommandLength}`);
+        }
         try {
-            const output = execFileSync(
-                'powershell.exe',
-                ['-NoProfile', '-Sta', '-NonInteractive', '-EncodedCommand', encodedCommand],
-                { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs }
-            ).toString('utf8');
+            const output = executePowerShellScriptFile(command, timeoutMs);
             this.logFileDialogDiagnostics(output, diagnosticContext);
             return output;
         } catch (error: any) {
+            const spawnMetadata = getPowerShellSpawnErrorMetadata(error);
+            if (diagnosticContext) {
+                console.log(
+                    `${fileDialogLogPrefix(diagnosticContext)} POWERSHELL_SPAWN_ERROR ` +
+                    `code=${spawnMetadata.code} errno=${spawnMetadata.errno} ` +
+                    `syscall=${spawnMetadata.syscall} message=${spawnMetadata.message} signal=${spawnMetadata.signal}`
+                );
+            }
             const stdout = Buffer.isBuffer(error?.stdout)
                 ? error.stdout.toString('utf8')
                 : String(error?.stdout || '');
@@ -343,6 +406,8 @@ export class K2BService {
             }
             throw new Error(
                 `Windows 파일 선택 자동화 명령이 실패했습니다.` +
+                ` 프로세스 오류: code=${spawnMetadata.code}, errno=${spawnMetadata.errno}, ` +
+                `syscall=${spawnMetadata.syscall}, message=${spawnMetadata.message}.` +
                 (stderrDetail ? ` PowerShell 오류: ${stderrDetail}` : '')
             );
         }
@@ -720,7 +785,7 @@ while ($closeWatch.ElapsedMilliseconds -lt 10000) {
 throw 'K2B_FILE_OPEN_TIMEOUT'
 `;
         logFileDialogBoundary(diagnosticContext, 'runEncodedPowerShell ENTER');
-        const result = this.runEncodedPowerShell(command, diagnosticContext, 25000);
+        const result = this.runPowerShellScript(command, diagnosticContext, 25000);
         logFileDialogBoundary(diagnosticContext, 'runEncodedPowerShell EXIT success');
         return result;
     }
@@ -742,7 +807,7 @@ foreach ($window in $windows) {
 }
 `;
         try {
-            this.runEncodedPowerShell(command);
+            this.runPowerShellScript(command);
         } catch (error) {
             console.warn('[K2B] 실패한 파일 선택창 정리 오류:', (error as Error).message);
         }
@@ -798,7 +863,7 @@ foreach ($window in $windows) {
 `;
         let dialogState = 'K2B_STATE|{"OpenDialogCount":"unknown"}';
         try {
-            const output = this.runEncodedPowerShell(command);
+            const output = this.runPowerShellScript(command);
             dialogState = output.split(/\r?\n/).find(line => line.startsWith('K2B_STATE|')) || dialogState;
         } catch (error) {
             dialogState = `K2B_STATE|{"SnapshotError":${JSON.stringify((error as Error).message)}}`;
