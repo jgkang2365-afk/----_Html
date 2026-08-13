@@ -211,3 +211,31 @@ export function calculateMeasurementWeekdays(
 
   return weekdayList.join(", ");
 }
+
+/**
+ * 실제 등록된 측정 일정의 날짜만 기준으로 요일을 계산합니다.
+ * 날짜 범위 사이의 날은 포함하지 않습니다.
+ */
+export function calculateMeasurementWeekdaysFromDates(
+  dates: Array<Date | string | null | undefined>
+): string {
+  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+  const result: string[] = [];
+
+  const normalizedDates = dates
+    .map((value) => {
+      if (!value) return null;
+      if (value instanceof Date) return value;
+      const dateOnly = value.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+      return new Date(dateOnly ? `${dateOnly}T00:00:00` : value);
+    })
+    .filter((value): value is Date => Boolean(value && !isNaN(value.getTime())))
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  for (const date of normalizedDates) {
+    const weekday = weekdays[date.getDay()];
+    if (!result.includes(weekday)) result.push(weekday);
+  }
+
+  return result.join(", ");
+}

@@ -34,12 +34,19 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { role, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active } = body;
+    const { role, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_preliminary_survey_support_assignable, is_active } = body;
 
     if (role && !["관리자", "사용자"].includes(role)) {
       return NextResponse.json(
         { error: "역할은 '관리자', '사용자' 중 하나여야 합니다." },
         { status: 400 }
+      );
+    }
+
+    if (!is_preliminary_survey_experienced && is_preliminary_survey_support_assignable) {
+      return NextResponse.json(
+        { error: "PRELIMINARY_SURVEY_SUPPORT_REQUIRES_EXPERIENCE" },
+        { status: 400 },
       );
     }
 
@@ -70,10 +77,14 @@ export async function PATCH(
         is_journal_manager: !!is_journal_manager,
         is_national_support_manager: !!is_national_support_manager,
         is_designated_office_report_manager: !!is_designated_office_report_manager,
+        is_preliminary_survey_experienced: !!is_preliminary_survey_experienced,
+        is_preliminary_survey_support_assignable:
+          !!is_preliminary_survey_experienced &&
+          !!is_preliminary_survey_support_assignable,
         ...(is_active !== undefined && { is_active }),
       })
       .eq("id", userId)
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active, updated_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_preliminary_survey_support_assignable, is_active, updated_at")
       .maybeSingle();
 
     if (primaryUpdate.error) {
@@ -106,7 +117,9 @@ export async function PATCH(
       finalUpdatedUser = {
         ...fallbackUpdate.data,
         is_national_support_manager: false,
-        is_designated_office_report_manager: false
+        is_designated_office_report_manager: false,
+        is_preliminary_survey_experienced: false,
+        is_preliminary_survey_support_assignable: false,
       };
     } else {
       finalUpdatedUser = primaryUpdate.data;

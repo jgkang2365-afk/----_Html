@@ -10,6 +10,81 @@ import {
   calculateActualSlots,
 } from "@/lib/utils/survey-assignment";
 import { getUser } from "@/lib/auth/get-user";
+import { calculateMeasurementWeekdaysFromDates } from "@/lib/utils/date-utils";
+
+async function attachPreliminarySurveyPlanInfo(supabase: any, surveys: any[]) {
+  if (surveys.length === 0) return surveys;
+  const codes = [...new Set(surveys.map((survey) => survey.code).filter(Boolean))];
+  const years = [...new Set(surveys.map((survey) => Number(survey.year)).filter(Number.isInteger))];
+  if (codes.length === 0 || years.length === 0) return surveys;
+
+  const { data: targets, error: targetError } = await supabase
+    .from("measurement_target_business")
+    .select("id, code, year, period, daily_staff")
+    .in("code", codes)
+    .in("year", years);
+  if (targetError || !targets?.length) return surveys;
+
+  const targetByKey = new Map(
+    targets.map((target: any) => [
+      `${target.code}|${target.year}|${target.period}`,
+      target,
+    ]),
+  );
+  const targetIds = targets.map((target: any) => Number(target.id));
+  const { data: plans, error: planError } = await supabase
+    .from("preliminary_survey_plans")
+    .select("measurement_target_business_id, responsible_user_id, experienced_user_id, recommended_date, confirmed_date, status, updated_at")
+    .in("measurement_target_business_id", targetIds)
+    .in("status", ["pending", "recommended", "confirmed", "needs_review"])
+    .order("updated_at", { ascending: false });
+  const availablePlans = planError ? [] : plans || [];
+
+  const planByTargetId = new Map<number, any>();
+  for (const plan of availablePlans) {
+    const targetId = Number(plan.measurement_target_business_id);
+    if (!planByTargetId.has(targetId)) planByTargetId.set(targetId, plan);
+  }
+  const userIds = [
+    ...new Set(
+      availablePlans.flatMap((plan: any) => [
+        Number(plan.responsible_user_id),
+        Number(plan.experienced_user_id),
+      ]).filter(Number.isInteger),
+    ),
+  ];
+  const { data: users } = userIds.length
+    ? await supabase.from("users").select("id, name").in("id", userIds)
+    : { data: [] };
+  const userNameById = new Map(
+    (users || []).map((user: any) => [Number(user.id), String(user.name || "")]),
+  );
+
+  return surveys.map((survey) => {
+    const target = targetByKey.get(`${survey.code}|${survey.year}|${survey.period}`) as any;
+    const plan = target ? planByTargetId.get(Number(target.id)) : null;
+    const measurementScheduleDates = Array.isArray(target?.daily_staff)
+      ? target.daily_staff
+          .map((entry: any) => String(entry?.date || "").match(/^\d{4}-\d{2}-\d{2}/)?.[0] || "")
+          .filter(Boolean)
+      : [];
+    const actualMeasurementWeekdays = calculateMeasurementWeekdaysFromDates(measurementScheduleDates);
+    const surveyors = plan
+      ? [
+          userNameById.get(Number(plan.responsible_user_id)),
+          userNameById.get(Number(plan.experienced_user_id)),
+        ].filter(Boolean)
+      : [];
+    return {
+      ...survey,
+      measurement_schedule_dates: measurementScheduleDates,
+      measurement_weekdays: actualMeasurementWeekdays || survey.measurement_weekdays,
+      preliminary_survey_date: plan?.confirmed_date || plan?.recommended_date || null,
+      preliminary_survey_plan_surveyors: surveyors.join(", ") || null,
+      preliminary_survey_plan_status: plan?.status || null,
+    };
+  });
+}
 
 /**
  * 예비조사 API
@@ -237,7 +312,9 @@ export async function GET(request: NextRequest) {
           );
         }
 
-        return NextResponse.json({ surveys: surveys || [] });
+        return NextResponse.json({
+          surveys: await attachPreliminarySurveyPlanInfo(supabase, surveys || []),
+        });
       }
 
       return NextResponse.json(
@@ -434,6 +511,8 @@ export async function GET(request: NextRequest) {
         unpaid_count: businessUnpaidCountMap.get(business.business_name) || 0, // 사업장 미수 횟수
         national_unpaid_count: nationalUnpaidCountMap.get(business.business_name) || 0, // 국고 미수 횟수
       })) || [];
+
+    surveys = await attachPreliminarySurveyPlanInfo(supabase, surveys);
 
     return NextResponse.json({
       businesses: businesses,

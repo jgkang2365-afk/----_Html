@@ -28,6 +28,8 @@ interface User {
   is_journal_manager: boolean;
   is_national_support_manager: boolean;
   is_designated_office_report_manager: boolean;
+  is_preliminary_survey_experienced: boolean;
+  is_preliminary_survey_support_assignable: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -52,6 +54,8 @@ export const UserManagement: React.FC = () => {
     is_journal_manager: false,
     is_national_support_manager: false,
     is_designated_office_report_manager: false,
+    is_preliminary_survey_experienced: false,
+    is_preliminary_survey_support_assignable: false,
   });
 
   // 비밀번호 리셋 모달
@@ -74,6 +78,8 @@ export const UserManagement: React.FC = () => {
     is_journal_manager: false,
     is_national_support_manager: false,
     is_designated_office_report_manager: false,
+    is_preliminary_survey_experienced: false,
+    is_preliminary_survey_support_assignable: false,
     is_active: true,
   });
 
@@ -257,6 +263,8 @@ export const UserManagement: React.FC = () => {
         is_journal_manager: false,
         is_national_support_manager: false,
         is_designated_office_report_manager: false,
+        is_preliminary_survey_experienced: false,
+        is_preliminary_survey_support_assignable: false,
       });
       fetchUsers();
     } catch (err) {
@@ -317,6 +325,11 @@ export const UserManagement: React.FC = () => {
           is_journal_manager: !!editForm.is_journal_manager,
           is_national_support_manager: !!editForm.is_national_support_manager,
           is_designated_office_report_manager: !!editForm.is_designated_office_report_manager,
+          is_preliminary_survey_experienced:
+            !!editForm.is_preliminary_survey_experienced,
+          is_preliminary_survey_support_assignable:
+            !!editForm.is_preliminary_survey_experienced &&
+            !!editForm.is_preliminary_survey_support_assignable,
           is_active: !!editForm.is_active,
         }),
       });
@@ -340,6 +353,8 @@ export const UserManagement: React.FC = () => {
         is_journal_manager: false,
         is_national_support_manager: false,
         is_designated_office_report_manager: false,
+        is_preliminary_survey_experienced: false,
+        is_preliminary_survey_support_assignable: false,
         is_active: true,
       });
       fetchUsers();
@@ -404,13 +419,15 @@ export const UserManagement: React.FC = () => {
       {/* 사용자 목록 카드 */}
       <Card className="p-0 overflow-hidden shadow-sm border-slate-200">
         <div className="overflow-x-auto custom-scrollbar">
-          <Table className="min-w-[1120px]">
+          <Table className="min-w-[1320px]">
             <TableHeader className="bg-slate-50 border-b border-slate-200 z-20 text-slate-700 font-bold">
             <TableRow className="border-b border-sky-200">
               <TableHead className="text-black">이름</TableHead>
               <TableHead className="text-black">상태</TableHead>
               <TableHead className="text-black">역활</TableHead>
               <TableHead className="text-black">직무</TableHead>
+              <TableHead className="text-center text-black">예비조사 경력</TableHead>
+              <TableHead className="text-center text-black">동행 자동배정</TableHead>
               <TableHead className="text-center text-black">일지담당</TableHead>
               <TableHead className="text-center text-black">국고일괄</TableHead>
               <TableHead className="text-center text-black">지정기관신고서</TableHead>
@@ -424,7 +441,7 @@ export const UserManagement: React.FC = () => {
           <TableBody>
             {users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} className="text-center text-text-500 py-8">
+                <TableCell colSpan={14} className="text-center text-text-500 py-8">
                   등록된 사용자가 없습니다.
                 </TableCell>
               </TableRow>
@@ -445,6 +462,16 @@ export const UserManagement: React.FC = () => {
                   </TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>{user.job || "-"}</TableCell>
+                  <TableCell className="text-center">
+                    {user.is_preliminary_survey_experienced ? (
+                      <span className="rounded bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700">경력자</span>
+                    ) : "-"}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {user.is_preliminary_survey_support_assignable ? (
+                      <span className="rounded bg-violet-100 px-2 py-1 text-xs font-bold text-violet-700">가능</span>
+                    ) : "-"}
+                  </TableCell>
                   <TableCell>
                     {user.is_journal_manager ? (
                       <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">담당</span>
@@ -483,6 +510,10 @@ export const UserManagement: React.FC = () => {
                             is_journal_manager: !!user.is_journal_manager,
                             is_national_support_manager: !!user.is_national_support_manager,
                             is_designated_office_report_manager: !!user.is_designated_office_report_manager,
+                            is_preliminary_survey_experienced:
+                              !!user.is_preliminary_survey_experienced,
+                            is_preliminary_survey_support_assignable:
+                              !!user.is_preliminary_survey_support_assignable,
                             is_active: user.is_active !== false,
                           });
                           setShowEditModal(true);
@@ -535,6 +566,8 @@ export const UserManagement: React.FC = () => {
             is_journal_manager: false,
             is_national_support_manager: false,
             is_designated_office_report_manager: false,
+            is_preliminary_survey_experienced: false,
+            is_preliminary_survey_support_assignable: false,
           });
           setError(null);
         }}
@@ -586,6 +619,40 @@ export const UserManagement: React.FC = () => {
                 { value: "분석", label: "분석" },
               ]}
             />
+            <div className="flex flex-col justify-end pb-1">
+              <label className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-sm font-bold text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={createForm.is_preliminary_survey_experienced}
+                  onChange={(e) =>
+                    setCreateForm({
+                      ...createForm,
+                      is_preliminary_survey_experienced: e.target.checked,
+                      is_preliminary_survey_support_assignable: e.target.checked
+                        ? createForm.is_preliminary_survey_support_assignable
+                        : false,
+                    })
+                  }
+                />
+                예비조사 경력자
+              </label>
+            </div>
+            <div className="flex flex-col justify-end pb-1">
+              <label className="flex items-center gap-2 rounded-lg border border-violet-100 bg-violet-50/50 px-3 py-2 text-sm font-bold text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={createForm.is_preliminary_survey_support_assignable}
+                  disabled={!createForm.is_preliminary_survey_experienced}
+                  onChange={(e) =>
+                    setCreateForm({
+                      ...createForm,
+                      is_preliminary_survey_support_assignable: e.target.checked,
+                    })
+                  }
+                />
+                동행 지원 자동배정
+              </label>
+            </div>
             <Input
               label="휴대폰 번호 (선택사항)"
               value={createForm.mobile}
@@ -670,6 +737,8 @@ export const UserManagement: React.FC = () => {
                   is_journal_manager: false,
                   is_national_support_manager: false,
                   is_designated_office_report_manager: false,
+                  is_preliminary_survey_experienced: false,
+                  is_preliminary_survey_support_assignable: false,
                 });
                 setError(null);
               }}
@@ -745,6 +814,8 @@ export const UserManagement: React.FC = () => {
             is_journal_manager: false,
             is_national_support_manager: false,
             is_designated_office_report_manager: false,
+            is_preliminary_survey_experienced: false,
+            is_preliminary_survey_support_assignable: false,
             is_active: true,
           });
           setError(null);
@@ -791,6 +862,40 @@ export const UserManagement: React.FC = () => {
                 { value: "분석", label: "분석" },
               ]}
             />
+            <div className="flex flex-col justify-end pb-1">
+              <label className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-sm font-bold text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={editForm.is_preliminary_survey_experienced}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      is_preliminary_survey_experienced: e.target.checked,
+                      is_preliminary_survey_support_assignable: e.target.checked
+                        ? editForm.is_preliminary_survey_support_assignable
+                        : false,
+                    })
+                  }
+                />
+                예비조사 경력자
+              </label>
+            </div>
+            <div className="flex flex-col justify-end pb-1">
+              <label className="flex items-center gap-2 rounded-lg border border-violet-100 bg-violet-50/50 px-3 py-2 text-sm font-bold text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={editForm.is_preliminary_survey_support_assignable}
+                  disabled={!editForm.is_preliminary_survey_experienced}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      is_preliminary_survey_support_assignable: e.target.checked,
+                    })
+                  }
+                />
+                동행 지원 자동배정
+              </label>
+            </div>
             <div className="flex flex-col justify-end pb-1">
               <div className="flex items-center gap-2 px-1 py-2 bg-slate-50 rounded-lg border border-slate-100">
                 <input
@@ -888,6 +993,8 @@ export const UserManagement: React.FC = () => {
                   is_journal_manager: false,
                   is_national_support_manager: false,
                   is_designated_office_report_manager: false,
+                  is_preliminary_survey_experienced: false,
+                  is_preliminary_survey_support_assignable: false,
                   is_active: true,
                 });
                 setError(null);
