@@ -414,7 +414,7 @@ function Test-FileInputValue([string]$actualValue, $expectedPaths, [string]$expe
 function Get-ReadyFileDialog {
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     $windows = $root.FindAll(
-        [System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.Condition]::TrueCondition
     )
     $dialogFound = $false

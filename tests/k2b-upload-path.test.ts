@@ -65,6 +65,25 @@ test("K2B Windows 10 파일 선택은 UI Automation 준비 상태와 단계별 �
   assert.doesNotMatch(source, /execSync\(`powershell -command/);
 });
 
+test("중첩된 K2B 파일 선택창을 탐색하고 기존 입력 및 열기 컨트롤을 유지한다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+  const dialogSearch = source.slice(
+    source.indexOf("function Get-ReadyFileDialog"),
+    source.indexOf("$pathsJson =", source.indexOf("function Get-ReadyFileDialog"))
+  );
+
+  assert.match(dialogSearch, /TreeScope\]::Descendants/);
+  assert.doesNotMatch(dialogSearch, /TreeScope\]::Children/);
+  assert.match(dialogSearch, /ClassName -ne '#32770'/);
+  assert.match(dialogSearch, /Name -notin @\('열기', 'Open'\)/);
+  assert.match(dialogSearch, /ControlType\]::Edit/);
+  assert.match(dialogSearch, /AutomationId -eq '1148'/);
+  assert.match(source, /ControlType\]::Button/);
+  assert.match(source, /AutomationId -eq '1'/);
+  assert.match(source, /ValuePattern/);
+  assert.match(source, /InvokePattern/);
+});
+
 test("파일 선택창은 창이 없거나 입력 컨트롤이 없으면 polling하고 준비되면 즉시 진행한다", () => {
   const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
 
