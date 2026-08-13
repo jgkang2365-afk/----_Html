@@ -1,12 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 import {
   replaceWindowsPathRoot,
   resolveWindowsDialogPath,
 } from "../lib/automation/windows-file-path";
 import {
   areEquivalentWindowsDialogPaths,
+  executePowerShellScriptFile,
+  getPowerShellCommandLengths,
+  getPowerShellSpawnErrorMetadata,
   logFileDialogBoundary,
   logFileDialogError,
   runWithSingleRetry,
@@ -170,10 +174,81 @@ test("모든 입력 방식이 멈춰도 PowerShell 프로세스 최종 timeout�
 
   assert.match(source, /timeout: timeoutMs/);
   assert.match(source, /error\?\.code === 'ETIMEDOUT'/);
-  assert.match(source, /runEncodedPowerShell\(command, diagnosticContext, 25000\)/);
+  assert.match(source, /runPowerShellScript\(command, diagnosticContext, 25000\)/);
   assert.match(source, /Windows 파일 선택 입력 자동화가 제한시간 안에 종료되지 않았습니다/);
   assert.match(source, /입력 컨트롤\|입력값\|입력 자동화/);
   assert.match(source, /K2B_FILE_INPUT_VALUE_NOT_VERIFIED/);
+});
+
+test("PowerShell 명령과 기존 EncodedCommand 길이를 계산한다", () => {
+  const lengths = getPowerShellCommandLengths("Write-Output '한글'");
+
+  assert.equal(lengths.commandLength, "Write-Output '한글'".length);
+  assert.ok(lengths.encodedCommandLength > lengths.commandLength);
+});
+
+test("PowerShell 본문은 UTF-16LE BOM 임시 ps1로 생성하고 -File로 실행한 뒤 삭제한다", () => {
+  let scriptPath = "";
+  let timeout: number | undefined;
+
+  const output = executePowerShellScriptFile(
+    "Write-Output '정상'",
+    25000,
+    (file, args, options) => {
+      assert.equal(file, "powershell.exe");
+      assert.deepEqual(args.slice(0, 4), ["-NoProfile", "-Sta", "-NonInteractive", "-File"]);
+      scriptPath = args[4];
+      timeout = options.timeout;
+      assert.equal(existsSync(scriptPath), true);
+      const script = readFileSync(scriptPath);
+      assert.deepEqual([...script.subarray(0, 2)], [0xff, 0xfe]);
+      assert.match(script.toString("utf16le"), /Write-Output '정상'/);
+      return Buffer.from("success");
+    }
+  );
+
+  assert.equal(output, "success");
+  assert.equal(timeout, 25000);
+  assert.equal(existsSync(scriptPath), false);
+  assert.equal(existsSync(dirname(scriptPath)), false);
+});
+
+test("PowerShell 실행 실패 시에도 임시 ps1을 삭제하고 spawn metadata를 보존한다", () => {
+  let scriptPath = "";
+  const spawnError = Object.assign(new Error("spawnSync powershell.exe ENAMETOOLONG"), {
+    code: "ENAMETOOLONG",
+    errno: -4064,
+    syscall: "spawnSync powershell.exe",
+    signal: null,
+  });
+
+  assert.throws(
+    () => executePowerShellScriptFile("Write-Output '실패'", 25000, (_file, args) => {
+      scriptPath = args[4];
+      throw spawnError;
+    }),
+    error => error === spawnError
+  );
+
+  assert.equal(existsSync(scriptPath), false);
+  assert.equal(existsSync(dirname(scriptPath)), false);
+  assert.deepEqual(getPowerShellSpawnErrorMetadata(spawnError), {
+    code: "ENAMETOOLONG",
+    errno: -4064,
+    syscall: "spawnSync powershell.exe",
+    message: "spawnSync powershell.exe ENAMETOOLONG",
+    signal: "none",
+  });
+});
+
+test("PowerShell 실행은 EncodedCommand 대신 임시 ps1 -File 전달을 사용한다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+
+  assert.match(source, /'-File', scriptPath/);
+  assert.doesNotMatch(source, /'-EncodedCommand'/);
+  assert.match(source, /POWERSHELL_COMMAND_LENGTH=/);
+  assert.match(source, /POWERSHELL_ENCODED_LENGTH=/);
+  assert.match(source, /POWERSHELL_SPAWN_ERROR/);
 });
 
 test("bridge 초기화 경계와 PowerShell 컴파일 오류를 보존한다", () => {
