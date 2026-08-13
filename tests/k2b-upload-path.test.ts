@@ -5,7 +5,10 @@ import {
   replaceWindowsPathRoot,
   resolveWindowsDialogPath,
 } from "../lib/automation/windows-file-path";
-import { runWithSingleRetry } from "../lib/automation/k2b-service";
+import {
+  areEquivalentWindowsDialogPaths,
+  runWithSingleRetry,
+} from "../lib/automation/k2b-service";
 
 test("K2B 파일 선택 경로는 설정된 Z 루트를 UNC 루트로 변환한다", () => {
   const result = replaceWindowsPathRoot(
@@ -67,6 +70,67 @@ test("파일 선택창은 창이 없거나 입력 컨트롤이 없으면 polling
   assert.match(source, /if \(\$state\.FileInput\) \{[\s\S]*?\$ready = \$state[\s\S]*?break/);
   assert.match(source, /while \(\$watch\.ElapsedMilliseconds -lt 5000\)/);
   assert.match(source, /if \(\$sawDialog\) \{ throw 'K2B_FILE_INPUT_NOT_READY' \}/);
+});
+
+test("SetValue 후 실제 값이 비어 있으면 입력 성공으로 처리하지 않는다", () => {
+  assert.equal(
+    areEquivalentWindowsDialogPaths("Z:\\reports\\company\\data.txt", ""),
+    false
+  );
+});
+
+test("SetValue 후 일부 경로만 반영되면 입력 성공으로 처리하지 않는다", () => {
+  assert.equal(
+    areEquivalentWindowsDialogPaths(
+      "Z:\\reports\\company\\data.txt",
+      "Z:\\reports\\company"
+    ),
+    false
+  );
+});
+
+test("SetValue 후 동등한 Windows 전체 경로가 반영되면 입력 성공으로 처리한다", () => {
+  assert.equal(
+    areEquivalentWindowsDialogPaths(
+      "Z:\\reports\\company\\data.txt",
+      '"z:/reports/company/data.txt"'
+    ),
+    true
+  );
+});
+
+test("최초 값 미반영 후 polling에서 정상 반영되면 즉시 열기 단계로 진행한다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+  const expected = "Z:\\reports\\company\\data.txt";
+  const observedValues = ["", expected];
+
+  assert.equal(
+    observedValues.findIndex(actual => areEquivalentWindowsDialogPaths(expected, actual)),
+    1
+  );
+  assert.match(source, /while \(\$inputWatch\.ElapsedMilliseconds -lt 5000\)/);
+  assert.match(source, /Start-Sleep -Milliseconds 150/);
+  assert.match(source, /if \(Test-FileInputValue[\s\S]*?\$inputVerified = \$true[\s\S]*?break/);
+  assert.match(source, /if \(-not \$inputVerified\)[\s\S]*?K2B_FILE_INPUT_VALUE_NOT_VERIFIED/);
+});
+
+test("입력값 검증 timeout 시 열기 Invoke를 실행하지 않는다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+  const expected = "Z:\\reports\\company\\data.txt";
+  const observedValues = ["", "Z:\\reports", "previous.txt"];
+  const verificationFailure = source.indexOf("if (-not $inputVerified)");
+  const openInvoke = source.indexOf("$invokePattern.Invoke()", verificationFailure);
+
+  assert.equal(
+    observedValues.some(actual => areEquivalentWindowsDialogPaths(expected, actual)),
+    false
+  );
+  assert.notEqual(verificationFailure, -1);
+  assert.notEqual(openInvoke, -1);
+  assert.ok(verificationFailure < openInvoke);
+  assert.match(source, /value verified=false expected=/);
+  assert.match(source, /value verified=true actual=/);
+  assert.match(source, /K2B_DIAG\|open invoked/);
 });
 
 test("첨부 제어는 첫 실패만 정리 후 한 번 재시도한다", async () => {

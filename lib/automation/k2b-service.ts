@@ -17,6 +17,15 @@ export async function runWithSingleRetry<T>(
     }
 }
 
+export function areEquivalentWindowsDialogPaths(expected: string, actual: string): boolean {
+    const normalize = (value: string) => {
+        const unquoted = value.trim().replace(/^"(.*)"$/, '$1');
+        return path.win32.normalize(unquoted.replaceAll('/', '\\')).toLowerCase();
+    };
+
+    return actual.trim().length > 0 && normalize(expected) === normalize(actual);
+}
+
 type FileDialogDiagnosticContext = {
     businessCode: string;
     phase: 'TXT' | 'DRAWINGS';
@@ -286,6 +295,9 @@ export class K2BService {
             if (stderr.includes('K2B_FILE_INPUT_NOT_READY')) {
                 throw new Error('K2B 파일 선택창의 파일명 입력 컨트롤이 준비되지 않았습니다.');
             }
+            if (stderr.includes('K2B_FILE_INPUT_VALUE_NOT_VERIFIED')) {
+                throw new Error('K2B 파일 선택창의 파일명 입력값이 정상 반영되지 않았습니다.');
+            }
             if (stderr.includes('K2B_FILE_OPEN_NOT_READY')) {
                 throw new Error('K2B 파일 선택창의 열기 버튼이 준비되지 않았습니다.');
             }
@@ -328,6 +340,25 @@ function Write-ControlDiagnostic([string]$eventName, $control, [string]$extra = 
     }
     if ($extra) { $payload.Extra = $extra }
     [Console]::Out.WriteLine('K2B_DIAG|' + ($payload | ConvertTo-Json -Compress))
+}
+
+function Normalize-SingleFilePath([string]$value) {
+    if ([string]::IsNullOrWhiteSpace($value)) { return '' }
+    $normalized = $value.Trim().Trim([char]34).Replace('/', '\')
+    try { $normalized = [IO.Path]::GetFullPath($normalized) } catch { }
+    return $normalized.TrimEnd('\')
+}
+
+function Test-FileInputValue([string]$actualValue, $expectedPaths, [string]$expectedSelection) {
+    if ([string]::IsNullOrWhiteSpace($actualValue)) { return $false }
+    if (@($expectedPaths).Count -eq 1) {
+        $expected = Normalize-SingleFilePath ([string]@($expectedPaths)[0])
+        $actual = Normalize-SingleFilePath $actualValue
+        return [string]::Equals($expected, $actual, [StringComparison]::OrdinalIgnoreCase)
+    }
+    $expected = $expectedSelection.Trim().Replace('/', '\')
+    $actual = $actualValue.Trim().Replace('/', '\')
+    return [string]::Equals($expected, $actual, [StringComparison]::OrdinalIgnoreCase)
 }
 
 function Get-ReadyFileDialog {
@@ -410,14 +441,55 @@ if (-not $ready) {
     throw 'K2B_FILE_DIALOG_NOT_FOUND'
 }
 Write-Output ('K2B_DIAG|ready-ms=' + $watch.ElapsedMilliseconds)
-
-$valuePattern = $null
-if (-not $ready.FileInput.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)) {
-    throw 'K2B_FILE_INPUT_NOT_READY'
-}
 Write-ControlDiagnostic 'selected-input' $ready.FileInput ('FullPath=' + $selection)
-Write-ControlDiagnostic 'set-value-target' $ready.FileInput ('FullPath=' + $selection)
-$valuePattern.SetValue($selection)
+Write-Output 'K2B_DIAG|file input control ready'
+
+$inputWatch = [Diagnostics.Stopwatch]::StartNew()
+$inputVerified = $false
+$setValueLogged = $false
+$lastActualValue = ''
+while ($inputWatch.ElapsedMilliseconds -lt 5000) {
+    $inputState = Get-ReadyFileDialog
+    if (-not $inputState.FileInput) {
+        Start-Sleep -Milliseconds 150
+        continue
+    }
+
+    $valuePattern = $null
+    if (-not $inputState.FileInput.TryGetCurrentPattern(
+        [System.Windows.Automation.ValuePattern]::Pattern,
+        [ref]$valuePattern
+    )) {
+        Start-Sleep -Milliseconds 150
+        continue
+    }
+
+    try {
+        if (-not $setValueLogged) {
+            Write-ControlDiagnostic 'set-value-target' $inputState.FileInput ('FullPath=' + $selection)
+            Write-Output 'K2B_DIAG|SetValue requested'
+            $setValueLogged = $true
+        }
+        $valuePattern.SetValue($selection)
+    } catch {
+        Start-Sleep -Milliseconds 150
+        continue
+    }
+
+    Start-Sleep -Milliseconds 150
+    try { $lastActualValue = $valuePattern.Current.Value } catch { $lastActualValue = '' }
+    if (Test-FileInputValue $lastActualValue $paths $selection) {
+        $ready = $inputState
+        $inputVerified = $true
+        break
+    }
+}
+
+if (-not $inputVerified) {
+    Write-Output ('K2B_DIAG|value verified=false expected=' + $selection + ' actual=' + $lastActualValue)
+    throw 'K2B_FILE_INPUT_VALUE_NOT_VERIFIED'
+}
+Write-Output ('K2B_DIAG|value verified=true actual=' + $lastActualValue)
 
 $buttons = $ready.Dialog.FindAll(
     [System.Windows.Automation.TreeScope]::Descendants,
@@ -443,6 +515,7 @@ if (-not $openButton.TryGetCurrentPattern([System.Windows.Automation.InvokePatte
 }
 $invokePattern.Invoke()
 Write-ControlDiagnostic 'open-button-invoke-completed' $openButton
+Write-Output 'K2B_DIAG|open invoked'
 
 $closeWatch = [Diagnostics.Stopwatch]::StartNew()
 while ($closeWatch.ElapsedMilliseconds -lt 10000) {
@@ -554,7 +627,7 @@ foreach ($window in $windows) {
     private classifyFileDialogFailure(error: unknown): K2BFailureStage {
         const message = error instanceof Error ? error.message : String(error);
         if (/열기 버튼|열기 실행|닫히지 않았/.test(message)) return 'file-open';
-        if (/입력 컨트롤|클립보드|실제 경로|경로를 열지 못/.test(message)) return 'file-input-ready';
+        if (/입력 컨트롤|입력값|클립보드|실제 경로|경로를 열지 못/.test(message)) return 'file-input-ready';
         return 'file-dialog-ready';
     }
 
