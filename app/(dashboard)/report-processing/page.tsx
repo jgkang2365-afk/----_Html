@@ -31,6 +31,28 @@ interface BusinessRecord {
     delivery_error?: string | null;         // 신규: 반송 사유
 }
 
+const REPORT_PROCESSING_FILTERS_STORAGE_KEY = 'reportProcessingFilters';
+const DEFAULT_REPORT_PROCESSING_FILTERS = {
+    year: new Date().getFullYear().toString(),
+    period: '상반기',
+    search: ''
+};
+
+function restoreReportProcessingFilters(value: string | null) {
+    if (!value) return DEFAULT_REPORT_PROCESSING_FILTERS;
+
+    try {
+        const saved = JSON.parse(value);
+        return {
+            year: typeof saved.year === 'string' ? saved.year : DEFAULT_REPORT_PROCESSING_FILTERS.year,
+            period: typeof saved.period === 'string' ? saved.period : DEFAULT_REPORT_PROCESSING_FILTERS.period,
+            search: typeof saved.search === 'string' ? saved.search : DEFAULT_REPORT_PROCESSING_FILTERS.search
+        };
+    } catch {
+        return DEFAULT_REPORT_PROCESSING_FILTERS;
+    }
+}
+
 export default function ReportProcessingPage() {
     const [loading, setLoading] = useState(false);
     const [processing, setProcessing] = useState(false);
@@ -39,11 +61,8 @@ export default function ReportProcessingPage() {
     const [refreshing, setRefreshing] = useState(false);
     const [records, setRecords] = useState<BusinessRecord[]>([]);
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]); // 기기: code 기반 -> key `${code}-${year}-${period}` 기반
-    const [filters, setFilters] = useState({
-        year: new Date().getFullYear().toString(),
-        period: '상반기',
-        search: ''
-    });
+    const [filters, setFilters] = useState(DEFAULT_REPORT_PROCESSING_FILTERS);
+    const [filtersReady, setFiltersReady] = useState(false);
 
     // 시스템 기준 현재 주기 정의 (정규/추가 구분용)
     const CURRENT_YEAR = new Date().getFullYear();
@@ -76,8 +95,19 @@ export default function ReportProcessingPage() {
     };
 
     useEffect(() => {
+        setFilters(restoreReportProcessingFilters(localStorage.getItem(REPORT_PROCESSING_FILTERS_STORAGE_KEY)));
+        setFiltersReady(true);
+    }, []);
+
+    useEffect(() => {
+        if (!filtersReady) return;
+        localStorage.setItem(REPORT_PROCESSING_FILTERS_STORAGE_KEY, JSON.stringify(filters));
+    }, [filters, filtersReady]);
+
+    useEffect(() => {
+        if (!filtersReady) return;
         fetchRecords();
-    }, [filters.year, filters.period]);
+    }, [filters.year, filters.period, filtersReady]);
 
     const cancelActiveJob = useCallback(async () => {
         if (!activeJob) return;
