@@ -1,4 +1,4 @@
-import { Builder, By, Key, until, WebDriver, WebElement } from 'selenium-webdriver';
+import { Builder, By, error, Key, until, WebDriver, WebElement } from 'selenium-webdriver';
 import chrome from 'selenium-webdriver/chrome';
 import path from 'path';
 import fs from 'fs';
@@ -46,6 +46,25 @@ export async function closeExistingK2BLoginPopups(
     }
 
     return closedCount;
+}
+
+export async function closeInitialK2BLoginPopups(
+    driver: Pick<WebDriver, 'findElements' | 'wait'>,
+    timeoutMs = 2000
+): Promise<number> {
+    try {
+        await driver.wait(async () => {
+            for (const selector of LOGIN_POPUP_SELECTORS) {
+                const buttons = await driver.findElements(By.css(selector));
+                if (buttons.length > 0) return true;
+            }
+            return false;
+        }, timeoutMs, undefined, 100);
+    } catch (waitError) {
+        if (!(waitError instanceof error.TimeoutError)) throw waitError;
+    }
+
+    return closeExistingK2BLoginPopups(driver);
 }
 
 type FileDialogDiagnosticContext = {
@@ -166,7 +185,7 @@ export class K2BService {
      * 
      * 로그인 흐름:
      * 1. k2b_url 접속
-     * 2. 현재 존재하는 로그인 화면 팝업 닫기
+     * 2. 초기 비동기 로그인 팝업을 최대 2초 탐색 후 현재 존재하는 팝업 닫기
      * 3. ID/PW/로그인 버튼이 준비되는 즉시 입력 및 클릭
      * 4. 로그인 성공 화면 대기
      * 5. 내부 팝업 닫기 후 '파일전송(신)' 진입
@@ -178,8 +197,8 @@ export class K2BService {
         console.log('[K2B] 사이트 접속 중: https://k2b.kosha.or.kr/index.do');
         await this.driver.get('https://k2b.kosha.or.kr/index.do');
 
-        // Step 1: 현재 DOM에 존재하는 로그인 화면 팝업만 즉시 닫기
-        await closeExistingK2BLoginPopups(this.driver);
+        // Step 1: 두 팝업을 합산 최대 2초 동안 polling하고 현재 DOM에 존재하는 팝업만 닫기
+        await closeInitialK2BLoginPopups(this.driver);
 
         // Step 2: 로그인 정보 입력
         const loginId = id || process.env.K2B_ID;
