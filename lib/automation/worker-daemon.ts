@@ -449,7 +449,15 @@ export class WorkerDaemon {
             await k2b.init();
             await k2b.login(dbUser.k2b_id, dbUser.k2b_pw);
 
-            for (const target of targets) {
+            for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+                const target = targets[targetIndex];
+                const businessCode = String(target.code || '코드없음');
+                const nextBusinessCode = targets[targetIndex + 1]?.code
+                    ? String(targets[targetIndex + 1].code)
+                    : null;
+                console.log(
+                    `[WorkerDaemon][K2B][${businessCode}] 대상 처리 시작 (${targetIndex + 1}/${targets.length})`
+                );
                 if (await this.isCancelRequested(job.id)) {
                     await this.cancelJob(job.id, requestUser, 'K2B 업로드');
                     return;
@@ -462,12 +470,31 @@ export class WorkerDaemon {
                         companyName: target.business_name
                     });
 
+                    const previousTarget = targets[targetIndex - 1];
+                    const previousFiles = previousTarget
+                        ? findReportFiles({
+                            year: previousTarget.year.toString(),
+                            semester: previousTarget.period,
+                            companyName: previousTarget.business_name
+                        })
+                        : null;
+                    await k2b.logBusinessBoundaryState(
+                        businessCode,
+                        previousTarget?.code ? String(previousTarget.code) : null,
+                        previousFiles?.dataFile?.path || null,
+                        files.dataFile?.path || null
+                    );
+
                     // 2. K2B 업로드 동작 수행
                     const uploadRes = await k2b.uploadReport(target.business_name, {
                         dataFile: files.dataFile,
                         drawings: files.drawings,
                         drawingFolderPath: files.drawingFolderPath
-                    });
+                    }, businessCode);
+
+                    console.log(
+                        `[WorkerDaemon][K2B][${businessCode}] 첨부 결과: ${uploadRes.success ? '성공' : '실패'} / 상태=${uploadRes.status}`
+                    );
 
                     // 3. DB 상태 업데이트
                     const now = getKSTDateString();
@@ -500,6 +527,7 @@ export class WorkerDaemon {
                         success: uploadRes.success,
                         status: uploadRes.status,
                         error: uploadRes.error,
+                        failureStage: uploadRes.failureStage,
                         calendarSyncSuccess: calendarSync.success,
                         calendarSyncError: calendarSync.error
                     });
@@ -517,9 +545,16 @@ export class WorkerDaemon {
                         code: target.code,
                         companyName: target.business_name,
                         success: false,
+                        failureStage: 'attachment-confirm',
                         error: err.message || '알 수 없는 업로드 에러'
                     });
                     await this.notifyAllManagers('error', `[K2B 업로드 오류] ${target.business_name}: ${err.message}`);
+                } finally {
+                    console.log(
+                        nextBusinessCode
+                            ? `[WorkerDaemon][K2B][${businessCode}] 대상 처리 종료, 다음 대상 진행: ${nextBusinessCode}`
+                            : `[WorkerDaemon][K2B][${businessCode}] 대상 처리 종료, 다음 대상 없음`
+                    );
                 }
             }
 
@@ -583,6 +618,12 @@ export class WorkerDaemon {
 
             // 최종 Job 상태 업데이트
             const finalSuccessCount = results.filter(r => r.success).length;
+            for (const result of results) {
+                console.log(
+                    `[K2B][${result.code}] FINAL=${result.success ? 'SUCCESS' : 'FAILED'}` +
+                    `${result.success ? '' : ` stage=${result.failureStage || 'attachment-confirm'}`} status=${result.status || '자동화 오류'}`
+                );
+            }
             const calendarFailures = results.filter(r => r.success && r.calendarSyncSuccess === false);
             if (finalSuccessCount === targets.length && calendarFailures.length === 0) {
                 await this.updateJobStatus(job.id, 'success');

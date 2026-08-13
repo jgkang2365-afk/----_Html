@@ -101,3 +101,51 @@ test("첨부 제어는 두 번째 실패 후 추가 재시도하지 않는다", 
   );
   assert.equal(attemptCount, 2);
 });
+
+test("파일 선택창 진단은 후보 목록을 창마다 한 번만 남기고 실제 선택 컨트롤을 구분한다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+
+  assert.match(source, /\$script:candidatesLogged = \$false/);
+  assert.match(source, /if \(-not \$script:candidatesLogged\)/);
+  assert.match(source, /'candidate-edit'/);
+  assert.match(source, /'candidate-button'/);
+  assert.match(source, /'selected-input'/);
+  assert.match(source, /'set-value-target'/);
+  assert.match(source, /'selected-open-button'/);
+  assert.match(source, /'open-button-invoke-completed'/);
+  assert.match(source, /ControlType = \$control\.Current\.ControlType\.ProgrammaticName/);
+  assert.match(source, /Name = \$control\.Current\.Name/);
+  assert.match(source, /AutomationId = \$control\.Current\.AutomationId/);
+  assert.match(source, /ClassName = \$control\.Current\.ClassName/);
+  assert.match(source, /IsEnabled = \$control\.Current\.IsEnabled/);
+  assert.match(source, /SupportsValuePattern = \$supportsValuePattern/);
+  assert.match(source, /FullPath=/);
+  assert.match(source, /\[attempt \$\{context\.attempt\}\]/);
+});
+
+test("업체코드는 파일 선택과 첨부 판정 및 다음 대상 진행 로그까지 전달된다", () => {
+  const serviceSource = readFileSync("lib/automation/k2b-service.ts", "utf8");
+  const workerSource = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+
+  assert.match(serviceSource, /\[K2B\]\[\$\{businessCode\}\] TXT 파일 선택 단계 시작/);
+  assert.match(serviceSource, /TXT 첨부 성공 판정/);
+  assert.match(serviceSource, /1차 TXT 첨부 실패, 재시도 실행/);
+  assert.match(serviceSource, /2차 TXT 첨부 실패, 해당 업체 실패 처리/);
+  assert.match(workerSource, /uploadReport\(target\.business_name,[\s\S]*?businessCode\)/);
+  assert.match(workerSource, /대상 처리 종료, 다음 대상 진행: \$\{nextBusinessCode\}/);
+  assert.doesNotMatch(serviceSource + workerSource, /businessCode\s*===/);
+});
+
+test("다중업체 진단은 상태 초기화와 단계별 실패 및 배치 최종 결과를 구분한다", () => {
+  const serviceSource = readFileSync("lib/automation/k2b-service.ts", "utf8");
+  const workerSource = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+
+  assert.match(serviceSource, /STATE_BEFORE previousBusinessCode=/);
+  assert.match(serviceSource, /retryState=idle attemptCounter=0/);
+  assert.match(serviceSource, /partialAttachmentRows=/);
+  assert.match(serviceSource, /OpenDialogCount/);
+  assert.match(serviceSource, /RESULT=FAILED stage=\$\{stage\}/);
+  assert.match(serviceSource, /existing-upload handling ENTER/);
+  assert.match(workerSource, /FINAL=\$\{result\.success \? 'SUCCESS' : 'FAILED'\}/);
+  assert.match(workerSource, /failureStage: uploadRes\.failureStage/);
+});
