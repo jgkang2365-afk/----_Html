@@ -249,9 +249,10 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                           >
                             <div className="flex justify-between gap-2">
                               <p
-                                className="text-xs leading-relaxed text-text-900 font-medium"
-                                dangerouslySetInnerHTML={{ __html: noti.message }}
-                              />
+                                className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-900 font-medium"
+                              >
+                                {noti.message}
+                              </p>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();

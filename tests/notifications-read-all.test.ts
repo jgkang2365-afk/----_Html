@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 const routeSource = readFileSync("app/api/notifications/route.ts", "utf8");
 const headerSource = readFileSync("components/layout/Header.tsx", "utf8");
@@ -52,4 +54,27 @@ test("50개 초과 상황에서도 전체 읽음 처리 범위는 조회 배열�
 
   assert.equal(updated.filter((notification) => notification.userId === 1 && !notification.isRead).length, 0);
   assert.equal(updated.filter((notification) => notification.userId === 2 && !notification.isRead).length, 5);
+});
+
+test("알림 메시지는 HTML을 실행하지 않고 줄바꿈 가능한 일반 텍스트로 렌더링한다", () => {
+  assert.doesNotMatch(headerSource, /dangerouslySetInnerHTML/);
+  assert.match(headerSource, /\{noti\.message\}/);
+  assert.match(headerSource, /whitespace-pre-wrap/);
+  assert.match(headerSource, /break-words/);
+
+  const normalMarkup = renderToStaticMarkup(createElement("p", null, "K2B 업로드 완료"));
+  assert.equal(normalMarkup, "<p>K2B 업로드 완료</p>");
+
+  const overlayMarkup = renderToStaticMarkup(
+    createElement("p", null, 'element click intercepted:\n<div style="position:absolute;width:1920px;height:953px">'),
+  );
+  assert.match(overlayMarkup, /&lt;div style=/);
+  assert.doesNotMatch(overlayMarkup, /<div style=/);
+
+  const maliciousMarkup = renderToStaticMarkup(
+    createElement("p", null, "<script>alert(1)</script>\n<img src=x onerror=alert(1)>"),
+  );
+  assert.match(maliciousMarkup, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(maliciousMarkup, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(maliciousMarkup, /<script|<img/);
 });
