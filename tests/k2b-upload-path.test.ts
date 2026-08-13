@@ -9,10 +9,6 @@ import {
 import {
   areEquivalentWindowsDialogPaths,
   executePowerShellScriptFile,
-  getPowerShellCommandLengths,
-  getPowerShellSpawnErrorMetadata,
-  logFileDialogBoundary,
-  logFileDialogError,
   runWithSingleRetry,
 } from "../lib/automation/k2b-service";
 
@@ -139,34 +135,12 @@ test("입력값 검증 timeout 시 열기 Invoke를 실행하지 않는다", () 
   assert.match(source, /K2B_DIAG\|open invoked/);
 });
 
-test("UIA SetValue는 제한시간이 있는 백그라운드 STA 스레드로 실행한다", () => {
+test("파일명 입력은 성공 버전과 동일한 단일 UIA ValuePattern을 사용한다", () => {
   const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
 
-  assert.match(source, /thread\.IsBackground = true/);
-  assert.match(source, /thread\.SetApartmentState\(ApartmentState\.STA\)/);
-  assert.match(source, /if \(!thread\.Join\(timeoutMs\)\)/);
-  assert.match(source, /ValuePattern\.SetValue timeout/);
-  assert.match(source, /input method=UIA input attempt timed out=true/);
-});
-
-test("Win32 입력은 SendMessageTimeout으로 보호하고 실제 값을 다시 읽는다", () => {
-  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
-
-  assert.match(source, /WM_SETTEXT = 0x000C/);
-  assert.match(source, /WM_GETTEXT = 0x000D/);
-  assert.match(source, /SMTO_ABORTIFHUNG = 0x0002/);
-  assert.match(source, /TrySetWin32/);
-  assert.match(source, /TryGetWin32/);
-  assert.match(source, /input method=WIN32 input attempt started/);
-});
-
-test("Win32 실패 시 timeout 보호된 UIA fallback을 사용한다", () => {
-  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
-  const win32Input = source.indexOf("TrySetWin32(", source.indexOf("$inputApplied = $false"));
-  const fallbackGuard = source.indexOf("if (-not $inputApplied)", win32Input);
-  const uiaInput = source.indexOf("TrySetUia(", fallbackGuard);
-
-  assert.ok(win32Input >= 0 && fallbackGuard > win32Input && uiaInput > fallbackGuard);
+  assert.match(source, /\$valuePattern\.SetValue\(\$selection\)/);
+  assert.match(source, /\$valuePattern\.Current\.Value/);
+  assert.doesNotMatch(source, /K2BFileInputBridge|TrySetWin32|WM_SETTEXT|SendMessageTimeout/);
 });
 
 test("모든 입력 방식이 멈춰도 PowerShell 프로세스 최종 timeout이 Worker를 복귀시킨다", () => {
@@ -178,13 +152,6 @@ test("모든 입력 방식이 멈춰도 PowerShell 프로세스 최종 timeout�
   assert.match(source, /Windows 파일 선택 입력 자동화가 제한시간 안에 종료되지 않았습니다/);
   assert.match(source, /입력 컨트롤\|입력값\|입력 자동화/);
   assert.match(source, /K2B_FILE_INPUT_VALUE_NOT_VERIFIED/);
-});
-
-test("PowerShell 명령과 기존 EncodedCommand 길이를 계산한다", () => {
-  const lengths = getPowerShellCommandLengths("Write-Output '한글'");
-
-  assert.equal(lengths.commandLength, "Write-Output '한글'".length);
-  assert.ok(lengths.encodedCommandLength > lengths.commandLength);
 });
 
 test("PowerShell 본문은 UTF-16LE BOM 임시 ps1로 생성하고 -File로 실행한 뒤 삭제한다", () => {
@@ -213,7 +180,7 @@ test("PowerShell 본문은 UTF-16LE BOM 임시 ps1로 생성하고 -File로 실�
   assert.equal(existsSync(dirname(scriptPath)), false);
 });
 
-test("PowerShell 실행 실패 시에도 임시 ps1을 삭제하고 spawn metadata를 보존한다", () => {
+test("PowerShell 실행 실패 시에도 임시 ps1을 삭제한다", () => {
   let scriptPath = "";
   const spawnError = Object.assign(new Error("spawnSync powershell.exe ENAMETOOLONG"), {
     code: "ENAMETOOLONG",
@@ -232,13 +199,6 @@ test("PowerShell 실행 실패 시에도 임시 ps1을 삭제하고 spawn metada
 
   assert.equal(existsSync(scriptPath), false);
   assert.equal(existsSync(dirname(scriptPath)), false);
-  assert.deepEqual(getPowerShellSpawnErrorMetadata(spawnError), {
-    code: "ENAMETOOLONG",
-    errno: -4064,
-    syscall: "spawnSync powershell.exe",
-    message: "spawnSync powershell.exe ENAMETOOLONG",
-    signal: "none",
-  });
 });
 
 test("PowerShell 실행은 EncodedCommand 대신 임시 ps1 -File 전달을 사용한다", () => {
@@ -246,70 +206,8 @@ test("PowerShell 실행은 EncodedCommand 대신 임시 ps1 -File 전달을 사�
 
   assert.match(source, /'-File', scriptPath/);
   assert.doesNotMatch(source, /'-EncodedCommand'/);
-  assert.match(source, /POWERSHELL_COMMAND_LENGTH=/);
-  assert.match(source, /POWERSHELL_ENCODED_LENGTH=/);
-  assert.match(source, /POWERSHELL_SPAWN_ERROR/);
-});
-
-test("bridge 초기화 경계와 PowerShell 컴파일 오류를 보존한다", () => {
-  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
-  const initStart = source.indexOf("K2B_DIAG|bridge init start");
-  const addType = source.indexOf("Add-Type -AssemblyName UIAutomationClient", initStart);
-  const initSuccess = source.indexOf("K2B_DIAG|bridge init success", addType);
-
-  assert.ok(initStart >= 0 && addType > initStart && initSuccess > addType);
+  assert.match(source, /runPowerShellScript\(command, diagnosticContext, 25000\)/);
   assert.match(source, /stderr\.trim\(\)\.slice\(0, 4000\)/);
-  assert.match(source, /Windows 파일 선택 자동화 stderr/);
-  assert.match(source, /PowerShell 오류: \$\{stderrDetail\}/);
-  assert.match(source, /replace\(\/\\0\/g, ''\)/);
-});
-
-test("파일 선택 호출 경계는 업체코드와 attempt를 stdout에 남긴다", () => {
-  const messages: string[] = [];
-  const originalLog = console.log;
-  console.log = (...args: unknown[]) => messages.push(args.map(String).join(" "));
-
-  try {
-    logFileDialogBoundary(
-      { businessCode: "H0507", phase: "TXT", attempt: 1 },
-      "sendFilesViaDialog ENTER"
-    );
-  } finally {
-    console.log = originalLog;
-  }
-
-  assert.deepEqual(messages, ["[K2B][H0507][attempt 1] sendFilesViaDialog ENTER"]);
-});
-
-test("파일 선택 예외는 줄바꿈 없이 FILE_DIALOG_ERROR로 stdout에 보존한다", () => {
-  const messages: string[] = [];
-  const originalLog = console.log;
-  console.log = (...args: unknown[]) => messages.push(args.map(String).join(" "));
-
-  try {
-    logFileDialogError(
-      { businessCode: "H0502", phase: "TXT", attempt: 2 },
-      new Error("PowerShell compile\nfailed")
-    );
-  } finally {
-    console.log = originalLog;
-  }
-
-  assert.deepEqual(messages, [
-    "[K2B][H0502][attempt 2] FILE_DIALOG_ERROR=PowerShell compile failed",
-  ]);
-});
-
-test("TXT 파일 선택 흐름은 경로 해석과 PowerShell 호출 전후 경계를 모두 기록한다", () => {
-  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
-
-  assert.match(source, /sendFilePathViaDialog ENTER path=/);
-  assert.match(source, /sendFilesViaDialog ENTER/);
-  assert.match(source, /resolveDialogPath BEFORE path=/);
-  assert.match(source, /resolveDialogPath AFTER path=/);
-  assert.match(source, /runEncodedPowerShell ENTER/);
-  assert.match(source, /runEncodedPowerShell EXIT success/);
-  assert.match(source, /catch \(error\) \{\s*logFileDialogError\(diagnosticContext, error\)/);
 });
 
 test("첨부 제어는 첫 실패만 정리 후 한 번 재시도한다", async () => {
@@ -358,8 +256,7 @@ test("파일 선택창 진단은 후보 목록을 창마다 한 번만 남기고
   assert.match(source, /'candidate-edit'/);
   assert.match(source, /'candidate-button'/);
   assert.match(source, /'selected-input'/);
-  assert.match(source, /'win32-input-target'/);
-  assert.match(source, /'uia-input-target'/);
+  assert.match(source, /'set-value-target'/);
   assert.match(source, /'selected-open-button'/);
   assert.match(source, /'open-button-invoke-completed'/);
   assert.match(source, /ControlType = \$control\.Current\.ControlType\.ProgrammaticName/);

@@ -27,30 +27,11 @@ export function areEquivalentWindowsDialogPaths(expected: string, actual: string
     return actual.trim().length > 0 && normalize(expected) === normalize(actual);
 }
 
-export type FileDialogDiagnosticContext = {
+type FileDialogDiagnosticContext = {
     businessCode: string;
     phase: 'TXT' | 'DRAWINGS';
     attempt: number;
 };
-
-function fileDialogLogPrefix(context: FileDialogDiagnosticContext): string {
-    return `[K2B][${context.businessCode}][attempt ${context.attempt}]`;
-}
-
-export function logFileDialogBoundary(
-    context: FileDialogDiagnosticContext,
-    message: string
-): void {
-    console.log(`${fileDialogLogPrefix(context)} ${message}`);
-}
-
-export function logFileDialogError(
-    context: FileDialogDiagnosticContext,
-    error: unknown
-): void {
-    const message = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').trim();
-    console.log(`${fileDialogLogPrefix(context)} FILE_DIALOG_ERROR=${message}`);
-}
 
 type PowerShellExecFile = (
     file: string,
@@ -86,24 +67,6 @@ export function executePowerShellScriptFile(
             // 임시 파일 정리 실패가 K2B 본 작업 결과를 덮어쓰지 않게 합니다.
         }
     }
-}
-
-export function getPowerShellSpawnErrorMetadata(error: unknown) {
-    const spawnError = error as NodeJS.ErrnoException & { signal?: string | null };
-    return {
-        code: spawnError?.code ?? 'unknown',
-        errno: spawnError?.errno ?? 'unknown',
-        syscall: spawnError?.syscall ?? 'unknown',
-        message: String(spawnError?.message || error || 'unknown').replace(/\s+/g, ' ').trim(),
-        signal: spawnError?.signal ?? 'none'
-    };
-}
-
-export function getPowerShellCommandLengths(command: string) {
-    return {
-        commandLength: command.length,
-        encodedCommandLength: Buffer.from(command, 'utf16le').toString('base64').length
-    };
 }
 
 type K2BFailureStage =
@@ -348,24 +311,11 @@ export class K2BService {
         diagnosticContext?: FileDialogDiagnosticContext,
         timeoutMs?: number
     ) {
-        const commandLengths = getPowerShellCommandLengths(command);
-        if (diagnosticContext) {
-            console.log(`${fileDialogLogPrefix(diagnosticContext)} POWERSHELL_COMMAND_LENGTH=${commandLengths.commandLength}`);
-            console.log(`${fileDialogLogPrefix(diagnosticContext)} POWERSHELL_ENCODED_LENGTH=${commandLengths.encodedCommandLength}`);
-        }
         try {
             const output = executePowerShellScriptFile(command, timeoutMs);
             this.logFileDialogDiagnostics(output, diagnosticContext);
             return output;
         } catch (error: any) {
-            const spawnMetadata = getPowerShellSpawnErrorMetadata(error);
-            if (diagnosticContext) {
-                console.log(
-                    `${fileDialogLogPrefix(diagnosticContext)} POWERSHELL_SPAWN_ERROR ` +
-                    `code=${spawnMetadata.code} errno=${spawnMetadata.errno} ` +
-                    `syscall=${spawnMetadata.syscall} message=${spawnMetadata.message} signal=${spawnMetadata.signal}`
-                );
-            }
             const stdout = Buffer.isBuffer(error?.stdout)
                 ? error.stdout.toString('utf8')
                 : String(error?.stdout || '');
@@ -406,8 +356,6 @@ export class K2BService {
             }
             throw new Error(
                 `Windows 파일 선택 자동화 명령이 실패했습니다.` +
-                ` 프로세스 오류: code=${spawnMetadata.code}, errno=${spawnMetadata.errno}, ` +
-                `syscall=${spawnMetadata.syscall}, message=${spawnMetadata.message}.` +
                 (stderrDetail ? ` PowerShell 오류: ${stderrDetail}` : '')
             );
         }
@@ -418,141 +366,12 @@ export class K2BService {
      * UI Automation으로 확인한 뒤 경로를 직접 입력하고 '열기'를 실행합니다.
      */
     private sendFilesViaDialog(filePaths: string[], diagnosticContext: FileDialogDiagnosticContext) {
-        logFileDialogBoundary(diagnosticContext, 'sendFilesViaDialog ENTER');
-        const dialogPaths = filePaths.map(filePath => {
-            logFileDialogBoundary(diagnosticContext, `resolveDialogPath BEFORE path=${filePath}`);
-            const dialogPath = this.resolveDialogPath(filePath);
-            logFileDialogBoundary(diagnosticContext, `resolveDialogPath AFTER path=${dialogPath}`);
-            return dialogPath;
-        });
+        const dialogPaths = filePaths.map(filePath => this.resolveDialogPath(filePath));
         const pathsBase64 = Buffer.from(JSON.stringify(dialogPaths), 'utf8').toString('base64');
         const command = `
 $ErrorActionPreference = 'Stop'
-[Console]::Out.WriteLine('K2B_DIAG|bridge init start')
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-
-$bridgeReferences = @(
-    [System.Windows.Automation.AutomationElement].Assembly.Location
-    [System.Windows.Automation.ValuePattern].Assembly.Location
-    [System.Windows.Automation.AutomationPattern].Assembly.Location
-    [System.Threading.Thread].Assembly.Location
-) | Select-Object -Unique
-Add-Type -ReferencedAssemblies $bridgeReferences -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
-using System.Windows.Automation;
-
-public static class K2BFileInputBridge
-{
-    private const uint WM_SETTEXT = 0x000C;
-    private const uint WM_GETTEXT = 0x000D;
-    private const uint SMTO_ABORTIFHUNG = 0x0002;
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr SendMessageTimeout(
-        IntPtr hWnd, uint msg, IntPtr wParam, string lParam,
-        uint flags, uint timeout, out IntPtr result);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr SendMessageTimeout(
-        IntPtr hWnd, uint msg, IntPtr wParam, StringBuilder lParam,
-        uint flags, uint timeout, out IntPtr result);
-
-    public static bool TrySetWin32(int nativeHandle, string value, uint timeoutMs, out bool timedOut)
-    {
-        timedOut = false;
-        if (nativeHandle == 0) return false;
-        IntPtr result;
-        var sent = SendMessageTimeout(
-            new IntPtr(nativeHandle), WM_SETTEXT, IntPtr.Zero, value,
-            SMTO_ABORTIFHUNG, timeoutMs, out result);
-        if (sent == IntPtr.Zero) timedOut = true;
-        return sent != IntPtr.Zero;
-    }
-
-    public static bool TryGetWin32(int nativeHandle, uint timeoutMs, out string value, out bool timedOut)
-    {
-        value = "";
-        timedOut = false;
-        if (nativeHandle == 0) return false;
-        var buffer = new StringBuilder(32768);
-        IntPtr result;
-        var sent = SendMessageTimeout(
-            new IntPtr(nativeHandle), WM_GETTEXT, new IntPtr(buffer.Capacity), buffer,
-            SMTO_ABORTIFHUNG, timeoutMs, out result);
-        if (sent == IntPtr.Zero) {
-            timedOut = true;
-            return false;
-        }
-        value = buffer.ToString();
-        return true;
-    }
-
-    public static bool TrySetUia(
-        AutomationElement element, string value, int timeoutMs,
-        out bool timedOut, out string error)
-    {
-        timedOut = false;
-        error = "";
-        bool success = false;
-        string workerError = "";
-        var thread = new Thread(new ThreadStart(delegate {
-            try {
-                object pattern;
-                if (!element.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
-                    workerError = "ValuePattern unavailable";
-                    return;
-                }
-                ((ValuePattern)pattern).SetValue(value);
-                success = true;
-            } catch (Exception ex) {
-                workerError = ex.Message;
-            }
-        }));
-        thread.IsBackground = true;
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        if (!thread.Join(timeoutMs)) {
-            timedOut = true;
-            error = "ValuePattern.SetValue timeout";
-            return false;
-        }
-        error = workerError;
-        return success;
-    }
-
-    public static bool TryGetUia(
-        AutomationElement element, int timeoutMs,
-        out string value, out bool timedOut)
-    {
-        value = "";
-        timedOut = false;
-        string workerValue = "";
-        bool success = false;
-        var thread = new Thread(new ThreadStart(delegate {
-            try {
-                object pattern;
-                if (!element.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) return;
-                workerValue = ((ValuePattern)pattern).Current.Value ?? "";
-                success = true;
-            } catch { }
-        }));
-        thread.IsBackground = true;
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        if (!thread.Join(timeoutMs)) {
-            timedOut = true;
-            return false;
-        }
-        value = workerValue;
-        return success;
-    }
-}
-'@
-[Console]::Out.WriteLine('K2B_DIAG|bridge init success')
 
 function Write-ControlDiagnostic([string]$eventName, $control, [string]$extra = '') {
     $diagnosticValuePattern = $null
@@ -677,10 +496,7 @@ Write-Output 'K2B_DIAG|file input control ready'
 
 $inputWatch = [Diagnostics.Stopwatch]::StartNew()
 $inputVerified = $false
-$win32Logged = $false
-$uiaLogged = $false
-$win32TimedOutLogged = $false
-$uiaTimedOutLogged = $false
+$setValueLogged = $false
 $lastActualValue = ''
 while ($inputWatch.ElapsedMilliseconds -lt 5000) {
     $inputState = Get-ReadyFileDialog
@@ -689,51 +505,29 @@ while ($inputWatch.ElapsedMilliseconds -lt 5000) {
         continue
     }
 
-    $nativeHandle = $inputState.FileInput.Current.NativeWindowHandle
-    $inputApplied = $false
-    if ($nativeHandle -ne 0) {
-        if (-not $win32Logged) {
-            Write-ControlDiagnostic 'win32-input-target' $inputState.FileInput ('FullPath=' + $selection)
-            Write-Output 'K2B_DIAG|input method=WIN32 input attempt started'
-            $win32Logged = $true
-        }
-        $win32TimedOut = $false
-        $inputApplied = [K2BFileInputBridge]::TrySetWin32(
-            $nativeHandle, $selection, 750, [ref]$win32TimedOut
-        )
-        if ($win32TimedOut -and -not $win32TimedOutLogged) {
-            Write-Output 'K2B_DIAG|input method=WIN32 input attempt timed out=true'
-            $win32TimedOutLogged = $true
-        }
+    $valuePattern = $null
+    if (-not $inputState.FileInput.TryGetCurrentPattern(
+        [System.Windows.Automation.ValuePattern]::Pattern,
+        [ref]$valuePattern
+    )) {
+        Start-Sleep -Milliseconds 150
+        continue
     }
 
-    if (-not $inputApplied) {
-        if (-not $uiaLogged) {
-            Write-ControlDiagnostic 'uia-input-target' $inputState.FileInput ('FullPath=' + $selection)
-            Write-Output 'K2B_DIAG|input method=UIA input attempt started'
-            $uiaLogged = $true
+    try {
+        if (-not $setValueLogged) {
+            Write-ControlDiagnostic 'set-value-target' $inputState.FileInput ('FullPath=' + $selection)
+            Write-Output 'K2B_DIAG|SetValue requested'
+            $setValueLogged = $true
         }
-        $uiaTimedOut = $false
-        $uiaError = ''
-        $inputApplied = [K2BFileInputBridge]::TrySetUia(
-            $inputState.FileInput, $selection, 750, [ref]$uiaTimedOut, [ref]$uiaError
-        )
-        if ($uiaTimedOut -and -not $uiaTimedOutLogged) {
-            Write-Output 'K2B_DIAG|input method=UIA input attempt timed out=true'
-            $uiaTimedOutLogged = $true
-        }
+        $valuePattern.SetValue($selection)
+    } catch {
+        Start-Sleep -Milliseconds 150
+        continue
     }
 
     Start-Sleep -Milliseconds 150
-    $readTimedOut = $false
-    $valueRead = [K2BFileInputBridge]::TryGetWin32(
-        $nativeHandle, 750, [ref]$lastActualValue, [ref]$readTimedOut
-    )
-    if (-not $valueRead) {
-        $valueRead = [K2BFileInputBridge]::TryGetUia(
-            $inputState.FileInput, 750, [ref]$lastActualValue, [ref]$readTimedOut
-        )
-    }
+    try { $lastActualValue = $valuePattern.Current.Value } catch { $lastActualValue = '' }
     if (Test-FileInputValue $lastActualValue $paths $selection) {
         $ready = $inputState
         $inputVerified = $true
@@ -784,10 +578,7 @@ while ($closeWatch.ElapsedMilliseconds -lt 10000) {
 }
 throw 'K2B_FILE_OPEN_TIMEOUT'
 `;
-        logFileDialogBoundary(diagnosticContext, 'runEncodedPowerShell ENTER');
-        const result = this.runPowerShellScript(command, diagnosticContext, 25000);
-        logFileDialogBoundary(diagnosticContext, 'runEncodedPowerShell EXIT success');
-        return result;
+        return this.runPowerShellScript(command, diagnosticContext, 25000);
     }
 
     private closeOpenFileDialog() {
@@ -894,7 +685,6 @@ foreach ($window in $windows) {
      * Windows 10 파일 선택창에서 폴더로 이동한 뒤 파일명을 입력합니다.
      */
     private sendFilePathViaDialog(filePath: string, diagnosticContext: FileDialogDiagnosticContext) {
-        logFileDialogBoundary(diagnosticContext, `sendFilePathViaDialog ENTER path=${filePath}`);
         if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
             throw new Error(`TXT 파일이 실제 경로에 없습니다: ${filePath}`);
         }
@@ -998,7 +788,6 @@ foreach ($window in $windows) {
                     try {
                         dialogResult = this.sendFilePathViaDialog(files.dataFile!.path, diagnosticContext);
                     } catch (error) {
-                        logFileDialogError(diagnosticContext, error);
                         const stage = this.classifyFileDialogFailure(error);
                         throw new Error(`${stage}: ${error instanceof Error ? error.message : String(error)}`);
                     }
