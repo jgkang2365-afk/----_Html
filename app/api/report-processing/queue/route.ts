@@ -42,7 +42,10 @@ export async function POST(req: NextRequest) {
                 status: 'pending',
                 payload: {
                     targets,
-                    requestUser
+                    requestUser,
+                    calendarSyncApiUrl: job_type === 'k2b'
+                        ? new URL('/api/report-processing/calendar-sync', req.url).toString()
+                        : undefined
                 }
             })
             .select('id')
