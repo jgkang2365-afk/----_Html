@@ -133,6 +133,47 @@ test("입력값 검증 timeout 시 열기 Invoke를 실행하지 않는다", () 
   assert.match(source, /K2B_DIAG\|open invoked/);
 });
 
+test("UIA SetValue는 제한시간이 있는 백그라운드 STA 스레드로 실행한다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+
+  assert.match(source, /thread\.IsBackground = true/);
+  assert.match(source, /thread\.SetApartmentState\(ApartmentState\.STA\)/);
+  assert.match(source, /if \(!thread\.Join\(timeoutMs\)\)/);
+  assert.match(source, /ValuePattern\.SetValue timeout/);
+  assert.match(source, /input method=UIA input attempt timed out=true/);
+});
+
+test("Win32 입력은 SendMessageTimeout으로 보호하고 실제 값을 다시 읽는다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+
+  assert.match(source, /WM_SETTEXT = 0x000C/);
+  assert.match(source, /WM_GETTEXT = 0x000D/);
+  assert.match(source, /SMTO_ABORTIFHUNG = 0x0002/);
+  assert.match(source, /TrySetWin32/);
+  assert.match(source, /TryGetWin32/);
+  assert.match(source, /input method=WIN32 input attempt started/);
+});
+
+test("Win32 실패 시 timeout 보호된 UIA fallback을 사용한다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+  const win32Input = source.indexOf("TrySetWin32(", source.indexOf("$inputApplied = $false"));
+  const fallbackGuard = source.indexOf("if (-not $inputApplied)", win32Input);
+  const uiaInput = source.indexOf("TrySetUia(", fallbackGuard);
+
+  assert.ok(win32Input >= 0 && fallbackGuard > win32Input && uiaInput > fallbackGuard);
+});
+
+test("모든 입력 방식이 멈춰도 PowerShell 프로세스 최종 timeout이 Worker를 복귀시킨다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+
+  assert.match(source, /timeout: timeoutMs/);
+  assert.match(source, /error\?\.code === 'ETIMEDOUT'/);
+  assert.match(source, /runEncodedPowerShell\(command, diagnosticContext, 25000\)/);
+  assert.match(source, /Windows 파일 선택 입력 자동화가 제한시간 안에 종료되지 않았습니다/);
+  assert.match(source, /입력 컨트롤\|입력값\|입력 자동화/);
+  assert.match(source, /K2B_FILE_INPUT_VALUE_NOT_VERIFIED/);
+});
+
 test("첨부 제어는 첫 실패만 정리 후 한 번 재시도한다", async () => {
   const attempts: number[] = [];
   let cleanupCount = 0;
@@ -174,7 +215,8 @@ test("파일 선택창 진단은 후보 목록을 창마다 한 번만 남기고
   assert.match(source, /'candidate-edit'/);
   assert.match(source, /'candidate-button'/);
   assert.match(source, /'selected-input'/);
-  assert.match(source, /'set-value-target'/);
+  assert.match(source, /'win32-input-target'/);
+  assert.match(source, /'uia-input-target'/);
   assert.match(source, /'selected-open-button'/);
   assert.match(source, /'open-button-invoke-completed'/);
   assert.match(source, /ControlType = \$control\.Current\.ControlType\.ProgrammaticName/);
