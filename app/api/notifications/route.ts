@@ -24,21 +24,35 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient();
 
-    const { data: notifications, error } = await supabase
-      .from("notifications")
-      .select("*")
-      .eq("user_id", session.userId)
-      .order("created_at", { ascending: false })
-      .limit(50);
+    const [notificationsResult, unreadCountResult] = await Promise.all([
+      supabase
+        .from("notifications")
+        .select("*")
+        .eq("user_id", session.userId)
+        .order("created_at", { ascending: false })
+        .limit(50),
+      supabase
+        .from("notifications")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", session.userId)
+        .eq("is_read", false),
+    ]);
 
-    if (error) {
+    if (notificationsResult.error || unreadCountResult.error) {
+      console.error("Get notifications DB error:", {
+        notificationsError: notificationsResult.error,
+        unreadCountError: unreadCountResult.error,
+      });
       return NextResponse.json(
         { error: "알림을 불러오는 중 오류가 발생했습니다." },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ notifications: notifications || [] });
+    return NextResponse.json({
+      notifications: notificationsResult.data || [],
+      unreadCount: unreadCountResult.count || 0,
+    });
   } catch (error) {
     console.error("Get notifications error:", error);
     return NextResponse.json(
@@ -78,6 +92,12 @@ export async function PATCH(request: NextRequest) {
     const { error } = await query;
 
     if (error) {
+      console.error("Patch notification DB error:", {
+        userId: session.userId,
+        notificationId: all ? undefined : id,
+        all: Boolean(all),
+        error,
+      });
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
