@@ -59,8 +59,10 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const unreadCount = notifications.filter(n => !n.is_read).length;
   const [isMemoOpen, setIsMemoOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+  const lastNotificationFetchAtRef = useRef(0);
 
   const fetchNotifications = async () => {
+    lastNotificationFetchAtRef.current = Date.now();
     try {
       const res = await fetch("/api/notifications");
       if (res.ok) {
@@ -92,9 +94,23 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
   useEffect(() => {
     if (user) {
-      fetchNotifications();
-      const interval = setInterval(fetchNotifications, 60000); // 1분마다 확인
-      return () => clearInterval(interval);
+      const refreshWhenVisible = () => {
+        const hasBeenIdleForOneMinute = Date.now() - lastNotificationFetchAtRef.current >= 60000;
+        if (document.visibilityState === "visible" && hasBeenIdleForOneMinute) {
+          void fetchNotifications();
+        }
+      };
+
+      void fetchNotifications();
+      const interval = window.setInterval(refreshWhenVisible, 180000);
+      window.addEventListener("focus", refreshWhenVisible);
+      document.addEventListener("visibilitychange", refreshWhenVisible);
+
+      return () => {
+        window.clearInterval(interval);
+        window.removeEventListener("focus", refreshWhenVisible);
+        document.removeEventListener("visibilitychange", refreshWhenVisible);
+      };
     }
   }, [user]);
 

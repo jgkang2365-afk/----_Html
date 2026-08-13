@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "measurement-journal-mes-runtime"
+version = "0.1.0"
+description = "Installable Python runtime modules for the measurement journal MES daemon"
+requires-python = ">=3.10"
+dependencies = [
+  "python-dotenv==1.2.2",
+  "supabase==2.31.0",
+  "websockets==15.0.1",
+]
+
+[tool.setuptools]
+py-modules = [
+  "mes_daemon_realtime",
+  "supabase_realtime_postgres_changes",
+]

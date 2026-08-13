@@ -217,11 +217,12 @@ test("문서 Worker는 Realtime 신호와 6시간 안전 확인을 사용한다"
   assert.ok(runtime.includes("while processed < self.max_drain_jobs"));
 });
 
-test("Node WorkerDaemon의 5초 루프는 background_jobs 전용이고 문서 claim을 호출하지 않는다", () => {
+test("Node WorkerDaemon은 background_jobs Realtime 전용이고 문서 claim을 호출하지 않는다", () => {
   const source = readFileSync("lib/automation/worker-daemon.ts", "utf8");
-  assert.match(source, /background_jobs 전용 작업기/);
   assert.match(source, /문서 생성 Worker와 별도 실행/);
-  assert.match(source, /setInterval\(\(\) => this\.poll\(\), 5000\)/);
+  assert.match(source, /background_jobs 전용 Realtime 작업기/);
+  assert.match(source, /background_job_pending_signals/);
+  assert.doesNotMatch(source, /JOB_POLL_INTERVAL_MS|pollingInterval/);
   assert.doesNotMatch(source, /document-worker\/jobs\/claim/);
 });
 

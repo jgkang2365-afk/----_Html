@@ -1,0 +1,3 @@
+# Installs the project-owned supabase_realtime_postgres_changes module and
+# its pinned MES daemon runtime dependencies from pyproject.toml.
+-e .

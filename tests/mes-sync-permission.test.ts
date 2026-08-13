@@ -24,3 +24,32 @@ test("MES 미등록 점검은 동일 연도·주기의 전체 등록분을 생�
   assert.match(source, /\.in\("period", surveyPeriods\)/);
   assert.doesNotMatch(source, /\.gte\("created_at",/);
 });
+
+test("MES 자동 다운로드는 기존 11:30, 12:00, 14:00 스케줄을 유지한다", () => {
+  const source = readFileSync("lib/scheduler/background-tasks.ts", "utf8");
+  assert.match(source, /cron\.schedule\('30 11 \* \* \*'/);
+  assert.match(source, /cron\.schedule\('0 12 \* \* \*'/);
+  assert.match(source, /cron\.schedule\('0 14 \* \* \*'/);
+  assert.match(source, /status: 'pending'/);
+});
+
+test("MES daemon은 polling 없이 Realtime과 조건부 pending 선점을 사용한다", () => {
+  const daemon = readFileSync("mes_daemon.py", "utf8");
+  const runtime = readFileSync("mes_daemon_realtime.py", "utf8");
+  assert.doesNotMatch(daemon, /POLL_SECONDS|poll_forever/);
+  assert.match(daemon, /\.eq\("status", "pending"\)/);
+  assert.match(runtime, /DEFAULT_SAFETY_CHECK_SECONDS = 6 \* 60 \* 60/);
+  assert.match(runtime, /event="UPDATE"/);
+  assert.match(runtime, /filter=REALTIME_FILTER/);
+  assert.match(runtime, /coordinator\.wake\("startup"\)/);
+  assert.match(runtime, /"realtime-reconnected"/);
+  assert.match(runtime, /coordinator\.wake\("safety-check"\)/);
+  assert.match(runtime, /channel\.unsubscribe\(\)/);
+});
+
+test("웹 수동 MES 동기화도 동일 pending 큐를 통해 Realtime worker를 깨운다", () => {
+  const route = readFileSync("app/api/cron/mes-trigger/route.ts", "utf8");
+  assert.match(route, /\.from\("mes_sync_queue"\)/);
+  assert.match(route, /status: "pending"/);
+  assert.match(route, /canTriggerMesSync/);
+});
