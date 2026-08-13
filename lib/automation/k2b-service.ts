@@ -260,7 +260,8 @@ export class K2BService {
 
     private logFileDialogDiagnostics(output: string, context?: FileDialogDiagnosticContext) {
         if (!context || !output) return;
-        for (const line of output.split(/\r?\n/)) {
+        for (const rawLine of output.replace(/^\uFEFF/, '').replace(/\0/g, '').split(/\r?\n/)) {
+            const line = rawLine.trimStart();
             if (!line.startsWith('K2B_DIAG|')) continue;
             console.log(
                 `[K2B][${context.businessCode}][attempt ${context.attempt}][${context.phase}] ${line.substring('K2B_DIAG|'.length)}`
@@ -314,7 +315,17 @@ export class K2BService {
             if (stderr.includes('K2B_FILE_DIALOG_PATH_REJECTED')) {
                 throw new Error('파일 선택창에서 Z 드라이브 또는 UNC 경로를 열지 못했습니다.');
             }
-            throw new Error('Windows 파일 선택 자동화 명령이 실패했습니다.');
+            const stderrDetail = stderr.trim().slice(0, 4000);
+            if (stderrDetail) {
+                console.error(
+                    `[K2B][${diagnosticContext?.businessCode || 'unknown'}] ` +
+                    `Windows 파일 선택 자동화 stderr: ${stderrDetail}`
+                );
+            }
+            throw new Error(
+                `Windows 파일 선택 자동화 명령이 실패했습니다.` +
+                (stderrDetail ? ` PowerShell 오류: ${stderrDetail}` : '')
+            );
         }
     }
 
@@ -327,6 +338,7 @@ export class K2BService {
         const pathsBase64 = Buffer.from(JSON.stringify(dialogPaths), 'utf8').toString('base64');
         const command = `
 $ErrorActionPreference = 'Stop'
+[Console]::Out.WriteLine('K2B_DIAG|bridge init start')
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
@@ -450,6 +462,7 @@ public static class K2BFileInputBridge
     }
 }
 '@
+[Console]::Out.WriteLine('K2B_DIAG|bridge init success')
 
 function Write-ControlDiagnostic([string]$eventName, $control, [string]$extra = '') {
     $diagnosticValuePattern = $null

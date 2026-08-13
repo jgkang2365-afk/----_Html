@@ -174,6 +174,19 @@ test("모든 입력 방식이 멈춰도 PowerShell 프로세스 최종 timeout�
   assert.match(source, /K2B_FILE_INPUT_VALUE_NOT_VERIFIED/);
 });
 
+test("bridge 초기화 경계와 PowerShell 컴파일 오류를 보존한다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+  const initStart = source.indexOf("K2B_DIAG|bridge init start");
+  const addType = source.indexOf("Add-Type -AssemblyName UIAutomationClient", initStart);
+  const initSuccess = source.indexOf("K2B_DIAG|bridge init success", addType);
+
+  assert.ok(initStart >= 0 && addType > initStart && initSuccess > addType);
+  assert.match(source, /stderr\.trim\(\)\.slice\(0, 4000\)/);
+  assert.match(source, /Windows 파일 선택 자동화 stderr/);
+  assert.match(source, /PowerShell 오류: \$\{stderrDetail\}/);
+  assert.match(source, /replace\(\/\\0\/g, ''\)/);
+});
+
 test("첨부 제어는 첫 실패만 정리 후 한 번 재시도한다", async () => {
   const attempts: number[] = [];
   let cleanupCount = 0;
