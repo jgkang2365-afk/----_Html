@@ -7,6 +7,8 @@ import {
 } from "../lib/automation/windows-file-path";
 import {
   areEquivalentWindowsDialogPaths,
+  logFileDialogBoundary,
+  logFileDialogError,
   runWithSingleRetry,
 } from "../lib/automation/k2b-service";
 
@@ -187,9 +189,58 @@ test("bridge 초기화 경계와 PowerShell 컴파일 오류를 보존한다", (
   assert.match(source, /replace\(\/\\0\/g, ''\)/);
 });
 
+test("파일 선택 호출 경계는 업체코드와 attempt를 stdout에 남긴다", () => {
+  const messages: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => messages.push(args.map(String).join(" "));
+
+  try {
+    logFileDialogBoundary(
+      { businessCode: "H0507", phase: "TXT", attempt: 1 },
+      "sendFilesViaDialog ENTER"
+    );
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.deepEqual(messages, ["[K2B][H0507][attempt 1] sendFilesViaDialog ENTER"]);
+});
+
+test("파일 선택 예외는 줄바꿈 없이 FILE_DIALOG_ERROR로 stdout에 보존한다", () => {
+  const messages: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => messages.push(args.map(String).join(" "));
+
+  try {
+    logFileDialogError(
+      { businessCode: "H0502", phase: "TXT", attempt: 2 },
+      new Error("PowerShell compile\nfailed")
+    );
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.deepEqual(messages, [
+    "[K2B][H0502][attempt 2] FILE_DIALOG_ERROR=PowerShell compile failed",
+  ]);
+});
+
+test("TXT 파일 선택 흐름은 경로 해석과 PowerShell 호출 전후 경계를 모두 기록한다", () => {
+  const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
+
+  assert.match(source, /sendFilePathViaDialog ENTER path=/);
+  assert.match(source, /sendFilesViaDialog ENTER/);
+  assert.match(source, /resolveDialogPath BEFORE path=/);
+  assert.match(source, /resolveDialogPath AFTER path=/);
+  assert.match(source, /runEncodedPowerShell ENTER/);
+  assert.match(source, /runEncodedPowerShell EXIT success/);
+  assert.match(source, /catch \(error\) \{\s*logFileDialogError\(diagnosticContext, error\)/);
+});
+
 test("첨부 제어는 첫 실패만 정리 후 한 번 재시도한다", async () => {
   const attempts: number[] = [];
   let cleanupCount = 0;
+  let retryError: unknown;
 
   const result = await runWithSingleRetry(
     async attempt => {
@@ -197,25 +248,29 @@ test("첨부 제어는 첫 실패만 정리 후 한 번 재시도한다", async 
       if (attempt === 1) throw new Error("temporary");
       return "success";
     },
-    async () => {
+    async error => {
       cleanupCount++;
+      retryError = error;
     }
   );
 
   assert.equal(result, "success");
   assert.deepEqual(attempts, [1, 2]);
   assert.equal(cleanupCount, 1);
+  assert.equal((retryError as Error).message, "temporary");
 });
 
 test("첨부 제어는 두 번째 실패 후 추가 재시도하지 않는다", async () => {
   let attemptCount = 0;
+  const secondError = new Error("second attempt failed");
 
   await assert.rejects(
-    runWithSingleRetry(async () => {
+    runWithSingleRetry(async attempt => {
       attemptCount++;
-      throw new Error("failed");
+      if (attempt === 1) throw new Error("first attempt failed");
+      throw secondError;
     }),
-    /failed/
+    error => error === secondError
   );
   assert.equal(attemptCount, 2);
 });

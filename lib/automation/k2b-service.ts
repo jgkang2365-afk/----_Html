@@ -26,11 +26,30 @@ export function areEquivalentWindowsDialogPaths(expected: string, actual: string
     return actual.trim().length > 0 && normalize(expected) === normalize(actual);
 }
 
-type FileDialogDiagnosticContext = {
+export type FileDialogDiagnosticContext = {
     businessCode: string;
     phase: 'TXT' | 'DRAWINGS';
     attempt: number;
 };
+
+function fileDialogLogPrefix(context: FileDialogDiagnosticContext): string {
+    return `[K2B][${context.businessCode}][attempt ${context.attempt}]`;
+}
+
+export function logFileDialogBoundary(
+    context: FileDialogDiagnosticContext,
+    message: string
+): void {
+    console.log(`${fileDialogLogPrefix(context)} ${message}`);
+}
+
+export function logFileDialogError(
+    context: FileDialogDiagnosticContext,
+    error: unknown
+): void {
+    const message = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').trim();
+    console.log(`${fileDialogLogPrefix(context)} FILE_DIALOG_ERROR=${message}`);
+}
 
 type K2BFailureStage =
     | 'file-dialog-ready'
@@ -334,7 +353,13 @@ export class K2BService {
      * UI Automation으로 확인한 뒤 경로를 직접 입력하고 '열기'를 실행합니다.
      */
     private sendFilesViaDialog(filePaths: string[], diagnosticContext: FileDialogDiagnosticContext) {
-        const dialogPaths = filePaths.map(filePath => this.resolveDialogPath(filePath));
+        logFileDialogBoundary(diagnosticContext, 'sendFilesViaDialog ENTER');
+        const dialogPaths = filePaths.map(filePath => {
+            logFileDialogBoundary(diagnosticContext, `resolveDialogPath BEFORE path=${filePath}`);
+            const dialogPath = this.resolveDialogPath(filePath);
+            logFileDialogBoundary(diagnosticContext, `resolveDialogPath AFTER path=${dialogPath}`);
+            return dialogPath;
+        });
         const pathsBase64 = Buffer.from(JSON.stringify(dialogPaths), 'utf8').toString('base64');
         const command = `
 $ErrorActionPreference = 'Stop'
@@ -694,7 +719,10 @@ while ($closeWatch.ElapsedMilliseconds -lt 10000) {
 }
 throw 'K2B_FILE_OPEN_TIMEOUT'
 `;
-        return this.runEncodedPowerShell(command, diagnosticContext, 25000);
+        logFileDialogBoundary(diagnosticContext, 'runEncodedPowerShell ENTER');
+        const result = this.runEncodedPowerShell(command, diagnosticContext, 25000);
+        logFileDialogBoundary(diagnosticContext, 'runEncodedPowerShell EXIT success');
+        return result;
     }
 
     private closeOpenFileDialog() {
@@ -801,6 +829,7 @@ foreach ($window in $windows) {
      * Windows 10 파일 선택창에서 폴더로 이동한 뒤 파일명을 입력합니다.
      */
     private sendFilePathViaDialog(filePath: string, diagnosticContext: FileDialogDiagnosticContext) {
+        logFileDialogBoundary(diagnosticContext, `sendFilePathViaDialog ENTER path=${filePath}`);
         if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
             throw new Error(`TXT 파일이 실제 경로에 없습니다: ${filePath}`);
         }
@@ -896,13 +925,15 @@ foreach ($window in $windows) {
                     }
 
                     let dialogResult = '';
+                    const diagnosticContext: FileDialogDiagnosticContext = {
+                        businessCode,
+                        phase: 'TXT',
+                        attempt
+                    };
                     try {
-                        dialogResult = this.sendFilePathViaDialog(files.dataFile!.path, {
-                            businessCode,
-                            phase: 'TXT',
-                            attempt
-                        });
+                        dialogResult = this.sendFilePathViaDialog(files.dataFile!.path, diagnosticContext);
                     } catch (error) {
+                        logFileDialogError(diagnosticContext, error);
                         const stage = this.classifyFileDialogFailure(error);
                         throw new Error(`${stage}: ${error instanceof Error ? error.message : String(error)}`);
                     }
@@ -935,11 +966,11 @@ foreach ($window in $windows) {
                         const message = error instanceof Error ? error.message : String(error);
                         const stage = /^(file-dialog-ready|file-input-ready|file-open|attachment-confirm):/.exec(message)?.[1]
                             || 'attachment-confirm';
-                        console.error(`[K2B][${businessCode}][attempt ${attempt}] RESULT=FAILED stage=${stage} error=${message}`);
+                        console.log(`[K2B][${businessCode}][attempt ${attempt}] RESULT=FAILED stage=${stage} error=${message}`);
                         throw error;
                     }
                 }, async error => {
-                    console.warn(`[K2B][${businessCode}] 1차 TXT 첨부 실패, 재시도 실행: ${(error as Error).message}`);
+                    console.log(`[K2B][${businessCode}] 1차 TXT 첨부 실패, 재시도 실행: ${(error as Error).message}`);
                     this.closeOpenFileDialog();
 
                     const attachedRows = await this.driver!.findElements(locationButtonLocators[1]);
@@ -951,7 +982,7 @@ foreach ($window in $windows) {
                     }
                 });
             } catch (e) {
-                console.error(`[K2B][${businessCode}] 2차 TXT 첨부 실패, 해당 업체 실패 처리: ${e instanceof Error ? e.message : String(e)}`);
+                console.log(`[K2B][${businessCode}] 2차 TXT 첨부 실패, 해당 업체 실패 처리: ${e instanceof Error ? e.message : String(e)}`);
                 try {
                     const logDir = path.resolve(process.cwd(), 'logs');
                     fs.mkdirSync(logDir, { recursive: true });
