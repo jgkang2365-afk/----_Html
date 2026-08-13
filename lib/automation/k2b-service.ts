@@ -17,6 +17,27 @@ export async function runWithSingleRetry<T>(
     }
 }
 
+type FileDialogDiagnosticContext = {
+    businessCode: string;
+    phase: 'TXT' | 'DRAWINGS';
+    attempt: number;
+};
+
+type K2BFailureStage =
+    | 'file-dialog-ready'
+    | 'file-input-ready'
+    | 'file-open'
+    | 'attachment-confirm'
+    | 'existing-upload handling';
+
+type K2BUploadResult = {
+    success: boolean;
+    status: string;
+    message?: string;
+    error?: string;
+    failureStage?: K2BFailureStage;
+};
+
 /**
  * K2B 시스템 자동화 서비스
  * 파이썬 스크립트(작업환경측정결과 보고서 처리.py)의 connect_to_k2b 로직을 1:1 이식
@@ -228,18 +249,34 @@ export class K2BService {
         return resolvedPath;
     }
 
-    private runEncodedPowerShell(command: string) {
+    private logFileDialogDiagnostics(output: string, context?: FileDialogDiagnosticContext) {
+        if (!context || !output) return;
+        for (const line of output.split(/\r?\n/)) {
+            if (!line.startsWith('K2B_DIAG|')) continue;
+            console.log(
+                `[K2B][${context.businessCode}][attempt ${context.attempt}][${context.phase}] ${line.substring('K2B_DIAG|'.length)}`
+            );
+        }
+    }
+
+    private runEncodedPowerShell(command: string, diagnosticContext?: FileDialogDiagnosticContext) {
         const encodedCommand = Buffer.from(command, 'utf16le').toString('base64');
         try {
-            return execFileSync(
+            const output = execFileSync(
                 'powershell.exe',
                 ['-NoProfile', '-Sta', '-NonInteractive', '-EncodedCommand', encodedCommand],
                 { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }
             ).toString('utf8');
+            this.logFileDialogDiagnostics(output, diagnosticContext);
+            return output;
         } catch (error: any) {
+            const stdout = Buffer.isBuffer(error?.stdout)
+                ? error.stdout.toString('utf8')
+                : String(error?.stdout || '');
             const stderr = Buffer.isBuffer(error?.stderr)
                 ? error.stderr.toString('utf8')
                 : String(error?.stderr || '');
+            this.logFileDialogDiagnostics(stdout, diagnosticContext);
             if (stderr.includes('K2B_CLIPBOARD_BUSY')) {
                 throw new Error('Windows 클립보드가 사용 중이어서 파일 경로를 입력하지 못했습니다.');
             }
@@ -266,13 +303,32 @@ export class K2BService {
      * Windows 10 공통 파일 선택창의 파일명 입력 컨트롤이 실제 사용 가능한 상태가 될 때까지
      * UI Automation으로 확인한 뒤 경로를 직접 입력하고 '열기'를 실행합니다.
      */
-    private sendFilesViaDialog(filePaths: string[]) {
+    private sendFilesViaDialog(filePaths: string[], diagnosticContext: FileDialogDiagnosticContext) {
         const dialogPaths = filePaths.map(filePath => this.resolveDialogPath(filePath));
         const pathsBase64 = Buffer.from(JSON.stringify(dialogPaths), 'utf8').toString('base64');
         const command = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+
+function Write-ControlDiagnostic([string]$eventName, $control, [string]$extra = '') {
+    $diagnosticValuePattern = $null
+    $supportsValuePattern = $control.TryGetCurrentPattern(
+        [System.Windows.Automation.ValuePattern]::Pattern,
+        [ref]$diagnosticValuePattern
+    )
+    $payload = [ordered]@{
+        Event = $eventName
+        ControlType = $control.Current.ControlType.ProgrammaticName
+        Name = $control.Current.Name
+        AutomationId = $control.Current.AutomationId
+        ClassName = $control.Current.ClassName
+        IsEnabled = $control.Current.IsEnabled
+        SupportsValuePattern = $supportsValuePattern
+    }
+    if ($extra) { $payload.Extra = $extra }
+    [Console]::Out.WriteLine('K2B_DIAG|' + ($payload | ConvertTo-Json -Compress))
+}
 
 function Get-ReadyFileDialog {
     $root = [System.Windows.Automation.AutomationElement]::RootElement
@@ -293,6 +349,19 @@ function Get-ReadyFileDialog {
                 [System.Windows.Automation.ControlType]::Edit
             ))
         )
+        $buttons = $window.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Button
+            ))
+        )
+        if (-not $script:candidatesLogged) {
+            Write-ControlDiagnostic 'dialog' $window
+            foreach ($edit in $edits) { Write-ControlDiagnostic 'candidate-edit' $edit }
+            foreach ($button in $buttons) { Write-ControlDiagnostic 'candidate-button' $button }
+            $script:candidatesLogged = $true
+        }
         $fileInput = $null
         foreach ($edit in $edits) {
             if ($edit.Current.IsEnabled -and -not $edit.Current.IsOffscreen -and $edit.Current.AutomationId -eq '1148') {
@@ -323,6 +392,7 @@ $pathsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${path
 $paths = ConvertFrom-Json $pathsJson
 if ($paths -is [string]) { $paths = @($paths) }
 $selection = ($paths | ForEach-Object { '"' + $_ + '"' }) -join ' '
+$script:candidatesLogged = $false
 $watch = [Diagnostics.Stopwatch]::StartNew()
 $ready = $null
 $sawDialog = $false
@@ -339,12 +409,14 @@ if (-not $ready) {
     if ($sawDialog) { throw 'K2B_FILE_INPUT_NOT_READY' }
     throw 'K2B_FILE_DIALOG_NOT_FOUND'
 }
-Write-Output ('K2B_FILE_DIALOG_READY_MS=' + $watch.ElapsedMilliseconds)
+Write-Output ('K2B_DIAG|ready-ms=' + $watch.ElapsedMilliseconds)
 
 $valuePattern = $null
 if (-not $ready.FileInput.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)) {
     throw 'K2B_FILE_INPUT_NOT_READY'
 }
+Write-ControlDiagnostic 'selected-input' $ready.FileInput ('FullPath=' + $selection)
+Write-ControlDiagnostic 'set-value-target' $ready.FileInput ('FullPath=' + $selection)
 $valuePattern.SetValue($selection)
 
 $buttons = $ready.Dialog.FindAll(
@@ -364,24 +436,26 @@ foreach ($button in $buttons) {
 if (-not $openButton -or -not $openButton.Current.IsEnabled) {
     throw 'K2B_FILE_OPEN_NOT_READY'
 }
+Write-ControlDiagnostic 'selected-open-button' $openButton
 $invokePattern = $null
 if (-not $openButton.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokePattern)) {
     throw 'K2B_FILE_OPEN_NOT_READY'
 }
 $invokePattern.Invoke()
+Write-ControlDiagnostic 'open-button-invoke-completed' $openButton
 
 $closeWatch = [Diagnostics.Stopwatch]::StartNew()
 while ($closeWatch.ElapsedMilliseconds -lt 10000) {
     $state = Get-ReadyFileDialog
     if (-not $state.DialogFound) {
-        Write-Output 'K2B_FILE_DIALOG_CLOSED'
+        Write-Output 'K2B_DIAG|dialog-closed'
         exit 0
     }
     Start-Sleep -Milliseconds 150
 }
 throw 'K2B_FILE_OPEN_TIMEOUT'
 `;
-        return this.runEncodedPowerShell(command);
+        return this.runEncodedPowerShell(command, diagnosticContext);
     }
 
     private closeOpenFileDialog() {
@@ -407,20 +481,101 @@ foreach ($window in $windows) {
         }
     }
 
+    async logBusinessBoundaryState(
+        businessCode: string,
+        previousBusinessCode: string | null,
+        previousFilePath: string | null,
+        currentFilePath: string | null
+    ) {
+        if (!this.driver) return;
+        const command = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+$windows = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+$dialogs = @()
+foreach ($window in $windows) {
+    if ($window.Current.ClassName -ne '#32770' -or $window.Current.Name -notin @('열기', 'Open')) { continue }
+    $editValues = @()
+    $edits = $window.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Edit
+        ))
+    )
+    foreach ($edit in $edits) {
+        $valuePattern = $null
+        $value = $null
+        if ($edit.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)) {
+            $value = $valuePattern.Current.Value
+        }
+        $editValues += [ordered]@{
+            Name = $edit.Current.Name
+            AutomationId = $edit.Current.AutomationId
+            ClassName = $edit.Current.ClassName
+            Value = $value
+        }
+    }
+    $dialogs += [ordered]@{
+        Name = $window.Current.Name
+        ClassName = $window.Current.ClassName
+        EditValues = $editValues
+    }
+}
+[Console]::Out.WriteLine('K2B_STATE|' + ([ordered]@{
+    OpenDialogCount = $dialogs.Count
+    Dialogs = $dialogs
+} | ConvertTo-Json -Compress -Depth 5))
+`;
+        let dialogState = 'K2B_STATE|{"OpenDialogCount":"unknown"}';
+        try {
+            const output = this.runEncodedPowerShell(command);
+            dialogState = output.split(/\r?\n/).find(line => line.startsWith('K2B_STATE|')) || dialogState;
+        } catch (error) {
+            dialogState = `K2B_STATE|{"SnapshotError":${JSON.stringify((error as Error).message)}}`;
+        }
+
+        const attachedRows = await this.driver.findElements(
+            By.css('[id*="div_fileUp_grid_upload_body_gridrow_"][id*="cell_0_2"]')
+        );
+        const partialAttachmentRows = await Promise.all(
+            attachedRows.map(element => element.isDisplayed().catch(() => false))
+        ).then(results => results.filter(Boolean).length);
+        console.log(
+            `[K2B][${businessCode}] STATE_BEFORE previousBusinessCode=${previousBusinessCode || 'none'} ` +
+            `previousFilePath=${previousFilePath || 'none'} currentFilePath=${currentFilePath || 'none'} ` +
+            `retryState=idle attemptCounter=0 partialAttachmentRows=${partialAttachmentRows} ` +
+            dialogState.substring('K2B_STATE|'.length)
+        );
+    }
+
+    private classifyFileDialogFailure(error: unknown): K2BFailureStage {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/열기 버튼|열기 실행|닫히지 않았/.test(message)) return 'file-open';
+        if (/입력 컨트롤|클립보드|실제 경로|경로를 열지 못/.test(message)) return 'file-input-ready';
+        return 'file-dialog-ready';
+    }
+
     /**
      * Windows 10 파일 선택창에서 폴더로 이동한 뒤 파일명을 입력합니다.
      */
-    private sendFilePathViaDialog(filePath: string) {
+    private sendFilePathViaDialog(filePath: string, diagnosticContext: FileDialogDiagnosticContext) {
         if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
             throw new Error(`TXT 파일이 실제 경로에 없습니다: ${filePath}`);
         }
 
-        return this.sendFilesViaDialog([filePath]);
+        return this.sendFilesViaDialog([filePath], diagnosticContext);
     }
     /**
      * Windows 10 파일 선택창에서 도면 폴더로 이동한 뒤 여러 파일을 선택합니다.
      */
-    private sendMultipleFilesViaDialog(drawingFolder: string, jpgFiles: string[]) {
+    private sendMultipleFilesViaDialog(
+        drawingFolder: string,
+        jpgFiles: string[],
+        diagnosticContext: FileDialogDiagnosticContext
+    ) {
         if (!fs.existsSync(drawingFolder) || !fs.statSync(drawingFolder).isDirectory()) {
             throw new Error(`도면 폴더가 실제 경로에 없습니다: ${drawingFolder}`);
         }
@@ -432,7 +587,8 @@ foreach ($window in $windows) {
         }
 
         return this.sendFilesViaDialog(
-            jpgFiles.map(filename => path.join(drawingFolder, filename))
+            jpgFiles.map(filename => path.join(drawingFolder, filename)),
+            diagnosticContext
         );
     }
     /**
@@ -454,18 +610,19 @@ foreach ($window in $windows) {
             dataFile: { path: string; filename: string } | null;
             drawings: { path: string; filename: string }[];
             drawingFolderPath?: string;
-        }
-    ): Promise<{ success: boolean; status: string; message?: string; error?: string }> {
+        },
+        businessCode: string = companyName
+    ): Promise<K2BUploadResult> {
         if (!this.driver) throw new Error('Driver not initialized');
         if (!files.dataFile) {
-            return { success: false, status: 'txt 파일 없음', error: 'TXT 데이터 파일이 없습니다.' };
+            return { success: false, status: 'txt 파일 없음', error: 'TXT 데이터 파일이 없습니다.', failureStage: 'file-input-ready' };
         }
         if (!fs.existsSync(files.dataFile.path) || !fs.statSync(files.dataFile.path).isFile()) {
-            return { success: false, status: 'TXT 경로 오류', error: `TXT 파일 경로를 찾을 수 없습니다: ${files.dataFile.path}` };
+            return { success: false, status: 'TXT 경로 오류', error: `TXT 파일 경로를 찾을 수 없습니다: ${files.dataFile.path}`, failureStage: 'file-input-ready' };
         }
 
         try {
-            console.log(`[K2B] ${companyName} 업로드 시작`);
+            console.log(`[K2B][${businessCode}] 업체 파일 선택 처리 시작: ${companyName}`);
 
             // 각 업체 처리 전 팝업 닫기 시도
             try {
@@ -486,23 +643,33 @@ foreach ($window in $windows) {
 
             try {
                 await runWithSingleRetry(async attempt => {
-                    console.log(`[K2B][${companyName}] 첨부 시작 (시도 ${attempt}/2)`);
-                    const addXmlBtn = await this.driver!.wait(
-                        until.elementLocated(By.xpath('//*[@id="mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_fileUp_btn_AddTextBoxElement"]/div')),
-                        20000
-                    );
-                    await addXmlBtn.click();
-                    console.log(`[K2B][${companyName}] XML 추가 클릭`);
+                    console.log(`[K2B][${businessCode}] TXT 파일 선택 단계 시작 (시도 ${attempt}/2)`);
+                    try {
+                    try {
+                        const addXmlBtn = await this.driver!.wait(
+                            until.elementLocated(By.xpath('//*[@id="mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_fileUp_btn_AddTextBoxElement"]/div')),
+                            20000
+                        );
+                        await addXmlBtn.click();
+                        console.log(`[K2B][${businessCode}] XML 추가 클릭`);
+                    } catch (error) {
+                        throw new Error(`file-dialog-ready: XML 추가 버튼 처리 실패: ${error instanceof Error ? error.message : String(error)}`);
+                    }
 
                     let dialogResult = '';
                     try {
-                        dialogResult = this.sendFilePathViaDialog(files.dataFile!.path);
+                        dialogResult = this.sendFilePathViaDialog(files.dataFile!.path, {
+                            businessCode,
+                            phase: 'TXT',
+                            attempt
+                        });
                     } catch (error) {
-                        throw new Error(`file-dialog-ready: ${error instanceof Error ? error.message : String(error)}`);
+                        const stage = this.classifyFileDialogFailure(error);
+                        throw new Error(`${stage}: ${error instanceof Error ? error.message : String(error)}`);
                     }
-                    const readyMs = /K2B_FILE_DIALOG_READY_MS=(\d+)/.exec(dialogResult)?.[1] || 'unknown';
-                    console.log(`[K2B][${companyName}] 파일 선택창 준비: ${readyMs}ms`);
-                    console.log(`[K2B][${companyName}] 파일 입력 완료`);
+                    const readyMs = /K2B_DIAG\|ready-ms=(\d+)/.exec(dialogResult)?.[1] || 'unknown';
+                    console.log(`[K2B][${businessCode}] 파일 선택창 준비: ${readyMs}ms`);
+                    console.log(`[K2B][${businessCode}] 전체 경로 입력 및 열기 Invoke 완료`);
 
                     let locationMapBtn: WebElement | null = null;
                     const attachmentDeadline = Date.now() + 10000;
@@ -522,10 +689,18 @@ foreach ($window in $windows) {
                     if (!locationMapBtn) {
                         throw new Error('attachment-confirm: TXT 업로드 행 또는 위치도 버튼이 생성되지 않았습니다.');
                     }
-                    console.log(`[K2B][${companyName}] 첨부 확인 완료`);
+                    console.log(`[K2B][${businessCode}] TXT 첨부 성공 판정: 위치도 버튼 표시됨`);
                     await locationMapBtn.click();
+                    console.log(`[K2B][${businessCode}][attempt ${attempt}] RESULT=SUCCESS stage=attachment-confirm`);
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        const stage = /^(file-dialog-ready|file-input-ready|file-open|attachment-confirm):/.exec(message)?.[1]
+                            || 'attachment-confirm';
+                        console.error(`[K2B][${businessCode}][attempt ${attempt}] RESULT=FAILED stage=${stage} error=${message}`);
+                        throw error;
+                    }
                 }, async error => {
-                    console.warn(`[K2B][${companyName}] 1차 첨부 실패, 1회 재시도: ${(error as Error).message}`);
+                    console.warn(`[K2B][${businessCode}] 1차 TXT 첨부 실패, 재시도 실행: ${(error as Error).message}`);
                     this.closeOpenFileDialog();
 
                     const attachedRows = await this.driver!.findElements(locationButtonLocators[1]);
@@ -537,6 +712,7 @@ foreach ($window in $windows) {
                     }
                 });
             } catch (e) {
+                console.error(`[K2B][${businessCode}] 2차 TXT 첨부 실패, 해당 업체 실패 처리: ${e instanceof Error ? e.message : String(e)}`);
                 try {
                     const logDir = path.resolve(process.cwd(), 'logs');
                     fs.mkdirSync(logDir, { recursive: true });
@@ -550,7 +726,9 @@ foreach ($window in $windows) {
                 return {
                     success: false,
                     status: 'TXT 첨부 오류',
-                    error: `2회 시도 후 TXT 첨부에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`
+                    error: `2회 시도 후 TXT 첨부에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`,
+                    failureStage: (/^(file-dialog-ready|file-input-ready|file-open|attachment-confirm):/.exec(e instanceof Error ? e.message : String(e))?.[1]
+                        || 'attachment-confirm') as K2BFailureStage
                 };
             }
 
@@ -570,12 +748,17 @@ foreach ($window in $windows) {
 
                     // 다중 파일 선택 (pyautogui 로직 대체)
                     try {
-                        this.sendMultipleFilesViaDialog(drawingFolderPath, jpgFiles);
+                        this.sendMultipleFilesViaDialog(drawingFolderPath, jpgFiles, {
+                            businessCode,
+                            phase: 'DRAWINGS',
+                            attempt: 1
+                        });
                     } catch (error) {
                         return {
                             success: false,
                             status: '도면 파일 선택 오류',
-                            error: `K2B 파일 선택창에서 도면 파일을 열지 못했습니다: ${error instanceof Error ? error.message : String(error)}`
+                            error: `K2B 파일 선택창에서 도면 파일을 열지 못했습니다: ${error instanceof Error ? error.message : String(error)}`,
+                            failureStage: this.classifyFileDialogFailure(error)
                         };
                     }
                     console.log(`[K2B] ${companyName}: 파일명 입력 완료`);
@@ -590,7 +773,7 @@ foreach ($window in $windows) {
                         await this.driver.wait(until.elementIsEnabled(applyBtn), 20000);
                         await applyBtn.click();
                     } catch (e) {
-                        return { success: false, status: '적용 버튼 오류', error: '적용 버튼을 찾을 수 없습니다.' };
+                        return { success: false, status: '적용 버튼 오류', error: '적용 버튼을 찾을 수 없습니다.', failureStage: 'attachment-confirm' };
                     }
 
                     // 'XML 업로드' 버튼 클릭
@@ -603,7 +786,7 @@ foreach ($window in $windows) {
                         await this.driver.wait(until.elementIsEnabled(uploadBtn), 20000);
                         await uploadBtn.click();
                     } catch (e) {
-                        return { success: false, status: 'XML 업로드 오류', error: 'XML 업로드 버튼을 찾을 수 없습니다.' };
+                        return { success: false, status: 'XML 업로드 오류', error: 'XML 업로드 버튼을 찾을 수 없습니다.', failureStage: 'attachment-confirm' };
                     }
 
                     // XML 등록 확인 팝업 클릭
@@ -614,28 +797,28 @@ foreach ($window in $windows) {
                         );
                         await confirmBtn.click();
                     } catch (e) {
-                        return { success: false, status: '확인 팝업 오류', error: '업로드 확인 팝업을 찾을 수 없습니다.' };
+                        return { success: false, status: '확인 팝업 오류', error: '업로드 확인 팝업을 찾을 수 없습니다.', failureStage: 'attachment-confirm' };
                     }
 
                     // ===== Step 5: 동일 파일 / 업로드 완료 분기 처리 =====
-                    return await this.handleUploadResult(companyName);
+                    return await this.handleUploadResult(companyName, businessCode);
 
                 } else {
                     // JPG 파일이 없는 경우 → XML 삭제 진행
                     console.log(`[K2B] ${companyName}: JPG 파일 없음`);
                     await this.deleteXml();
-                    return { success: false, status: 'JPG 파일 없음' };
+                    return { success: false, status: 'JPG 파일 없음', failureStage: 'attachment-confirm' };
                 }
             } else {
                 // 도면 폴더가 없는 경우 → XML 삭제 진행
                 console.log(`[K2B] ${companyName}: 도면 폴더 없음`);
                 await this.deleteXml();
-                return { success: false, status: '도면 폴더 없음' };
+                return { success: false, status: '도면 폴더 없음', failureStage: 'attachment-confirm' };
             }
 
         } catch (error: any) {
             console.error(`[K2B Error] ${companyName}:`, error.message);
-            return { success: false, status: '자동화 오류', error: error.message };
+            return { success: false, status: '자동화 오류', error: error.message, failureStage: 'attachment-confirm' };
         }
     }
 
@@ -647,8 +830,9 @@ foreach ($window in $windows) {
      * 2. '업로드' 텍스트 포함 메시지 확인 (5초) → 확인 → "업로드 완료"
      * 3. 둘 다 없으면 → "예상된 메시지 없음"
      */
-    private async handleUploadResult(companyName: string): Promise<{ success: boolean; status: string; message?: string }> {
+    private async handleUploadResult(companyName: string, businessCode: string): Promise<K2BUploadResult> {
         if (!this.driver) throw new Error('Driver not initialized');
+        console.log(`[K2B][${businessCode}] existing-upload handling ENTER`);
 
         // Case 1: '동일한' 메시지 확인
         try {
@@ -657,7 +841,7 @@ foreach ($window in $windows) {
                 5000
             );
             const msgText = await duplicateMsg.getText();
-            console.log(`[K2B] '동일한' 메시지 발견: ${msgText}`);
+            console.log(`[K2B][${businessCode}] existing-upload handling DUPLICATE=true message=${msgText}`);
 
             // 확인 버튼 클릭
             const confirmBtn = await this.driver.wait(
@@ -668,7 +852,7 @@ foreach ($window in $windows) {
 
             // XML 삭제
             await this.deleteXml();
-            return { success: false, status: '동일 파일 삭제 완료' };
+            return { success: false, status: '동일 파일 삭제 완료', failureStage: 'existing-upload handling' };
 
         } catch (e) {
             // Case 2: '업로드' 메시지 확인
@@ -678,7 +862,7 @@ foreach ($window in $windows) {
                     5000
                 );
                 const msgText = await uploadMsg.getText();
-                console.log(`[K2B] '업로드' 메시지 발견: ${msgText}`);
+                console.log(`[K2B][${businessCode}] existing-upload handling DUPLICATE=false message=${msgText}`);
 
                 // '정상 접수처리 안내' 팝업 확인
                 const successBtn = await this.driver.wait(
@@ -690,7 +874,8 @@ foreach ($window in $windows) {
                 return { success: true, status: '업로드 완료' };
 
             } catch (e2) {
-                return { success: false, status: '예상된 메시지 없음' };
+                console.log(`[K2B][${businessCode}] existing-upload handling RESULT=FAILED expected-message-not-found`);
+                return { success: false, status: '예상된 메시지 없음', failureStage: 'existing-upload handling' };
             }
         }
     }
