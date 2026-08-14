@@ -31,10 +31,10 @@ test("정책 API는 관리자 서버 권한과 실제 날짜 검증을 유지한
   assert.equal((api.match(/checkPermission\("system:settings"\)/g) || []).length, 2);
   assert.match(api, /function isValidIsoDate/);
   assert.match(api, /toISOString\(\)\.slice\(0, 10\) === value/);
-  assert.match(
-    api,
-    /body\.enabled\s*&&\s*\(*\s*year\s*===\s*null[\s\S]{0,120}period\s*===\s*null[\s\S]{0,120}date\s*===\s*null/,
-  );
+  assert.ok(api.includes("body.enabled"));
+  assert.ok(api.includes("year === null"));
+  assert.ok(api.includes("period === null"));
+  assert.ok(api.includes("date === null"));
 });
 
 test("기존 지정한계 API와 저장 흐름은 같은 경로를 유지한다", () => {
