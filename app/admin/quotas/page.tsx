@@ -9,7 +9,9 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";             // Modal 컴포넌트 추가
 import { Textarea } from "@/components/ui/Textarea";       // Textarea 컴포넌트 추가
+import { PreliminarySurveyPolicyPanel } from "@/components/admin/PreliminarySurveyPolicyPanel";
 import { DESIGNATED_OFFICES } from "@/lib/constants/designated-offices";
+import { useUser } from "@/hooks/use-user";
 
 interface QuotaData {
     id?: number;
@@ -26,6 +28,8 @@ interface ChangeRequest {
 }
 
 export default function AdminQuotasPage() {
+    const { user, loading: userLoading } = useUser();
+    const [activeTab, setActiveTab] = useState<"policy" | "quota">("policy");
     const currentYear = new Date().getFullYear();
     const [selectedYear, setSelectedYear] = useState(currentYear.toString());
     const [quotas, setQuotas] = useState<QuotaData[]>([]);
@@ -164,14 +168,42 @@ export default function AdminQuotasPage() {
         <div className="space-y-6 relative">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-text-900">지청별 지정한계 관리</h1>
+                    <h1 className="text-2xl font-bold text-text-900">정책 / 지정한계</h1>
                     <p className="text-text-700 mt-1">
-                        각 연도 및 주기별로 지청의 인가 갯수를 설정합니다.
+                        예비조사 정책과 지청별 지정한계를 관리합니다.
                     </p>
                 </div>
             </div>
 
-            <Card className="p-6">
+            <div className="flex gap-2 border-b border-surface-200" role="tablist" aria-label="정책 및 지정한계">
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === "policy"}
+                    onClick={() => setActiveTab("policy")}
+                    className={`border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${activeTab === "policy" ? "border-primary-600 text-primary-700" : "border-transparent text-text-600 hover:text-text-900"}`}
+                >
+                    정책
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === "quota"}
+                    onClick={() => setActiveTab("quota")}
+                    className={`border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${activeTab === "quota" ? "border-primary-600 text-primary-700" : "border-transparent text-text-600 hover:text-text-900"}`}
+                >
+                    지정한계
+                </button>
+            </div>
+
+            {activeTab === "policy" && (
+                <PreliminarySurveyPolicyPanel
+                    isAdmin={user?.role === "관리자"}
+                    userLoading={userLoading}
+                />
+            )}
+
+            {activeTab === "quota" && <Card className="p-6">
                 <div className="flex items-center gap-4 mb-6">
                     <label className="font-semibold text-text-900">설정 년도:</label>
                     <div className="w-32">
@@ -267,18 +299,18 @@ export default function AdminQuotasPage() {
                         </div>
                     </div>
                 )}
-            </Card>
+            </Card>}
 
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-sm text-blue-800">
+            {activeTab === "quota" && <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-sm text-blue-800">
                 <h4 className="font-bold mb-2">💡 도움말</h4>
                 <ul className="list-disc pl-4 space-y-1">
                     <li>표의 숫자를 직접 클릭하여 수정할 수 있습니다.</li>
                     <li>수정 후 <strong>[저장]</strong> 버튼을 누르면, 변경 사유 입력 후 저장됩니다.</li>
                     <li>기본 인가 갯수: 천안 140, 대전 160, 평택 20, 경기 40</li>
                 </ul>
-            </div>
+            </div>}
 
-            <Modal
+            {activeTab === "quota" && <Modal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 title="변경 사유 입력"
@@ -307,7 +339,7 @@ export default function AdminQuotasPage() {
                         </Button>
                     </div>
                 </div>
-            </Modal>
+            </Modal>}
         </div>
     );
 }
