@@ -11,7 +11,13 @@ test("정책 / 지정한계 메뉴는 정책을 먼저 노출한다", () => {
 
   assert.match(sidebar, /label: "정책 \/ 지정한계"/);
   assert.match(header, /label: "정책 \/ 지정한계"/);
-  assert.ok(quotaPage.indexOf(">\n                    정책\n") < quotaPage.indexOf(">\n                    지정한계\n"));
+  const policyTab = quotaPage.indexOf('setActiveTab("policy")');
+  const quotaTab = quotaPage.indexOf('setActiveTab("quota")');
+  assert.ok(policyTab >= 0);
+  assert.ok(quotaTab >= 0);
+  assert.ok(policyTab < quotaTab);
+  assert.match(quotaPage.slice(policyTab, quotaTab), />\s*정책\s*</);
+  assert.match(quotaPage.slice(quotaTab), />\s*지정한계\s*</);
   assert.match(quotaPage, /useState<"policy" \| "quota">\("policy"\)/);
 });
 
