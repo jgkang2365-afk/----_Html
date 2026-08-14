@@ -374,21 +374,24 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 3.5 measurement_target_business 조회 (비고란 데이터 활용을 위해)
-    const targetBusinessMap = new Map<string, string>();
+    // 3.5 measurement_target_business 조회 (권위 있는 업종/분류와 비고 표시용)
+    const targetBusinessMap = new Map<string, {
+      notes: string | null;
+      business_category: string | null;
+      business_type: string | null;
+      process_changed: boolean | null;
+    }>();
     if (allCodes.size > 0) {
       const { data: targetData, error: targetError } = await supabase
         .from("measurement_target_business")
-        .select("code, year, period, notes")
+        .select("code, year, period, notes, business_category, business_type, process_changed")
         .in("code", Array.from(allCodes));
 
       if (!targetError && targetData) {
         targetData.forEach((target: any) => {
           // 키: code + year + period
           const key = `${target.code}-${target.year}-${target.period}`;
-          if (target.notes) {
-            targetBusinessMap.set(key, target.notes);
-          }
+          targetBusinessMap.set(key, target);
         });
       }
     }
@@ -485,12 +488,19 @@ export async function GET(request: NextRequest) {
           journal.business_category = journal.business_category || matchingBusiness.business_category || null;
         }
 
+        // measurement_target_business는 업종/분류의 권위 원천이다.
+        const targetBusiness = targetBusinessMap.get(key);
+        if (targetBusiness?.business_category) {
+          journal.business_category = targetBusiness.business_category;
+        }
+        journal.target_business_type = targetBusiness?.business_type ?? null;
+        journal.target_process_changed = targetBusiness?.process_changed ?? null;
+
         // measurement_target_business에서 비고(notes) 가져와서 special_notes에 반영
         // 단, 기존 special_notes가 비어있는 경우에만 반영하도록 하여 기존 데이터를 존중함
         if (!journal.special_notes) {
-          const targetNotes = targetBusinessMap.get(key);
-          if (targetNotes) {
-            journal.special_notes = targetNotes;
+          if (targetBusiness?.notes) {
+            journal.special_notes = targetBusiness.notes;
           }
         }
 
@@ -620,8 +630,10 @@ export async function GET(request: NextRequest) {
           deposit_amount_business: null,
           deposit_date_national: null,
           deposit_amount_national: null,
-          business_category: business.business_category || null,
-          special_notes: targetBusinessMap.get(key) || null,
+          business_category: targetBusinessMap.get(key)?.business_category || business.business_category || null,
+          target_business_type: targetBusinessMap.get(key)?.business_type || null,
+          target_process_changed: targetBusinessMap.get(key)?.process_changed ?? null,
+          special_notes: targetBusinessMap.get(key)?.notes || null,
           created_by: null,
           updated_by: null,
           _isFromBusiness: true, // measurement_business에서 온 데이터임을 표시
@@ -708,7 +720,10 @@ export async function GET(request: NextRequest) {
             measurement_fee_business: null,
             deposit_total: null,
             deposit_amount_business: null,
-            special_notes: targetBusinessMap.get(key) || null,
+            business_category: targetBusinessMap.get(key)?.business_category || null,
+            target_business_type: targetBusinessMap.get(key)?.business_type || null,
+            target_process_changed: targetBusinessMap.get(key)?.process_changed ?? null,
+            special_notes: targetBusinessMap.get(key)?.notes || null,
             _isFromSurvey: true, // 예비조사에서 온 데이터임을 표시
           };
 

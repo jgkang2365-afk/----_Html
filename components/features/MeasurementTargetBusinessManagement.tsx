@@ -54,6 +54,8 @@ interface BusinessEntry {
     business_name: string;
     business_number: string | null; // 사업자등록번호
     business_category: string | null; // 업종
+    business_type?: "existing" | "first_measurement" | "external_new" | null;
+    process_changed?: boolean | null;
     address: string | null;
     total_employees: number | null; // 근로자수
     office_jurisdiction: string | null; // 관할청
@@ -114,6 +116,21 @@ interface BusinessEntry {
         recommendation_reason: { reason?: string } | null;
     } | null;
 }
+
+const BUSINESS_TYPE_OPTIONS = [
+    { value: "existing", label: "기존업체" },
+    { value: "first_measurement", label: "최초실시" },
+    { value: "external_new", label: "타기관 신규" },
+] as const;
+
+const getBusinessTypeLabel = (businessType: BusinessEntry["business_type"]) => {
+    return BUSINESS_TYPE_OPTIONS.find((option) => option.value === businessType)?.label || "-";
+};
+
+const isProcessChangedDefaultCategory = (businessCategory: string | null | undefined) => {
+    const normalized = businessCategory?.trim();
+    return normalized === "공업사" || normalized === "건설";
+};
 
 interface BusinessInfoSearchResult {
     code: string;
@@ -775,6 +792,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
         manager_email: "",
     });
+    const [addProcessChangedTouched, setAddProcessChangedTouched] = useState(false);
     const [businessInfoQuery, setBusinessInfoQuery] = useState("");
     const [businessInfoResults, setBusinessInfoResults] = useState<BusinessInfoSearchResult[]>([]);
     const [selectedBusinessInfo, setSelectedBusinessInfo] = useState<BusinessInfoSearchResult | null>(null);
@@ -881,6 +899,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         setBusinessInfoResults([]);
         setSelectedBusinessInfo(null);
         setRegistrationContextStatus("idle");
+        setAddProcessChangedTouched(false);
         registrationAutoValuesRef.current = {};
         registrationContextRequestRef.current += 1;
     };
@@ -1705,7 +1724,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     // Grid Column Template
     // V2 예비조사 추천 결과를 항상 노출한다.
-    const gridTemplateCols = "40px 45px 60px 80px 100px 70px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 170px 80px 40px";
+    const gridTemplateCols = "40px 45px 60px 80px 100px 70px 90px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 170px 80px 40px";
 
     const renderSortIcon = (key: string) => {
         const isSorted = sortConfig?.key === key;
@@ -1959,6 +1978,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="py-3 px-2 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("business_category")}>
                             업종분류 {renderSortIcon("business_category")}
                         </div>
+                        <div className="py-3 px-2 flex items-center justify-center">기본유형</div>
                         <div className="py-3 px-2 flex items-center justify-start pl-4 cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("business_name")}>
                             사업장명 {renderSortIcon("business_name")}
                         </div>
@@ -2099,6 +2119,20 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 </div>
                                 <div className="text-center text-xs px-1">{item.plan_manager || "-"}</div>
                                 <div className="px-1 text-center text-xs break-words break-keep" title={item.business_category || ""}>{item.business_category || "-"}</div>
+                                <div className="px-1 text-center text-xs leading-tight">
+                                    {item.business_type ? (
+                                        <div className="space-y-1">
+                                            <span className="inline-flex rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">
+                                                {getBusinessTypeLabel(item.business_type)}
+                                            </span>
+                                            {item.process_changed === true && (
+                                                <span className="block text-[10px] font-semibold text-amber-700">공정변경</span>
+                                            )}
+                                        </div>
+                                    ) : item.process_changed === true ? (
+                                        <span className="text-[10px] font-semibold text-amber-700">공정변경</span>
+                                    ) : "-"}
+                                </div>
                                 <div className="px-1 text-left font-medium break-words break-keep" title={item.business_name}>{item.business_name}</div>
                                 <div className="px-1 text-left text-xs leading-tight break-words break-keep">{item.address}</div>
                                 <div className="text-center text-xs px-1">{toShortName(item.office_jurisdiction || "")}</div>
@@ -2317,6 +2351,33 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     value={editForm.business_category || ""}
                                     onChange={(e) => setEditForm(prev => ({ ...prev, business_category: e.target.value }))}
                                 />
+                            </div>
+                            <div className="col-span-6 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                <p className="mb-2 text-sm font-medium text-slate-700">기본유형</p>
+                                <div className="flex flex-wrap gap-x-5 gap-y-2">
+                                    {BUSINESS_TYPE_OPTIONS.map((option) => (
+                                        <label key={option.value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                                            <input
+                                                type="checkbox"
+                                                checked={editForm.business_type === option.value}
+                                                onChange={(e) => setEditForm(prev => ({ ...prev, business_type: e.target.checked ? option.value : null }))}
+                                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            {option.label}
+                                        </label>
+                                    ))}
+                                </div>
+                                <p className="mt-2 text-[11px] text-slate-500">기본유형은 하나만 선택할 수 있습니다. 선택하지 않으면 미정 상태로 유지됩니다.</p>
+                                <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
+                                    <input
+                                        type="checkbox"
+                                        checked={editForm.process_changed === true}
+                                        onChange={(e) => setEditForm(prev => ({ ...prev, process_changed: e.target.checked }))}
+                                        className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                                    />
+                                    공정변경
+                                </label>
+                                <p className="mt-1 text-[11px] text-slate-500">선택하지 않은 상태는 ‘공정변경 아님’이 아니라 미정으로 저장됩니다.</p>
                             </div>
                         </div>
                     </div>
@@ -2999,7 +3060,50 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1 text-slate-700">업종</label>
-                                    <Select options={businessCategories.map(c => c.value === "" ? { ...c, label: "선택" } : c)} value={addForm.business_category || ""} onChange={(e) => setAddForm(prev => ({ ...prev, business_category: e.target.value }))} />
+                                    <Select
+                                        options={businessCategories.map(c => c.value === "" ? { ...c, label: "선택" } : c)}
+                                        value={addForm.business_category || ""}
+                                        onChange={(e) => {
+                                            const businessCategory = e.target.value;
+                                            setAddForm(prev => ({
+                                                ...prev,
+                                                business_category: businessCategory,
+                                                ...(addProcessChangedTouched
+                                                    ? {}
+                                                    : { process_changed: isProcessChangedDefaultCategory(businessCategory) ? true : null }),
+                                            }));
+                                        }}
+                                    />
+                                </div>
+                                <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                    <p className="mb-2 text-sm font-medium text-slate-700">기본유형</p>
+                                    <div className="flex flex-wrap gap-x-5 gap-y-2">
+                                        {BUSINESS_TYPE_OPTIONS.map((option) => (
+                                            <label key={option.value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={addForm.business_type === option.value}
+                                                    onChange={(e) => setAddForm(prev => ({ ...prev, business_type: e.target.checked ? option.value : null }))}
+                                                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                />
+                                                {option.label}
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <p className="mt-2 text-[11px] text-slate-500">기본유형은 하나만 선택할 수 있습니다. 선택하지 않으면 미정 상태로 저장됩니다.</p>
+                                    <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
+                                        <input
+                                            type="checkbox"
+                                            checked={addForm.process_changed === true}
+                                            onChange={(e) => {
+                                                setAddProcessChangedTouched(true);
+                                                setAddForm(prev => ({ ...prev, process_changed: e.target.checked }));
+                                            }}
+                                            className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                                        />
+                                        공정변경
+                                    </label>
+                                    <p className="mt-1 text-[11px] text-slate-500">공업사·건설은 최초 업종 선택 시 기본 체크되며, 해제한 값은 자동으로 다시 바꾸지 않습니다.</p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1 text-slate-700">전화번호</label>
