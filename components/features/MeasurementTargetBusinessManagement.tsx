@@ -2377,7 +2377,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     />
                                     공정변경
                                 </label>
-                                <p className="mt-1 text-[11px] text-slate-500">선택하지 않은 상태는 ‘공정변경 아님’이 아니라 미정으로 저장됩니다.</p>
+                                <p className="mt-1 text-[11px] text-slate-500">기존 미정 값은 건드리지 않으면 유지됩니다. 직접 체크하거나 해제하면 각각 true 또는 false로 저장됩니다.</p>
                             </div>
                         </div>
                     </div>
@@ -3103,7 +3103,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         />
                                         공정변경
                                     </label>
-                                    <p className="mt-1 text-[11px] text-slate-500">공업사·건설은 최초 업종 선택 시 기본 체크되며, 해제한 값은 자동으로 다시 바꾸지 않습니다.</p>
+                                    <p className="mt-1 text-[11px] text-slate-500">공업사·건설은 최초 업종 선택 시 기본 체크되며, 해제한 값은 자동으로 다시 바꾸지 않습니다. 그 외 업종은 선택하지 않으면 미정(null)으로 저장됩니다.</p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1 text-slate-700">전화번호</label>
