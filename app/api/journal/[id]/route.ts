@@ -8,6 +8,10 @@ import { toShortName } from "@/lib/constants/designated-offices";
 import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
+import {
+  applyTargetClassificationToJournalNote,
+  resolveTargetBusinessCategory,
+} from "@/lib/business/target-classification";
 
 /**
  * 측정일지 수정 API
@@ -396,6 +400,14 @@ export async function PUT(
       ? (fullNameToShortName(body.office_jurisdiction) || body.office_jurisdiction)
       : existingJournal.office_jurisdiction;
 
+    const { data: targetState } = await supabase
+      .from("measurement_target_business")
+      .select("business_category, business_type, process_changed")
+      .eq("code", body.code ?? existingJournal.code)
+      .eq("year", finalMeasurementYear)
+      .eq("period", finalMeasurementPeriod)
+      .maybeSingle();
+
     // 9. 최종 업데이트 준비 (Latest Wins 정책 + 스키마 정제)
     // 클라이언트로부터 오는 필드 중 DB 컬럼이 아닌 데이터(_isFromBusiness, isSkipNumbering 등)를 명시적으로 걸러냄
 
@@ -424,7 +436,15 @@ export async function PUT(
       measurement_year: finalMeasurementYear,
       measurement_period: finalMeasurementPeriod,
       total_employees: finalTotalEmployees,
-      note: truncateField(bodyClean.note ?? existingJournal.note, 500, 'note'),
+      note: truncateField(
+        applyTargetClassificationToJournalNote(
+          bodyClean.note ?? existingJournal.note,
+          targetState?.business_type,
+          targetState?.process_changed,
+        ),
+        500,
+        'note',
+      ),
       
       // 번호 정보
       document_number: truncateField(finalDocumentNumber, 20, 'document_number'),
@@ -442,7 +462,15 @@ export async function PUT(
       representative_name: bodyClean.representative_name ?? existingJournal.representative_name,
       phone: truncateField(bodyClean.phone ?? existingJournal.phone, 20, 'phone'),
       fax: truncateField(bodyClean.fax ?? existingJournal.fax, 20, 'fax'),
-      business_category: truncateField(bodyClean.business_category ?? existingJournal.business_category, 200, 'business_category'),
+      business_category: truncateField(
+        resolveTargetBusinessCategory(
+          targetState?.business_category,
+          bodyClean.business_category,
+          existingJournal.business_category,
+        ),
+        200,
+        'business_category',
+      ),
       national_support_status: bodyClean.national_support_status ?? existingJournal.national_support_status,
       
       // 담당자 정보
@@ -601,7 +629,7 @@ export async function PUT(
       .maybeSingle();
 
     if (!planCheckError && existingPlan) {
-      // [Sync Priority 1] 국고지원, 업종분류 -> measurement_target_business (권위자)
+      // 측정대상 업종은 권위 원천이므로 journal 값으로 역동기화하지 않는다.
       const { error: planUpdateError } = await supabase
         .from("measurement_target_business")
         .update({
@@ -617,7 +645,6 @@ export async function PUT(
           manager_name: updatedJournal.manager_name,
           manager_mobile: updatedJournal.manager_mobile,
           manager_phone: updatedJournal.phone,
-          business_category: updatedJournal.business_category,
         })
         .eq("id", existingPlan.id);
 

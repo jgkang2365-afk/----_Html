@@ -10,6 +10,10 @@ import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
 import { hasNationalSupportLookupInformation, isAdHocMeasurement } from "@/lib/national-support/eligibility";
 import { preserveFinalNationalSupportStatus } from "@/lib/national-support/workflow";
+import {
+  applyTargetClassificationToJournalNote,
+  resolveTargetBusinessCategory,
+} from "@/lib/business/target-classification";
 
 async function queueFinalNationalSupportLookup(
   supabase: any,
@@ -238,7 +242,7 @@ export async function POST(request: NextRequest) {
 
     const { data: targetStateBeforeSave } = await supabase
       .from("measurement_target_business")
-      .select("id, national_support_status")
+      .select("id, national_support_status, business_category, business_type, process_changed")
       .eq("code", code)
       .eq("year", Number(measurementYear))
       .eq("period", measurementPeriod)
@@ -585,7 +589,11 @@ export async function POST(request: NextRequest) {
       measurement_period: measurementPeriod,
       is_skip_numbering: isSkipNumbering,
       revenue_type: isSkipNumbering ? '기타매출' : '측정매출',
-      note: note || null,
+      note: applyTargetClassificationToJournalNote(
+        note,
+        targetStateBeforeSave?.business_type,
+        targetStateBeforeSave?.process_changed,
+      ),
       designated_office: designatedOffice,
       document_number: assignedNumbers.document_number,
       sequence_number: assignedNumbers.sequence_number,
@@ -604,7 +612,11 @@ export async function POST(request: NextRequest) {
       representative_name: businessInfo?.representative_name || businessData.representative_name || null,
       phone: businessInfo?.phone || null,
       fax: businessInfo?.fax || null,
-      business_category: body.business_category || businessData.business_category || null,
+      business_category: resolveTargetBusinessCategory(
+        targetStateBeforeSave?.business_category,
+        body.business_category,
+        businessData.business_category,
+      ),
       national_support_status: preserveFinalNationalSupportStatus(
         body.national_support_status,
         businessData.national_support_status,
@@ -751,7 +763,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (!planCheckError && existingPlan && newJournal) {
-      // [Sync Priority 1] 국고지원, 업종분류 -> measurement_target_business (권위자)
+      // 측정대상 업종은 권위 원천이므로 journal 값으로 역동기화하지 않는다.
       const { error: planUpdateError } = await supabase
         .from("measurement_target_business")
         .update({
@@ -774,7 +786,6 @@ export async function POST(request: NextRequest) {
             manager_name: journalData.manager_name,
             manager_mobile: journalData.manager_mobile,
             manager_phone: journalData.phone,
-            business_category: journalData.business_category,
           })
           .eq("id", existingPlan.id);
 
