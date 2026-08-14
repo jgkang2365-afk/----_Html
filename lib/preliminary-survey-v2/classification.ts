@@ -1,9 +1,14 @@
 import type { BusinessKind } from "./types";
 
+export type TargetBusinessType = "existing" | "first_measurement" | "external_new";
+export type ClassificationSource = "target_business_type" | "legacy_journal" | "legacy_rule_type";
+
 export interface MeasurementTargetClassificationKey {
   code: string;
   year: number;
   period: string;
+  business_type?: unknown;
+  preliminary_survey_rule_type?: unknown;
 }
 
 export interface MeasurementJournalClassificationRow {
@@ -18,6 +23,7 @@ export interface MeasurementJournalClassificationRow {
 
 export interface MeasurementJournalClassification {
   kind: BusinessKind;
+  source: ClassificationSource;
   journalId: number | null;
   rawValue: string | null;
 }
@@ -41,11 +47,26 @@ function journalTimestamp(row: MeasurementJournalClassificationRow): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** 현재 측정대상의 code/year/period와 정확히 일치하는 최신 측정일지로 신규/기존을 판정한다. */
-export function classifyMeasurementJournalBusiness(
+function targetBusinessType(value: unknown): TargetBusinessType | null {
+  return value === "existing" || value === "first_measurement" || value === "external_new"
+    ? value
+    : null;
+}
+
+function businessKindForTargetType(value: TargetBusinessType): BusinessKind {
+  return value === "existing" ? "existing" : "new";
+}
+
+function businessKindForLegacyRuleType(value: unknown): BusinessKind | null {
+  if (value === "existing") return "existing";
+  if (value === "general_new" || value === "other_org_new" || value === "unconfirmed_new") return "new";
+  return null;
+}
+
+function currentJournalClassification(
   target: MeasurementTargetClassificationKey,
   rows: MeasurementJournalClassificationRow[],
-): MeasurementJournalClassification {
+) {
   const matching = rows.filter((row) =>
     row.code === target.code &&
     Number(row.measurement_year) === Number(target.year) &&
@@ -58,10 +79,42 @@ export function classifyMeasurementJournalBusiness(
   const kind: BusinessKind = noteTokens(current?.note).some((token) => NEW_NOTE_TOKENS.has(token))
     ? "new"
     : "existing";
+  return { kind, journalId: current?.id == null ? null : Number(current.id), rawValue };
+}
+
+/** 현재 측정대상의 code/year/period와 정확히 일치하는 최신 측정일지로 신규/기존을 판정한다. */
+export function classifyMeasurementJournalBusiness(
+  target: MeasurementTargetClassificationKey,
+  rows: MeasurementJournalClassificationRow[],
+): MeasurementJournalClassification {
+  const authoritativeBusinessType = targetBusinessType(target.business_type);
+  if (authoritativeBusinessType) {
+    return {
+      kind: businessKindForTargetType(authoritativeBusinessType),
+      source: "target_business_type",
+      journalId: null,
+      rawValue: authoritativeBusinessType,
+    };
+  }
+
+  const journal = currentJournalClassification(target, rows);
+  // 기존 V2의 일지 기반 판정은 business_type이 없는 과거 target에서 계속 우선한다.
+  if (journal.journalId !== null) {
+    return { ...journal, source: "legacy_journal" };
+  }
+
+  const legacyRuleKind = businessKindForLegacyRuleType(target.preliminary_survey_rule_type);
+  if (legacyRuleKind) {
+    return {
+      kind: legacyRuleKind,
+      source: "legacy_rule_type",
+      journalId: null,
+      rawValue: String(target.preliminary_survey_rule_type),
+    };
+  }
 
   return {
-    kind,
-    journalId: current?.id == null ? null : Number(current.id),
-    rawValue,
+    ...journal,
+    source: "legacy_journal",
   };
 }

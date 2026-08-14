@@ -6,7 +6,10 @@ import { buildScheduleBlockKeys } from "../lib/preliminary-survey-v2/availabilit
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "../lib/preliminary-survey-v2/classification";
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { validateManualPlanHardRules } from "../lib/preliminary-survey-v2/manual-validation";
-import { targetChangeRecommendationPolicy } from "../lib/preliminary-survey-v2/policy";
+import {
+  shouldApplyProcessChangedPolicy,
+  targetChangeRecommendationPolicy,
+} from "../lib/preliminary-survey-v2/policy";
 import { surveyMethodForKind, type ExistingAssignment, type RouteMetric, type RouteMetrics, type SurveyTarget, type SurveyUser } from "../lib/preliminary-survey-v2/types";
 
 const experienced = (id: number, name = `경력${id}`): SurveyUser => ({ id, name, experienced: true, active: true });
@@ -105,6 +108,96 @@ test("동일 code/year/period 측정일지가 여러 건이면 최신 일지 값
 test("target 레거시 구분과 무관하게 측정일지만으로 신규/기존을 판정", () => {
   assert.equal(classifyMeasurementJournalBusiness({ ...classificationTarget, preliminary_survey_rule_type: "existing" } as any, [journal("최초실시")]).kind, "new");
   assert.equal(classifyMeasurementJournalBusiness({ ...classificationTarget, preliminary_survey_rule_type: "general_new" } as any, [journal("일반 기존")]).kind, "existing");
+});
+
+test("target business_type은 일지와 legacy rule보다 우선한다", () => {
+  const existing = classifyMeasurementJournalBusiness({
+    ...classificationTarget,
+    business_type: "existing",
+    preliminary_survey_rule_type: "general_new",
+  }, [journal("타기관 신규")]);
+  assert.equal(existing.kind, "existing");
+  assert.equal(existing.source, "target_business_type");
+
+  const firstMeasurement = classifyMeasurementJournalBusiness({
+    ...classificationTarget,
+    business_type: "first_measurement",
+  }, [journal("일반 기존")]);
+  assert.equal(firstMeasurement.kind, "new");
+  assert.equal(firstMeasurement.source, "target_business_type");
+
+  const externalNew = classifyMeasurementJournalBusiness({
+    ...classificationTarget,
+    business_type: "external_new",
+  }, [journal("일반 기존")]);
+  assert.equal(externalNew.kind, "new");
+  assert.equal(externalNew.source, "target_business_type");
+});
+
+test("business_type이 NULL이면 기존 측정일지 parser와 legacy rule fallback을 보존한다", () => {
+  const fromJournal = classifyMeasurementJournalBusiness({
+    ...classificationTarget,
+    business_type: null,
+    preliminary_survey_rule_type: "existing",
+  }, [journal("신규")]);
+  assert.equal(fromJournal.kind, "new");
+  assert.equal(fromJournal.source, "legacy_journal");
+
+  const fromLegacyRule = classifyMeasurementJournalBusiness({
+    ...classificationTarget,
+    business_type: null,
+    preliminary_survey_rule_type: "other_org_new",
+  }, []);
+  assert.equal(fromLegacyRule.kind, "new");
+  assert.equal(fromLegacyRule.source, "legacy_rule_type");
+});
+
+test("공정변경 정책 OFF와 적용 시작 전 대상은 V2에 적용하지 않는다", () => {
+  const targetInput = {
+    year: 2026,
+    period: "하반기",
+    measurementDate: "2026-08-10",
+    processChanged: true,
+  };
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy: {
+      enabled: false,
+      effectiveStartYear: 2026,
+      effectiveStartPeriod: "하반기",
+      effectiveStartMeasurementDate: "2026-08-01",
+    },
+    target: targetInput,
+  }), false);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy: {
+      enabled: true,
+      effectiveStartYear: 2026,
+      effectiveStartPeriod: "하반기",
+      effectiveStartMeasurementDate: "2026-08-11",
+    },
+    target: targetInput,
+  }), false);
+});
+
+test("공정변경 정책은 적용 시작 이후 true 값과 유효 측정일이 있을 때만 applicable이다", () => {
+  const policy = {
+    enabled: true,
+    effectiveStartYear: 2026,
+    effectiveStartPeriod: "하반기",
+    effectiveStartMeasurementDate: "2026-08-01",
+  };
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy,
+    target: { year: 2026, period: "하반기", measurementDate: "2026-08-01", processChanged: true },
+  }), true);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy,
+    target: { year: 2027, period: "상반기", measurementDate: null, processChanged: true },
+  }), false);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy,
+    target: { year: 2027, period: "상반기", measurementDate: "2027-01-01", processChanged: null },
+  }), false);
 });
 
 test("조사방식 기본값은 신규 field, 기존 phone", () => {
@@ -605,7 +698,8 @@ test("Q-V: 단일 추천 저장/UI/수동수정/Google 신호 배제/score 제�
   assert.doesNotMatch(ui, /선택한 추천안 적용|추천일 숨김/);
   assert.match(manualRoute, /plan_origin[\s\S]*manual/);
   assert.doesNotMatch(engine, /Google|occupied|preferredDate|preferred_date/);
-  assert.doesNotMatch(service, /preliminary_survey_rule_type/);
+  assert.match(service, /business_type/);
+  assert.match(service, /preliminary_survey_rule_type/);
   assert.doesNotMatch(manualRoute, /preliminary_survey_rule_type/);
   assert.match(manualRoute, /loadV2ManualContext/);
   assert.match(migration, /survey_method text NOT NULL/);

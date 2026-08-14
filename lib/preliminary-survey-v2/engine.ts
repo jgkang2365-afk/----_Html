@@ -281,6 +281,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         : Boolean(reviewerChoice?.crossTypeOverlap);
       const evidence: RecommendationEvidence = {
         classificationSource: target.classificationSource,
+        processChangedPolicyApplicable: target.processChangedPolicyApplicable === true,
         surveyMethod: surveyMethodForKind(target.kind),
         workingDaysBefore: candidate.workingDaysBefore,
         range: candidate.workingDaysBefore >= 20 ? "primary" : "fallback",
@@ -423,6 +424,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       surveyMethod: surveyMethodForKind(target.kind),
       evidence: {
         classificationSource: target.classificationSource,
+        processChangedPolicyApplicable: target.processChangedPolicyApplicable === true,
         surveyMethod: surveyMethodForKind(target.kind),
         workingDaysBefore: null, range: null, capacityPass: null,
         responsibleConflict: true, reviewerConflict: !target.responsible.experienced,

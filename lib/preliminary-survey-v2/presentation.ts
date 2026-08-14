@@ -21,7 +21,8 @@ export function v2BusinessKindLabel(
     | Record<string, unknown>
     | undefined;
   const rawValue = String(classificationSource?.rawValue || "");
-  return rawValue.includes("타기관 신규") ? "타기관 신규" : "일반 신규";
+  if (rawValue === "external_new" || rawValue.includes("타기관 신규")) return "타기관 신규";
+  return "최초실시";
 }
 
 const WARNING_LABELS: Record<string, string> = {

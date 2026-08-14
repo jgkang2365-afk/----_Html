@@ -23,7 +23,11 @@ export interface SurveyTarget {
   region: string | null;
   coordinate: Coordinate | null;
   createdAt: string | null;
+  businessType?: "existing" | "first_measurement" | "external_new" | null;
+  processChanged?: boolean | null;
+  processChangedPolicyApplicable?: boolean;
   classificationSource?: {
+    source: "target_business_type" | "legacy_journal" | "legacy_rule_type";
     journalId: number | null;
     rawValue: string | null;
     measurementYear: number;
@@ -65,6 +69,8 @@ export interface SameDayRouteEvidence {
 }
 export interface RecommendationEvidence {
   classificationSource: SurveyTarget["classificationSource"];
+  /** 정책 적용 대상 판정만 기록하며, 이번 단계에서는 추천 행동을 바꾸지 않는다. */
+  processChangedPolicyApplicable?: boolean;
   surveyMethod: SurveyMethod;
   workingDaysBefore: number | null;
   range: "primary" | "fallback" | null;

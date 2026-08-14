@@ -3,7 +3,12 @@ import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificati
 import { buildScheduleBlockKeys } from "./availability";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
-import { targetChangeRecommendationPolicy } from "./policy";
+import {
+  PROCESS_CHANGED_POLICY_OFF,
+  shouldApplyProcessChangedPolicy,
+  targetChangeRecommendationPolicy,
+  type ProcessChangedPolicySettings,
+} from "./policy";
 import { createRouteMetrics } from "./route-metrics";
 import { surveyMethodForKind, type ExistingAssignment, type RecommendationResult, type RouteMetrics, type SurveyTarget, type SurveyUser } from "./types";
 
@@ -25,18 +30,38 @@ function coordinateFromRow(row: any) {
     coordinate.longitude >= 124 && coordinate.longitude <= 132 ? coordinate : null;
 }
 
+async function loadProcessChangedPolicy(supabase: Client): Promise<ProcessChangedPolicySettings> {
+  const { data, error } = await supabase
+    .from("preliminary_survey_policy_settings")
+    .select("enabled, effective_start_year, effective_start_period, effective_start_measurement_date")
+    .eq("policy_key", "process_changed_preliminary_survey")
+    .maybeSingle();
+  const policyTableMissing = error?.code === "42P01" || error?.code === "PGRST205";
+  if (error && !policyTableMissing) throw new Error(`V2_PROCESS_CHANGED_POLICY_QUERY_FAILED:${error.message}`);
+  if (!data) return PROCESS_CHANGED_POLICY_OFF;
+  return {
+    enabled: data.enabled === true,
+    effectiveStartYear: data.effective_start_year == null ? null : Number(data.effective_start_year),
+    effectiveStartPeriod: data.effective_start_period == null ? null : String(data.effective_start_period),
+    effectiveStartMeasurementDate: data.effective_start_measurement_date == null
+      ? null
+      : String(data.effective_start_measurement_date),
+  };
+}
+
 export async function loadV2ManualContext(supabase: Client, targetId: number, recommendedDate: string) {
   const { data: targetRow, error: targetError } = await supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, created_at",
+    "id, code, year, period, business_name, address, measurement_date, measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).eq("id", targetId).single();
   if (targetError || !targetRow) throw new Error("TARGET_NOT_FOUND");
-  const [{ data: userRows, error: userError }, { data: infoRow, error: infoError }, { data: journalRows, error: journalError }] = await Promise.all([
+  const [{ data: userRows, error: userError }, { data: infoRow, error: infoError }, { data: journalRows, error: journalError }, policy] = await Promise.all([
     supabase.from("users").select("id, name, job, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
     supabase.from("business_info").select("code, latitude, longitude").eq("code", targetRow.code).maybeSingle(),
     supabase.from("measurement_journal").select(
       "id, code, measurement_year, measurement_period, note, updated_at, created_at",
     ).eq("code", targetRow.code).eq("measurement_year", targetRow.year).eq("measurement_period", targetRow.period)
       .order("updated_at", { ascending: false }).order("created_at", { ascending: false }),
+    loadProcessChangedPolicy(supabase),
   ]);
   if (userError) throw new Error(`V2_USER_QUERY_FAILED:${userError.message}`);
   if (infoError) throw new Error(`V2_COORDINATE_QUERY_FAILED:${infoError.message}`);
@@ -48,14 +73,25 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   if (!responsible) throw new Error("RESPONSIBLE_USER_MISSING");
   const classification = classifyMeasurementJournalBusiness({
     code: targetRow.code, year: Number(targetRow.year), period: targetRow.period,
+    business_type: targetRow.business_type,
+    preliminary_survey_rule_type: targetRow.preliminary_survey_rule_type,
   }, (journalRows ?? []) as MeasurementJournalClassificationRow[]);
   const target: SurveyTarget = {
     id: Number(targetRow.id), code: targetRow.code, name: targetRow.business_name,
     kind: classification.kind, measurementDate: targetRow.measurement_date, responsible,
     address: targetRow.address, region: regionFromAddress(targetRow.address), coordinate: coordinateFromRow(infoRow),
     createdAt: targetRow.created_at,
+    businessType: targetRow.business_type,
+    processChanged: targetRow.process_changed,
+    processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
+      policy,
+      target: {
+        year: Number(targetRow.year), period: targetRow.period,
+        measurementDate: targetRow.measurement_date, processChanged: targetRow.process_changed,
+      },
+    }),
     classificationSource: {
-      journalId: classification.journalId, rawValue: classification.rawValue,
+      source: classification.source, journalId: classification.journalId, rawValue: classification.rawValue,
       measurementYear: Number(targetRow.year), measurementPeriod: String(targetRow.period).trim(),
     },
   };
@@ -68,7 +104,9 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   const plans = v2TableMissing ? [] : (planRows ?? []);
   const otherIds = plans.map((plan: any) => Number(plan.measurement_target_business_id));
   const { data: otherTargets, error: otherTargetError } = otherIds.length
-    ? await supabase.from("measurement_target_business").select("id, code, year, period, address").in("id", otherIds)
+    ? await supabase.from("measurement_target_business").select(
+      "id, code, year, period, address, business_type, preliminary_survey_rule_type",
+    ).in("id", otherIds)
     : { data: [], error: null };
   if (otherTargetError) throw new Error(`V2_TARGET_QUERY_FAILED:${otherTargetError.message}`);
   const otherCodes = [...new Set((otherTargets ?? []).map((row: any) => row.code))];
@@ -86,7 +124,11 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   const assignments: ExistingAssignment[] = plans.flatMap((plan: any) => {
     const row: any = otherTargetById.get(Number(plan.measurement_target_business_id));
     if (!row) return [];
-    const kind = classifyMeasurementJournalBusiness({ code: row.code, year: Number(row.year), period: row.period },
+    const kind = classifyMeasurementJournalBusiness({
+      code: row.code, year: Number(row.year), period: row.period,
+      business_type: row.business_type,
+      preliminary_survey_rule_type: row.preliminary_survey_rule_type,
+    },
       (otherJournals ?? []) as MeasurementJournalClassificationRow[]).kind;
     return [{
       targetId: Number(row.id), businessCode: row.code, kind, date: plan.recommended_date,
@@ -125,7 +167,7 @@ export async function calculateV2Recommendations(
   options: CalculationOptions = {},
 ): Promise<CalculationOutput> {
   let targetQuery = supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, created_at",
+    "id, code, year, period, business_name, address, measurement_date, measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).not("measurement_date", "is", null);
   if (options.targetIds?.length) targetQuery = targetQuery.in("id", options.targetIds);
   if (options.measurementDateFrom) targetQuery = targetQuery.gte("measurement_date", options.measurementDateFrom);
@@ -133,6 +175,7 @@ export async function calculateV2Recommendations(
   if (options.createdBeforeOrAt) targetQuery = targetQuery.lte("created_at", options.createdBeforeOrAt);
   const { data: rawTargets, error: targetError } = await targetQuery;
   if (targetError) throw new Error(`V2_TARGET_QUERY_FAILED:${targetError.message}`);
+  const processChangedPolicy = await loadProcessChangedPolicy(supabase);
 
   const { data: rawUsers, error: userError } = await supabase.from("users").select(
     "id, name, job, is_active, is_preliminary_survey_experienced",
@@ -170,8 +213,11 @@ export async function calculateV2Recommendations(
       code: row.code,
       year: Number(row.year),
       period: row.period,
+      business_type: row.business_type,
+      preliminary_survey_rule_type: row.preliminary_survey_rule_type,
     }, journalRows);
     const classificationSource = {
+      source: classification.source,
       journalId: classification.journalId,
       rawValue: classification.rawValue,
       measurementYear: Number(row.year),
@@ -196,6 +242,15 @@ export async function calculateV2Recommendations(
       id: Number(row.id), code: row.code, name: row.business_name, kind: classification.kind,
       measurementDate: row.measurement_date, responsible: responsible!, address: row.address,
       region: regionFromAddress(row.address), coordinate, createdAt: row.created_at, classificationSource,
+      businessType: row.business_type,
+      processChanged: row.process_changed,
+      processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
+        policy: processChangedPolicy,
+        target: {
+          year: Number(row.year), period: row.period,
+          measurementDate: row.measurement_date, processChanged: row.process_changed,
+        },
+      }),
     } satisfies SurveyTarget];
   });
 

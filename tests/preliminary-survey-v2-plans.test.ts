@@ -39,7 +39,8 @@ test("V2 표시값은 사용자용 한글로 변환됨", () => {
   assert.equal(v2SurveyMethodLabel("phone"), "전화");
   assert.equal(v2BusinessKindLabel("existing", null), "기존");
   assert.equal(v2BusinessKindLabel("new", { evidence: { classificationSource: { rawValue: "타기관 신규" } } }), "타기관 신규");
-  assert.equal(v2BusinessKindLabel("new", { evidence: { classificationSource: { rawValue: "신규" } } }), "일반 신규");
+  assert.equal(v2BusinessKindLabel("new", { evidence: { classificationSource: { rawValue: "external_new" } } }), "타기관 신규");
+  assert.equal(v2BusinessKindLabel("new", { evidence: { classificationSource: { rawValue: "신규" } } }), "최초실시");
   assert.doesNotMatch(v2WarningLabel("NO_AVAILABLE_DATE_THROUGH_MINUS_3"), /^[A-Z0-9_]+$/);
 });
 
