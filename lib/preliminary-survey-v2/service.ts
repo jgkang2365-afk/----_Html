@@ -308,35 +308,36 @@ export async function calculateV2Recommendations(
 
 export async function persistV2Recommendations(supabase: Client, output: CalculationOutput) {
   const targetById = new Map(output.targets.map((target) => [target.id, target]));
-  const plans = [];
-  for (const result of output.results) {
+  const payload = output.results.flatMap((result) => {
     const target = targetById.get(result.targetId);
-    if (!target) continue;
-    const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan", {
-      p_target_id: target.id,
-      p_recommended_date: result.date,
-      p_responsible_user_id: result.responsible.id,
-      p_experienced_reviewer_id: result.experiencedReviewer?.id ?? null,
-      p_participant_user_ids: result.participants.map((user) => user.id),
-      p_participant_names: result.participants.map((user) => user.name),
-      p_status: result.status,
-      p_plan_origin: "automatic",
-      p_source_measurement_date: target.measurementDate,
-      p_source_responsible_user_id: target.responsible.id,
-      p_source_rule_type: target.kind,
-      p_survey_method: result.surveyMethod,
-      p_recommendation_reason: { reason: result.reason, evidence: result.evidence },
-      p_route_evidence: {
+    if (!target) return [];
+    return [{
+      target_id: target.id,
+      recommended_date: result.date,
+      responsible_user_id: result.responsible.id,
+      experienced_reviewer_id: result.experiencedReviewer?.id ?? null,
+      participant_user_ids: result.participants.map((user) => user.id),
+      participant_names: result.participants.map((user) => user.name),
+      status: result.status,
+      plan_origin: "automatic",
+      source_measurement_date: target.measurementDate,
+      source_responsible_user_id: target.responsible.id,
+      source_rule_type: target.kind,
+      survey_method: result.surveyMethod,
+      recommendation_reason: { reason: result.reason, evidence: result.evidence },
+      route_evidence: {
         ...(result.evidence.route ?? {}),
         ...(result.evidence.sameDayRoute ?? {}),
         rejectedSameDayRoutes: result.evidence.rejectedSameDayRoutes,
       },
-      p_warnings: result.evidence.warnings,
-    });
-    if (error) throw new Error(`V2_PLAN_SAVE_FAILED:${error.message}`);
-    plans.push(Array.isArray(data) ? data[0] : data);
-  }
-  return plans;
+      warnings: result.evidence.warnings,
+    }];
+  });
+  // 전체 결과를 하나의 PostgreSQL transaction에서 처리한다.
+  // 한 건이라도 validation 실패하면 0건 저장(전체 rollback)된다.
+  const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan_batch", { p_plans: payload });
+  if (error) throw new Error(`V2_PLAN_SAVE_FAILED:${error.message}`);
+  return Array.isArray(data) ? data : [];
 }
 
 export async function recommendAndPersistV2(supabase: Client, targetIds: number[]) {
