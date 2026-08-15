@@ -1,23 +1,97 @@
-# Instructions for AI Agents
+# AGENTS.md
 
-This project has strict security configurations in `.npmrc` to prevent supply chain attacks.
+이 저장소에서 작업하는 AI 에이전트가 반드시 따라야 하는 공통 운영 원칙이다.
 
-## Common Issues & Solutions
+## 1. 기본 원칙
 
-### 1. "Package age is below minimum" errors
-If `npm install` fails because a package version is too new:
-- Do NOT repeatedly retry the installation.
-- Check if an older, stable version (older than 7 days) can be used.
-- If a newer version is absolutely necessary, inform the user so they can temporarily disable `min-release-age` in `.npmrc`.
+- 설명과 작업 보고는 한국어로 작성한다.
+- 추측으로 수정하지 않는다. 관련 UI → API → 데이터 흐름 → 저장소 구조를 실제 코드에서 확인한 뒤 수정한다.
+- 문제와 직접 관련 없는 파일은 수정하지 않는다.
+- 기존 정상 기능을 유지하는 최소 범위 수정(Focused Change)을 우선한다.
+- 대규모 리팩터링은 사용자 승인 없이 수행하지 않는다.
 
-### 2. Post-install script failures
-If a package requires an install script (blocked by `ignore-scripts=true`):
-- Verify if the script is safe.
-- Inform the user that the package installation is incomplete and requires manual verification of scripts.
+## 2. 프로젝트 규칙 우선순위
 
-## 3. 브라우저 테스트 계정 정보 (Test Credentials)
-브라우저에 접속하여 자동 및 수동 테스트를 수행할 때는 아래의 테스트 계정 정보를 사용하여 로그인해야 합니다.
-- **사용자 이름 (Name):** `test`
-- **비밀번호 (Password):** `@0000@`
-- **역할 (Role):** `관리자` (Administrator)
+작업 전 필요한 범위에서 다음 문서를 확인한다.
 
+1. `AGENTS.md` — 작업 방식과 안전 원칙
+2. `project_rules.md` — 프로젝트 전반의 지속적인 기술/운영 정책
+3. `BUSINESS_LOGIC.md` — 업무 데이터 및 비즈니스 규칙
+4. 실제 코드 및 DB 스키마 — 최종 구현 사실 확인
+
+문서와 실제 코드가 충돌하면 임의로 판단하지 말고 차이를 보고한다.
+
+## 3. 데이터 및 DB 안전
+
+- 운영 DB의 INSERT, UPDATE, DELETE, UPSERT, migration 적용 등 데이터 변경 작업은 사용자 승인 없이 실행하지 않는다.
+- 진단은 우선 읽기 전용 조회로 수행한다.
+- DB 수정이 필요한 경우 대상, 조건, 예상 변경 건수, 롤백 방법을 먼저 확인한다.
+- service role, secret key, 비밀번호, 토큰 등 비밀값을 코드·문서·로그에 하드코딩하지 않는다.
+- `.env.local` 등 비밀 파일을 Git에 추가하지 않는다.
+
+## 4. Git 운영
+
+- 사용자의 기존 미커밋 변경을 임의로 reset, checkout, stash, 삭제하지 않는다.
+- 다른 작업과 섞일 위험이 있으면 별도 branch/worktree를 사용한다.
+- `main` 직접 수정 및 병합은 사용자 승인 없이 수행하지 않는다.
+- PR 생성 및 병합도 사용자 요청 또는 승인 후 수행한다.
+- 커밋 전 변경 범위를 확인하고 관련 없는 파일이 포함되지 않았는지 검증한다.
+
+## 5. 문제 해결 절차
+
+문제 수정 시 다음 순서를 기본으로 한다.
+
+1. 재현 조건 확인
+2. 관련 화면/컴포넌트 확인
+3. 실제 호출 API 확인
+4. 데이터 흐름과 DB 원천 확인
+5. 원인 특정
+6. 최소 수정
+7. 관련 테스트 실행
+8. 회귀 영향 확인
+9. 변경 내용과 검증 결과 보고
+
+이미 증명된 사항을 이유 없이 반복 검증하지 않는다.
+
+## 6. 개발 및 검증
+
+- 로컬 웹 개발/브라우저 검증은 프로젝트 규칙에 따라 `npm run dev:turbo`를 우선 사용한다.
+- 변경 파일에 맞는 최소 테스트부터 실행하고 필요할 때 범위를 확대한다.
+- TypeScript 변경은 가능한 경우 타입 검사를 수행한다.
+- 테스트 실패 시 실패한 영역부터 분석하며 무관한 영역까지 불필요하게 확대하지 않는다.
+- 실제 실행하지 않은 테스트를 실행했다고 보고하지 않는다.
+
+## 7. 비즈니스 로직
+
+- 사업장, 측정일지, 측정대상, 예비조사, 국고지원, K2B, 매출/미수금 등 업무 규칙을 임의로 단순화하지 않는다.
+- 데이터 원천과 우선순위를 변경할 때는 `BUSINESS_LOGIC.md`와 현재 구현을 함께 확인한다.
+- 화면 표시값과 DB 원천값을 혼동하지 않는다.
+- 오래된 일회성 구현 계획이나 과거 진단 문서를 현재 정책으로 사용하지 않는다.
+
+## 8. 자동화 및 로컬 워커
+
+- 로컬 Windows UI, K2B, MES, 문서 워커처럼 외부 프로그램에 의존하는 기능은 웹 서버와 로컬 실행 책임을 구분한다.
+- 백그라운드 프로세스에서 `input()`, 보이지 않는 사용자 입력 대기, 무한 대기 상태를 만들지 않는다.
+- Realtime/큐 기반 작업은 중복 실행, 재시도, 상태 전이를 확인한다.
+
+## 9. 패키지 보안
+
+`.npmrc`의 보안 설정을 사용자 승인 없이 완화하지 않는다.
+
+- `min-release-age`
+- `ignore-scripts`
+
+패키지 설치가 차단되면 보안 설정을 우회하기보다 원인을 먼저 확인하고 사용자에게 보고한다.
+
+## 10. 작업 보고
+
+완료 보고에는 필요한 경우 다음을 포함한다.
+
+- 원인
+- 변경 파일
+- 핵심 변경 내용
+- 실행한 테스트와 결과
+- DB 변경 여부
+- 남은 위험 또는 사용자 확인 필요 사항
+
+불필요한 장문의 작업 일지나 추론 과정은 남기지 않는다.
