@@ -67,7 +67,7 @@ export function PreliminarySurveyPolicyPanel({
         if (!response.ok) throw new Error(result.error || "정책을 불러오지 못했습니다.");
         setPolicy({
           enabled: result.policy.enabled,
-          effective_start_year: result.policy.effective_start_year,
+          effective_start_year: result.policy.effective_start_year ?? getKSTYear(),
           effective_start_period: result.policy.effective_start_period,
           effective_start_measurement_date: result.policy.effective_start_measurement_date,
         });
