@@ -3,8 +3,7 @@ import { EmailService } from '../email/email-service';
 import { K2BService } from './k2b-service';
 import { findReportFiles } from '../utils/findReportFiles';
 import { getKSTISOString, getKSTDateString } from '../utils/date-utils';
-import { syncBusinessToCalendar } from "../google/sync-service";
-import { getCalendarConfigurationStatus } from "../google/calendar";
+import { requestK2BCalendarSync } from "./k2b-calendar-sync-client";
 import { processNationalSupportJob } from "./national-support-worker";
 import { enqueueNationalSupportJob } from "../national-support/job-queue";
 
@@ -50,16 +49,6 @@ export class WorkerDaemon {
         if (this.pollingInterval) {
             console.log("[WorkerDaemon] 이미 워커가 실행 중입니다.");
             return;
-        }
-
-        const calendarConfiguration = getCalendarConfigurationStatus();
-        if (!calendarConfiguration.valid) {
-            console.error(
-                `[WorkerDaemon] 구글 캘린더 설정 오류: ${calendarConfiguration.errors.join(', ')}. ` +
-                'K2B/일지 처리는 계속되지만 캘린더 동기화 실패가 사용자 알림에 표시됩니다.'
-            );
-        } else {
-            console.log('[WorkerDaemon] 구글 캘린더 동기화 설정 확인 완료.');
         }
 
         console.log(
@@ -416,6 +405,7 @@ export class WorkerDaemon {
         const payload = job.payload || {};
         const targets = payload.targets || [];
         const requestUser = payload.requestUser || null;
+        const calendarSyncApiUrl = payload.calendarSyncApiUrl as string | undefined;
 
         if (targets.length === 0) {
             await this.updateJobStatus(job.id, 'failed', '업로드 대상 업체 정보(payload)가 비어있습니다.');
@@ -449,7 +439,15 @@ export class WorkerDaemon {
             await k2b.init();
             await k2b.login(dbUser.k2b_id, dbUser.k2b_pw);
 
-            for (const target of targets) {
+            for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+                const target = targets[targetIndex];
+                const businessCode = String(target.code || '코드없음');
+                const nextBusinessCode = targets[targetIndex + 1]?.code
+                    ? String(targets[targetIndex + 1].code)
+                    : null;
+                console.log(
+                    `[WorkerDaemon][K2B][${businessCode}] 대상 처리 시작 (${targetIndex + 1}/${targets.length})`
+                );
                 if (await this.isCancelRequested(job.id)) {
                     await this.cancelJob(job.id, requestUser, 'K2B 업로드');
                     return;
@@ -462,12 +460,31 @@ export class WorkerDaemon {
                         companyName: target.business_name
                     });
 
+                    const previousTarget = targets[targetIndex - 1];
+                    const previousFiles = previousTarget
+                        ? findReportFiles({
+                            year: previousTarget.year.toString(),
+                            semester: previousTarget.period,
+                            companyName: previousTarget.business_name
+                        })
+                        : null;
+                    await k2b.logBusinessBoundaryState(
+                        businessCode,
+                        previousTarget?.code ? String(previousTarget.code) : null,
+                        previousFiles?.dataFile?.path || null,
+                        files.dataFile?.path || null
+                    );
+
                     // 2. K2B 업로드 동작 수행
                     const uploadRes = await k2b.uploadReport(target.business_name, {
                         dataFile: files.dataFile,
                         drawings: files.drawings,
                         drawingFolderPath: files.drawingFolderPath
-                    });
+                    }, businessCode);
+
+                    console.log(
+                        `[WorkerDaemon][K2B][${businessCode}] 첨부 결과: ${uploadRes.success ? '성공' : '실패'} / 상태=${uploadRes.status}`
+                    );
 
                     // 3. DB 상태 업데이트
                     const now = getKSTDateString();
@@ -487,21 +504,13 @@ export class WorkerDaemon {
                         .eq('measurement_year', target.year)
                         .eq('measurement_period', target.period);
 
-                    const calendarSync = await this.syncCalendarAfterK2B(
-                        supabase,
-                        target.code,
-                        target.year,
-                        target.period
-                    );
-
                     results.push({
                         code: target.code,
                         companyName: target.business_name,
                         success: uploadRes.success,
                         status: uploadRes.status,
                         error: uploadRes.error,
-                        calendarSyncSuccess: calendarSync.success,
-                        calendarSyncError: calendarSync.error
+                        failureStage: uploadRes.failureStage
                     });
 
                     if (uploadRes.success) {
@@ -517,9 +526,16 @@ export class WorkerDaemon {
                         code: target.code,
                         companyName: target.business_name,
                         success: false,
+                        failureStage: 'attachment-confirm',
                         error: err.message || '알 수 없는 업로드 에러'
                     });
                     await this.notifyAllManagers('error', `[K2B 업로드 오류] ${target.business_name}: ${err.message}`);
+                } finally {
+                    console.log(
+                        nextBusinessCode
+                            ? `[WorkerDaemon][K2B][${businessCode}] 대상 처리 종료, 다음 대상 진행: ${nextBusinessCode}`
+                            : `[WorkerDaemon][K2B][${businessCode}] 대상 처리 종료, 다음 대상 없음`
+                    );
                 }
             }
 
@@ -549,28 +565,28 @@ export class WorkerDaemon {
                             updateGridData.k2b_send_date = getKSTDateString();
                         }
 
-                        await supabase
+                        const { error: gridUpdateError } = await supabase
                             .from('measurement_journal')
                             .update(updateGridData)
                             .eq('code', matchTarget.code)
                             .eq('measurement_year', matchTarget.year)
                             .eq('measurement_period', matchTarget.period);
-
-                        const calendarSync = await this.syncCalendarAfterK2B(
-                            supabase,
-                            matchTarget.code,
-                            matchTarget.year,
-                            matchTarget.period
-                        );
+                        if (gridUpdateError) throw gridUpdateError;
 
                         const rIdx = results.findIndex(r => r.code === matchTarget.code);
                         if (rIdx !== -1) {
                             results[rIdx].status = gr.status;
                             if (gr.status === '정상처리') {
                                 results[rIdx].success = true;
+                                const calendarSync = await this.syncCalendarAfterK2B(
+                                    calendarSyncApiUrl,
+                                    matchTarget.code,
+                                    matchTarget.year,
+                                    matchTarget.period
+                                );
+                                results[rIdx].calendarSyncSuccess = calendarSync.success;
+                                results[rIdx].calendarSyncError = calendarSync.error;
                             }
-                            results[rIdx].calendarSyncSuccess = calendarSync.success;
-                            results[rIdx].calendarSyncError = calendarSync.error;
                         }
                     }
                 }
@@ -583,6 +599,12 @@ export class WorkerDaemon {
 
             // 최종 Job 상태 업데이트
             const finalSuccessCount = results.filter(r => r.success).length;
+            for (const result of results) {
+                console.log(
+                    `[K2B][${result.code}] FINAL=${result.success ? 'SUCCESS' : 'FAILED'}` +
+                    `${result.success ? '' : ` stage=${result.failureStage || 'attachment-confirm'}`} status=${result.status || '자동화 오류'}`
+                );
+            }
             const calendarFailures = results.filter(r => r.success && r.calendarSyncSuccess === false);
             if (finalSuccessCount === targets.length && calendarFailures.length === 0) {
                 await this.updateJobStatus(job.id, 'success');
@@ -632,18 +654,19 @@ export class WorkerDaemon {
     }
 
     private async syncCalendarAfterK2B(
-        supabase: any,
+        apiUrl: string | undefined,
         code: string,
         year: number | string,
         period: string
     ): Promise<{ success: boolean; error?: string }> {
         try {
-            const result = await syncBusinessToCalendar(supabase, code, year, period);
-            if (!result?.success) {
-                throw new Error('캘린더 동기화 결과를 확인하지 못했습니다.');
-            }
+            const result = await requestK2BCalendarSync(
+                apiUrl,
+                process.env.DOCUMENT_WORKER_TOKEN,
+                { code, year, period }
+            );
             console.log(
-                `[WorkerDaemon K2B Sync] ${code} 캘린더 검증 완료 ` +
+                `[WorkerDaemon K2B Sync] ${code} 서버 캘린더 검증 완료 ` +
                 `(일정 ${result.syncedEventCount}/${result.count}건)`
             );
             return { success: true };

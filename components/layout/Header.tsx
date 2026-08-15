@@ -10,6 +10,7 @@ import React from "react";
 import { ProfileModal } from "@/components/features/ProfileModal";
 import { Settings, Bell, Check, X, MessageSquare } from "lucide-react";
 import { QuotaMemoPanel } from "@/components/admin/QuotaMemoPanel";
+import { toast } from "sonner";
 
 interface HeaderProps {
   onMenuToggle?: () => void;
@@ -55,18 +56,23 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const isAdmin = user?.role === "관리자";
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
-  const unreadCount = notifications.filter(n => !n.is_read).length;
   const [isMemoOpen, setIsMemoOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+  const latestNotificationRequestRef = useRef(0);
 
   const fetchNotifications = async () => {
+    const requestId = ++latestNotificationRequestRef.current;
     try {
       const res = await fetch("/api/notifications");
       if (res.ok) {
         const data = await res.json();
         const list = data.notifications || [];
-        setNotifications(list);
+        if (requestId === latestNotificationRequestRef.current) {
+          setNotifications(list);
+          setUnreadCount(data.unreadCount ?? list.filter((n: Notification) => !n.is_read).length);
+        }
         return list;
       }
     } catch (err) {
@@ -82,11 +88,25 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(id ? { id } : { all: true }),
       });
-      if (res.ok) {
-        await fetchNotifications();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error("알림 읽음 처리 실패:", data.error || res.statusText);
+        toast.error(data.error || "알림 읽음 처리에 실패했습니다.");
+        return;
       }
+
+      setNotifications((current) =>
+        current.map((notification) =>
+          id === undefined || notification.id === id
+            ? { ...notification, is_read: true }
+            : notification
+        )
+      );
+      setUnreadCount((current) => (id === undefined ? 0 : Math.max(0, current - 1)));
+      await fetchNotifications();
     } catch (err) {
       console.error("알림 읽음 처리 에러:", err);
+      toast.error("알림 읽음 처리 중 서버 연결 오류가 발생했습니다.");
     }
   };
 
@@ -229,9 +249,10 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                           >
                             <div className="flex justify-between gap-2">
                               <p
-                                className="text-xs leading-relaxed text-text-900 font-medium"
-                                dangerouslySetInnerHTML={{ __html: noti.message }}
-                              />
+                                className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-900 font-medium"
+                              >
+                                {noti.message}
+                              </p>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
