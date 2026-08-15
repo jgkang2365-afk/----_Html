@@ -1447,7 +1447,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     'manager_name', 'manager_mobile', 'manager_email',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
                     'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
-                    'representative_name', 'industrial_accident_number', 'commencement_number'
+                    'representative_name', 'industrial_accident_number', 'commencement_number',
+                    'business_type', 'process_changed'
                 ];
 
                 const sanitized: any = {};

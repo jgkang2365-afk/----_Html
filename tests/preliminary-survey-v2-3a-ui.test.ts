@@ -35,3 +35,50 @@ test("측정일지 화면은 연결 target의 분류를 우선 표시한다", ()
   assert.match(journalForm, /측정대상사업장 기준 분류/);
   assert.match(journalForm, /측정일지 비고는 호환용/);
 });
+
+const extractValidColumns = (source: string): string[] => {
+  const match = source.match(/const validColumns = \[([\s\S]*?)\];/);
+  assert.ok(match, "validColumns 배열을 찾을 수 없습니다.");
+  return match[1]
+    .split(",")
+    .map((entry) => entry.trim().match(/'([^']+)'/)?.[1])
+    .filter((value): value is string => Boolean(value));
+};
+
+test("sanitizeUpdates는 business_type과 process_changed를 PATCH 전달 허용 목록에 포함한다", () => {
+  const source = read("components/features/MeasurementTargetBusinessManagement.tsx");
+  const validColumns = extractValidColumns(source);
+
+  assert.ok(validColumns.includes("business_type"), "validColumns에 business_type 누락");
+  assert.ok(validColumns.includes("process_changed"), "validColumns에 process_changed 누락");
+});
+
+test("sanitizeUpdates를 통과한 값은 실제 PATCH payload의 updates로 전달된다", () => {
+  const source = read("components/features/MeasurementTargetBusinessManagement.tsx");
+  const validColumns = extractValidColumns(source);
+
+  assert.match(source, /updates: cleanUpdates/);
+
+  const sanitizePassThrough = (key: string, value: unknown) =>
+    validColumns.includes(key) ? { [key]: value } : {};
+
+  assert.deepEqual(sanitizePassThrough("business_type", "existing"), { business_type: "existing" });
+  assert.deepEqual(sanitizePassThrough("business_type", null), { business_type: null });
+  assert.deepEqual(sanitizePassThrough("process_changed", true), { process_changed: true });
+  assert.deepEqual(sanitizePassThrough("process_changed", false), { process_changed: false });
+  assert.deepEqual(sanitizePassThrough("process_changed", null), { process_changed: null });
+});
+
+test("기존 process_changed 미정(null)은 수정하지 않으면 false로 강제 변환되지 않는다", () => {
+  const source = read("components/features/MeasurementTargetBusinessManagement.tsx");
+
+  const initFormSpread = /let initialForm = \{[\s\S]*?\.\.\.item,/.exec(source);
+  assert.ok(initFormSpread, "편집 폼이 기존 item 값을 상속해야 합니다.");
+
+  assert.match(source, /checked=\{editForm\.process_changed === true\}/);
+  assert.match(source, /process_changed: e\.target\.checked/);
+  assert.doesNotMatch(source, /setEditForm\([^)]*process_changed: true\)/);
+
+  const validColumns = extractValidColumns(source);
+  assert.ok(validColumns.includes("process_changed"));
+});
