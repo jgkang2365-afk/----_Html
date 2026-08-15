@@ -349,7 +349,14 @@ export async function recommendAndPersistV2(supabase: Client, targetIds: number[
 export async function reconcileV2AfterTargetChange(
   supabase: Client,
   targetId: number,
-  changes: { responsibleChanged: boolean; measurementDateChanged: boolean },
+  changes: {
+    responsibleChanged: boolean;
+    measurementDateChanged: boolean;
+    businessTypeChanged?: boolean;
+    processChangedChanged?: boolean;
+    periodChanged?: boolean;
+    yearChanged?: boolean;
+  },
 ) {
   const { data: plan } = await supabase.from("preliminary_survey_v2_plans").select("*")
     .eq("measurement_target_business_id", targetId).maybeSingle();
@@ -357,6 +364,17 @@ export async function reconcileV2AfterTargetChange(
   if (changes.responsibleChanged) {
     const result = await recommendAndPersistV2(supabase, [targetId]);
     return { message: "보고서 담당자 변경으로 예비조사 일정 및 조사자가 자동 재추천되었습니다.", result };
+  }
+  // 분류/공정변경/기간 변경: 현재 target 기준으로 재계산하여 기존 row를 upsert로 갱신한다.
+  // business_type이 authoritative이므로 journal이 이를 덮어쓰지 않는다.
+  if (
+    changes.businessTypeChanged ||
+    changes.processChangedChanged ||
+    changes.periodChanged ||
+    changes.yearChanged
+  ) {
+    const result = await recommendAndPersistV2(supabase, [targetId]);
+    return { message: "사업장 분류/기간 변경으로 예비조사 계획을 현재 기준으로 갱신했습니다.", result };
   }
   if (changes.measurementDateChanged) {
     const { data: target, error } = await supabase.from("measurement_target_business")

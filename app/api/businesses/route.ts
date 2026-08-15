@@ -426,9 +426,21 @@ export async function PATCH(request: NextRequest) {
     let existingAddress: string | null = null;
     let coordinateLocked = false;
     let existingMeasurerId: number | null = null;
+    let existingBusinessType: string | null = null;
+    let existingProcessChanged: boolean | null = null;
+    let existingPeriod: string | null = null;
+    let existingYear: number | null = null;
 
-    if (updates.hasOwnProperty('measurement_date') || updates.hasOwnProperty('address') || updates.hasOwnProperty('measurer_id')) {
-      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name, address, coordinate_locked, measurer_id");
+    if (
+      updates.hasOwnProperty('measurement_date') ||
+      updates.hasOwnProperty('address') ||
+      updates.hasOwnProperty('measurer_id') ||
+      updates.hasOwnProperty('business_type') ||
+      updates.hasOwnProperty('process_changed') ||
+      updates.hasOwnProperty('period') ||
+      updates.hasOwnProperty('year')
+    ) {
+      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name, address, coordinate_locked, measurer_id, business_type, process_changed, period, year");
       if (id) {
         bQuery = bQuery.eq("id", id);
       } else if (code && year && period) {
@@ -441,6 +453,10 @@ export async function PATCH(request: NextRequest) {
         existingAddress = oldData.address;
         coordinateLocked = !!oldData.coordinate_locked;
         existingMeasurerId = oldData.measurer_id;
+        existingBusinessType = oldData.business_type ?? null;
+        existingProcessChanged = oldData.process_changed ?? null;
+        existingPeriod = oldData.period ?? null;
+        existingYear = oldData.year ?? null;
       }
     }
 
@@ -852,11 +868,29 @@ export async function PATCH(request: NextRequest) {
       Number(existingMeasurerId) !== Number(updatedData.measurer_id);
     const measurementDateChanged = Object.prototype.hasOwnProperty.call(updates, "measurement_date") &&
       existingDate !== updatedData.measurement_date;
-    if (responsibleChanged || measurementDateChanged) {
+    const businessTypeChanged = Object.prototype.hasOwnProperty.call(updates, "business_type") &&
+      String(existingBusinessType ?? "") !== String(updatedData.business_type ?? "");
+    const processChangedChanged = Object.prototype.hasOwnProperty.call(updates, "process_changed") &&
+      String(existingProcessChanged ?? "") !== String(updatedData.process_changed ?? "");
+    const periodChanged = Object.prototype.hasOwnProperty.call(updates, "period") &&
+      String(existingPeriod ?? "") !== String(updatedData.period ?? "");
+    const yearChanged = Object.prototype.hasOwnProperty.call(updates, "year") &&
+      Number(existingYear) !== Number(updatedData.year);
+    if (
+      responsibleChanged || measurementDateChanged || businessTypeChanged ||
+      processChangedChanged || periodChanged || yearChanged
+    ) {
       preliminarySurveyV2Notice = await reconcileV2AfterTargetChange(
         supabase,
         Number(updatedData.id),
-        { responsibleChanged, measurementDateChanged },
+        {
+          responsibleChanged,
+          measurementDateChanged,
+          businessTypeChanged,
+          processChangedChanged,
+          periodChanged,
+          yearChanged,
+        },
       );
     }
 
