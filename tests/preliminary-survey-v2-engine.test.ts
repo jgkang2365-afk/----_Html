@@ -177,6 +177,10 @@ test("공정변경 정책 OFF와 적용 시작 전 대상은 V2에 적용하지 
     },
     target: targetInput,
   }), false);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy: { enabled: false, effectiveStartYear: null, effectiveStartPeriod: null, effectiveStartMeasurementDate: null },
+    target: { year: 2026, period: "하반기(수시)", measurementDate: "2026-08-10", processChanged: true },
+  }), false);
 });
 
 test("공정변경 정책은 적용 시작 이후 true 값과 유효 측정일이 있을 때만 applicable이다", () => {
@@ -198,6 +202,54 @@ test("공정변경 정책은 적용 시작 이후 true 값과 유효 측정일�
     policy,
     target: { year: 2027, period: "상반기", measurementDate: "2027-01-01", processChanged: null },
   }), false);
+});
+
+test("공정변경 정책은 수시 주기를 반기 기준으로 정규화해 판정한다", () => {
+  const policy = {
+    enabled: true,
+    effectiveStartYear: 2026,
+    effectiveStartPeriod: "하반기",
+    effectiveStartMeasurementDate: "2026-08-01",
+  };
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy,
+    target: { year: 2026, period: "하반기", measurementDate: "2026-08-10", processChanged: true },
+  }), true);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy,
+    target: { year: 2026, period: "하반기(수시)", measurementDate: "2026-08-10", processChanged: true },
+  }), true);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy,
+    target: { year: 2026, period: "상반기", measurementDate: "2026-08-10", processChanged: true },
+  }), false);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy,
+    target: { year: 2026, period: "상반기(수시)", measurementDate: "2026-08-10", processChanged: true },
+  }), false);
+
+  const upperPolicy = {
+    enabled: true,
+    effectiveStartYear: 2026,
+    effectiveStartPeriod: "상반기",
+    effectiveStartMeasurementDate: "2026-01-01",
+  };
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy: upperPolicy,
+    target: { year: 2026, period: "상반기", measurementDate: "2026-03-01", processChanged: true },
+  }), true);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy: upperPolicy,
+    target: { year: 2026, period: "상반기(수시)", measurementDate: "2026-03-01", processChanged: true },
+  }), true);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy: upperPolicy,
+    target: { year: 2026, period: "하반기", measurementDate: "2026-03-01", processChanged: true },
+  }), true);
+  assert.equal(shouldApplyProcessChangedPolicy({
+    policy: upperPolicy,
+    target: { year: 2026, period: "하반기(수시)", measurementDate: "2026-03-01", processChanged: true },
+  }), true);
 });
 
 test("조사방식 기본값은 신규 field, 기존 phone", () => {

@@ -13,7 +13,9 @@ test("측정대상사업장 UI는 세 기본유형을 상호배타 체크박스�
   assert.match(source, /\{ value: "external_new", label: "타기관 신규" \}/);
   assert.match(source, /business_type: e\.target\.checked \? option\.value : null/);
   assert.match(source, /process_changed: e\.target\.checked/);
-  assert.match(source, /기존 미정 값은 건드리지 않으면 유지됩니다/);
+
+  const editModalFlex = source.match(/className="flex flex-wrap gap-x-5 gap-y-2">[\s\S]*?공정변경[\s\S]*?<\/label>/);
+  assert.ok(editModalFlex, "공정변경 checkbox가 기본유형과 같은 flex 줄에 배치되어야 합니다.");
 });
 
 test("신규 등록은 공업사·건설에만 초기 공정변경을 적용하고 사용자 해제를 보존한다", () => {
@@ -22,7 +24,8 @@ test("신규 등록은 공업사·건설에만 초기 공정변경을 적용하�
   assert.match(source, /normalized === "공업사" \|\| normalized === "건설"/);
   assert.match(source, /addProcessChangedTouched/);
   assert.match(source, /process_changed: isProcessChangedDefaultCategory\(businessCategory\) \? true : null/);
-  assert.match(source, /그 외 업종은 선택하지 않으면 미정\(null\)으로 저장됩니다/);
+  const addFormFlex = source.match(/className="flex flex-wrap gap-x-5 gap-y-2">[\s\S]*?setAddProcessChangedTouched\(true\)[\s\S]*?공정변경[\s\S]*?<\/label>/);
+  assert.ok(addFormFlex, "신규등록의 공정변경 checkbox가 기본유형과 같은 flex 줄에 배치되어야 합니다.");
 });
 
 test("측정일지 화면은 연결 target의 분류를 우선 표시한다", () => {

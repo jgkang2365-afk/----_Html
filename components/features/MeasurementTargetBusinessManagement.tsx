@@ -2367,18 +2367,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                             {option.label}
                                         </label>
                                     ))}
+                                    <label key="process_changed" className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                                        <input
+                                            type="checkbox"
+                                            checked={editForm.process_changed === true}
+                                            onChange={(e) => setEditForm(prev => ({ ...prev, process_changed: e.target.checked }))}
+                                            className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                                        />
+                                        공정변경
+                                    </label>
                                 </div>
-                                <p className="mt-2 text-[11px] text-slate-500">기본유형은 하나만 선택할 수 있습니다. 선택하지 않으면 미정 상태로 유지됩니다.</p>
-                                <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
-                                    <input
-                                        type="checkbox"
-                                        checked={editForm.process_changed === true}
-                                        onChange={(e) => setEditForm(prev => ({ ...prev, process_changed: e.target.checked }))}
-                                        className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-                                    />
-                                    공정변경
-                                </label>
-                                <p className="mt-1 text-[11px] text-slate-500">기존 미정 값은 건드리지 않으면 유지됩니다. 직접 체크하거나 해제하면 각각 true 또는 false로 저장됩니다.</p>
                             </div>
                         </div>
                     </div>
@@ -3090,21 +3088,19 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                 {option.label}
                                             </label>
                                         ))}
+                                        <label key="process_changed" className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                                            <input
+                                                type="checkbox"
+                                                checked={addForm.process_changed === true}
+                                                onChange={(e) => {
+                                                    setAddProcessChangedTouched(true);
+                                                    setAddForm(prev => ({ ...prev, process_changed: e.target.checked }));
+                                                }}
+                                                className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                                            />
+                                            공정변경
+                                        </label>
                                     </div>
-                                    <p className="mt-2 text-[11px] text-slate-500">기본유형은 하나만 선택할 수 있습니다. 선택하지 않으면 미정 상태로 저장됩니다.</p>
-                                    <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
-                                        <input
-                                            type="checkbox"
-                                            checked={addForm.process_changed === true}
-                                            onChange={(e) => {
-                                                setAddProcessChangedTouched(true);
-                                                setAddForm(prev => ({ ...prev, process_changed: e.target.checked }));
-                                            }}
-                                            className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-                                        />
-                                        공정변경
-                                    </label>
-                                    <p className="mt-1 text-[11px] text-slate-500">공업사·건설은 최초 업종 선택 시 기본 체크되며, 해제한 값은 자동으로 다시 바꾸지 않습니다. 그 외 업종은 선택하지 않으면 미정(null)으로 저장됩니다.</p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1 text-slate-700">전화번호</label>

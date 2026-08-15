@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { getKSTYear } from "@/lib/utils/date-utils";
 
 type Policy = {
   enabled: boolean;
@@ -19,6 +20,18 @@ const emptyPolicy: Policy = {
   effective_start_year: null,
   effective_start_period: null,
   effective_start_measurement_date: null,
+};
+
+// KST 기준 현재 연도를 중심으로 -2 ~ +4 범위의 연도 목록을 제공한다.
+// DB에 저장된 기존 연도가 범위 밖이라도 선택·표시할 수 있도록 해당 연도를 포함한다.
+const getEffectiveStartYearOptions = (storedYear: number | null): number[] => {
+  const currentKstYear = getKSTYear();
+  const options = Array.from({ length: 7 }, (_, index) => currentKstYear - 2 + index);
+  if (storedYear !== null && !options.includes(storedYear)) {
+    options.push(storedYear);
+    options.sort((left, right) => left - right);
+  }
+  return options;
 };
 
 interface PreliminarySurveyPolicyPanelProps {
@@ -158,19 +171,22 @@ export function PreliminarySurveyPolicyPanel({
           </label>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <Input
-              type="number"
-              label="적용 시작 연도"
-              value={policy.effective_start_year ?? ""}
-              min="2000"
-              max="2100"
-              placeholder="예: 2026"
-              disabled={!policy.enabled || saving}
-              onChange={(event) => updatePolicy(
-                "effective_start_year",
-                event.target.value === "" ? null : Number(event.target.value),
-              )}
-            />
+            <div>
+              <label className="mb-1 block text-sm font-medium text-text-700">적용 시작 연도</label>
+              <select
+                value={policy.effective_start_year ?? getKSTYear()}
+                disabled={!policy.enabled || saving}
+                onChange={(event) => updatePolicy(
+                  "effective_start_year",
+                  event.target.value === "" ? null : Number(event.target.value),
+                )}
+                className="h-10 w-full rounded-lg border border-surface-100 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-surface-50 disabled:text-text-500"
+              >
+                {getEffectiveStartYearOptions(policy.effective_start_year).map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-text-700">적용 시작 주기</label>
               <select

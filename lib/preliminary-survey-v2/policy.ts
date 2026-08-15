@@ -16,6 +16,19 @@ export interface ProcessChangedPolicyTarget {
 
 const PERIOD_RANK: Record<string, number> = { 상반기: 1, 하반기: 2 };
 
+/**
+ * 대상 사업장의 period를 반기 기준으로 정규화한다.
+ * "상반기(수시)" → "상반기", "하반기(수시)" → "하반기".
+ * 정책 설정 UI는 항상 "상반기"/"하반기"만 저장하므로, 여기서는 판정 시의
+ * 대상 period만 정규화하면 된다.
+ */
+export function normalizePolicyPeriod(value: unknown): string {
+  const trimmed = String(value ?? "").trim();
+  if (trimmed.startsWith("상반기")) return "상반기";
+  if (trimmed.startsWith("하반기")) return "하반기";
+  return trimmed;
+}
+
 export const PROCESS_CHANGED_POLICY_OFF: ProcessChangedPolicySettings = {
   enabled: false,
   effectiveStartYear: null,
@@ -39,8 +52,8 @@ export function shouldApplyProcessChangedPolicy(input: {
   const { policy, target } = input;
   if (!policy.enabled || target.processChanged !== true) return false;
 
-  const startPeriodRank = PERIOD_RANK[policy.effectiveStartPeriod ?? ""];
-  const targetPeriodRank = PERIOD_RANK[String(target.period).trim()];
+  const startPeriodRank = PERIOD_RANK[normalizePolicyPeriod(policy.effectiveStartPeriod)];
+  const targetPeriodRank = PERIOD_RANK[normalizePolicyPeriod(target.period)];
   const startDate = dateOnly(policy.effectiveStartMeasurementDate);
   const targetDate = dateOnly(target.measurementDate);
   if (!Number.isInteger(policy.effectiveStartYear) || !startPeriodRank || !targetPeriodRank || !startDate || !targetDate) {

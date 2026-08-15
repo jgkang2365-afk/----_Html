@@ -31,6 +31,23 @@ test("정책 화면은 OFF 설명과 ON 시작값 검증을 제공한다", () =>
   assert.match(panel, /disabled=\{!policy\.enabled \|\| saving\}/);
 });
 
+test("정책 적용 시작 연도는 Select로 제공하고 KST 현재 연도를 기본값으로 사용한다", () => {
+  const panel = read("components/admin/PreliminarySurveyPolicyPanel.tsx");
+
+  assert.match(panel, /getKSTYear/);
+  assert.match(panel, /value=\{policy\.effective_start_year \?\? getKSTYear\(\)\}/);
+
+  const yearSelect = /적용 시작 연도[\s\S]*?<select[\s\S]*?<\/select>/;
+  assert.match(panel, yearSelect);
+  assert.doesNotMatch(panel, /type="number"/);
+
+  assert.match(panel, /getEffectiveStartYearOptions/);
+  assert.match(panel, /length: 7/);
+  assert.match(panel, /currentKstYear - 2 \+ index/);
+
+  assert.match(panel, /storedYear !== null && !options\.includes\(storedYear\)/);
+});
+
 test("정책 API는 관리자 서버 권한과 실제 날짜 검증을 유지한다", () => {
   const api = read("app/api/admin/preliminary-survey-policy/route.ts");
 
