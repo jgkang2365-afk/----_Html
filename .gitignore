@@ -67,6 +67,5 @@ google-credentials.json
 __pycache__/
 *.pyc
 logs/
-scratch/__pycache__/
 
 
