@@ -10,6 +10,7 @@ import {
   calculateActualSlots,
 } from "@/lib/utils/survey-assignment";
 import { getUser } from "@/lib/auth/get-user";
+import { loadV2PlansByTargetKeys } from "@/lib/preliminary-survey-v2/plans-lookup";
 
 /**
  * 예비조사 API
@@ -353,6 +354,31 @@ export async function GET(request: NextRequest) {
           }));
         }
       }
+    }
+
+    // V2 plan 연동: code+year+period 기준으로 V2 예비조사일/예비조사자를 일괄 조회한다 (N+1 방지).
+    if (surveys.length > 0) {
+      const v2Map = await loadV2PlansByTargetKeys(
+        supabase,
+        surveys.map((s: any) => ({
+          code: s.code,
+          year: Number(s.year),
+          period: s.period ? String(s.period).trim() : null,
+        })),
+      );
+      surveys = surveys.map((survey: any) => {
+        const v2Plan = v2Map.get(
+          `${String(survey.code)}|${Number(survey.year)}|${String(survey.period).trim()}`,
+        );
+        if (!v2Plan) return { ...survey, has_v2_plan: false };
+        // V2 plan이 있으면 예비조사일/예비조사자를 V2를 단일 원천으로 사용한다.
+        return {
+          ...survey,
+          has_v2_plan: true,
+          preliminary_survey_date: v2Plan.recommended_date,
+          preliminary_surveyors: v2Plan.participant_names,
+        };
+      });
     }
 
     // 3. 각 사업장명별 미수금 횟수 계산

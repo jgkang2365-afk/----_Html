@@ -45,6 +45,10 @@ interface Survey {
   period: string | null;
   created_at: string;
   updated_at: string;
+  // V2 plan 연동
+  has_v2_plan?: boolean;
+  preliminary_survey_date?: string | null;
+  preliminary_surveyors?: string[] | null;
 }
 
 interface BusinessInfo {
@@ -882,8 +886,8 @@ export default function SurveyPage() {
               </div>
             ) : (
               <div className="border-surface-200 overflow-hidden rounded-lg border">
-                <div className="h-[calc(100vh-280px)] overflow-y-auto border-t border-slate-200">
-                  <table className="w-full text-left text-sm">
+                <div className="h-[calc(100vh-280px)] overflow-auto border-t border-slate-200">
+                  <table className="w-full min-w-[1160px] text-left text-sm">
                     <thead className="sticky top-0 z-10 bg-slate-50 text-sm font-medium text-slate-500">
                       <tr>
                         <th className="w-[55px] px-2 py-3 pl-2.5 text-left">
@@ -908,9 +912,8 @@ export default function SurveyPage() {
                             </button>
                           </div>
                         </th>
-                        <th className="w-[90px] px-2 py-3 pl-2.5 text-left">코드</th>
-                        <th className="w-[60px] px-2 py-3 text-center">년도</th>
-                        <th className="w-[60px] px-2 py-3 text-center">주기</th>
+                        <th className="w-[80px] px-2 py-3 pl-2.5 text-left">코드</th>
+                        <th className="w-[200px] px-2 py-3 text-left">사업장명</th>
                         <th className="w-[90px] px-2 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <span>측정일</span>
@@ -933,15 +936,11 @@ export default function SurveyPage() {
                             </button>
                           </div>
                         </th>
-                        <th className="w-[90px] px-2 py-3 text-center">종료일</th>
-                        <th className="w-[120px] px-2 py-3 text-center">측정요일</th>
-                        <th className="px-2 py-3 text-left">사업장명</th>
-                        <th className="w-[120px] px-2 py-3 text-center">사업자번호</th>
-                        <th className="w-[100px] px-2 py-3 text-center">측정자</th>
-                        <th className="w-[100px] px-2 py-3 text-center">공시료코드</th>
-                        <th className="w-[130px] px-2 py-3 text-center">예비조사자</th>
+                        <th className="w-[90px] px-2 py-3 text-center">예비조사일</th>
+                        <th className="w-[180px] px-2 py-3 text-center">예비조사자</th>
+                        <th className="w-[90px] px-2 py-3 text-center">공시료코드</th>
                         <th className="w-[100px] px-2 py-3 text-center">실측정자</th>
-                        <th className="w-[130px] px-2 py-3 text-center">
+                        <th className="w-[100px] px-2 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <span>보고서</span>
                             <button
@@ -962,6 +961,12 @@ export default function SurveyPage() {
                             </button>
                           </div>
                         </th>
+                        <th className="w-[90px] px-2 py-3 text-center">측정자</th>
+                        <th className="w-[120px] px-2 py-3 text-center">사업자번호</th>
+                        <th className="w-[60px] px-2 py-3 text-center">년도</th>
+                        <th className="w-[60px] px-2 py-3 text-center">주기</th>
+                        <th className="w-[90px] px-2 py-3 text-center">종료일</th>
+                        <th className="w-[110px] px-2 py-3 text-center">측정요일</th>
                         <th className="w-[140px] px-2 py-3 text-center">작업</th>
                       </tr>
                     </thead>
@@ -972,31 +977,84 @@ export default function SurveyPage() {
                           className="growable-row group relative hover:bg-slate-50/50"
                         >
                           <td className="w-[55px] px-2 py-2 pl-2.5 text-left font-medium">
-                            {/* 표준 호버 인디케이터 바 */}
                             <div className="pointer-events-none absolute bottom-1 left-0 top-1 w-[4px] origin-center scale-y-0 rounded-r-sm bg-blue-600 opacity-0 transition-all duration-200 group-hover:scale-y-100 group-hover:opacity-100" />
                             {survey.sequence_number || "-"}
                           </td>
                           <td
-                            className="w-[90px] truncate px-2 py-2 pl-2.5 text-left font-medium"
+                            className="w-[80px] truncate px-2 py-2 pl-2.5 text-left font-medium"
                             title={survey.code}
                           >
                             {survey.code}
                           </td>
-                          <td className="px-2 py-2 text-center font-medium">
-                            {survey.year || "-"}
+                          <td
+                            className="w-[200px] max-w-[240px] truncate px-2 py-2 font-medium"
+                            title={survey.business_name || ""}
+                          >
+                            {survey.business_name}
                           </td>
-                          <td className="px-2 py-2 text-center font-medium">
-                            {survey.period || "-"}
-                          </td>
-                          <td className="px-2 py-2 text-center font-medium">
+                          <td className="w-[90px] px-2 py-2 text-center font-medium">
                             {survey.measurement_date
                               ? formatDateYYYYMMDD(new Date(survey.measurement_date))
                               : "-"}
                           </td>
-                          <td className="px-2 py-2 text-center font-medium">
+                          <td className="w-[90px] px-2 py-2 text-center font-medium">
+                            {survey.preliminary_survey_date
+                              ? formatDateYYYYMMDD(new Date(survey.preliminary_survey_date))
+                              : "-"}
+                          </td>
+                          <td
+                            className="w-[180px] max-w-[200px] truncate px-2 py-2 text-center font-medium"
+                            title={
+                              (survey.has_v2_plan
+                                ? survey.preliminary_surveyors?.length
+                                  ? survey.preliminary_surveyors.join(", ")
+                                  : ""
+                                : survey.preliminary_surveyor || "") || ""
+                            }
+                          >
+                            {(() => {
+                              const text = survey.has_v2_plan
+                                ? survey.preliminary_surveyors?.length
+                                  ? survey.preliminary_surveyors.join(", ")
+                                  : null
+                                : survey.preliminary_surveyor || null;
+                              return text || "-";
+                            })()}
+                          </td>
+                          <td className="w-[90px] px-2 py-2 text-center font-medium">
+                            {survey.survey_code || "-"}
+                          </td>
+                          <td
+                            className="w-[100px] truncate px-2 py-2 text-center font-medium"
+                            title={survey.actual_measurer || ""}
+                          >
+                            {survey.actual_measurer || "-"}
+                          </td>
+                          <td
+                            className="w-[100px] truncate px-2 py-2 text-center font-medium"
+                            title={survey.report_writer || ""}
+                          >
+                            {survey.report_writer || "-"}
+                          </td>
+                          <td
+                            className="w-[90px] truncate px-2 py-2 text-center font-medium"
+                            title={survey.measurer || ""}
+                          >
+                            {survey.measurer || "-"}
+                          </td>
+                          <td className="w-[120px] truncate px-2 py-2 text-center font-medium">
+                            {survey.business_number || "-"}
+                          </td>
+                          <td className="w-[60px] px-2 py-2 text-center font-medium">
+                            {survey.year || "-"}
+                          </td>
+                          <td className="w-[60px] px-2 py-2 text-center font-medium">
+                            {survey.period || "-"}
+                          </td>
+                          <td className="w-[90px] px-2 py-2 text-center font-medium">
                             {survey.end_date ? formatDateYYYYMMDD(new Date(survey.end_date)) : "-"}
                           </td>
-                          <td className="px-2 py-2 text-center font-medium">
+                          <td className="w-[110px] px-2 py-2 text-center font-medium">
                             {survey.measurement_weekdays ||
                               calculateMeasurementWeekdays(
                                 survey.measurement_date,
@@ -1004,43 +1062,7 @@ export default function SurveyPage() {
                               ) ||
                               "-"}
                           </td>
-                          <td
-                            className="max-w-[150px] truncate px-2 py-2 font-medium"
-                            title={survey.business_name}
-                          >
-                            {survey.business_name}
-                          </td>
-                          <td className="px-2 py-2 text-center font-medium">
-                            {survey.business_number || "-"}
-                          </td>
-                          <td
-                            className="max-w-[100px] truncate px-2 py-2 text-center font-medium"
-                            title={survey.measurer || ""}
-                          >
-                            {survey.measurer || "-"}
-                          </td>
-                          <td className="px-2 py-2 text-center font-medium">
-                            {survey.survey_code || "-"}
-                          </td>
-                          <td
-                            className="max-w-[130px] truncate px-2 py-2 text-center font-medium"
-                            title={survey.preliminary_surveyor || ""}
-                          >
-                            {survey.preliminary_surveyor || "-"}
-                          </td>
-                          <td
-                            className="max-w-[100px] truncate px-2 py-2 text-center font-medium"
-                            title={survey.actual_measurer || ""}
-                          >
-                            {survey.actual_measurer || "-"}
-                          </td>
-                          <td
-                            className="max-w-[100px] truncate px-2 py-2 text-center font-medium"
-                            title={survey.report_writer || ""}
-                          >
-                            {survey.report_writer || "-"}
-                          </td>
-                          <td className="px-2 py-2 text-center">
+                          <td className="w-[140px] px-2 py-2 text-center">
                             <div className="flex justify-center gap-1 whitespace-nowrap">
                               <Button
                                 variant="secondary"
@@ -1107,6 +1129,8 @@ export default function SurveyPage() {
                     sequence_number: editingSurvey.sequence_number ?? undefined,
                     year: editingSurvey.year ?? undefined,
                     period: editingSurvey.period ?? undefined,
+                    preliminary_survey_date: editingSurvey.preliminary_survey_date ?? undefined,
+                    preliminary_surveyors: editingSurvey.preliminary_surveyors ?? undefined,
                   } as any)
                 : selectedBusinessForForm
                   ? {

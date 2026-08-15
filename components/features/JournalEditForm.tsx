@@ -69,6 +69,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
   // 예비조사 정보를 별도로 보여주기 위한 상태
   const [surveyInfo, setSurveyInfo] = useState<any>(null);
+  // V2 plan 정보 (예비조사일/예비조사자 단일 원천)
+  const [v2PlanInfo, setV2PlanInfo] = useState<{
+    recommended_date: string | null;
+    participant_names: string[];
+  } | null>(null);
   // 전회 측정비 정보 (참고용)
   const [previousMeasurementFee, setPreviousMeasurementFee] = useState<{
     business: number | null;
@@ -557,6 +562,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const surveys = data.surveys;
                 // surveys 배열을 surveyInfo 상태에 저장 (상세 표시용)
                 setSurveyInfo(surveys);
+
+                // V2 plan 연동 (예비조사일/예비조사자 단일 원천)
+                if (data.v2Plan) {
+                  setV2PlanInfo({
+                    recommended_date: data.v2Plan.recommended_date ?? null,
+                    participant_names: Array.isArray(data.v2Plan.participant_names)
+                      ? data.v2Plan.participant_names.map((n: unknown) => String(n))
+                      : [],
+                  });
+                } else {
+                  setV2PlanInfo(null);
+                }
                 
                 console.log('[JournalEditForm] 다중 예비조사 정보 확인:', {
                   count: surveys.length,
@@ -1377,13 +1394,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         />
         {(entry.target_business_type !== undefined || entry.target_process_changed !== undefined) && (
           <div className="md:col-span-2 lg:col-span-3 rounded-lg border border-blue-100 bg-blue-50/50 px-4 py-3 text-sm text-slate-700">
-            <p className="font-semibold text-blue-900">측정대상사업장 기준 분류</p>
             <p className="mt-1">
               기본유형: <span className="font-medium">{targetBusinessTypeLabel}</span>
               {entry.target_process_changed === true && <span className="ml-3 font-medium text-amber-700">공정변경</span>}
               {entry.target_process_changed === null && <span className="ml-3 text-slate-500">공정변경 미정</span>}
             </p>
-            <p className="mt-1 text-xs text-slate-500">측정일지 비고는 호환용이며, 이 값은 연결된 측정대상사업장 정보를 우선 표시합니다.</p>
           </div>
         )}
         <div className="md:col-span-2 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2302,6 +2317,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       if (s.report_writer) s.report_writer.split(',').forEach((name: string) => reportWriters.add(name.trim()));
     });
 
+    // V2 plan을 단일 원천으로 사용 (없으면 legacy fallback)
+    const v2Surveyors = v2PlanInfo?.participant_names?.length ? v2PlanInfo.participant_names : null;
+    const surveyorText = v2Surveyors
+      ? v2Surveyors.join(', ')
+      : (Array.from(surveyors).join(', ') || null);
+    const preliminarySurveyDate = v2PlanInfo?.recommended_date || null;
+
     return (
       <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
         <div className="flex items-center justify-between mb-4 pb-2 border-b border-blue-100">
@@ -2314,11 +2336,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             </span>
           )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">예비조사일</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
+              {preliminarySurveyDate || "-"}
+            </div>
+          </div>
           <div>
             <label className="block text-sm font-medium text-blue-700 mb-1">예비조사자</label>
-            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
-              {Array.from(surveyors).join(', ') || "-"}
+            <div
+              className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm"
+              title={surveyorText || ""}
+            >
+              <span className="truncate">{surveyorText || "-"}</span>
             </div>
           </div>
           <div>

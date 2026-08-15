@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { toShortName } from "@/lib/constants/designated-offices";
+import { loadV2PlansByTargetKeys } from "@/lib/preliminary-survey-v2/plans-lookup";
 
 /**
  * 측정정보 요약 조회 API
@@ -379,6 +380,29 @@ export async function GET(request: NextRequest) {
         updated_at: journal.updated_at,
       };
     });
+
+    // V2 plan 연동: code+year+period 기준 일괄 조회 (N+1 방지), 예비조사일/예비조사자 단일 원천
+    const v2Map = await loadV2PlansByTargetKeys(
+      supabase,
+      summaryData.map((row: any) => ({
+        code: row.code,
+        year: Number(row.measurement_year),
+        period: row.measurement_period ? String(row.measurement_period).trim() : null,
+      })),
+    );
+    for (const row of summaryData) {
+      const v2Plan = v2Map.get(
+        `${String(row.code)}|${Number(row.measurement_year)}|${String(row.measurement_period).trim()}`,
+      );
+      const rowAny = row as any;
+      if (v2Plan) {
+        rowAny.v2_preliminary_survey_date = v2Plan.recommended_date;
+        rowAny.v2_participant_names = v2Plan.participant_names;
+      } else {
+        rowAny.v2_preliminary_survey_date = null;
+        rowAny.v2_participant_names = [];
+      }
+    }
 
     // 보고서 담당자 필터링 (메모리 상에서 처리)
     const reportWriter = searchParams.get("reportWriter")?.trim() || null;

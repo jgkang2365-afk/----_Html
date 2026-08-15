@@ -35,8 +35,10 @@ test("측정일지 화면은 연결 target의 분류를 우선 표시한다", ()
   assert.match(searchRoute, /notes, business_category, business_type, process_changed/);
   assert.match(searchRoute, /journal\.target_business_type = targetBusiness\?\.business_type \?\? null/);
   assert.match(searchRoute, /journal\.target_process_changed = targetBusiness\?\.process_changed \?\? null/);
-  assert.match(journalForm, /측정대상사업장 기준 분류/);
-  assert.match(journalForm, /측정일지 비고는 호환용/);
+  // 분류 안내 문구는 제거(분류 로직/값 표시는 유지), 기본유형 표시는 유지
+  assert.doesNotMatch(journalForm, /측정대상사업장 기준 분류/);
+  assert.doesNotMatch(journalForm, /측정일지 비고는 호환용/);
+  assert.match(journalForm, /기본유형:/);
 });
 
 const extractValidColumns = (source: string): string[] => {

@@ -110,6 +110,8 @@ interface SummaryEntry {
   created_at: string;
   updated_at: string;
   all_surveys?: any[]; // [New] 다중 일자 지원을 위한 연관 예비조사 목록
+  v2_preliminary_survey_date?: string | null; // V2 plan 예비조사일 (단일 원천)
+  v2_participant_names?: string[] | null; // V2 plan 예비조사자 (단일 원천)
 }
 
 export const SummaryTable: React.FC = () => {
@@ -565,88 +567,109 @@ export const SummaryTable: React.FC = () => {
 
               <div className="space-y-6">
                 {/* 수정 불가 필드 (읽기 전용) */}
-                <div className="bg-surface-50 p-4 rounded-lg space-y-2 border">
-                  <h3 className="font-semibold text-text-900 mb-3 px-1">기본 정보</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
-                      <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
-                        {entry.document_number || "-"}
+                <div className="bg-surface-50 p-4 rounded-lg space-y-3 border">
+                  <h3 className="font-semibold text-text-900 mb-1 px-1">기본 정보</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4">
+                    {/* 1열: 연번/측정자 계열 */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-2">
+                      <div className="p-1">
+                        <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
+                        <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                          {entry.document_number || "-"}
+                        </div>
                       </div>
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">연번</label>
-                      <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
-                        {entry.sequence_number || "-"}
+                      <div className="p-1">
+                        <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">연번</label>
+                        <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                          {entry.sequence_number || "-"}
+                        </div>
                       </div>
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
-                      <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
-                        {entry.five_plus_sequence || "-"}
-                        {(() => {
-                          // 1. 정확히 일치하는 주기 검색
-                          let quota = quotas.find(
-                            (q: any) =>
-                              q.year === entry.measurement_year &&
-                              q.period === entry.measurement_period &&
-                              q.office_name === entry.designated_office
-                          );
-
-                          // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
-                          if (!quota && entry.measurement_period.includes('(수시)')) {
-                            const basePeriod = entry.measurement_period.replace('(수시)', '');
-                            quota = quotas.find(
+                      <div className="p-1">
+                        <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
+                        <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                          {entry.five_plus_sequence || "-"}
+                          {(() => {
+                            let quota = quotas.find(
                               (q: any) =>
                                 q.year === entry.measurement_year &&
-                                q.period === basePeriod &&
+                                q.period === entry.measurement_period &&
                                 q.office_name === entry.designated_office
                             );
-                          }
-
-                          return quota ? <span className="text-gray-500 font-normal ml-1">/ {quota.quota}</span> : null;
-                        })()}
+                            if (!quota && entry.measurement_period.includes('(수시)')) {
+                              const basePeriod = entry.measurement_period.replace('(수시)', '');
+                              quota = quotas.find(
+                                (q: any) =>
+                                  q.year === entry.measurement_year &&
+                                  q.period === basePeriod &&
+                                  q.office_name === entry.designated_office
+                              );
+                            }
+                            return quota ? <span className="text-gray-500 font-normal ml-1">/ {quota.quota}</span> : null;
+                          })()}
+                        </div>
+                      </div>
+                      <div className="p-1">
+                        <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
+                        <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
+                           {(() => {
+                             const surveys = entry.all_surveys || [];
+                             if (surveys.length === 0) return entry.measurer || "-";
+                             const names = new Set<string>();
+                             surveys.forEach(s => {
+                               if (s.measurer) {
+                                 s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                               }
+                             });
+                             if (names.size === 0) return entry.measurer || "-";
+                             return Array.from(names).sort().join(", ");
+                          })()}
+                        </div>
                       </div>
                     </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
-                      <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                        {(() => {
-                           const surveys = entry.all_surveys || [];
-                           if (surveys.length === 0) return entry.preliminary_surveyor || "-";
-                           const surveyor = entry.preliminary_surveyor || "-";
-                           const codes = surveys
-                             .filter(s => s.measurement_date && s.survey_code)
-                             .map(s => surveys.length === 1 
-                              ? s.survey_code 
-                              : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
-                            )
-                             .join(", ");
-                           return codes ? `${surveyor} (${codes})` : surveyor;
-                        })()}
+                    {/* 2열: 예비조사일/예비조사자/보고서 담당 */}
+                    <div className="grid grid-cols-1 gap-2 print:grid-cols-1">
+                      <div className="p-1">
+                        <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사일</label>
+                        <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
+                          {entry.v2_preliminary_survey_date || "-"}
+                        </div>
                       </div>
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
-                      <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                         {(() => {
-                           const surveys = entry.all_surveys || [];
-                           if (surveys.length === 0) return entry.measurer || "-";
-                           const names = new Set<string>();
-                           surveys.forEach(s => {
-                             if (s.measurer) {
-                               s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
-                             }
-                           });
-                           if (names.size === 0) return entry.measurer || "-";
-                           return Array.from(names).sort().join(", ");
-                        })()}
+                      <div className="p-1">
+                        <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자</label>
+                        <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
+                          {(() => {
+                            const v2Names = entry.v2_participant_names?.length
+                              ? entry.v2_participant_names.join(", ")
+                              : null;
+                            const surveys = entry.all_surveys || [];
+                            if (v2Names) {
+                              const codes = surveys
+                                .filter(s => s.measurement_date && s.survey_code)
+                                .map(s => surveys.length === 1
+                                  ? s.survey_code
+                                  : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
+                                )
+                                .join(", ");
+                              return codes ? `${v2Names} (${codes})` : v2Names;
+                            }
+                            if (surveys.length === 0) return entry.preliminary_surveyor || "-";
+                            const surveyor = entry.preliminary_surveyor || "-";
+                            const codes = surveys
+                              .filter(s => s.measurement_date && s.survey_code)
+                              .map(s => surveys.length === 1
+                                ? s.survey_code
+                                : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
+                              )
+                              .join(", ");
+                            return codes ? `${surveyor} (${codes})` : surveyor;
+                          })()}
+                        </div>
                       </div>
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">보고서 담당</label>
-                      <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                        {entry.report_writer || "-"}
+                      <div className="p-1">
+                        <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">보고서 담당</label>
+                        <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
+                          {entry.report_writer || "-"}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1498,88 +1521,110 @@ export const SummaryTable: React.FC = () => {
           {selectedEntry && (
             <div className="space-y-4">
               {/* 수정 불가 필드 (읽기 전용) */}
-              <div className="bg-surface-50 p-4 rounded-lg space-y-2">
-                <h3 className="font-semibold text-text-900 mb-3 px-1">수정 불가 필드</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
-                      {selectedEntry.document_number || "-"}
+              <div className="bg-surface-50 p-4 rounded-lg space-y-3">
+                <h3 className="font-semibold text-text-900 mb-1 px-1">수정 불가 필드</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4">
+                  {/* 1열: 연번/측정자 계열 */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 print:grid-cols-2">
+                    <div className="p-1">
+                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
+                      <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
+                        {selectedEntry.document_number || "-"}
+                      </div>
                     </div>
-                  </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">연번</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
-                      {selectedEntry.sequence_number || "-"}
+                    <div className="p-1">
+                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">연번</label>
+                      <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
+                        {selectedEntry.sequence_number || "-"}
+                      </div>
                     </div>
-                  </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
-                      {selectedEntry.five_plus_sequence || "-"}
-                      {(() => {
-                        // 1. 정확히 일치하는 주기 검색
-                        let quota = quotas.find(
-                          (q) =>
-                            q.year === selectedEntry.measurement_year &&
-                            q.period === selectedEntry.measurement_period &&
-                            q.office_name === selectedEntry.designated_office
-                        );
-
-                        // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
-                        if (!quota && selectedEntry.measurement_period && selectedEntry.measurement_period.includes('(수시)')) {
-                          const basePeriod = selectedEntry.measurement_period.replace('(수시)', '');
-                          quota = quotas.find(
+                    <div className="p-1">
+                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
+                      <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
+                        {selectedEntry.five_plus_sequence || "-"}
+                        {(() => {
+                          let quota = quotas.find(
                             (q) =>
                               q.year === selectedEntry.measurement_year &&
-                              q.period === basePeriod &&
+                              q.period === selectedEntry.measurement_period &&
                               q.office_name === selectedEntry.designated_office
                           );
-                        }
-
-                        return quota ? <span className="text-gray-500 font-normal ml-1">/ {quota.quota}</span> : null;
-                      })()}
+                          if (!quota && selectedEntry.measurement_period && selectedEntry.measurement_period.includes('(수시)')) {
+                            const basePeriod = selectedEntry.measurement_period.replace('(수시)', '');
+                            quota = quotas.find(
+                              (q) =>
+                                q.year === selectedEntry.measurement_year &&
+                                q.period === basePeriod &&
+                                q.office_name === selectedEntry.designated_office
+                            );
+                          }
+                          return quota ? <span className="text-gray-500 font-normal ml-1">/ {quota.quota}</span> : null;
+                        })()}
+                      </div>
+                    </div>
+                    <div className="p-1">
+                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
+                      <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
+                         {(() => {
+                           const surveys = selectedEntry.all_surveys || [];
+                           if (surveys.length === 0) return selectedEntry.measurer || "-";
+                           const names = new Set<string>();
+                           surveys.forEach(s => {
+                             if (s.measurer) {
+                               s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
+                             }
+                           });
+                           if (names.size === 0) return selectedEntry.measurer || "-";
+                           return Array.from(names).sort().join(", ");
+                        })()}
+                      </div>
                     </div>
                   </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
-                      {(() => {
-                         const surveys = selectedEntry.all_surveys || [];
-                         if (surveys.length === 0) return selectedEntry.preliminary_surveyor || "-";
-                         const surveyor = selectedEntry.preliminary_surveyor || "-";
-                         const codes = surveys
-                           .filter(s => s.measurement_date && s.survey_code)
-                           .map(s => surveys.length === 1 
-                            ? s.survey_code 
-                            : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
-                          )
-                           .join(", ");
-                         return codes ? `${surveyor} (${codes})` : surveyor;
-                      })()}
+                  {/* 2열: 예비조사일/예비조사자/보고서 담당 */}
+                  <div className="grid grid-cols-1 gap-2 print:grid-cols-1">
+                    <div className="p-1">
+                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사일</label>
+                      <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
+                        {selectedEntry.v2_preliminary_survey_date || "-"}
+                      </div>
                     </div>
-                  </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
-                       {(() => {
-                         const surveys = selectedEntry.all_surveys || [];
-                         if (surveys.length === 0) return selectedEntry.measurer || "-";
-                         const names = new Set<string>();
-                         surveys.forEach(s => {
-                           if (s.measurer) {
-                             s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
-                           }
-                         });
-                         if (names.size === 0) return selectedEntry.measurer || "-";
-                         return Array.from(names).sort().join(", ");
-                      })()}
+                    <div className="p-1">
+                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자</label>
+                      <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
+                        {(() => {
+                          // V2 plan을 단일 원천으로 사용 (없으면 legacy fallback)
+                          const v2Names = selectedEntry.v2_participant_names?.length
+                            ? selectedEntry.v2_participant_names.join(", ")
+                            : null;
+                          const surveys = selectedEntry.all_surveys || [];
+                          if (v2Names) {
+                            const codes = surveys
+                              .filter(s => s.measurement_date && s.survey_code)
+                              .map(s => surveys.length === 1
+                                ? s.survey_code
+                                : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
+                              )
+                              .join(", ");
+                            return codes ? `${v2Names} (${codes})` : v2Names;
+                          }
+                          if (surveys.length === 0) return selectedEntry.preliminary_surveyor || "-";
+                          const surveyor = selectedEntry.preliminary_surveyor || "-";
+                          const codes = surveys
+                            .filter(s => s.measurement_date && s.survey_code)
+                            .map(s => surveys.length === 1
+                              ? s.survey_code
+                              : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
+                            )
+                            .join(", ");
+                          return codes ? `${surveyor} (${codes})` : surveyor;
+                        })()}
+                      </div>
                     </div>
-                  </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">보고서 담당</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
-                      {selectedEntry.report_writer || "-"}
+                    <div className="p-1">
+                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">보고서 담당</label>
+                      <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
+                        {selectedEntry.report_writer || "-"}
+                      </div>
                     </div>
                   </div>
                 </div>

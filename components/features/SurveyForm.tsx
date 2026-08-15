@@ -61,7 +61,11 @@ interface SurveyFormData {
 }
 
 interface SurveyFormProps {
-  initialData?: Partial<SurveyFormData> & { id?: number };
+  initialData?: Partial<SurveyFormData> & {
+    id?: number;
+    preliminary_survey_date?: string | null;
+    preliminary_surveyors?: string[] | null;
+  };
   onSuccess?: () => void;
   onCancel?: () => void;
 }
@@ -1095,6 +1099,27 @@ export const SurveyForm: React.FC<SurveyFormProps> = ({ initialData, onSuccess, 
           <Alert variant="warning" className="mb-4 text-xs">
             수동 모드입니다. 자동 매핑 규칙이 적용되지 않으며, 담당자를 직접 선택할 수 있습니다.
           </Alert>
+        )}
+        {(initialData?.preliminary_survey_date || (initialData?.preliminary_surveyors?.length ?? 0) > 0) && (
+          <div className="mb-5 grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
+            <div>
+              <span className="block text-xs font-medium text-slate-500">예비조사일 (V2 자동)</span>
+              <div className="mt-1 font-semibold text-text-900">
+                {initialData?.preliminary_survey_date || "-"}
+              </div>
+            </div>
+            <div>
+              <span className="block text-xs font-medium text-slate-500">예비조사자 (V2 자동)</span>
+              <div
+                className="mt-1 truncate font-semibold text-text-900"
+                title={initialData?.preliminary_surveyors?.join(", ") || ""}
+              >
+                {initialData?.preliminary_surveyors?.length
+                  ? initialData.preliminary_surveyors.join(", ")
+                  : "-"}
+              </div>
+            </div>
+          </div>
         )}
         <div className="space-y-6">
           {/* 예비조사자 */}

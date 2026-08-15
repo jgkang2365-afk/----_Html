@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { loadV2PlansByTargetKeys } from "@/lib/preliminary-survey-v2/plans-lookup";
 
 /**
  * 직전 측정일지 데이터 조회 API
@@ -351,12 +352,24 @@ export async function GET(request: NextRequest) {
       measurement_date: latestSurvey.measurement_date || null,
     } : null;
 
+    // V2 plan 연동: code+year+period 기준 예비조사일/예비조사자 (단일 원천)
+    const v2Map = await loadV2PlansByTargetKeys(supabase, [{ code, year: measurementYear, period }]);
+    const v2Plan = v2Map.get(`${String(code)}|${Number(measurementYear)}|${String(period).trim()}`) ?? null;
+
     return NextResponse.json({
       previousData,
       nationalSupportStatus,
       summaryInfo,
       surveyInfo,
       surveys, // 해당 기간의 모든 예비조사 목록
+      v2Plan: v2Plan
+        ? {
+            recommended_date: v2Plan.recommended_date,
+            participant_names: v2Plan.participant_names,
+            responsible_user_name: v2Plan.responsible_user_name,
+            status: v2Plan.status,
+          }
+        : null,
       referenceData, // 프론트엔드에서 자동 완성에 사용됨
       source: previousJournal ? {
         year: previousJournal.measurement_year,
