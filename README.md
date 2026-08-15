@@ -1,63 +1,56 @@
 # 측정일지 관리 시스템
 
-측정사업장 정보를 자동으로 동기화하고 측정일지를 생성·관리하는 웹 플랫폼
+작업환경측정 업무의 사업장, 예비조사, 측정일지, 측정대상, 문서 생성, 매출 및 관련 업무를 관리하는 웹 시스템입니다.
 
 ## 기술 스택
 
-- Next.js 14+ (App Router)
+- Next.js 14
 - TypeScript
 - Tailwind CSS
-- ESLint, Prettier
+- Supabase
+- Vercel
+- Windows 로컬 자동화 워커
 
-## 시작하기
+## 개발 환경
 
-### 의존성 설치
+의존성 설치:
 
-```bash
-npm install
-```
+    npm install
 
-### 개발 서버 실행
+로컬 개발 서버:
 
-```bash
-npm run dev
-```
+    npm run dev:turbo
 
-브라우저에서 [http://localhost:3000](http://localhost:3000)을 열어 확인하세요.
+프로덕션 빌드 확인:
 
-## 프로젝트 구조
+    npm run build
 
-```
-/app
-  /api          # API Routes
-  /dashboard    # 대시보드 페이지
-  /survey       # 예비조사 페이지
-  /journal      # 측정일지 페이지
-  /summary      # 측정정보 요약 페이지
-  /sales        # 매출관리 페이지
-/components     # 재사용 가능한 컴포넌트
-/lib            # 유틸리티 함수
-/types          # TypeScript 타입 정의
-/hooks          # 커스텀 훅
-/styles         # 전역 스타일
-```
+## 주요 디렉터리
 
-## 빌드
+    app/            Next.js 화면 및 API
+    components/     UI 및 업무 기능 컴포넌트
+    lib/            공통 로직, DB, 자동화 및 유틸리티
+    scripts/        반복 사용되는 관리/운영 스크립트
+    types/          TypeScript 타입
+    docs/history/   과거 장애 및 해결 기록
 
-```bash
-npm run build
-```
+## 프로젝트 문서
 
-## 배포
+- `AGENTS.md` — AI 에이전트 작업 및 안전 원칙
+- `project_rules.md` — 프로젝트 공통 기술·운영 정책
+- `BUSINESS_LOGIC.md` — 업무 및 데이터 처리 규칙
+- `docs/history/SUCCESS_DNA.md` — 과거 장애·원인·재발방지 기록
 
-Vercel을 사용하여 배포할 수 있습니다.
+## 운영 구조
 
+웹 애플리케이션과 Windows 로컬 자동화는 역할을 분리합니다.
 
-## 버전 관리 및 변경 이력
+- 웹/API 및 사용자 화면: Next.js / Vercel / Supabase
+- 로컬 프로그램이 필요한 업무: Windows 워커 및 데몬
+- MES, K2B, 문서 생성 등 외부 프로그램 의존 작업은 로컬 자동화 계층에서 처리합니다.
 
-### v0.2.2 (2026-06-12)
-- **날짜 선택 도구 복구 및 YY-MM-DD 단축 표기**: 전자계산서 발행일(및 발행일2) 필드에 숨겨진 네이티브 캘린더 연동 기능을 복구하고, 좁은 너비에서 텍스트가 잘리지 않도록 `26-06-12` (YY-MM-DD) 단축 형식으로 표출하게 개선하였습니다. 저장 시에는 `2026-06-12` (YYYY-MM-DD) 형식으로 자동 변환 처리합니다.
+## 보안
 
-### v0.2.1 (2026-06-12)
-- **이메일 주소 가독성 개선**: 담당자 이메일, 계산서 메일(1), 계산서 메일(2) 입력 필드 및 전회 이메일 정보 텍스트 영역에 모노스페이스 고정폭 폰트(`email-mono-font`)를 적용하여 영문 `J`, `i`, `l`, `1` 등 모호한 문자들의 가독성과 식별성을 향상시켰습니다.
-
+- `.env.local` 및 인증정보를 Git에 커밋하지 않습니다.
+- secret/service-role 키를 코드나 문서에 직접 기록하지 않습니다.
+- 운영 DB 변경은 대상과 영향을 확인한 뒤 수행합니다.
