@@ -29,6 +29,8 @@ interface JournalEntry {
   measurement_days: number | null;
   measurer: string | null;
   business_category?: string | null;
+  target_business_type?: "existing" | "first_measurement" | "external_new" | null;
+  target_process_changed?: boolean | null;
   invoice_email_2?: string;
   electronic_invoice_date_2?: string;
   deposit_date_business_2?: string;
@@ -84,6 +86,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const isLockedByCompletion = (entry.id && !isAdmin) ? entry.completion_status === "완료" : false;
   // 기존의 isCompleted 변수 (일부 버튼 비활성화 등에 사용됨)
   const isCompleted = isLockedByCompletion;
+
+  const targetBusinessTypeLabel = entry.target_business_type === "existing"
+    ? "기존업체"
+    : entry.target_business_type === "first_measurement"
+      ? "최초실시"
+      : entry.target_business_type === "external_new"
+        ? "타기관 신규"
+        : "미정";
 
 
 
@@ -1365,6 +1375,17 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             ...businessCategories,
           ]}
         />
+        {(entry.target_business_type !== undefined || entry.target_process_changed !== undefined) && (
+          <div className="md:col-span-2 lg:col-span-3 rounded-lg border border-blue-100 bg-blue-50/50 px-4 py-3 text-sm text-slate-700">
+            <p className="font-semibold text-blue-900">측정대상사업장 기준 분류</p>
+            <p className="mt-1">
+              기본유형: <span className="font-medium">{targetBusinessTypeLabel}</span>
+              {entry.target_process_changed === true && <span className="ml-3 font-medium text-amber-700">공정변경</span>}
+              {entry.target_process_changed === null && <span className="ml-3 text-slate-500">공정변경 미정</span>}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">측정일지 비고는 호환용이며, 이 값은 연결된 측정대상사업장 정보를 우선 표시합니다.</p>
+          </div>
+        )}
         <div className="md:col-span-2 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
             label="전화번호"

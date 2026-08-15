@@ -200,11 +200,11 @@ export async function GET(request: Request) {
         business_category: baseBusinessData?.business_category || prioritizedDefaults.business_category || (businessInfo as any)?.business_category || "",
       };
 
-      // 4. measurement_target_business 조회 (비고 데이터 활용)
+      // 4. measurement_target_business 조회 (업종/분류의 권위 원천 및 비고 표시)
       if (year && period) {
         const { data: targetData, error: targetError } = await supabase
           .from("measurement_target_business")
-          .select("notes, business_category")
+          .select("notes, business_category, business_type, process_changed")
           .eq("code", code)
           .eq("year", parseInt(year))
           .eq("period", period)
@@ -212,6 +212,8 @@ export async function GET(request: Request) {
 
         if (!targetError && targetData) {
           if (targetData.notes) (business as any).special_notes = targetData.notes;
+          (business as any).target_business_type = targetData.business_type ?? null;
+          (business as any).target_process_changed = targetData.process_changed ?? null;
           if (targetData.business_category) {
             (business as any).business_category = targetData.business_category;
             console.log(`[API /api/journal/businesses] Found category from target_business: ${targetData.business_category}`);
