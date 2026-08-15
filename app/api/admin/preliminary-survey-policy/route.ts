@@ -7,6 +7,12 @@ import { createClient } from "@/lib/supabase/server";
 const POLICY_KEY = "process_changed_preliminary_survey";
 const PERIODS = new Set(["상반기", "하반기"]);
 
+function isValidIsoDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 export async function GET() {
   try {
     await checkPermission("system:settings");
@@ -39,7 +45,7 @@ export async function PATCH(request: NextRequest) {
     const year = body.effective_start_year ?? null;
     const period = body.effective_start_period ?? null;
     const date = body.effective_start_measurement_date ?? null;
-    const validDate = date === null || /^\d{4}-\d{2}-\d{2}$/.test(String(date));
+    const validDate = date === null || isValidIsoDate(date);
     if (
       (year !== null && (!Number.isInteger(year) || year < 2000 || year > 2100)) ||
       (period !== null && !PERIODS.has(period)) ||
