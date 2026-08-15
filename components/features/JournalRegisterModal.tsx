@@ -37,6 +37,8 @@ interface JournalRegisterModalProps {
         invoice_email?: string;
         special_notes?: string;
         business_category?: string;
+        target_business_type?: "existing" | "first_measurement" | "external_new" | null;
+        target_process_changed?: boolean | null;
     }) => void;
 }
 
@@ -134,6 +136,8 @@ export const JournalRegisterModal: React.FC<JournalRegisterModalProps> = ({
                     invoice_email: business.invoice_email || "",
                     special_notes: business.special_notes || "",
                     business_category: business.business_category || "",
+                    target_business_type: business.target_business_type ?? null,
+                    target_process_changed: business.target_process_changed ?? null,
                 });
                 onClose();
             }

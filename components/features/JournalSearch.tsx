@@ -52,6 +52,8 @@ interface JournalEntry {
   invoice_email?: string | null;
   special_notes?: string | null;
   business_category?: string | null;
+  target_business_type?: "existing" | "first_measurement" | "external_new" | null;
+  target_process_changed?: boolean | null;
   created_at: string;
   updated_at: string;
   _isFromBusiness?: boolean; // measurement_business에서 온 데이터인지 표시

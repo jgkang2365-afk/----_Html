@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { ensureBusinessCoordinate } from "@/lib/business-coordinates/service";
+import {
+    getInitialProcessChanged,
+    isNullableBusinessType,
+    isNullableProcessChanged,
+} from "@/lib/business/target-classification";
 
 export async function POST(request: NextRequest) {
     try {
@@ -33,6 +38,20 @@ export async function POST(request: NextRequest) {
 
         // 사업장명 기본값
         const finalBusinessName = business_name || "미지정 사업장";
+        if (!isNullableBusinessType(otherFields.business_type ?? null)) {
+            return NextResponse.json({ error: "business_type 값이 올바르지 않습니다." }, { status: 400 });
+        }
+        if (
+            Object.prototype.hasOwnProperty.call(otherFields, "process_changed") &&
+            !isNullableProcessChanged(otherFields.process_changed)
+        ) {
+            return NextResponse.json({ error: "process_changed 값은 boolean 또는 null이어야 합니다." }, { status: 400 });
+        }
+        const initialProcessChanged = getInitialProcessChanged(
+            otherFields.process_changed,
+            Object.prototype.hasOwnProperty.call(otherFields, "process_changed"),
+            otherFields.business_category,
+        );
 
         // 데이터 삽입
         const { data: insertedData, error } = await supabase
@@ -48,6 +67,8 @@ export async function POST(request: NextRequest) {
                 manager_mobile: otherFields.manager_mobile || null,
                 notes: otherFields.notes || null,
                 business_category: otherFields.business_category || null,
+                business_type: otherFields.business_type ?? null,
+                process_changed: initialProcessChanged,
                 future_measurement_date: otherFields.future_measurement_date || null,
                 measurement_date: otherFields.measurement_date || null,
                 // 필수 필드 (NOT NULL) 값 설정

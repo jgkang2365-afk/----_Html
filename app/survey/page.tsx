@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { SurveyForm } from "@/components/features/SurveyForm";
 import { BulkRegisterModal } from "@/components/features/BulkRegisterModal";
+import { PreliminarySurveyV2Plans } from "@/components/features/PreliminarySurveyV2Plans";
+import { UserScheduleBlockManagement } from "@/components/features/UserScheduleBlockManagement";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -66,13 +68,13 @@ export default function SurveyPage() {
   const [editingSurvey, setEditingSurvey] = useState<Survey | null>(null);
   const [selectedBusinessForForm, setSelectedBusinessForForm] = useState<BusinessInfo | null>(null); // 선택된 사업장 정보
   // 탭 상태
-  const [activeTab, setActiveTab] = useState<"search" | "list">("list");
+  const [activeTab, setActiveTab] = useState<"search" | "list" | "plans" | "schedule-blocks">("list");
 
   // 초기 로드 시 localStorage에서 탭 상태 복원 (Client-side only)
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedTab = localStorage.getItem("surveyActiveTab");
-      if (savedTab === "search" || savedTab === "list") {
+      if (savedTab === "search" || savedTab === "list" || savedTab === "plans" || savedTab === "schedule-blocks") {
         setActiveTab(savedTab);
       }
     }
@@ -390,8 +392,31 @@ export default function SurveyPage() {
           >
             사업장 검색
           </button>
+          <button
+            onClick={() => setActiveTab("plans")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === "plans"
+                ? "border-b-2 border-primary-500 text-primary-500"
+                : "text-text-700 hover:text-text-900"
+            }`}
+          >
+            예비조사 계획
+          </button>
+          <button
+            onClick={() => setActiveTab("schedule-blocks")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === "schedule-blocks"
+                ? "border-b-2 border-primary-500 text-primary-500"
+                : "text-text-700 hover:text-text-900"
+            }`}
+          >
+            직원 예비조사 제외 일정
+          </button>
         </div>
       </div>
+
+      {activeTab === "plans" && <PreliminarySurveyV2Plans />}
+      {activeTab === "schedule-blocks" && <UserScheduleBlockManagement />}
 
       {/* 검색 폼 (사업장 검색 탭에서만 표시) */}
       {activeTab === "search" && (

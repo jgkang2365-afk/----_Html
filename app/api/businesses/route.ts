@@ -30,6 +30,13 @@ import {
   isValidOptionalManagerEmail,
   normalizeOptionalManagerEmail,
 } from "@/lib/business/manager-email";
+import { reconcileV2AfterTargetChange } from "@/lib/preliminary-survey-v2/service";
+import {
+  getInitialProcessChanged,
+  isNullableBusinessType,
+  isNullableProcessChanged,
+  resolveTargetBusinessCategory,
+} from "@/lib/business/target-classification";
 
 export async function GET(request: NextRequest) {
   try {
@@ -198,6 +205,18 @@ export async function GET(request: NextRequest) {
 
     const surveyRegisteredCodes = new Set(surveys?.map((s: any) => s.code));
 
+    const targetIds = businesses.map((business: any) => Number(business.id));
+    const { data: preliminarySurveyV2Plans, error: v2PlanError } = targetIds.length
+      ? await supabase.from("preliminary_survey_v2_plans").select("*")
+          .in("measurement_target_business_id", targetIds)
+      : { data: [], error: null };
+    if (v2PlanError) {
+      console.error("V2 예비조사 계획 조회 오류:", v2PlanError);
+    }
+    const preliminarySurveyV2PlanMap = new Map(
+      (preliminarySurveyV2Plans || []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]),
+    );
+
     // 향후 측정주기 및 최신 사업장 정보 (measurement_business 테이블에서 최신값 조회)
     // 1순위: measurement_business
     const { data: latestBusinessData } = await supabase
@@ -308,12 +327,12 @@ export async function GET(request: NextRequest) {
       // 향후 측정주기 로직: 최신값 우선, 없으면 현재 값
       const futurePeriod = bInfo?.future_measurement_period || item.future_measurement_period;
 
-      // [New Sync Priority Logic - Refined]
-      // 1. 업종분류 & 국고지원: 측정대상(Target) 테이블이 권위 있는 소스이나, 기입된 정보가 없거나 기본값("공업사")인 경우 최신 정보로 보완
-      let businessCategory = item.business_category;
-      if (!businessCategory || businessCategory === "공업사" || businessCategory === "선택") {
-        businessCategory = bInfo?.business_category || jInfo?.business_category || item.business_category;
-      }
+      // 업종은 측정대상(Target)이 권위 원천이다. 미입력 값일 때만 호환 데이터로 보완한다.
+      const businessCategory = resolveTargetBusinessCategory(
+        item.business_category,
+        bInfo?.business_category,
+        jInfo?.business_category,
+      );
 
       let nationalSupportStatus = item.national_support_status;
       if (!nationalSupportStatus) {
@@ -370,6 +389,7 @@ export async function GET(request: NextRequest) {
         geocoded_at: basicInfo?.geocoded_at ?? item.geocoded_at ?? null,
         geocode_provider: basicInfo?.geocode_provider ?? item.geocode_provider ?? null,
         coordinate_locked: basicInfo?.coordinate_locked ?? item.coordinate_locked ?? false,
+        preliminary_survey_v2_plan: preliminarySurveyV2PlanMap.get(Number(item.id)) || null,
       };
     });
 
@@ -405,9 +425,22 @@ export async function PATCH(request: NextRequest) {
     let businessNameForNote = "";
     let existingAddress: string | null = null;
     let coordinateLocked = false;
+    let existingMeasurerId: number | null = null;
+    let existingBusinessType: string | null = null;
+    let existingProcessChanged: boolean | null = null;
+    let existingPeriod: string | null = null;
+    let existingYear: number | null = null;
 
-    if (updates.hasOwnProperty('measurement_date') || updates.hasOwnProperty('address')) {
-      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name, address, coordinate_locked");
+    if (
+      updates.hasOwnProperty('measurement_date') ||
+      updates.hasOwnProperty('address') ||
+      updates.hasOwnProperty('measurer_id') ||
+      updates.hasOwnProperty('business_type') ||
+      updates.hasOwnProperty('process_changed') ||
+      updates.hasOwnProperty('period') ||
+      updates.hasOwnProperty('year')
+    ) {
+      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name, address, coordinate_locked, measurer_id, business_type, process_changed, period, year");
       if (id) {
         bQuery = bQuery.eq("id", id);
       } else if (code && year && period) {
@@ -419,6 +452,11 @@ export async function PATCH(request: NextRequest) {
         businessNameForNote = oldData.business_name;
         existingAddress = oldData.address;
         coordinateLocked = !!oldData.coordinate_locked;
+        existingMeasurerId = oldData.measurer_id;
+        existingBusinessType = oldData.business_type ?? null;
+        existingProcessChanged = oldData.process_changed ?? null;
+        existingPeriod = oldData.period ?? null;
+        existingYear = oldData.year ?? null;
       }
     }
 
@@ -431,7 +469,8 @@ export async function PATCH(request: NextRequest) {
       "measurer_id", "period", "collaborators", "daily_staff", "representative_name",
       "industrial_accident_number", "commencement_number",
       "latitude", "longitude", "geocoded_address", "geocoding_status",
-      "coordinate_locked", "geocoding_method"
+      "coordinate_locked", "geocoding_method",
+      "business_type", "process_changed"
     ]);
     const updatePayload: any = Object.fromEntries(
       Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
@@ -447,6 +486,25 @@ export async function PATCH(request: NextRequest) {
       }
       updatePayload.manager_email = normalizeOptionalManagerEmail(
         updatePayload.manager_email,
+      );
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(updatePayload, "business_type") &&
+      !isNullableBusinessType(updatePayload.business_type)
+    ) {
+      return NextResponse.json(
+        { error: "business_type 값이 올바르지 않습니다." },
+        { status: 400 },
+      );
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(updatePayload, "process_changed") &&
+      !isNullableProcessChanged(updatePayload.process_changed)
+    ) {
+      return NextResponse.json(
+        { error: "process_changed 값은 boolean 또는 null이어야 합니다." },
+        { status: 400 },
       );
     }
 
@@ -805,7 +863,43 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, data: updatedData, geocodeStatus: geocodeResult?.geocoding_status || null });
+    let preliminarySurveyV2Notice = null;
+    const responsibleChanged = Object.prototype.hasOwnProperty.call(updates, "measurer_id") &&
+      Number(existingMeasurerId) !== Number(updatedData.measurer_id);
+    const measurementDateChanged = Object.prototype.hasOwnProperty.call(updates, "measurement_date") &&
+      existingDate !== updatedData.measurement_date;
+    const businessTypeChanged = Object.prototype.hasOwnProperty.call(updates, "business_type") &&
+      String(existingBusinessType ?? "") !== String(updatedData.business_type ?? "");
+    const processChangedChanged = Object.prototype.hasOwnProperty.call(updates, "process_changed") &&
+      String(existingProcessChanged ?? "") !== String(updatedData.process_changed ?? "");
+    const periodChanged = Object.prototype.hasOwnProperty.call(updates, "period") &&
+      String(existingPeriod ?? "") !== String(updatedData.period ?? "");
+    const yearChanged = Object.prototype.hasOwnProperty.call(updates, "year") &&
+      Number(existingYear) !== Number(updatedData.year);
+    if (
+      responsibleChanged || measurementDateChanged || businessTypeChanged ||
+      processChangedChanged || periodChanged || yearChanged
+    ) {
+      preliminarySurveyV2Notice = await reconcileV2AfterTargetChange(
+        supabase,
+        Number(updatedData.id),
+        {
+          responsibleChanged,
+          measurementDateChanged,
+          businessTypeChanged,
+          processChangedChanged,
+          periodChanged,
+          yearChanged,
+        },
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: updatedData,
+      geocodeStatus: geocodeResult?.geocoding_status || null,
+      preliminarySurveyV2Notice,
+    });
 
   } catch (error: any) {
     console.error("PATCH API Critical Error:", error);
@@ -841,6 +935,8 @@ export async function POST(request: NextRequest) {
       manager_email,
       total_employees,
       office_jurisdiction,
+      business_type,
+      process_changed,
     } = body;
 
     // Validation
@@ -850,7 +946,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
     if (!isValidOptionalManagerEmail(manager_email)) {
       return NextResponse.json(
         { error: "담당자 메일 형식을 확인해 주세요." },
@@ -896,6 +991,26 @@ export async function POST(request: NextRequest) {
       manager_name,
       manager_mobile,
     });
+    if (!isNullableBusinessType(business_type ?? null)) {
+      return NextResponse.json(
+        { error: "business_type 값이 올바르지 않습니다." },
+        { status: 400 },
+      );
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(body, "process_changed") &&
+      !isNullableProcessChanged(process_changed)
+    ) {
+      return NextResponse.json(
+        { error: "process_changed 값은 boolean 또는 null이어야 합니다." },
+        { status: 400 },
+      );
+    }
+    const initialProcessChanged = getInitialProcessChanged(
+      process_changed,
+      Object.prototype.hasOwnProperty.call(body, "process_changed"),
+      business_category,
+    );
 
     // 2. Insert into measurement_target_business
     const { data: newTarget, error: insertError } = await supabase
@@ -909,6 +1024,8 @@ export async function POST(request: NextRequest) {
         address: address || null,
         office_jurisdiction: office_jurisdiction || calculatedOfficeJurisdiction,
         business_category: business_category || null,
+        business_type: business_type ?? null,
+        process_changed: initialProcessChanged,
         phone: phone || null,
         fax: fax || null,
         invoice_email: invoice_email || null,
