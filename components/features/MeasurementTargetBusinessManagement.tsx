@@ -22,6 +22,7 @@ import {
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
+import { suggestLinkMeasurerCandidates, singleDateLinkMeasurerCandidates } from "@/lib/business/link-measurer";
 import {
     MEASUREMENT_MAP_CHANNEL,
     MEASUREMENT_MAP_VIEWER_NAME,
@@ -87,7 +88,8 @@ interface BusinessEntry {
     notes: string | null;
     updated_at?: string;
     measurement_month?: string | null;
-    measurer_id?: number | null; // 측정자 ID
+    measurer_id?: number | null; // 보고서 담당자 ID (보고서 작성/관리 책임, 실제 측정·예비조사와 별개)
+    link_measurer_id?: number | null; // 연계측정자 ID (예비조사자이면서 전체 측정기간 중 최소 하루 실제 측정에 참여)
     collaborators?: string | null; // 협력자 목록 (쉼표 구분)
     representative_name?: string | null; // 대표자명
     industrial_accident_number?: string | null; // 산재관리번호
@@ -1286,38 +1288,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const handleEditClick = (item: BusinessEntry) => {
         setEditingItem(item);
-        
-        // 1일 측정인 경우 보고서 담당자를 측정자에 강제 포함 (데이터 정합성 유지)
-        let initialForm = { 
+
+        // 보고서 담당자(measurer_id)는 측정자와 별개 역할이므로 측정자(collaborators)에 강제 포함하지 않는다.
+        const initialForm = {
             ...item,
             sanjae: item.industrial_accident_number || item.sanjae || "",
             commencement: item.commencement_number || item.commencement || ""
         };
-        const totalDays = item.daily_staff?.length || 1;
-        
-        if (totalDays === 1 && item.measurer_id) {
-            const measurerName = measurers.find(m => m.id === item.measurer_id)?.name;
-            if (measurerName) {
-                if (!item.daily_staff || item.daily_staff.length === 0) {
-                    // 단일 일자 모드
-                    const collabs = item.collaborators ? item.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
-                    if (!collabs.includes(measurerName)) {
-                        collabs.push(measurerName);
-                        initialForm.collaborators = collabs.join(",");
-                    }
-                } else {
-                    // 다중 일자 UI지만 1일인 경우
-                    const entry = item.daily_staff[0];
-                    let collabs = entry.collaborators || [];
-                    if (!collabs.includes(measurerName)) {
-                        const newDailyStaff = [...item.daily_staff];
-                        newDailyStaff[0] = { ...entry, collaborators: [...collabs, measurerName] };
-                        initialForm.daily_staff = newDailyStaff;
-                    }
-                }
-            }
-        }
-        
+
         setEditForm(initialForm);
         setIsEditModalOpen(true);
     };
@@ -1446,7 +1424,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     'office_jurisdiction', 'is_registered', 'plan_manager',
                     'manager_name', 'manager_mobile', 'manager_email',
                     'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
-                    'future_measurement_date', 'measurer_id', 'period', 'collaborators', 'daily_staff',
+                    'future_measurement_date', 'measurer_id', 'link_measurer_id', 'period', 'collaborators', 'daily_staff',
                     'representative_name', 'industrial_accident_number', 'commencement_number',
                     'business_type', 'process_changed'
                 ];
@@ -1567,18 +1545,29 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
     };
 
-    const handleManualV2PlanChange = async (recommendedDate: string, participantUserIds: number[]) => {
+    const handleManualV2PlanChange = async (recommendedDate: string, participantUserIds: number[], confirmed = false) => {
         if (!editingItem) return;
         const response = await fetch(`/api/preliminary-survey-v2/${editingItem.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ recommendedDate, participantUserIds }),
+            body: JSON.stringify({ recommendedDate, participantUserIds, confirm: confirmed }),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "예비조사 계획 수정에 실패했습니다.");
+
+        // 경력자 2명 이상 조합: 사용자 확인 전에는 저장되지 않으므로, 확인 후 재요청한다.
+        if (result.requiresUserConfirmation) {
+            const ok = window.confirm(
+                result.message || "경력자 2명이 예비조사자로 지정되었습니다. 이 조합으로 확정하시겠습니까?",
+            );
+            if (!ok) return { cancelled: true };
+            return handleManualV2PlanChange(recommendedDate, participantUserIds, true);
+        }
+
         setEditForm(previous => ({ ...previous, preliminary_survey_v2_plan: result.plan }));
         setData(previous => previous.map(item => String(item.id) === String(editingItem.id)
             ? { ...item, preliminary_survey_v2_plan: result.plan } : item));
+        return { cancelled: false };
     };
 
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
@@ -1696,12 +1685,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
         if (isPrevAfter !== isNewAfter) {
             let nextMeasurerId = form.measurer_id;
+            let nextLinkMeasurerId = form.link_measurer_id;
             let nextCollaborators = form.collaborators ? form.collaborators.split(",").map(c => c.trim()).filter(Boolean) : [];
 
             if (isNewAfter) {
                 // 배윤민(id: 14) -> 김민영(id: 20)
                 if (nextMeasurerId === 14) {
                     nextMeasurerId = 20;
+                }
+                if (nextLinkMeasurerId === 14) {
+                    nextLinkMeasurerId = 20;
                 }
                 if (nextCollaborators.includes("배윤민")) {
                     nextCollaborators = nextCollaborators.filter(c => c !== "배윤민");
@@ -1712,6 +1705,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 if (nextMeasurerId === 20) {
                     nextMeasurerId = 14;
                 }
+                if (nextLinkMeasurerId === 20) {
+                    nextLinkMeasurerId = 14;
+                }
                 if (nextCollaborators.includes("김민영")) {
                     nextCollaborators = nextCollaborators.filter(c => c !== "김민영");
                     if (!nextCollaborators.includes("배윤민")) nextCollaborators.push("배윤민");
@@ -1719,6 +1715,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             }
 
             form.measurer_id = nextMeasurerId;
+            form.link_measurer_id = nextLinkMeasurerId;
             form.collaborators = nextCollaborators.length > 0 ? nextCollaborators.join(",") : null;
         }
     };
@@ -2234,7 +2231,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     <button
                                         type="button"
                                         className="mt-1 rounded bg-blue-50 px-2 py-0.5 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                                        disabled={recommendingTargetIds.has(Number(item.id)) || !item.measurement_date || !item.measurer_id}
+                                        disabled={recommendingTargetIds.has(Number(item.id)) || !item.measurement_date || !item.link_measurer_id}
                                         onClick={() => handlePreliminarySurveyRecommendation([Number(item.id)])}
                                     >
                                         {recommendingTargetIds.has(Number(item.id)) ? "계산 중" : "예비조사 추천"}
@@ -2604,22 +2601,72 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                         value={editForm.measurer_id?.toString() || ""}
                                                         onChange={(e) => {
                                                             const newId = e.target.value ? parseInt(e.target.value) : null;
-                                                            const newName = currentMeasurers.find(m => m.id === newId)?.name;
-                                                            setEditForm(prev => {
-                                                                const collaborators = prev.collaborators ? prev.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
-                                                                let newCollabs = [...collaborators];
-                                                                if (newName && !newCollabs.includes(newName)) {
-                                                                    newCollabs.push(newName);
-                                                                }
-                                                                return { ...prev, measurer_id: newId, collaborators: newCollabs.join(",") };
-                                                            });
+                                                            setEditForm(prev => ({ ...prev, measurer_id: newId }));
+                                                        }}
+                                                        />
+                                                    );
+                                                })()}
+                                            </div>
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1 text-slate-700">연계측정자</label>
+                                            {(() => {
+                                                const targetDate = editForm.measurement_date || editForm.future_measurement_date;
+                                                const isAfter = !targetDate || targetDate >= "2026-06-09";
+                                                const currentMeasurers = measurers.filter(u => 
+                                                    isAfter ? u.name !== "배윤민" : u.name !== "김민영"
+                                                );
+                                                // 연계측정자 후보는 실제 측정 인원(collaborators)에 포함된 사람으로만 제한한다.
+                                                const staffNames = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
+                                                const linkCandidates = singleDateLinkMeasurerCandidates(staffNames, currentMeasurers);
+                                                if (staffNames.length === 0) {
+                                                    return (
+                                                        <p className="text-xs text-slate-500">
+                                                            먼저 실제 측정 인원(조력자)을 선택한 뒤 연계측정자를 지정하세요.
+                                                        </p>
+                                                    );
+                                                }
+                                                return (
+                                                    <Select
+                                                        options={[
+                                                            { value: "", label: "선택" },
+                                                            ...linkCandidates.map(m => ({ value: m.id.toString(), label: m.name }))
+                                                        ]}
+                                                        value={editForm.link_measurer_id?.toString() || ""}
+                                                        onChange={(e) => {
+                                                            const newId = e.target.value ? parseInt(e.target.value) : null;
+                                                            // 연계측정자 선택은 collaborators(실제 측정 인원)를 자동 변경하지 않는다.
+                                                            setEditForm(prev => ({ ...prev, link_measurer_id: newId }));
                                                         }}
                                                     />
                                                 );
                                             })()}
+                                            {(() => {
+                                                if (editForm.link_measurer_id != null) return null;
+                                                const res = suggestLinkMeasurerCandidates({
+                                                    measurerName: measurers.find((m) => m.id === editForm.measurer_id)?.name || null,
+                                                    collaborators: editForm.collaborators,
+                                                    dailyStaff: editForm.daily_staff,
+                                                    v2ParticipantNames: editForm.preliminary_survey_v2_plan?.participant_names || [],
+                                                });
+                                                if (res.candidates.length === 0) return null;
+                                                const suggested = measurers.find((m) => m.name === res.candidates[0]);
+                                                if (!suggested) return null;
+                                                return (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            // 후보는 이미 실제 측정 인원에 존재하므로 collaborators를 수정하지 않고 연계측정자만 지정한다.
+                                                            setEditForm(prev => ({ ...prev, link_measurer_id: suggested.id }));
+                                                        }}
+                                                        className="mt-1 text-xs text-amber-700 underline"
+                                                    >
+                                                        후보: {res.candidates.join(", ")} — 선택
+                                                    </button>
+                                                );
+                                            })()}
                                         </div>
                                         <div className="col-span-2">
-                                            <label className="block text-sm font-medium mb-2 text-slate-700">측정자 (복수 선택)</label>
+                                            <label className="block text-sm font-medium mb-2 text-slate-700">조력자 (복수 선택) — 연계측정자는 측정 인원에 항상 포함됩니다</label>
                                             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 p-3 bg-white border border-slate-200 rounded-md">
                                                 {(() => {
                                                     const targetDate = editForm.measurement_date || editForm.future_measurement_date;
@@ -2630,15 +2677,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                     return currentMeasurers.map(m => {
                                                         const collaborators = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()) : [];
                                                         const isChecked = collaborators.includes(m.name);
-                                                        const isReportWriter = m.id === editForm.measurer_id;
+                                                        const isLink = m.id === editForm.link_measurer_id;
                                                         return (
-                                                            <label key={m.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 ${isReportWriter ? "bg-blue-50/50" : ""}`}>
+                                                            <label key={m.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 ${isLink ? "bg-blue-50/50" : ""}`}>
                                                                 <input
                                                                     type="checkbox"
-                                                                    checked={isChecked || isReportWriter}
-                                                                    disabled={isReportWriter}
+                                                                    checked={isChecked || isLink}
+                                                                    disabled={isLink}
                                                                     onChange={(e) => {
-                                                                        if (isReportWriter) return;
+                                                                        if (isLink) return;
                                                                         const checked = e.target.checked;
                                                                         let newCollabs = [...collaborators];
                                                                         if (checked) {
@@ -2650,9 +2697,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                     }}
                                                                     className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-70 disabled:cursor-not-allowed"
                                                                 />
-                                                                <span className={`text-sm ${isReportWriter ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
+                                                                <span className={`text-sm ${isLink ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
                                                                     {m.name}
-                                                                    {isReportWriter && <span className="ml-1 text-[10px] bg-blue-100 px-1 rounded">담당</span>}
+                                                                    {isLink && <span className="ml-1 text-[10px] bg-blue-100 px-1 rounded">연계</span>}
                                                                 </span>
                                                             </label>
                                                         );
@@ -2664,6 +2711,29 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 ) : (
                                     /* 다중 일자 UI (동적 생성) */
                                     <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1 text-slate-700">연계측정자 (사업장 단위)</label>
+                                            {(() => {
+                                                const targetDate = editForm.measurement_date || editForm.future_measurement_date;
+                                                const isAfter = !targetDate || targetDate >= "2026-06-09";
+                                                const linkMeasurers = measurers.filter(u => isAfter ? u.name !== "배윤민" : u.name !== "김민영");
+                                                return (
+                                                    <Select
+                                                        options={[
+                                                            { value: "", label: "선택" },
+                                                            ...linkMeasurers.map(m => ({ value: m.id.toString(), label: m.name }))
+                                                        ]}
+                                                         value={editForm.link_measurer_id?.toString() || ""}
+                                                         onChange={(e) => {
+                                                             const newId = e.target.value ? parseInt(e.target.value) : null;
+                                                             // 연계측정자는 사업장 단위 단일값. 날짜별 인원(daily_staff)을 임의로 바꾸지 않는다.
+                                                             // 연계측정자는 전체 측정기간 중 최소 하루 참여해야 하며, 날짜 배정은 사용자가 직접 선택한다.
+                                                             setEditForm(prev => ({ ...prev, link_measurer_id: newId }));
+                                                         }}
+                                                     />
+                                                 );
+                                             })()}
+                                        </div>
                                         {(editForm.daily_staff as any[]).map((entry, idx) => {
                                             const dayMeasurers = (() => {
                                                 const targetDate = entry.date || editForm.future_measurement_date;
@@ -2711,19 +2781,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                 value={entry.measurer_id?.toString() || (idx === 0 ? editForm.measurer_id?.toString() : "")}
                                                                 onChange={(e) => {
                                                                     const newId = e.target.value ? parseInt(e.target.value) : null;
-                                                                    const newName = dayMeasurers.find(m => m.id === newId)?.name;
                                                                     const newList = [...(editForm.daily_staff as any[])];
                                                                     newList[idx].measurer_id = newId;
-
-                                                                    // 2일 이상 측정인 경우 보고서 담당자 선택 시 기본으로 측정자에도 체크 (수정 가능)
-                                                                    if (newName) {
-                                                                        let collabs = newList[idx].collaborators || [];
-                                                                        if (!collabs.includes(newName)) {
-                                                                            collabs.push(newName);
-                                                                            newList[idx].collaborators = [...collabs];
-                                                                        }
-                                                                    }
-
                                                                     setEditForm(prev => ({ ...prev, daily_staff: newList }));
                                                                 }}
                                                             />
@@ -2733,17 +2792,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                             <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
                                                                 {dayMeasurers.map(m => {
                                                                     const isChecked = entry.collaborators?.includes(m.name);
-                                                                    const isReportWriter = m.id === (entry.measurer_id || (idx === 0 ? editForm.measurer_id : null));
-                                                                    const isLocked = isReportWriter && (editForm.daily_staff as any[]).length === 1;
-
+                                                                    // 연계측정자를 특정 날짜에 강제 배치하지 않는다. 각 날짜 인원은 사용자가 직접 선택한다.
                                                                     return (
-                                                                        <label key={m.id} className={`flex items-center gap-1.5 cursor-pointer p-0.5 rounded ${isLocked ? "bg-blue-50/50" : ""}`}>
+                                                                        <label key={m.id} className={`flex items-center gap-1.5 cursor-pointer p-0.5 rounded hover:bg-slate-50`}>
                                                                             <input 
                                                                                 type="checkbox"
-                                                                                checked={isChecked || isLocked || false}
-                                                                                disabled={isLocked}
+                                                                                checked={isChecked || false}
                                                                                 onChange={(e) => {
-                                                                                    if (isLocked) return;
                                                                                     const newList = [...(editForm.daily_staff as any[])];
                                                                                     let collabs = newList[idx].collaborators || [];
                                                                                     if (e.target.checked) collabs.push(m.name);
@@ -2751,11 +2806,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                                     newList[idx].collaborators = Array.from(new Set(collabs));
                                                                                     setEditForm(prev => ({ ...prev, daily_staff: newList }));
                                                                                 }}
-                                                                                className="w-3.5 h-3.5 rounded disabled:opacity-70 disabled:cursor-not-allowed"
+                                                                                className="w-3.5 h-3.5 rounded"
                                                                             />
-                                                                            <span className={`text-xs ${isLocked ? "text-blue-700 font-semibold" : "text-slate-600"}`}>
+                                                                            <span className="text-xs text-slate-600">
                                                                                 {m.name}
-                                                                                {isLocked && <span className="ml-1 text-[9px] bg-blue-100 px-1 rounded">담당</span>}
                                                                             </span>
                                                                         </label>
                                                                     );
@@ -2802,7 +2856,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         {measurers.map(measurer => {
                                             const plan = editForm.preliminary_survey_v2_plan!;
                                             const checked = plan.participant_user_ids.includes(measurer.id);
-                                            const responsible = measurer.id === editForm.measurer_id;
+                                            const responsible = measurer.id === editForm.link_measurer_id;
                                             return (
                                                 <label key={measurer.id} className="flex items-center gap-1 text-xs">
                                                     <input
@@ -2821,7 +2875,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                             }));
                                                         }}
                                                     />
-                                                    {measurer.name}{responsible ? " (담당)" : ""}
+                                                    {measurer.name}{responsible ? " (연계)" : ""}
                                                 </label>
                                             );
                                         })}
@@ -2832,7 +2886,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <Button type="button" variant="secondary" onClick={async () => {
                                     const plan = editForm.preliminary_survey_v2_plan!;
                                     try {
-                                        await handleManualV2PlanChange(plan.recommended_date || "", plan.participant_user_ids);
+                                        const result = await handleManualV2PlanChange(plan.recommended_date || "", plan.participant_user_ids);
+                                        if (result?.cancelled) return;
                                         alert("예비조사 추천일과 조사자를 수정했습니다.");
                                     } catch (error) {
                                         alert(error instanceof Error ? error.message : "수동 수정에 실패했습니다.");

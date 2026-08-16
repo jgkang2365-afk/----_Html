@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic'; // Force dynamic rendering
 
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { getSession } from "@/lib/auth/session";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
 import { normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
@@ -426,21 +427,17 @@ export async function PATCH(request: NextRequest) {
     let existingAddress: string | null = null;
     let coordinateLocked = false;
     let existingMeasurerId: number | null = null;
+    let existingLinkMeasurerId: number | null = null;
+    let existingCollaborators: string | null = null;
+    let existingDailyStaff: any = null;
+    let existingTargetId: number | null = null;
     let existingBusinessType: string | null = null;
     let existingProcessChanged: boolean | null = null;
     let existingPeriod: string | null = null;
     let existingYear: number | null = null;
 
-    if (
-      updates.hasOwnProperty('measurement_date') ||
-      updates.hasOwnProperty('address') ||
-      updates.hasOwnProperty('measurer_id') ||
-      updates.hasOwnProperty('business_type') ||
-      updates.hasOwnProperty('process_changed') ||
-      updates.hasOwnProperty('period') ||
-      updates.hasOwnProperty('year')
-    ) {
-      let bQuery = supabase.from("measurement_target_business").select("measurement_date, business_name, address, coordinate_locked, measurer_id, business_type, process_changed, period, year");
+    if (id || (code && year && period)) {
+      let bQuery = supabase.from("measurement_target_business").select("id, measurement_date, business_name, address, coordinate_locked, measurer_id, link_measurer_id, collaborators, daily_staff, business_type, process_changed, period, year");
       if (id) {
         bQuery = bQuery.eq("id", id);
       } else if (code && year && period) {
@@ -453,10 +450,47 @@ export async function PATCH(request: NextRequest) {
         existingAddress = oldData.address;
         coordinateLocked = !!oldData.coordinate_locked;
         existingMeasurerId = oldData.measurer_id;
+        existingLinkMeasurerId = oldData.link_measurer_id;
+        existingCollaborators = oldData.collaborators;
+        existingDailyStaff = oldData.daily_staff;
+        existingTargetId = oldData.id;
         existingBusinessType = oldData.business_type ?? null;
         existingProcessChanged = oldData.process_changed ?? null;
         existingPeriod = oldData.period ?? null;
         existingYear = oldData.year ?? null;
+      }
+    }
+
+    // === [연번 부여 후 권한 가드] ===
+    // 측정일지 연번이 부여된(실적으로 확정된) 사업장은 예비조사 계획 핵심값의 실제 변경을 일반 사용자가 할 수 없다.
+    // 확정 여부는 별도 컬럼 없이 measurement_journal(연번 부여) 존재로 판별한다.
+    const session = await getSession();
+    const isAdmin = session?.role === "관리자";
+    const normEmpty = (value: any) => (value === "" || value == null ? null : value);
+    const planCriticalActuallyChanged =
+      (updates.hasOwnProperty('measurer_id') && Number(existingMeasurerId ?? null) !== Number(normEmpty(updates.measurer_id) ?? null)) ||
+      (updates.hasOwnProperty('link_measurer_id') && Number(existingLinkMeasurerId ?? null) !== Number(normEmpty(updates.link_measurer_id) ?? null)) ||
+      (updates.hasOwnProperty('measurement_date') && (existingDate ?? null) !== normEmpty(updates.measurement_date)) ||
+      (updates.hasOwnProperty('business_type') && String(existingBusinessType ?? "") !== String(normEmpty(updates.business_type) ?? "")) ||
+      (updates.hasOwnProperty('process_changed') && existingProcessChanged !== normEmpty(updates.process_changed)) ||
+      (updates.hasOwnProperty('period') && String(existingPeriod ?? "") !== String(normEmpty(updates.period) ?? "")) ||
+      (updates.hasOwnProperty('year') && Number(existingYear) !== Number(updates.year));
+    if (!isAdmin && planCriticalActuallyChanged && existingTargetId != null && code && year && period) {
+      const basePeriod = String(period).trim().replace("(수시)", "");
+      const { data: confirmedJournal } = await supabase
+        .from("measurement_journal")
+        .select("id")
+        .eq("code", code)
+        .eq("measurement_year", Number(year))
+        .like("measurement_period", `${basePeriod}%`)
+        .not("sequence_number", "is", null)
+        .limit(1)
+        .maybeSingle();
+      if (confirmedJournal) {
+        return NextResponse.json(
+          { error: "측정일지 연번이 부여되어 확정된 사업장입니다. 예비조사 계획 핵심값은 관리자만 수정할 수 있습니다." },
+          { status: 403 },
+        );
       }
     }
 
@@ -466,7 +500,7 @@ export async function PATCH(request: NextRequest) {
       "is_registered", "plan_manager", "manager_name",
       "manager_mobile", "manager_phone", "manager_email", "phone", "total_employees", "management_status", "notes", "measurement_date",
       "measurement_end_date", "future_measurement_period", "future_measurement_date",
-      "measurer_id", "period", "collaborators", "daily_staff", "representative_name",
+      "measurer_id", "link_measurer_id", "period", "collaborators", "daily_staff", "representative_name",
       "industrial_accident_number", "commencement_number",
       "latitude", "longitude", "geocoded_address", "geocoding_status",
       "coordinate_locked", "geocoding_method",
@@ -512,6 +546,92 @@ export async function PATCH(request: NextRequest) {
     if (updates.business_category && /^\d+$/.test(String(updates.business_category))) {
       console.warn(`[API] 수동 숫자 업종분류 차단됨: ${updates.business_category}`);
       delete updatePayload.business_category; // 잘못된 데이터는 무시하고 다른 필드만 저장
+    }
+
+    // === [연계측정자 무결성 검증] ===
+    // 측정 인원(단일 일자 collaborators + 다일 daily_staff)이 변경될 때
+    // 연계측정자 조건(실제 측정 참여)과 예비조사 연계(예비조사자 중 최소 1명은 측정 참여)를 확인한다.
+    const measurementStaffChanged =
+      updates.hasOwnProperty('link_measurer_id') ||
+      updates.hasOwnProperty('collaborators') ||
+      updates.hasOwnProperty('daily_staff') ||
+      updates.hasOwnProperty('measurer_id') ||
+      updates.hasOwnProperty('measurement_date');
+
+    if (measurementStaffChanged) {
+      const rawLink = updates.hasOwnProperty('link_measurer_id')
+        ? updates.link_measurer_id
+        : existingLinkMeasurerId;
+      const newLinkMeasurerId =
+        rawLink == null || rawLink === ""
+          ? null
+          : Number(rawLink);
+      const newCollaborators = updates.hasOwnProperty('collaborators')
+        ? (updates.collaborators ?? null)
+        : existingCollaborators;
+      const newDailyStaff = updates.hasOwnProperty('daily_staff')
+        ? updates.daily_staff
+        : existingDailyStaff;
+
+      const staffNames = new Set<string>();
+      const addNameList = (value: string | null | undefined) => {
+        if (!value) return;
+        String(value).split(",").map((s) => s.trim()).filter(Boolean).forEach((s) => staffNames.add(s));
+      };
+      addNameList(newCollaborators);
+      if (Array.isArray(newDailyStaff)) {
+        for (const entry of newDailyStaff) {
+          if (!entry) continue;
+          if (Array.isArray(entry.collaborators)) {
+            entry.collaborators.map(String).map((s: string) => s.trim()).filter(Boolean)
+              .forEach((s: string) => staffNames.add(s));
+          } else {
+            addNameList(entry.collaborators);
+          }
+        }
+      }
+
+      // 1. 연계측정자는 실제 측정 인원에 반드시 포함되어야 한다.
+      if (newLinkMeasurerId != null) {
+        const { data: linkUser } = await supabase
+          .from("users").select("name").eq("id", newLinkMeasurerId).maybeSingle();
+        const linkName = linkUser?.name || null;
+        if (linkName && !staffNames.has(linkName)) {
+          return NextResponse.json(
+            { error: "연계측정자는 실제 측정 인원에 반드시 포함되어야 합니다. 측정 인원을 조정한 뒤 다시 저장해 주세요." },
+            { status: 400 },
+          );
+        }
+      }
+
+      // 2. 기존 V2 plan 예비조사자 전원이 측정 인원에서 빠지면 저장을 차단한다.
+      let targetIdForPlan: number | null = existingTargetId || (id ? Number(id) : null);
+      if (targetIdForPlan == null && code && year && period) {
+        const { data: planTarget } = await supabase
+          .from("measurement_target_business")
+          .select("id")
+          .eq("code", code).eq("year", Number(year)).eq("period", period)
+          .maybeSingle();
+        targetIdForPlan = planTarget?.id != null ? Number(planTarget.id) : null;
+      }
+      let v2Participants: string[] = [];
+      if (targetIdForPlan != null) {
+        const { data: v2Plan } = await supabase
+          .from("preliminary_survey_v2_plans")
+          .select("participant_names")
+          .eq("measurement_target_business_id", targetIdForPlan)
+          .maybeSingle();
+        if (v2Plan && Array.isArray(v2Plan.participant_names)) {
+          v2Participants = (v2Plan.participant_names as unknown[])
+            .map((n) => String(n).trim()).filter(Boolean);
+        }
+      }
+      if (v2Participants.length > 0 && !v2Participants.some((name) => staffNames.has(name))) {
+        return NextResponse.json(
+          { error: "기존 예비조사자 전원이 실제 측정 인원에서 빠집니다. 측정 인원을 조정하거나 예비조사를 재추천/재확정한 뒤 저장해 주세요." },
+          { status: 400 },
+        );
+      }
     }
 
     // [New Feature] Auto-calculate office_jurisdiction if address is being updated
@@ -864,8 +984,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     let preliminarySurveyV2Notice = null;
-    const responsibleChanged = Object.prototype.hasOwnProperty.call(updates, "measurer_id") &&
-      Number(existingMeasurerId) !== Number(updatedData.measurer_id);
+    // 예비조사 responsible는 연계측정자(link_measurer_id)가 유일한 원천이다.
+    // 보고서 담당자(measurer_id) 변경 자체는 V2 재추천 사유가 아니다.
+    const responsibleChanged =
+      Object.prototype.hasOwnProperty.call(updates, "link_measurer_id") &&
+      Number(existingLinkMeasurerId ?? null) !== Number(updatedData.link_measurer_id ?? null);
     const measurementDateChanged = Object.prototype.hasOwnProperty.call(updates, "measurement_date") &&
       existingDate !== updatedData.measurement_date;
     const businessTypeChanged = Object.prototype.hasOwnProperty.call(updates, "business_type") &&
