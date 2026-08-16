@@ -22,7 +22,7 @@ import {
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
-import { suggestLinkMeasurerCandidates, singleDateLinkMeasurerCandidates } from "@/lib/business/link-measurer";
+import { suggestLinkMeasurerCandidates, collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import {
     MEASUREMENT_MAP_CHANNEL,
     MEASUREMENT_MAP_VIEWER_NAME,
@@ -89,7 +89,7 @@ interface BusinessEntry {
     updated_at?: string;
     measurement_month?: string | null;
     measurer_id?: number | null; // 보고서 담당자 ID (보고서 작성/관리 책임, 실제 측정·예비조사와 별개)
-    link_measurer_id?: number | null; // 연계측정자 ID (예비조사자이면서 전체 측정기간 중 최소 하루 실제 측정에 참여)
+    link_measurer_id?: number | null; // 예·측 ID (예비조사자이면서 전체 측정기간 중 최소 하루 실제 측정에 참여)
     collaborators?: string | null; // 협력자 목록 (쉼표 구분)
     representative_name?: string | null; // 대표자명
     industrial_accident_number?: string | null; // 산재관리번호
@@ -1750,6 +1750,35 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         );
     };
 
+    // === 예비조사 정보 표시/예·측 도우미 ===
+    // "예·측" = 예비조사자 ∩ 실제 측정자 (내부 필드 link_measurer_id)
+    const actualMeasurerNames = (form: Partial<BusinessEntry>): string[] =>
+        collectMeasurementStaffNames({ collaborators: form.collaborators, dailyStaff: form.daily_staff });
+
+    const v2SurveyorNames = (form: Partial<BusinessEntry>): string[] =>
+        (form.preliminary_survey_v2_plan?.participant_names || []).map((n) => String(n).trim()).filter(Boolean);
+
+    const linkMeasurerCandidatesForForm = (form: Partial<BusinessEntry>): User[] => {
+        const actual = new Set(actualMeasurerNames(form));
+        const v2 = new Set(v2SurveyorNames(form));
+        const valid = new Set([...actual].filter((name) => v2.has(name)));
+        return measurers.filter((m) => valid.has(m.name));
+    };
+
+    const linkStatusForForm = (form: Partial<BusinessEntry>): { kind: "A" | "B" | "C" | "PLAN_NONE" | "NO_STAFF" } => {
+        if (!form.preliminary_survey_v2_plan) return { kind: "PLAN_NONE" };
+        const actual = actualMeasurerNames(form);
+        if (actual.length === 0) return { kind: "NO_STAFF" };
+        const v2 = new Set(v2SurveyorNames(form));
+        const count = actual.filter((name) => v2.has(name)).length;
+        if (count === 0) return { kind: "C" };
+        if (count === 1) return { kind: "A" };
+        return { kind: "B" };
+    };
+
+    const surveyMethodLabel = (method: string | undefined | null): string =>
+        method === "field" ? "현장" : method === "phone" ? "유선" : "-";
+
     return (
         <div className="p-4 w-full min-w-[1400px]">
             {/* Sticky Container for Filter & Table Header */}
@@ -2542,6 +2571,126 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 </div>
                                 <p className="text-xs text-slate-500 mt-1">* &apos;거래종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
                             </div>
+                                       {/* 예비조사 정보 섹션 */}
+                            <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50/30 p-4 space-y-3">
+                                <label className="text-sm font-bold text-slate-800">예비조사 정보</label>
+                                {(() => {
+                                    const plan = editForm.preliminary_survey_v2_plan;
+                                    if (!plan) {
+                                        return (
+                                            <p className="text-sm text-slate-600">아직 예비조사 계획이 없습니다.</p>
+                                        );
+                                    }
+                                    const status = linkStatusForForm(editForm);
+                                    const linkName = editForm.link_measurer_id
+                                        ? measurers.find((m) => m.id === editForm.link_measurer_id)?.name || null
+                                        : null;
+                                    return (
+                                        <div className="space-y-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-semibold text-slate-500">상태</span>
+                                                {status.kind === "C" ? (
+                                                    <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                                                        예비조사 연결 확인 필요
+                                                    </span>
+                                                ) : status.kind === "A" || status.kind === "B" ? (
+                                                    <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800">
+                                                        정상
+                                                    </span>
+                                                ) : (
+                                                    <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                                                        측정 인원 확인 필요
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-xs font-medium text-slate-500">예비조사일</label>
+                                                    <p className="text-sm font-medium text-slate-800">{plan.recommended_date || "-"}</p>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-medium text-slate-500">조사방법</label>
+                                                    <p className="text-sm font-medium text-slate-800">{surveyMethodLabel(plan.survey_method)}</p>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-500">예비조사자</label>
+                                                <p className="text-sm font-medium text-slate-800">
+                                                    {(plan.participant_names || []).length > 0
+                                                        ? (plan.participant_names as string[]).map((n) =>
+                                                            String(n) === linkName ? `${n} [예·측]` : String(n)
+                                                        ).join(" · ")
+                                                        : "-"}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium mb-1 text-slate-700">예·측</label>
+                                                {(() => {
+                                                    const actual = actualMeasurerNames(editForm);
+                                                    if (actual.length === 0) {
+                                                        return (
+                                                            <p className="text-xs text-slate-500">먼저 실제 측정자를 선택하세요.</p>
+                                                        );
+                                                    }
+                                                    const candidates = linkMeasurerCandidatesForForm(editForm);
+                                                    if (candidates.length === 0) {
+                                                        return (
+                                                            <div className="space-y-1">
+                                                                <p className="text-xs text-amber-700">
+                                                                    현재 예비조사자와 실제 측정자 중 공통 참여자가 없습니다. 실제 측정 인원을 확인하거나 예비조사자를 재확정하세요.
+                                                                </p>
+                                                                <Select
+                                                                    options={[{ value: "", label: "선택 불가" }]}
+                                                                    value=""
+                                                                    disabled
+                                                                />
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <Select
+                                                            options={[
+                                                                { value: "", label: "선택" },
+                                                                ...candidates.map(m => ({ value: m.id.toString(), label: m.name })),
+                                                            ]}
+                                                            value={editForm.link_measurer_id?.toString() || ""}
+                                                            onChange={(e) => {
+                                                                const newId = e.target.value ? parseInt(e.target.value) : null;
+                                                                // 예·측 선택은 실제 측정 인원·예비조사자를 자동 변경하지 않는다.
+                                                                setEditForm(prev => ({ ...prev, link_measurer_id: newId }));
+                                                            }}
+                                                        />
+                                                    );
+                                                })()}
+                                            </div>
+                                            {(() => {
+                                                if (editForm.link_measurer_id != null) return null;
+                                                const res = suggestLinkMeasurerCandidates({
+                                                    measurerName: measurers.find((m) => m.id === editForm.measurer_id)?.name || null,
+                                                    collaborators: editForm.collaborators,
+                                                    dailyStaff: editForm.daily_staff,
+                                                    v2ParticipantNames: v2SurveyorNames(editForm),
+                                                });
+                                                const validNames = new Set(linkMeasurerCandidatesForForm(editForm).map((m) => m.name));
+                                                const valid = res.candidates.filter((name) => validNames.has(name));
+                                                if (valid.length === 0) return null;
+                                                const suggested = measurers.find((m) => m.name === valid[0]);
+                                                if (!suggested) return null;
+                                                return (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setEditForm(prev => ({ ...prev, link_measurer_id: suggested.id }))}
+                                                        className="text-xs text-amber-700 underline"
+                                                    >
+                                                        후보: {valid.join(", ")} — 선택
+                                                    </button>
+                                                );
+                                            })()}
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+
                                        {/* 다중 일자 배정 섹션 */}
                             <div className="col-span-2 space-y-4">
                                 <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-2">
@@ -2607,66 +2756,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                     );
                                                 })()}
                                             </div>
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1 text-slate-700">연계측정자</label>
-                                            {(() => {
-                                                const targetDate = editForm.measurement_date || editForm.future_measurement_date;
-                                                const isAfter = !targetDate || targetDate >= "2026-06-09";
-                                                const currentMeasurers = measurers.filter(u => 
-                                                    isAfter ? u.name !== "배윤민" : u.name !== "김민영"
-                                                );
-                                                // 연계측정자 후보는 실제 측정 인원(collaborators)에 포함된 사람으로만 제한한다.
-                                                const staffNames = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
-                                                const linkCandidates = singleDateLinkMeasurerCandidates(staffNames, currentMeasurers);
-                                                if (staffNames.length === 0) {
-                                                    return (
-                                                        <p className="text-xs text-slate-500">
-                                                            먼저 실제 측정 인원(조력자)을 선택한 뒤 연계측정자를 지정하세요.
-                                                        </p>
-                                                    );
-                                                }
-                                                return (
-                                                    <Select
-                                                        options={[
-                                                            { value: "", label: "선택" },
-                                                            ...linkCandidates.map(m => ({ value: m.id.toString(), label: m.name }))
-                                                        ]}
-                                                        value={editForm.link_measurer_id?.toString() || ""}
-                                                        onChange={(e) => {
-                                                            const newId = e.target.value ? parseInt(e.target.value) : null;
-                                                            // 연계측정자 선택은 collaborators(실제 측정 인원)를 자동 변경하지 않는다.
-                                                            setEditForm(prev => ({ ...prev, link_measurer_id: newId }));
-                                                        }}
-                                                    />
-                                                );
-                                            })()}
-                                            {(() => {
-                                                if (editForm.link_measurer_id != null) return null;
-                                                const res = suggestLinkMeasurerCandidates({
-                                                    measurerName: measurers.find((m) => m.id === editForm.measurer_id)?.name || null,
-                                                    collaborators: editForm.collaborators,
-                                                    dailyStaff: editForm.daily_staff,
-                                                    v2ParticipantNames: editForm.preliminary_survey_v2_plan?.participant_names || [],
-                                                });
-                                                if (res.candidates.length === 0) return null;
-                                                const suggested = measurers.find((m) => m.name === res.candidates[0]);
-                                                if (!suggested) return null;
-                                                return (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            // 후보는 이미 실제 측정 인원에 존재하므로 collaborators를 수정하지 않고 연계측정자만 지정한다.
-                                                            setEditForm(prev => ({ ...prev, link_measurer_id: suggested.id }));
-                                                        }}
-                                                        className="mt-1 text-xs text-amber-700 underline"
-                                                    >
-                                                        후보: {res.candidates.join(", ")} — 선택
-                                                    </button>
-                                                );
-                                            })()}
-                                        </div>
                                         <div className="col-span-2">
-                                            <label className="block text-sm font-medium mb-2 text-slate-700">조력자 (복수 선택) — 연계측정자는 측정 인원에 항상 포함됩니다</label>
+                                            <label className="block text-sm font-medium mb-2 text-slate-700">조력자 (복수 선택) — 예·측은 실제 측정 인원에 항상 포함됩니다</label>
                                             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 p-3 bg-white border border-slate-200 rounded-md">
                                                 {(() => {
                                                     const targetDate = editForm.measurement_date || editForm.future_measurement_date;
@@ -2699,7 +2790,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                 />
                                                                 <span className={`text-sm ${isLink ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
                                                                     {m.name}
-                                                                    {isLink && <span className="ml-1 text-[10px] bg-blue-100 px-1 rounded">연계</span>}
+                                                                    {isLink && <span className="ml-1 text-[10px] bg-blue-100 px-1 rounded">예·측</span>}
                                                                 </span>
                                                             </label>
                                                         );
@@ -2711,29 +2802,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 ) : (
                                     /* 다중 일자 UI (동적 생성) */
                                     <div className="space-y-4">
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1 text-slate-700">연계측정자 (사업장 단위)</label>
-                                            {(() => {
-                                                const targetDate = editForm.measurement_date || editForm.future_measurement_date;
-                                                const isAfter = !targetDate || targetDate >= "2026-06-09";
-                                                const linkMeasurers = measurers.filter(u => isAfter ? u.name !== "배윤민" : u.name !== "김민영");
-                                                return (
-                                                    <Select
-                                                        options={[
-                                                            { value: "", label: "선택" },
-                                                            ...linkMeasurers.map(m => ({ value: m.id.toString(), label: m.name }))
-                                                        ]}
-                                                         value={editForm.link_measurer_id?.toString() || ""}
-                                                         onChange={(e) => {
-                                                             const newId = e.target.value ? parseInt(e.target.value) : null;
-                                                             // 연계측정자는 사업장 단위 단일값. 날짜별 인원(daily_staff)을 임의로 바꾸지 않는다.
-                                                             // 연계측정자는 전체 측정기간 중 최소 하루 참여해야 하며, 날짜 배정은 사용자가 직접 선택한다.
-                                                             setEditForm(prev => ({ ...prev, link_measurer_id: newId }));
-                                                         }}
-                                                     />
-                                                 );
-                                             })()}
-                                        </div>
                                         {(editForm.daily_staff as any[]).map((entry, idx) => {
                                             const dayMeasurers = (() => {
                                                 const targetDate = entry.date || editForm.future_measurement_date;
@@ -2792,7 +2860,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                             <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
                                                                 {dayMeasurers.map(m => {
                                                                     const isChecked = entry.collaborators?.includes(m.name);
-                                                                    // 연계측정자를 특정 날짜에 강제 배치하지 않는다. 각 날짜 인원은 사용자가 직접 선택한다.
+                                                                    // 예·측을 특정 날짜에 강제 배치하지 않는다. 각 날짜 인원은 사용자가 직접 선택한다.
                                                                     return (
                                                                         <label key={m.id} className={`flex items-center gap-1.5 cursor-pointer p-0.5 rounded hover:bg-slate-50`}>
                                                                             <input 

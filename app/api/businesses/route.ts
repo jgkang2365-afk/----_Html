@@ -632,6 +632,19 @@ export async function PATCH(request: NextRequest) {
           { status: 400 },
         );
       }
+
+      // 3. 연계측정자(예·측)는 예비조사자에 반드시 포함되어야 한다 (V2 plan이 있을 때).
+      if (newLinkMeasurerId != null && v2Participants.length > 0) {
+        const { data: linkUser } = await supabase
+          .from("users").select("name").eq("id", newLinkMeasurerId).maybeSingle();
+        const linkName = linkUser?.name || null;
+        if (linkName && !v2Participants.includes(linkName)) {
+          return NextResponse.json(
+            { error: "예·측(연계측정자)은 현재 예비조사자에 포함되어야 합니다. 예비조사자를 재확정하거나 예·측을 다시 선택해 주세요." },
+            { status: 400 },
+          );
+        }
+      }
     }
 
     // [New Feature] Auto-calculate office_jurisdiction if address is being updated

@@ -282,10 +282,10 @@ test("신규 + 비경력 responsible는 경력자 reviewer와 함께 2인으로 
   assert.ok(result.participants.some((u) => u.experienced));
 });
 
-// ===== UI: 연계측정자 / 조력자 UI 존재 =====
-test("측정대상사업장 UI에 연계측정자 단일 선택과 조력자 체크박스가 존재한다", () => {
+// ===== UI: 예·측 / 조력자 UI 존재 =====
+test("측정대상사업장 UI에 예·측(연계측정자) 단일 선택과 조력자 체크박스가 존재한다", () => {
   assert.match(uiSource, /link_measurer_id/);
-  assert.match(uiSource, /연계측정자/);
+  assert.match(uiSource, /예·측/);
   assert.match(uiSource, /조력자/);
   assert.doesNotMatch(uiSource, /측정자 \(복수 선택\)/);
 });
@@ -329,4 +329,81 @@ test("D: 연계측정자로 지정된 사람은 실제 측정자 체크박스에
 // ===== E. 보고서 담당 ≠ 측정자 정상 =====
 test("E: 보고서 담당자 선택이 실제 측정 인원을 자동 변경하지 않는다", () => {
   assert.doesNotMatch(uiSource, /measurer_id: newId, collaborators/);
+});
+
+// ===== 통합 UI: 예비조사 정보 영역 / 예·측 표시 =====
+test("통합 UI: 예비조사 정보 영역이 있고 '예·측' 용어를 사용한다", () => {
+  assert.match(uiSource, /예비조사 정보/);
+  assert.match(uiSource, /예·측/);
+  assert.doesNotMatch(uiSource, /연계측정자/);
+});
+
+test("통합 UI: plan 없음 상태를 표시하고, 조사방법을 현장/유선으로 변환한다", () => {
+  assert.match(uiSource, /아직 예비조사 계획이 없습니다/);
+  assert.match(uiSource, /=== "field" \? "현장"/);
+  assert.match(uiSource, /=== "phone" \? "유선"/);
+});
+
+test("통합 UI: C 상태는 '예비조사 연결 확인 필요'로 표시한다", () => {
+  assert.match(uiSource, /예비조사 연결 확인 필요/);
+  assert.match(uiSource, /공통 참여자가 없습니다/);
+});
+
+test("통합 UI: 예·측 후보는 예비조사자 ∩ 실제 측정자로 한정된다", () => {
+  assert.match(uiSource, /linkMeasurerCandidatesForForm/);
+  assert.match(uiSource, /v2SurveyorNames/);
+});
+
+test("통합 UI: 예·측 선택은 인력·예비조사자를 자동 변경하지 않는다", () => {
+  assert.doesNotMatch(uiSource, /link_measurer_id: newId, collaborators/);
+  assert.doesNotMatch(uiSource, /link_measurer_id: newId, daily_staff/);
+});
+
+// ===== 예·측 후보 = 예비조사자 ∩ 실제 측정자 (기능 검증) =====
+test("예·측 후보: 실제 측정자 ∩ 예비조사자가 정확히 1명이면 A 상태다", () => {
+  const r = classifyLinkMeasurerCandidate({
+    measurerName: "한기문",
+    collaborators: "김민영, 이태환",
+    dailyStaff: null,
+    v2ParticipantNames: ["한기문", "김민영"],
+  });
+  assert.equal(r.klass, "A");
+  assert.deepEqual(r.v2InStaff, ["김민영"]);
+});
+
+test("예·측 후보: 실제 측정자 ∩ 예비조사자가 0명이면 C 상태다", () => {
+  const r = classifyLinkMeasurerCandidate({
+    measurerName: "한기문",
+    collaborators: "김민영",
+    dailyStaff: null,
+    v2ParticipantNames: ["한기문"],
+  });
+  assert.equal(r.klass, "C");
+  assert.deepEqual(r.v2InStaff, []);
+});
+
+test("예·측 후보: 다일 측정은 daily_staff 전체 기간 참여자 기준으로 산정한다", () => {
+  const staff = collectMeasurementStaffNames({
+    collaborators: null,
+    dailyStaff: [
+      { date: "2026-08-08", collaborators: ["김민영"] },
+      { date: "2026-08-09", collaborators: ["강종구", "한기문"] },
+    ],
+  });
+  assert.ok(staff.includes("한기문"));
+  const r = classifyLinkMeasurerCandidate({
+    measurerName: "한기문",
+    collaborators: null,
+    dailyStaff: [
+      { date: "2026-08-08", collaborators: ["김민영"] },
+      { date: "2026-08-09", collaborators: ["강종구", "한기문"] },
+    ],
+    v2ParticipantNames: ["한기문"],
+  });
+  assert.equal(r.klass, "A");
+});
+
+// ===== 확정 후 권한 규칙 유지 =====
+test("확정(측정일지 연번 부여) 후 일반 사용자 핵심값 수정 차단 로직 유지", () => {
+  assert.match(routeSource, /측정일지 연번이 부여되어 확정된 사업장입니다/);
 });
