@@ -9,6 +9,7 @@ import type { SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/type
 import {
   classifyLinkMeasurerCandidate,
   collectMeasurementStaffNames,
+  singleDateLinkMeasurerCandidates,
 } from "../lib/business/link-measurer";
 
 const root = process.cwd();
@@ -287,4 +288,45 @@ test("측정대상사업장 UI에 연계측정자 단일 선택과 조력자 체
   assert.match(uiSource, /연계측정자/);
   assert.match(uiSource, /조력자/);
   assert.doesNotMatch(uiSource, /측정자 \(복수 선택\)/);
+});
+
+// ===== A. 실제 측정자 2명 → 연계측정자 후보 = 그 2명만 =====
+test("A: 실제 측정자 2명이면 연계측정자 후보는 그 2명뿐이다", () => {
+  const users = [
+    { id: 15, name: "이태환" },
+    { id: 16, name: "고유빈" },
+    { id: 17, name: "한기문" },
+    { id: 20, name: "김민영" },
+  ];
+  const candidates = singleDateLinkMeasurerCandidates(["김민영", "이태환"], users);
+  assert.deepEqual(candidates.map((c) => c.name).sort(), ["김민영", "이태환"]);
+});
+
+// ===== B. 실제 측정자가 아닌 사람은 후보에서 제외 =====
+test("B: 실제 측정자에 없는 사람은 연계측정자 후보에 포함되지 않는다", () => {
+  const users = [
+    { id: 15, name: "이태환" },
+    { id: 17, name: "한기문" },
+    { id: 20, name: "김민영" },
+  ];
+  const candidates = singleDateLinkMeasurerCandidates(["김민영"], users);
+  assert.deepEqual(candidates.map((c) => c.name), ["김민영"]);
+});
+
+// ===== C. 연계측정자 선택 시 collaborators 자동 변경 금지 =====
+test("C: 단일일 연계측정자 선택이 collaborators를 자동 변경하지 않는다", () => {
+  assert.doesNotMatch(uiSource, /link_measurer_id: newId, collaborators/);
+  assert.doesNotMatch(uiSource, /suggested\.name/);
+  assert.doesNotMatch(uiSource, /collabs\.push\(suggested\.name\)/);
+});
+
+// ===== D. 연계측정자는 측정자에서 해제 불가(잠금) =====
+test("D: 연계측정자로 지정된 사람은 실제 측정자 체크박스에서 해제할 수 없다", () => {
+  assert.match(uiSource, /disabled=\{isLink\}/);
+  assert.match(uiSource, /checked=\{isChecked \|\| isLink\}/);
+});
+
+// ===== E. 보고서 담당 ≠ 측정자 정상 =====
+test("E: 보고서 담당자 선택이 실제 측정 인원을 자동 변경하지 않는다", () => {
+  assert.doesNotMatch(uiSource, /measurer_id: newId, collaborators/);
 });

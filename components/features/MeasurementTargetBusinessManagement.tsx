@@ -22,7 +22,7 @@ import {
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
-import { suggestLinkMeasurerCandidates } from "@/lib/business/link-measurer";
+import { suggestLinkMeasurerCandidates, singleDateLinkMeasurerCandidates } from "@/lib/business/link-measurer";
 import {
     MEASUREMENT_MAP_CHANNEL,
     MEASUREMENT_MAP_VIEWER_NAME,
@@ -2615,24 +2615,27 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                 const currentMeasurers = measurers.filter(u => 
                                                     isAfter ? u.name !== "배윤민" : u.name !== "김민영"
                                                 );
+                                                // 연계측정자 후보는 실제 측정 인원(collaborators)에 포함된 사람으로만 제한한다.
+                                                const staffNames = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
+                                                const linkCandidates = singleDateLinkMeasurerCandidates(staffNames, currentMeasurers);
+                                                if (staffNames.length === 0) {
+                                                    return (
+                                                        <p className="text-xs text-slate-500">
+                                                            먼저 실제 측정 인원(조력자)을 선택한 뒤 연계측정자를 지정하세요.
+                                                        </p>
+                                                    );
+                                                }
                                                 return (
                                                     <Select
                                                         options={[
                                                             { value: "", label: "선택" },
-                                                            ...currentMeasurers.map(m => ({ value: m.id.toString(), label: m.name }))
+                                                            ...linkCandidates.map(m => ({ value: m.id.toString(), label: m.name }))
                                                         ]}
                                                         value={editForm.link_measurer_id?.toString() || ""}
                                                         onChange={(e) => {
                                                             const newId = e.target.value ? parseInt(e.target.value) : null;
-                                                            const newName = currentMeasurers.find(m => m.id === newId)?.name;
-                                                            setEditForm(prev => {
-                                                                const collaborators = prev.collaborators ? prev.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
-                                                                let newCollabs = [...collaborators];
-                                                                if (newName && !newCollabs.includes(newName)) {
-                                                                    newCollabs.push(newName);
-                                                                }
-                                                                return { ...prev, link_measurer_id: newId, collaborators: newCollabs.join(",") };
-                                                            });
+                                                            // 연계측정자 선택은 collaborators(실제 측정 인원)를 자동 변경하지 않는다.
+                                                            setEditForm(prev => ({ ...prev, link_measurer_id: newId }));
                                                         }}
                                                     />
                                                 );
@@ -2652,9 +2655,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                     <button
                                                         type="button"
                                                         onClick={() => {
-                                                            const collabs = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
-                                                            const next = collabs.includes(suggested.name) ? collabs : [...collabs, suggested.name];
-                                                            setEditForm(prev => ({ ...prev, link_measurer_id: suggested.id, collaborators: next.join(",") }));
+                                                            // 후보는 이미 실제 측정 인원에 존재하므로 collaborators를 수정하지 않고 연계측정자만 지정한다.
+                                                            setEditForm(prev => ({ ...prev, link_measurer_id: suggested.id }));
                                                         }}
                                                         className="mt-1 text-xs text-amber-700 underline"
                                                     >

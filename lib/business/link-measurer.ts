@@ -95,6 +95,18 @@ export interface LinkMeasurerClassResult {
 }
 
 /**
+ * 단일 측정일: 연계측정자 후보 = 실제 측정 인원(staff)에 포함된 측정 사용자만.
+ * 실제 측정 인원에 없는 사용자는 연계측정자로 선택할 수 없다.
+ */
+export function singleDateLinkMeasurerCandidates(
+  staffNames: string[],
+  users: Array<{ id: number; name: string }>,
+): Array<{ id: number; name: string }> {
+  const staff = new Set(staffNames);
+  return users.filter((user) => staff.has(user.name));
+}
+
+/**
  * 기존 40건 READ-ONLY 분류용.
  * - A: 교집합 정확히 1명 → 자동 후보 명확
  * - B: 교집합 2명 이상 → 후보 복수
