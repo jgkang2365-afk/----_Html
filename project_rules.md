@@ -8,6 +8,7 @@
 - `AGENTS.md`: AI 에이전트의 작업·안전·Git·검증 원칙
 - `project_rules.md`: 프로젝트 전반에 지속 적용되는 기술·운영 정책
 - `BUSINESS_LOGIC.md`: 업무 데이터, 계산, 분류, 우선순위 등 비즈니스 규칙
+- `docs/business-rules/preliminary-survey.md`: 예비조사 관련 업무 규칙의 기준 문서 (예비조사 개발 시 이 문서를 기준으로 한다)
 - `docs/history/SUCCESS_DNA.md`: 과거 장애·원인·해결·재발방지 기록
 
 새 규칙을 추가할 때는 성격에 맞는 문서에만 기록한다.
