@@ -163,4 +163,17 @@
 
 위 조건을 만족하지 않는 버그 해결 기록은 `docs/history/SUCCESS_DNA.md` 또는 Git/PR 이력에 남긴다.
 
+---
+
+## 13. 작업 완료 보고 및 검증 원칙
+
+- GitHub에서 직접 확인 가능한 `commit`, `push`, PR, merge, 변경 파일, diff, branch, main HEAD 등은 별도 완료 보고서에 중복 기록하지 않는다.
+- 작업 결과는 가능한 한 작업 브랜치의 commit/push 및 PR 이력으로 남겨 GitHub에서 추적 가능하게 한다.
+- PR 제목과 commit 메시지는 작업 목적을 식별할 수 있도록 작성하고, 관련 없는 변경을 같은 PR에 섞지 않는다.
+- `C:\Users\USER\Desktop\orca\orca-report.md`는 GitHub에서 확인할 수 없는 로컬 검증 결과와 예외사항만 기록한다.
+- 로컬 보고 대상은 working tree 상태, untracked/missing 파일, `.env.local` 등 로컬 환경 상태, 로컬 테스트 결과, 브라우저 실화면 검증, 운영 DB 직접 조회 결과, 로컬 자동화/프로세스 오류 등으로 제한한다.
+- GitHub에서 확인 가능한 내용을 채팅·PR·보고서에 반복해서 작성하지 않는다.
+- 작업 지시문에는 해당 작업에서 GitHub로 확인할 수 없는 로컬 검증이 실제로 필요한 경우에만 별도 보고 항목을 명시한다.
+- 사용자가 별도 파일을 공유하지 않아도 GitHub에서 확인 가능한 작업 결과는 GitHub 이력을 기준으로 검증한다.
+
 
