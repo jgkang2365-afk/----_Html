@@ -240,10 +240,13 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         if (dailyNew >= capacityPass || dailyNew >= 2) return null;
       }
 
-      const reviewerChoice = target.responsible.experienced
-        ? null
-        : await chooseReviewer(target, candidate.date, input.experiencedUsers, virtual, input.availability, input.routes, capacityPass);
-      if (!target.responsible.experienced && (!reviewerChoice || reviewerChoice.hardConflict)) {
+      // 예비조사 경력 규칙: 기존 사업장은 비경력자 단독이 허용된다.
+      // 최초실시/타기관 신규(new)에서만 비경력 responsible에 경력자 reviewer를 붙인다.
+      const requiresReviewer = !target.responsible.experienced && target.kind === "new";
+      const reviewerChoice = requiresReviewer
+        ? await chooseReviewer(target, candidate.date, input.experiencedUsers, virtual, input.availability, input.routes, capacityPass)
+        : null;
+      if (requiresReviewer && (!reviewerChoice || reviewerChoice.hardConflict)) {
         if (reviewerChoice?.route && reviewerChoice.route.evidence.routeDecision !== "same_day_allowed") {
           rejectedSameDayRoutes.push(reviewerChoice.route.evidence);
         }

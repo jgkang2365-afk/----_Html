@@ -51,7 +51,7 @@ async function loadProcessChangedPolicy(supabase: Client): Promise<ProcessChange
 
 export async function loadV2ManualContext(supabase: Client, targetId: number, recommendedDate: string) {
   const { data: targetRow, error: targetError } = await supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
+    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).eq("id", targetId).single();
   if (targetError || !targetRow) throw new Error("TARGET_NOT_FOUND");
   const [{ data: userRows, error: userError }, { data: infoRow, error: infoError }, { data: journalRows, error: journalError }, policy] = await Promise.all([
@@ -69,7 +69,10 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   const users: SurveyUser[] = (userRows ?? []).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
-  const responsible = users.find((user) => user.id === Number(targetRow.measurer_id));
+  // 예비조사 responsible는 연계측정자(link_measurer_id)를 우선 사용한다.
+  // 아직 연계측정자가 지정되지 않은 기존 데이터는 measurer_id(보고서 담당자)로 대체한다.
+  const responsibleId = targetRow.link_measurer_id ?? targetRow.measurer_id;
+  const responsible = users.find((user) => user.id === Number(responsibleId));
   if (!responsible) throw new Error("RESPONSIBLE_USER_MISSING");
   const classification = classifyMeasurementJournalBusiness({
     code: targetRow.code, year: Number(targetRow.year), period: targetRow.period,
@@ -167,7 +170,7 @@ export async function calculateV2Recommendations(
   options: CalculationOptions = {},
 ): Promise<CalculationOutput> {
   let targetQuery = supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
+    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).not("measurement_date", "is", null);
   if (options.targetIds?.length) targetQuery = targetQuery.in("id", options.targetIds);
   if (options.measurementDateFrom) targetQuery = targetQuery.gte("measurement_date", options.measurementDateFrom);
@@ -223,7 +226,8 @@ export async function calculateV2Recommendations(
       measurementYear: Number(row.year),
       measurementPeriod: String(row.period).trim(),
     };
-    const responsible = userById.get(Number(row.measurer_id));
+    // 예비조사 responsible는 연계측정자(link_measurer_id)를 우선 사용하고, 없으면 measurer_id(보고서 담당자)로 대체한다.
+    const responsible = userById.get(Number(row.link_measurer_id ?? row.measurer_id));
     const fields = [!row.measurement_date && "measurement_date", !responsible && "responsible_user"].filter(Boolean) as string[];
     if (fields.length) {
       missing.push({

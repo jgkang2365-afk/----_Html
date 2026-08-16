@@ -50,7 +50,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
       p_warnings: [],
     });
     if (error) throw new Error(error.message);
-    return NextResponse.json({ success: true, plan: Array.isArray(data) ? data[0] : data });
+    return NextResponse.json({
+      success: true,
+      plan: Array.isArray(data) ? data[0] : data,
+      requiresUserConfirmation: validation.requiresUserConfirmation,
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "MANUAL_UPDATE_FAILED" }, { status: 500 });
   }
