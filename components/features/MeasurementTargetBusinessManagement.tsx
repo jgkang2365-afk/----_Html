@@ -22,6 +22,7 @@ import {
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
+import { suggestLinkMeasurerCandidates } from "@/lib/business/link-measurer";
 import {
     MEASUREMENT_MAP_CHANNEL,
     MEASUREMENT_MAP_VIEWER_NAME,
@@ -1544,18 +1545,29 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
     };
 
-    const handleManualV2PlanChange = async (recommendedDate: string, participantUserIds: number[]) => {
+    const handleManualV2PlanChange = async (recommendedDate: string, participantUserIds: number[], confirmed = false) => {
         if (!editingItem) return;
         const response = await fetch(`/api/preliminary-survey-v2/${editingItem.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ recommendedDate, participantUserIds }),
+            body: JSON.stringify({ recommendedDate, participantUserIds, confirm: confirmed }),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "예비조사 계획 수정에 실패했습니다.");
+
+        // 경력자 2명 이상 조합: 사용자 확인 전에는 저장되지 않으므로, 확인 후 재요청한다.
+        if (result.requiresUserConfirmation) {
+            const ok = window.confirm(
+                result.message || "경력자 2명이 예비조사자로 지정되었습니다. 이 조합으로 확정하시겠습니까?",
+            );
+            if (!ok) return { cancelled: true };
+            return handleManualV2PlanChange(recommendedDate, participantUserIds, true);
+        }
+
         setEditForm(previous => ({ ...previous, preliminary_survey_v2_plan: result.plan }));
         setData(previous => previous.map(item => String(item.id) === String(editingItem.id)
             ? { ...item, preliminary_survey_v2_plan: result.plan } : item));
+        return { cancelled: false };
     };
 
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
@@ -2219,7 +2231,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     <button
                                         type="button"
                                         className="mt-1 rounded bg-blue-50 px-2 py-0.5 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                                        disabled={recommendingTargetIds.has(Number(item.id)) || !item.measurement_date || !item.measurer_id}
+                                        disabled={recommendingTargetIds.has(Number(item.id)) || !item.measurement_date || !item.link_measurer_id}
                                         onClick={() => handlePreliminarySurveyRecommendation([Number(item.id)])}
                                     >
                                         {recommendingTargetIds.has(Number(item.id)) ? "계산 중" : "예비조사 추천"}
@@ -2625,6 +2637,31 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                     />
                                                 );
                                             })()}
+                                            {(() => {
+                                                if (editForm.link_measurer_id != null) return null;
+                                                const res = suggestLinkMeasurerCandidates({
+                                                    measurerName: measurers.find((m) => m.id === editForm.measurer_id)?.name || null,
+                                                    collaborators: editForm.collaborators,
+                                                    dailyStaff: editForm.daily_staff,
+                                                    v2ParticipantNames: editForm.preliminary_survey_v2_plan?.participant_names || [],
+                                                });
+                                                if (res.candidates.length === 0) return null;
+                                                const suggested = measurers.find((m) => m.name === res.candidates[0]);
+                                                if (!suggested) return null;
+                                                return (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const collabs = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()).filter(Boolean) : [];
+                                                            const next = collabs.includes(suggested.name) ? collabs : [...collabs, suggested.name];
+                                                            setEditForm(prev => ({ ...prev, link_measurer_id: suggested.id, collaborators: next.join(",") }));
+                                                        }}
+                                                        className="mt-1 text-xs text-amber-700 underline"
+                                                    >
+                                                        후보: {res.candidates.join(", ")} — 선택
+                                                    </button>
+                                                );
+                                            })()}
                                         </div>
                                         <div className="col-span-2">
                                             <label className="block text-sm font-medium mb-2 text-slate-700">조력자 (복수 선택) — 연계측정자는 측정 인원에 항상 포함됩니다</label>
@@ -2684,21 +2721,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                             { value: "", label: "선택" },
                                                             ...linkMeasurers.map(m => ({ value: m.id.toString(), label: m.name }))
                                                         ]}
-                                                        value={editForm.link_measurer_id?.toString() || ""}
-                                                        onChange={(e) => {
-                                                            const newId = e.target.value ? parseInt(e.target.value) : null;
-                                                            const newName = linkMeasurers.find(m => m.id === newId)?.name;
-                                                            setEditForm(prev => {
-                                                                const daily = Array.isArray(prev.daily_staff) ? [...prev.daily_staff] : [];
-                                                                if (newName && daily.length > 0) {
-                                                                    daily[0] = { ...daily[0], collaborators: Array.from(new Set([...(daily[0].collaborators || []), newName])) };
-                                                                }
-                                                                return { ...prev, link_measurer_id: newId, daily_staff: daily };
-                                                            });
-                                                        }}
-                                                    />
-                                                );
-                                            })()}
+                                                         value={editForm.link_measurer_id?.toString() || ""}
+                                                         onChange={(e) => {
+                                                             const newId = e.target.value ? parseInt(e.target.value) : null;
+                                                             // 연계측정자는 사업장 단위 단일값. 날짜별 인원(daily_staff)을 임의로 바꾸지 않는다.
+                                                             // 연계측정자는 전체 측정기간 중 최소 하루 참여해야 하며, 날짜 배정은 사용자가 직접 선택한다.
+                                                             setEditForm(prev => ({ ...prev, link_measurer_id: newId }));
+                                                         }}
+                                                     />
+                                                 );
+                                             })()}
                                         </div>
                                         {(editForm.daily_staff as any[]).map((entry, idx) => {
                                             const dayMeasurers = (() => {
@@ -2758,17 +2790,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                             <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
                                                                 {dayMeasurers.map(m => {
                                                                     const isChecked = entry.collaborators?.includes(m.name);
-                                                                    const isLink = idx === 0 && m.id === editForm.link_measurer_id;
-                                                                    const isLocked = isLink;
-
+                                                                    // 연계측정자를 특정 날짜에 강제 배치하지 않는다. 각 날짜 인원은 사용자가 직접 선택한다.
                                                                     return (
-                                                                        <label key={m.id} className={`flex items-center gap-1.5 cursor-pointer p-0.5 rounded ${isLocked ? "bg-blue-50/50" : ""}`}>
+                                                                        <label key={m.id} className={`flex items-center gap-1.5 cursor-pointer p-0.5 rounded hover:bg-slate-50`}>
                                                                             <input 
                                                                                 type="checkbox"
-                                                                                checked={isChecked || isLocked || false}
-                                                                                disabled={isLocked}
+                                                                                checked={isChecked || false}
                                                                                 onChange={(e) => {
-                                                                                    if (isLocked) return;
                                                                                     const newList = [...(editForm.daily_staff as any[])];
                                                                                     let collabs = newList[idx].collaborators || [];
                                                                                     if (e.target.checked) collabs.push(m.name);
@@ -2776,11 +2804,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                                     newList[idx].collaborators = Array.from(new Set(collabs));
                                                                                     setEditForm(prev => ({ ...prev, daily_staff: newList }));
                                                                                 }}
-                                                                                className="w-3.5 h-3.5 rounded disabled:opacity-70 disabled:cursor-not-allowed"
+                                                                                className="w-3.5 h-3.5 rounded"
                                                                             />
-                                                                            <span className={`text-xs ${isLocked ? "text-blue-700 font-semibold" : "text-slate-600"}`}>
+                                                                            <span className="text-xs text-slate-600">
                                                                                 {m.name}
-                                                                                {isLocked && <span className="ml-1 text-[9px] bg-blue-100 px-1 rounded">연계</span>}
                                                                             </span>
                                                                         </label>
                                                                     );
@@ -2857,7 +2884,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <Button type="button" variant="secondary" onClick={async () => {
                                     const plan = editForm.preliminary_survey_v2_plan!;
                                     try {
-                                        await handleManualV2PlanChange(plan.recommended_date || "", plan.participant_user_ids);
+                                        const result = await handleManualV2PlanChange(plan.recommended_date || "", plan.participant_user_ids);
+                                        if (result?.cancelled) return;
                                         alert("예비조사 추천일과 조사자를 수정했습니다.");
                                     } catch (error) {
                                         alert(error instanceof Error ? error.message : "수동 수정에 실패했습니다.");

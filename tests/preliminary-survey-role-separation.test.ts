@@ -6,9 +6,17 @@ import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { recommendationDates } from "../lib/preliminary-survey-v2/calendar";
 import { validateManualPlanHardRules } from "../lib/preliminary-survey-v2/manual-validation";
 import type { SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
+import {
+  classifyLinkMeasurerCandidate,
+  collectMeasurementStaffNames,
+} from "../lib/business/link-measurer";
 
 const root = process.cwd();
 const routeSource = readFileSync(path.join(root, "app", "api", "businesses", "route.ts"), "utf8");
+const routeSource2 = readFileSync(
+  path.join(root, "app", "api", "preliminary-survey-v2", "[targetId]", "route.ts"),
+  "utf8",
+);
 const serviceSource = readFileSync(path.join(root, "lib", "preliminary-survey-v2", "service.ts"), "utf8");
 const validationSource = readFileSync(path.join(root, "lib", "preliminary-survey-v2", "manual-validation.ts"), "utf8");
 const engineSource = readFileSync(path.join(root, "lib", "preliminary-survey-v2", "engine.ts"), "utf8");
@@ -192,11 +200,71 @@ test("연번 부여(측정일지 확정) 후 일반 사용자 핵심값 수정 �
   assert.match(routeSource, /관리자만 수정할 수 있습니다/);
 });
 
-// ===== V2 responsible = 연계측정자(link_measurer_id) 우선 =====
-test("V2 responsible는 link_measurer_id를 우선 사용하고 measurer_id로 fallback한다", () => {
-  assert.match(serviceSource, /link_measurer_id \?\? row\.measurer_id/);
-  assert.match(serviceSource, /link_measurer_id \?\? targetRow\.measurer_id/);
+// ===== V2 responsible = 연계측정자(link_measurer_id) 유일 =====
+test("V2 responsible는 link_measurer_id만 사용하며 measurer_id fallback을 사용하지 않는다", () => {
+  assert.match(serviceSource, /link_measurer_id/);
+  assert.doesNotMatch(serviceSource, /link_measurer_id \?\? row\.measurer_id/);
+  assert.doesNotMatch(serviceSource, /link_measurer_id \?\? targetRow\.measurer_id/);
+  assert.match(serviceSource, /LINK_MEASURER_REQUIRED/);
+  assert.match(serviceSource, /!responsible && "link_measurer"/);
 });
+
+// ===== A. link_measurer_id NULL = 보고서 담당자 자동 사용 금지 =====
+test("A: link_measurer_id가 NULL이면 보고서 담당자를 연계측정자로 자동 사용하지 않는다", () => {
+  assert.doesNotMatch(serviceSource, /Number\(row\.measurer_id\)|Number\(targetRow\.measurer_id\)|measurer_id \?\?/);
+  assert.match(serviceSource, /responsibleId = targetRow\.link_measurer_id/);
+});
+
+// ===== B. 보고서 담당 변경 = 연계측정자 유지 시 재추천 없음 =====
+test("B: 보고서 담당자(measurer_id) 변경만으로는 V2 재추천이 발생하지 않는다", () => {
+  const changedBlock = routeSource.slice(routeSource.indexOf("const responsibleChanged"), routeSource.indexOf("const measurementDateChanged"));
+  assert.match(changedBlock, /link_measurer_id/);
+  assert.doesNotMatch(changedBlock, /hasOwnProperty\(updates, "measurer_id"\)/);
+  assert.doesNotMatch(changedBlock, /updates\.measurer_id/);
+});
+
+// ===== C. 연계측정자 변경 = 예비조사 연계 재검증 =====
+test("C: 연계측정자(link_measurer_id) 변경은 저장 검증 대상이며 재추천 트리거다", () => {
+  assert.match(routeSource, /link_measurer_id/);
+  assert.match(routeSource, /measurementStaffChanged/);
+});
+
+// ===== D. 경력자 2명 = 1차 요청 저장 없음 + 확인 후 저장 =====
+test("D: 경력자 2명 조합은 1차 요청에서 저장하지 않고 확인을 요구한다", () => {
+  assert.match(routeSource2, /requiresUserConfirmation && !confirmed/);
+  assert.match(routeSource2, /confirm === true/);
+  assert.match(routeSource2, /이 조합으로 확정하시겠습니까/);
+});
+
+// ===== E. 다일 측정 = 연계측정자 Day2만 참여해도 정상 =====
+test("E: 다일 측정에서 연계측정자가 Day2에만 있어도 측정 인원으로 인정된다", () => {
+  const staff = collectMeasurementStaffNames({
+    collaborators: null,
+    dailyStaff: [
+      { date: "2026-08-08", collaborators: ["김민영"] },
+      { date: "2026-08-09", collaborators: ["강종구", "한기문"] },
+    ],
+  });
+  assert.ok(staff.includes("한기문"));
+  const classification = classifyLinkMeasurerCandidate({
+    measurerName: "한기문",
+    collaborators: null,
+    dailyStaff: [
+      { date: "2026-08-08", collaborators: ["김민영"] },
+      { date: "2026-08-09", collaborators: ["강종구", "한기문"] },
+    ],
+    v2ParticipantNames: ["한기문"],
+  });
+  assert.equal(classification.klass, "A");
+});
+
+// ===== F. 다일 자동배치 금지 = 연계측정자 선택만으로 Day1 인원 변경 없음 =====
+test("F: 연계측정자 선택이 다일 측정 Day1 인원을 자동 변경하지 않는다", () => {
+  assert.doesNotMatch(uiSource, /daily\[0\]/);
+  assert.doesNotMatch(uiSource, /daily\[0\]\.collaborators/);
+});
+
+// ===== G/H: 기존/신규 비경력 규칙 (이미 E~H 테스트로 검증) =====
 
 // ===== 엔진: 신규 + 비경력 responsible는 경력자 reviewer 필요 =====
 test("신규 + 비경력 responsible는 경력자 reviewer와 함께 2인으로 추천된다 (engine)", async () => {

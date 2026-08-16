@@ -24,6 +24,20 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
       existingAssignments: assignments, routes: createRouteMetrics(),
     });
     if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
+
+    // 경력자 2명 이상 조합은 사용자 확인 전에는 저장하지 않는다.
+    // 1차 요청(confirm 미포함)에서는 계획을 저장하지 않고 확인 요청만 반환한다.
+    const confirmed = body.confirm === true;
+    if (validation.requiresUserConfirmation && !confirmed) {
+      return NextResponse.json({
+        success: false,
+        requiresUserConfirmation: true,
+        message: "경력자 2명이 예비조사자로 지정되었습니다. 이 조합으로 확정하시겠습니까?",
+        recommendedDate: body.recommendedDate,
+        participantUserIds: participantIds,
+        participantNames: participants.map((user) => user.name),
+      });
+    }
     const ordered = [...participants].sort((left, right) =>
       Number(right.id === target.responsible.id) - Number(left.id === target.responsible.id) || left.id - right.id,
     );

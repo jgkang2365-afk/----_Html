@@ -984,14 +984,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     let preliminarySurveyV2Notice = null;
-    // 연계측정자(link_measurer_id)가 지정된 경우 예비조사 responsible는 연계측정자다.
-    // 보고서 담당자(measurer_id) 변경은 연계측정자가 지정된 사업장에서는 재추천을 유발하지 않는다.
+    // 예비조사 responsible는 연계측정자(link_measurer_id)가 유일한 원천이다.
+    // 보고서 담당자(measurer_id) 변경 자체는 V2 재추천 사유가 아니다.
     const responsibleChanged =
-      (Object.prototype.hasOwnProperty.call(updates, "link_measurer_id") &&
-        Number(existingLinkMeasurerId ?? null) !== Number(updatedData.link_measurer_id ?? null)) ||
-      (Object.prototype.hasOwnProperty.call(updates, "measurer_id") &&
-        updatedData.link_measurer_id == null &&
-        Number(existingMeasurerId) !== Number(updatedData.measurer_id));
+      Object.prototype.hasOwnProperty.call(updates, "link_measurer_id") &&
+      Number(existingLinkMeasurerId ?? null) !== Number(updatedData.link_measurer_id ?? null);
     const measurementDateChanged = Object.prototype.hasOwnProperty.call(updates, "measurement_date") &&
       existingDate !== updatedData.measurement_date;
     const businessTypeChanged = Object.prototype.hasOwnProperty.call(updates, "business_type") &&

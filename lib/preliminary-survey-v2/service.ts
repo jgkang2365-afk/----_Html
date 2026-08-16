@@ -69,11 +69,14 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   const users: SurveyUser[] = (userRows ?? []).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
-  // 예비조사 responsible는 연계측정자(link_measurer_id)를 우선 사용한다.
-  // 아직 연계측정자가 지정되지 않은 기존 데이터는 measurer_id(보고서 담당자)로 대체한다.
-  const responsibleId = targetRow.link_measurer_id ?? targetRow.measurer_id;
-  const responsible = users.find((user) => user.id === Number(responsibleId));
-  if (!responsible) throw new Error("RESPONSIBLE_USER_MISSING");
+  // 예비조사 responsible는 반드시 연계측정자(link_measurer_id)다.
+  // link_measurer_id가 없으면 연계측정자 미확정 상태로 보고 자동 추천을 진행하지 않는다.
+  // 보고서 담당자(measurer_id)는 responsible로 대체하지 않는다.
+  const responsibleId = targetRow.link_measurer_id;
+  const responsible = responsibleId == null
+    ? undefined
+    : users.find((user) => user.id === Number(responsibleId));
+  if (!responsible) throw new Error("LINK_MEASURER_REQUIRED");
   const classification = classifyMeasurementJournalBusiness({
     code: targetRow.code, year: Number(targetRow.year), period: targetRow.period,
     business_type: targetRow.business_type,
@@ -226,9 +229,14 @@ export async function calculateV2Recommendations(
       measurementYear: Number(row.year),
       measurementPeriod: String(row.period).trim(),
     };
-    // 예비조사 responsible는 연계측정자(link_measurer_id)를 우선 사용하고, 없으면 measurer_id(보고서 담당자)로 대체한다.
-    const responsible = userById.get(Number(row.link_measurer_id ?? row.measurer_id));
-    const fields = [!row.measurement_date && "measurement_date", !responsible && "responsible_user"].filter(Boolean) as string[];
+    // 예비조사 responsible는 반드시 연계측정자(link_measurer_id)다. 보고서 담당자(measurer_id)는 대체하지 않는다.
+    const responsible = row.link_measurer_id == null
+      ? undefined
+      : userById.get(Number(row.link_measurer_id));
+    const fields = [
+      !row.measurement_date && "measurement_date",
+      !responsible && "link_measurer",
+    ].filter(Boolean) as string[];
     if (fields.length) {
       missing.push({
         targetId: Number(row.id), code: row.code, name: row.business_name,
