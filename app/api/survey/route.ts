@@ -355,6 +355,86 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // V2 plan 연결: code+year+period 기준으로 V2 예비조사 계획을 일괄 조회한다 (N+1 방지).
+    // V2 plan이 있으면 V2 값을 표시값으로 우선 사용하고, 없으면 기존 legacy 값을 그대로 사용한다.
+    if (surveys.length > 0) {
+      const surveyKeys = surveys
+        .map((s: any) => {
+          const code = String(s.code ?? "").trim();
+          const year = Number(s.year);
+          const period = s.period ? String(s.period).trim() : null;
+          return code && Number.isFinite(year) && period ? `${code}|${year}|${period}` : null;
+        })
+        .filter((key: string | null): key is string => Boolean(key));
+
+      if (surveyKeys.length > 0) {
+        const codes = [...new Set(surveyKeys.map((key) => key.split("|")[0]))];
+        const { data: targetRows, error: targetError } = await supabase
+          .from("measurement_target_business")
+          .select("id, code, year, period")
+          .in("code", codes);
+
+        if (!targetError && targetRows) {
+          // target id -> (code|year|period) 매핑
+          const keyByTargetId = new Map<number, string>();
+          for (const target of targetRows) {
+            if (
+              target.id == null ||
+              target.code == null ||
+              target.year == null ||
+              target.period == null
+            )
+              continue;
+            const key = `${String(target.code).trim()}|${Number(target.year)}|${String(
+              target.period
+            ).trim()}`;
+            keyByTargetId.set(Number(target.id), key);
+          }
+
+          const targetIds = [...keyByTargetId.keys()];
+          const { data: v2Plans, error: v2PlanError } = targetIds.length
+            ? await supabase
+                .from("preliminary_survey_v2_plans")
+                .select("measurement_target_business_id, recommended_date, participant_names")
+                .in("measurement_target_business_id", targetIds)
+            : { data: [], error: null };
+
+          if (!v2PlanError && v2Plans) {
+            const v2PlanByKey = new Map<
+              string,
+              { recommended_date: string | null; participant_names: string[] }
+            >();
+            for (const plan of v2Plans) {
+              const key = keyByTargetId.get(Number(plan.measurement_target_business_id));
+              if (!key) continue;
+              v2PlanByKey.set(key, {
+                recommended_date: plan.recommended_date ?? null,
+                participant_names: Array.isArray(plan.participant_names)
+                  ? plan.participant_names.map((name: unknown) => String(name)).filter(Boolean)
+                  : [],
+              });
+            }
+
+            surveys = surveys.map((survey: any) => {
+              const code = String(survey.code ?? "").trim();
+              const year = Number(survey.year);
+              const period = survey.period ? String(survey.period).trim() : null;
+              const key =
+                code && Number.isFinite(year) && period ? `${code}|${year}|${period}` : null;
+              const v2Plan = key ? v2PlanByKey.get(key) : undefined;
+              if (!v2Plan) return { ...survey, has_v2_plan: false };
+              return {
+                ...survey,
+                has_v2_plan: true,
+                preliminary_survey_date: v2Plan.recommended_date,
+                preliminary_surveyors: v2Plan.participant_names,
+              };
+            });
+          }
+        }
+      }
+    }
+
     // 3. 각 사업장명별 미수금 횟수 계산
     const businessNames =
       businessInfoList
