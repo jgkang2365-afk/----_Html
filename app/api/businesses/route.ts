@@ -31,7 +31,7 @@ import {
   isValidOptionalManagerEmail,
   normalizeOptionalManagerEmail,
 } from "@/lib/business/manager-email";
-import { reconcileV2AfterTargetChange } from "@/lib/preliminary-survey-v2/service";
+import { ensureV2PlanForTarget, reconcileV2AfterTargetChange } from "@/lib/preliminary-survey-v2/service";
 import {
   getInitialProcessChanged,
   isNullableBusinessType,
@@ -997,6 +997,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     let preliminarySurveyV2Notice = null;
+    let preliminarySurveyV2Plan = null;
     // 예비조사 responsible는 연계측정자(link_measurer_id)가 유일한 원천이다.
     // 보고서 담당자(measurer_id) 변경 자체는 V2 재추천 사유가 아니다.
     const responsibleChanged =
@@ -1012,10 +1013,14 @@ export async function PATCH(request: NextRequest) {
       String(existingPeriod ?? "") !== String(updatedData.period ?? "");
     const yearChanged = Object.prototype.hasOwnProperty.call(updates, "year") &&
       Number(existingYear) !== Number(updatedData.year);
-    if (
-      responsibleChanged || measurementDateChanged || businessTypeChanged ||
-      processChangedChanged || periodChanged || yearChanged
-    ) {
+    // 실제 측정자 변경은 sequence_number 부여 전 V2 재평가 사유다. (보고서 담당자 변경은 아님)
+    const staffChanged =
+      Object.prototype.hasOwnProperty.call(updates, "collaborators") ||
+      Object.prototype.hasOwnProperty.call(updates, "daily_staff");
+    const steadyStateTriggered = measurementDateChanged || staffChanged ||
+      businessTypeChanged || processChangedChanged || periodChanged || yearChanged;
+
+    if (responsibleChanged) {
       preliminarySurveyV2Notice = await reconcileV2AfterTargetChange(
         supabase,
         Number(updatedData.id),
@@ -1028,6 +1033,11 @@ export async function PATCH(request: NextRequest) {
           yearChanged,
         },
       );
+    } else if (steadyStateTriggered) {
+      // steady-state 자동 생성/재추천: link 미확정 상태에서도 측정일+실측정자 기준으로 동작한다.
+      const steadyStateResult = await ensureV2PlanForTarget(supabase, Number(updatedData.id));
+      preliminarySurveyV2Notice = steadyStateResult.message || null;
+      preliminarySurveyV2Plan = steadyStateResult.plan || null;
     }
 
     return NextResponse.json({
@@ -1035,6 +1045,7 @@ export async function PATCH(request: NextRequest) {
       data: updatedData,
       geocodeStatus: geocodeResult?.geocoding_status || null,
       preliminarySurveyV2Notice,
+      preliminarySurveyV2Plan,
     });
 
   } catch (error: any) {
