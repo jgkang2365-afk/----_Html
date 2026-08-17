@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
 import { recommendBatch } from "./engine";
@@ -416,6 +417,188 @@ export async function reconcileV2AfterTargetChange(
     await supabase.from("preliminary_survey_v2_plans").update({
       source_measurement_date: target.measurement_date, updated_at: new Date().toISOString(),
     }).eq("id", plan.id);
+  }
+  return null;
+}
+
+// ============================================================
+// steady-state 자동 생성 흐름
+// ============================================================
+
+export type SteadyStatePlanAction =
+  | "created"        // 신규 plan 생성
+  | "replaced"       // 기존 automatic plan 재추천/갱신
+  | "unchanged"      // 기존 plan 유지 (manual 보존 또는 변경 없음)
+  | "manual_required"// 추천 가능 날짜 없음
+  | "confirmed"      // sequence_number 부여 확정 → 자동 변경 금지
+  | "blocked";       // 생성 조건 미충족 (측정일/실측정자 부족 등)
+
+export interface SteadyStatePlanResult {
+  action: SteadyStatePlanAction;
+  plan?: Record<string, any> | null;
+  /** 예·측 후보 = 추천 예비조사자 ∩ 실제 측정자 */
+  linkCandidates?: string[];
+  reason?: string | null;
+  message?: string;
+}
+
+/**
+ * steady-state: 측정일 + 실제 측정자만 있으면 V2 plan을 자동 생성/재추천한다.
+ *
+ * - 보고서 담당자(measurer_id)는 실제 측정자 판단·예비조사자 추천에 사용하지 않는다.
+ * - 예·측 후보는 "추천 예비조사자 ∩ 실제 측정자"로 계산한다.
+ * - sequence_number 부여(확정) 후에는 자동 변경하지 않는다.
+ * - 사용자가 수동 확정한 plan(plan_origin='manual')은 자동으로 덮어쓰지 않는다.
+ * - upsert(measurement_target_business_id unique)로 중복 plan이 생기지 않는다.
+ */
+export async function ensureV2PlanForTarget(supabase: Client, targetId: number): Promise<SteadyStatePlanResult> {
+  const { data: target, error: targetError } = await supabase.from("measurement_target_business")
+    .select("id, code, year, period, business_name, address, measurement_date, daily_staff, collaborators, measurer_id, link_measurer_id, business_type, process_changed, preliminary_survey_rule_type, created_at")
+    .eq("id", targetId).single();
+  if (targetError || !target) return { action: "blocked", reason: "TARGET_NOT_FOUND" };
+
+  // 확정(sequence_number 부여) 보호
+  const basePeriod = String(target.period).trim().replace("(수시)", "");
+  const { data: confirmedJournal } = await supabase.from("measurement_journal")
+    .select("id").eq("code", target.code).eq("measurement_year", Number(target.year))
+    .like("measurement_period", `${basePeriod}%`).not("sequence_number", "is", null).limit(1).maybeSingle();
+  if (confirmedJournal) return { action: "confirmed", reason: "SEQUENCE_NUMBER_CONFIRMED" };
+
+  if (!target.measurement_date) return { action: "blocked", reason: "NO_MEASUREMENT_DATE" };
+
+  const staff = collectMeasurementStaffNames({ collaborators: target.collaborators, dailyStaff: target.daily_staff });
+  if (staff.length === 0) return { action: "blocked", reason: "NO_STAFF" };
+
+  const { data: existingPlan } = await supabase.from("preliminary_survey_v2_plans")
+    .select("*").eq("measurement_target_business_id", targetId).maybeSingle();
+  if (existingPlan && existingPlan.plan_origin === "manual") {
+    return {
+      action: "unchanged", plan: existingPlan, reason: "MANUAL_PLAN_PRESERVED",
+      message: "사용자가 수동 확정한 예비조사 계획은 자동으로 덮어쓰지 않습니다.",
+    };
+  }
+
+  const [{ data: users, error: userError }, { data: journals, error: journalError }, { data: blocks, error: blockError }] = await Promise.all([
+    supabase.from("users").select("id, name, job, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
+    supabase.from("measurement_journal").select(
+      "id, code, measurement_year, measurement_period, note, updated_at, created_at",
+    ).eq("code", target.code).eq("measurement_year", Number(target.year)),
+    supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
+      .lte("start_date", target.measurement_date),
+  ]);
+  if (userError || journalError || blockError) {
+    return { action: "blocked", reason: "V2_LOAD_FAILED" };
+  }
+  const userRows: SurveyUser[] = (users ?? []).map((user: any) => ({
+    id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced),
+    active: user.is_active,
+  }));
+  const userById = new Map(userRows.map((user) => [user.id, user]));
+
+  // responsible(lead) 결정: 예·측(link)이 있으면 그것, 없으면 실제 측정자 중 첫 유효 인원.
+  // 보고서 담당자(measurer_id)는 사용하지 않는다.
+  const lead = steadyStateLeadUser(
+    target.link_measurer_id == null ? null : Number(target.link_measurer_id),
+    staff,
+    userRows,
+  );
+  if (!lead) return { action: "blocked", reason: "LEAD_STAFF_NOT_FOUND" };
+
+  const classification = classifyMeasurementJournalBusiness({
+    code: target.code, year: Number(target.year), period: target.period,
+    business_type: target.business_type,
+    preliminary_survey_rule_type: target.preliminary_survey_rule_type,
+  }, (journals ?? []) as MeasurementJournalClassificationRow[]);
+
+  const surveyTarget: SurveyTarget = {
+    id: Number(target.id), code: target.code, name: target.business_name, kind: classification.kind,
+    measurementDate: target.measurement_date, responsible: lead,
+    address: target.address, region: regionFromAddress(target.address), coordinate: null,
+    createdAt: target.created_at,
+    businessType: target.business_type, processChanged: target.process_changed,
+    classificationSource: {
+      source: classification.source, journalId: classification.journalId,
+      rawValue: classification.rawValue, measurementYear: Number(target.year),
+      measurementPeriod: String(target.period).trim(),
+    },
+  };
+
+  const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
+  const results = await recommendBatch({
+    targets: [surveyTarget],
+    experiencedUsers: userRows.filter((user) => user.experienced && user.active !== false),
+    existingAssignments: [],
+    availability: { isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`) },
+    routes: createRouteMetrics(),
+  });
+  const result = results[0];
+  if (!result) return { action: "blocked", reason: "V2_RECOMMEND_FAILED" };
+
+  const payload = [{
+    target_id: Number(target.id),
+    recommended_date: result.date,
+    responsible_user_id: lead.id,
+    experienced_reviewer_id: result.experiencedReviewer?.id ?? null,
+    participant_user_ids: result.participants.map((user) => user.id),
+    participant_names: result.participants.map((user) => user.name),
+    status: result.status,
+    plan_origin: "automatic",
+    source_measurement_date: target.measurement_date,
+    source_responsible_user_id: target.measurer_id,
+    source_rule_type: classification.kind,
+    survey_method: surveyMethodForKind(classification.kind),
+    recommendation_reason: {
+      reason: result.reason, classificationSource: classification,
+      steadyState: true, source: "auto_generate",
+    },
+    route_evidence: {},
+    warnings: result.evidence.warnings,
+  }];
+
+  const { data: saved, error: persistError } = await supabase.rpc("persist_preliminary_survey_v2_plan_batch", { p_plans: payload });
+  if (persistError) return { action: "blocked", reason: `V2_PERSIST_FAILED:${persistError.message}` };
+  const plan = Array.isArray(saved) ? saved[0] : saved;
+  if (!plan) return { action: "blocked", reason: "V2_PERSIST_EMPTY" };
+
+  const staffSet = new Set(staff);
+  const linkCandidates = (plan.participant_names || [] as unknown[])
+    .map((name: unknown) => String(name))
+    .filter((name: string) => staffSet.has(name));
+
+  const action: SteadyStatePlanAction = result.status === "manual_required"
+    ? "manual_required"
+    : existingPlan ? "replaced" : "created";
+  return {
+    action,
+    plan,
+    linkCandidates,
+    reason: result.status === "manual_required" ? "NO_AVAILABLE_DATE_THROUGH_MINUS_3" : null,
+    message: result.status === "manual_required"
+      ? "측정일 기준 -3일까지 가능한 예비조사 추천일이 없습니다. 예비조사일을 수동으로 지정해 주세요."
+      : action === "replaced"
+        ? "측정일/실제 측정자 변경으로 예비조사 계획을 자동 재추천했습니다."
+        : "예비조사 계획을 자동 생성했습니다.",
+  };
+}
+
+/**
+ * steady-state lead(예비조사 책임) 선정.
+ * - link(예·측)가 지정되어 있으면 그것을 우선 사용한다.
+ * - 아니면 실제 측정자 중 첫 번째로 유효한 사용자(측정 직원)를 사용한다.
+ * - 보고서 담당자(measurer_id)는 기준으로 사용하지 않는다.
+ */
+export function steadyStateLeadUser(
+  linkUserId: number | null,
+  staffNames: string[],
+  users: SurveyUser[],
+): SurveyUser | null {
+  if (linkUserId != null) {
+    const linked = users.find((user) => user.id === linkUserId);
+    if (linked) return linked;
+  }
+  for (const name of staffNames) {
+    const user = users.find((candidate) => candidate.name === name);
+    if (user) return user;
   }
   return null;
 }

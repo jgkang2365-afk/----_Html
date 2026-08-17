@@ -339,7 +339,7 @@ test("통합 UI: 예비조사 정보 영역이 있고 '예·측' 용어를 사�
 });
 
 test("통합 UI: plan 없음 상태를 표시하고, 조사방법을 현장/유선으로 변환한다", () => {
-  assert.match(uiSource, /아직 예비조사 계획이 없습니다/);
+  assert.match(uiSource, /예비조사 계획 생성 대기/);
   assert.match(uiSource, /=== "field" \? "현장"/);
   assert.match(uiSource, /=== "phone" \? "유선"/);
 });

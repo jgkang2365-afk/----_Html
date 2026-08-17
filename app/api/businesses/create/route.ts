@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { ensureBusinessCoordinate } from "@/lib/business-coordinates/service";
+import { ensureV2PlanForTarget } from "@/lib/preliminary-survey-v2/service";
 import {
     getInitialProcessChanged,
     isNullableBusinessType,
@@ -106,6 +107,17 @@ export async function POST(request: NextRequest) {
             console.error("[BusinessCoordinates] 간편 등록 후 좌표 처리 실패:", coordinateError instanceof Error ? coordinateError.message : "unknown");
         }
 
+        // steady-state: 생성 직후 측정일/실측정자가 있으면 V2 plan 자동 생성 (조건 미충족 시 no-op)
+        let preliminarySurveyV2Plan = null;
+        let preliminarySurveyV2Notice = null;
+        try {
+            const steadyStateResult = await ensureV2PlanForTarget(supabase, Number(insertedData.id));
+            preliminarySurveyV2Plan = steadyStateResult.plan || null;
+            preliminarySurveyV2Notice = steadyStateResult.message || null;
+        } catch (steadyStateError) {
+            console.error("[Business Create] V2 자동 생성 실패:", steadyStateError instanceof Error ? steadyStateError.message : "unknown");
+        }
+
         return NextResponse.json({
             success: true,
             businessCreated: true,
@@ -114,6 +126,8 @@ export async function POST(request: NextRequest) {
             latitude: geocodeResult?.latitude ?? null,
             longitude: geocodeResult?.longitude ?? null,
             geocodeMessage: geocodeResult?.geocoding_error || undefined,
+            preliminarySurveyV2Plan,
+            preliminarySurveyV2Notice,
         });
 
     } catch (error) {
