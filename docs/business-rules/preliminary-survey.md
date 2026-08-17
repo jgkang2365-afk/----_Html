@@ -285,8 +285,6 @@
 - 공정 변경 사업장의 예비조사 규칙
 - 추천 날짜 범위 재조정 여부
 - 예비조사 정보 통합 UI 상세 설계
-- 관리자 예외 수정 이력 저장 방식
-- 기존 V2 C 14건 운영 정비 방식
 - 실제 측정 인원의 최종 source of truth 정규화 여부
 - 기존 `daily_staff.measurer_id`의 장기적 역할 정리
 
@@ -304,7 +302,9 @@
 | 경력자 2명 확인 전 저장 금지 | PR #25 구현 |
 | 운영 DB `link_measurer_id` migration | 미적용 (배포 시 적용 필요) |
 | 예비조사 통합 정보 UI | 미구현 |
-| 기존 40건 정비 | 미수행 |
+| 관리자 예비조사 예외 정비(연결 정비) UI/API | 구현 (`feature/preliminary-survey-admin-repair`) |
+| 예비조사 예외 정비 감사기록(`preliminary_survey_exception_log`) | 구현 (migration 미적용) |
+| 기존 40건 정비 | 미수행 (운영 C 14건은 관리자가 화면에서 건별 정비 가능, 자동 정비 금지) |
 
 ---
 

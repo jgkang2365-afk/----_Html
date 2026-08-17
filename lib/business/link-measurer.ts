@@ -122,3 +122,18 @@ export function classifyLinkMeasurerCandidate(input: LinkMeasurerCandidateInput)
     staff.length === 0 ? "D" : v2InStaff.length === 1 ? "A" : v2InStaff.length >= 2 ? "B" : "C";
   return { klass, v2InStaff, staffCount: staff.length };
 }
+
+/**
+ * 관리자 예비조사 예외 정비: 정정 후 예비조사자 ∩ 실제 측정자 = 예·측 후보.
+ * 실제 측정 인원(staff)에 포함된 정정 예비조사자만 후보가 된다.
+ * 저장 시 예·측은 반드시 이 후보 중 한 명이어야 한다.
+ */
+export function repairLinkCandidates(
+  participantUserIds: number[],
+  users: Array<{ id: number; name: string }>,
+  staffNames: string[],
+): Array<{ id: number; name: string }> {
+  const staff = new Set(staffNames);
+  const idSet = new Set(participantUserIds);
+  return users.filter((user) => idSet.has(user.id) && staff.has(user.name));
+}
