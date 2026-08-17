@@ -136,3 +136,17 @@ test("관리자 예외 정비는 별도 관리자 전용 API 경로로만 수행
   assert.match(apiSource, /export async function POST/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.admin_repair_preliminary_survey_connection/);
 });
+
+// ===== 감사기록 old 예비조사자 보존 (RPC 버그 회귀 방지) =====
+test("감사기록은 변경 전 예비조사자를 old_plan 스냅샷으로 기록한다 (버그 수정)", () => {
+  const fixMigration = read("supabase/migrations/20260817_fix_admin_repair_audit_old_participants.sql");
+  // UPDATE 이전 plan 스냅샷을 old_plan에 보존
+  assert.match(fixMigration, /old_plan public\.preliminary_survey_v2_plans/);
+  assert.match(fixMigration, /old_plan := plan_row/);
+  // 감사기록 INSERT가 old_plan 값을 사용
+  assert.match(fixMigration, /COALESCE\(old_plan\.participant_user_ids, '\[\]'::jsonb\), p_participant_user_ids/);
+  assert.match(fixMigration, /COALESCE\(old_plan\.participant_names, '\[\]'::jsonb\), p_participant_names/);
+  // 변경 후 값(plan_row)은 old 값으로 사용되지 않아야 한다
+  assert.doesNotMatch(fixMigration, /COALESCE\(plan_row\.participant_user_ids, '\[\]'::jsonb\), p_participant_user_ids/);
+  assert.doesNotMatch(fixMigration, /COALESCE\(plan_row\.participant_names, '\[\]'::jsonb\), p_participant_names/);
+});
