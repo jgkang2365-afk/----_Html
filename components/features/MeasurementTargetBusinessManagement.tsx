@@ -1821,6 +1821,57 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         });
     };
 
+    const [groupConfirming, setGroupConfirming] = useState(false);
+    const [groupConfirmError, setGroupConfirmError] = useState<string | null>(null);
+
+    // 선택된 사업장만 확정한다 (제외 사업장은 무변경). 서버가 최신 데이터로 재검증 후 날짜 그룹별로 원자적으로 저장한다.
+    const handleGroupConfirm = async () => {
+        if (!groupResult || groupSelectedIds.size === 0) return;
+        const selectedByGroup = groupResult.groups
+            .map((g) => ({
+                date: g.date,
+                surveyorName: g.surveyorName,
+                ids: g.items.map((i) => i.id).filter((id) => groupSelectedIds.has(id)),
+            }))
+            .filter((g) => g.ids.length > 0);
+        const totalSelected = selectedByGroup.reduce((sum, g) => sum + g.ids.length, 0);
+        const ok = window.confirm(
+            `선택 ${totalSelected}건의 예비조사일을 확정할까요?\n` +
+            "확정된 사업장은 다음 추천 대상에서 제외되며, 제외한 사업장은 변경되지 않습니다.",
+        );
+        if (!ok) return;
+
+        setGroupConfirming(true);
+        setGroupConfirmError(null);
+        const results: Array<{ date: string; ok: boolean; failed: any[] }> = [];
+        try {
+            for (const group of selectedByGroup) {
+                const response = await fetch("/api/preliminary-survey-v2/group-confirm", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ date: group.date, targetIds: group.ids }),
+                });
+                const result = await response.json();
+                results.push({ date: group.date, ok: response.ok, failed: result.failed || [] });
+            }
+            const allOk = results.every((r) => r.ok);
+            if (allOk) {
+                alert(`${totalSelected}건 예비조사일을 확정했습니다.`);
+            } else {
+                const lines = results.flatMap((r) => r.failed.map((f: any) => `${f.code}: ${f.reason}`));
+                setGroupConfirmError(lines.length ? lines.join("\n") : "확정에 실패했습니다.");
+                return;
+            }
+            // 확정 후 추천 목록 재조회: 확정(manual plan) 대상은 추천 대상에서 제외된다.
+            await openGroupRecommendation();
+            fetchData();
+        } catch (error) {
+            setGroupConfirmError(error instanceof Error ? error.message : String(error));
+        } finally {
+            setGroupConfirming(false);
+        }
+    };
+
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
         const updates: Partial<BusinessEntry> = { measurement_date: newDate || null };
         if (newDate) {
@@ -3559,8 +3610,43 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 </div>
                             )}
 
-                            <div className="flex justify-end gap-2 pt-2">
-                                <Button variant="secondary" onClick={() => setGroupModalOpen(false)}>닫기</Button>
+                            {groupConfirmError && (
+                                <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 whitespace-pre-line">
+                                    {groupConfirmError}
+                                </div>
+                            )}
+
+                            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200">
+                                <div className="text-xs text-slate-600">
+                                    <p>
+                                        선택 {groupSelectedIds.size}건 ·{" "}
+                                        {(() => {
+                                            const dates = [...new Set(
+                                                groupResult.groups
+                                                    .filter((g) => g.items.some((i) => groupSelectedIds.has(i.id)))
+                                                    .map((g) => g.date),
+                                            )];
+                                            return dates.length ? dates.join(", ") : "-";
+                                        })()}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500">
+                                        확정은 관리자만 가능하며, 선택한 사업장만 저장됩니다. 제외한 사업장은 변경되지 않습니다.
+                                    </p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <Button variant="secondary" onClick={() => setGroupModalOpen(false)} disabled={groupConfirming}>닫기</Button>
+                                    {isAdmin ? (
+                                        <Button
+                                            variant="primary"
+                                            onClick={handleGroupConfirm}
+                                            disabled={groupConfirming || groupSelectedIds.size === 0}
+                                        >
+                                            {groupConfirming ? "확정 중..." : `선택 ${groupSelectedIds.size}건 확정`}
+                                        </Button>
+                                    ) : (
+                                        <span className="self-center text-[11px] text-slate-500">확정은 관리자만 가능합니다.</span>
+                                    )}
+                                </div>
                             </div>
                         </>
                     )}
