@@ -1751,6 +1751,76 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
     };
 
+    // === 예비조사 일정 묶음 추천 (주소 기반, READ-ONLY) ===
+    interface GroupRecItem {
+        id: number;
+        code: string;
+        name: string;
+        kind: "new" | "existing";
+        measurementDate: string;
+        address: string | null;
+        linkCandidates: string[];
+    }
+    interface GroupRecGroup {
+        date: string;
+        surveyorUserId: number | null;
+        surveyorName: string | null;
+        items: GroupRecItem[];
+    }
+    interface GroupRecBlocked {
+        id: number;
+        code: string;
+        name: string;
+        reason: string;
+    }
+    interface GroupRecOutput {
+        targetCount: number;
+        groups: GroupRecGroup[];
+        blocked: GroupRecBlocked[];
+    }
+    const [groupModalOpen, setGroupModalOpen] = useState(false);
+    const [groupLoading, setGroupLoading] = useState(false);
+    const [groupError, setGroupError] = useState<string | null>(null);
+    const [groupResult, setGroupResult] = useState<GroupRecOutput | null>(null);
+    const [groupSelectedIds, setGroupSelectedIds] = useState<Set<number>>(new Set());
+
+    const openGroupRecommendation = async () => {
+        const [filterYearText, filterPeriod] = filters.yearPeriod.split("-");
+        const year = Number(filterYearText);
+        if (!Number.isInteger(year) || !filterPeriod) {
+            alert("측정년도/주기를 먼저 선택해 주세요.");
+            return;
+        }
+        setGroupModalOpen(true);
+        setGroupLoading(true);
+        setGroupError(null);
+        setGroupResult(null);
+        setGroupSelectedIds(new Set());
+        try {
+            const response = await fetch(
+                `/api/preliminary-survey-v2/group-recommend?year=${year}&period=${encodeURIComponent(filterPeriod)}`,
+                { cache: "no-store" },
+            );
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "묶음 추천을 불러오지 못했습니다.");
+            setGroupResult(result);
+            setGroupSelectedIds(new Set((result.groups || []).flatMap((g: GroupRecGroup) => g.items.map((i) => i.id))));
+        } catch (error) {
+            setGroupError(error instanceof Error ? error.message : String(error));
+        } finally {
+            setGroupLoading(false);
+        }
+    };
+
+    const toggleGroupTarget = (id: number) => {
+        setGroupSelectedIds((previous) => {
+            const next = new Set(previous);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
         const updates: Partial<BusinessEntry> = { measurement_date: newDate || null };
         if (newDate) {
@@ -2120,6 +2190,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             onClick={() => handlePreliminarySurveyRecommendation([...selectedBusinessIds].map(Number))}
                         >
                             선택 사업장 예비조사 추천
+                        </Button>
+
+                        <Button
+                            variant="secondary"
+                            className="h-8 px-3 text-xs whitespace-nowrap"
+                            onClick={openGroupRecommendation}
+                        >
+                            예비조사 일정 추천 (묶음)
                         </Button>
 
                         {/* Right Filters */}
@@ -3390,6 +3468,103 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         </div>
                     );
                 })()}
+            </Modal>
+
+            {/* 예비조사 일정 묶음 추천 (주소 기반, READ-ONLY) */}
+            <Modal
+                isOpen={groupModalOpen}
+                onClose={() => setGroupModalOpen(false)}
+                title="예비조사 일정 추천 (묶음)"
+                size="xl"
+            >
+                <div className="space-y-4">
+                    {groupError && (
+                        <p className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs font-semibold text-red-600">
+                            {groupError}
+                        </p>
+                    )}
+                    {groupLoading && (
+                        <p className="text-sm text-slate-500">추천을 계산하는 중입니다...</p>
+                    )}
+                    {!groupLoading && groupResult && (
+                        <>
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                <p>
+                                    대상 {groupResult.targetCount}건 · 추천은 <b>미확정</b> 상태입니다. 실제 예비조사일 확정/저장은
+                                    관리자 확인 후 별도 단계에서 진행합니다.
+                                </p>
+                                <p className="mt-1">
+                                    같은 위치의 사업장도 각각 독립 항목으로 선택/제외할 수 있습니다. 신규 사업장은 하나의 활성 추천만 유지됩니다.
+                                </p>
+                            </div>
+
+                            {groupResult.groups.length === 0 && (
+                                <p className="text-sm text-slate-500">추천할 사업장이 없습니다.</p>
+                            )}
+
+                            {groupResult.groups.map((group) => (
+                                <div key={`${group.date}-${group.surveyorUserId}`} className="rounded-lg border border-blue-200 bg-blue-50/30 p-3">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <p className="text-sm font-bold text-slate-800">
+                                            {group.date} · 조사자: {group.surveyorName || "-"}
+                                        </p>
+                                        <span className="text-[11px] text-slate-500">
+                                            {group.items.filter((i) => groupSelectedIds.has(i.id)).length}/{group.items.length}건 선택
+                                        </span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        {group.items.map((item) => {
+                                            const checked = groupSelectedIds.has(item.id);
+                                            return (
+                                                <label key={item.id} className="flex items-start gap-2 rounded border border-slate-200 bg-white p-2 text-xs cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() => toggleGroupTarget(item.id)}
+                                                        className="w-3.5 h-3.5 rounded mt-0.5"
+                                                    />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-semibold text-slate-800">
+                                                            {item.code} · {item.name}
+                                                            <span className="ml-1 text-[10px] px-1 rounded bg-slate-100 text-slate-600">
+                                                                {item.kind === "new" ? "신규/현장" : "기존"}
+                                                            </span>
+                                                        </p>
+                                                        <p className="text-slate-500 truncate">{item.address || "-"}</p>
+                                                        <p className="text-slate-500">
+                                                            측정예정일 {item.measurementDate || "-"}
+                                                            {item.linkCandidates.length > 0 ? ` · 예·측 후보: ${item.linkCandidates.join(", ")}` : ""}
+                                                        </p>
+                                                    </div>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
+
+                            {groupResult.blocked.length > 0 && (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                                    <p className="text-xs font-bold text-amber-800 mb-1">추천 제외</p>
+                                    <div className="space-y-0.5">
+                                        {groupResult.blocked.map((item) => (
+                                            <p key={item.id} className="text-xs text-amber-700">
+                                                {item.code} · {item.name} —{" "}
+                                                {item.reason === "NO_AVAILABLE_DATE_THROUGH_MINUS_3"
+                                                    ? "측정일 기준 -3일까지 가능한 추천일이 없습니다."
+                                                    : "예비조사자를 확인할 수 없습니다."}
+                                            </p>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex justify-end gap-2 pt-2">
+                                <Button variant="secondary" onClick={() => setGroupModalOpen(false)}>닫기</Button>
+                            </div>
+                        </>
+                    )}
+                </div>
             </Modal>
 
             {/* New Registration Modal */}

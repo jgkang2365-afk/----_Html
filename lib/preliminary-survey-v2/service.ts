@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
+import { recommendationDates } from "./calendar";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
 import {
@@ -601,4 +602,104 @@ export function steadyStateLeadUser(
     if (user) return user;
   }
   return null;
+}
+
+// ============================================================
+// 주소 기반 예비조사 일정 묶음 추천 (대상 로딩)
+// ============================================================
+
+export interface GroupRecommendationLoadOptions {
+  year?: number;
+  period?: string;
+  targetIds?: number[];
+}
+
+/**
+ * 묶음 추천 입력 데이터 로드 (READ-ONLY).
+ * - 확정(sequence_number 부여) 대상은 제외한다.
+ * - 좌표는 business_info(권위 저장소)를 최우선 사용하고, 없으면 행정구역(region) fallback.
+ * - 가능한 예비조사일은 기존 추천일 규칙(recommendationDates)으로 계산.
+ * - lead는 예·측(link) 우선, 없으면 실측정자 중 첫 유효 인원. 보고서 담당자는 미사용.
+ */
+export async function loadGroupRecommendationTargets(
+  supabase: Client,
+  options: GroupRecommendationLoadOptions,
+) {
+  let query = supabase.from("measurement_target_business")
+    .select("id, code, year, period, business_name, address, measurement_date, daily_staff, collaborators, measurer_id, link_measurer_id, business_type, process_changed, preliminary_survey_rule_type, created_at");
+  if (options.targetIds?.length) {
+    query = query.in("id", options.targetIds);
+  } else {
+    if (options.year != null) query = query.eq("year", options.year);
+    if (options.period != null) query = query.eq("period", options.period);
+  }
+  const { data: targets, error: targetError } = await query;
+  if (targetError) throw new Error(`GROUP_TARGET_QUERY_FAILED:${targetError.message}`);
+
+  const codes = [...new Set((targets ?? []).map((target: any) => target.code))];
+  const [{ data: users, error: userError }, { data: infoRows, error: infoError }, { data: journalRows, error: journalError }, { data: confirmedRows, error: confirmedError }] = await Promise.all([
+    supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
+    codes.length ? supabase.from("business_info").select("code, latitude, longitude, geocoding_status").in("code", codes)
+      : Promise.resolve({ data: [], error: null }),
+    codes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", codes)
+      : Promise.resolve({ data: [], error: null }),
+    codes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes).not("sequence_number", "is", null)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (userError || infoError || journalError || confirmedError) {
+    throw new Error("GROUP_LOAD_FAILED");
+  }
+
+  const confirmedKeys = new Set((confirmedRows ?? []).map((row: any) =>
+    `${row.code}|${row.measurement_year}|${String(row.measurement_period).trim().replace("(수시)", "")}`,
+  ));
+  const coordinateByCode = new Map((infoRows ?? []).map((row: any) => [row.code, {
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+  }]));
+  const userRows: SurveyUser[] = (users ?? []).map((user: any) => ({
+    id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced),
+    active: user.is_active,
+  }));
+
+  const result = (targets ?? []).flatMap((target: any) => {
+    if (confirmedKeys.has(`${target.code}|${target.year}|${String(target.period).trim().replace("(수시)", "")}`)) {
+      return [];
+    }
+    if (!target.measurement_date) return [];
+    const staff = collectMeasurementStaffNames({ collaborators: target.collaborators, dailyStaff: target.daily_staff });
+    if (staff.length === 0) return [];
+    const lead = steadyStateLeadUser(
+      target.link_measurer_id == null ? null : Number(target.link_measurer_id),
+      staff,
+      userRows,
+    );
+    const coordinate = coordinateByCode.get(target.code);
+    const validCoordinate = coordinate && Number.isFinite(coordinate.latitude) && Number.isFinite(coordinate.longitude)
+      && coordinate.latitude >= 33 && coordinate.latitude <= 39
+      && coordinate.longitude >= 124 && coordinate.longitude <= 132
+      ? coordinate
+      : null;
+    const classification = classifyMeasurementJournalBusiness({
+      code: target.code, year: Number(target.year), period: target.period,
+      business_type: target.business_type,
+      preliminary_survey_rule_type: target.preliminary_survey_rule_type,
+    }, (journalRows ?? []) as MeasurementJournalClassificationRow[]);
+    return [{
+      id: Number(target.id),
+      code: target.code,
+      name: target.business_name,
+      kind: classification.kind,
+      measurementDate: target.measurement_date,
+      address: target.address,
+      region: regionFromAddress(target.address),
+      coordinate: validCoordinate,
+      staffNames: staff,
+      leadUserId: lead?.id ?? null,
+      leadName: lead?.name ?? null,
+      candidateDates: recommendationDates(target.measurement_date).map((item) => item.date),
+    }];
+  });
+
+  return result;
 }
