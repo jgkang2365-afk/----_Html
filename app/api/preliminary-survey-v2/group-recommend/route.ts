@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { createClient } from "@/lib/supabase/server";
-import { loadGroupRecommendationTargets } from "@/lib/preliminary-survey-v2/service";
+import { loadGroupRecommendationTargets, loadV2AutomationPolicy } from "@/lib/preliminary-survey-v2/service";
+import { isPreliminarySurveyV2AutomationEnabled } from "@/lib/preliminary-survey-v2/policy";
 import { buildGroupRecommendation } from "@/lib/preliminary-survey-v2/group-recommendation";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
  * - 이 API는 SELECT + 순수 계산만 수행하며 운영 데이터를 저장/변경하지 않는다.
  * - 확정(sequence_number 부여) 사업장은 제외된다.
  * - 추천과 확정은 분리: 여기서는 추천만 반환한다.
+ * - 예비조사 자동추천 정책이 OFF이면 추천을 계산하지 않고 enabled=false를 반환한다.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -26,11 +28,21 @@ export async function GET(request: NextRequest) {
       ? searchParams.get("targetIds")!.split(",").map(Number).filter(Number.isFinite)
       : undefined;
 
+    const supabase = await createClient();
+    const policy = await loadV2AutomationPolicy(supabase);
+    if (!isPreliminarySurveyV2AutomationEnabled(policy)) {
+      return NextResponse.json({
+        enabled: false,
+        reason: "POLICY_DISABLED",
+        message: "예비조사 자동추천 정책이 중지되어 있습니다.",
+        groups: [], blocked: [], targetCount: 0,
+      });
+    }
+
     if (!targetIds?.length && (year == null || !Number.isInteger(year) || !period)) {
       return NextResponse.json({ error: "INVALID_FILTER" }, { status: 400 });
     }
 
-    const supabase = await createClient();
     const targets = await loadGroupRecommendationTargets(supabase, {
       year: year ?? undefined,
       period: period ?? undefined,
@@ -41,6 +53,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       generatedAt: new Date().toISOString(),
       targetCount: targets.length,
+      enabled: true,
       ...output,
     });
   } catch (error) {

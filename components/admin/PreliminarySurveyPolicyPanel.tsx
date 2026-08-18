@@ -124,7 +124,7 @@ export function PreliminarySurveyPolicyPanel({
   if (!userLoading && !isAdmin) {
     return (
       <Card className="p-6">
-        <h2 className="text-xl font-bold text-text-900">공정변경 예비조사 적용</h2>
+        <h2 className="text-xl font-bold text-text-900">예비조사 자동추천 정책</h2>
         <Alert variant="error" className="mt-4">
           정책 조회 및 변경은 관리자만 할 수 있습니다.
         </Alert>
@@ -136,7 +136,7 @@ export function PreliminarySurveyPolicyPanel({
     <Card className="p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-text-900">공정변경 예비조사 적용</h2>
+          <h2 className="text-xl font-bold text-text-900">예비조사 자동추천 정책</h2>
           <p className="mt-1 text-sm text-text-700">
             공정변경 정보의 저장·관리는 정책 상태와 관계없이 계속할 수 있습니다.
           </p>
@@ -147,9 +147,9 @@ export function PreliminarySurveyPolicyPanel({
       </div>
 
       <div className="mt-5 space-y-3 rounded-lg border border-surface-100 bg-surface-50 p-4 text-sm text-text-700">
-        <p><strong>OFF:</strong> 공정변경 정보는 저장·관리되지만 예비조사 추천에는 반영되지 않습니다.</p>
-        <p><strong>ON:</strong> 설정된 적용 시작 기준 이후부터 예비조사 추천에서 정책이 적용됩니다.</p>
-        <p>정책 ON/OFF 변경만으로 과거 예비조사 계획을 자동 재계산하지 않습니다.</p>
+        <p><strong>OFF:</strong> 예비조사 V2 자동추천 계열 전체(자동 생성·재추천·추천일/예비조사자/예·측 계산·묶음 추천·확정)가 중지됩니다. 기존 V2 데이터는 그대로 유지되며 기존 방식으로 운영합니다.</p>
+        <p><strong>ON:</strong> 설정된 적용 시작 기준 이후부터 예비조사 자동추천이 재개됩니다.</p>
+        <p>정책 ON/OFF 변경만으로 과거 예비조사 계획을 자동 재계산·삭제하지 않습니다.</p>
       </div>
 
       {error && <Alert variant="error" className="mt-4">{error}</Alert>}
@@ -167,7 +167,7 @@ export function PreliminarySurveyPolicyPanel({
               disabled={saving}
               className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
             />
-            공정변경 예비조사 정책 사용
+            예비조사 자동추천 정책 사용
           </label>
 
           <div className="grid gap-4 md:grid-cols-3">

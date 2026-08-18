@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { confirmGroupRecommendation } from "@/lib/preliminary-survey-v2/service";
+import { confirmGroupRecommendation, loadV2AutomationPolicy } from "@/lib/preliminary-survey-v2/service";
+import { isPreliminarySurveyV2AutomationEnabled } from "@/lib/preliminary-survey-v2/policy";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
  * - 확정 직전 현재 DB를 다시 읽어 sequence_number / manual plan / 실제 측정자 / 측정일 변경을 재검증한다.
  * - 원자적으로 처리되며(전부 성공 또는 전부 rollback), 실패 시 사업장별 사유를 반환한다.
  * - 제외된 사업장은 변경하지 않는다.
+ * - 예비조사 자동추천 정책 OFF이면 저장하지 않고 차단한다.
  */
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -20,6 +22,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "관리자만 묶음 추천을 확정할 수 있습니다." }, { status: 403 });
   }
   try {
+    const supabase = await createClient();
+    const policy = await loadV2AutomationPolicy(supabase);
+    if (!isPreliminarySurveyV2AutomationEnabled(policy)) {
+      return NextResponse.json({
+        error: "PRELIMINARY_SURVEY_AUTOMATION_DISABLED",
+        message: "예비조사 자동추천 정책이 중지되어 묶음 추천 확정을 저장할 수 없습니다.",
+      }, { status: 403 });
+    }
+
     const body = await request.json();
     const date = typeof body.date === "string" ? body.date : null;
     const targetIds = Array.isArray(body.targetIds) ? body.targetIds.map(Number).filter(Number.isFinite) : [];
@@ -37,7 +48,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "중복된 사업장이 포함되어 있습니다." }, { status: 400 });
     }
 
-    const supabase = await createClient();
     const result = await confirmGroupRecommendation(supabase, { date, targetIds, linkOverrides });
 
     if (result.failed.length > 0) {

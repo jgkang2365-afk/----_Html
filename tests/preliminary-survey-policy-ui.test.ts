@@ -24,8 +24,9 @@ test("정책 / 지정한계 메뉴는 정책을 먼저 노출한다", () => {
 test("정책 화면은 OFF 설명과 ON 시작값 검증을 제공한다", () => {
   const panel = read("components/admin/PreliminarySurveyPolicyPanel.tsx");
 
-  assert.match(panel, /공정변경 정보는 저장·관리되지만 예비조사 추천에는 반영되지 않습니다/);
-  assert.match(panel, /정책 ON\/OFF 변경만으로 과거 예비조사 계획을 자동 재계산하지 않습니다/);
+  assert.match(panel, /예비조사 V2 자동추천 계열 전체/);
+  assert.match(panel, /기존 방식으로 운영합니다/);
+  assert.match(panel, /정책 ON\/OFF 변경만으로 과거 예비조사 계획을 자동 재계산/);
   assert.match(panel, /policy\.enabled && \(/);
   assert.match(panel, /적용 시작 연도, 주기, 측정일을 모두 입력해야 합니다/);
   assert.match(panel, /disabled=\{!policy\.enabled \|\| saving\}/);
