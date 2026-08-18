@@ -637,7 +637,7 @@ export async function loadGroupRecommendationTargets(
   if (targetError) throw new Error(`GROUP_TARGET_QUERY_FAILED:${targetError.message}`);
 
   const codes = [...new Set((targets ?? []).map((target: any) => target.code))];
-  const [{ data: users, error: userError }, { data: infoRows, error: infoError }, { data: journalRows, error: journalError }, { data: confirmedRows, error: confirmedError }] = await Promise.all([
+  const [{ data: users, error: userError }, { data: infoRows, error: infoError }, { data: journalRows, error: journalError }, { data: confirmedRows, error: confirmedError }, { data: planRows, error: planError }] = await Promise.all([
     supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
     codes.length ? supabase.from("business_info").select("code, latitude, longitude, geocoding_status").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
@@ -645,14 +645,21 @@ export async function loadGroupRecommendationTargets(
       : Promise.resolve({ data: [], error: null }),
     codes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes).not("sequence_number", "is", null)
       : Promise.resolve({ data: [], error: null }),
+    (targets ?? []).length ? supabase.from("preliminary_survey_v2_plans").select("measurement_target_business_id, plan_origin")
+      .in("measurement_target_business_id", (targets ?? []).map((target: any) => Number(target.id)))
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  if (userError || infoError || journalError || confirmedError) {
+  if (userError || infoError || journalError || confirmedError || planError) {
     throw new Error("GROUP_LOAD_FAILED");
   }
 
   const confirmedKeys = new Set((confirmedRows ?? []).map((row: any) =>
     `${row.code}|${row.measurement_year}|${String(row.measurement_period).trim().replace("(수시)", "")}`,
   ));
+  // 사용자가 확정한 manual plan 대상은 재추천 대상에서 제외한다 (묶음 확정 직후 중복 재추천 방지).
+  const manualPlanTargetIds = new Set((planRows ?? [])
+    .filter((row: any) => row.plan_origin === "manual")
+    .map((row: any) => Number(row.measurement_target_business_id)));
   const coordinateByCode = new Map((infoRows ?? []).map((row: any) => [row.code, {
     latitude: Number(row.latitude),
     longitude: Number(row.longitude),
@@ -664,6 +671,9 @@ export async function loadGroupRecommendationTargets(
 
   const result = (targets ?? []).flatMap((target: any) => {
     if (confirmedKeys.has(`${target.code}|${target.year}|${String(target.period).trim().replace("(수시)", "")}`)) {
+      return [];
+    }
+    if (manualPlanTargetIds.has(Number(target.id))) {
       return [];
     }
     if (!target.measurement_date) return [];
@@ -702,4 +712,205 @@ export async function loadGroupRecommendationTargets(
   });
 
   return result;
+}
+
+// ============================================================
+// 묶음 추천 확정(저장)
+// ============================================================
+
+export interface GroupConfirmInput {
+  date: string;
+  targetIds: number[];
+  /** 사업장별 예·측 후보가 2명 이상일 때 사용자가 선택한 link_measurer_id */
+  linkOverrides?: Record<number, number>;
+}
+
+export interface GroupConfirmFailure {
+  targetId: number;
+  code: string;
+  reason: string;
+}
+
+export interface GroupConfirmResult {
+  confirmed: Array<{ targetId: number; code: string }>;
+  failed: GroupConfirmFailure[];
+  /** true: 원자적(전부 성공 또는 전부 rollback) */
+  atomic: boolean;
+}
+
+const CONFIRM_FAILURE_MESSAGES: Record<string, string> = {
+  SEQUENCE_NUMBER_CONFIRMED: "이미 측정일지 연번이 부여되어 자동 변경할 수 없습니다. 관리자 예외 정비만 가능합니다.",
+  MANUAL_PLAN_PRESERVED: "수동 확정된 예비조사 계획은 자동으로 덮어쓰지 않습니다.",
+  STALE_MEASUREMENT_DATE: "측정일이 변경되어 추천 날짜가 더 이상 유효하지 않습니다.",
+  NO_STAFF: "실제 측정자를 확인할 수 없습니다.",
+  NO_SURVEYOR: "예비조사자를 확인할 수 없습니다.",
+  NO_EXPERIENCED_REVIEWER: "최초/신규 사업장에 배정할 경력 예비조사자가 없습니다.",
+  LINK_CANDIDATES_ZERO: "실제 측정자가 변경되어 예·측 조건을 만족하지 않습니다.",
+  LINK_CANDIDATES_MULTIPLE_REQUIRE_SELECTION: "예·측 후보가 여러 명이므로 예·측을 선택해 주세요.",
+  LINK_MEASURER_INVALID: "선택한 예·측이 예비조사자 또는 실제 측정 인원에 포함되지 않습니다.",
+  TARGET_NOT_FOUND: "측정 대상 사업장을 찾을 수 없습니다.",
+};
+
+/**
+ * 묶음 추천 확정.
+ *
+ * - 클라이언트가 보낸 date/participants/link를 그대로 신뢰하지 않고 서버가 최신 데이터로 재검증한다.
+ * - 선택된 사업장만 반영 대상이며, 제외된 사업장은 건드리지 않는다.
+ * - 사전 검증에서 실패한 사업장이 있으면 아무것도 저장하지 않는다 (부분 저장 없음).
+ * - 전부 유효하면 원자적 RPC(confirm_preliminary_survey_group)로 저장한다.
+ */
+export async function confirmGroupRecommendation(
+  supabase: Client,
+  input: GroupConfirmInput,
+): Promise<GroupConfirmResult> {
+  const targetIds = [...new Set(input.targetIds.map(Number).filter(Number.isFinite))];
+  if (targetIds.length === 0) {
+    return { confirmed: [], failed: [{ targetId: 0, code: "GROUP", reason: "EMPTY_TARGETS" }], atomic: true };
+  }
+
+  const { data: targets, error: targetError } = await supabase.from("measurement_target_business").select(
+    "id, code, year, period, measurement_date, daily_staff, collaborators, measurer_id, link_measurer_id, business_type, process_changed, preliminary_survey_rule_type",
+  ).in("id", targetIds);
+  if (targetError) throw new Error("CONFIRM_LOAD_FAILED");
+
+  const targetCodes = [...new Set((targets ?? []).map((target: any) => target.code))];
+  const [{ data: users, error: userError }, { data: journalRows, error: journalError }, { data: confirmedRows, error: confirmedError }, { data: planRows, error: planError }] = await Promise.all([
+    supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
+    targetCodes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", targetCodes)
+      : Promise.resolve({ data: [], error: null }),
+    targetCodes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", targetCodes).not("sequence_number", "is", null)
+      : Promise.resolve({ data: [], error: null }),
+    supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id, plan_origin, survey_method").in("measurement_target_business_id", targetIds),
+  ]);
+  if (userError || journalError || confirmedError || planError) {
+    throw new Error("CONFIRM_LOAD_FAILED");
+  }
+
+  const userRows: SurveyUser[] = (users ?? []).map((user: any) => ({
+    id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced),
+    active: user.is_active,
+  }));
+  const userById = new Map(userRows.map((user) => [user.id, user]));
+  const confirmedKeys = new Set((confirmedRows ?? []).map((row: any) =>
+    `${row.code}|${row.measurement_year}|${String(row.measurement_period).trim().replace("(수시)", "")}`,
+  ));
+  const planByTarget = new Map((planRows ?? []).map((row: any) => [Number(row.measurement_target_business_id), row]));
+  const targetById = new Map((targets ?? []).map((target: any) => [Number(target.id), target]));
+
+  const payloads: any[] = [];
+  const failed: GroupConfirmFailure[] = [];
+
+  for (const targetId of targetIds) {
+    const target = targetById.get(targetId);
+    if (!target) {
+      failed.push({ targetId, code: String(targetId), reason: "TARGET_NOT_FOUND" });
+      continue;
+    }
+    if (confirmedKeys.has(`${target.code}|${target.year}|${String(target.period).trim().replace("(수시)", "")}`)) {
+      failed.push({ targetId, code: target.code, reason: "SEQUENCE_NUMBER_CONFIRMED" });
+      continue;
+    }
+    const existingPlan = planByTarget.get(targetId);
+    if (existingPlan?.plan_origin === "manual") {
+      failed.push({ targetId, code: target.code, reason: "MANUAL_PLAN_PRESERVED" });
+      continue;
+    }
+    const staff = collectMeasurementStaffNames({ collaborators: target.collaborators, dailyStaff: target.daily_staff });
+    if (staff.length === 0) {
+      failed.push({ targetId, code: target.code, reason: "NO_STAFF" });
+      continue;
+    }
+    const validDates = new Set(recommendationDates(target.measurement_date).map((item) => item.date));
+    if (!validDates.has(input.date)) {
+      failed.push({ targetId, code: target.code, reason: "STALE_MEASUREMENT_DATE" });
+      continue;
+    }
+    const lead = steadyStateLeadUser(
+      target.link_measurer_id == null ? null : Number(target.link_measurer_id),
+      staff,
+      userRows,
+    );
+    if (!lead) {
+      failed.push({ targetId, code: target.code, reason: "NO_SURVEYOR" });
+      continue;
+    }
+    const classification = classifyMeasurementJournalBusiness({
+      code: target.code, year: Number(target.year), period: target.period,
+      business_type: target.business_type,
+      preliminary_survey_rule_type: target.preliminary_survey_rule_type,
+    }, (journalRows ?? []) as MeasurementJournalClassificationRow[]);
+
+    const participants = [lead];
+    let reviewerId: number | null = null;
+    if (classification.kind === "new" && !lead.experienced) {
+      const reviewer = userRows
+        .filter((user) => user.experienced && user.active !== false && user.id !== lead.id)
+        .sort((left, right) => left.id - right.id)[0];
+      if (!reviewer) {
+        failed.push({ targetId, code: target.code, reason: "NO_EXPERIENCED_REVIEWER" });
+        continue;
+      }
+      participants.push(reviewer);
+      reviewerId = reviewer.id;
+    }
+
+    const staffSet = new Set(staff);
+    const candidateNames = participants.map((user) => user.name).filter((name) => staffSet.has(name));
+    let linkId: number | null = input.linkOverrides?.[targetId] ?? null;
+    if (linkId != null) {
+      const linkUser = userById.get(linkId);
+      if (!linkUser || !participants.some((user) => user.id === linkId) || !staffSet.has(linkUser.name)) {
+        failed.push({ targetId, code: target.code, reason: "LINK_MEASURER_INVALID" });
+        continue;
+      }
+    } else if (candidateNames.length === 1) {
+      linkId = participants.find((user) => user.name === candidateNames[0])?.id ?? null;
+      if (linkId == null) {
+        failed.push({ targetId, code: target.code, reason: "LINK_MEASURER_INVALID" });
+        continue;
+      }
+    } else if (candidateNames.length === 0) {
+      failed.push({ targetId, code: target.code, reason: "LINK_CANDIDATES_ZERO" });
+      continue;
+    } else {
+      failed.push({ targetId, code: target.code, reason: "LINK_CANDIDATES_MULTIPLE_REQUIRE_SELECTION" });
+      continue;
+    }
+
+    payloads.push({
+      target_id: targetId,
+      date: input.date,
+      participant_user_ids: participants.map((user) => user.id),
+      participant_names: participants.map((user) => user.name),
+      reviewer_user_id: reviewerId,
+      link_measurer_id: linkId,
+    });
+  }
+
+  // 사전 검증 실패가 하나라도 있으면 저장하지 않는다 (원자적: 전부 rollback).
+  if (failed.length > 0) {
+    return {
+      confirmed: [],
+      failed: failed.map((item) => ({ ...item, reason: CONFIRM_FAILURE_MESSAGES[item.reason] ?? item.reason })),
+      atomic: true,
+    };
+  }
+
+  const { data, error } = await supabase.rpc("confirm_preliminary_survey_group", { p_plans: payloads });
+  if (error) {
+    return {
+      confirmed: [],
+      failed: [{ targetId: 0, code: "GROUP", reason: error.message }],
+      atomic: true,
+    };
+  }
+  const saved = Array.isArray(data) ? data : [];
+  return {
+    confirmed: saved.map((plan: any) => ({
+      targetId: Number(plan.measurement_target_business_id),
+      code: targetById.get(Number(plan.measurement_target_business_id))?.code ?? String(plan.measurement_target_business_id),
+    })),
+    failed: [],
+    atomic: true,
+  };
 }
