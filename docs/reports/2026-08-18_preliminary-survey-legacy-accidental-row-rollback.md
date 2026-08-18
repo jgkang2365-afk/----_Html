@@ -108,6 +108,31 @@
 - 2026-08-18에 이번 5건 외 legacy 행이 함께 생성됨:
   - H0523(id 688), H0524(id 689): 05:39~05:40 UTC (정책 OFF 직전).
   - **H0508(id 697/699/701)**: 동일 target에 08-03 측정일 2건 + 08-25 1건이 같은 저장 흐름에서 생성.
-    정상 다중일정 가능성 또는 중복 생성 여부를 별도 확인할 필요가 있다.
+
+## H0508 중복 행 정리 (추가 작업)
+
+- H0508 target(남영물류산업 YAN5 Manless Mezzanine, id 698)은 08-03 ~ 08-25 이틀 측정(daily_staff 2건).
+- 08-18 저장 흐름에서 legacy 8-03이 2행(id 697, id 699)으로 중복 생성됨.
+- READ-ONLY 비교:
+  - id 697: 08-03, actual_measurer `강종구, 이태환` (08-14 검토보고서의 H0508 실제 측정자와 일치)
+  - id 699: 08-03, actual_measurer `강종구` (중복)
+- 사용자 승인 후 **id 699 개별 DELETE**, id 697 유지.
+- 삭제 후 검증: H0508 legacy = **08-03 1건(id 697) + 08-25 1건(id 701)**.
+- id 699의 캘린더 이벤트는 `syncBusinessToCalendar` orphan reconciliation으로 정리.
+- measurement_target_business, measurement_journal, V2 plan, 정책 OFF — 무변경.
+
+## 기준선 최종 확인
+
+| 항목 | 상태 |
+|---|---|
+| V2 plan 총 43건 | 유지 (auto 26 / manual 17) |
+| link set 18 / null 25 | 유지 |
+| audit 15 | 유지 |
+| measurement_target_business | 무변경 |
+| manual plan 17건 | 무변경 |
+| H0525 baseline | 무변경 |
+| legacy `preliminary_survey` | H0508 중복 1행(id 699)만 정리 |
+| 정책 `process_changed_preliminary_survey.enabled` | `false` 유지 |
+
 - 자동추천 정책 OFF는 유지되며, 구버전 서버에 의한 추가 오자동 생성을 막으려면
   최신 main 배포 유지가 필요하다.
