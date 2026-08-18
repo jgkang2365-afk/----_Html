@@ -31,7 +31,8 @@ import {
   isValidOptionalManagerEmail,
   normalizeOptionalManagerEmail,
 } from "@/lib/business/manager-email";
-import { ensureV2PlanForTarget, reconcileV2AfterTargetChange } from "@/lib/preliminary-survey-v2/service";
+import { ensureV2PlanForTarget, loadV2AutomationPolicy, reconcileV2AfterTargetChange } from "@/lib/preliminary-survey-v2/service";
+import { isPreliminarySurveyV2AutomationEnabled } from "@/lib/preliminary-survey-v2/policy";
 import {
   getInitialProcessChanged,
   isNullableBusinessType,
@@ -396,9 +397,19 @@ export async function GET(request: NextRequest) {
 
     console.log(`[API] 조회된 사업장 수: ${result.length}, 요청 조건: year=${year}, period=${period}`);
 
+    // 예비조사 V2 자동추천 상위 정책 상태 (UI 중지 안내용)
+    let preliminarySurveyV2AutomationEnabled = true;
+    try {
+      const automationPolicy = await loadV2AutomationPolicy(supabase);
+      preliminarySurveyV2AutomationEnabled = isPreliminarySurveyV2AutomationEnabled(automationPolicy);
+    } catch (policyError) {
+      console.warn("[Businesses] 자동추천 정책 조회 실패(기본 ON 처리):", policyError instanceof Error ? policyError.message : "unknown");
+    }
+
     return NextResponse.json({
       businesses: result,
-      count: result.length
+      count: result.length,
+      preliminarySurveyV2AutomationEnabled,
     });
 
   } catch (error) {

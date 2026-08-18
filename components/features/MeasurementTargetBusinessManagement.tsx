@@ -318,6 +318,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [filteredData, setFilteredData] = useState<BusinessEntry[]>([]);
     const dataFetchInFlightRef = useRef(false);
     const [recommendingTargetIds, setRecommendingTargetIds] = useState<Set<number>>(new Set());
+    // 예비조사 V2 자동추천 상위 정책 상태 (기본 ON. OFF면 자동추천 계열 중지)
+    const [automationEnabled, setAutomationEnabled] = useState(true);
 
 
     // 국고 일괄 조회를 위한 상태 정의
@@ -1095,6 +1097,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             const result = await response.json();
             const fetchedData: BusinessEntry[] = result.businesses || [];
 
+            // 예비조사 V2 자동추천 상위 정책 상태 (OFF면 자동추천 중지 안내)
+            setAutomationEnabled(result.preliminarySurveyV2AutomationEnabled !== false);
+
             setData(fetchedData);
             if (options?.silent) {
                 setSelectedBusinessIds((previous) =>
@@ -1803,6 +1808,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             );
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || "묶음 추천을 불러오지 못했습니다.");
+            if (result.enabled === false) {
+                setGroupError(result.message || "예비조사 자동추천 정책이 중지되어 있습니다.");
+                setGroupResult(null);
+                return;
+            }
             setGroupResult(result);
             setGroupSelectedIds(new Set((result.groups || []).flatMap((g: GroupRecGroup) => g.items.map((i) => i.id))));
         } catch (error) {
@@ -2247,6 +2257,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             variant="secondary"
                             className="h-8 px-3 text-xs whitespace-nowrap"
                             onClick={openGroupRecommendation}
+                            disabled={!automationEnabled}
+                            title={automationEnabled ? "주소 기반 예비조사 일정 묶음 추천" : "예비조사 자동추천 정책이 중지되어 있습니다."}
                         >
                             예비조사 일정 추천 (묶음)
                         </Button>
@@ -2902,9 +2914,27 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         );
                                     })()}
                                 </div>
+                                {!automationEnabled && (
+                                    <div className="rounded-md bg-slate-100 border border-slate-200 px-3 py-2 space-y-0.5">
+                                        <p className="text-xs font-semibold text-slate-700">예비조사 자동추천 중지</p>
+                                        <p className="text-[11px] text-slate-500">
+                                            예비조사 자동추천 정책이 중지되어 있습니다. 기존 방식으로 예비조사를 관리합니다. (기존 V2 계획은 그대로 유지됩니다)
+                                        </p>
+                                    </div>
+                                )}
                                 {(() => {
                                     const plan = editForm.preliminary_survey_v2_plan;
                                     if (!plan) {
+                                        if (!automationEnabled) {
+                                            return (
+                                                <div className="space-y-1">
+                                                    <p className="text-sm text-slate-600">예비조사 자동추천 중지 상태</p>
+                                                    <p className="text-xs text-amber-700">
+                                                        예비조사 자동추천 정책이 중지되어 자동으로 계획을 만들지 않습니다. 기존 방식으로 예비조사를 관리합니다.
+                                                    </p>
+                                                </div>
+                                            );
+                                        }
                                         const noStaff = actualMeasurerNames(editForm).length === 0;
                                         const noDate = !editForm.measurement_date;
                                         return (

@@ -9,6 +9,7 @@ import {
   PROCESS_CHANGED_POLICY_OFF,
   shouldApplyProcessChangedPolicy,
   targetChangeRecommendationPolicy,
+  isPreliminarySurveyV2AutomationEnabled,
   type ProcessChangedPolicySettings,
 } from "./policy";
 import { createRouteMetrics } from "./route-metrics";
@@ -372,6 +373,11 @@ export async function reconcileV2AfterTargetChange(
     yearChanged?: boolean;
   },
 ) {
+  // 예비조사 자동추천 상위 정책 OFF이면 재추천/재계산을 수행하지 않는다. 기존 plan은 보존된다.
+  const policy = await loadV2AutomationPolicy(supabase);
+  if (!isPreliminarySurveyV2AutomationEnabled(policy)) {
+    return { message: "예비조사 자동추천 정책이 중지되어 V2 재추천을 실행하지 않았습니다. 기존 방식으로 운영합니다." };
+  }
   const { data: plan } = await supabase.from("preliminary_survey_v2_plans").select("*")
     .eq("measurement_target_business_id", targetId).maybeSingle();
   if (!plan) return null;
@@ -432,6 +438,7 @@ export type SteadyStatePlanAction =
   | "unchanged"      // 기존 plan 유지 (manual 보존 또는 변경 없음)
   | "manual_required"// 추천 가능 날짜 없음
   | "confirmed"      // sequence_number 부여 확정 → 자동 변경 금지
+  | "paused"         // 예비조사 자동추천 정책 OFF → 자동 생성/재추천 중지
   | "blocked";       // 생성 조건 미충족 (측정일/실측정자 부족 등)
 
 export interface SteadyStatePlanResult {
@@ -444,6 +451,27 @@ export interface SteadyStatePlanResult {
 }
 
 /**
+ * 예비조사 V2 자동추천 상위 정책(enabled)을 로드한다.
+ * 정책 테이블이 없으면 OFF로 안전 처리한다.
+ */
+export async function loadV2AutomationPolicy(supabase: Client): Promise<ProcessChangedPolicySettings> {
+  const { data, error } = await supabase.from("preliminary_survey_policy_settings")
+    .select("enabled, effective_start_year, effective_start_period, effective_start_measurement_date")
+    .eq("policy_key", "process_changed_preliminary_survey")
+    .maybeSingle();
+  const policyTableMissing = error?.code === "42P01" || error?.code === "PGRST205";
+  if (error && !policyTableMissing) throw new Error(`V2_AUTOMATION_POLICY_QUERY_FAILED:${error.message}`);
+  if (!data) return PROCESS_CHANGED_POLICY_OFF;
+  return {
+    enabled: data.enabled === true,
+    effectiveStartYear: data.effective_start_year == null ? null : Number(data.effective_start_year),
+    effectiveStartPeriod: data.effective_start_period == null ? null : String(data.effective_start_period),
+    effectiveStartMeasurementDate: data.effective_start_measurement_date == null
+      ? null : String(data.effective_start_measurement_date),
+  };
+}
+
+/**
  * steady-state: 측정일 + 실제 측정자만 있으면 V2 plan을 자동 생성/재추천한다.
  *
  * - 보고서 담당자(measurer_id)는 실제 측정자 판단·예비조사자 추천에 사용하지 않는다.
@@ -451,12 +479,25 @@ export interface SteadyStatePlanResult {
  * - sequence_number 부여(확정) 후에는 자동 변경하지 않는다.
  * - 사용자가 수동 확정한 plan(plan_origin='manual')은 자동으로 덮어쓰지 않는다.
  * - upsert(measurement_target_business_id unique)로 중복 plan이 생기지 않는다.
+ * - 자동추천 정책이 OFF이면 생성/재추천하지 않는다(paused). 기존 데이터는 보존된다.
  */
 export async function ensureV2PlanForTarget(supabase: Client, targetId: number): Promise<SteadyStatePlanResult> {
   const { data: target, error: targetError } = await supabase.from("measurement_target_business")
     .select("id, code, year, period, business_name, address, measurement_date, daily_staff, collaborators, measurer_id, link_measurer_id, business_type, process_changed, preliminary_survey_rule_type, created_at")
     .eq("id", targetId).single();
   if (targetError || !target) return { action: "blocked", reason: "TARGET_NOT_FOUND" };
+
+  // 예비조사 자동추천 상위 정책: OFF면 자동 생성/재추천을 수행하지 않는다.
+  const policy = await loadV2AutomationPolicy(supabase);
+  if (!isPreliminarySurveyV2AutomationEnabled(policy, {
+    year: Number(target.year), period: target.period, measurementDate: target.measurement_date,
+  })) {
+    return {
+      action: "paused",
+      reason: "POLICY_DISABLED",
+      message: "예비조사 자동추천 정책이 중지되어 있습니다. 기존 방식으로 예비조사를 관리합니다.",
+    };
+  }
 
   // 확정(sequence_number 부여) 보호
   const basePeriod = String(target.period).trim().replace("(수시)", "");

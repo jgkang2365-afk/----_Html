@@ -77,3 +77,39 @@ export function targetChangeRecommendationPolicy(input: {
   const distance = workingDayDistance(input.existingRecommendedDate, input.nextMeasurementDate);
   return distance === null || distance < 3 || distance > 30 ? "recalculate" as const : "keep" as const;
 }
+
+export interface PreliminarySurveyV2AutomationTarget {
+  year: number;
+  period: string;
+  measurementDate: string | null;
+}
+
+/**
+ * 예비조사 V2 자동추천 전체의 상위 ON/OFF 판정.
+ *
+ * 기존 `공정변경 예비조사 정책 사용`(preliminary_survey_policy_settings.enabled) 값을
+ * V2 자동추천 계열 전체(자동 생성/재추천/추천일·예비조사자·예·측 계산/묶음 추천/확정)의
+ * 마스터 스위치로 재사용한다. 별도 feature flag를 만들지 않는다.
+ *
+ * - enabled=false → 자동추천 전체 중지.
+ * - enabled=true + target 없음(전역/API 수준) → 자동추천 허용.
+ * - enabled=true + target 있음 → 적용 시작 연도/주기/측정일 기준 이후 대상만 허용.
+ */
+export function isPreliminarySurveyV2AutomationEnabled(
+  policy: ProcessChangedPolicySettings,
+  target?: PreliminarySurveyV2AutomationTarget | null,
+): boolean {
+  if (!policy.enabled) return false;
+  if (!target) return true;
+
+  const startPeriodRank = PERIOD_RANK[normalizePolicyPeriod(policy.effectiveStartPeriod)];
+  const targetPeriodRank = PERIOD_RANK[normalizePolicyPeriod(target.period)];
+  const startDate = dateOnly(policy.effectiveStartMeasurementDate);
+  const targetDate = dateOnly(target.measurementDate);
+  if (!Number.isInteger(policy.effectiveStartYear) || !startPeriodRank || !targetPeriodRank || !startDate || !targetDate) {
+    return false;
+  }
+  const targetHalf = Number(target.year) * 2 + targetPeriodRank;
+  const startHalf = Number(policy.effectiveStartYear) * 2 + startPeriodRank;
+  return targetHalf >= startHalf && targetDate >= startDate;
+}
