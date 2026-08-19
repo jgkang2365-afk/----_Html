@@ -97,12 +97,14 @@ test("F: V2 recommend API도 정책 OFF에서 차단된다", () => {
 });
 
 // ===== G. 정책 OFF + 기존 V2 plan 조회 유지 =====
-test("G: 정책 OFF여도 기존 V2 plan 조회가 유지된다 (목록/예비조사 영역에서 중지 상태 안내)", () => {
-  // 수정 모달의 예비조사 표시 섹션은 제거됨(Phase A). 정책 OFF 안내는 목록/예비조사 전용 영역으로 이동.
+test("G: 정책 OFF여도 기존 V2 plan 조회가 유지된다 (예비조사 전용 영역/API의 PAUSE 게이트)", () => {
+  // 목록/수정 모달의 예비조사 UI는 제거됨(Phase A). 정책 OFF 안내는 예비조사 전용 영역으로 이동.
   assert.doesNotMatch(uiSource, />예비조사 정보</);
   assert.doesNotMatch(uiSource, /예비조사 자동추천 중지/);
-  // 목록 화면의 V2 기능 진입점(묶음 추천 버튼)은 정책 OFF 상태로 유지된다.
-  assert.match(uiSource, /automationEnabled/);
+  assert.doesNotMatch(uiSource, /automationEnabled/);
+  // 정책 OFF 게이트는 예비조사 전용 API(PAUSE)에 유지된다.
+  assert.match(service, /if \(!isPreliminarySurveyV2AutomationEnabled\(policy\)\)/);
+  assert.match(recommendRoute, /isPreliminarySurveyV2AutomationEnabled/);
 });
 
 // ===== H. 정책 OFF + 관리자 예외 정비 유지 =====
@@ -130,14 +132,16 @@ test("정책 OFF 상태는 기존 V2 데이터를 삭제/NULL 처리하지 않�
   assert.doesNotMatch(service, /delete\(\).*preliminary_survey_v2_plans/i);
 });
 
-test("정책 OFF는 측정대상사업장 수정 자체를 막지 않는다 (UI에 중지 안내만)", () => {
-  assert.match(uiSource, /automationEnabled/);
-  assert.match(uiSource, /setAutomationEnabled/);
+test("정책 OFF는 측정대상사업장 수정 자체를 막지 않는다 (저장 경로에 V2 자동호출 없음)", () => {
+  // 측정대상사업장 저장 경로는 V2 자동생성/재추천을 호출하지 않는다 (Phase A 결합 제거)
+  assert.doesNotMatch(businessesRoute, /ensureV2PlanForTarget/);
+  assert.doesNotMatch(businessesRoute, /reconcileV2AfterTargetChange/);
 });
 
-test("묶음 추천 버튼은 정책 OFF에서 비활성화된다", () => {
-  assert.match(uiSource, /disabled=\{!automationEnabled\}/);
-  assert.match(uiSource, /자동추천 정책이 중지되어 있습니다\./);
+test("목록/수정 모달에 묶음 추천 UI가 없다 (Phase A 목록 정리)", () => {
+  assert.doesNotMatch(uiSource, /automationEnabled/);
+  assert.doesNotMatch(uiSource, /openGroupRecommendation/);
+  assert.doesNotMatch(uiSource, /예비조사 일정 추천 \(묶음\)/);
 });
 
 test("새로운 중복 feature flag를 만들지 않는다 (기존 policy_key 재사용)", () => {

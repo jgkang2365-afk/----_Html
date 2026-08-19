@@ -66,6 +66,20 @@ test("수정 모달에 구형 V2 편집 UI가 없다 (추천일/예비조사자/
   assert.doesNotMatch(uiSource, /preliminary_survey_v2_plan, recommended_date: event\.target\.value/);
 });
 
+test("목록 화면에 예비조사 추천/묶음 추천 UI가 없다 (Phase A 목록 정리)", () => {
+  // 목록 상단/행별 예비조사 추천 버튼, 묶음 추천 버튼·모달, 행별 V2 plan 표시 전체 제거
+  assert.doesNotMatch(uiSource, /선택 사업장 예비조사 추천/);
+  assert.doesNotMatch(uiSource, /예비조사 일정 추천 \(묶음\)/);
+  assert.doesNotMatch(uiSource, /handlePreliminarySurveyRecommendation/);
+  assert.doesNotMatch(uiSource, /openGroupRecommendation/);
+  assert.doesNotMatch(uiSource, /handleGroupConfirm/);
+  assert.doesNotMatch(uiSource, /groupModalOpen/);
+  assert.doesNotMatch(uiSource, /recommendingTargetIds/);
+  assert.doesNotMatch(uiSource, /automationEnabled/);
+  // 목록 헤더의 "예비조사 추천" 컬럼과 행별 V2 plan 표시 제거
+  assert.doesNotMatch(uiSource, />예비조사 추천</);
+});
+
 test("수정 모달의 측정 정보 입력 UI는 유지된다 (실시일/보고서 담당자/조력자)", () => {
   assert.match(uiSource, /실시일/);
   assert.match(uiSource, /보고서 담당자/);

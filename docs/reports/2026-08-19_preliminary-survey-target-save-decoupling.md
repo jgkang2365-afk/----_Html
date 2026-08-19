@@ -87,8 +87,8 @@
 
 - `npx tsc --noEmit`: 통과
 - lint: 변경 파일 경고 0 (기존 1건 exhaustive-deps 경고는 이번 변경과 무관)
-- 관련 테스트(decoupling/steady-state/PAUSE/legacy-unique/role-separation/reconcile/group/admin): 145/145 통과
-- 전체 테스트: 449/453 — 실패 4건은 **변경 전 main에서도 동일하게 실패하던 기존 실패**
+- 관련 테스트(decoupling/steady-state/PAUSE/legacy-unique/role-separation/reconcile/group/engine/admin): 213/213 통과
+- 전체 테스트: 450/454 — 실패 4건은 **변경 전 main에서도 동일하게 실패하던 기존 실패**
   - `national-support-flow-structure` (기존 알려진 실패)
   - `preliminary-survey-v2-3a-ui` 1건, `preliminary-survey-v2-persist-source-fix` 2건 (V2 migration 소스 검증, 이번 변경과 무관)
 
@@ -133,12 +133,24 @@
 - 미사용 import 정리: `suggestLinkMeasurerCandidates`, `collectMeasurementStaffNames`
 - 수정 모달에서 V2 plan 값을 직접 수정하는 편집 코드(추천일/참가자 onChange) 제거
 
+### 3차 보완 — 목록 화면의 예비조사 추천/묶음 추천/V2 plan 표시 제거
+
+`components/features/MeasurementTargetBusinessManagement.tsx`에서 **목록 화면의 예비조사 UI/추천 기능 전체 제거** (-339줄).
+
+- 제거: `handlePreliminarySurveyRecommendation`(개별/선택 추천 호출), `recommendingTargetIds` state
+- 제거: `openGroupRecommendation`/`toggleGroupTarget`/`handleGroupConfirm`(묶음 추천/확정) + GroupRec 타입/state
+- 제거: 목록 상단 "선택 사업장 예비조사 추천"·"예비조사 일정 추천 (묶음)" 버튼
+- 제거: 목록 헤더 "예비조사 추천" 컬럼 + 행별 V2 plan 표시(추천일/예비조사자)·추천 버튼
+- 제거: 묶음 추천 모달(주소 기반 그룹 선택/확정 UI)
+- 제거: `automationEnabled` state(정책 OFF 안내/버튼 비활성화용)
+- `gridTemplateCols`에서 예비조사 추천 열 제거(21→20열)
+
 ### 최종 상태
 
-- 사업장 상세 수정 모달에는 **예비조사 관련 UI 0개**
-- 수정 모달은 **측정계획 원본 정보**(측정 정보·실시일·보고서 담당자·실측정자/조력자·다중 일자 배정·일자 추가·비고)만 다룸
-- 유지: 관리자 예비조사 예외 정비 모달(별도 Modal), 목록 화면의 정책 OFF 안내/묶음 추천 버튼, `GET`의 V2 plan 조회(읽기)
-- 예비조사 일정·조사자·추천·재검토·확정은 **예비조사 전용 영역** 책임으로 확정
+- 사업장 상세 수정 모달 + 목록 화면 모두 **예비조사 관련 UI 0개**
+- 수정 모달/목록은 **측정계획 원본 정보**만 다룸 (측정 정보·실시일·보고서 담당자·실측정자/조력자·다중 일자 배정·비고)
+- 유지: 관리자 예비조사 예외 정비 모달(별도 Modal), `GET`의 V2 plan 조회(읽기), 예비조사 전용 API/서비스/PAUSE 게이트
+- 예비조사 일정·조사자·추천·재검토·확정·묶음 추천은 **예비조사 전용 영역** 책임으로 확정
 
 ---
 
@@ -193,8 +205,8 @@
 
 - `app/api/businesses/route.ts` (PATCH V2 자동호출 제거, import 정리)
 - `app/api/businesses/create/route.ts` (신규 생성 V2 자동호출 제거)
-- `components/features/MeasurementTargetBusinessManagement.tsx` (UI 후처리/문구 정리 + 예비조사 정보 섹션 제거)
+- `components/features/MeasurementTargetBusinessManagement.tsx` (UI 후처리/문구 정리 + 예비조사 정보 섹션·구형 V2 편집 UI·목록 추천/묶음 추천/V2 plan 표시 제거)
 - `tests/preliminary-survey-target-save-decoupling.test.ts` (신규)
-- `tests/preliminary-survey-v2-steady-state.test.ts`, `preliminary-survey-v2-automation-pause.test.ts`, `preliminary-survey-role-separation.test.ts`, `preliminary-survey-v2-reconcile-change.test.ts`, `preliminary-survey-legacy-unique-upsert.test.ts`, `preliminary-survey-admin-repair.test.ts` (설계 반영 수정)
+- `tests/preliminary-survey-v2-steady-state.test.ts`, `preliminary-survey-v2-automation-pause.test.ts`, `preliminary-survey-role-separation.test.ts`, `preliminary-survey-v2-reconcile-change.test.ts`, `preliminary-survey-legacy-unique-upsert.test.ts`, `preliminary-survey-admin-repair.test.ts`, `preliminary-survey-v2-group-recommendation.test.ts`, `preliminary-survey-v2-group-confirm.test.ts`, `preliminary-survey-v2-engine.test.ts` (설계 반영 수정)
 
 민감정보(비밀값·DB 접속정보·개인정보 원문)는 포함하지 않았다.
