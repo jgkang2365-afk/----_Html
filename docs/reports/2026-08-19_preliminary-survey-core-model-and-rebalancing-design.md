@@ -1,7 +1,7 @@
 # 예비조사 핵심 데이터 모델 및 재조정 설계
 
 - 실행일: 2026-08-19
-- 브랜치: `feature/preliminary-survey-v2-automation-pause` (HEAD 3ec7ac1)
+- 브랜치: `feature/preliminary-survey-v2-automation-pause` (작업 시작 기준 HEAD: 3ec7ac1)
 - 작업 유형: **READ-ONLY 분석 + 설계 문서 작성 전용** (코드 수정·DB 변경·migration·UI 구현 없음)
 - 기준 자료: `docs/reports/2026-08-18_preliminary-survey-responsibility-dataflow-analysis.md` (2차 분석 보고서)
 
@@ -9,7 +9,8 @@
 > - 정정 1: 예비조사 3건/day cap 기준을 "보고서 담당" → **예비조사자/책임 조사자(responsible)** 로 수정 (§7).
 > - 정정 2: 기존 데이터 migration의 메인 측정자 추정 규칙(보고서 담당자/link_measurer_id 기반) **제거** → 자동 추정 금지 + A/B/C 분류 (§31).
 > - 정정 3: 공시료 C/CC/CCC 순번 기준을 **실제 측정 당일 방문순서**로 명확화. 예비조사 route evidence 사용 금지 (§4, §8, §30).
-> - 보강: 초기 legacy 중복 전수검사 실행계획 구체화 (§16), `visit_order` 데이터 모델 반영 (§4).
+> - 보강: 초기 legacy 중복 전수검사 실행계획 구체화 (§16), `measurement_visit_order` 데이터 모델 반영 (§4).
+> - 정정 4: 공시료 순번 필드를 `measurement_visit_order`/`measurement_route_order`로 완전 통일, 예비조사 route와 혼동될 표현 제거 (§4, §6, §8, §30).
 
 > 결론 구분 표기
 > - **[사실]** : 현재 코드/DB/schema에서 확인된 내용
@@ -87,7 +88,7 @@ daily_staff = [
 
 - user id 기반. 이름 문자열은 표시용 파생값.
 - 공시료 담당자는 별도 저장하지 않고 `main_measurer_id`에서 파생.
-- **[업무규칙]** 공시료 순번(C/CC/CCC)은 실제 측정 당일 방문순서 기준이므로, 날짜별 `visit_order`(실제 측정 방문/측정 순서)를 표현할 수 있어야 한다.
+- **[업무규칙]** 공시료 순번(C/CC/CCC)은 실제 측정 당일 방문순서 기준이므로, 날짜별 `measurement_visit_order`(실제 측정 방문/측정 순서)를 표현할 수 있어야 한다.
 
 **[제안] 실제 측정 방문순서 데이터 (공시료 순번의 기준):**
 ```ts
@@ -96,12 +97,12 @@ daily_staff = [
     date: "2026-08-31",
     main_measurer_id: 1,
     helper_ids: [2],
-    visit_order: 1            // 해당 날짜 실제 방문/측정 순서 (공시료 C/CC/CCC 결정 기준)
+    measurement_visit_order: 1   // 해당 날짜 실제 방문/측정 순서 (공시료 C/CC/CCC 결정 기준)
   }
 ]
 ```
-- `visit_order`(또는 `route_order`)는 같은 날짜 + 같은 메인 측정자가 담당한 사업장 간의 방문 순서.
-- 공시료 = `users.survey_code`(기본) + 해당 날짜 동일 메인 측정자 사업장의 `visit_order` 순번으로 C/CC/CCC 파생.
+- `measurement_visit_order`(또는 `measurement_route_order`)는 같은 날짜 + 같은 메인 측정자가 담당한 사업장 간의 실제 방문 순서.
+- 공시료 = `users.survey_code`(기본) + 해당 날짜 동일 메인 측정자 사업장의 `measurement_visit_order` 순번으로 C/CC/CCC 파생.
 - **예비조사 추천의 route evidence는 공시료 순번에 사용하지 않는다.** (정정 3)
 
 **[사실 — 현행 구조와의 차이]**
@@ -112,8 +113,8 @@ daily_staff = [
 - `main_measurer_id`: 해당 날짜 메인 측정자 (신규 추가)
 - `helper_ids`: 조력자 (신규 추가)
 - `measurer_id`: 보고서 담당 (기존 유지, 의미 불변)
-- `visit_order`(또는 `route_order`): 해당 날짜 실제 방문/측정 순서 (신규 추가, 공시료 순번 기준)
-- 단일일도 `daily_staff = [{date: measurement_date, main_measurer_id, helper_ids, visit_order}]`로 통일.
+- `measurement_visit_order`(또는 `measurement_route_order`): 해당 날짜 실제 방문/측정 순서 (신규 추가, 공시료 순번 기준)
+- 단일일도 `daily_staff = [{date: measurement_date, main_measurer_id, helper_ids, measurement_visit_order}]`로 통일.
 
 이 방식은 기존 `measurer_id`/`collaborators` 키를 보존하면서 메인 측정자를 명시적으로 추가하므로 기존 코드 충격을 줄인다.
 
@@ -155,12 +156,13 @@ daily_staff = [
 ```
 공시료 담당자 = 해당 날짜 main_measurer_id
   → users.survey_code (기본) → getSurveyCode (fallback)
-순번 = 같은 날짜 + 같은 main_measurer_id 사업장의 확정 순서 (동선/측정순서 기반)
+순번 = 같은 날짜 + 같은 main_measurer_id 사업장의 실제 측정 방문순서
   → 1번째: C, 2번째: CC, 3번째(예외): CCC
 표시: preliminary_survey.survey_code (기존 컬럼 재사용) 또는 V2 plan의 파생 필드
 ```
-- **순번 결정 규칙**: 1) 실제 동선/측정 순서(추천 route/order) 2) 확정된 route/order 저장값 3) 사용자가 정한 업체 순서 4) 임시 안정 정렬(사업장 코드).
-- **[제안]** 추천 단계에서는 임시 안정 정렬(사업장 코드)로 계산하고, 가확정 저장 시 route/order를 함께 저장하며, 동선 변경 시 재계산.
+- **순번 결정 규칙** (실제 측정 방문순서 기준): 1) 실제 측정 당일 방문/측정 순서(`measurement_visit_order` 또는 `measurement_route_order`) 2) 사용자가 확정한 방문 순서 3) 임시 안정 정렬(사업장 코드).
+- **[업무규칙]** 공시료 순번은 **실제 측정 당일의 방문/측정 순서**만 기준으로 한다. 예비조사 추천 route/order(예비조사 route evidence, group recommendation route, 예비조사자 이동순서)는 공시료 순번에 사용하지 않는다.
+- **[제안]** 추천 단계에서는 임시 안정 정렬(사업장 코드)로 계산하고, 실제 측정 방문순서 확정 시 `measurement_visit_order`(또는 `measurement_route_order`)를 저장하며, 방문순서가 바뀌면 재계산한다.
 
 ---
 
@@ -196,12 +198,12 @@ daily_staff = [
 - 예비조사 추천용 데이터(예비조사 route, group recommendation route, 예비조사자 이동순서)를 공시료 순번 결정에 사용하지 않는다.
 
 **[제안] 순번 결정 우선순위:**
-1. 실제 측정 당일의 방문/측정 순서 (`daily_staff.visit_order` 또는 `route_order`)
+1. 실제 측정 당일의 방문/측정 순서 (`daily_staff.measurement_visit_order` 또는 `measurement_route_order`)
 2. 사용자가 확정한 방문 순서
 3. 임시 안정 정렬: 사업장 코드
 
 - **[사실]** 현재는 `created_at`(저장 순서)만 사용 (`survey-assignment.ts:64-93`). 측정 방문 순서 기준이 아니므로, 방문 순서가 바뀌면 공시료가 어긋날 수 있다.
-- **[제안]** 실제 측정 방문 순서가 확정된 사업장은 `visit_order` 기준으로 C/CC/CCC를 재계산하고, 미확정 사업장은 임시 안정 정렬을 사용한다. 재계산 결과를 `survey_code`에 반영한다.
+- **[제안]** 실제 측정 방문 순서가 확정된 사업장은 `measurement_visit_order` 기준으로 C/CC/CCC를 재계산하고, 미확정 사업장은 임시 안정 정렬을 사용한다. 재계산 결과를 `survey_code`에 반영한다.
 - **금지**: 예비조사 추천의 route evidence를 공시료 순번에 사용한다.
 
 ---
@@ -484,7 +486,7 @@ sequence_number = 보조 정보 (표시/기존 호환용)
 | 구분 | migration | 설명 |
 |---|---|---|
 | **필수** | `daily_staff` 구조 확장 | `main_measurer_id`, `helper_ids` 추가 (기존 `measurer_id`/`collaborators` 유지) |
-| **필수** | `daily_staff` 방문순서 | `visit_order`(또는 `route_order`) 추가 — 실제 측정 방문순서, 공시료 순번 기준 |
+| **필수** | `daily_staff` 방문순서 | `measurement_visit_order`(또는 `measurement_route_order`) 추가 — 실제 측정 방문순서, 공시료 순번 기준 |
 | **필수** | legacy `preliminary_survey` UNIQUE | `(code, year, period, measurement_date)` |
 | **필수** | legacy `year`/`period` 컬럼 정의 migration | repo drift 해소 |
 | **권장** | 찐확정 공통 함수화 (코드) | migration 아님, 로직 |
@@ -556,7 +558,7 @@ sequence_number = 보조 정보 (표시/기존 호환용)
 | 1 | `daily_staff.measurer_id` 의미 변경(보고서 담당→메인) 시 혼란 | 새 키(`main_measurer_id`) 추가, 기존 키 의미 유지 |
 | 2 | collaborators 첫 이름 메인 가정으로 잘못된 migration | 수동 검토 분리 (§31) |
 | 3 | UNIQUE 적용 시 과거 중복 행 충돌 | 초기 1회 전수조사 후 정리 (§16) |
-| 4 | 공시료 순번이 저장 순서라 동선 변경 시 어긋남 | route/order 기준 재계산 (§8) |
+| 4 | 공시료 순번이 저장 순서라 방문순서 변경 시 어긋남 | `measurement_visit_order` 기준 재계산 (§8) |
 | 5 | sequence_number 단독 기준 유지 시 기타매출 누락 | journal 존재 기준으로 전환 (§13) |
 | 6 | 날짜 재조정 시 기존 가확정 초기화 | 최소 변경 원칙 + 변경 사업장만 저장 (§22~23) |
 
