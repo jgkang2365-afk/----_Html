@@ -46,8 +46,10 @@
 
 - 제거: 저장 응답 `preliminarySurveyV2Plan` 기반 수정 모달 즉시 갱신 블록
 - 제거: "예비조사 계획 생성 대기", "저장하면 예비조사 계획이 자동 생성됩니다" 문구
-- 변경: plan 없음 상태 → "아직 예비조사 계획이 없습니다." + "예비조사 일정·조사자는 예비조사 영역에서 별도 지정 (자동 생성되지 않습니다)"
-- 유지: 정책 OFF 안내 배너("예비조사 자동추천 중지 상태")
+- 제거: plan 없음/있음·정책 중지 안내 등 예비조사 관련 표시(상세 제거 내역은 §8 참조)
+- 최종: 측정대상사업장 관리 화면(수정 모달 + 목록)에서 예비조사 관련 UI 0개
+
+상세 제거 내역(수정 모달 예비조사 정보 섹션 · 구형 V2 편집 UI · 목록 추천/묶음 추천/V2 plan 표시)은 **§8**에 정리한다.
 
 ---
 
@@ -66,11 +68,14 @@
 
 ### 신규
 
-`tests/preliminary-survey-target-save-decoupling.test.ts` (14건)
+`tests/preliminary-survey-target-save-decoupling.test.ts` (17건)
 
 - PATCH/create에서 `ensureV2PlanForTarget`/`reconcileV2AfterTargetChange` 호출 없음
 - 저장 응답에 `preliminarySurveyV2Plan`/`Notice` 자동생성 의존 없음
 - UI 저장 응답 V2 즉시 갱신 없음 / 자동생성 전제 문구 없음
+- 수정 모달에 예비조사 정보 섹션 없음
+- 수정 모달에 구형 V2 편집 UI(추천일/예비조사자/수정 저장) 없음
+- 목록 화면에 예비조사 추천/묶음 추천/V2 plan 표시 없음
 - legacy Integrated Sync 유지 / UNIQUE·UPSERT·excel-sync 유지
 - V2 서비스 함수·전용 API·PAUSE 게이트·GET 조회 유지
 - 저장 경로가 V2 실패에 의존하지 않음
