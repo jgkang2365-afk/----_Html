@@ -36,9 +36,12 @@ test("A: 확정 RPC는 선택된 사업장 plan을 upsert하고 link를 반영�
 });
 
 // ===== B. 일부 선택 → 선택된 것만 반영 =====
-test("B: 확정 요청은 사용자가 선택한 targetIds만 보낸다 (제외 대상 제외)", () => {
-  assert.match(uiSource, /groupSelectedIds\.has\(id\)/);
-  assert.match(uiSource, /ids: g\.items\.map\(\(i\) => i\.id\)\.filter\(\(id\) => groupSelectedIds\.has\(id\)\)/);
+test("B: 확정 요청은 서버가 받은 targetIds만 반영한다 (목록 UI 선택 로직은 예비조사 전용으로 분리)", () => {
+  // 목록 화면의 그룹 선택 UI는 Phase A로 제거됨. 서버는 전달된 targetIds를 그대로 확정한다.
+  assert.doesNotMatch(uiSource, /groupSelectedIds\.has\(id\)/);
+  assert.doesNotMatch(uiSource, /toggleGroupTarget/);
+  assert.match(service, /confirmGroupRecommendation/);
+  assert.match(service, /targetIds = \[\.\.\.new Set\(input\.targetIds/);
 });
 
 // ===== C. idempotent =====
@@ -95,12 +98,13 @@ test("I: 예·측 후보 2명 이상이면 사용자 선택이 필요하다", ()
 });
 
 // ===== J. 동일 주소 3개 중 2개만 선택 =====
-test("J: 동일 주소 사업장도 개별 선택으로 2개만 확정 대상이 된다", () => {
+test("J: 동일 주소 사업장도 개별 선택으로 2개만 확정 대상이 된다 (선택 로직은 예비조사 전용)", () => {
   const ids = [101, 102, 103];
   const selected = new Set([101, 102]);
   const confirmed = ids.filter((id) => selected.has(id));
   assert.deepEqual(confirmed, [101, 102]);
-  assert.match(uiSource, /toggleGroupTarget/);
+  // 목록 UI의 그룹 선택 함수는 Phase A로 제거됨 (선택은 예비조사 전용 UI 책임)
+  assert.doesNotMatch(uiSource, /toggleGroupTarget/);
 });
 
 // ===== K. 신규 사업장 중복 =====
@@ -153,8 +157,10 @@ test("묶음 추천 재조회에서 manual(확정) plan 대상이 제외된다",
   assert.match(service, /plan_origin === "manual"/);
 });
 
-test("UI는 확정 중 중복 클릭을 방지하고 결과를 표시한다", () => {
-  assert.match(uiSource, /groupConfirming/);
-  assert.match(uiSource, /확정 중\.\.\./);
-  assert.match(uiSource, /groupConfirmError/);
+test("묶음 확정은 서버 원자적 처리로 중복/부분 저장을 방지한다 (목록 UI 중복 클릭 방지는 예비조사 전용)", () => {
+  // 목록 화면의 확정 UI는 Phase A로 제거됨. 서버 원자성은 N 테스트에서 별도 검증.
+  assert.doesNotMatch(uiSource, /groupConfirming/);
+  assert.doesNotMatch(uiSource, /groupConfirmError/);
+  assert.match(service, /if \(failed\.length > 0\)/);
+  assert.match(service, /atomic: true/);
 });

@@ -115,10 +115,14 @@ test("I: 확정(sequence_number 부여) 대상은 묶음 추천에서 제외된�
 });
 
 // ===== J. 사용자 그룹 일부 제외 → 선택 사업장만 유지 =====
-test("J: UI가 그룹에서 사업장별 선택/제외를 지원한다", () => {
-  assert.match(uiSource, /toggleGroupTarget/);
-  assert.match(uiSource, /groupSelectedIds/);
-  assert.match(uiSource, /type="checkbox"/);
+test("J: 그룹 추천 결과는 사업장 단위 독립 항목으로 구성된다 (선택/제외는 예비조사 전용 UI 책임)", () => {
+  // 목록 화면의 그룹 선택/제외 UI는 Phase A로 제거됨. 추천 결과는 사업장 단위 독립 items로 유지된다.
+  assert.doesNotMatch(uiSource, /toggleGroupTarget/);
+  assert.doesNotMatch(uiSource, /groupSelectedIds/);
+  // 서버 결과 구조: groups[].items가 사업장 단위 독립 항목이다.
+  const groupLib = read("lib/preliminary-survey-v2/group-recommendation.ts");
+  assert.match(groupLib, /items: GroupRecommendationItem\[\];/);
+  assert.match(groupLib, /groups: RecommendationGroup\[\];/);
 });
 
 // ===== 기타 =====

@@ -32,7 +32,7 @@ import {
   normalizeOptionalManagerEmail,
 } from "@/lib/business/manager-email";
 import { isLegacySurveyUniqueConflict } from "@/lib/business/survey-duplicate";
-import { ensureV2PlanForTarget, loadV2AutomationPolicy, reconcileV2AfterTargetChange } from "@/lib/preliminary-survey-v2/service";
+import { loadV2AutomationPolicy } from "@/lib/preliminary-survey-v2/service";
 import { isPreliminarySurveyV2AutomationEnabled } from "@/lib/preliminary-survey-v2/policy";
 import {
   getInitialProcessChanged,
@@ -1062,56 +1062,15 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    let preliminarySurveyV2Notice = null;
-    let preliminarySurveyV2Plan = null;
-    // 예비조사 responsible는 연계측정자(link_measurer_id)가 유일한 원천이다.
-    // 보고서 담당자(measurer_id) 변경 자체는 V2 재추천 사유가 아니다.
-    const responsibleChanged =
-      Object.prototype.hasOwnProperty.call(updates, "link_measurer_id") &&
-      Number(existingLinkMeasurerId ?? null) !== Number(updatedData.link_measurer_id ?? null);
-    const measurementDateChanged = Object.prototype.hasOwnProperty.call(updates, "measurement_date") &&
-      existingDate !== updatedData.measurement_date;
-    const businessTypeChanged = Object.prototype.hasOwnProperty.call(updates, "business_type") &&
-      String(existingBusinessType ?? "") !== String(updatedData.business_type ?? "");
-    const processChangedChanged = Object.prototype.hasOwnProperty.call(updates, "process_changed") &&
-      String(existingProcessChanged ?? "") !== String(updatedData.process_changed ?? "");
-    const periodChanged = Object.prototype.hasOwnProperty.call(updates, "period") &&
-      String(existingPeriod ?? "") !== String(updatedData.period ?? "");
-    const yearChanged = Object.prototype.hasOwnProperty.call(updates, "year") &&
-      Number(existingYear) !== Number(updatedData.year);
-    // 실제 측정자 변경은 sequence_number 부여 전 V2 재평가 사유다. (보고서 담당자 변경은 아님)
-    const staffChanged =
-      Object.prototype.hasOwnProperty.call(updates, "collaborators") ||
-      Object.prototype.hasOwnProperty.call(updates, "daily_staff");
-    const steadyStateTriggered = measurementDateChanged || staffChanged ||
-      businessTypeChanged || processChangedChanged || periodChanged || yearChanged;
-
-    if (responsibleChanged) {
-      preliminarySurveyV2Notice = await reconcileV2AfterTargetChange(
-        supabase,
-        Number(updatedData.id),
-        {
-          responsibleChanged,
-          measurementDateChanged,
-          businessTypeChanged,
-          processChangedChanged,
-          periodChanged,
-          yearChanged,
-        },
-      );
-    } else if (steadyStateTriggered) {
-      // steady-state 자동 생성/재추천: link 미확정 상태에서도 측정일+실측정자 기준으로 동작한다.
-      const steadyStateResult = await ensureV2PlanForTarget(supabase, Number(updatedData.id));
-      preliminarySurveyV2Notice = steadyStateResult.message || null;
-      preliminarySurveyV2Plan = steadyStateResult.plan || null;
-    }
+    // === [Decoupled] V2 예비조사 자동 생성/재추천 ===
+    // 측정대상사업장 저장은 측정계획 원본(source of truth) 저장만 담당한다.
+    // 예비조사 V2 계획의 자동 생성/재추천은 예비조사 영역에서 별도 수행한다.
+    // (Phase A: 측정일/실측정자/link/사업장 유형 변경이 있어도 V2 plan을 자동 생성하거나 재추천하지 않는다.)
 
     return NextResponse.json({
       success: true,
       data: updatedData,
       geocodeStatus: geocodeResult?.geocoding_status || null,
-      preliminarySurveyV2Notice,
-      preliminarySurveyV2Plan,
     });
 
   } catch (error: any) {
