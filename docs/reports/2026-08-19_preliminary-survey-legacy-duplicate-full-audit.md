@@ -5,6 +5,11 @@
 - 작업 유형: **운영 DB READ-ONLY 검사 전용** (INSERT/UPDATE/DELETE/UPSERT/migration/UNIQUE 생성 없음)
 - 기준 설계: `docs/reports/2026-08-19_preliminary-survey-core-model-and-rebalancing-design.md` §15~19, §29~35
 
+> **정정 이력 (2026-08-19)**
+> - 정정 1: §15 Calendar 표현을 "이번 검사 범위에서 legacy 중복으로 인한 Calendar 문제 미발견"으로 범위 제한 (orphan 전체 부재 단정 제거).
+> - 정정 2: §18 UNIQUE 판정을 "데이터 충돌 관점에서는 적용 가능"으로 수정, 실제 migration은 schema drift 정리 + write path UPSERT 전환과 함께 수행함을 명시.
+> - 정정 3: 오류 중복 0건 결과에 맞춰 §21·§22·§23의 "오류 중복 정리" 단계 제거, 다음 작업 순서(Step 1~5) 재정리.
+
 > 결론 구분 표기
 > - **[사실]** : 운영 DB/코드에서 직접 확인
 > - **[업무규칙]** : 사용자 확정 정책
@@ -177,8 +182,9 @@
 
 ## 15. Calendar 영향
 
-- **[사실]** 중복 후보가 0건이므로 Calendar 중복 이벤트 가능성 없음.
-- `google_event_id` 420건 보유(전 행의 84.8%). orphan 가능성은 없음.
+- **[사실]** `(code, year, period, measurement_date)` 중복 legacy 행은 0건이었다.
+- 따라서 **이번 검사 범위에서는 legacy 중복으로 인한 Calendar 중복 이벤트 문제는 확인되지 않았다.**
+- `google_event_id` 보유 현황(420건, 전 행의 84.8%)은 확인했지만, **Calendar 전체 orphan 여부를 별도로 전수검증한 작업은 아니다.** 다른 원인의 orphan 존재 여부는 이번 검사로 판정하지 않는다.
 - Google Calendar write는 수행하지 않음.
 
 ---
@@ -216,17 +222,24 @@
 
 ## 18. UNIQUE 키 적합성 판정
 
-**[판정] A — `UNIQUE(code, year, period, measurement_date)` 즉시 적용 가능**
+**[판정] 기존 데이터 충돌 관점에서는 `UNIQUE(code, year, period, measurement_date)` 적용 가능**
 
-조건 충족:
-- 정상 복수행 없음 (다일은 measurement_date가 달라 충돌 없음)
+근거 (데이터 적합성):
+- 중복 그룹 0건
 - NULL 0건 (code/year/period/measurement_date 전부 NOT NULL 값)
-- 기존 오류 중복 0건 (정리 불필요)
-- 코드 재사용 확인: 동일 code = 동일 business_name (350 고유 code, 같은 code의 사업장명 변화 없음)
-- year/period 포맷 안정: year=2026 단일, period=상반기/하반기/상반기(수시) 표준값
+- 정상 다일 측정과 충돌 없음 (다일은 measurement_date가 달라 충돌 없음)
+- code/year/period/date 조합이 현재 운영 데이터에서 안정적 (동일 code = 동일 business_name, year=2026 단일, period 표준값)
+
+단, **실제 migration 적용은 아래와 함께 수행해야 한다** (데이터 적합성 ≠ 즉시 구현):
+
+**실제 구현 시점의 선행/동시 작업:**
+- `year`/`period`/`notes` 등 repo schema drift 정리 (운영 DB에는 존재하나 repo migration 정의 누락)
+- Survey POST (`app/api/survey/route.ts`) UPSERT 전환 — 현재 중복 체크 없이 INSERT
+- Integrated Sync (`app/api/businesses/route.ts`) UPSERT 전환 — 현재 find → update/insert
+- excel-sync conflict key 정합성 검증
+- 그 후 UNIQUE 적용
 
 **[제안]**
-- UNIQUE 적용 전에 `year`/`period`/`notes` 컬럼 정의 migration을 선행해야 한다 (drift 해소).
 - UNIQUE index는 `(code, year, period, measurement_date)`로 생성. 장기적으로 target_id 기반 `(target_id, measurement_date)` 강화는 설계 §17·§19 유지.
 
 ---
@@ -249,30 +262,53 @@
 
 ## 21. 삭제/정리 후보
 
-- **없음.** 오류 중복 0건, 불명확 0건이므로 삭제·수정 대상이 없다.
-- 삭제 후보 id: N/A
+- **삭제 후보 없음.** 오류 중복 0건, 불명확 0건이므로 삭제·수정할 legacy 행이 없다.
+- 사용자 승인이 필요한 데이터 삭제: **없음.**
+- 향후 "오류 중복 정리" 단계는 불필요하다 (이번 결과 기준).
 
 ---
 
 ## 22. 다음 migration 전제조건
 
-1. `year`/`period`/`notes` 컬럼 정의 migration (repo drift 해소) — 필수
-2. `UNIQUE (code, year, period, measurement_date)` 생성 — 필수 (전수검사 결과 충돌 0건)
-3. Survey POST · Integrated Sync UPSERT 전환 — 필수
-4. excel-sync upsert 정상화 — 권장
-5. 2025년 데이터: 현재 없음. 단 UNIQUE 적용 직전에 2025년까지 포함 충돌 여부 1회 재확인 (사용자 확정 범위)
+1. `year`/`period`/`notes` 컬럼 정의 migration (repo schema drift 해소) — 필수
+2. legacy write path UPSERT 전환 (Survey POST · Integrated Sync) — 필수
+3. excel-sync conflict key 정합성 재검토 — 권장
+4. `UNIQUE (code, year, period, measurement_date)` 생성 — 필수 (데이터 충돌 관점 안전, write path 정리와 함께)
+5. UNIQUE 적용 직전 preflight 재검사: 2025년 포함 전체 conflict 1회 확인 (사용자 확정 범위)
+   - 2025년 상세검사는 이번 범위 제외. 현재 `preliminary_survey`에 2025년 행은 없음(전부 2026년)을 유지.
 
 ---
 
 ## 23. 다음 작업 권장안
 
 **[제안]**
-1. **UNIQUE migration 설계 확정**: `year`/`period` 정의 + `(code,year,period,measurement_date)` UNIQUE (충돌 0건이므로 안전).
-2. **Survey POST / Integrated Sync UPSERT 전환**: DB UNIQUE와 이중 방어.
-3. 그 다음 사용자 승인 후 오류 중복 정리·UPSERT·UNIQUE 적용을 별도 작업으로 수행.
-4. UNIQUE 적용 직전 2025년 데이터 충돌 재확인.
 
-이번 작업에서는 어떤 DB 변경도 수행하지 않았으며, 사용자 승인을 기다린다.
+### Step 1 — schema drift 안전 보정 설계/적용
+- 운영 DB에 존재하지만 repo migration에 누락된 `year`/`period`(필요 시 `notes`) 정의를 정식 migration으로 정리.
+
+### Step 2 — legacy write path UPSERT 전환
+- Integrated Sync (`app/api/businesses/route.ts`): find → update/insert → `ON CONFLICT (code, year, period, measurement_date) DO UPDATE` 기반 idempotent UPSERT.
+- Survey POST (`app/api/survey/route.ts`): 중복 체크 없는 무조건 INSERT → 동일 key 재저장 시 중복이 생기지 않도록 UPSERT 또는 명확한 conflict 처리.
+
+### Step 3 — excel-sync conflict key 정상화
+- 현재 `onConflict:"code,year,period"` 기준. 향후 UNIQUE는 `(code, year, period, measurement_date)` 기준이므로 실제 동기화 목적과 맞는 conflict key인지 재검토하고 정합화.
+
+### Step 4 — DB UNIQUE 적용
+- `UNIQUE(code, year, period, measurement_date)` 또는 동일 목적의 unique index.
+
+### Step 5 — 회귀검증
+- Integrated Sync 반복 저장
+- SurveyForm 반복 저장
+- 동일 사업장 같은 측정일 중복 저장 시도
+- 다일 측정 저장
+- H0508 08-03 + 08-25 유지
+- Calendar sync
+- summary / previous-data / document snapshot / export
+- Excel sync
+
+- **[사실]** 오류 중복이 0건이므로 "오류 중복 정리" 단계는 불필요하다. 삭제 후보·사용자 승인 필요한 데이터 삭제가 없다.
+- UNIQUE 적용 직전에 `GROUP BY ... HAVING COUNT(*) > 1` 중심의 짧은 preflight READ-ONLY 재검사를 1회 수행한다 (전수검사 이후 새 중복 발생 여부 확인).
+- 이번 작업에서는 어떤 DB 변경도 수행하지 않았으며, 사용자 승인을 기다린다.
 
 ---
 
