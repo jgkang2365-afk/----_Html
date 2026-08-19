@@ -29,10 +29,10 @@ test("관리자 예외 정비 API는 GET 비교 정보도 관리자 전용이다
   assert.match(apiSource, /adminGuard\(session\)/);
 });
 
-test("UI에서 '연결 정비' 진입점은 C 상태 + 관리자에게만 노출된다", () => {
-  assert.match(uiSource, /linkStatusForForm\(editForm\)\.kind !== "C"/);
-  assert.match(uiSource, /if \(!isAdmin\) return null/);
-  assert.match(uiSource, /연결 정비/);
+test("UI: 수정 모달의 '연결 정비' 진입점은 제거됐다 (Phase A, 관리자 정비는 별도 모달/예비조사 영역)", () => {
+  // 사업장 수정 모달의 예비조사 정보 섹션이 제거됨에 따라 연결 정비 버튼 진입점도 함께 제거됨
+  assert.doesNotMatch(uiSource, />예비조사 정보</);
+  assert.doesNotMatch(uiSource, /linkStatusForForm\(editForm\)\.kind !== "C"/);
 });
 
 // ===== 서버 검증 (RPC) =====

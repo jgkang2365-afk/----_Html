@@ -88,7 +88,7 @@
 - `npx tsc --noEmit`: 통과
 - lint: 변경 파일 경고 0 (기존 1건 exhaustive-deps 경고는 이번 변경과 무관)
 - 관련 테스트(decoupling/steady-state/PAUSE/legacy-unique/role-separation/reconcile/group/admin): 145/145 통과
-- 전체 테스트: 446/450 — 실패 4건은 **변경 전 main에서도 동일하게 실패하던 기존 실패**
+- 전체 테스트: 448/452 — 실패 4건은 **변경 전 main에서도 동일하게 실패하던 기존 실패**
   - `national-support-flow-structure` (기존 알려진 실패)
   - `preliminary-survey-v2-3a-ui` 1건, `preliminary-survey-v2-persist-source-fix` 2건 (V2 migration 소스 검증, 이번 변경과 무관)
 
@@ -116,7 +116,23 @@
 
 ---
 
-## 8. 저장 경로 최종 구조
+## 8. UI 보완 — 사업장 상세 수정 모달의 예비조사 정보 섹션 제거 (PR #35 보완)
+
+- `components/features/MeasurementTargetBusinessManagement.tsx`에서 **사업장 상세 수정 모달의 "예비조사 정보" 섹션 전체를 제거** (-181줄).
+- 제거 항목:
+  - "예비조사 정보" 제목 및 표시 영역
+  - "예비조사 자동추천 중지" / "예비조사 자동추천 중지 상태" 정책 안내
+  - "아직 예비조사 계획이 없습니다" plan 없음 안내
+  - 기존 V2 plan 표시(예비조사일/조사방법/생성/예비조사자/예·측/상태 배지)
+  - "연결 정비" 진입 버튼
+- 수정 모달은 **측정계획 원본 정보**(측정 정보·실시일·보고서 담당자·실측정자/조력자·다중 일자 배정·일자 추가)만 다룬다.
+- 유지: "V2 예비조사 자동추천 V2" 수동 수정 영역(추천일/예비조사자, 관리자 manual plan 수정 — §20), 관리자 예비조사 예외 정비 모달(별도 Modal), 목록 화면의 정책 OFF 안내/묶음 추천 버튼.
+- API 수정 없음, DB/schema 변경 없음, 기존 V2 데이터 보존.
+- 예비조사 정보/상태/추천/정책 안내는 **예비조사 전용 영역**의 책임으로 확정.
+
+---
+
+## 9. 저장 경로 최종 구조
 
 ```
 측정대상사업장 저장 (PATCH/POST)
@@ -130,7 +146,7 @@
 
 ---
 
-## 9. 다음 단계
+## 10. 다음 단계
 
 - 날짜 중심 예비조사 추천/재검토 구조 (별도 Phase)
 - 기존 V2 plan의 `재검토 필요` 상태 (측정일/실측정자 변경 시 stale 처리)
@@ -142,8 +158,8 @@
 
 - `app/api/businesses/route.ts` (PATCH V2 자동호출 제거, import 정리)
 - `app/api/businesses/create/route.ts` (신규 생성 V2 자동호출 제거)
-- `components/features/MeasurementTargetBusinessManagement.tsx` (UI 후처리/문구 정리)
+- `components/features/MeasurementTargetBusinessManagement.tsx` (UI 후처리/문구 정리 + 예비조사 정보 섹션 제거)
 - `tests/preliminary-survey-target-save-decoupling.test.ts` (신규)
-- `tests/preliminary-survey-v2-steady-state.test.ts`, `preliminary-survey-v2-automation-pause.test.ts`, `preliminary-survey-role-separation.test.ts`, `preliminary-survey-v2-reconcile-change.test.ts`, `preliminary-survey-legacy-unique-upsert.test.ts` (설계 반영 수정)
+- `tests/preliminary-survey-v2-steady-state.test.ts`, `preliminary-survey-v2-automation-pause.test.ts`, `preliminary-survey-role-separation.test.ts`, `preliminary-survey-v2-reconcile-change.test.ts`, `preliminary-survey-legacy-unique-upsert.test.ts`, `preliminary-survey-admin-repair.test.ts` (설계 반영 수정)
 
 민감정보(비밀값·DB 접속정보·개인정보 원문)는 포함하지 않았다.

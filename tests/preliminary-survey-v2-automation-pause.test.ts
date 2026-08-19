@@ -97,9 +97,12 @@ test("F: V2 recommend API도 정책 OFF에서 차단된다", () => {
 });
 
 // ===== G. 정책 OFF + 기존 V2 plan 조회 유지 =====
-test("G: 정책 OFF여도 기존 V2 plan 조회가 유지된다 (UI 배너로 중지 상태만 안내)", () => {
-  assert.match(uiSource, /예비조사 자동추천 중지/);
-  assert.match(uiSource, /기존 V2 계획은 그대로 유지됩니다/);
+test("G: 정책 OFF여도 기존 V2 plan 조회가 유지된다 (목록/예비조사 영역에서 중지 상태 안내)", () => {
+  // 수정 모달의 예비조사 표시 섹션은 제거됨(Phase A). 정책 OFF 안내는 목록/예비조사 전용 영역으로 이동.
+  assert.doesNotMatch(uiSource, />예비조사 정보</);
+  assert.doesNotMatch(uiSource, /예비조사 자동추천 중지/);
+  // 목록 화면의 V2 기능 진입점(묶음 추천 버튼)은 정책 OFF 상태로 유지된다.
+  assert.match(uiSource, /automationEnabled/);
 });
 
 // ===== H. 정책 OFF + 관리자 예외 정비 유지 =====

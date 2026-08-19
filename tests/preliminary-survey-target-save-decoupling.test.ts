@@ -46,6 +46,24 @@ test("UI에 자동생성 전제 문구가 없다", () => {
   assert.doesNotMatch(uiSource, /저장 시 자동으로 예비조사 계획/);
 });
 
+test("수정 모달에 예비조사 정보(표시) 섹션이 없다 (Phase A UI 정리)", () => {
+  // 사업장 상세 수정 모달 내부의 "예비조사 정보" 표시 섹션을 전체 제거
+  assert.doesNotMatch(uiSource, />예비조사 정보</);
+  assert.doesNotMatch(uiSource, /예비조사 자동추천 중지/);
+  assert.doesNotMatch(uiSource, /아직 예비조사 계획이 없습니다/);
+  assert.doesNotMatch(uiSource, /예비조사 자동추천 중지 상태/);
+  // "예비조사 연결 확인 필요" 표시 배지도 예비조사 정보 섹션에 속하므로 제거됨
+  assert.doesNotMatch(uiSource, />예비조사 연결 확인 필요</);
+});
+
+test("수정 모달의 측정 정보 입력 UI는 유지된다 (실시일/보고서 담당자/조력자)", () => {
+  assert.match(uiSource, /실시일/);
+  assert.match(uiSource, /보고서 담당자/);
+  assert.match(uiSource, /조력자/);
+  assert.match(uiSource, /다중 일자 배정/);
+  assert.match(uiSource, /일자 추가/);
+});
+
 // ===== legacy Integrated Sync 유지 =====
 test("legacy Integrated Sync는 여전히 존재한다 (V2와 분리되어 유지)", () => {
   assert.match(businessesRoute, /Integrated Sync Logic/);

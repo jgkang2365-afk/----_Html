@@ -337,15 +337,16 @@ test("통합 UI: 예비조사 정보 영역이 있고 '예·측' 용어를 사�
   assert.doesNotMatch(uiSource, /연계측정자/);
 });
 
-test("통합 UI: plan 없음 상태를 표시하고, 조사방법을 현장/유선으로 변환한다", () => {
-  assert.match(uiSource, /아직 예비조사 계획이 없습니다/);
+test("통합 UI: 수정 모달에 예비조사 표시 섹션이 없다 (Phase A, 조사방법 라벨 함수는 유지)", () => {
+  assert.doesNotMatch(uiSource, /아직 예비조사 계획이 없습니다/);
+  assert.doesNotMatch(uiSource, />예비조사 정보</);
+  // 조사방법 라벨 변환 함수는 여전히 유지된다 (V2 수동 수정 영역/다른 화면용)
   assert.match(uiSource, /=== "field" \? "현장"/);
   assert.match(uiSource, /=== "phone" \? "유선"/);
 });
 
-test("통합 UI: C 상태는 '예비조사 연결 확인 필요'로 표시한다", () => {
-  assert.match(uiSource, /예비조사 연결 확인 필요/);
-  assert.match(uiSource, /공통 참여자가 없습니다/);
+test("통합 UI: 예비조사 연결 상태 배지는 수정 모달에서 제거됐다 (관리자 정비는 별도 모달)", () => {
+  assert.doesNotMatch(uiSource, />예비조사 연결 확인 필요</);
 });
 
 test("통합 UI: 예·측 후보는 예비조사자 ∩ 실제 측정자로 한정된다", () => {

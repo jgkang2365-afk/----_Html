@@ -88,8 +88,6 @@ test("G: -3일까지 가용일 없으면 manual_required로 처리하고 UI에 �
   assert.match(service, /"manual_required"/);
   assert.match(service, /NO_AVAILABLE_DATE_THROUGH_MINUS_3/);
   assert.match(service, /result\.status === "manual_required"/);
-  assert.match(uiSource, /예비조사일 수동 지정 필요/);
-  assert.match(uiSource, /-3일까지 가능한 추천일이 없습니다/);
 });
 
 // ===== 안전성 =====
