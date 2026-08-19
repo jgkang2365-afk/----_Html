@@ -127,6 +127,9 @@ test("excel-sync는 measurement_date 없는 행을 UPDATE만 수행한다 (신�
 test("V2 자동추천 PAUSE 게이트는 이번 변경과 무관하게 유지된다", () => {
   const policy = read("lib/preliminary-survey-v2/policy.ts");
   assert.match(policy, /if \(!policy\.enabled\) return false/);
+  // 저장 경로의 V2 자동 호출은 제거됐고(Phase A), 정책 게이트는 V2 전용 API/서비스에 유지된다.
+  assert.doesNotMatch(businessesRoute, /ensureV2PlanForTarget/);
   assert.match(businessesRoute, /isPreliminarySurveyV2AutomationEnabled/);
-  assert.match(businessesRoute, /ensureV2PlanForTarget/);
+  const service = read("lib/preliminary-survey-v2/service.ts");
+  assert.match(service, /if \(!isPreliminarySurveyV2AutomationEnabled\(policy\)\)/);
 });

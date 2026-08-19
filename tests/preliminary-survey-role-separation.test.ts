@@ -216,12 +216,11 @@ test("A: link_measurer_id가 NULL이면 보고서 담당자를 연계측정자�
   assert.match(serviceSource, /responsibleId = targetRow\.link_measurer_id/);
 });
 
-// ===== B. 보고서 담당 변경 = 연계측정자 유지 시 재추천 없음 =====
+// ===== B. 보고서 담당 변경 = V2 재추천 없음 (Phase A 분리) =====
 test("B: 보고서 담당자(measurer_id) 변경만으로는 V2 재추천이 발생하지 않는다", () => {
-  const changedBlock = routeSource.slice(routeSource.indexOf("const responsibleChanged"), routeSource.indexOf("const measurementDateChanged"));
-  assert.match(changedBlock, /link_measurer_id/);
-  assert.doesNotMatch(changedBlock, /hasOwnProperty\(updates, "measurer_id"\)/);
-  assert.doesNotMatch(changedBlock, /updates\.measurer_id/);
+  // 저장 경로에는 V2 재추천 호출이 없다 (Phase A)
+  assert.doesNotMatch(routeSource, /reconcileV2AfterTargetChange/);
+  assert.doesNotMatch(routeSource, /ensureV2PlanForTarget/);
 });
 
 // ===== C. 연계측정자 변경 = 예비조사 연계 재검증 =====
@@ -339,7 +338,7 @@ test("통합 UI: 예비조사 정보 영역이 있고 '예·측' 용어를 사�
 });
 
 test("통합 UI: plan 없음 상태를 표시하고, 조사방법을 현장/유선으로 변환한다", () => {
-  assert.match(uiSource, /예비조사 계획 생성 대기/);
+  assert.match(uiSource, /아직 예비조사 계획이 없습니다/);
   assert.match(uiSource, /=== "field" \? "현장"/);
   assert.match(uiSource, /=== "phone" \? "유선"/);
 });

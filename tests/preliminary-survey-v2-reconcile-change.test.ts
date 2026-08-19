@@ -96,13 +96,15 @@ test("H: batch persist는 measurement_target_business_id 기준 upsert로 중복
   assert.match(migration, /ON CONFLICT \(measurement_target_business_id\) DO UPDATE/);
 });
 
-// 배선: businesses PATCH가 새 변경 플래그를 reconcile로 전달 + reconcile가 수용
-test("businesses PATCH는 business_type/process_changed/period/year 변경을 reconcile로 전달한다", () => {
+// Phase A: businesses PATCH는 더 이상 reconcileV2AfterTargetChange를 호출하지 않는다.
+// 저장 경로 결합은 제거됐고, reconcile 서비스 함수 자체의 변경 플래그 수용은 유지된다.
+test("businesses PATCH는 reconcileV2AfterTargetChange를 호출하지 않는다 (Phase A 분리)", () => {
   const route = readFileSync("app/api/businesses/route.ts", "utf8");
-  for (const flag of ["businessTypeChanged", "processChangedChanged", "periodChanged", "yearChanged"]) {
-    assert.match(route, new RegExp(flag));
-  }
-  assert.match(route, /reconcileV2AfterTargetChange\(/);
+  assert.doesNotMatch(route, /reconcileV2AfterTargetChange/);
+  assert.doesNotMatch(route, /ensureV2PlanForTarget/);
+});
+
+test("V2 reconcile 서비스는 business_type/process_changed/period/year 변경 플래그를 수용한다 (함수 유지)", () => {
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
   for (const flag of ["businessTypeChanged", "processChangedChanged", "periodChanged", "yearChanged"]) {
     assert.match(service, new RegExp(`${flag}\\?: boolean`));

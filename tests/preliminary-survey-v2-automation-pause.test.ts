@@ -11,6 +11,7 @@ const root = process.cwd();
 const read = (file: string) => readFileSync(path.join(root, file), "utf8");
 const service = read("lib/preliminary-survey-v2/service.ts");
 const businessesRoute = read("app/api/businesses/route.ts");
+const createRoute = read("app/api/businesses/create/route.ts");
 const groupRecommendRoute = read("app/api/preliminary-survey-v2/group-recommend/route.ts");
 const groupConfirmRoute = read("app/api/preliminary-survey-v2/group-confirm/route.ts");
 const recommendRoute = read("app/api/preliminary-survey-v2/recommend/route.ts");
@@ -51,9 +52,9 @@ test("A: 정책 OFF이면 ensureV2PlanForTarget이 paused를 반환한다 (자�
   assert.match(service, /action: "paused"/);
 });
 
-test("A: 사업장 create는 정상 수행되고 V2 자동 생성만 SKIP된다", () => {
-  assert.match(businessesRoute, /ensureV2PlanForTarget/);
-  assert.match(businessesRoute, /preliminarySurveyV2AutomationEnabled/);
+test("A: 사업장 create는 V2 자동 생성 호출 없이 정상 수행된다 (Phase A 분리)", () => {
+  assert.doesNotMatch(createRoute, /ensureV2PlanForTarget/);
+  assert.match(createRoute, /businessCreated: true/);
 });
 
 // ===== B. 정책 OFF + 기존 사업장 수정 =====
@@ -69,9 +70,11 @@ test("C: 정책 OFF이면 실측정자 변경이 V2 participant/link/date 자동
   assert.ok(pausedIndex >= 0);
 });
 
-// ===== D. 정책 OFF + 보고서 담당자 변경 =====
-test("D: 정책 OFF/ON 모두 보고서 담당자(measurer_id)는 V2 자동 변경 기준이 아니다", () => {
-  assert.match(businessesRoute, /보고서 담당자\(measurer_id\) 변경 자체는 V2 재추천 사유가 아니다/);
+// ===== D. 보고서 담당자 변경 =====
+test("D: 보고서 담당자(measurer_id)는 V2 자동 변경 기준이 아니다 (Phase A 분리)", () => {
+  // 저장 경로에는 V2 재추천/재생성 호출이 없다.
+  assert.doesNotMatch(businessesRoute, /reconcileV2AfterTargetChange/);
+  assert.doesNotMatch(businessesRoute, /ensureV2PlanForTarget/);
 });
 
 // ===== E. 정책 OFF + group-recommend 차단 =====

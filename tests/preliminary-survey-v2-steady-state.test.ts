@@ -31,37 +31,29 @@ test("A: 단일일 + 실측정자 있으면 lead를 실측정자에서 정하고
   assert.equal(candidates[0].name, "김민영");
 });
 
-test("A: 측정대상사업장 PATCH가 steady-state 자동 생성 함수를 호출한다", () => {
-  assert.match(route, /ensureV2PlanForTarget/);
-  assert.match(route, /steadyStateTriggered/);
-  assert.match(createRoute, /ensureV2PlanForTarget/);
+test("A: 측정대상사업장 PATCH는 V2 자동 생성 함수를 호출하지 않는다 (Phase A 분리)", () => {
+  assert.doesNotMatch(route, /ensureV2PlanForTarget/);
+  assert.doesNotMatch(route, /reconcileV2AfterTargetChange/);
+  assert.doesNotMatch(createRoute, /ensureV2PlanForTarget/);
 });
 
 // ===== B. 실제 측정자 없음 =====
-test("B: 실측정자가 없으면 자동 생성하지 않고 UI에 사유를 표시한다", () => {
+test("B: 실측정자가 없으면 V2 서비스가 자동 생성하지 않는다 (서비스 자체 동작)", () => {
   assert.match(service, /if \(staff\.length === 0\) return \{ action: "blocked", reason: "NO_STAFF"/);
-  assert.match(uiSource, /예비조사 계획 생성 대기/);
-  assert.match(uiSource, /사유: 실제 측정자를 먼저 선택하세요/);
 });
 
-// ===== C. 보고서 담당자만 변경 → 재추천 없음 =====
-test("C: 보고서 담당자(measurer_id) 변경은 steady-state 재추천 사유가 아니다", () => {
-  // steadyStateTriggered 표현식은 실측정자/측정일/분류/기간만 포함한다.
-  const m = route.match(/const steadyStateTriggered =([^;]+);/);
-  assert.ok(m);
-  assert.match(m[1], /staffChanged/);
-  // standalone measurer_id 필드 참조가 없다 (link_measurer_id는 제외)
-  assert.doesNotMatch(m[1], /"measurer_id"|'measurer_id'/);
-  // responsibleChanged는 link_measurer_id 기준이다 (measurer_id 아님)
-  assert.match(route, /responsibleChanged =[\s\S]*?"link_measurer_id"/);
+// ===== C. 보고서 담당자만 변경 → V2 자동 변경 없음 (Phase A 분리) =====
+test("C: 보고서 담당자(measurer_id) 변경은 V2 재추천 사유가 아니다", () => {
+  // 저장 경로에 steady-state/재추천 호출이 없다.
+  assert.doesNotMatch(route, /steadyStateTriggered/);
+  assert.doesNotMatch(route, /responsibleChanged =/);
+  assert.doesNotMatch(route, /reconcileV2AfterTargetChange/);
 });
 
-// ===== D. 실제 측정자 변경 → 재평가 =====
-test("D: 실제 측정자(collaborators/daily_staff) 변경이 steady-state 재평가 트리거다", () => {
-  assert.match(route, /const staffChanged =/);
-  assert.match(route, /hasOwnProperty\.call\(updates, "collaborators"\)/);
-  assert.match(route, /hasOwnProperty\.call\(updates, "daily_staff"\)/);
-  assert.match(route, /steadyStateTriggered = measurementDateChanged \|\| staffChanged/);
+// ===== D. 실제 측정자 변경 =====
+test("D: 실제 측정자(collaborators/daily_staff)는 측정계획 저장 경로에 보존된다 (V2 자동 호출 없음)", () => {
+  assert.doesNotMatch(route, /steadyStateTriggered/);
+  assert.doesNotMatch(route, /ensureV2PlanForTarget/);
 });
 
 // ===== E. sequence_number 부여 후 자동 변경 차단 =====
@@ -115,9 +107,11 @@ test("자동 생성은 measurement_target_business_id 기준 upsert로 중복 pl
   assert.match(migration, /ON CONFLICT \(measurement_target_business_id\) DO UPDATE/);
 });
 
-test("저장 응답의 V2 plan을 수정 모달에 즉시 반영한다 (UI)", () => {
-  assert.match(uiSource, /preliminarySurveyV2Plan/);
-  assert.match(uiSource, /setEditForm\(previous => \(\{/);
+test("저장 응답에 V2 plan 자동생성 의존이 없다 (Phase A 분리)", () => {
+  assert.doesNotMatch(route, /preliminarySurveyV2Notice/);
+  assert.doesNotMatch(createRoute, /preliminarySurveyV2Notice/);
+  assert.doesNotMatch(createRoute, /preliminarySurveyV2Plan/);
+  assert.doesNotMatch(uiSource, /result\.preliminarySurveyV2Plan/);
 });
 
 test("manual plan은 자동으로 덮어쓰지 않는다", () => {
