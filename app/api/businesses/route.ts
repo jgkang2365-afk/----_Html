@@ -837,6 +837,9 @@ export async function PATCH(request: NextRequest) {
           }
 
           // 4. Update or Create surveys for all dates in dailyStaff
+          // 중복 방어: (code, year, period, measurement_date) UNIQUE + idempotent UPSERT.
+          // Integrated Sync가 관리하는 필드만 갱신하며, preliminary_surveyor / survey_code /
+          // google_event_id / assignee_manual_override / notes / created_at / created_by는 보존한다.
           const allCollaboratorsSet = new Set<string>();
           let maxEndDate = null;
           const sortedDates = dailyStaff.map((d: any) => d.date).filter(Boolean).sort();
@@ -849,13 +852,16 @@ export async function PATCH(request: NextRequest) {
             const { data: userData } = mId ? await supabase.from("users").select("name").eq("id", mId).single() : { data: null };
             const reportWriterName = userData?.name || null;
             const entryCollabs = entry.collaborators || [];
-            
+
             // Build actual_measurer string for this specific date
             // 측정자 목록(collaborators)을 그대로 사용 - 보고서 담당자는 자동 합산하지 않음
             const actualMeasurer = entryCollabs.length > 0 ? entryCollabs.join(", ") : "";
             entryCollabs.forEach((c: string) => allCollaboratorsSet.add(c.trim()));
 
             const surveyPayload = {
+              code,
+              year,
+              period,
               measurement_date: entry.date,
               end_date: entry.date,
               report_writer: reportWriterName,
@@ -865,11 +871,58 @@ export async function PATCH(request: NextRequest) {
 
             const existing = existingSurveys?.find(s => s.measurement_date === entry.date);
             if (existing) {
-              await supabase.from("preliminary_survey").update(surveyPayload).eq("id", existing.id);
+              // 기존 행: Integrated Sync 관리 필드만 UPDATE (수동 예비조사 정보 보존)
+              const { error: updateError } = await supabase
+                .from("preliminary_survey")
+                .update({
+                  end_date: entry.date,
+                  report_writer: reportWriterName,
+                  actual_measurer: actualMeasurer,
+                  business_name: updates.business_name || updatedData.business_name,
+                })
+                .eq("id", existing.id);
+              if (updateError) throw updateError;
             } else {
+              // 신규 행: UPSERT (동시 요청 race 시 UNIQUE가 중복을 방어)
               const { data: maxSeq } = await supabase.from("preliminary_survey").select("sequence_number").order("sequence_number", { ascending: false }).limit(1).maybeSingle();
               const nextSeq = (maxSeq?.sequence_number || 0) + 1;
-              await supabase.from("preliminary_survey").insert({ ...surveyPayload, code, year, period, sequence_number: nextSeq });
+              const { data: inserted, error: insertError } = await supabase
+                .from("preliminary_survey")
+                .upsert({ ...surveyPayload, sequence_number: nextSeq }, {
+                  onConflict: "code,year,period,measurement_date",
+                  ignoreDuplicates: false,
+                })
+                .select("id, sequence_number")
+                .maybeSingle();
+              // 동시 요청으로 이미 동일 키 행이 생성된 경우: 해당 행을 조회해 관리 필드만 갱신한다.
+              if (insertError && insertError.code === "23505") {
+                const { data: racedRow } = await supabase
+                  .from("preliminary_survey")
+                  .select("id")
+                  .eq("code", code)
+                  .eq("year", year)
+                  .eq("period", period)
+                  .eq("measurement_date", entry.date)
+                  .maybeSingle();
+                if (racedRow) {
+                  const { error: racedUpdateError } = await supabase
+                    .from("preliminary_survey")
+                    .update({
+                      end_date: entry.date,
+                      report_writer: reportWriterName,
+                      actual_measurer: actualMeasurer,
+                      business_name: updates.business_name || updatedData.business_name,
+                    })
+                    .eq("id", racedRow.id);
+                  if (racedUpdateError) throw racedUpdateError;
+                } else {
+                  throw insertError;
+                }
+              } else if (insertError) {
+                throw insertError;
+              }
+              // 정상 upsert 결과는 별도 사용하지 않는다 (다음 단계에서 summary 계산만 수행)
+              void inserted;
             }
           }
 

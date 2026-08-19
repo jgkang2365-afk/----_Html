@@ -710,12 +710,34 @@ export async function POST(request: NextRequest) {
       sequenceNumber = maxSequenceData.sequence_number + 1;
     }
 
+    // 중복 방어: 동일 (code, year, period, measurement_date) legacy 행이 이미 존재하면 신규 등록을 거부한다.
+    // (신규 등록 목적이므로 기존 행을 덮어쓰지 않는다. UNIQUE constraint와 이중 방어.)
+    const surveyYear = year ? parseInt(year) : 2026;
+    const surveyPeriod = period || "상반기";
+    if (code) {
+      const { data: existingSurvey } = await supabase
+        .from("preliminary_survey")
+        .select("id")
+        .eq("code", code)
+        .eq("year", surveyYear)
+        .eq("period", surveyPeriod)
+        .eq("measurement_date", measurement_date)
+        .maybeSingle();
+
+      if (existingSurvey) {
+        return NextResponse.json(
+          { error: "같은 사업장·년도·주기·측정일의 예비조사가 이미 등록되어 있습니다. 예비조사 수정을 이용해 주세요." },
+          { status: 409 }
+        );
+      }
+    }
+
     // 예비조사 등록
     const { data: survey, error } = await supabase
       .from("preliminary_survey")
       .insert({
-        year: year ? parseInt(year) : 2026,
-        period: period || "상반기",
+        year: surveyYear,
+        period: surveyPeriod,
         measurement_date,
         end_date: end_date || measurement_date,
         measurement_weekdays: measurement_weekdays || null,
@@ -734,6 +756,13 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
+      // UNIQUE constraint 위반 (동시 요청 race) → 중복 등록 방지
+      if (error.code === "23505") {
+        return NextResponse.json(
+          { error: "같은 사업장·년도·주기·측정일의 예비조사가 이미 등록되어 있습니다. 예비조사 수정을 이용해 주세요." },
+          { status: 409 }
+        );
+      }
       console.error("예비조사 등록 오류:", error);
       return NextResponse.json(
         { error: "예비조사 등록 중 오류가 발생했습니다.", details: error.message },
