@@ -31,6 +31,7 @@ import {
   isValidOptionalManagerEmail,
   normalizeOptionalManagerEmail,
 } from "@/lib/business/manager-email";
+import { isLegacySurveyUniqueConflict } from "@/lib/business/survey-duplicate";
 import { ensureV2PlanForTarget, loadV2AutomationPolicy, reconcileV2AfterTargetChange } from "@/lib/preliminary-survey-v2/service";
 import { isPreliminarySurveyV2AutomationEnabled } from "@/lib/preliminary-survey-v2/policy";
 import {
@@ -894,8 +895,9 @@ export async function PATCH(request: NextRequest) {
                 })
                 .select("id, sequence_number")
                 .maybeSingle();
-              // 동시 요청으로 이미 동일 키 행이 생성된 경우: 해당 행을 조회해 관리 필드만 갱신한다.
-              if (insertError && insertError.code === "23505") {
+              // 동시 요청으로 이미 동일 키 행이 생성된 경우: 이번 legacy UNIQUE 충돌일 때만
+              // 해당 행을 조회해 관리 필드만 갱신한다. 다른 23505(다른 constraint)는 일반 오류로 처리한다.
+              if (insertError && isLegacySurveyUniqueConflict(insertError)) {
                 const { data: racedRow } = await supabase
                   .from("preliminary_survey")
                   .select("id")

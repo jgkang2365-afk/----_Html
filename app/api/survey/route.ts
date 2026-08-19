@@ -10,6 +10,7 @@ import {
   calculateActualSlots,
 } from "@/lib/utils/survey-assignment";
 import { getUser } from "@/lib/auth/get-user";
+import { isLegacySurveyUniqueConflict } from "@/lib/business/survey-duplicate";
 
 /**
  * 예비조사 API
@@ -756,8 +757,9 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      // UNIQUE constraint 위반 (동시 요청 race) → 중복 등록 방지
-      if (error.code === "23505") {
+      // 이번 legacy UNIQUE constraint 충돌(동시 요청 race)일 때만 중복 등록 409를 반환한다.
+      // 다른 23505(다른 constraint)는 일반 서버 오류로 처리한다.
+      if (isLegacySurveyUniqueConflict(error)) {
         return NextResponse.json(
           { error: "같은 사업장·년도·주기·측정일의 예비조사가 이미 등록되어 있습니다. 예비조사 수정을 이용해 주세요." },
           { status: 409 }
