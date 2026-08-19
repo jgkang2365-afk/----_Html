@@ -1,9 +1,15 @@
 # 예비조사 핵심 데이터 모델 및 재조정 설계
 
 - 실행일: 2026-08-19
-- 브랜치: `feature/preliminary-survey-v2-automation-pause` (HEAD 958f3b7)
+- 브랜치: `feature/preliminary-survey-v2-automation-pause` (HEAD 3ec7ac1)
 - 작업 유형: **READ-ONLY 분석 + 설계 문서 작성 전용** (코드 수정·DB 변경·migration·UI 구현 없음)
 - 기준 자료: `docs/reports/2026-08-18_preliminary-survey-responsibility-dataflow-analysis.md` (2차 분석 보고서)
+
+> **정정 이력 (2026-08-19)**
+> - 정정 1: 예비조사 3건/day cap 기준을 "보고서 담당" → **예비조사자/책임 조사자(responsible)** 로 수정 (§7).
+> - 정정 2: 기존 데이터 migration의 메인 측정자 추정 규칙(보고서 담당자/link_measurer_id 기반) **제거** → 자동 추정 금지 + A/B/C 분류 (§31).
+> - 정정 3: 공시료 C/CC/CCC 순번 기준을 **실제 측정 당일 방문순서**로 명확화. 예비조사 route evidence 사용 금지 (§4, §8, §30).
+> - 보강: 초기 legacy 중복 전수검사 실행계획 구체화 (§16), `visit_order` 데이터 모델 반영 (§4).
 
 > 결론 구분 표기
 > - **[사실]** : 현재 코드/DB/schema에서 확인된 내용
@@ -81,16 +87,33 @@ daily_staff = [
 
 - user id 기반. 이름 문자열은 표시용 파생값.
 - 공시료 담당자는 별도 저장하지 않고 `main_measurer_id`에서 파생.
+- **[업무규칙]** 공시료 순번(C/CC/CCC)은 실제 측정 당일 방문순서 기준이므로, 날짜별 `visit_order`(실제 측정 방문/측정 순서)를 표현할 수 있어야 한다.
+
+**[제안] 실제 측정 방문순서 데이터 (공시료 순번의 기준):**
+```ts
+daily_staff = [
+  {
+    date: "2026-08-31",
+    main_measurer_id: 1,
+    helper_ids: [2],
+    visit_order: 1            // 해당 날짜 실제 방문/측정 순서 (공시료 C/CC/CCC 결정 기준)
+  }
+]
+```
+- `visit_order`(또는 `route_order`)는 같은 날짜 + 같은 메인 측정자가 담당한 사업장 간의 방문 순서.
+- 공시료 = `users.survey_code`(기본) + 해당 날짜 동일 메인 측정자 사업장의 `visit_order` 순번으로 C/CC/CCC 파생.
+- **예비조사 추천의 route evidence는 공시료 순번에 사용하지 않는다.** (정정 3)
 
 **[사실 — 현행 구조와의 차이]**
 - 현재 `daily_staff` = `[{date, measurer_id(=보고서 담당 코드), collaborators[]}]`.
-- `measurer_id` 키의 의미가 바뀌므로(보고서 담당 → 메인 측정자) **키 이름과 의미를 재정의**해야 한다. 기존 `measurer_id` 키는 보고서 담당으로 유지할지, 메인으로 교체할지 결정 필요.
+- `daily_staff[].measurer_id`는 보고서 담당 코드이므로 메인 측정자를 표현하지 못한다. 메인 측정자를 명시하기 위해 신규 키가 필요하다.
 
 **[제안] 키 설계:**
 - `main_measurer_id`: 해당 날짜 메인 측정자 (신규 추가)
 - `helper_ids`: 조력자 (신규 추가)
 - `measurer_id`: 보고서 담당 (기존 유지, 의미 불변)
-- 단일일도 `daily_staff = [{date: measurement_date, main_measurer_id, helper_ids}]`로 통일.
+- `visit_order`(또는 `route_order`): 해당 날짜 실제 방문/측정 순서 (신규 추가, 공시료 순번 기준)
+- 단일일도 `daily_staff = [{date: measurement_date, main_measurer_id, helper_ids, visit_order}]`로 통일.
 
 이 방식은 기존 `measurer_id`/`collaborators` 키를 보존하면서 메인 측정자를 명시적으로 추가하므로 기존 코드 충격을 줄인다.
 
@@ -152,24 +175,34 @@ daily_staff = [
 - V2 엔진에 기존 담당 3건/day 제한이 이미 있음 (`engine.ts:236` `existingResponsibleCount >= 3`), 신규 2건/day 제한(`engine.ts:240` `dailyNew >= 2`).
 - 단, 이는 **V2 예비조사자(responsible)** 기준이지 메인 측정자 기준이 아니다. 메인 측정자 기준 cap은 신규 설계 항목.
 
+**[업무규칙] 실제 측정 cap과 예비조사 cap은 별개 규칙이다.**
+- 실제 측정 cap 기준: **메인 측정자**. 기본 1인 2개 사업장/day, 예외 최대 3개 사업장/day (동일 주소/동일 현장/불가피한 운영 상황).
+- 예비조사 cap 기준: **예비조사자 / 책임 조사자(responsible)**. 기존업체 paper 배정 한도 1인 하루 최대 3건.
+- **보고서 담당자(`measurer_id`) 기준으로 어느 cap도 계산하지 않는다.**
+
 **[제안]**
-- 예비조사 계획 단계와 실제 측정 단계에서 cap을 분리해 설계:
+- 실제 측정과 예비조사의 cap을 별도 규칙으로 분리해 설계한다.
   - 실제 측정: 같은 날 같은 메인 측정자 기본 2건/예외 3건.
-  - 예비조사: 기존 3건/day 규칙 유지 (보고서 담당 기준, engine.ts).
+  - 예비조사: 기존 3건/day 규칙을 **예비조사자/책임 조사자 기준**으로 유지 (보고서 담당과 무관, `engine.ts`는 responsible 기준임).
 - 3건 예외 조건은 "동일 주소(또는 사실상 동일 현장)"로 제한하고, 추천 결과에 `3건 예외 · 동일 주소 사업장` 라벨로 명시.
 
 ---
 
 ## 8. 공시료 C/CC/CCC 순번 결정
 
-**[제안] 순번 결정 우선순위:**
-1. 실제 측정 동선/측정 순서 (추천 시 route evidence의 방문 순서)
-2. 확정된 route/order (가확정 저장 시 `recommendation_reason.route_evidence` 또는 전용 order 필드)
-3. 사용자가 정한 업체 순서
-4. 임시 안정 정렬: 사업장 코드
+**[업무규칙] 공시료 순번 기준은 "실제 측정 당일의 사업장 방문/측정 순서"다.**
+- C/CC/CCC는 **실제 측정 당일의 사업장 방문/측정 순서**를 기준으로 결정한다.
+- **예비조사 동선은 공시료 계산과 무관하다.**
+- 예비조사 추천용 데이터(예비조사 route, group recommendation route, 예비조사자 이동순서)를 공시료 순번 결정에 사용하지 않는다.
 
-- **[사실]** 현재는 `created_at`(저장 순서)만 사용 (`survey-assignment.ts:64-93`). 동선 기준이 아니므로, 측정 순서가 바뀌면 공시료가 어긋날 수 있다.
-- **[제안]** 동선이 확정된 사업장은 route/order 기준으로 C/CC/CCC 재계산하고, 동선 미확정 사업장은 임시 안정 정렬 사용. 재계산 결과를 `survey_code`에 반영.
+**[제안] 순번 결정 우선순위:**
+1. 실제 측정 당일의 방문/측정 순서 (`daily_staff.visit_order` 또는 `route_order`)
+2. 사용자가 확정한 방문 순서
+3. 임시 안정 정렬: 사업장 코드
+
+- **[사실]** 현재는 `created_at`(저장 순서)만 사용 (`survey-assignment.ts:64-93`). 측정 방문 순서 기준이 아니므로, 방문 순서가 바뀌면 공시료가 어긋날 수 있다.
+- **[제안]** 실제 측정 방문 순서가 확정된 사업장은 `visit_order` 기준으로 C/CC/CCC를 재계산하고, 미확정 사업장은 임시 안정 정렬을 사용한다. 재계산 결과를 `survey_code`에 반영한다.
+- **금지**: 예비조사 추천의 route evidence를 공시료 순번에 사용한다.
 
 ---
 
@@ -280,12 +313,21 @@ sequence_number = 보조 정보 (표시/기존 호환용)
 
 **[업무규칙]** 운영 중 매번 전수조회 금지. 초기 migration 전 1회만 전수조사.
 
-**[제안] 초기 1회 전수조사 절차 (설계):**
-1. 전체 `preliminary_survey`를 `(code, year, period, measurement_date)`로 그룹핑해 중복 후보 추출.
-2. 각 중복을 코드/데이터로 판정: 정상(예: 다른 의미) vs 오류 중복.
-3. 오류 중복은 사용자 확인 후 정리 (id 유지/삭제 결정).
-4. 정상 식별키 확정 후 UNIQUE 적용.
-- 이번 작업에서는 실행하지 않고 절차만 설계.
+**[제안] 초기 legacy 중복 전수검사 실행계획 (설계):**
+
+| 단계 | 작업 | 방법 |
+|---|---|---|
+| 1. 대상 정의 | `preliminary_survey` 전체 행 기준 | READ-ONLY SELECT |
+| 2. 중복 후보 추출 | `(code, year, period, measurement_date)` 그룹핑 → 2건 이상 그룹 | GROUP BY + HAVING COUNT > 1 |
+| 3. NULL 처리 확인 | `measurement_date`, `year`, `period` NULL 행은 별도 그룹으로 분리 | NULL 별도 집계 |
+| 4. 중복 판정 | 각 중복 그룹에서: 실제 같은 의미인지(오류 중복) vs 합법 다중(예: 과거 데이터 변종) | code/측정일/실측정자/생성시각/캘린더 이벤트 비교 |
+| 5. 정상 식별키 확정 | `code+year+period+measurement_date`가 정상 키인지 전수 검증, 예외 사례 기록 | 검증 결과 문서화 |
+| 6. 정리 대상 결정 | 오류 중복은 사용자 확인 후 id 유지/삭제 결정. 합법 다중은 유지 | 사용자 승인 필요 |
+| 7. UNIQUE 적용 전 점검 | NULL 처리, 과거 캘린더/summary/document 참조 영향, upsert conflict key 가능성 | READ-ONLY 분석 |
+| 8. UNIQUE 적용 | `(code, year, period, measurement_date)` UNIQUE index 생성 | migration (별도 작업) |
+
+- **초기 1회만 수행.** 이후 운영 중에는 전체 조회 대신 UPSERT + UNIQUE로 방어.
+- 이번 작업에서는 실행하지 않고 절차만 확정.
 
 ---
 
@@ -442,6 +484,7 @@ sequence_number = 보조 정보 (표시/기존 호환용)
 | 구분 | migration | 설명 |
 |---|---|---|
 | **필수** | `daily_staff` 구조 확장 | `main_measurer_id`, `helper_ids` 추가 (기존 `measurer_id`/`collaborators` 유지) |
+| **필수** | `daily_staff` 방문순서 | `visit_order`(또는 `route_order`) 추가 — 실제 측정 방문순서, 공시료 순번 기준 |
 | **필수** | legacy `preliminary_survey` UNIQUE | `(code, year, period, measurement_date)` |
 | **필수** | legacy `year`/`period` 컬럼 정의 migration | repo drift 해소 |
 | **권장** | 찐확정 공통 함수화 (코드) | migration 아님, 로직 |
@@ -453,13 +496,20 @@ sequence_number = 보조 정보 (표시/기존 호환용)
 
 ## 31. 기존 데이터 migration 전략
 
-**[제안]**
-- `collaborators` 첫 이름을 무조건 메인으로 가정하지 않는다.
-- 신뢰할 수 있는 변환 규칙 후보 (실제 UI 저장 패턴 기반):
-  - 단일일: `collaborators`가 1명이면 그 사람을 메인. 2명 이상이면 누가 메인인지 불명확 → **수동 검토**.
-  - 다일: `daily_staff[].measurer_id`(보고서 담당)와 `collaborators` 조합으로 메인을 추정하되, `collaborators`에 보고서 담당이 포함된 경우에만 메인으로 추정하고 그 외는 수동 검토.
-  - `link_measurer_id`가 있으면 그 사람이 실측정 참여자이므로 메인 후보 우선.
-- 애매한 데이터는 **자동 migration 금지**, 수동 검토 목록으로 분리.
+**[업무규칙] 기존 데이터에서 메인 측정자를 확실히 알 수 없으면 자동 추정하지 않는다.**
+- 보고서 담당자(`measurer_id`)가 실제 참여자라는 이유만으로 메인 측정자로 지정하지 않는다. 보고서 담당자는 실제 현장에 참여하지 않을 수 있다.
+- `link_measurer_id`는 "예비조사 참여자 ∩ 실제 측정 참여자" 1명일 뿐이다. 메인 측정자·공시료 담당자·대표 측정자·첫 방문자를 의미하지 않으므로 메인 측정자 후보 우선값으로 사용하지 않는다.
+- `collaborators.split(',')[0]` 같은 문자열 순서 기준으로 첫 이름을 무조건 메인으로 지정하지 않는다. 문자열 순서는 표시/저장 우연에 따른 값일 수 있다.
+
+**[제안] migration 결과 3분류 (자동 반영 금지 원칙):**
+
+| 그룹 | 기준 | 처리 |
+|---|---|---|
+| **A. 자동 확정 가능** | 해당 날짜 actual_measurer가 정확히 1명이고, 현행 UI/DB 구조상 그 사람이 유일한 실제 측정 참여자이며, 다른 모순 데이터 없음 | main_measurer_id 전환 가능 |
+| **B. 자동 후보 가능** | 근거는 있으나 100% 확실하지 않음 | **자동 DB 반영 금지.** 사용자 검토 필요 |
+| **C. 수동 판정 필요** | 메인 측정자 판단 불가 (참여자 2명+ 구분 정보 없음, 보고서 담당이 참여자 중 한 명일 뿐, link 존재하나 메인 여부 불명확, 문자열 순서만으로 판단, 다일 날짜별 메인 구분 불명확, 과거 값 상호 충돌 등) | 자동 변환 금지, 수동 판정 목록으로 분리 |
+
+- 애매한 데이터는 **자동 migration 금지**, 수동 검토 목록으로 분리한다.
 
 ---
 
