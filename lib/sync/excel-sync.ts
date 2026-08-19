@@ -2143,10 +2143,14 @@ export async function syncMeasurementBusiness(
       console.log("[측정사업장 동기화] 수기 등록 데이터 보정 (Strict Sync) 시작...");
 
       // Target Rows를 순회하며 preliminary_survey도 업데이트
+      // 주의: preliminary_survey의 UNIQUE는 (code, year, period, measurement_date)다.
+      // 측정일(measurement_date)이 있는 행은 새 UNIQUE 키로 upsert하고,
+      // 측정일이 없는 행은 (code, year, period)로 기존 행만 UPDATE한다 (신규 INSERT 금지, 중복 방지).
       const surveyUpdates = targetRows.map((row: any) => ({
         code: row.code,
         year: row.year,
         period: row.period,
+        measurement_date: row.measurement_date ?? null,
         business_name: row.business_name,
         address: row.address,
         total_employees: row.total_employees,
@@ -2157,46 +2161,14 @@ export async function syncMeasurementBusiness(
       }));
 
       // Batch Update Preliminary Survey
-      // 주의: Preliminary Survey는 PK가 id이지만, Unique Key가 (year, period, code)여야 함.
-      // 현재 스키마 상 (year, period, code)가 유니크한지 확인 필요. 보통 그렇다고 가정.
       const surveyBatchSize = 1000;
       let surveyUpdatedCount = 0;
+      let surveyUpdatedByIdCount = 0;
 
-      for (let i = 0; i < surveyUpdates.length; i += surveyBatchSize) {
-        const batch = surveyUpdates.slice(i, i + surveyBatchSize);
-
-        // Upsert into preliminary_survey
-        // Note: Preliminary Survey might have other fields we don't want to lose?
-        // User said "all values update". So we update fields we know from Excel.
-        // Using UPSERT on (year, period, code)
-
-        // First, we need to know if (year, period, code) is a unique constraint in Postgres for preliminary_survey.
-        // If not, we might create duplicates. `inspect-target-schema` didn't show constraints.
-        // Assuming (year, period, code) matches.
-
-        // To be safe, let's try updating WHERE code, year, period match. 
-        // Since Supabase/PostgREST bulk update needs a primary key or unique constraint in the body?
-        // Actually `upsert` needs a unique constraint.
-        // Using `update` with `eq` is for single rows.
-
-        // Strategy: Loop through batch and Update individually (safest without unique key knowledge), 
-        // OR use a specialized RPC function if performance is key.
-        // For now, let's do individual updates for rows that likely exist (Manual Entries that need filling).
-
-        // Optimization: Only update if the row was a "Manual Entry" (incomplete)? 
-        // User said "All values updated".
-
-        // Let's use `upsert` assuming there's a unique constraint on (year, period, code) OR we just update blindly.
-        // Actually, safer to Update existing records. Manual entry creates a record. Excel sync should update it.
-
-        // We use a pragmatic approach: 
-        // For each row in Excel, try to Update preliminary_survey matching the Code/Year/Period.
-
-        // Optimization: 1000 items line-by-line is slow.
-        // But we already do that for measurement_business fallback.
-
-        // Let's try to update only fields that are NOT NULL in Excel.
-
+      // 측정일이 있는 행: (code, year, period, measurement_date) upsert
+      const withDate = surveyUpdates.filter((u: any) => u.measurement_date);
+      for (let i = 0; i < withDate.length; i += surveyBatchSize) {
+        const batch = withDate.slice(i, i + surveyBatchSize);
         const { error: surveyUpsertError } = await supabase
           .from("preliminary_survey")
           .upsert(
@@ -2205,21 +2177,51 @@ export async function syncMeasurementBusiness(
               updated_at: getKSTISOString()
             })),
             {
-              onConflict: "code,year,period",
+              onConflict: "code,year,period,measurement_date",
               ignoreDuplicates: false
             }
           );
 
         if (surveyUpsertError) {
-          console.warn(`[Preliminary Sync] Upsert failed (Constraint issue?): ${surveyUpsertError.message}`);
-          // Fallback: This might fail if no unique constraint.
-          // If so, we skip or try line-by-line update?
-          // Let's rely on the fact that Manual Registration creates it, so it exists.
+          console.warn(`[Preliminary Sync] Upsert failed (measurement_date key): ${surveyUpsertError.message}`);
         } else {
           surveyUpdatedCount += batch.length;
         }
       }
-      console.log(`[측정사업장 동기화] Preliminary Survey 동기화 시도 완료: ${surveyUpdatedCount}건`);
+
+      // 측정일이 없는 행: 기존 행을 (code, year, period)로 조회해 UPDATE만 수행 (신규 INSERT 금지).
+      // 측정일이 없는 사업장 정보 보정은 기존 수기 등록 행에 반영하고, 측정일 없는 새 행은 만들지 않는다.
+      const withoutDate = surveyUpdates.filter((u: any) => !u.measurement_date);
+      for (const row of withoutDate) {
+        const updatePayload: Record<string, any> = { updated_at: getKSTISOString() };
+        for (const field of ["business_name", "address", "total_employees", "business_category", "manager_name", "manager_mobile"]) {
+          if ((row as any)[field] !== undefined && (row as any)[field] !== null) {
+            updatePayload[field] = (row as any)[field];
+          }
+        }
+        const { data: matchedRows, error: fetchError } = await supabase
+          .from("preliminary_survey")
+          .select("id")
+          .eq("code", row.code)
+          .eq("year", row.year)
+          .eq("period", row.period);
+        if (fetchError) {
+          console.warn(`[Preliminary Sync] 조회 실패 (${row.code}/${row.year}/${row.period}): ${fetchError.message}`);
+          continue;
+        }
+        for (const m of matchedRows ?? []) {
+          const { error: updateError } = await supabase
+            .from("preliminary_survey")
+            .update(updatePayload)
+            .eq("id", m.id);
+          if (updateError) {
+            console.warn(`[Preliminary Sync] UPDATE 실패 (id=${m.id}): ${updateError.message}`);
+          } else {
+            surveyUpdatedByIdCount += 1;
+          }
+        }
+      }
+      console.log(`[측정사업장 동기화] Preliminary Survey 동기화 시도 완료: ${surveyUpdatedCount}건(upsert) + ${surveyUpdatedByIdCount}건(update)`);
 
     } catch (strictSyncError) {
       console.warn("[측정사업장 동기화] Strict Sync 중 오류:", strictSyncError);
