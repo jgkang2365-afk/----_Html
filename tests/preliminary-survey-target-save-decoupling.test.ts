@@ -10,6 +10,7 @@ const createRoute = read("app/api/businesses/create/route.ts");
 const service = read("lib/preliminary-survey-v2/service.ts");
 const policy = read("lib/preliminary-survey-v2/policy.ts");
 const uiSource = read("components/features/MeasurementTargetBusinessManagement.tsx");
+const adminRepairRoute = read("app/api/preliminary-survey-v2/admin-repair/route.ts");
 const legacyUpsertMigration = read("supabase/migrations/20260819_preliminary_survey_unique.sql");
 const excelSync = read("lib/sync/excel-sync.ts");
 
@@ -78,6 +79,39 @@ test("목록 화면에 예비조사 추천/묶음 추천 UI가 없다 (Phase A �
   assert.doesNotMatch(uiSource, /automationEnabled/);
   // 목록 헤더의 "예비조사 추천" 컬럼과 행별 V2 plan 표시 제거
   assert.doesNotMatch(uiSource, />예비조사 추천</);
+});
+
+test("관리자 예비조사 정비(repair) UI가 측정대상사업장관리에서 제거됐다", () => {
+  // 관리자용 "예비조사 연결 정비" state/handler/modal 전체 제거
+  assert.doesNotMatch(uiSource, /openRepairModal/);
+  assert.doesNotMatch(uiSource, /handleRepairSave/);
+  assert.doesNotMatch(uiSource, /repairOpen/);
+  assert.doesNotMatch(uiSource, /repairContext/);
+  assert.doesNotMatch(uiSource, /repairParticipantIds/);
+  assert.doesNotMatch(uiSource, /repairLinkMeasurerId/);
+  assert.doesNotMatch(uiSource, /repairReason/);
+  assert.doesNotMatch(uiSource, /repairLoading/);
+  assert.doesNotMatch(uiSource, /repairSaving/);
+  assert.doesNotMatch(uiSource, /repairError/);
+  assert.doesNotMatch(uiSource, /repairTargetId/);
+  assert.doesNotMatch(uiSource, /toggleRepairParticipant/);
+  assert.doesNotMatch(uiSource, /repairLinkCandidatesForContext/);
+  assert.doesNotMatch(uiSource, /AdminRepairContext/);
+  assert.doesNotMatch(uiSource, /예비조사 연결 정비/);
+  // admin-repair API 호출이 UI에 없음
+  assert.doesNotMatch(uiSource, /preliminary-survey-v2\/admin-repair/);
+});
+
+test("admin-repair API/service/audit/legacy sync는 보존된다 (예비조사 전용 자산)", () => {
+  // admin-repair API 파일은 존재
+  assert.match(adminRepairRoute, /preliminary_survey_v2_plans/);
+  assert.match(adminRepairRoute, /preliminary_survey_exception_log|link_measurer_id/);
+  // V2 service 함수 유지
+  assert.match(service, /export async function ensureV2PlanForTarget/);
+  assert.match(service, /export async function reconcileV2AfterTargetChange/);
+  // legacy Integrated Sync 유지
+  assert.match(businessesRoute, /Integrated Sync Logic/);
+  assert.match(businessesRoute, /onConflict: "code,year,period,measurement_date"/);
 });
 
 test("수정 모달의 측정 정보 입력 UI는 유지된다 (실시일/보고서 담당자/조력자)", () => {

@@ -57,14 +57,12 @@ test("예·측 후보 0명이면 저장 불가 (후보 계산)", () => {
   // 참가자(한기문)가 실제 측정자(김민영)에 없음 → 후보 0
   const candidates = repairLinkCandidates([17], users, ["김민영"]);
   assert.equal(candidates.length, 0);
-  assert.match(uiSource, /정정된 예비조사자와 실제 측정자 중 공통 참여자가 없습니다/);
 });
 
 test("예·측 후보가 정확히 1명이면 후보로 표시된다", () => {
   const candidates = repairLinkCandidates([17, 20], users, ["김민영"]);
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0].name, "김민영");
-  assert.match(uiSource, /예·측 후보/);
 });
 
 test("예·측 후보 2명 이상이면 관리자가 명시적으로 선택한다", () => {

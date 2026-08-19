@@ -330,19 +330,21 @@ test("E: 보고서 담당자 선택이 실제 측정 인원을 자동 변경하�
   assert.doesNotMatch(uiSource, /measurer_id: newId, collaborators/);
 });
 
-// ===== 통합 UI: 예비조사 정보 영역 / 예·측 표시 =====
-test("통합 UI: 예비조사 정보 영역이 있고 '예·측' 용어를 사용한다", () => {
-  assert.match(uiSource, /예비조사 정보/);
-  assert.match(uiSource, /예·측/);
-  assert.doesNotMatch(uiSource, /연계측정자/);
+// ===== 통합 UI: 예비조사 정보 영역 제거 / 예·측 개념 =====
+test("통합 UI: 측정대상사업장관리에 예비조사 정보 영역이 없다 (예·측 후보 계산은 공용 라이브러리 유지)", () => {
+  assert.doesNotMatch(uiSource, /예비조사 정보/);
+  // 예·측 후보 계산은 link-measurer 공용 라이브러리에 유지된다.
+  const lib = readFileSync(path.join(root, "lib", "business", "link-measurer.ts"), "utf8");
+  assert.match(lib, /repairLinkCandidates/);
+  assert.match(lib, /classifyLinkMeasurerCandidate/);
 });
 
-test("통합 UI: 수정 모달에 예비조사 표시 섹션이 없다 (Phase A, 조사방법 라벨 함수는 유지)", () => {
+test("통합 UI: 수정 모달에 예비조사 표시 섹션이 없다 (Phase A)", () => {
   assert.doesNotMatch(uiSource, /아직 예비조사 계획이 없습니다/);
   assert.doesNotMatch(uiSource, />예비조사 정보</);
-  // 조사방법 라벨 변환 함수는 여전히 유지된다 (V2 수동 수정 영역/다른 화면용)
-  assert.match(uiSource, /=== "field" \? "현장"/);
-  assert.match(uiSource, /=== "phone" \? "유선"/);
+  // 조사방법 라벨 변환은 공용 모듈로 이동 (V2 수동 수정 영역이 제거되면서 모달 내 함수도 제거)
+  const presentation = readFileSync(path.join(root, "lib", "preliminary-survey-v2", "presentation.ts"), "utf8");
+  assert.match(presentation, /v2SurveyMethodLabel/);
 });
 
 test("통합 UI: 예비조사 연결 상태 배지는 수정 모달에서 제거됐다 (관리자 정비는 별도 모달)", () => {
