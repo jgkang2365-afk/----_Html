@@ -349,9 +349,13 @@ test("통합 UI: 예비조사 연결 상태 배지는 수정 모달에서 제거
   assert.doesNotMatch(uiSource, />예비조사 연결 확인 필요</);
 });
 
-test("통합 UI: 예·측 후보는 예비조사자 ∩ 실제 측정자로 한정된다", () => {
-  assert.match(uiSource, /linkMeasurerCandidatesForForm/);
-  assert.match(uiSource, /v2SurveyorNames/);
+test("예·측 후보 계산은 수정 모달이 아닌 공용 link-measurer 라이브러리가 담당한다", () => {
+  // 구형 V2 편집 UI 제거로 모달 전용 계산 함수는 사라졌다. 후보 계산은 공용 라이브러리로 유지된다.
+  assert.doesNotMatch(uiSource, /linkMeasurerCandidatesForForm/);
+  assert.doesNotMatch(uiSource, /v2SurveyorNames/);
+  const lib = readFileSync(path.join(root, "lib", "business", "link-measurer.ts"), "utf8");
+  assert.match(lib, /repairLinkCandidates/);
+  assert.match(lib, /classifyLinkMeasurerCandidate/);
 });
 
 test("통합 UI: 예·측 선택은 인력·예비조사자를 자동 변경하지 않는다", () => {

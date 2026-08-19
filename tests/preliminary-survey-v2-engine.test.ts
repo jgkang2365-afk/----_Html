@@ -755,7 +755,9 @@ test("Q-V: 단일 추천 저장/UI/수동수정/Google 신호 배제/score 제�
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
   const migration = readFileSync("supabase/migrations/20260808_add_preliminary_survey_v2.sql", "utf8");
   assert.match(recommendRoute, /recommendAndPersistV2/);
-  assert.match(ui, /예비조사자\(복수선택 가능\)/);
+  // Phase A: 수정 모달의 구형 V2 편집 UI(예비조사자 선택)는 제거됐다. V2 편집은 예비조사 전용 API로만 수행.
+  assert.doesNotMatch(ui, /예비조사자\(복수선택 가능\)/);
+  assert.doesNotMatch(ui, /예비조사 자동추천 V2/);
   assert.doesNotMatch(ui, /선택한 추천안 적용|추천일 숨김/);
   assert.match(manualRoute, /plan_origin[\s\S]*manual/);
   assert.doesNotMatch(engine, /Google|occupied|preferredDate|preferred_date/);

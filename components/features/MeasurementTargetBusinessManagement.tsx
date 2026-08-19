@@ -22,7 +22,7 @@ import {
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
-import { suggestLinkMeasurerCandidates, collectMeasurementStaffNames, splitNames, repairLinkCandidates } from "@/lib/business/link-measurer";
+import { splitNames, repairLinkCandidates } from "@/lib/business/link-measurer";
 import {
     MEASUREMENT_MAP_CHANNEL,
     MEASUREMENT_MAP_VIEWER_NAME,
@@ -1586,31 +1586,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
     };
 
-    const handleManualV2PlanChange = async (recommendedDate: string, participantUserIds: number[], confirmed = false) => {
-        if (!editingItem) return;
-        const response = await fetch(`/api/preliminary-survey-v2/${editingItem.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ recommendedDate, participantUserIds, confirm: confirmed }),
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "예비조사 계획 수정에 실패했습니다.");
-
-        // 경력자 2명 이상 조합: 사용자 확인 전에는 저장되지 않으므로, 확인 후 재요청한다.
-        if (result.requiresUserConfirmation) {
-            const ok = window.confirm(
-                result.message || "경력자 2명이 예비조사자로 지정되었습니다. 이 조합으로 확정하시겠습니까?",
-            );
-            if (!ok) return { cancelled: true };
-            return handleManualV2PlanChange(recommendedDate, participantUserIds, true);
-        }
-
-        setEditForm(previous => ({ ...previous, preliminary_survey_v2_plan: result.plan }));
-        setData(previous => previous.map(item => String(item.id) === String(editingItem.id)
-            ? { ...item, preliminary_survey_v2_plan: result.plan } : item));
-        return { cancelled: false };
-    };
-
     // === 예비조사 예외 정비 (관리자 전용, C 상태 "연결 정비") ===
     // 확정(sequence_number 부여) 이후의 예외 수정 경로. 일반 사용자에게는 노출하지 않는다.
     const [repairOpen, setRepairOpen] = useState(false);
@@ -2047,30 +2022,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     // === 예비조사 정보 표시/예·측 도우미 ===
     // "예·측" = 예비조사자 ∩ 실제 측정자 (내부 필드 link_measurer_id)
-    const actualMeasurerNames = (form: Partial<BusinessEntry>): string[] =>
-        collectMeasurementStaffNames({ collaborators: form.collaborators, dailyStaff: form.daily_staff });
-
-    const v2SurveyorNames = (form: Partial<BusinessEntry>): string[] =>
-        (form.preliminary_survey_v2_plan?.participant_names || []).map((n) => String(n).trim()).filter(Boolean);
-
-    const linkMeasurerCandidatesForForm = (form: Partial<BusinessEntry>): User[] => {
-        const actual = new Set(actualMeasurerNames(form));
-        const v2 = new Set(v2SurveyorNames(form));
-        const valid = new Set([...actual].filter((name) => v2.has(name)));
-        return measurers.filter((m) => valid.has(m.name));
-    };
-
-    const linkStatusForForm = (form: Partial<BusinessEntry>): { kind: "A" | "B" | "C" | "PLAN_NONE" | "NO_STAFF" } => {
-        if (!form.preliminary_survey_v2_plan) return { kind: "PLAN_NONE" };
-        const actual = actualMeasurerNames(form);
-        if (actual.length === 0) return { kind: "NO_STAFF" };
-        const v2 = new Set(v2SurveyorNames(form));
-        const count = actual.filter((name) => v2.has(name)).length;
-        if (count === 0) return { kind: "C" };
-        if (count === 1) return { kind: "A" };
-        return { kind: "B" };
-    };
-
     const surveyMethodLabel = (method: string | undefined | null): string =>
         method === "field" ? "현장" : method === "phone" ? "유선" : "-";
 
@@ -3080,78 +3031,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* V2 예비조사 결과: 자동추천 기본값 + 관리자 수동 수정 */}
-                    {editForm.preliminary_survey_v2_plan && (
-                        <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50/40 p-4">
-                            <div className="mb-3 flex items-center justify-between">
-                                <h4 className="font-bold text-slate-800">예비조사 자동추천 V2</h4>
-                                <span className="text-xs text-slate-500">
-                                    {editForm.preliminary_survey_v2_plan.plan_origin === "manual" ? "관리자 수정" : "자동추천"}
-                                    {` · ${editForm.preliminary_survey_v2_plan.survey_method === "field" ? "현장" : "전화"} 예비조사`}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="mb-1 block text-sm font-medium text-slate-700">추천일</label>
-                                    <Input
-                                        type="date"
-                                        value={editForm.preliminary_survey_v2_plan.recommended_date || ""}
-                                        onChange={(event) => setEditForm(previous => ({
-                                            ...previous,
-                                            preliminary_survey_v2_plan: previous.preliminary_survey_v2_plan
-                                                ? { ...previous.preliminary_survey_v2_plan, recommended_date: event.target.value }
-                                                : null,
-                                        }))}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="mb-1 block text-sm font-medium text-slate-700">예비조사자(복수선택 가능)</label>
-                                    <div className="flex flex-wrap gap-2 rounded border border-slate-200 bg-white p-2">
-                                        {measurers.map(measurer => {
-                                            const plan = editForm.preliminary_survey_v2_plan!;
-                                            const checked = plan.participant_user_ids.includes(measurer.id);
-                                            const responsible = measurer.id === editForm.link_measurer_id;
-                                            return (
-                                                <label key={measurer.id} className="flex items-center gap-1 text-xs">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={checked || responsible}
-                                                        disabled={responsible}
-                                                        onChange={(event) => {
-                                                            const ids = event.target.checked
-                                                                ? [...plan.participant_user_ids, measurer.id]
-                                                                : plan.participant_user_ids.filter(id => id !== measurer.id);
-                                                            setEditForm(previous => ({
-                                                                ...previous,
-                                                                preliminary_survey_v2_plan: previous.preliminary_survey_v2_plan
-                                                                    ? { ...previous.preliminary_survey_v2_plan, participant_user_ids: [...new Set(ids)] }
-                                                                    : null,
-                                                            }));
-                                                        }}
-                                                    />
-                                                    {measurer.name}{responsible ? " (연계)" : ""}
-                                                </label>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="mt-3 flex justify-end">
-                                <Button type="button" variant="secondary" onClick={async () => {
-                                    const plan = editForm.preliminary_survey_v2_plan!;
-                                    try {
-                                        const result = await handleManualV2PlanChange(plan.recommended_date || "", plan.participant_user_ids);
-                                        if (result?.cancelled) return;
-                                        alert("예비조사 추천일과 조사자를 수정했습니다.");
-                                    } catch (error) {
-                                        alert(error instanceof Error ? error.message : "수동 수정에 실패했습니다.");
-                                    }
-                                }}>예비조사 계획 수정 저장</Button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 섹션 5: 비고 */}
+                    {/* 비고 */}
                     <div>
                         <label className="block text-sm font-medium mb-1 text-slate-700">비고</label>
                         <textarea

@@ -56,6 +56,16 @@ test("수정 모달에 예비조사 정보(표시) 섹션이 없다 (Phase A UI 
   assert.doesNotMatch(uiSource, />예비조사 연결 확인 필요</);
 });
 
+test("수정 모달에 구형 V2 편집 UI가 없다 (추천일/예비조사자/수정 저장)", () => {
+  // "예비조사 자동추천 V2" 카드(추천일 입력·예비조사자 체크박스·수정 저장 버튼) 전체 제거
+  assert.doesNotMatch(uiSource, />예비조사 자동추천 V2</);
+  assert.doesNotMatch(uiSource, /예비조사 계획 수정 저장/);
+  assert.doesNotMatch(uiSource, /예비조사자\(복수선택 가능\)/);
+  assert.doesNotMatch(uiSource, /handleManualV2PlanChange/);
+  // 구형 V2 편집: 추천일 onChange로 V2 plan 값을 직접 수정하는 코드 제거
+  assert.doesNotMatch(uiSource, /preliminary_survey_v2_plan, recommended_date: event\.target\.value/);
+});
+
 test("수정 모달의 측정 정보 입력 UI는 유지된다 (실시일/보고서 담당자/조력자)", () => {
   assert.match(uiSource, /실시일/);
   assert.match(uiSource, /보고서 담당자/);
