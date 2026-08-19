@@ -49,7 +49,7 @@
 - 제거: plan 없음/있음·정책 중지 안내 등 예비조사 관련 표시(상세 제거 내역은 §8 참조)
 - 최종: 측정대상사업장 관리 화면(수정 모달 + 목록)에서 예비조사 관련 UI 0개
 
-상세 제거 내역(수정 모달 예비조사 정보 섹션 · 구형 V2 편집 UI · 목록 추천/묶음 추천/V2 plan 표시)은 **§8**에 정리한다.
+상세 제거 내역(수정 모달 예비조사 정보 섹션 · 구형 V2 편집 UI · 목록 추천/묶음 추천/V2 plan 표시 · 관리자 정비 UI)은 **§8**에 정리한다.
 
 ---
 
@@ -68,7 +68,7 @@
 
 ### 신규
 
-`tests/preliminary-survey-target-save-decoupling.test.ts` (17건)
+`tests/preliminary-survey-target-save-decoupling.test.ts` (19건)
 
 - PATCH/create에서 `ensureV2PlanForTarget`/`reconcileV2AfterTargetChange` 호출 없음
 - 저장 응답에 `preliminarySurveyV2Plan`/`Notice` 자동생성 의존 없음
