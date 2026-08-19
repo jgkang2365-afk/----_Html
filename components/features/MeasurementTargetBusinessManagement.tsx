@@ -1542,23 +1542,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 throw new Error(errData.details || errData.error || "Failed to update");
             }
 
-            // steady-state: 저장 응답에 V2 plan이 포함되면 수정 모달 상태를 즉시 갱신한다.
-            // (페이지 새로고침 없이 예비조사 정보 영역이 최신 plan을 보여주기 위함)
-            try {
-                const result = await response.json();
-                if (result.preliminarySurveyV2Plan && editingItem && String(editingItem.id) === String(identity?.id)) {
-                    setEditForm(previous => ({
-                        ...previous,
-                        preliminary_survey_v2_plan: {
-                            ...(previous.preliminary_survey_v2_plan as any),
-                            ...result.preliminarySurveyV2Plan,
-                        } as BusinessEntry["preliminary_survey_v2_plan"],
-                    }));
-                }
-            } catch (parseError) {
-                console.warn("저장 응답 V2 plan 파싱 실패(무시):", parseError);
-            }
-
         } catch (error) {
             console.error("Update error:", error);
             alert(`수정 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
@@ -2935,17 +2918,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                 </div>
                                             );
                                         }
-                                        const noStaff = actualMeasurerNames(editForm).length === 0;
-                                        const noDate = !editForm.measurement_date;
                                         return (
                                             <div className="space-y-1">
-                                                <p className="text-sm text-slate-600">예비조사 계획 생성 대기</p>
-                                                <p className="text-xs text-amber-700">
-                                                    {noStaff
-                                                        ? "사유: 실제 측정자를 먼저 선택하세요. 측정일과 실제 측정자가 정해지면 저장 시 자동으로 예비조사 계획이 생성됩니다."
-                                                        : noDate
-                                                            ? "사유: 측정일을 먼저 입력하세요."
-                                                            : "측정일과 실제 측정자를 입력한 뒤 저장하면 예비조사 계획이 자동 생성됩니다."}
+                                                <p className="text-sm text-slate-600">아직 예비조사 계획이 없습니다.</p>
+                                                <p className="text-xs text-slate-500">
+                                                    예비조사 일정과 조사자는 예비조사 영역에서 별도로 지정합니다. (측정계획 저장 시 자동 생성되지 않습니다)
                                                 </p>
                                             </div>
                                         );
