@@ -55,6 +55,13 @@
 - 기존 단일 index(`idx_preliminary_survey_code`/`date`/`business_name`)는 조회 패턴에 사용되므로 유지.
 - **[사실]** 운영 DB에 적용 완료 (SQL Editor "Success"), constraint 존재 확인.
 
+### migration 재실행 안전성 (PR #34 보완)
+
+- **`DROP CONSTRAINT IF EXISTS` 제거**: 정상 존재하는 constraint를 재실행 시 제거·재생성하지 않는다.
+- **조건부 생성**: `pg_constraint`에서 동일 이름 + `public.preliminary_survey` + `contype='u'`가 없을 때만 `ADD CONSTRAINT` 실행.
+- 동일 이름인데 UNIQUE가 아닌 비정상 상태면 `RAISE EXCEPTION`으로 조용히 통과시키지 않는다.
+- schema drift 보정(`ADD COLUMN IF NOT EXISTS year/period/notes`)은 유지.
+
 ---
 
 ## 6. Integrated Sync 변경
@@ -68,6 +75,14 @@
 - 관리 필드: `end_date`/`report_writer`/`actual_measurer`/`business_name` (기존 책임 범위 유지).
 - 측정일 변경/다일/stale date 삭제 동작은 기존 로직 유지.
 
+### 23505 판정 범위 축소 (PR #34 보완)
+
+- 공통 helper `isLegacySurveyUniqueConflict` (`lib/business/survey-duplicate.ts`) 도입.
+- 판정 조건: PostgreSQL code=23505 **AND** 오류 본문(message/details)에
+  `uq_preliminary_survey_code_year_period_measurement_date` 포함.
+- **이번 legacy UNIQUE 충돌일 때만** race 처리. 다른 constraint의 23505는 throw(일반 오류)로 전달.
+- Supabase `PostgrestError`는 `constraint` 필드가 없으므로 message/details로 판정 (실제 Postgres 형식: constraint 이름은 message에 포함).
+
 ---
 
 ## 7. Survey POST 변경
@@ -76,8 +91,9 @@
 
 - 기존: 중복 체크 없이 INSERT.
 - 변경: 동일 `(code, year, period, measurement_date)` legacy 행 존재 시 **409 반환** (신규 등록 목적이므로 기존 행을 덮어쓰지 않음).
-- race 시 UNIQUE 위반(23505)도 409로 처리.
+- race 시 이번 legacy UNIQUE 충돌(23505 + constraint 명 일치)일 때만 409. 다른 23505는 일반 서버 오류(500).
 - 기존 row null overwrite 방지: 등록은 신규 insert만 수행하므로 기존 행 필드 무변경.
+- 사전 조회(409) + UNIQUE(race 최종 방어) 이중 구조 유지.
 
 ---
 
@@ -114,22 +130,42 @@
 
 ## 11. Calendar 영향
 
-- Integrated Sync UPSERT/UPDATE는 `google_event_id`를 보존하므로 Calendar event 중복 생성 없음.
-- 기존 캘린더 동기화(`syncBusinessToCalendar`) 경로 변경 없음.
-- **[사실]** 이번 작업에서 Calendar write 없음.
+**[사실]**
+- Integrated Sync의 이번 UPSERT/UPDATE 변경은 기존 `google_event_id`를 덮어쓰지 않는다 (UPDATE payload에 미포함).
+- Calendar sync 호출 경로 자체(`syncBusinessToCalendar`)는 이번 작업에서 변경하지 않았다.
+- 이번 작업에서는 Calendar write를 수행하지 않았다.
+
+**[판정]**
+- 따라서 이번 변경으로 기존 Calendar 연결 식별자를 소실시키는 코드는 확인되지 않았다.
+
+**범위 한정**: Calendar 전체의 정상성(중복 이벤트 없음 / orphan 없음)을 전수 검증한 것은 아니다. Calendar 전체 상태는 이번 작업 범위가 아니다.
 
 ---
 
 ## 12. 테스트
 
-- 신규: `tests/preliminary-survey-legacy-unique-upsert.test.ts` (11건)
-  - UNIQUE migration 구조 / Integrated Sync UPSERT+23505 / 보존 필드 / Survey POST 409 / excel-sync conflict key / V2 PAUSE 무영향.
+### 정적 구조 테스트 + helper 단위 테스트 (자동화)
+
+- `tests/preliminary-survey-legacy-unique-upsert.test.ts` (16건)
+  - migration: `ADD COLUMN IF NOT EXISTS` 유지 / 조건부 constraint 생성(pg_constraint) / `DROP CONSTRAINT` 없음 / destructive DDL 없음
+  - helper `isLegacySurveyUniqueConflict`: 이번 constraint 충돌만 true, 다른 23505는 false, 23505 아님/비객체는 false
+  - Integrated Sync: onConflict UPSERT / 보존 필드 / 이번 UNIQUE 충돌일 때만 race 처리
+  - Survey POST: 409 / `error.code === "23505"` 미사용(helper 사용)
+  - excel-sync: 새 UNIQUE 키 / measurement_date 없는 행 UPDATE만
+  - V2 PAUSE 무영향
 - `npx tsc --noEmit`: 통과.
 - lint: 신규·변경 파일 경고 0.
 - 관련 테스트 124건(PAUSE/plans/steady-state/group/recommend/confirm/role-separation/admin-repair/k2b-calendar): 전부 통과.
-- 전체 테스트: 427/431 통과. 실패 4건은 **변경 전 main에서도 동일하게 실패하던 기존 실패**
+- 전체 테스트: 432/436 통과. 실패 4건은 **변경 전 main에서도 동일하게 실패하던 기존 실패**
   - `national-support-flow-structure` (기존 알려진 실패)
   - `preliminary-survey-v2-3a-ui` 1건, `preliminary-survey-v2-persist-source-fix` 2건 (V2 migration 소스 검증, 이번 변경과 무관)
+
+### 실제 DB 동작 검증 (수동, 운영 데이터 무변경)
+
+- **동일 key 순차 중복 INSERT 거부**: 검증 시도에서 실제 `23505: duplicate key value violates unique constraint` 오류가 관찰됨 — 운영과 동일한 UNIQUE 구조가 동일 key 중복을 거부함을 실제로 확인.
+- **다일 측정**: 키에 `measurement_date`가 포함되어 구조적으로 보장 + 운영 데이터 다일 13그룹(34행) 및 H0508 08-03/08-25 2행이 정상 존재.
+- **운영 row count**: 495 유지, 중복 0, key NULL 0.
+- **한계**: SQL Editor가 문장 간 임시 테이블 상태를 유지하지 못해 자동화된 concurrent(동시 병렬) DB integration test는 수행하지 못했다. `실제 concurrent DB integration test 미실행` — 별도 격리 테스트 환경이 필요하다.
 
 ---
 
@@ -184,6 +220,7 @@
 ## 부록. 변경 파일
 
 - `supabase/migrations/20260819_preliminary_survey_unique.sql` (신규)
+- `lib/business/survey-duplicate.ts` (신규 — 23505 판정 helper)
 - `app/api/businesses/route.ts` (Integrated Sync UPSERT)
 - `app/api/survey/route.ts` (POST 중복 방어)
 - `lib/sync/excel-sync.ts` (conflict key 정합화)
