@@ -8,6 +8,7 @@ import { toShortName } from "@/lib/constants/designated-offices";
 import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
+import { resolveJournalManagerEmailUpdate } from "@/lib/journal/manager-email-policy";
 import {
   applyTargetClassificationToJournalNote,
   resolveTargetBusinessCategory,
@@ -488,7 +489,7 @@ export async function PUT(
       })(),
       manager_position: bodyClean.manager_position ?? existingJournal.manager_position,
       manager_mobile: truncateField(bodyClean.manager_mobile ?? existingJournal.manager_mobile, 20, 'manager_mobile'),
-      manager_email: bodyClean.manager_email ?? existingJournal.manager_email,
+      manager_email: resolveJournalManagerEmailUpdate(bodyClean, existingJournal.manager_email),
 
       // 측정 정보
       measurement_start_date: bodyClean.measurement_start_date !== undefined ? bodyClean.measurement_start_date : existingJournal.measurement_start_date,

@@ -476,7 +476,8 @@ export async function GET(request: NextRequest) {
           journal.manager_name = journal.manager_name || matchingBusiness.manager_name || null;
           journal.manager_position = journal.manager_position || matchingBusiness.manager_position || null;
           journal.manager_mobile = normalizePhoneLikeValue(journal.manager_mobile || matchingBusiness.manager_mobile, journal.manager_name);
-          journal.manager_email = journal.manager_email || matchingBusiness.manager_email || null;
+          // 기존 측정일지는 현재 journal의 명시적인 빈값을 보존한다.
+          journal.manager_email = journal.manager_email ?? null;
           journal.invoice_email = journal.invoice_email || matchingBusiness.invoice_email || null;
           journal.industrial_accident_number = journal.industrial_accident_number || matchingBusiness.industrial_accident_number || null;
           journal.commencement_number = journal.commencement_number || matchingBusiness.commencement_number || null;
