@@ -13,6 +13,7 @@ export async function requestK2BCalendarSync(
   if (!apiUrl) throw new Error("캘린더 동기화 서버 API URL이 없습니다.");
   if (!workerToken) throw new Error("캘린더 동기화 Worker 인증 토큰이 없습니다.");
 
+  console.log("[K2B Calendar Client Trace] fetch-start");
   const response = await fetchImpl(apiUrl, {
     method: "POST",
     headers: {
@@ -22,7 +23,9 @@ export async function requestK2BCalendarSync(
     body: JSON.stringify(target),
     signal: AbortSignal.timeout(15_000),
   });
+  console.log(`[K2B Calendar Client Trace] fetch-response status=${response.status} ok=${response.ok}`);
   const body = await response.json().catch(() => null);
+  console.log(`[K2B Calendar Client Trace] body success=${body?.success}`);
 
   if (!response.ok || !body?.success) {
     throw new Error(body?.error || `캘린더 동기화 서버 요청 실패 (${response.status})`);

@@ -600,6 +600,7 @@ export class WorkerDaemon {
                                 matchTarget.year,
                                 matchTarget.period
                             );
+                            console.log(`[WorkerDaemon K2B Calendar Trace] caller-resumed code=${matchTarget.code} success=${calendarSync?.success} error=${calendarSync?.error || 'none'}`);
                             if (rIdx !== -1) {
                                 results[rIdx].calendarSyncSuccess = calendarSync.success;
                                 results[rIdx].calendarSyncError = calendarSync.error;
@@ -683,20 +684,25 @@ export class WorkerDaemon {
     ): Promise<{ success: boolean; error?: string }> {
         console.log(`[WorkerDaemon K2B Calendar Trace] function-entered code=${code} apiUrl=${apiUrl ? 'present' : 'missing'} token=${process.env.DOCUMENT_WORKER_TOKEN ? 'present' : 'missing'}`);
         try {
+            console.log(`[WorkerDaemon K2B Calendar Trace] request-start code=${code}`);
             const result = await requestK2BCalendarSync(
                 apiUrl,
                 process.env.DOCUMENT_WORKER_TOKEN,
                 { code, year, period }
             );
+            console.log(`[WorkerDaemon K2B Calendar Trace] request-resolved code=${code} success=${result?.success} count=${result?.count} synced=${result?.syncedEventCount}`);
             console.log(
-                `[WorkerDaemon K2B Sync] ${code} 서버 캘린더 검증 완료 ` +
-                `(일정 ${result.syncedEventCount}/${result.count}건)`
+                `[WorkerDaemon K2B Sync] ${code} ���� Ķ���� ���� �Ϸ� ` +
+                `(���� ${result.syncedEventCount}/${result.count}��)`
             );
             return { success: true };
         } catch (error: any) {
             const message = error?.message || String(error);
+            console.error(`[WorkerDaemon K2B Calendar Trace] function-catch code=${code} message=${error?.message || String(error)}`);
             console.error(`[WorkerDaemon K2B Sync] Calendar sync failed for ${code}: ${message}`);
             return { success: false, error: message };
+        } finally {
+            console.log(`[WorkerDaemon K2B Calendar Trace] function-finally code=${code}`);
         }
     }
 
