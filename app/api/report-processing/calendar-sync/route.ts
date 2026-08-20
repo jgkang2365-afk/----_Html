@@ -30,6 +30,12 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (journalError) throw journalError;
+    console.log(
+      `[K2B Calendar Sync API Trace] code=${code} year=${year} period=${period} ` +
+      `journal=${journal ? 'present' : 'missing'} ` +
+      `status=${JSON.stringify(journal?.k2b_status)} ` +
+      `sendDate=${JSON.stringify(journal?.k2b_send_date)}`
+    );
     if (!journal || journal.k2b_status !== "정상처리" || !journal.k2b_send_date) {
       return NextResponse.json(
         { success: false, error: "K2B 최종 정상처리가 DB에 반영되지 않았습니다." },
