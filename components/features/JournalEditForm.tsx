@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { splitEmails, getDynamicEmailFontSize } from "@/lib/utils/email-utils";
 import {
   normalizeJournalManagerEmailForSave,
-  resolveJournalManagerEmail,
+  resolveJournalManagerContact,
 } from "@/lib/journal/manager-email-policy";
 
 interface JournalEntry {
@@ -392,14 +392,16 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const ref = data.referenceData;
                 console.log('[JournalEditForm] Reference Data (최신) 활용:', ref);
 
-                if (ref.manager_name) updated.manager_name = ref.manager_name;
-                if (ref.manager_position) updated.manager_position = ref.manager_position;
-                if (ref.manager_mobile) updated.manager_mobile = ref.manager_mobile;
-                updated.manager_email = resolveJournalManagerEmail({
+                Object.assign(updated, resolveJournalManagerContact({
                   isEditMode: entry.id != null,
-                  currentValue: updated.manager_email,
-                  fallbackValues: [ref.manager_email],
-                });
+                  currentValues: updated,
+                  fallbackValues: [{
+                    manager_name: ref.manager_name,
+                    manager_mobile: ref.manager_mobile,
+                    manager_email: ref.manager_email,
+                  }],
+                }));
+                if (ref.manager_position) updated.manager_position = ref.manager_position;
                 if (ref.address) updated.address = ref.address;
                 if (ref.business_number) updated.business_number = ref.business_number;
                 if (ref.total_employees !== undefined && ref.total_employees !== null) {
@@ -445,14 +447,16 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
 
-                updated.manager_name = updated.manager_name || pName;
-                updated.manager_position = updated.manager_position || pPosition;
-                updated.manager_mobile = updated.manager_mobile || data.previousData.manager_mobile || "";
-                updated.manager_email = resolveJournalManagerEmail({
+                Object.assign(updated, resolveJournalManagerContact({
                   isEditMode: entry.id != null,
-                  currentValue: updated.manager_email,
-                  fallbackValues: [data.previousData.manager_email],
-                });
+                  currentValues: updated,
+                  fallbackValues: [{
+                    manager_name: pName,
+                    manager_mobile: data.previousData.manager_mobile,
+                    manager_email: data.previousData.manager_email,
+                  }],
+                }));
+                updated.manager_position = updated.manager_position || pPosition;
                 if (data.previousData.invoice_email) {
                   const parts = splitEmails(data.previousData.invoice_email);
                   updated.invoice_email = updated.invoice_email || parts[0] || "";
@@ -529,16 +533,18 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
 
-                updated.manager_name = updated.manager_name || sName;
+                Object.assign(updated, resolveJournalManagerContact({
+                  isEditMode: entry.id != null,
+                  currentValues: updated,
+                  fallbackValues: [{
+                    manager_name: sName,
+                    manager_mobile: data.summaryInfo.manager_mobile,
+                    manager_email: data.summaryInfo.manager_email,
+                  }],
+                }));
                 if (!updated.manager_position && sPosition) {
                   updated.manager_position = sPosition;
                 }
-                updated.manager_mobile = updated.manager_mobile || data.summaryInfo.manager_mobile || "";
-                updated.manager_email = resolveJournalManagerEmail({
-                  isEditMode: entry.id != null,
-                  currentValue: updated.manager_email,
-                  fallbackValues: [data.summaryInfo.manager_email],
-                });
                 // 측정비는 자동으로 채우지 않고 참고용으로만 저장
                 // updated.measurement_fee_business = updated.measurement_fee_business || (data.summaryInfo.measurement_fee_business ? String(data.summaryInfo.measurement_fee_business) : "") || "";
                 // K2B 전송자는 예비조사 정보를 우선으로 하므로 여기서는 설정하지 않음

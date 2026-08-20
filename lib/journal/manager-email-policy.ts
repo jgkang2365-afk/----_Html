@@ -1,4 +1,10 @@
-export function resolveJournalManagerEmail({
+type JournalManagerContactValues = {
+  manager_name?: string | null;
+  manager_mobile?: string | null;
+  manager_email?: string | null;
+};
+
+function resolveJournalManagerValue({
   isEditMode,
   currentValue,
   fallbackValues = [],
@@ -11,7 +17,52 @@ export function resolveJournalManagerEmail({
     return currentValue ?? "";
   }
 
-  return currentValue || fallbackValues.find((value) => Boolean(value)) || "";
+  const hasValue = (value: string | null | undefined) =>
+    value !== null && value !== undefined && value.trim() !== "";
+
+  return hasValue(currentValue)
+    ? currentValue!
+    : fallbackValues.find(hasValue) || "";
+}
+
+export function resolveJournalManagerContact({
+  isEditMode,
+  currentValues,
+  fallbackValues = [],
+}: {
+  isEditMode: boolean;
+  currentValues: JournalManagerContactValues;
+  fallbackValues?: JournalManagerContactValues[];
+}): Required<JournalManagerContactValues> {
+  return {
+    manager_name: resolveJournalManagerValue({
+      isEditMode,
+      currentValue: currentValues.manager_name,
+      fallbackValues: fallbackValues.map((values) => values.manager_name),
+    }),
+    manager_mobile: resolveJournalManagerValue({
+      isEditMode,
+      currentValue: currentValues.manager_mobile,
+      fallbackValues: fallbackValues.map((values) => values.manager_mobile),
+    }),
+    manager_email: resolveJournalManagerValue({
+      isEditMode,
+      currentValue: currentValues.manager_email,
+      fallbackValues: fallbackValues.map((values) => values.manager_email),
+    }),
+  };
+}
+
+export function resolveJournalManagerEmail({
+  isEditMode,
+  currentValue,
+  fallbackValues = [],
+}: {
+  isEditMode: boolean;
+  currentValue: string | null | undefined;
+  fallbackValues?: Array<string | null | undefined>;
+}): string {
+  return resolveJournalManagerValue({ isEditMode, currentValue, fallbackValues });
 }
 
 export function normalizeJournalManagerEmailForSave(
