@@ -594,16 +594,32 @@ export class WorkerDaemon {
                         console.log(`[WorkerDaemon K2B Calendar Trace] before-condition code=${matchTarget.code} status=${JSON.stringify(gr.status)} len=${gr.status?.length}`);
                         if (gr.status === '정상처리') {
                             console.log(`[WorkerDaemon K2B Calendar Trace] condition-entered code=${matchTarget.code}`);
-                            const calendarSync = await this.syncCalendarAfterK2B(
-                                calendarSyncApiUrl,
-                                matchTarget.code,
-                                matchTarget.year,
-                                matchTarget.period
-                            );
-                            console.log(`[WorkerDaemon K2B Calendar Trace] caller-resumed code=${matchTarget.code} success=${calendarSync?.success} error=${calendarSync?.error || 'none'}`);
-                            if (rIdx !== -1) {
-                                results[rIdx].calendarSyncSuccess = calendarSync.success;
-                                results[rIdx].calendarSyncError = calendarSync.error;
+                            // period는 한글("상반기"/"하반기")이 전송 중 깨질 수 있으므로 ASCII 안전값으로 변환해 전달한다.
+                            const apiPeriod =
+                                matchTarget.period === '상반기'
+                                    ? 'first'
+                                    : matchTarget.period === '하반기'
+                                        ? 'second'
+                                        : null;
+                            if (apiPeriod == null) {
+                                const periodErr = `지원하지 않는 measurement_period: ${matchTarget.period}`;
+                                console.error(`[WorkerDaemon K2B Calendar Trace] invalid-period code=${matchTarget.code} period=${String(matchTarget.period)}`);
+                                if (rIdx !== -1) {
+                                    results[rIdx].calendarSyncSuccess = false;
+                                    results[rIdx].calendarSyncError = periodErr;
+                                }
+                            } else {
+                                const calendarSync = await this.syncCalendarAfterK2B(
+                                    calendarSyncApiUrl,
+                                    matchTarget.code,
+                                    matchTarget.year,
+                                    apiPeriod
+                                );
+                                console.log(`[WorkerDaemon K2B Calendar Trace] caller-resumed code=${matchTarget.code} success=${calendarSync?.success} error=${calendarSync?.error || 'none'}`);
+                                if (rIdx !== -1) {
+                                    results[rIdx].calendarSyncSuccess = calendarSync.success;
+                                    results[rIdx].calendarSyncError = calendarSync.error;
+                                }
                             }
                         }
                     } else {

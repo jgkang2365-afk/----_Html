@@ -55,9 +55,27 @@ test("Worker는 중간 업로드 직후 동기화를 제거하고 최종 정상�
   assert.match(worker, /if \(gridUpdateError\) throw gridUpdateError;[\s\S]*?this\.syncCalendarAfterK2B/);
   assert.match(worker, /calendarFailures = results\.filter\(r => r\.success && r\.calendarSyncSuccess === false\)/);
   assert.match(route, /journal\.k2b_status !== "정상처리"/);
-  assert.match(route, /await syncBusinessToCalendar\(supabase, code, year, period\)/);
+  assert.match(route, /await syncBusinessToCalendar\(supabase, code, year, measurementPeriod\)/);
   assert.match(route, /isAuthorizedDocumentWorker\(request\)/);
   assert.match(queue, /calendarSyncApiUrl:[\s\S]*?new URL\('\/api\/report-processing\/calendar-sync', req\.url\)/);
+});
+
+test("Worker는 period를 ASCII 안전값(first/second)으로 변환해 calendar sync API에 전달한다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  // 상반기 → first, 하반기 → second 변환 + 지원하지 않는 period는 명시적 에러 처리
+  assert.match(worker, /matchTarget\.period === '상반기'\s*\?\s*'first'/);
+  assert.match(worker, /matchTarget\.period === '하반기'\s*\?\s*'second'/);
+  assert.match(worker, /지원하지 않는 measurement_period/);
+});
+
+test("calendar-sync API는 period first/second를 내부 DB 값(상반기/하반기)으로 변환한다", () => {
+  const route = readFileSync("app/api/report-processing/calendar-sync/route.ts", "utf8");
+  assert.match(route, /period === "first"\s*\?\s*"상반기"/);
+  assert.match(route, /period === "second"\s*\?\s*"하반기"/);
+  assert.match(route, /지원하지 않는 period 값/);
+  // 조회와 syncBusinessToCalendar는 변환된 measurementPeriod를 사용한다.
+  assert.match(route, /\.eq\("measurement_period", measurementPeriod\)/);
+  assert.match(route, /await syncBusinessToCalendar\(supabase, code, year, measurementPeriod\)/);
 });
 
 test("정상처리 확인 시 캘린더 동기화는 results 배열 유무와 무관하게 1회 보장된다", () => {

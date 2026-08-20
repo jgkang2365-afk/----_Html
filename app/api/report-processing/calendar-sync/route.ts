@@ -20,18 +20,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // period는 전송 안전값("first"/"second")으로 들어온다. 내부 DB 값으로 변환한다.
+    const measurementPeriod =
+      period === "first"
+        ? "상반기"
+        : period === "second"
+          ? "하반기"
+          : null;
+    if (measurementPeriod == null) {
+      return NextResponse.json(
+        { success: false, error: `지원하지 않는 period 값입니다: ${String(period)}` },
+        { status: 400 },
+      );
+    }
+
     const supabase = await createClient();
     const { data: journal, error: journalError } = await supabase
       .from("measurement_journal")
       .select("k2b_status, k2b_send_date")
       .eq("code", code)
       .eq("measurement_year", year)
-      .eq("measurement_period", period)
+      .eq("measurement_period", measurementPeriod)
       .maybeSingle();
 
     if (journalError) throw journalError;
     console.log(
-      `[K2B Calendar Sync API Trace] code=${code} year=${year} period=${period} ` +
+      `[K2B Calendar Sync API Trace] code=${code} year=${year} period=${period} measurementPeriod=${measurementPeriod} ` +
       `journal=${journal ? 'present' : 'missing'} ` +
       `status=${JSON.stringify(journal?.k2b_status)} ` +
       `sendDate=${JSON.stringify(journal?.k2b_send_date)}`
@@ -43,7 +57,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await syncBusinessToCalendar(supabase, code, year, period);
+    const result = await syncBusinessToCalendar(supabase, code, year, measurementPeriod);
     if (!result?.success) {
       throw new Error("캘린더 동기화 결과를 확인하지 못했습니다.");
     }
