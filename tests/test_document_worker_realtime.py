@@ -85,13 +85,33 @@ class FakeWebSocket:
         parsed = json.loads(message)
         self.sent.append(parsed)
         if parsed["event"] == "phx_join":
+            binding = parsed["payload"]["config"]["postgres_changes"][0]
             await self.messages.put(
                 json.dumps(
                     {
                         "topic": parsed["topic"],
                         "event": "phx_reply",
-                        "payload": {"status": "ok", "response": {}},
+                        "payload": {
+                            "status": "ok",
+                            "response": {
+                                "postgres_changes": [{**binding, "id": 1}],
+                            },
+                        },
                         "ref": parsed["ref"],
+                    }
+                )
+            )
+            await self.messages.put(
+                json.dumps(
+                    {
+                        "topic": parsed["topic"],
+                        "event": "system",
+                        "payload": {
+                            "extension": "postgres_changes",
+                            "status": "ok",
+                            "message": "Subscribed to PostgreSQL",
+                        },
+                        "ref": None,
                     }
                 )
             )
@@ -157,7 +177,62 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         binding = websocket.sent[0]["payload"]["config"]["postgres_changes"][0]
         self.assertEqual(binding["event"], "INSERT")
         self.assertEqual(binding["filter"], "status=eq.PENDING")
+        self.assertTrue(websocket.sent[0]["payload"]["config"]["broadcast"]["replication_ready"])
         self.assertTrue(websocket.closed)
+
+    async def test_postgres_replication_error_fails_subscription(self):
+        import json
+
+        class ReplicationErrorWebSocket(FakeWebSocket):
+            async def send(self, message):
+                parsed = json.loads(message)
+                self.sent.append(parsed)
+                if parsed["event"] != "phx_join":
+                    return
+                binding = parsed["payload"]["config"]["postgres_changes"][0]
+                await self.messages.put(
+                    json.dumps(
+                        {
+                            "topic": parsed["topic"],
+                            "event": "phx_reply",
+                            "payload": {
+                                "status": "ok",
+                                "response": {"postgres_changes": [{**binding, "id": 1}]},
+                            },
+                            "ref": parsed["ref"],
+                        }
+                    )
+                )
+                await self.messages.put(
+                    json.dumps(
+                        {
+                            "topic": parsed["topic"],
+                            "event": "system",
+                            "payload": {
+                                "extension": "postgres_changes",
+                                "status": "error",
+                                "message": "replication unavailable",
+                            },
+                            "ref": None,
+                        }
+                    )
+                )
+
+        client = SupabaseRealtimePostgresClient("https://abcd.supabase.co", "public-key")
+        client.websocket = ReplicationErrorWebSocket()
+        client._connected = True
+        client._listen_task = asyncio.create_task(client._listen())
+        channel = client.channel("document-worker-jobs").on_postgres_changes(
+            event="INSERT",
+            schema="public",
+            table="document_job_pending_signals",
+            filter="status=eq.PENDING",
+            callback=lambda _payload: None,
+        )
+        with self.assertRaisesRegex(ConnectionError, "replication unavailable"):
+            await channel.subscribe()
+        await client.close()
+
     def test_event_filter_only_accepts_pending_document_jobs(self):
         valid = {
             "payload": {"status": "PENDING", "job_type": DOCUMENT_JOB_TYPE}
@@ -218,7 +293,27 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         await coordinator.handle_realtime_event(
             {"payload": {"status": "FAILED", "job_type": DOCUMENT_JOB_TYPE}}
         )
+        await coordinator.handle_realtime_event(
+            {"payload": {"status": "PENDING", "job_type": "EMAIL"}}
+        )
         self.assertEqual(calls, 0)
+
+    async def test_runtime_startup_claim_processes_pending_job_once_then_drains(self):
+        responses = ["job-1", None]
+        settings = RealtimeSettings(False, "", "", DEFAULT_RECOVERY_POLL_SECONDS)
+        coordinator = ClaimCoordinator(
+            lambda: responses.pop(0),
+            to_thread=direct_to_thread,
+        )
+        runtime = DocumentWorkerRuntime(coordinator, settings)
+        task = asyncio.create_task(runtime.run())
+        for _ in range(20):
+            if not responses:
+                break
+            await asyncio.sleep(0)
+        runtime.stop()
+        await task
+        self.assertEqual(responses, [])
 
     async def test_realtime_retry_is_preserved_when_startup_claim_is_running(self):
         started = asyncio.Event()
@@ -310,9 +405,56 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.05)
         runtime.stop()
         await task
-        self.assertGreaterEqual(calls, 3)
+        self.assertEqual(calls, 3)
         self.assertTrue(fake_client.channel_instance.unsubscribed)
         self.assertTrue(fake_client.closed)
+
+    async def test_connection_loss_resubscribes_and_claims_immediately(self):
+        calls = 0
+        clients = []
+
+        def process_next():
+            nonlocal calls
+            calls += 1
+            return None
+
+        def factory(_url, _key):
+            client = FakeRealtimeClient()
+            clients.append(client)
+            return client
+
+        settings = RealtimeSettings(
+            True,
+            "https://project.supabase.co",
+            "anon",
+            DEFAULT_RECOVERY_POLL_SECONDS,
+        )
+        coordinator = ClaimCoordinator(
+            process_next,
+            to_thread=direct_to_thread,
+            realtime_empty_retry_delays=(),
+        )
+        runtime = DocumentWorkerRuntime(
+            coordinator,
+            settings,
+            realtime_factory=factory,
+            reconnect_delays=(0,),
+            connection_check_seconds=0.01,
+        )
+        task = asyncio.create_task(runtime.run())
+        for _ in range(50):
+            if clients and calls >= 2:
+                break
+            await asyncio.sleep(0.01)
+        clients[0].is_connected = False
+        for _ in range(100):
+            if len(clients) >= 2 and calls >= 3:
+                break
+            await asyncio.sleep(0.01)
+        runtime.stop()
+        await task
+        self.assertEqual(len(clients), 2)
+        self.assertEqual(calls, 3)
 
     async def test_realtime_disabled_keeps_startup_and_recovery_polling(self):
         calls = 0

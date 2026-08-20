@@ -43,14 +43,20 @@ class SupabasePostgresChangesChannel:
         try:
             self.join_ref = self.client.next_ref()
             self.client._channel = self
-            self.client.join_future = asyncio.get_running_loop().create_future()
+            loop = asyncio.get_running_loop()
+            self.client.join_future = loop.create_future()
+            self.client.replication_ready_future = loop.create_future()
             await self.client.send(
                 {
                     "topic": f"realtime:{self.topic}",
                     "event": "phx_join",
                     "payload": {
                         "config": {
-                            "broadcast": {"ack": False, "self": False},
+                            "broadcast": {
+                                "ack": False,
+                                "self": False,
+                                "replication_ready": True,
+                            },
                             "presence": {"key": "", "enabled": False},
                             "postgres_changes": [self.binding],
                             "private": False,
@@ -62,11 +68,18 @@ class SupabasePostgresChangesChannel:
             )
             response = await asyncio.wait_for(self.client.join_future, timeout=20)
             changes = (response or {}).get("postgres_changes") or []
+            server_binding = changes[0] if len(changes) == 1 else None
+            if not isinstance(server_binding, dict) or any(
+                str(server_binding.get(key) or "") != str(self.binding.get(key) or "")
+                for key in ("event", "schema", "table", "filter")
+            ):
+                raise ConnectionError("Realtime Postgres Changes 구독 조건이 일치하지 않습니다.")
             self.binding_ids = {
                 int(change["id"])
                 for change in changes
                 if isinstance(change, dict) and change.get("id") is not None
             }
+            await asyncio.wait_for(self.client.replication_ready_future, timeout=20)
             if callback:
                 callback("SUBSCRIBED", None)
             return self
@@ -105,6 +118,7 @@ class SupabaseRealtimePostgresClient:
         self.websocket: Any = None
         self._channel: SupabasePostgresChangesChannel | None = None
         self.join_future: asyncio.Future[Any] | None = None
+        self.replication_ready_future: asyncio.Future[Any] | None = None
         self._listen_task: asyncio.Task[Any] | None = None
         self._heartbeat_task: asyncio.Task[Any] | None = None
         self._send_lock = asyncio.Lock()
@@ -164,10 +178,29 @@ class SupabaseRealtimePostgresClient:
 
                 if message.get("event") == "postgres_changes" and self._channel:
                     self._channel.dispatch(message.get("payload") or {})
+                elif message.get("event") == "system":
+                    payload = message.get("payload") or {}
+                    if (
+                        payload.get("extension") == "postgres_changes"
+                        and self.replication_ready_future
+                        and not self.replication_ready_future.done()
+                    ):
+                        if payload.get("status") == "ok":
+                            self.replication_ready_future.set_result(payload)
+                        else:
+                            self.replication_ready_future.set_exception(
+                                ConnectionError(
+                                    "Realtime Postgres replication 연결 실패: "
+                                    f"{str(payload.get('message') or 'unknown')[:300]}"
+                                )
+                            )
                 elif message.get("event") in {"phx_error", "phx_close"}:
                     raise ConnectionError(f"Realtime channel 종료: {message.get('event')}")
         finally:
             self._connected = False
+            for future in (self.join_future, self.replication_ready_future):
+                if future is not None and not future.done():
+                    future.set_exception(ConnectionError("Realtime 연결이 구독 완료 전에 종료되었습니다."))
 
     async def _heartbeat(self) -> None:
         while self._connected:
