@@ -8,8 +8,16 @@ const flowSource = readFileSync(
   path.join(root, "scratch", "national_support_flow_cli.py"),
   "utf8",
 );
+const lookupSource = readFileSync(
+  path.join(root, "scratch", "apply_national_support_cli.py"),
+  "utf8",
+);
 const workerSource = readFileSync(
   path.join(root, "lib", "automation", "national-support-worker.ts"),
+  "utf8",
+);
+const applyApiSource = readFileSync(
+  path.join(root, "app", "api", "businesses", "national-support", "apply", "route.ts"),
   "utf8",
 );
 const targetManagementSource = readFileSync(
@@ -35,11 +43,16 @@ test("업체 단위 통합 CLI는 WebDriver 하나를 조회와 신청에 재사
   assert.match(executeFlow, /finally:[\s\S]*driver\.quit\(\)/);
 });
 
-test("apply_if_missing만 통합 CLI를 사용하고 후속 조회는 조회 전용 CLI를 사용한다", () => {
-  assert.match(workerSource, /"national_support_flow_cli\.py"/);
+test("신청은 통합 CLI를 사용하고 개별·일괄·후속 결과 조회는 조회 전용 CLI를 사용한다", () => {
+  assert.match(workerSource, /runCrawler[\s\S]*?"apply_national_support_cli\.py"/);
+  assert.match(workerSource, /runIntegratedFlow[\s\S]*?"national_support_flow_cli\.py"/);
   assert.match(workerSource, /if \(mode === "apply_if_missing"\)[\s\S]*runIntegratedFlow\(payload\)/);
   assert.match(workerSource, /const lookupResult = resultCode\([\s\S]*await runCrawler\(payload\)/);
   assert.match(workerSource, /if \(mode === "final_lookup"\)/);
+  assert.match(lookupSource, /health-support\/step-stone\/cont\/sub1/);
+  assert.match(lookupSource, /classify_lookup_candidates/);
+  assert.match(targetManagementSource, /\? "apply_if_missing" : "lookup_only"/);
+  assert.match(applyApiSource, /mode === "apply_if_missing" \|\| mode === "final_lookup"/);
 });
 
 test("DB는 건강디딤돌 processing 작업을 한 건으로 제한한다", () => {
