@@ -591,7 +591,9 @@ export class WorkerDaemon {
                         // K2B 접수현황이 '정상처리'로 확인되면, results 배열에 담겼는지와 무관하게
                         // 해당 사업장의 캘린더 동기화를 정확히 1회 보장한다.
                         // (results push 실패/매칭 오류가 있어도 캘린더 반영이 누락되지 않도록 함)
+                        console.log(`[WorkerDaemon K2B Calendar Trace] before-condition code=${matchTarget.code} status=${JSON.stringify(gr.status)} len=${gr.status?.length}`);
                         if (gr.status === '정상처리') {
+                            console.log(`[WorkerDaemon K2B Calendar Trace] condition-entered code=${matchTarget.code}`);
                             const calendarSync = await this.syncCalendarAfterK2B(
                                 calendarSyncApiUrl,
                                 matchTarget.code,
@@ -679,6 +681,7 @@ export class WorkerDaemon {
         year: number | string,
         period: string
     ): Promise<{ success: boolean; error?: string }> {
+        console.log(`[WorkerDaemon K2B Calendar Trace] function-entered code=${code} apiUrl=${apiUrl ? 'present' : 'missing'} token=${process.env.DOCUMENT_WORKER_TOKEN ? 'present' : 'missing'}`);
         try {
             const result = await requestK2BCalendarSync(
                 apiUrl,
