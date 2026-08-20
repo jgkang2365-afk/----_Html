@@ -55,7 +55,46 @@ test("Worker는 중간 업로드 직후 동기화를 제거하고 최종 정상�
   assert.match(worker, /if \(gridUpdateError\) throw gridUpdateError;[\s\S]*?this\.syncCalendarAfterK2B/);
   assert.match(worker, /calendarFailures = results\.filter\(r => r\.success && r\.calendarSyncSuccess === false\)/);
   assert.match(route, /journal\.k2b_status !== "정상처리"/);
-  assert.match(route, /await syncBusinessToCalendar\(supabase, code, year, period\)/);
+  assert.match(route, /await syncBusinessToCalendar\(supabase, code, year, measurementPeriod\)/);
   assert.match(route, /isAuthorizedDocumentWorker\(request\)/);
   assert.match(queue, /calendarSyncApiUrl:[\s\S]*?new URL\('\/api\/report-processing\/calendar-sync', req\.url\)/);
+});
+
+test("Worker는 period를 ASCII 안전값(first/second)으로 변환해 calendar sync API에 전달한다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  // 상반기 → first, 하반기 → second 변환 + 지원하지 않는 period는 명시적 에러 처리
+  assert.match(worker, /matchTarget\.period === '상반기'\s*\?\s*'first'/);
+  assert.match(worker, /matchTarget\.period === '하반기'\s*\?\s*'second'/);
+  assert.match(worker, /지원하지 않는 measurement_period/);
+});
+
+test("calendar-sync API는 period first/second를 내부 DB 값(상반기/하반기)으로 변환한다", () => {
+  const route = readFileSync("app/api/report-processing/calendar-sync/route.ts", "utf8");
+  assert.match(route, /period === "first"\s*\?\s*"상반기"/);
+  assert.match(route, /period === "second"\s*\?\s*"하반기"/);
+  assert.match(route, /지원하지 않는 period 값/);
+  // 조회와 syncBusinessToCalendar는 변환된 measurementPeriod를 사용한다.
+  assert.match(route, /\.eq\("measurement_period", measurementPeriod\)/);
+  assert.match(route, /await syncBusinessToCalendar\(supabase, code, year, measurementPeriod\)/);
+});
+
+test("정상처리 확인 시 캘린더 동기화는 results 배열 유무와 무관하게 1회 보장된다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  // 캘린더 sync 호출이 rIdx !== -1 블록 밖(정상처리 판정 직후)에서 실행되어,
+  // results push 실패/매칭 오류 시에도 누락되지 않는다.
+  const block = worker.match(/K2B 접수현황이 '정상처리'로 확인되면[\s\S]*?this\.syncCalendarAfterK2B[\s\S]*?\n\s*\}\);/);
+  assert.ok(block, "정상처리 시 캘린더 sync 보장 주석 블록이 존재해야 한다");
+  // 조건 진입 후 진단 로그가 있어도 같은 블록 안에서 sync 호출이 보장된다.
+  assert.match(block[0], /if \(gr\.status === '정상처리'\)[\s\S]*?const calendarSync = await this\.syncCalendarAfterK2B/);
+  // 호출 위치가 rIdx !== -1 내부가 아님을 확인 (calendarSyncAfterK2B 호출 앞에 rIdx 검사가 없어야 함)
+  const syncCall = worker.indexOf("this.syncCalendarAfterK2B(");
+  const preceding = worker.slice(Math.max(0, syncCall - 200), syncCall);
+  assert.doesNotMatch(preceding, /if \(rIdx !== -1\)\s*\{[\s\S]{0,120}$/);
+});
+
+test("그리드 매칭 진단 로그로 매칭 실패 원인을 식별할 수 있다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  // 매칭 성공/실패 양쪽에 진단 로그가 있어 원인을 파악 가능
+  assert.match(worker, /그리드 매칭: company=\$\{gr\.companyName\} status=\$\{gr\.status\}/);
+  assert.match(worker, /그리드 매칭 실패: company=\$\{gr\.companyName\}/);
 });

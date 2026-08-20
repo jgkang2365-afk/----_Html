@@ -13,6 +13,7 @@ export async function requestK2BCalendarSync(
   if (!apiUrl) throw new Error("캘린더 동기화 서버 API URL이 없습니다.");
   if (!workerToken) throw new Error("캘린더 동기화 Worker 인증 토큰이 없습니다.");
 
+  console.log("[K2B Calendar Client] fetch-start");
   const response = await fetchImpl(apiUrl, {
     method: "POST",
     headers: {

@@ -21,10 +21,13 @@ function logDebug(message: string, data?: any) {
         };
     }
     const logMsg = `[${timestamp}] ${message} ${logData ? JSON.stringify(logData, null, 2) : ''}\n`;
-    try {
-        fs.appendFileSync(DEBUG_LOG_PATH, logMsg, { encoding: 'utf8' });
-    } catch (e) {
-        console.error("Failed to write to debug log", e);
+    // Vercel 런타임(read-only filesystem)에서는 로컬 파일 쓰기를 시도하지 않는다.
+    if (process.env.VERCEL !== '1') {
+        try {
+            fs.appendFileSync(DEBUG_LOG_PATH, logMsg, { encoding: 'utf8' });
+        } catch (e) {
+            console.error("Failed to write to debug log", e);
+        }
     }
     console.log(message, logData);
 }

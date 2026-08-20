@@ -556,6 +556,13 @@ export class WorkerDaemon {
                         gr.companyName.includes(t.business_name) || t.business_name.includes(gr.companyName)
                     );
                     if (matchTarget) {
+                        // 진단: 그리드 접수현황 매칭 결과를 로그로 남긴다 (K2B 캘린더 자동동기화 미실행 원인 파악용)
+                        const rIdxDiag = results.findIndex(r => r.code === matchTarget.code);
+                        console.log(
+                            `[WorkerDaemon K2B] 그리드 매칭: company=${gr.companyName} status=${gr.status} ` +
+                            `target=${matchTarget.code} rIdx=${rIdxDiag}`
+                        );
+
                         const updateGridData: Record<string, any> = { 
                             k2b_status: gr.status,
                             k2b_sender: dbUser.name
@@ -578,16 +585,45 @@ export class WorkerDaemon {
                             results[rIdx].status = gr.status;
                             if (gr.status === '정상처리') {
                                 results[rIdx].success = true;
+                            }
+                        }
+
+                        // K2B 접수현황이 '정상처리'로 확인되면, results 배열에 담겼는지와 무관하게
+                        // 해당 사업장의 캘린더 동기화를 정확히 1회 보장한다.
+                        // (results push 실패/매칭 오류가 있어도 캘린더 반영이 누락되지 않도록 함)
+                        if (gr.status === '정상처리') {
+                            // period는 한글("상반기"/"하반기")이 전송 중 깨질 수 있으므로 ASCII 안전값으로 변환해 전달한다.
+                            const apiPeriod =
+                                matchTarget.period === '상반기'
+                                    ? 'first'
+                                    : matchTarget.period === '하반기'
+                                        ? 'second'
+                                        : null;
+                            if (apiPeriod == null) {
+                                const periodErr = `지원하지 않는 measurement_period: ${matchTarget.period}`;
+                                console.error(`[WorkerDaemon K2B] 캘린더 동기화 스킵: code=${matchTarget.code} period=${String(matchTarget.period)}`);
+                                if (rIdx !== -1) {
+                                    results[rIdx].calendarSyncSuccess = false;
+                                    results[rIdx].calendarSyncError = periodErr;
+                                }
+                            } else {
                                 const calendarSync = await this.syncCalendarAfterK2B(
                                     calendarSyncApiUrl,
                                     matchTarget.code,
                                     matchTarget.year,
-                                    matchTarget.period
+                                    apiPeriod
                                 );
-                                results[rIdx].calendarSyncSuccess = calendarSync.success;
-                                results[rIdx].calendarSyncError = calendarSync.error;
+                                if (rIdx !== -1) {
+                                    results[rIdx].calendarSyncSuccess = calendarSync.success;
+                                    results[rIdx].calendarSyncError = calendarSync.error;
+                                }
                             }
                         }
+                    } else {
+                        // 진단: 매칭되지 않은 그리드 행 (원인 파악용)
+                        console.log(
+                            `[WorkerDaemon K2B] 그리드 매칭 실패: company=${gr.companyName} status=${gr.status} (대상 목록에 매칭되는 사업장 없음)`
+                        );
                     }
                 }
             } catch (gridErr: any) {
