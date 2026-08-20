@@ -556,6 +556,13 @@ export class WorkerDaemon {
                         gr.companyName.includes(t.business_name) || t.business_name.includes(gr.companyName)
                     );
                     if (matchTarget) {
+                        // 진단: 그리드 접수현황 매칭 결과를 로그로 남긴다 (K2B 캘린더 자동동기화 미실행 원인 파악용)
+                        const rIdxDiag = results.findIndex(r => r.code === matchTarget.code);
+                        console.log(
+                            `[WorkerDaemon K2B] 그리드 매칭: company=${gr.companyName} status=${gr.status} ` +
+                            `target=${matchTarget.code} rIdx=${rIdxDiag}`
+                        );
+
                         const updateGridData: Record<string, any> = { 
                             k2b_status: gr.status,
                             k2b_sender: dbUser.name
@@ -578,16 +585,29 @@ export class WorkerDaemon {
                             results[rIdx].status = gr.status;
                             if (gr.status === '정상처리') {
                                 results[rIdx].success = true;
-                                const calendarSync = await this.syncCalendarAfterK2B(
-                                    calendarSyncApiUrl,
-                                    matchTarget.code,
-                                    matchTarget.year,
-                                    matchTarget.period
-                                );
+                            }
+                        }
+
+                        // K2B 접수현황이 '정상처리'로 확인되면, results 배열에 담겼는지와 무관하게
+                        // 해당 사업장의 캘린더 동기화를 정확히 1회 보장한다.
+                        // (results push 실패/매칭 오류가 있어도 캘린더 반영이 누락되지 않도록 함)
+                        if (gr.status === '정상처리') {
+                            const calendarSync = await this.syncCalendarAfterK2B(
+                                calendarSyncApiUrl,
+                                matchTarget.code,
+                                matchTarget.year,
+                                matchTarget.period
+                            );
+                            if (rIdx !== -1) {
                                 results[rIdx].calendarSyncSuccess = calendarSync.success;
                                 results[rIdx].calendarSyncError = calendarSync.error;
                             }
                         }
+                    } else {
+                        // 진단: 매칭되지 않은 그리드 행 (원인 파악용)
+                        console.log(
+                            `[WorkerDaemon K2B] 그리드 매칭 실패: company=${gr.companyName} status=${gr.status} (대상 목록에 매칭되는 사업장 없음)`
+                        );
                     }
                 }
             } catch (gridErr: any) {
