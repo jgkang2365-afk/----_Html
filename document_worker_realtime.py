@@ -169,11 +169,13 @@ class DocumentWorkerRuntime:
         *,
         realtime_factory: Callable[[str, str], Any] | None = None,
         reconnect_delays: tuple[int, ...] = RECONNECT_DELAYS,
+        connection_check_seconds: float = 2,
     ) -> None:
         self.coordinator = coordinator
         self.settings = settings
         self.realtime_factory = realtime_factory or self._default_realtime_factory
         self.reconnect_delays = reconnect_delays
+        self.connection_check_seconds = connection_check_seconds
         self.stop_event = asyncio.Event()
         self.realtime_client: Any = None
         self.realtime_channel: Any = None
@@ -186,8 +188,14 @@ class DocumentWorkerRuntime:
         return SupabaseRealtimePostgresClient(supabase_url, key)
 
     async def run(self) -> None:
-        LOGGER.info("시작 확인 claim 실행")
+        LOGGER.info(
+            "Document Worker runtime 시작 realtime=%s recovery=%ss",
+            self.settings.enabled,
+            self.settings.recovery_poll_seconds,
+        )
+        LOGGER.info("startup claim 시작")
         await self.coordinator.wake("startup")
+        LOGGER.info("startup claim 완료")
         tasks = [asyncio.create_task(self._recovery_loop(), name="document-worker-recovery")]
         if self.settings.enabled:
             tasks.append(asyncio.create_task(self._realtime_loop(), name="document-worker-realtime"))
@@ -245,8 +253,17 @@ class DocumentWorkerRuntime:
                 self.realtime_channel = channel
 
                 def on_event(payload: Any) -> None:
-                    if not is_pending_document_event(payload):
+                    record = event_record(payload)
+                    status = str(record.get("status") or "").upper()
+                    job_type = str(record.get("job_type") or "")
+                    if status != "PENDING" or job_type != DOCUMENT_JOB_TYPE:
+                        LOGGER.info(
+                            "Realtime event 무시 status=%s job_type=%s",
+                            status or "missing",
+                            job_type or "missing",
+                        )
                         return
+                    LOGGER.info("Realtime event 수신 status=PENDING job_type=%s", job_type)
                     if self.pending_event_task is not None:
                         self.pending_event_task.cancel()
                     self.pending_event_task = asyncio.create_task(
@@ -311,7 +328,7 @@ class DocumentWorkerRuntime:
                     )
                     if not client.is_connected or background_stopped:
                         raise ConnectionError("Realtime 연결이 종료되었습니다.")
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(self.connection_check_seconds)
             except asyncio.CancelledError:
                 raise
             except Exception as error:
