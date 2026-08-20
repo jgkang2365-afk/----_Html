@@ -174,6 +174,20 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .maybeSingle();
 
+    // 담당자 입력값은 현재 연도/주기의 measurement_business만 원천으로 사용한다.
+    // getBestReferenceData의 과거/다른 테이블 fallback과 분리해 MES의 명시적 null을 보존한다.
+    const { data: currentManagerContact, error: currentManagerContactError } = await supabase
+      .from("measurement_business")
+      .select("manager_name, manager_mobile, manager_email")
+      .eq("code", trimmedCode)
+      .eq("year", measurementYear)
+      .eq("period", period)
+      .maybeSingle();
+
+    if (currentManagerContactError) {
+      console.error('[previous-data API] 현재 담당자 정보 조회 오류:', currentManagerContactError);
+    }
+
     // [NEW] Best Reference Data (Shared Logic)
     // 측정일지 등록/수정 시 빈 필드를 채울 최적의 참조 데이터
     const { getBestReferenceData } = await import("@/lib/business/reference-data");
@@ -239,7 +253,8 @@ export async function GET(request: NextRequest) {
         previousData: null,
         nationalSupportStatus,
         message: "직전 측정일지 데이터가 없습니다.",
-        referenceData
+        referenceData,
+        currentManagerContact,
       });
     }
 
@@ -358,6 +373,7 @@ export async function GET(request: NextRequest) {
       surveyInfo,
       surveys, // 해당 기간의 모든 예비조사 목록
       referenceData, // 프론트엔드에서 자동 완성에 사용됨
+      currentManagerContact,
       source: previousJournal ? {
         year: previousJournal.measurement_year,
         period: previousJournal.measurement_period,

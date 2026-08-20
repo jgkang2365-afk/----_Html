@@ -79,12 +79,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     national: number | null;
   }>({ business: null, national: null });
 
-  // 전회 이메일 정보 (담당자, 계산서1, 계산서2)
-  const [previousEmails, setPreviousEmails] = useState<{
+  // 전회 담당자 및 계산서 이메일 정보 (참고 표시 전용)
+  const [previousContactInfo, setPreviousContactInfo] = useState<{
+    manager_name: string | null;
+    manager_mobile: string | null;
     manager_email: string | null;
     invoice_email: string | null;
     invoice_email_2: string | null;
-  }>({ manager_email: null, invoice_email: null, invoice_email_2: null });
+  }>({ manager_name: null, manager_mobile: null, manager_email: null, invoice_email: null, invoice_email_2: null });
 
   // 완료 상태에 따른 잠금 여부 (관리자나 DB관리는 잠그지 않음)
   const isLockedByCompletion = (entry.id && !isAdmin) ? entry.completion_status === "완료" : false;
@@ -348,6 +350,14 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
   // 직전 측정일지 및 예비조사 데이터 자동 채우기
   useEffect(() => {
+    setPreviousContactInfo({
+      manager_name: null,
+      manager_mobile: null,
+      manager_email: null,
+      invoice_email: null,
+      invoice_email_2: null,
+    });
+
     // 필수 필드가 모두 있을 때만 실행 (등록/수정 모두 포함)
     if (entry.code && entry.measurement_year && entry.measurement_period) {
       const fetchPreviousData = async () => {
@@ -368,6 +378,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             // 기존 값이 비어있을 때만 데이터로 채우기
             setFormData((prev) => {
               const updated = { ...prev };
+
+              Object.assign(updated, resolveJournalManagerContact({
+                isEditMode: entry.id != null,
+                currentValues: updated,
+                latestValues: data.currentManagerContact || {},
+              }));
 
               // 이름/직위 분리 헬퍼 함수
               const separateNameAndPosition = (fullName: string) => {
@@ -392,15 +408,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const ref = data.referenceData;
                 console.log('[JournalEditForm] Reference Data (최신) 활용:', ref);
 
-                Object.assign(updated, resolveJournalManagerContact({
-                  isEditMode: entry.id != null,
-                  currentValues: updated,
-                  fallbackValues: [{
-                    manager_name: ref.manager_name,
-                    manager_mobile: ref.manager_mobile,
-                    manager_email: ref.manager_email,
-                  }],
-                }));
                 if (ref.manager_position) updated.manager_position = ref.manager_position;
                 if (ref.address) updated.address = ref.address;
                 if (ref.business_number) updated.business_number = ref.business_number;
@@ -447,15 +454,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
 
-                Object.assign(updated, resolveJournalManagerContact({
-                  isEditMode: entry.id != null,
-                  currentValues: updated,
-                  fallbackValues: [{
-                    manager_name: pName,
-                    manager_mobile: data.previousData.manager_mobile,
-                    manager_email: data.previousData.manager_email,
-                  }],
-                }));
                 updated.manager_position = updated.manager_position || pPosition;
                 if (data.previousData.invoice_email) {
                   const parts = splitEmails(data.previousData.invoice_email);
@@ -503,8 +501,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
 
-                // 전회 이메일 정보 저장 (힌트용)
-                setPreviousEmails({
+                // 전회 담당자 및 이메일 정보 저장 (힌트용)
+                setPreviousContactInfo({
+                  manager_name: pName || null,
+                  manager_mobile: data.previousData.manager_mobile || null,
                   manager_email: data.previousData.manager_email || null,
                   invoice_email: (() => {
                     const email = data.previousData.invoice_email || "";
@@ -533,15 +533,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   }
                 }
 
-                Object.assign(updated, resolveJournalManagerContact({
-                  isEditMode: entry.id != null,
-                  currentValues: updated,
-                  fallbackValues: [{
-                    manager_name: sName,
-                    manager_mobile: data.summaryInfo.manager_mobile,
-                    manager_email: data.summaryInfo.manager_email,
-                  }],
-                }));
                 if (!updated.manager_position && sPosition) {
                   updated.manager_position = sPosition;
                 }
@@ -1748,9 +1739,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 }
                 className="email-mono-font"
               />
-              {previousEmails.invoice_email && (
-                <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email}`}>
-                  전회: {previousEmails.invoice_email}
+              {previousContactInfo.invoice_email && (
+                <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousContactInfo.invoice_email}`}>
+                  전회: {previousContactInfo.invoice_email}
                 </div>
               )}
             </div>
@@ -1821,9 +1812,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 }
                 className="email-mono-font"
               />
-              {previousEmails.invoice_email_2 && (
-                <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousEmails.invoice_email_2}`}>
-                  전회: {previousEmails.invoice_email_2}
+              {previousContactInfo.invoice_email_2 && (
+                <div className="absolute bottom-0 left-0 px-1 text-[11px] text-text-400 font-medium truncate email-mono-font w-full" title={`전회: ${previousContactInfo.invoice_email_2}`}>
+                  전회: {previousContactInfo.invoice_email_2}
                 </div>
               )}
             </div>
@@ -1923,9 +1914,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             placeholder="이메일 입력"
             className="email-mono-font"
           />
-          {previousEmails.invoice_email && (
-            <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousEmails.invoice_email}`}>
-              전회: {previousEmails.invoice_email}
+          {previousContactInfo.invoice_email && (
+            <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousContactInfo.invoice_email}`}>
+              전회: {previousContactInfo.invoice_email}
             </div>
           )}
         </div>
@@ -2253,13 +2244,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         담당자 정보
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Input
-          label="담당자 성명"
-          value={formData.manager_name}
-          onChange={(e) =>
-            setFormData({ ...formData, manager_name: e.target.value })
-          }
-        />
+        <div className="flex flex-col gap-1">
+          <Input
+            label="담당자 성명"
+            value={formData.manager_name}
+            onChange={(e) =>
+              setFormData({ ...formData, manager_name: e.target.value })
+            }
+          />
+          {previousContactInfo.manager_name && (
+            <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousContactInfo.manager_name}`}>
+              전회: {previousContactInfo.manager_name}
+            </div>
+          )}
+        </div>
         <Input
           label="담당자 직위"
           value={formData.manager_position}
@@ -2267,13 +2265,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             setFormData({ ...formData, manager_position: e.target.value })
           }
         />
-        <Input
-          label="담당자 휴대폰"
-          value={formData.manager_mobile}
-          onChange={(e) =>
-            setFormData({ ...formData, manager_mobile: e.target.value })
-          }
-        />
+        <div className="flex flex-col gap-1">
+          <Input
+            label="담당자 휴대폰"
+            value={formData.manager_mobile}
+            onChange={(e) =>
+              setFormData({ ...formData, manager_mobile: e.target.value })
+            }
+          />
+          {previousContactInfo.manager_mobile && (
+            <div className="px-1 text-[11px] text-text-400 font-medium truncate" title={`전회: ${previousContactInfo.manager_mobile}`}>
+              전회: {previousContactInfo.manager_mobile}
+            </div>
+          )}
+        </div>
         <div className="flex flex-col gap-1">
           <Input
             label="담당자 e-mail"
@@ -2284,9 +2289,9 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             }
             className="email-mono-font"
           />
-          {previousEmails.manager_email && (
-            <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousEmails.manager_email}`}>
-              전회: {previousEmails.manager_email}
+          {previousContactInfo.manager_email && (
+            <div className="px-1 text-[11px] text-text-400 font-medium truncate email-mono-font" title={`전회: ${previousContactInfo.manager_email}`}>
+              전회: {previousContactInfo.manager_email}
             </div>
           )}
         </div>

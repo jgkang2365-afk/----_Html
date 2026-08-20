@@ -7,11 +7,11 @@ type JournalManagerContactValues = {
 function resolveJournalManagerValue({
   isEditMode,
   currentValue,
-  fallbackValues = [],
+  latestValue,
 }: {
   isEditMode: boolean;
   currentValue: string | null | undefined;
-  fallbackValues?: Array<string | null | undefined>;
+  latestValue?: string | null;
 }): string {
   if (isEditMode) {
     return currentValue ?? "";
@@ -20,49 +20,35 @@ function resolveJournalManagerValue({
   const hasValue = (value: string | null | undefined) =>
     value !== null && value !== undefined && value.trim() !== "";
 
-  return hasValue(currentValue)
-    ? currentValue!
-    : fallbackValues.find(hasValue) || "";
+  return hasValue(latestValue) ? latestValue! : "";
 }
 
 export function resolveJournalManagerContact({
   isEditMode,
   currentValues,
-  fallbackValues = [],
+  latestValues = {},
 }: {
   isEditMode: boolean;
   currentValues: JournalManagerContactValues;
-  fallbackValues?: JournalManagerContactValues[];
+  latestValues?: JournalManagerContactValues;
 }): Required<JournalManagerContactValues> {
   return {
     manager_name: resolveJournalManagerValue({
       isEditMode,
       currentValue: currentValues.manager_name,
-      fallbackValues: fallbackValues.map((values) => values.manager_name),
+      latestValue: latestValues.manager_name,
     }),
     manager_mobile: resolveJournalManagerValue({
       isEditMode,
       currentValue: currentValues.manager_mobile,
-      fallbackValues: fallbackValues.map((values) => values.manager_mobile),
+      latestValue: latestValues.manager_mobile,
     }),
     manager_email: resolveJournalManagerValue({
       isEditMode,
       currentValue: currentValues.manager_email,
-      fallbackValues: fallbackValues.map((values) => values.manager_email),
+      latestValue: latestValues.manager_email,
     }),
   };
-}
-
-export function resolveJournalManagerEmail({
-  isEditMode,
-  currentValue,
-  fallbackValues = [],
-}: {
-  isEditMode: boolean;
-  currentValue: string | null | undefined;
-  fallbackValues?: Array<string | null | undefined>;
-}): string {
-  return resolveJournalManagerValue({ isEditMode, currentValue, fallbackValues });
 }
 
 export function normalizeJournalManagerEmailForSave(
