@@ -10,6 +10,7 @@ import { readFileSync, existsSync } from "fs";
 import { getKSTISOString, getKSTYear, getNextWorkingDay } from "@/lib/utils/date-utils";
 import { normalizePhoneLikeValue } from "@/lib/business/reference-data";
 import { canonicalizeBusinessInfoOfficeJurisdiction } from "@/lib/sync/office-jurisdiction";
+import { normalizeMesManagerContactFields } from "@/lib/sync/mes-manager-contact-policy";
 
 // [The Joo Rule] 국고지원 상태값 정규화 함수
 const normalizeNationalSupportStatus = (val: any): string | null => {
@@ -1860,6 +1861,10 @@ export async function syncMeasurementBusiness(
             fullRow[field] = value;
           }
         });
+
+        // MES 담당자 정보는 최신값 우선: 빈값도 명시적 NULL로 포함한다.
+        // 모든 행에 동일한 키를 포함해 mixed bulk upsert 결과가 행 구성에 좌우되지 않도록 한다.
+        Object.assign(fullRow, normalizeMesManagerContactFields(row));
 
         return fullRow;
       });
