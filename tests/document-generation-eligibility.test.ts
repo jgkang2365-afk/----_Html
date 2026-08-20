@@ -5,6 +5,7 @@ import {
   DESIGNATED_MEASUREMENT_INSTITUTION_REPORT_NAME,
   isDocumentDefinitionVisibleForJurisdiction,
 } from "../lib/document-generation/selection-report-visibility";
+import { DOCUMENT_GENERATION_STATUS_LABELS } from "../lib/document-generation/polling";
 
 const migration = readFileSync(
   "supabase/migrations/20260724_target_document_generation_eligibility.sql",
@@ -101,8 +102,8 @@ test("완료·실패 작업도 일지가 없으면 새 작업으로 재생성한
   assert.match(migration, /DROP CONSTRAINT IF EXISTS document_generation_jobs_business_id_key/);
   assert.match(migration, /INSERT INTO public\.document_generation_jobs/);
   assert.doesNotMatch(route, /context\.job\.status === "COMPLETED"/);
-  assert.match(component, /COMPLETED: "문서 재생성"/);
-  assert.match(component, /FAILED: "다시 생성"/);
+  assert.equal(DOCUMENT_GENERATION_STATUS_LABELS.COMPLETED, "문서 재생성");
+  assert.equal(DOCUMENT_GENERATION_STATUS_LABELS.FAILED, "다시 생성");
 });
 
 test("대기·처리 중 작업은 DB와 API 양쪽에서 중복 생성하지 않는다", () => {
@@ -135,7 +136,7 @@ test("2026년 하반기 자격 대상은 상태 조회 중에도 버튼을 보�
   assert.match(management, /editingItem\.has_actual_measurement_journal === false/);
   assert.match(component, /canShowWhileLoading/);
   assert.match(component, /disabled=\{loading \|\| isRunning\}/);
-  assert.match(component, /loading \? "문서 생성"/);
+  assert.match(component, /loading\s*\?\s*"문서 생성"/);
 });
 
 test("작업환경측정기관 선정 신고서는 business_info 관할값의 네 제외 대상에서만 숨긴다", () => {
