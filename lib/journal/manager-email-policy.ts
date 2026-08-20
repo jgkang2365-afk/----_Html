@@ -1,17 +1,54 @@
-export function resolveJournalManagerEmail({
+type JournalManagerContactValues = {
+  manager_name?: string | null;
+  manager_mobile?: string | null;
+  manager_email?: string | null;
+};
+
+function resolveJournalManagerValue({
   isEditMode,
   currentValue,
-  fallbackValues = [],
+  latestValue,
 }: {
   isEditMode: boolean;
   currentValue: string | null | undefined;
-  fallbackValues?: Array<string | null | undefined>;
+  latestValue?: string | null;
 }): string {
   if (isEditMode) {
     return currentValue ?? "";
   }
 
-  return currentValue || fallbackValues.find((value) => Boolean(value)) || "";
+  const hasValue = (value: string | null | undefined) =>
+    value !== null && value !== undefined && value.trim() !== "";
+
+  return hasValue(latestValue) ? latestValue! : "";
+}
+
+export function resolveJournalManagerContact({
+  isEditMode,
+  currentValues,
+  latestValues = {},
+}: {
+  isEditMode: boolean;
+  currentValues: JournalManagerContactValues;
+  latestValues?: JournalManagerContactValues;
+}): Required<JournalManagerContactValues> {
+  return {
+    manager_name: resolveJournalManagerValue({
+      isEditMode,
+      currentValue: currentValues.manager_name,
+      latestValue: latestValues.manager_name,
+    }),
+    manager_mobile: resolveJournalManagerValue({
+      isEditMode,
+      currentValue: currentValues.manager_mobile,
+      latestValue: latestValues.manager_mobile,
+    }),
+    manager_email: resolveJournalManagerValue({
+      isEditMode,
+      currentValue: currentValues.manager_email,
+      latestValue: latestValues.manager_email,
+    }),
+  };
 }
 
 export function normalizeJournalManagerEmailForSave(
