@@ -19,6 +19,7 @@ import {
 import { isDocumentDefinitionVisibleForJurisdiction } from "@/lib/document-generation/selection-report-visibility";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function outputRoot() {
   return process.env.DOCUMENT_OUTPUT_ROOT || "Z:\\data\\측정팀\\측정보고서";
@@ -47,7 +48,9 @@ async function getContext(businessId: number) {
   const actualJournal = await findActualMeasurementJournal(admin, target);
   const { data: jobRows, error } = await admin
     .from("document_generation_jobs")
-    .select("*")
+    .select(
+      "id, status, selected_documents, error_message, result_files, requested_at, started_at, completed_at, updated_at, worker_id, attempt_count, created_at"
+    )
     .eq("business_id", businessId)
     .order("created_at", { ascending: false })
     .limit(1);
@@ -150,7 +153,9 @@ export async function GET(request: NextRequest) {
     const businessId = Number(new URL(request.url).searchParams.get("businessId"));
     if (!Number.isInteger(businessId))
       return NextResponse.json({ error: "사업장 ID가 필요합니다." }, { status: 400 });
-    return NextResponse.json(await getContext(businessId));
+    return NextResponse.json(await getContext(businessId), {
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "문서 생성 상태 조회 실패" },
