@@ -65,10 +65,11 @@ class FakeRealtimeClient:
 
 
 class FakeWebSocket:
-    def __init__(self):
+    def __init__(self, *, send_replication_ready=True):
         self.messages = asyncio.Queue()
         self.sent = []
         self.closed = False
+        self.send_replication_ready = send_replication_ready
 
     def __aiter__(self):
         return self
@@ -115,6 +116,21 @@ class FakeWebSocket:
                     }
                 )
             )
+            if self.send_replication_ready:
+                await self.messages.put(
+                    json.dumps(
+                        {
+                            "topic": parsed["topic"],
+                            "event": "system",
+                            "payload": {
+                                "extension": "system",
+                                "status": "ok",
+                                "message": "Replication connection established",
+                            },
+                            "ref": None,
+                        }
+                    )
+                )
 
     async def close(self):
         self.closed = True
@@ -180,7 +196,47 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(websocket.sent[0]["payload"]["config"]["broadcast"]["replication_ready"])
         self.assertTrue(websocket.closed)
 
-    async def test_postgres_replication_error_fails_subscription(self):
+    async def test_postgres_changes_success_waits_for_replication_readiness(self):
+        import json
+
+        websocket = FakeWebSocket(send_replication_ready=False)
+        client = SupabaseRealtimePostgresClient("https://abcd.supabase.co", "public-key")
+        client.websocket = websocket
+        client._connected = True
+        client._listen_task = asyncio.create_task(client._listen())
+        channel = client.channel("document-worker-jobs").on_postgres_changes(
+            event="INSERT",
+            schema="public",
+            table="document_job_pending_signals",
+            filter="status=eq.PENDING",
+            callback=lambda _payload: None,
+        )
+
+        subscribe_task = asyncio.create_task(channel.subscribe())
+        for _ in range(20):
+            if client.join_future and client.join_future.done():
+                break
+            await asyncio.sleep(0)
+        self.assertFalse(subscribe_task.done())
+
+        await websocket.messages.put(
+            json.dumps(
+                {
+                    "topic": "realtime:document-worker-jobs",
+                    "event": "system",
+                    "payload": {
+                        "extension": "system",
+                        "status": "ok",
+                        "message": "Replication connection established",
+                    },
+                    "ref": None,
+                }
+            )
+        )
+        await subscribe_task
+        await client.close()
+
+    async def test_postgres_changes_error_fails_subscription(self):
         import json
 
         class ReplicationErrorWebSocket(FakeWebSocket):
@@ -229,7 +285,91 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
             filter="status=eq.PENDING",
             callback=lambda _payload: None,
         )
-        with self.assertRaisesRegex(ConnectionError, "replication unavailable"):
+        with self.assertRaisesRegex(ConnectionError, "Postgres Changes.*replication unavailable"):
+            await channel.subscribe()
+        await client.close()
+
+    async def test_postgres_changes_timeout_fails_subscription(self):
+        client = SupabaseRealtimePostgresClient(
+            "https://abcd.supabase.co",
+            "public-key",
+            subscribe_timeout_seconds=0.01,
+        )
+        client.websocket = FakeWebSocket()
+        client.websocket.send = lambda _message: asyncio.sleep(0)
+        client._connected = True
+        client._listen_task = asyncio.create_task(client._listen())
+        channel = client.channel("document-worker-jobs").on_postgres_changes(
+            event="INSERT",
+            schema="public",
+            table="document_job_pending_signals",
+            filter="status=eq.PENDING",
+            callback=lambda _payload: None,
+        )
+        with self.assertRaisesRegex(TimeoutError, "Postgres Changes 구독 시간 초과"):
+            await channel.subscribe()
+        await client.close()
+
+    async def test_replication_readiness_timeout_fails_subscription(self):
+        websocket = FakeWebSocket(send_replication_ready=False)
+        client = SupabaseRealtimePostgresClient(
+            "https://abcd.supabase.co",
+            "public-key",
+            subscribe_timeout_seconds=0.01,
+        )
+        client.websocket = websocket
+        client._connected = True
+        client._listen_task = asyncio.create_task(client._listen())
+        channel = client.channel("document-worker-jobs").on_postgres_changes(
+            event="INSERT",
+            schema="public",
+            table="document_job_pending_signals",
+            filter="status=eq.PENDING",
+            callback=lambda _payload: None,
+        )
+        with self.assertRaisesRegex(TimeoutError, "replication 준비 시간 초과"):
+            await channel.subscribe()
+        await client.close()
+
+    async def test_replication_readiness_error_fails_subscription(self):
+        import json
+
+        class ReplicationErrorWebSocket(FakeWebSocket):
+            def __init__(self):
+                super().__init__(send_replication_ready=False)
+
+            async def send(self, message):
+                await super().send(message)
+                parsed = json.loads(message)
+                if parsed["event"] != "phx_join":
+                    return
+                await self.messages.put(
+                    json.dumps(
+                        {
+                            "topic": parsed["topic"],
+                            "event": "system",
+                            "payload": {
+                                "extension": "system",
+                                "status": "error",
+                                "message": "replication readiness timeout",
+                            },
+                            "ref": None,
+                        }
+                    )
+                )
+
+        client = SupabaseRealtimePostgresClient("https://abcd.supabase.co", "public-key")
+        client.websocket = ReplicationErrorWebSocket()
+        client._connected = True
+        client._listen_task = asyncio.create_task(client._listen())
+        channel = client.channel("document-worker-jobs").on_postgres_changes(
+            event="INSERT",
+            schema="public",
+            table="document_job_pending_signals",
+            filter="status=eq.PENDING",
+            callback=lambda _payload: None,
+        )
+        with self.assertRaisesRegex(ConnectionError, "replication 준비 실패"):
             await channel.subscribe()
         await client.close()
 

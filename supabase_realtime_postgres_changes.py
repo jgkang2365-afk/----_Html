@@ -66,7 +66,13 @@ class SupabasePostgresChangesChannel:
                     "ref": self.join_ref,
                 }
             )
-            response = await asyncio.wait_for(self.client.join_future, timeout=20)
+            try:
+                response = await asyncio.wait_for(
+                    self.client.join_future,
+                    timeout=self.client.subscribe_timeout_seconds,
+                )
+            except asyncio.TimeoutError as error:
+                raise TimeoutError("Realtime Postgres Changes 구독 시간 초과") from error
             changes = (response or {}).get("postgres_changes") or []
             server_binding = changes[0] if len(changes) == 1 else None
             if not isinstance(server_binding, dict) or any(
@@ -79,11 +85,23 @@ class SupabasePostgresChangesChannel:
                 for change in changes
                 if isinstance(change, dict) and change.get("id") is not None
             }
-            await asyncio.wait_for(self.client.replication_ready_future, timeout=20)
+            try:
+                await asyncio.wait_for(
+                    self.client.replication_ready_future,
+                    timeout=self.client.subscribe_timeout_seconds,
+                )
+            except asyncio.TimeoutError as error:
+                raise TimeoutError("Realtime Postgres replication 준비 시간 초과") from error
             if callback:
                 callback("SUBSCRIBED", None)
             return self
         except Exception as error:
+            for future in (
+                self.client.join_future,
+                self.client.replication_ready_future,
+            ):
+                if future is not None and not future.done():
+                    future.cancel()
             if callback:
                 callback("CHANNEL_ERROR", error)
             raise
@@ -111,10 +129,17 @@ class SupabasePostgresChangesChannel:
 
 
 class SupabaseRealtimePostgresClient:
-    def __init__(self, supabase_url: str, key: str, heartbeat_seconds: int = 25) -> None:
+    def __init__(
+        self,
+        supabase_url: str,
+        key: str,
+        heartbeat_seconds: int = 25,
+        subscribe_timeout_seconds: float = 20,
+    ) -> None:
         self.supabase_url = supabase_url
         self.key = key
         self.heartbeat_seconds = heartbeat_seconds
+        self.subscribe_timeout_seconds = subscribe_timeout_seconds
         self.websocket: Any = None
         self._channel: SupabasePostgresChangesChannel | None = None
         self.join_future: asyncio.Future[Any] | None = None
@@ -180,18 +205,29 @@ class SupabaseRealtimePostgresClient:
                     self._channel.dispatch(message.get("payload") or {})
                 elif message.get("event") == "system":
                     payload = message.get("payload") or {}
-                    if (
-                        payload.get("extension") == "postgres_changes"
-                        and self.replication_ready_future
+                    extension = str(payload.get("extension") or "")
+                    status = str(payload.get("status") or "").lower()
+                    detail = str(payload.get("message") or "unknown")[:300]
+                    readiness_pending = (
+                        self.replication_ready_future
                         and not self.replication_ready_future.done()
-                    ):
-                        if payload.get("status") == "ok":
-                            self.replication_ready_future.set_result(payload)
-                        else:
+                    )
+                    if not readiness_pending:
+                        continue
+                    if extension == "postgres_changes":
+                        if status != "ok":
                             self.replication_ready_future.set_exception(
                                 ConnectionError(
-                                    "Realtime Postgres replication 연결 실패: "
-                                    f"{str(payload.get('message') or 'unknown')[:300]}"
+                                    f"Realtime Postgres Changes 구독 실패: {detail}"
+                                )
+                            )
+                    elif extension == "system":
+                        if status == "ok" and detail == "Replication connection established":
+                            self.replication_ready_future.set_result(payload)
+                        elif status != "ok":
+                            self.replication_ready_future.set_exception(
+                                ConnectionError(
+                                    f"Realtime Postgres replication 준비 실패: {detail}"
                                 )
                             )
                 elif message.get("event") in {"phx_error", "phx_close"}:
