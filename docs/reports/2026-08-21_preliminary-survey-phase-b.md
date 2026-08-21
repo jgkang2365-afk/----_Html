@@ -5,9 +5,9 @@
 - 시작 main SHA: `555ae773484bd1533d4b0d252f0fa12592e93ebe`
 - 작업 branch: `feature/preliminary-survey-phase-b`
 - PR #42 보완 시작 head SHA: `52f214a58f929df5105c39b84c1178d8ff32ad5d`
-- 추천 범위·다중 선택 최종 구현 head SHA: `2d197a02dbf1b52fbc3f2d68c43de833c98a6930`
-- 추천 범위·다중 선택 최종 구현 commit SHA: `2d197a02dbf1b52fbc3f2d68c43de833c98a6930`
-- PR #42 구현 head SHA: `2d197a02dbf1b52fbc3f2d68c43de833c98a6930`
+- 추천 기간 UI 단순화 최종 구현 head SHA: `d156e90fb4f69ed8edf23bd134d332b00132cdfb`
+- 추천 기간 UI 단순화 최종 구현 commit SHA: `d156e90fb4f69ed8edf23bd134d332b00132cdfb`
+- PR #42 구현 head SHA: `d156e90fb4f69ed8edf23bd134d332b00132cdfb`
 - PR: #42 `feat: rebuild preliminary survey planning workflow` (Draft 유지, merge하지 않음)
 
 보고서 자체를 반영하는 Git commit은 자신의 SHA를 파일 안에 미리 기록할 수 없으므로, 위 값은 최종 구현 commit 기준이다. 보고서 반영 후 실제 PR head는 PR 메타데이터와 완료 보고에 별도로 기록한다.
@@ -20,7 +20,9 @@
 - `lib/preliminary-survey-v2/manual-validation.ts`
 - `lib/preliminary-survey-v2/measurement-staff.ts`
 - `lib/preliminary-survey-v2/measurement-conflicts.ts`
+- `lib/preliminary-survey-v2/recommendation-range.ts`
 - `tests/preliminary-survey-phase-b.test.ts`
+- `tests/preliminary-survey-recommendation-range.test.ts`
 - `tests/preliminary-survey-v2-stale-source-sqlstate.test.ts`
 
 ## 탭·계획·목록 UI
@@ -31,11 +33,13 @@
 - 목록 상단은 연도·반기·상태·구분·예비조사일·측정예정일·조사자·방식 8개 필터를 데스크톱 한 줄에 배치하고 좁은 화면에서만 줄바꿈한다.
 - 목록은 최초실시·타기관 신규·기존업체를 같은 workbench source-of-truth에서 통합 조회하며, 업체 상세의 수동 수정·개별 재추천 UI를 유지한다.
 
-## 추천 범위·사업장 다중 선택 보완
+## 추천 기간·사업장 다중 선택 보완
 
-- 계획 toolbar를 최대 2행으로 유지하면서 `없음 / 일자 / 기간` 추천 범위, 날짜 입력, `이번 주 월~금 / 다음 주 월~금` 빠른 선택을 추가했다.
+- 계획 toolbar에서 `없음 / 일자 / 기간` mode와 `이번 주` 버튼을 제거하고 시작일·종료일을 항상 표시한다. 시작일과 종료일이 같으면 하루, 시작일이 더 빠르면 해당 기간 추천으로 동일하게 처리한다.
+- 시작일을 직접 바꾸면 종료일도 즉시 같은 값으로 맞추며 이후 종료일은 자유롭게 변경할 수 있다. 두 날짜 중 하나가 비었거나 종료일이 시작일보다 빠르면 명확한 안내와 함께 추천 요청을 클라이언트에서 차단한다.
+- 오렌지색 `다음 주` 버튼만 보조 기능으로 유지했다. 시작일이 있으면 그 날짜가 속한 주, 없으면 현재 KST 날짜가 속한 주를 기준으로 다음 월요일~금요일을 입력한다. UTC 문자열 절단은 사용하지 않으며 공휴일 제외는 기존 추천 엔진의 워킹데이 필터가 담당한다.
 - `preliminaryDateFrom`/`preliminaryDateTo`는 기존 `measurementDateFrom`/`measurementDateTo`와 분리했다. 엔진은 업체별 날짜 후보를 먼저 만든 뒤 사용자가 지정한 예비조사일 범위와 교차하므로 후보 규칙 밖 날짜를 강제 배정하지 않는다.
-- 일자 모드는 시작·종료를 같은 날짜로 전달하고, 기간 모드는 입력한 시작일~종료일 안의 후보만 허용한다. 범위 미입력이나 역전된 기간은 추천 요청 전에 차단한다.
+- 추천 요청은 별도 mode 없이 항상 입력된 `preliminaryDateFrom`과 `preliminaryDateTo`를 전달한다. 요일 선택·반복 추천 기능은 추가하지 않았다.
 - 코드와 사업장명을 정확·부분 검색할 수 있고 쉼표·줄바꿈으로 여러 검색어를 함께 사용할 수 있다. 표 checkbox로 여러 업체를 선택하며 개별 해제, 표시 결과 전체 선택, 전체 해제를 제공한다.
 - 검색어 변경은 선택을 해제하지 않는다. 선택 대상이 있으면 `선택 사업장 ∩ 연도/반기/상태/구분 필터 ∩ 예비조사일 범위`, 선택 대상이 없으면 `현재 필터 대상 ∩ 예비조사일 범위`만 추천한다.
 - 추천 생성 후 날짜 범위, 대상 수, 추천 생성 수, 추천 불가 수를 표시한다. 날짜·필터·사업장 선택을 바꾸면 기존 draft를 초기화하거나 apply를 비활성화해 이전 scope의 draft 오적용을 막는다.
@@ -107,14 +111,14 @@
 ## 테스트 결과
 
 - `npx tsc --noEmit`: 통과
-- Phase B 및 V2 집중 회귀 묶음: 121/121 통과
-- 신규 회귀에는 일자/기간 후보 교집합, 선택 `targetIds`와 날짜 범위의 동시 적용, 선택·scope 변경 후 draft 적용 차단, apply 재계산 금지를 포함했다.
+- Phase B 및 V2 집중 회귀 묶음: 126/126 통과
+- 신규 회귀에는 시작일→종료일 자동 동기화, 필수값·역전 범위 차단, 시작일과 현재 KST 각각을 기준으로 한 다음 주 월~금 계산, UTC/KST 날짜 경계, 하루·기간 후보 교집합, 선택 `targetIds`와 날짜 범위의 동시 적용, 선택·scope 변경 후 draft 적용 차단, apply 재계산 금지를 포함했다.
 - `npm test`: 362/362 통과
 - `npm run build`: 통과 (`Compiled successfully`, static pages 69/69)
 - 최종 보완 신규 회귀에는 report writer 비차단, 날짜별 main/helper 차단, 다일 exact-date 판정, legacy `actual_measurer` fallback을 포함했다.
 - 참고로 표준 스크립트 밖의 모든 `preliminary-survey*.test.ts` 역사 테스트를 추가 실행한 결과 281개 중 278개가 통과했고, Phase B 이전 화면·SQL 문자열을 전제로 한 구형 assertion 3개(`v2-3a-ui`, `v2-persist-source-fix`, `v2-plans`)는 현재 통합 UI/정책과 불일치해 실패했다. 제품 코드나 migration을 이 구형 assertion에 맞춰 되돌리지 않았다.
 - Windows CRLF 환경에서 기존 stale-source SQL 문자열 테스트 1건이 LF만 허용해 최초 실패했고, 동작 코드나 migration을 바꾸지 않고 정규식을 `\r?\n`으로 보완한 뒤 통과했다.
-- 실행 중인 dev와 동일 `.next`를 사용한 첫 build가 정체·충돌해 해당 build만 중단했다. 이후 시스템 임시 복제 디렉터리에서 build를 통과시켰고, 3000번 dev는 같은 `npm run dev:turbo`로 복구해 `/survey` HTTP 200을 재확인했다.
+- 최종 빌드 전 3000번 dev 프로세스만 종료해 `.next` 잠금을 피했고 저장소에서 직접 build를 통과시켰다. 이후 같은 `npm run dev:turbo`와 3000번 포트로 복구해 `/survey` 정상 로드를 재확인했다.
 
 ## Orca 브라우저 실제 검증
 
@@ -132,8 +136,11 @@
 - Orca screenshot은 브라우저 창 focus 문제로 timeout됐으나, 같은 연결의 실제 페이지에서 DOM 좌표·클릭·drag/drop·reload 결과는 정상 수집했다.
 - 추천 범위·다중 선택 보완은 1550px Orca 브라우저에서 계획 toolbar가 약 117px 높이의 2행이며, 테이블 컨테이너 폭 1526px에서 가로 스크롤이 비활성임을 확인했다.
 - `H0205` 코드 정확 검색은 2행, `그린자동차` 사업장명 부분 검색은 4행이 표시됐다. 검색어를 바꾼 뒤에도 선택 1건이 유지됐고, 표시 대상 전체 선택 4건, 개별 해제 후 3건, 전체 해제 후 0건을 확인했다.
-- 기간 모드에서 시작일·종료일 입력이 노출됐다. `이번 주`는 `2026-08-17 ~ 2026-08-21`, `다음 주`는 `2026-08-24 ~ 2026-08-28`로 실제 입력됐다.
-- 첫 기간 검증은 Fast Refresh와 겹쳐 상태가 초기화됐으나, 서버가 안정된 뒤 별도 browser worker가 같은 Orca 탭에서 재검증해 정상 동작을 확인했다.
+- 최종 UI에서 `없음 / 일자 / 기간` mode가 사라지고 시작일·종료일이 항상 노출되며, 오렌지 `다음 주` 버튼과 최대 2행 toolbar를 확인했다. 검증 viewport에서 toolbar와 테이블 모두 `clientWidth=scrollWidth`로 불필요한 가로 스크롤이 없었다.
+- 시작일 `2026-08-19` 또는 `2026-08-21`을 입력하면 종료일이 같은 날짜로 자동 설정됐고, `다음 주` 클릭 결과는 모두 `2026-08-24 ~ 2026-08-28`이었다. 시작일이 빈 상태에서도 현재 KST `2026-08-21` 기준으로 같은 범위가 입력됐다.
+- 종료일이 시작일보다 빠른 경우와 두 날짜가 빈 경우 각각 지정된 오류 문구가 표시되고 추천 요청이 차단됨을 확인했다. 이 검증에서는 추천 적용·수동 저장을 실행하지 않았다.
+- `H0205` 선택 후 검색어를 `그린자동차`로 바꿔도 선택 1건이 유지됐으며, 검증 후 선택과 검색 조건을 모두 초기화했다.
+- 브라우저 worker는 자신의 터미널에서 `Browser is not available: iab`로 실패했으나, 메인 작업자가 같은 Orca 내장 브라우저 탭에 재연결해 위 검증을 완료했다.
 
 ## 브라우저 미완료 항목과 사유
 
@@ -146,7 +153,6 @@
 
 - 관리자 권한의 안전한 테스트 데이터 환경에서 `추천 생성 → 업체별 재추천 → 추천안 적용` 성공 흐름과 실제 저장값 동일성을 추가 확인해야 한다.
 - 실제 외부 차량 경로 API 응답을 사용하는 운영 데이터 조합은 이번 브라우저 검증에서 실행하지 않았다.
-- build 검증용 시스템 임시 복제 폴더는 로컬 실행 정책이 recursive delete를 차단해 저장소 밖에 남아 있다. Git과 실행 중 dev에는 영향이 없다.
 - 찐확정 관리자 정비는 기존 admin repair 경로를 유지하며 일반 작업대 모달에서는 제공하지 않는다.
 
 ## 남은 TODO
@@ -164,7 +170,11 @@
 | GPT-5.6 Terra | Medium | UI·scope state·다중 검색/선택 구현 worker | 메인 검토 후 반영 | worker 1회, 토큰/credits 확인 불가 |
 | GPT-5.6 Terra | High | 추천 엔진의 `preliminaryDate` 후보 교집합, API 검증, 회귀 테스트 worker | 메인 검토 후 반영 | worker 1회, 토큰/credits 확인 불가 |
 | GPT-5.6 Terra | Medium | Orca 실제 브라우저 검색·다중 선택·레이아웃 검증 및 기간 scope 안정 재검증 | 검증 결과 반영, 코드 변경 없음 | worker 2회, 토큰/credits 확인 불가 |
+| GPT-5.6 Terra | Medium | 추천 mode 제거, 시작일·종료일 UI/state, 오렌지 `다음 주` 버튼 구현 | 메인 검토 후 반영 | 이번 보완 UI worker 1회, 토큰/credits 확인 불가 |
+| GPT-5.6 Terra | Medium | KST 다음 주 계산 함수와 날짜 검증 회귀 테스트 구현 | 메인 검토 후 반영 | 이번 보완 계산/테스트 worker 1회, 토큰/credits 확인 불가 |
+| GPT-5.6 Terra | Medium | 이번 보완 Orca 브라우저 검증 시도 | `Browser is not available: iab`로 중단, 메인 작업자가 재검증 완료 | 이번 보완 브라우저 worker 1회, 토큰/credits 확인 불가 |
 | GPT-5.6 Luna | - | 미사용 | 미반영 | 0회 |
 
 - Orca Run `run_a53b8bcb30b3`에서 구현, 엔진/테스트, 브라우저 검증을 하위 worker로 분담했다.
+- Orca Run `run_76c26c41accf`에서 이번 추천 기간 UI 보완을 UI, KST 계산/테스트, 브라우저 검증 worker로 분담했다.
 - 모델별 토큰·credits는 이 세션에서 확인할 수 없어 추정하지 않았다.
