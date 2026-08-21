@@ -8,6 +8,7 @@
 - 측정예정일 검색 scope 최종 구현 head SHA: `fbd451c81187f87c74dac948a3074b237451a27f`
 - 측정예정일 검색 scope 최종 구현 commit SHA: `fbd451c81187f87c74dac948a3074b237451a27f`
 - PR #42 구현 head SHA: `fbd451c81187f87c74dac948a3074b237451a27f`
+- 원천 데이터 검증 시작 head SHA: `5dbf55b5fd6b781883174ccab0cc87e031ec6d53`
 - PR: #42 `feat: rebuild preliminary survey planning workflow` (Draft 유지, merge하지 않음)
 
 보고서 자체를 반영하는 Git commit은 자신의 SHA를 파일 안에 미리 기록할 수 없으므로, 위 값은 최종 구현 commit 기준이다. 보고서 반영 후 실제 PR head는 PR 메타데이터와 완료 보고에 별도로 기록한다.
@@ -163,6 +164,94 @@
 - 안전한 관리자 테스트 대상과 권한이 확인되지 않은 상태에서 계정 전환, 추천안 적용, 수동 저장을 강행하지 않았다.
 - 위 저장 경계는 코드 경로, Phase B 테스트, stale-source/atomic batch 회귀로 검증했지만 관리자 브라우저 end-to-end 확인은 남아 있다.
 
+## 메인측정자·조력자·보고서담당 원천 데이터 검증
+
+### 1. 검증 범위
+
+- 1차 범위: `measurement_target_business.measurement_date >= 2026-08-01` 및 `< 2027-01-01`, 105건.
+- 확대 여부: 예. 1차 범위에 `daily_staff`가 있는 3건 모두 구형 `measurer_id/collaborators` 구조였고, `main_measurer_id/helper_ids` 실제 표본과 Case D가 없었다. 지시서의 확대 조건 4·6에 따라 구조 전환과 Case D를 확인하기 위해 `2026-01-01 <= measurement_date < 2027-01-01` 472건까지 확대했다.
+- 2025년 이하 데이터는 조회하지 않았다. 확대 조회는 구조·역할 패턴 확인에 필요한 필드만 SELECT했으며 전체 DB dump를 만들지 않았다.
+- 운영 DB INSERT/UPDATE/DELETE/UPSERT, migration, V2 plan 변경은 전혀 수행하지 않았다.
+
+### 2. 확인된 데이터 구조와 필드 의미
+
+| 필드 | 확인된 의미 | 근거 |
+| --- | --- | --- |
+| `measurement_target_business.measurer_id` | 보고서담당 사용자 ID | 측정대상 관리 UI의 `보고서 담당자` 입력, 저장 API가 `preliminary_survey.report_writer`로 변환하는 경로, 실제 사용자 참조 대조 |
+| `daily_staff[].measurer_id` | 해당 날짜의 보고서담당 사용자 ID | 다일 UI의 `보고서 담당자` 입력과 저장 API의 `report_writer` 생성 경로. 2026년 36개 entry 모두 상위 `measurer_id`와 불일치 0건 |
+| `daily_staff[].collaborators` | 해당 날짜의 실제 측정 참여자 이름 목록. 메인/조력자 역할 구분 없음 | 다일 UI의 `측정자` 복수 선택과 저장 API가 이 목록만 `actual_measurer`로 만드는 경로 |
+| 상위 `collaborators` | 단일일 실제 측정 참여자 또는 다일 참여자 요약 이름 목록. 역할 구분 없음 | 단일일 UI의 `조력자 (복수 선택)` 역사 명칭과 현재 API의 실제 측정 인원 처리. 다일 union과 불일치하는 2026년 행 3건이 있어 날짜별 원천으로는 사용할 수 없음 |
+| `daily_staff[].main_measurer_id` | 명시적 메인측정자용으로 Phase B 판독 코드가 지원하는 필드 | 실제 2026년 저장 행과 현재 입력 UI/저장 경로에서는 0건. 운영 데이터 의미를 실제 사례로 확인할 수 없음 |
+| `daily_staff[].helper_ids` | 명시적 조력자용으로 Phase B 판독 코드가 지원하는 필드 | 실제 2026년 저장 행과 현재 입력 UI/저장 경로에서는 0건. 운영 데이터 의미를 실제 사례로 확인할 수 없음 |
+
+- 2026년 `daily_staff` 사용 사업장은 15건, entry는 36개였고 모든 entry 구조가 `date + measurer_id + collaborators`였다.
+- 유효 날짜가 있는 구형 entry는 2026-03-16부터 2026-09-16까지 계속 존재했다. `main_measurer_id/helper_ids` 신형 저장 행은 0건이므로 신형 구조 전환일은 확인할 수 없다.
+- 1차 범위의 보고서담당 ID와 측정 참여자 이름은 모두 현재 `users`의 `job = 측정` 사용자와 연결됐다. 잘못된 사용자 참조는 0건이었다.
+- `preliminary_survey.actual_measurer`는 legacy 동기화 결과이지만 1차 범위 비교 가능 109개 일자 중 현재 측정대상 참여자와 44건이 달랐다. 현재 목록의 인력 원천을 검증하는 독립 근거로 사용할 수 없으며, 이 검증에서는 `measurement_target_business`를 원천으로 유지했다.
+
+### 3. 확정 가능한 업무 규칙
+
+| Case | 1차 건수 | 2026년 확대 건수 | 판정 | 안전한 표시 규칙 |
+| --- | ---: | ---: | --- | --- |
+| A: 보고서담당 = 실제 측정자 1명 | 48 | 195 | 확정 | 실제 참여자가 1명이므로 그 사람을 메인측정자로 표시하고 조력자는 없음, 보고서담당은 별도 표시 |
+| B: 보고서담당이 실제 참여자 2명 이상에 포함 | 3 | 19 | 판정 불가 | 참여자 목록은 확정할 수 있으나 보고서담당이라는 이유만으로 메인으로 정할 수 없음 |
+| C: 보고서담당과 실제 측정자 1명이 다름 | 47 | 81 | 확정 | 유일한 실제 참여자를 메인측정자로 표시하고 조력자는 없음, 보고서담당은 별도 표시 |
+| D: 보고서담당이 실제 참여자 2명 이상에 불포함 | 0 | 2 | 판정 불가 | 실제 참여자는 알 수 있으나 그중 메인 역할을 판별할 원천 필드가 없음 |
+
+- Case A 대표: `H0057 우리모터스주식회사`, `H0122 노랑자동차공업사`, `H0515 한국지엠남천안서비스센터 (주)`.
+- Case B 1차 전체: `H0063 은진모터스`, `H0077 정림모터스`, `H0260 국립해양생물자원관`.
+- Case C 대표: `H0055 남대전서비스기아오토큐 주식회사`, `H0058 산내모터스`, `H0051 이안현대모터스`.
+- Case D는 1차 범위에 없었고 확대 범위에서 `H0260 국립해양생물자원관`(2026-04-22), `H0495 구주제약(주)`(2026-06-30) 2건을 확인했다. 두 건 모두 메인 역할 판별 근거는 없었다.
+- helper가 여러 명이거나 실제 참여자가 2명 이상인 경우 현재 저장 구조만으로 메인/조력자를 나누지 않는다. 배열 순서, 이름 순서, 보고서담당 포함 여부로 추정하면 안 된다.
+- 다일 사업장은 해당 날짜 `daily_staff` entry를 사용해야 한다. 현재 `measurementStaffForDate`는 전달된 날짜와 정확히 일치하는 entry를 고르는 부분은 안전하지만, workbench 행은 사업장의 시작일인 `measurement_date` 하나만 전달하므로 후속 측정일별 역할을 한 행에서 표현하지 못한다.
+
+### 4. H0508 원천값과 중복 원인
+
+- 코드/사업장: `H0508` / `남영물류산업 (주) YAN5 Manless Mezzanine 공사`
+- 측정예정 시작일/종료일: `2026-08-03` / `2026-08-25`
+- 상위 `measurer_id`: `2`(강종구), 상위 `collaborators`: `강종구`
+- `daily_staff`: 2026-08-03과 2026-08-25 모두 `measurer_id = 2`, `collaborators = [강종구]`
+- 현재 화면 판독: 메인측정자 강종구 / 조력자 강종구 / 보고서담당 강종구
+- 판정: `MAIN_HELPER_DUPLICATE`. 원천에서 메인과 조력자 역할이 중복 저장된 것이 아니라, `entry.measurer_id`를 메인으로 오해하고 실제 참여자 전체인 `entry.collaborators`를 조력자로 오해한 fallback이 같은 사람을 두 번 출력한다.
+- 안전하게 확정 가능한 의미: 실제 측정 참여자가 강종구 1명이므로 메인측정자 강종구 / 조력자 없음 / 보고서담당 강종구다. 이번 검증에서는 코드나 DB를 수정하지 않았다.
+
+### 5. 현재 코드 평가
+
+- 종합 평가: **수정 필요**.
+- `entry.main_measurer_id ?? entry.measurer_id`: 명시적 `main_measurer_id`만 사용하면 의도상 안전하지만, 운영 데이터의 `entry.measurer_id`는 보고서담당이므로 메인 fallback으로 사용하면 안 된다.
+- `entry.helper_ids ?? entry.collaborators`: 명시적 `helper_ids`만 사용하면 의도상 안전하지만, 운영 데이터의 `entry.collaborators`는 조력자만이 아니라 실제 참여자 전체이므로 helper fallback으로 사용하면 안 된다.
+- 일치하는 `daily_staff`가 없을 때 상위 `collaborators` 전체를 조력자로 표시하는 현재 fallback도 역할 정보가 없는 값을 조력자로 단정하므로 안전하지 않다. 단일 참여자는 메인으로 확정 가능하지만, 복수 참여자는 `MAIN_ROLE_AMBIGUOUS`로 남겨야 한다.
+- 2026년 실제 데이터에는 명시적 main/helper 필드가 0건이므로, 현재 코드의 신형 우선 경로는 코드 구조만 검토할 수 있고 실제 운영 표본으로 검증하지 못했다.
+- 측정대상 저장·legacy sync 경로는 현재도 `daily_staff.measurer_id/collaborators`만 생성·해석한다. 향후 `main_measurer_id/helper_ids`만 저장하면 workbench 표시는 읽을 수 있어도 legacy `actual_measurer` 동기화는 빈 값이 될 수 있으므로, 신형 구조를 도입할 때 저장·동기화 경로를 함께 통일해야 한다.
+
+### 6. 1차 범위 사용자 확인·수정 판단 대상
+
+| 코드 | 사업장명 | 측정예정일 | 분류 | 확인 필요 사유 |
+| --- | --- | --- | --- | --- |
+| H0508 | 남영물류산업 (주) YAN5 Manless Mezzanine 공사 | 2026-08-03 | `MAIN_HELPER_DUPLICATE` | 보고서담당을 메인으로, 실제 참여자 전체를 helper로 중복 판독. 단일 참여자이므로 표시 로직만 바로 수정 가능 |
+| H0260 | 국립해양생물자원관 | 2026-08-12 | `MAIN_HELPER_DUPLICATE`, `MAIN_ROLE_AMBIGUOUS` | 참여자 한기문·김민영 중 메인 근거가 없고 현재 한기문이 메인/조력자에 중복 표시됨 |
+| H0102 | 국립농업과학원 | 2026-09-14 | `MAIN_HELPER_DUPLICATE` | 보고서담당을 메인으로, 단일 실제 참여자를 helper로 중복 판독. 단일 참여자이므로 표시 로직만 바로 수정 가능 |
+| H0063 | 은진모터스 | 2026-08-06 | `MAIN_ROLE_AMBIGUOUS` | 실제 참여자 강종구·이태환 중 메인 역할을 판별할 원천값 없음 |
+| H0077 | 정림모터스 | 2026-08-06 | `MAIN_ROLE_AMBIGUOUS` | 실제 참여자 이주형·한기문 중 메인 역할을 판별할 원천값 없음 |
+| H0399 | (주)조은자동차서비스 | 2026-08-25 | `MEASUREMENT_STAFF_MISSING` | 실제 측정 참여자 원천값 없음 |
+| H0524 | 주식회사 대영이엔씨 | 2026-08-27 | `MEASUREMENT_STAFF_MISSING` | 실제 측정 참여자 원천값 없음 |
+| H0288 | 동아하이테크 주식회사 2공장 | 2026-08-27 | `MEASUREMENT_STAFF_MISSING` | 실제 측정 참여자 원천값 없음 |
+| H0528 | (주) 한양건설 아산 리버뷰 지역주택조합 아파트 신축공사 | 2026-09-03 | `MEASUREMENT_STAFF_MISSING` | 실제 측정 참여자 원천값 없음 |
+| H0348 | 동아하이테크 주식회사 | 2026-09-04 | `MEASUREMENT_STAFF_MISSING` | 실제 측정 참여자 원천값 없음 |
+| H0126 | 주식회사 협성솔루션 | 2026-09-09 | `MEASUREMENT_STAFF_MISSING` | 실제 측정 참여자 원천값 없음 |
+| H0281 | 의료법인 삼광의료재단 에스엠엘대전의원 | 2026-09-10 | `MEASUREMENT_STAFF_MISSING` | 실제 측정 참여자 원천값 없음 |
+
+- 1차 범위의 복수 참여자 역할 모호 3건, 동일인 중복 표시 3건, 측정 참여자 누락 7건을 전부 위 표에 포함했다. H0260은 두 분류에 중복 해당한다.
+- 2026년 확대 범위는 구조 전환과 Case D 확인을 위한 보조 검증이다. 확대 범위 전체에서는 복수 참여자 역할 모호 21건, 측정 참여자 누락 175건이었으며, 8월 이전 대량 legacy 누락은 이번 1차 사용자 확인 목록에 재나열하지 않았다.
+
+### 7. 수정 권고
+
+- 바로 수정 가능한 로직: `daily_staff.measurer_id`를 메인측정자 fallback으로 사용하지 않고 보고서담당으로만 유지한다. 역할 없는 실제 참여자가 1명이면 그 사람을 메인으로 표시하고 helper에서 제거한다. 메인과 helper 출력 전 동일 ID/이름 중복을 방어한다.
+- 사용자 확인 후 수정할 로직: 실제 참여자가 2명 이상인 legacy 행은 메인 역할을 추정하지 않는다. 위 `MAIN_ROLE_AMBIGUOUS` 사업장의 실제 메인을 확인하거나 저장 UI에 명시적 main/helper 입력과 저장 경로를 마련한 후 표시한다.
+- 유지할 로직: 보고서담당은 상위/날짜별 `measurer_id`, 실제 참여자는 날짜별 `daily_staff.collaborators` 우선, 단일일은 상위 `collaborators`, 다일은 exact-date entry를 사용하는 역할 분리 원칙.
+- DB 자동 보정은 금지한다. 특히 collaborators 배열 첫 사람 또는 보고서담당을 일괄 메인으로 저장하면 안 된다.
+- 코드 검증 worker가 관련 Phase B·역할 분리 테스트 50건을 실행해 모두 통과했다. 이번 변경은 보고서뿐이므로 제품 전체 테스트와 build는 다시 실행하지 않았다.
+
 ## 알려진 제한사항
 
 - 관리자 권한의 안전한 테스트 데이터 환경에서 `추천 생성 → 업체별 재추천 → 추천안 적용` 성공 흐름과 실제 저장값 동일성을 추가 확인해야 한다.
@@ -191,9 +280,14 @@
 | GPT-5.6 Terra | Medium | 코드·사업장명 정확·부분·다중 검색 helper와 단위 테스트 구현 | 메인 검토 후 반영 | 검색 helper worker 1회, 토큰/credits 확인 불가 |
 | GPT-5.6 Sol | Medium | 계획 검색 snapshot, 검색 결과와 추천 scope 일치, 추천 결과 문구·버튼 상태 보완, 테스트·빌드·Git/PR | 실제 수행 결과 반영 | 이번 최종 보완 주 작업자 1세션, 토큰/credits 확인 불가 |
 | GPT-5.6 Sol | High | 측정예정일 검색 scope와 예비조사 후보일 의미 분리, API·UI·테스트·빌드·Git/PR | 실제 수행 결과 반영, 요청값 적용·실제 추론값 검증 불가 | 이번 최종 보완 주 작업자 1세션, 토큰/credits 확인 불가 |
+| GPT-5.6 Sol | High | 메인측정자·조력자·보고서담당 원천 검증 통합, 2026년 제한 SELECT, 보고서·Git/PR 작업 | 요청값 적용, 주 작업자 실제 모델 메타데이터 검증 불가 | 이번 검증 주 작업자 1세션, 토큰/credits 확인 불가 |
+| GPT-5.6 Terra | High | 1차 105건과 조건부 2026년 472건 데이터 구조·Case A~D 검증 | Orca 실행 영수증의 effective 값 확인, 결과 반영 | 데이터 worker 1회, 토큰/credits 확인 불가 |
+| GPT-5.6 Terra | Medium | measurement-staff/workbench/저장 UI·API·migration 코드 매핑과 관련 테스트 50건 | Orca 실행 영수증의 effective 값 확인, 결과 반영·코드 변경 없음 | 코드 worker 1회, 토큰/credits 확인 불가 |
+| GPT-5.6 Terra | High | H0508, 동일인 중복, 역할 모호, 누락, 사용자 참조 예외 검색 | Orca 실행 영수증의 effective 값 확인, 결과 반영·코드 변경 없음 | 예외 worker 1회, 토큰/credits 확인 불가 |
 | GPT-5.6 Luna | - | 미사용 | 미반영 | 0회 |
 
 - Orca Run `run_a53b8bcb30b3`에서 구현, 엔진/테스트, 브라우저 검증을 하위 worker로 분담했다.
 - Orca Run `run_76c26c41accf`에서 이번 추천 기간 UI 보완을 UI, KST 계산/테스트, 브라우저 검증 worker로 분담했다.
 - Orca Run `run_8a7c334bb33a`에서 이번 목록 검색·sticky 보완을 UI와 검색 helper/test worker로 분담했다. 브라우저는 메인 작업자가 재연결을 시도했으나 가용 런타임이 없었다.
+- Orca Run `run_cb3f91db4a27`에서 이번 원천 검증을 데이터 구조, 코드 매핑, 예외 검색 worker로 분담했으며 3개 task 모두 `worker_done/succeeded`로 종료했다.
 - 모델별 토큰·credits는 이 세션에서 확인할 수 없어 추정하지 않았다.
