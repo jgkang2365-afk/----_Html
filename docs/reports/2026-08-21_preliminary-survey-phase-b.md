@@ -5,8 +5,12 @@
 - 시작 main SHA: `555ae773484bd1533d4b0d252f0fa12592e93ebe`
 - 작업 branch: `feature/preliminary-survey-phase-b`
 - PR #42 보완 시작 head SHA: `52f214a58f929df5105c39b84c1178d8ff32ad5d`
-- 최종 구현 head SHA: `4dd9c7bfbb2fff3e8f2d380d58ab00f1049ea14b`
+- 최종 구현 head SHA: `ba1a2c5a11cc8b421595319460728247c89bcedd`
+- 최종 구현 commit SHA: `ba1a2c5a11cc8b421595319460728247c89bcedd`
+- PR #42 구현 head SHA: `ba1a2c5a11cc8b421595319460728247c89bcedd`
 - PR: #42 `feat: rebuild preliminary survey planning workflow` (Draft 유지, merge하지 않음)
+
+보고서 자체를 반영하는 Git commit은 자신의 SHA를 파일 안에 미리 기록할 수 없으므로, 위 값은 최종 구현 commit 기준이다. 보고서 반영 후 실제 PR head는 PR 메타데이터와 완료 보고에 별도로 기록한다.
 
 ## 주요 변경 파일
 
@@ -15,6 +19,7 @@
 - `lib/preliminary-survey-v2/calendar.ts`
 - `lib/preliminary-survey-v2/manual-validation.ts`
 - `lib/preliminary-survey-v2/measurement-staff.ts`
+- `lib/preliminary-survey-v2/measurement-conflicts.ts`
 - `tests/preliminary-survey-phase-b.test.ts`
 - `tests/preliminary-survey-v2-stale-source-sqlstate.test.ts`
 
@@ -60,6 +65,15 @@
 - 일치하는 `daily_staff`가 없을 때만 사업장 `collaborators`를 legacy fallback으로 표시한다. collaborators에는 역할 정보가 없으므로 첫 사람을 메인측정자로 간주하지 않는다.
 - `measurement_target_business.measurer_id`는 계속 보고서 담당자로 별도 표시한다.
 
+## 실제 측정 인력 충돌 판정 최종 보완
+
+- preview 공통 추천 계산과 apply 직전 재검증이 같은 `loadActualMeasurementBlockedKeys` 판정기를 사용한다.
+- 예비조사 후보일과 정확히 같은 `daily_staff` entry의 `main_measurer_id`와 `helper_ids`만 새 구조의 실제 측정 참가자로 차단한다.
+- 다일 측정은 다른 날짜 entry의 인원을 현재 날짜 충돌로 확장하지 않는다.
+- 기존 `daily_staff.measurer_id`는 보고서 담당자이므로 unavailable 판정에서 제외한다. 기존 `daily_staff.collaborators`는 같은 날짜의 실제 측정자 목록으로만 fallback한다.
+- `daily_staff`가 없는 legacy 경로는 사업장 `collaborators` 및 `preliminary_survey.actual_measurer`만 사용한다. `report_writer`는 조회·차단 대상에서 제거했다.
+- apply는 이 재검증 결과가 제출 draft와 충돌하면 다른 조사자를 재추천하거나 저장하지 않고 기존 409 `DRAFT_REVIEW_REQUIRED` 흐름을 유지한다.
+
 ## 상태 모델
 
 - 미추천: plan 없음
@@ -83,10 +97,12 @@
 ## 테스트 결과
 
 - `npx tsc --noEmit`: 통과
-- `npx tsx --test tests/preliminary-survey-phase-b.test.ts`: 7/7 통과
+- `npx tsx --test tests/preliminary-survey-phase-b.test.ts`: 11/11 통과
 - Phase B 및 V2 관련 회귀 묶음: 144/144 통과
 - `npm test`: 362/362 통과
 - `npm run build`: 통과 (`Compiled successfully`, static pages 69/69)
+- 최종 보완 신규 회귀에는 report writer 비차단, 날짜별 main/helper 차단, 다일 exact-date 판정, legacy `actual_measurer` fallback을 포함했다.
+- 참고로 표준 스크립트 밖의 모든 `preliminary-survey*.test.ts` 역사 테스트를 추가 실행한 결과 281개 중 278개가 통과했고, Phase B 이전 화면·SQL 문자열을 전제로 한 구형 assertion 3개(`v2-3a-ui`, `v2-persist-source-fix`, `v2-plans`)는 현재 통합 UI/정책과 불일치해 실패했다. 제품 코드나 migration을 이 구형 assertion에 맞춰 되돌리지 않았다.
 - Windows CRLF 환경에서 기존 stale-source SQL 문자열 테스트 1건이 LF만 허용해 최초 실패했고, 동작 코드나 migration을 바꾸지 않고 정규식을 `\r?\n`으로 보완한 뒤 통과했다.
 - 실행 중인 dev와 동일 `.next`를 사용한 첫 build가 정체·충돌해 해당 build만 중단했다. 이후 시스템 임시 복제 디렉터리에서 build를 통과시켰고, 3000번 dev는 같은 `npm run dev:turbo`로 복구해 `/survey` HTTP 200을 재확인했다.
 
@@ -101,6 +117,8 @@
 - 찐확정 행 상세에서 잠금 안내와 재추천·수동 저장 버튼 disabled 확인.
 - 미추천 행 상세에서 예비조사일·방식 수정 필드와 업체별 재추천 버튼 활성 상태 확인. 저장은 실행하지 않았다.
 - `/businesses` 실제 화면에서 예비조사 상태·추천·재추천·적용·예비조사자·묶음추천 UI 문구가 없음을 확인했다.
+- 최종 인력 충돌 보완 후에도 `/survey` 계획 toolbar와 목록 8개 필터 toolbar가 한 행을 유지했고, 두 테이블 모두 검증 viewport에서 `clientWidth=scrollWidth=1132`로 레이아웃 깨짐이 없음을 재확인했다.
+- 최종 보완 후 현재 비관리자 세션에서 `추천 생성` 요청이 다시 403으로 차단됨을 확인했다. 안전한 관리자 환경이 없어 apply 성공 E2E와 DB write는 실행하지 않았다.
 - Orca screenshot은 브라우저 창 focus 문제로 timeout됐으나, 같은 연결의 실제 페이지에서 DOM 좌표·클릭·drag/drop·reload 결과는 정상 수집했다.
 
 ## 브라우저 미완료 항목과 사유
@@ -128,7 +146,7 @@
 
 | 모델 | 추론 강도 | 수행 작업 | 결과/반영 여부 | 실행/사용량 |
 | --- | --- | --- | --- | --- |
-| GPT-5.6 Sol | Medium | PR #42 보완 분석, 구현, 테스트, Orca 브라우저 검증, 보고서·Git 작업 | 실제 수행 결과 반영 | 주 작업자 단일 세션, 토큰/credits 확인 불가 |
+| GPT-5.6 Sol | Medium | PR #42 보완 분석, 구현, 실제 측정 인력 충돌 최종 수정, 테스트, Orca 브라우저 검증, 보고서·Git 작업 | 실제 수행 결과 반영 | 주 작업자 단일 세션, 토큰/credits 확인 불가 |
 | GPT-5.6 Terra | - | 미사용 | 미반영 | 0회 |
 | GPT-5.6 Luna | - | 미사용 | 미반영 | 0회 |
 
