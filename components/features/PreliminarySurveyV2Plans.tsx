@@ -354,9 +354,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           {mode === "plan" && <>
             <div className="col-span-7 flex min-w-0 items-center gap-1 border-t border-surface-100 pt-2 text-xs text-text-600 2xl:col-span-14 2xl:row-start-2"><span>선택 {selectedTargetIds.size}건</span>{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
             <div className="col-span-5 ml-auto flex shrink-0 gap-2 border-t border-surface-100 pt-2 2xl:col-span-3 2xl:col-start-12 2xl:row-start-1 2xl:border-t-0 2xl:pt-0">
-              <Button size="sm" onClick={() => requestRecommendation()} disabled={working}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
-              <Button size="sm" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")}>대안 보기</Button>
-              <Button size="sm" onClick={applyDrafts} disabled={working || drafts.size === 0 || draftScope !== currentScope}>추천안 적용</Button>
+              <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => requestRecommendation()} disabled={working}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
+              <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")}>대안 보기</Button>
+              <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={applyDrafts} disabled={working || drafts.size === 0 || draftScope !== currentScope}>추천안 적용</Button>
             </div>
           </>}
         </div>

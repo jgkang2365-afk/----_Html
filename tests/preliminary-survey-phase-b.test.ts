@@ -182,6 +182,7 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   assert.match(ui, /preliminaryDateFrom,\s*preliminaryDateTo,/);
   assert.match(ui, /getNextWeekRangeKst\(preliminaryDateFrom \|\| undefined\)/);
   assert.match(ui, /!bg-orange-500/);
+  assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 3);
   assert.match(ui, /if \(draftScope !== currentScope\)/);
   assert.match(api, /!Array\.isArray\(body\.targetIds\) \|\| body\.targetIds\.length === 0/);
   assert.match(api, /new Set\(requestedTargetIds\)\.size !== requestedTargetIds\.length/);
