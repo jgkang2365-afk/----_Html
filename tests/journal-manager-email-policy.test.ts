@@ -9,6 +9,8 @@ import {
 
 const journalFormSource = readFileSync("components/features/JournalEditForm.tsx", "utf8");
 const previousDataRouteSource = readFileSync("app/api/journal/previous-data/route.ts", "utf8");
+const createJournalRouteSource = readFileSync("app/api/journal/route.ts", "utf8");
+const updateJournalRouteSource = readFileSync("app/api/journal/[id]/route.ts", "utf8");
 
 test("신규 측정일지는 최신 담당자값이 없으면 전회값이 있어도 입력칸을 비워 둔다", () => {
   const previousContact = {
@@ -94,6 +96,19 @@ test("계산서 메일만 있어도 신규 담당자 메일로 복사하지 않�
   });
 
   assert.equal(contact.manager_email, "");
+});
+
+test("신규·수정 저장 API는 계산서 메일을 담당자 메일 fallback으로 사용하지 않는다", () => {
+  assert.match(
+    createJournalRouteSource,
+    /manager_email:\s*body\.manager_email\s*\|\|\s*businessData\.manager_email\s*\|\|\s*null/,
+  );
+  assert.match(
+    updateJournalRouteSource,
+    /manager_email:\s*resolveJournalManagerEmailUpdate\(bodyClean, existingJournal\.manager_email\)/,
+  );
+  assert.doesNotMatch(createJournalRouteSource, /manager_email:\s*[^\r\n]*invoice_email/);
+  assert.doesNotMatch(updateJournalRouteSource, /manager_email:\s*[^\r\n]*invoice_email/);
 });
 
 test("폼은 현재 measurement_business 담당자값만 입력에 반영하고 전회·요약값을 자동삽입하지 않는다", () => {
