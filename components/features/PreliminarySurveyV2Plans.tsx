@@ -12,7 +12,10 @@ import {
   recommendationRangeFromStartDate,
   validateRecommendationRange,
 } from "@/lib/preliminary-survey-v2/recommendation-range";
-import { matchesWorkbenchSearch } from "@/lib/preliminary-survey-v2/workbench-search";
+import {
+  collectWorkbenchRecommendationTargetIds,
+  matchesWorkbenchSearch,
+} from "@/lib/preliminary-survey-v2/workbench-search";
 
 type WorkbenchStatus = "unassigned" | "recommended" | "adjustment_required" | "provisional" | "review_required" | "true_confirmed";
 
@@ -59,6 +62,14 @@ interface ListSearchSnapshot {
   searchQuery: string;
 }
 
+interface PlanSearchSnapshot {
+  year: number;
+  period: string;
+  statusFilter: string;
+  kindFilter: string;
+  searchQuery: string;
+}
+
 const STATUS_LABELS: Record<WorkbenchStatus, string> = {
   unassigned: "미추천",
   recommended: "추천",
@@ -97,6 +108,13 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     methodFilter: "",
     searchQuery: "",
   });
+  const [planSearchSnapshot, setPlanSearchSnapshot] = useState<PlanSearchSnapshot>({
+    year: currentYear,
+    period: "",
+    statusFilter: "",
+    kindFilter: "",
+    searchQuery: "",
+  });
   const [preliminaryDateFrom, setPreliminaryDateFrom] = useState("");
   const [preliminaryDateTo, setPreliminaryDateTo] = useState("");
   const [selectedTargetIds, setSelectedTargetIds] = useState<Set<number>>(new Set());
@@ -114,8 +132,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const queryYear = mode === "list" ? listSearchSnapshot.year : year;
-  const queryPeriod = mode === "list" ? listSearchSnapshot.period : period;
+  const queryYear = mode === "list" ? listSearchSnapshot.year : planSearchSnapshot.year;
+  const queryPeriod = mode === "list" ? listSearchSnapshot.period : planSearchSnapshot.period;
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -139,12 +157,12 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     void loadRows();
   }, [loadRows]);
 
-  const activeStatusFilter = mode === "list" ? listSearchSnapshot.statusFilter : statusFilter;
-  const activeKindFilter = mode === "list" ? listSearchSnapshot.kindFilter : kindFilter;
+  const activeStatusFilter = mode === "list" ? listSearchSnapshot.statusFilter : planSearchSnapshot.statusFilter;
+  const activeKindFilter = mode === "list" ? listSearchSnapshot.kindFilter : planSearchSnapshot.kindFilter;
   const activePreliminaryDateFilter = mode === "list" ? listSearchSnapshot.preliminaryDateFilter : preliminaryDateFilter;
   const activeMeasurementDateFilter = mode === "list" ? listSearchSnapshot.measurementDateFilter : measurementDateFilter;
   const activeMethodFilter = mode === "list" ? listSearchSnapshot.methodFilter : methodFilter;
-  const activeSearchQuery = mode === "list" ? listSearchSnapshot.searchQuery : searchDraft;
+  const activeSearchQuery = mode === "list" ? listSearchSnapshot.searchQuery : planSearchSnapshot.searchQuery;
 
   const filteredRows = useMemo(() => rows.map((row) => drafts.get(row.targetId) ?? row).filter((row) =>
     (!activeStatusFilter || row.status === activeStatusFilter) &&
@@ -160,10 +178,23 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   );
 
   const currentScope = useMemo(() => JSON.stringify({
-    year, period, statusFilter, kindFilter, preliminaryDateFilter, measurementDateFilter, methodFilter,
+    year: queryYear, period: queryPeriod,
+    statusFilter: activeStatusFilter, kindFilter: activeKindFilter,
+    preliminaryDateFilter: activePreliminaryDateFilter,
+    measurementDateFilter: activeMeasurementDateFilter,
+    methodFilter: activeMethodFilter,
+    searchQuery: activeSearchQuery,
     preliminaryDateFrom, preliminaryDateTo,
     targetIds: [...selectedTargetIds].sort((a, b) => a - b),
-  }), [kindFilter, measurementDateFilter, methodFilter, period, preliminaryDateFilter, preliminaryDateFrom, preliminaryDateTo, selectedTargetIds, statusFilter, year]);
+  }), [activeKindFilter, activeMeasurementDateFilter, activeMethodFilter, activePreliminaryDateFilter, activeSearchQuery, activeStatusFilter, preliminaryDateFrom, preliminaryDateTo, queryPeriod, queryYear, selectedTargetIds]);
+
+  const isPlanSearchDirty = mode === "plan" && (
+    year !== planSearchSnapshot.year ||
+    period !== planSearchSnapshot.period ||
+    statusFilter !== planSearchSnapshot.statusFilter ||
+    kindFilter !== planSearchSnapshot.kindFilter ||
+    searchDraft !== planSearchSnapshot.searchQuery
+  );
 
   const invalidateDrafts = (message = "추천 범위가 변경되어 새 추천이 필요합니다.") => {
     if (!drafts.size) return;
@@ -191,7 +222,25 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     });
   };
 
+  const applyPlanSearch = () => {
+    invalidateDrafts();
+    setError(null);
+    setNotice(null);
+    setScopeSummary(null);
+    setPlanSearchSnapshot({
+      year,
+      period,
+      statusFilter,
+      kindFilter,
+      searchQuery: searchDraft,
+    });
+  };
+
   const selectedRows = useMemo(() => rows.filter((row) => selectedTargetIds.has(row.targetId)), [rows, selectedTargetIds]);
+  const applicableDraftCount = useMemo(
+    () => [...drafts.values()].filter((draft) => draft.status === "recommended").length,
+    [drafts],
+  );
 
   const setNextWeek = () => {
     const range = getNextWeekRangeKst(preliminaryDateFrom || undefined);
@@ -214,9 +263,10 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     try {
       const rangeError = validateRecommendationRange(preliminaryDateFrom, preliminaryDateTo);
       if (rangeError) throw new Error(rangeError);
+      if (!targetId && isPlanSearchDirty) throw new Error("검색 조건이 변경되었습니다. 먼저 검색을 실행해 주세요.");
       const recommendationTargetIds = targetId
         ? [targetId]
-        : filteredRows.filter((row) => selectedTargetIds.size === 0 || selectedTargetIds.has(row.targetId)).map((row) => row.targetId);
+        : collectWorkbenchRecommendationTargetIds(displayRows, selectedTargetIds);
       if (recommendationTargetIds.length === 0) {
         throw new Error("현재 필터와 선택 조건에 맞는 추천 대상이 없습니다.");
       }
@@ -224,7 +274,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "recommend", year, period,
+          action: "recommend", year: queryYear, period: queryPeriod,
           targetIds: recommendationTargetIds,
           explicitTargetSelection: Boolean(targetId) || selectedTargetIds.size > 0,
           preliminaryDateFrom,
@@ -246,7 +296,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       setScopeSummary(`추천 범위: ${dateScopeLabel} · ${selectedTargetIds.size > 0 || targetId ? "선택 사업장" : "필터 대상"}: ${recommendationTargetIds.length}개 · 추천 생성: ${recommendedCount}개 · 추천 불가: ${unavailableCount}개`);
       setNotice(targetId
         ? `${result.impactSummary || "영향 범위를 재검증했습니다."} ${(result.drafts || []).length}개 변경안을 검토해 주세요.`
-        : `${(result.drafts || []).length}개 임시 추천안을 생성했습니다. 아직 저장되지 않았습니다.`);
+        : `추천 검토 결과: 추천 ${recommendedCount}개 · 조정 필요/불가 ${unavailableCount}개입니다. 아직 저장되지 않았습니다.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "추천 생성 실패");
     } finally {
@@ -375,9 +425,10 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               <input aria-label="추천 종료일" type="date" value={preliminaryDateTo} onChange={(event) => changeScope(setPreliminaryDateTo, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
             <div className="col-span-1 flex min-w-0 items-end"><Button className="h-9 w-full !bg-orange-500 px-2 text-xs hover:!bg-orange-600 focus-visible:!ring-orange-500" onClick={setNextWeek}>다음 주</Button></div>
-            <label className="col-span-5 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명
-              <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 min-w-0 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
+            <label className="col-span-4 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명
+              <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchDraft} onChange={(event) => changeScope(setSearchDraft, event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 min-w-0 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
             </label>
+            <div className="col-span-1 flex min-w-0 items-end"><Button className="h-9 w-full px-2 text-xs" onClick={applyPlanSearch}>검색</Button></div>
           </>}
           {mode === "list" && <>
             <label className="w-36 shrink-0 text-xs font-medium text-text-700">예비조사일
@@ -395,11 +446,11 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <div className="flex shrink-0 items-end"><Button className="h-9 px-3 text-xs" onClick={applyListSearch}>검색</Button></div>
           </>}
           {mode === "plan" && <>
-            <div className="col-span-7 flex min-w-0 items-center gap-1 border-t border-surface-100 pt-2 text-xs text-text-600"><span>선택 {selectedTargetIds.size}건</span>{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
+            <div className="col-span-7 flex min-w-0 items-center gap-1 border-t border-surface-100 pt-2 text-xs text-text-600"><span>검색 결과 {displayRows.length}건 · 선택 {selectedTargetIds.size}건</span>{isPlanSearchDirty && <span className="text-amber-700">검색 조건 변경 · 검색 필요</span>}{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
             <div className="col-span-5 flex shrink-0 justify-end gap-2 border-t border-surface-100 pt-2">
-              <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => requestRecommendation()} disabled={working}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
-              <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")}>대안 보기</Button>
-              <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={applyDrafts} disabled={working || drafts.size === 0 || draftScope !== currentScope}>추천안 적용</Button>
+              <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => requestRecommendation()} disabled={working || isPlanSearchDirty}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
+              <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")} disabled={isPlanSearchDirty}>대안 보기</Button>
+              <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={applyDrafts} disabled={working || isPlanSearchDirty || applicableDraftCount === 0 || draftScope !== currentScope}>추천안 적용</Button>
             </div>
           </>}
         </div>

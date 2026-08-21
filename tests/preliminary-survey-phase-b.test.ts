@@ -176,7 +176,7 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
-  assert.match(ui, /filteredRows\.filter\(\(row\) => selectedTargetIds\.size === 0 \|\| selectedTargetIds\.has\(row\.targetId\)\)/);
+  assert.match(ui, /collectWorkbenchRecommendationTargetIds\(displayRows, selectedTargetIds\)/);
   assert.match(ui, /onChange=\{\(event\) => setSearchDraft\(event\.target\.value\)\}/);
   assert.match(ui, /explicitTargetSelection: Boolean\(targetId\) \|\| selectedTargetIds\.size > 0/);
   assert.doesNotMatch(ui, /recommendDateMode|추천 범위"|>없음<|>일자<|>기간</);
@@ -187,7 +187,7 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   assert.match(ui, /!bg-orange-500/);
   assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 3);
   assert.match(ui, /grid w-full min-w-0 grid-cols-12 items-end gap-2/);
-  assert.match(ui, /col-span-5 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명/);
+  assert.match(ui, /col-span-4 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명/);
   assert.match(ui, /col-span-5 flex shrink-0 justify-end gap-2/);
   assert.doesNotMatch(ui, /grid-cols-14|col-start-12|min-w-\[760px\]/);
   assert.match(ui, /phase-b-plan-table-scroll/);
@@ -223,6 +223,21 @@ test("목록 검색은 조사자 필터 없이 명시적 snapshot과 코드·사
   }
   assert.match(ui, /onClick=\{applyListSearch\}>검색<\/Button>/);
   assert.match(ui, /matchesWorkbenchSearch\(row, activeSearchQuery\)/);
+});
+
+test("계획 검색은 명시적 snapshot을 확정한 뒤 화면 결과와 같은 대상을 추천한다", () => {
+  const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
+  assert.match(ui, /interface PlanSearchSnapshot/);
+  assert.match(ui, /const \[planSearchSnapshot, setPlanSearchSnapshot\]/);
+  assert.match(ui, /const applyPlanSearch = \(\) =>/);
+  assert.match(ui, /onClick=\{applyPlanSearch\}>검색<\/Button>/);
+  assert.match(ui, /collectWorkbenchRecommendationTargetIds\(displayRows, selectedTargetIds\)/);
+  assert.doesNotMatch(ui, /filteredRows\.filter\(\(row\) => selectedTargetIds/);
+  assert.match(ui, /action: "recommend", year: queryYear, period: queryPeriod/);
+  assert.match(ui, /searchQuery: activeSearchQuery/);
+  assert.match(ui, /disabled=\{working \|\| isPlanSearchDirty\}/);
+  assert.match(ui, /검색 조건 변경 · 검색 필요/);
+  assert.match(ui, /추천 검토 결과: 추천 \$\{recommendedCount\}개 · 조정 필요\/불가 \$\{unavailableCount\}개/);
 });
 
 test("예비조사 탭·toolbar와 계획·목록 table header는 겹치지 않는 sticky 계층을 사용한다", () => {

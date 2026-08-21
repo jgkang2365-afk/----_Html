@@ -45,3 +45,13 @@ export function matchesWorkbenchSearch(row: WorkbenchSearchRow, search: unknown)
     : parseWorkbenchSearchTerms(search);
   return terms.length === 0 || terms.some((term) => matchesWorkbenchSearchTerm(row, term));
 }
+
+/** 화면에 확정된 검색 결과와 선택 사업장의 교집합만 추천 대상으로 반환한다. */
+export function collectWorkbenchRecommendationTargetIds<T extends { targetId: number }>(
+  displayedRows: readonly T[],
+  selectedTargetIds: ReadonlySet<number>,
+): number[] {
+  return displayedRows
+    .filter((row) => selectedTargetIds.size === 0 || selectedTargetIds.has(row.targetId))
+    .map((row) => row.targetId);
+}

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  collectWorkbenchRecommendationTargetIds,
   matchesWorkbenchSearch,
   matchesWorkbenchSearchTerm,
   parseWorkbenchSearchTerms,
@@ -35,4 +36,10 @@ test("여러 검색어는 OR로 적용하고 빈 검색은 모든 행을 포함�
   assert.equal(matchesWorkbenchSearch(row, ["H999", "H998"]), false);
   assert.equal(matchesWorkbenchSearch(row, "  ,\n"), true);
   assert.equal(matchesWorkbenchSearch({ code: null, businessName: null }, "한결"), false);
+});
+
+test("추천 대상은 확정된 검색 결과 전체 또는 검색 결과와 선택 대상의 교집합이다", () => {
+  const displayedRows = [{ targetId: 1 }, { targetId: 2 }, { targetId: 3 }];
+  assert.deepEqual(collectWorkbenchRecommendationTargetIds(displayedRows, new Set()), [1, 2, 3]);
+  assert.deepEqual(collectWorkbenchRecommendationTargetIds(displayedRows, new Set([2, 4])), [2]);
 });
