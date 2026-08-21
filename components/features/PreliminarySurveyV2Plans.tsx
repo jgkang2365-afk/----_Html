@@ -326,7 +326,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             </select>
           </label>
           {mode === "plan" && <>
-            <label className="col-span-2 text-xs font-medium text-text-700">시작일
+            <label className="col-span-1 text-xs font-medium text-text-700">시작일
               <input aria-label="추천 시작일" type="date" value={preliminaryDateFrom} onChange={(event) => changeRecommendationStartDate(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
             <label className="col-span-2 text-xs font-medium text-text-700">종료일
