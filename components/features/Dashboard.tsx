@@ -216,7 +216,10 @@ export const Dashboard: React.FC<{ startYear: string; endYear: string; period: s
   };
 
   const formatMillionCurrency = (amount: number): string => {
-    return `${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 }).format(amount / 1000000)}백만원`;
+    return `${new Intl.NumberFormat("ko-KR", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }).format(amount / 1000000)}백만원`;
   };
 
   if (loading) {
