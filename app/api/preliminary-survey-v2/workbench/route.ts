@@ -8,6 +8,7 @@ import {
 import { v2BusinessKindLabel } from "@/lib/preliminary-survey-v2/presentation";
 import { recommendationDatesForBusinessType } from "@/lib/preliminary-survey-v2/calendar";
 import { measurementStaffForDate } from "@/lib/preliminary-survey-v2/measurement-staff";
+import { loadActualMeasurementBlockedKeys } from "@/lib/preliminary-survey-v2/measurement-conflicts";
 import { validateManualPlanHardRules } from "@/lib/preliminary-survey-v2/manual-validation";
 import { createRouteMetrics } from "@/lib/preliminary-survey-v2/route-metrics";
 import type { ExistingAssignment, SurveyMethod } from "@/lib/preliminary-survey-v2/types";
@@ -20,10 +21,6 @@ function normalizedPeriod(value: unknown) {
 
 function journalKey(code: unknown, year: unknown, period: unknown) {
   return `${code}|${Number(year)}|${normalizedPeriod(period)}`;
-}
-
-function names(value: unknown) {
-  return String(value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
 }
 
 async function requireSurveyAccess() {
@@ -104,30 +101,18 @@ async function applySubmittedDrafts(supabase: any, rawDrafts: unknown[]) {
   const dates = [...new Set(submitted.map((draft) => draft.preliminaryDate))].sort();
   const participantIds = [...new Set(submitted.flatMap((draft) => draft.participantUserIds))];
   const allUsers = contexts[0]?.users ?? [];
-  const userIdByName = new Map(allUsers.map((user) => [user.name, user.id]));
-  const [{ data: blocks, error: blockError }, { data: measurementSchedules, error: scheduleError }] = await Promise.all([
+  const [{ data: blocks, error: blockError }, measurementBlockedKeys] = await Promise.all([
     participantIds.length && dates.length
       ? supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
           .in("user_id", participantIds).lte("start_date", dates.at(-1)).gte("end_date", dates[0])
       : Promise.resolve({ data: [], error: null }),
-    dates.length
-      ? supabase.from("preliminary_survey").select("measurement_date, measurer, actual_measurer, report_writer")
-          .in("measurement_date", dates)
-      : Promise.resolve({ data: [], error: null }),
+    loadActualMeasurementBlockedKeys(supabase, dates, allUsers),
   ]);
-  if (blockError || scheduleError) throw blockError || scheduleError;
-  const blockedKeys = new Set<string>();
+  if (blockError) throw blockError;
+  const blockedKeys = new Set(measurementBlockedKeys);
   for (const block of blocks ?? []) {
     for (const date of dates) {
       if (String(block.start_date) <= date && String(block.end_date) >= date) blockedKeys.add(`${Number(block.user_id)}:${date}`);
-    }
-  }
-  for (const schedule of measurementSchedules ?? []) {
-    for (const name of new Set([
-      ...names(schedule.measurer), ...names(schedule.actual_measurer), ...names(schedule.report_writer),
-    ])) {
-      const userId = userIdByName.get(name);
-      if (userId) blockedKeys.add(`${userId}:${schedule.measurement_date}`);
     }
   }
   const reasons: Array<{ targetId: number; reason: string }> = [];

@@ -4,6 +4,7 @@ import test from "node:test";
 import { recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2/calendar";
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { measurementStaffForDate } from "../lib/preliminary-survey-v2/measurement-staff";
+import { actualMeasurementBlockedKeys } from "../lib/preliminary-survey-v2/measurement-conflicts";
 import { SURVEY_TAB_IDS, moveSurveyTab, restoreSurveyTabOrder } from "../lib/preliminary-survey-v2/tab-order";
 import type { SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
 
@@ -43,6 +44,63 @@ test("daily_staff는 측정예정일별 메인측정자/조력자를 우선하�
     dailyStaff: [{ date: "2026-07-15", measurer_id: 3, collaborators: ["둘째날 조력"] }],
     measurementDate: "2026-07-15", collaborators: "구형1,구형2", userNameById,
   }), { mainMeasurer: "둘째날 메인", helper: "둘째날 조력", source: "daily_staff" });
+});
+
+test("보고서 담당자는 실제 측정 참가자가 아니면 예비조사 가능 인원을 차단하지 않는다", () => {
+  const legacyWithReportWriter = {
+    measurement_date: "2026-08-25", actual_measurer: null, report_writer: "경력",
+  };
+  const blocked = actualMeasurementBlockedKeys({
+    dates: ["2026-08-25"], users: [experienced, novice],
+    targets: [{
+      measurement_date: "2026-08-25", collaborators: null,
+      daily_staff: [{ date: "2026-08-25", measurer_id: 1, collaborators: ["비경력"] }],
+    }],
+    legacySchedules: [legacyWithReportWriter],
+  });
+  assert.equal(blocked.has("1:2026-08-25"), false);
+  assert.equal(blocked.has("2:2026-08-25"), true);
+});
+
+test("daily_staff의 같은 날짜 메인측정자와 조력자는 예비조사 배정에서 차단한다", () => {
+  const blocked = actualMeasurementBlockedKeys({
+    dates: ["2026-08-25"], users: [experienced, novice], legacySchedules: [],
+    targets: [{
+      measurement_date: "2026-08-25", collaborators: null,
+      daily_staff: [{ date: "2026-08-25", main_measurer_id: 1, helper_ids: [2] }],
+    }],
+  });
+  assert.deepEqual([...blocked].sort(), ["1:2026-08-25", "2:2026-08-25"]);
+});
+
+test("다일 측정은 예비조사일과 같은 daily_staff entry만 충돌에 사용한다", () => {
+  const blocked = actualMeasurementBlockedKeys({
+    dates: ["2026-08-26"], users: [experienced, novice], legacySchedules: [],
+    targets: [{
+      measurement_date: "2026-08-25", measurement_end_date: "2026-08-26", collaborators: "경력",
+      daily_staff: [
+        { date: "2026-08-25", main_measurer_id: 1, helper_ids: [] },
+        { date: "2026-08-26", main_measurer_id: 2, helper_ids: [] },
+      ],
+    }],
+  });
+  assert.equal(blocked.has("1:2026-08-26"), false);
+  assert.equal(blocked.has("2:2026-08-26"), true);
+});
+
+test("daily_staff가 없을 때 legacy 실제 측정자만 차단하고 report_writer는 차단하지 않는다", () => {
+  const reportWriterOnly = {
+    measurement_date: "2026-08-25", actual_measurer: null, report_writer: "경력",
+  };
+  const blocked = actualMeasurementBlockedKeys({
+    dates: ["2026-08-25"], users: [experienced, novice], targets: [],
+    legacySchedules: [
+      { measurement_date: "2026-08-25", actual_measurer: "비경력" },
+      reportWriterOnly,
+    ],
+  });
+  assert.equal(blocked.has("1:2026-08-25"), false);
+  assert.equal(blocked.has("2:2026-08-25"), true);
 });
 
 test("Phase B 기존업체도 비경력자 단독으로 자동 추천하지 않는다", async () => {
@@ -86,10 +144,12 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   assert.match(api, /context\.target\.responsible\.id !== draft\.sourceResponsibleUserId/);
   assert.match(api, /user_schedule_blocks/);
   assert.match(api, /blockedKeys\.has/);
+  assert.match(api, /loadActualMeasurementBlockedKeys/);
   assert.match(api, /DRAFT_REVIEW_REQUIRED/);
   const applyStart = api.indexOf("async function applySubmittedDrafts");
   const applyEnd = api.indexOf("export async function GET", applyStart);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /calculateV2Recommendations|recommendBatch/);
+  assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
   assert.match(ui, /min-w-\[760px\] flex-nowrap/);
   assert.match(ui, /flex-wrap xl:flex-nowrap/);

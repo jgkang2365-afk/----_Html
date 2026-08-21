@@ -2,9 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
-import { recommendationDates } from "./calendar";
+import { recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
+import { loadActualMeasurementBlockedKeys } from "./measurement-conflicts";
 import {
   PROCESS_CHANGED_POLICY_OFF,
   shouldApplyProcessChangedPolicy,
@@ -16,10 +17,6 @@ import { createRouteMetrics } from "./route-metrics";
 import { surveyMethodForKind, type ExistingAssignment, type RecommendationResult, type RouteMetrics, type SurveyTarget, type SurveyUser } from "./types";
 
 type Client = SupabaseClient<any, "public", any>;
-
-function names(value: unknown): string[] {
-  return String(value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
-}
 
 function regionFromAddress(value: unknown): string | null {
   const parts = String(value ?? "").trim().split(/\s+/);
@@ -205,7 +202,6 @@ export async function calculateV2Recommendations(
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
   const userById = new Map(users.map((user) => [user.id, user]));
-  const userIdByName = new Map(users.map((user) => [user.name, user.id]));
   const codes = [...new Set((rawTargets ?? []).map((target: any) => target.code))];
   const years = [...new Set((rawTargets ?? []).map((target: any) => Number(target.year)))];
   let journalQuery = supabase.from("measurement_journal").select(
@@ -289,22 +285,16 @@ export async function calculateV2Recommendations(
     : { data: [], error: null };
   if (blockError) throw new Error(`V2_BLOCK_QUERY_FAILED:${blockError.message}`);
 
-  // 실제 측정 일정은 candidate가 될 수 있는 충분히 넓은 범위를 읽는다.
-  const { data: measurementRows, error: scheduleError } = earliest && latest
-    ? await supabase.from("preliminary_survey").select("measurement_date, measurer, actual_measurer, report_writer")
-        .gte("measurement_date", "2024-01-01").lte("measurement_date", latest)
-    : { data: [], error: null };
-  if (scheduleError) throw new Error(`V2_MEASUREMENT_SCHEDULE_QUERY_FAILED:${scheduleError.message}`);
   const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
-  for (const schedule of measurementRows ?? []) {
-    const participantNames = new Set([
-      ...names(schedule.measurer), ...names(schedule.actual_measurer), ...names(schedule.report_writer),
-    ]);
-    for (const name of participantNames) {
-      const userId = userIdByName.get(name);
-      if (userId) blockedKeys.add(`${userId}:${schedule.measurement_date}`);
-    }
-  }
+  const measurementBlockedKeys = await loadActualMeasurementBlockedKeys(
+    supabase,
+    targets.flatMap((target) => recommendationDatesForBusinessType(
+      target.measurementDate,
+      target.businessType ?? (target.kind === "existing" ? "existing" : "first_measurement"),
+    ).map((item) => item.date)),
+    users,
+  );
+  for (const key of measurementBlockedKeys) blockedKeys.add(key);
 
   const { data: queriedPlanRows, error: planError } = await supabase.from("preliminary_survey_v2_plans").select(
     "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status, source_rule_type",
