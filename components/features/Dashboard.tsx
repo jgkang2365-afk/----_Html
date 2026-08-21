@@ -215,6 +215,10 @@ export const Dashboard: React.FC<{ startYear: string; endYear: string; period: s
     return new Intl.NumberFormat("ko-KR").format(numAmount);
   };
 
+  const formatMillionCurrency = (amount: number): string => {
+    return `${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 }).format(amount / 1000000)}백만원`;
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -313,13 +317,13 @@ export const Dashboard: React.FC<{ startYear: string; endYear: string; period: s
               <div className="flex items-center justify-between gap-3">
                 <span className="text-gray-500">{data.revenueTrend.prevYear}년 {cumulativeRevenue.cutoffMonth}월 누적</span>
                 <span className="font-semibold tabular-nums text-gray-700" title={`${formatFullCurrency(cumulativeRevenue.previous)}원`}>
-                  {formatCurrency(cumulativeRevenue.previous)}원
+                  {formatMillionCurrency(cumulativeRevenue.previous)}
                 </span>
               </div>
               <div className="mt-1 flex items-center justify-between gap-3">
                 <span className="text-gray-500">{data.revenueTrend.comparisonYear}년 {cumulativeRevenue.cutoffMonth}월 누적</span>
                 <span className="font-semibold tabular-nums text-gray-900" title={`${formatFullCurrency(cumulativeRevenue.current)}원`}>
-                  {formatCurrency(cumulativeRevenue.current)}원
+                  {formatMillionCurrency(cumulativeRevenue.current)}
                 </span>
               </div>
               <div className="mt-1 flex items-center justify-between gap-3 border-t border-gray-200 pt-1">
@@ -328,7 +332,7 @@ export const Dashboard: React.FC<{ startYear: string; endYear: string; period: s
                   className={`font-bold tabular-nums ${cumulativeDifferenceColor}`}
                   title={`${cumulativeDifferenceSign}${formatFullCurrency(Math.abs(cumulativeRevenue.difference))}원`}
                 >
-                  {cumulativeDifferenceSign}{formatCurrency(Math.abs(cumulativeRevenue.difference))}원
+                  {cumulativeDifferenceSign}{formatMillionCurrency(Math.abs(cumulativeRevenue.difference))}
                 </span>
               </div>
             </div>
