@@ -139,7 +139,7 @@ test("탭 순서 저장값 복원, 오류 fallback, 누락 탭 보완, 이동을
   assert.deepEqual(restoreSurveyTabOrder("not-json"), [...SURVEY_TAB_IDS]);
   assert.deepEqual(restoreSurveyTabOrder('["plans","list","search"]'), [...SURVEY_TAB_IDS]);
   assert.deepEqual(moveSurveyTab([...SURVEY_TAB_IDS], "search", "plans"), ["search", "plans", "list", "schedule-blocks"]);
-  assert.match(surveyPage, /flex items-center gap-\[3cm\] border-b/);
+  assert.match(surveyPage, /sticky top-16 z-40 flex h-12 items-center gap-\[3cm\] border-b/);
   assert.match(surveyPage, /shrink-0 text-2xl font-bold text-text-900">예비조사/);
 });
 
@@ -167,7 +167,7 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
   assert.match(ui, /grid w-full min-w-0 grid-cols-12/);
-  assert.match(ui, /flex-wrap xl:flex-nowrap/);
+  assert.match(ui, /flex flex-wrap items-end gap-2/);
   assert.match(api, /measurement_journal/);
   assert.doesNotMatch(api, /sequence_number/);
 });
@@ -177,7 +177,7 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
   assert.match(ui, /filteredRows\.filter\(\(row\) => selectedTargetIds\.size === 0 \|\| selectedTargetIds\.has\(row\.targetId\)\)/);
-  assert.match(ui, /onChange=\{\(event\) => setSearchQuery\(event\.target\.value\)\}/);
+  assert.match(ui, /onChange=\{\(event\) => setSearchDraft\(event\.target\.value\)\}/);
   assert.match(ui, /explicitTargetSelection: Boolean\(targetId\) \|\| selectedTargetIds\.size > 0/);
   assert.doesNotMatch(ui, /recommendDateMode|추천 범위"|>없음<|>일자<|>기간</);
   assert.match(ui, /recommendationRangeFromStartDate\(value\)/);
@@ -192,7 +192,7 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   assert.doesNotMatch(ui, /grid-cols-14|col-start-12|min-w-\[760px\]/);
   assert.match(ui, /phase-b-plan-table-scroll/);
   assert.match(ui, /max-h-\[calc\(100vh-20rem\)\] overflow-auto/);
-  assert.match(ui, /sticky top-0 z-20 shadow-sm/);
+  assert.match(ui, /sticky top-0 z-20 bg-surface-50/);
   assert.match(ui, /if \(draftScope !== currentScope\)/);
   assert.match(api, /!Array\.isArray\(body\.targetIds\) \|\| body\.targetIds\.length === 0/);
   assert.match(api, /new Set\(requestedTargetIds\)\.size !== requestedTargetIds\.length/);
@@ -209,6 +209,31 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   const applyStart = api.indexOf("async function applySubmittedDrafts");
   const applyEnd = api.indexOf("export async function GET", applyStart);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /calculateV2Recommendations|recommendBatch/);
+});
+
+test("목록 검색은 조사자 필터 없이 명시적 snapshot과 코드·사업장명 검색을 사용한다", () => {
+  const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
+  assert.doesNotMatch(ui, /aria-label="조사자"/);
+  assert.match(ui, /"예비조사자"/);
+  assert.equal((ui.match(/aria-label="코드 또는 사업장명 검색"/g) || []).length, 2);
+  assert.match(ui, /const \[listSearchSnapshot, setListSearchSnapshot\]/);
+  assert.match(ui, /const applyListSearch = \(\) =>/);
+  for (const field of ["year", "period", "statusFilter", "kindFilter", "preliminaryDateFilter", "measurementDateFilter", "methodFilter", "searchQuery"]) {
+    assert.match(ui, new RegExp(`${field}[,:]`));
+  }
+  assert.match(ui, /onClick=\{applyListSearch\}>검색<\/Button>/);
+  assert.match(ui, /matchesWorkbenchSearch\(row, activeSearchQuery\)/);
+});
+
+test("예비조사 탭·toolbar와 계획·목록 table header는 겹치지 않는 sticky 계층을 사용한다", () => {
+  const page = readFileSync("app/survey/page.tsx", "utf8");
+  const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
+  assert.match(page, /sticky top-16 z-40 flex h-12/);
+  assert.match(ui, /sticky top-28 z-30 bg-white p-3 shadow-sm/);
+  assert.match(ui, /phase-b-plan-table-scroll/);
+  assert.match(ui, /phase-b-list-table-scroll/);
+  assert.match(ui, /max-h-\[calc\(100vh-20rem\)\] overflow-auto/);
+  assert.match(ui, /thead className="sticky top-0 z-20 bg-surface-50/);
 });
 
 test("측정대상사업장관리에는 예비조사 작업 UI가 없다", () => {

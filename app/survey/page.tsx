@@ -375,7 +375,7 @@ export default function SurveyPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-[3cm] border-b border-surface-200">
+      <div className="sticky top-16 z-40 flex h-12 items-center gap-[3cm] border-b border-surface-200 bg-surface-50/95 backdrop-blur">
         <h1 className="shrink-0 text-2xl font-bold text-text-900">예비조사</h1>
 
         {/* 탭 */}

@@ -12,6 +12,7 @@ import {
   recommendationRangeFromStartDate,
   validateRecommendationRange,
 } from "@/lib/preliminary-survey-v2/recommendation-range";
+import { matchesWorkbenchSearch } from "@/lib/preliminary-survey-v2/workbench-search";
 
 type WorkbenchStatus = "unassigned" | "recommended" | "adjustment_required" | "provisional" | "review_required" | "true_confirmed";
 
@@ -47,6 +48,17 @@ interface SurveyUser {
   is_preliminary_survey_experienced: boolean;
 }
 
+interface ListSearchSnapshot {
+  year: number;
+  period: string;
+  statusFilter: string;
+  kindFilter: string;
+  preliminaryDateFilter: string;
+  measurementDateFilter: string;
+  methodFilter: string;
+  searchQuery: string;
+}
+
 const STATUS_LABELS: Record<WorkbenchStatus, string> = {
   unassigned: "미추천",
   recommended: "추천",
@@ -73,9 +85,18 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [kindFilter, setKindFilter] = useState("");
   const [preliminaryDateFilter, setPreliminaryDateFilter] = useState("");
   const [measurementDateFilter, setMeasurementDateFilter] = useState("");
-  const [surveyorFilter, setSurveyorFilter] = useState("");
   const [methodFilter, setMethodFilter] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchDraft, setSearchDraft] = useState("");
+  const [listSearchSnapshot, setListSearchSnapshot] = useState<ListSearchSnapshot>({
+    year: currentYear,
+    period: "",
+    statusFilter: "",
+    kindFilter: "",
+    preliminaryDateFilter: "",
+    measurementDateFilter: "",
+    methodFilter: "",
+    searchQuery: "",
+  });
   const [preliminaryDateFrom, setPreliminaryDateFrom] = useState("");
   const [preliminaryDateTo, setPreliminaryDateTo] = useState("");
   const [selectedTargetIds, setSelectedTargetIds] = useState<Set<number>>(new Set());
@@ -93,12 +114,15 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const queryYear = mode === "list" ? listSearchSnapshot.year : year;
+  const queryPeriod = mode === "list" ? listSearchSnapshot.period : period;
+
   const loadRows = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ year: String(year) });
-      if (period) params.set("period", period);
+      const params = new URLSearchParams({ year: String(queryYear) });
+      if (queryPeriod) params.set("period", queryPeriod);
       const response = await fetch(`/api/preliminary-survey-v2/workbench?${params}`, { cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "예비조사 통합 현황 조회 실패");
@@ -109,32 +133,37 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     } finally {
       setLoading(false);
     }
-  }, [period, year]);
+  }, [queryPeriod, queryYear]);
 
   useEffect(() => {
     void loadRows();
   }, [loadRows]);
 
-  const searchTerms = useMemo(() => searchQuery.split(/[\n,]+/).map((term) => term.trim()).filter(Boolean), [searchQuery]);
+  const activeStatusFilter = mode === "list" ? listSearchSnapshot.statusFilter : statusFilter;
+  const activeKindFilter = mode === "list" ? listSearchSnapshot.kindFilter : kindFilter;
+  const activePreliminaryDateFilter = mode === "list" ? listSearchSnapshot.preliminaryDateFilter : preliminaryDateFilter;
+  const activeMeasurementDateFilter = mode === "list" ? listSearchSnapshot.measurementDateFilter : measurementDateFilter;
+  const activeMethodFilter = mode === "list" ? listSearchSnapshot.methodFilter : methodFilter;
+  const activeSearchQuery = mode === "list" ? listSearchSnapshot.searchQuery : searchDraft;
 
   const filteredRows = useMemo(() => rows.map((row) => drafts.get(row.targetId) ?? row).filter((row) =>
-    (!statusFilter || row.status === statusFilter) &&
-    (!kindFilter || row.kind === kindFilter) &&
-    (!preliminaryDateFilter || row.preliminaryDate === preliminaryDateFilter) &&
-    (!measurementDateFilter || row.measurementDate === measurementDateFilter) &&
-    (!surveyorFilter || row.surveyors.some((name) => name.includes(surveyorFilter))) &&
-    (!methodFilter || row.surveyMethod === methodFilter),
-  ), [drafts, kindFilter, measurementDateFilter, methodFilter, preliminaryDateFilter, rows, statusFilter, surveyorFilter]);
+    (!activeStatusFilter || row.status === activeStatusFilter) &&
+    (!activeKindFilter || row.kind === activeKindFilter) &&
+    (!activePreliminaryDateFilter || row.preliminaryDate === activePreliminaryDateFilter) &&
+    (!activeMeasurementDateFilter || row.measurementDate === activeMeasurementDateFilter) &&
+    (!activeMethodFilter || row.surveyMethod === activeMethodFilter),
+  ), [activeKindFilter, activeMeasurementDateFilter, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, rows]);
 
-  const displayRows = useMemo(() => filteredRows.filter((row) =>
-    !searchTerms.length || searchTerms.some((term) => row.code === term || row.code.includes(term) || row.businessName.includes(term)),
-  ), [filteredRows, searchTerms]);
+  const displayRows = useMemo(
+    () => filteredRows.filter((row) => matchesWorkbenchSearch(row, activeSearchQuery)),
+    [activeSearchQuery, filteredRows],
+  );
 
   const currentScope = useMemo(() => JSON.stringify({
-    year, period, statusFilter, kindFilter, preliminaryDateFilter, measurementDateFilter, surveyorFilter, methodFilter,
+    year, period, statusFilter, kindFilter, preliminaryDateFilter, measurementDateFilter, methodFilter,
     preliminaryDateFrom, preliminaryDateTo,
     targetIds: [...selectedTargetIds].sort((a, b) => a - b),
-  }), [kindFilter, measurementDateFilter, methodFilter, period, preliminaryDateFilter, preliminaryDateFrom, preliminaryDateTo, selectedTargetIds, statusFilter, surveyorFilter, year]);
+  }), [kindFilter, measurementDateFilter, methodFilter, period, preliminaryDateFilter, preliminaryDateFrom, preliminaryDateTo, selectedTargetIds, statusFilter, year]);
 
   const invalidateDrafts = (message = "추천 범위가 변경되어 새 추천이 필요합니다.") => {
     if (!drafts.size) return;
@@ -147,6 +176,19 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const changeScope = <T,>(setter: (value: T) => void, value: T) => {
     invalidateDrafts();
     setter(value);
+  };
+
+  const applyListSearch = () => {
+    setListSearchSnapshot({
+      year,
+      period,
+      statusFilter,
+      kindFilter,
+      preliminaryDateFilter,
+      measurementDateFilter,
+      methodFilter,
+      searchQuery: searchDraft,
+    });
   };
 
   const selectedRows = useMemo(() => rows.filter((row) => selectedTargetIds.has(row.targetId)), [rows, selectedTargetIds]);
@@ -305,8 +347,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   return (
     <div className="space-y-4">
-      <Card className="p-3">
-        <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"} className={mode === "plan" ? "grid w-full min-w-0 grid-cols-12 items-end gap-2" : "flex items-end gap-2 flex-wrap xl:flex-nowrap"}>
+      <Card className="sticky top-28 z-30 bg-white p-3 shadow-sm">
+        <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"} className={mode === "plan" ? "grid w-full min-w-0 grid-cols-12 items-end gap-2" : "flex flex-wrap items-end gap-2"}>
           <label className={`${mode === "plan" ? "col-span-1 min-w-0" : "w-20 shrink-0"} text-xs font-medium text-text-700`}>연도
             <input aria-label="연도" type="number" value={year} onChange={(event) => changeScope(setYear, Number(event.target.value))} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
           </label>
@@ -334,7 +376,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             </label>
             <div className="col-span-1 flex min-w-0 items-end"><Button className="h-9 w-full !bg-orange-500 px-2 text-xs hover:!bg-orange-600 focus-visible:!ring-orange-500" onClick={setNextWeek}>다음 주</Button></div>
             <label className="col-span-5 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명
-              <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 min-w-0 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
+              <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 min-w-0 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
             </label>
           </>}
           {mode === "list" && <>
@@ -344,12 +386,13 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <label className="w-36 shrink-0 text-xs font-medium text-text-700">측정예정일
               <input aria-label="측정예정일" type="date" value={measurementDateFilter} onChange={(event) => setMeasurementDateFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
-            <label className="w-24 shrink-0 text-xs font-medium text-text-700">조사자
-              <input aria-label="조사자" value={surveyorFilter} onChange={(event) => setSurveyorFilter(event.target.value)} placeholder="이름" className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
-            </label>
             <label className="w-20 shrink-0 text-xs font-medium text-text-700">방식
               <select aria-label="방식 필터" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm"><option value="">전체</option><option value="field">현장</option><option value="phone">유선</option></select>
             </label>
+            <label className="min-w-[14rem] flex-1 text-xs font-medium text-text-700">코드 · 사업장명
+              <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
+            </label>
+            <div className="flex shrink-0 items-end"><Button className="h-9 px-3 text-xs" onClick={applyListSearch}>검색</Button></div>
           </>}
           {mode === "plan" && <>
             <div className="col-span-7 flex min-w-0 items-center gap-1 border-t border-surface-100 pt-2 text-xs text-text-600"><span>선택 {selectedTargetIds.size}건</span>{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
@@ -365,9 +408,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       {notice && <Alert variant="success">{notice}</Alert>}
       {scopeSummary && <div className="text-xs text-text-600">{scopeSummary}</div>}
       <Card className="overflow-hidden">
-        <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : undefined} className={mode === "plan" ? "max-h-[calc(100vh-20rem)] overflow-auto" : "overflow-x-auto"}>
+        <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : "phase-b-list-table-scroll"} className="max-h-[calc(100vh-20rem)] overflow-auto">
           <table className="w-full min-w-[1080px] table-fixed text-sm">
-            <thead className={`${mode === "plan" ? "sticky top-0 z-20 shadow-sm" : ""} bg-surface-50 text-left text-text-700`}>
+            <thead className="sticky top-0 z-20 bg-surface-50 text-left text-text-700 shadow-sm">
               <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "메인측정자", "조력자", "보고서담당", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-surface-200">
