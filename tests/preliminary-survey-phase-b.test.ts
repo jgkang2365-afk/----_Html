@@ -134,10 +134,13 @@ test("날짜별 통합 추천 정렬은 최초실시, 타기관 신규, 기존�
 });
 
 test("탭 순서 저장값 복원, 오류 fallback, 누락 탭 보완, 이동을 지원한다", () => {
+  const surveyPage = readFileSync("app/survey/page.tsx", "utf8");
   assert.deepEqual(restoreSurveyTabOrder(null), [...SURVEY_TAB_IDS]);
   assert.deepEqual(restoreSurveyTabOrder("not-json"), [...SURVEY_TAB_IDS]);
   assert.deepEqual(restoreSurveyTabOrder('["plans","list","search"]'), [...SURVEY_TAB_IDS]);
   assert.deepEqual(moveSurveyTab([...SURVEY_TAB_IDS], "search", "plans"), ["search", "plans", "list", "schedule-blocks"]);
+  assert.match(surveyPage, /flex items-center gap-\[3cm\] border-b/);
+  assert.match(surveyPage, /shrink-0 text-2xl font-bold text-text-900">예비조사/);
 });
 
 test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추천은 apply 전 저장하지 않는다", () => {
@@ -163,7 +166,7 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /calculateV2Recommendations|recommendBatch/);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
-  assert.match(ui, /grid min-w-\[760px\] grid-cols-12/);
+  assert.match(ui, /grid w-full min-w-0 grid-cols-12/);
   assert.match(ui, /flex-wrap xl:flex-nowrap/);
   assert.match(api, /measurement_journal/);
   assert.doesNotMatch(api, /sequence_number/);
@@ -183,6 +186,13 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   assert.match(ui, /getNextWeekRangeKst\(preliminaryDateFrom \|\| undefined\)/);
   assert.match(ui, /!bg-orange-500/);
   assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 3);
+  assert.match(ui, /grid w-full min-w-0 grid-cols-12 items-end gap-2/);
+  assert.match(ui, /col-span-5 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명/);
+  assert.match(ui, /col-span-5 flex shrink-0 justify-end gap-2/);
+  assert.doesNotMatch(ui, /grid-cols-14|col-start-12|min-w-\[760px\]/);
+  assert.match(ui, /phase-b-plan-table-scroll/);
+  assert.match(ui, /max-h-\[calc\(100vh-20rem\)\] overflow-auto/);
+  assert.match(ui, /sticky top-0 z-20 shadow-sm/);
   assert.match(ui, /if \(draftScope !== currentScope\)/);
   assert.match(api, /!Array\.isArray\(body\.targetIds\) \|\| body\.targetIds\.length === 0/);
   assert.match(api, /new Set\(requestedTargetIds\)\.size !== requestedTargetIds\.length/);

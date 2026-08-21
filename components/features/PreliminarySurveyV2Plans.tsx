@@ -305,36 +305,36 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   return (
     <div className="space-y-4">
-      <Card className="overflow-x-auto p-3">
-        <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"} className={mode === "plan" ? "grid min-w-[760px] grid-cols-12 items-end gap-2 2xl:grid-cols-14" : "flex items-end gap-2 flex-wrap xl:flex-nowrap"}>
-          <label className={`${mode === "plan" ? "col-span-1" : "w-20 shrink-0"} text-xs font-medium text-text-700`}>연도
+      <Card className="p-3">
+        <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"} className={mode === "plan" ? "grid w-full min-w-0 grid-cols-12 items-end gap-2" : "flex items-end gap-2 flex-wrap xl:flex-nowrap"}>
+          <label className={`${mode === "plan" ? "col-span-1 min-w-0" : "w-20 shrink-0"} text-xs font-medium text-text-700`}>연도
             <input aria-label="연도" type="number" value={year} onChange={(event) => changeScope(setYear, Number(event.target.value))} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
           </label>
-          <label className={`${mode === "plan" ? "col-span-1" : "w-24 shrink-0"} text-xs font-medium text-text-700`}>반기
+          <label className={`${mode === "plan" ? "col-span-1 min-w-0" : "w-24 shrink-0"} text-xs font-medium text-text-700`}>반기
             <select aria-label="반기" value={period} onChange={(event) => changeScope(setPeriod, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">
               <option value="">전체</option><option value="상반기">상반기</option><option value="하반기">하반기</option>
             </select>
           </label>
-          <label className={`${mode === "plan" ? "col-span-1" : "w-28 shrink-0"} text-xs font-medium text-text-700`}>상태
+          <label className={`${mode === "plan" ? "col-span-1 min-w-0" : "w-28 shrink-0"} text-xs font-medium text-text-700`}>상태
             <select aria-label="상태 필터" value={statusFilter} onChange={(event) => changeScope(setStatusFilter, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">
               <option value="">전체</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
-          <label className={`${mode === "plan" ? "col-span-1" : "w-28 shrink-0"} text-xs font-medium text-text-700`}>구분
+          <label className={`${mode === "plan" ? "col-span-1 min-w-0" : "w-28 shrink-0"} text-xs font-medium text-text-700`}>구분
             <select aria-label="구분 필터" value={kindFilter} onChange={(event) => changeScope(setKindFilter, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">
               <option value="">전체</option><option>최초실시</option><option>타기관 신규</option><option>기존업체</option>
             </select>
           </label>
           {mode === "plan" && <>
-            <label className="col-span-1 text-xs font-medium text-text-700">시작일
+            <label className="col-span-1 min-w-0 text-xs font-medium text-text-700">시작일
               <input aria-label="추천 시작일" type="date" value={preliminaryDateFrom} onChange={(event) => changeRecommendationStartDate(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
-            <label className="col-span-1 text-xs font-medium text-text-700">종료일
+            <label className="col-span-1 min-w-0 text-xs font-medium text-text-700">종료일
               <input aria-label="추천 종료일" type="date" value={preliminaryDateTo} onChange={(event) => changeScope(setPreliminaryDateTo, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
-            <div className="col-span-1 flex items-end"><Button className="h-9 w-full !bg-orange-500 px-2 text-xs hover:!bg-orange-600 focus-visible:!ring-orange-500" onClick={setNextWeek}>다음 주</Button></div>
-            <label className="col-span-2 text-xs font-medium text-text-700">코드 · 사업장명
-              <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
+            <div className="col-span-1 flex min-w-0 items-end"><Button className="h-9 w-full !bg-orange-500 px-2 text-xs hover:!bg-orange-600 focus-visible:!ring-orange-500" onClick={setNextWeek}>다음 주</Button></div>
+            <label className="col-span-5 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명
+              <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 min-w-0 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
             </label>
           </>}
           {mode === "list" && <>
@@ -352,8 +352,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             </label>
           </>}
           {mode === "plan" && <>
-            <div className="col-span-7 flex min-w-0 items-center gap-1 border-t border-surface-100 pt-2 text-xs text-text-600 2xl:col-span-14 2xl:row-start-2"><span>선택 {selectedTargetIds.size}건</span>{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
-            <div className="col-span-5 ml-auto flex shrink-0 gap-2 border-t border-surface-100 pt-2 2xl:col-span-3 2xl:col-start-12 2xl:row-start-1 2xl:border-t-0 2xl:pt-0">
+            <div className="col-span-7 flex min-w-0 items-center gap-1 border-t border-surface-100 pt-2 text-xs text-text-600"><span>선택 {selectedTargetIds.size}건</span>{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
+            <div className="col-span-5 flex shrink-0 justify-end gap-2 border-t border-surface-100 pt-2">
               <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => requestRecommendation()} disabled={working}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
               <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")}>대안 보기</Button>
               <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={applyDrafts} disabled={working || drafts.size === 0 || draftScope !== currentScope}>추천안 적용</Button>
@@ -365,9 +365,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       {notice && <Alert variant="success">{notice}</Alert>}
       {scopeSummary && <div className="text-xs text-text-600">{scopeSummary}</div>}
       <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
+        <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : undefined} className={mode === "plan" ? "max-h-[calc(100vh-20rem)] overflow-auto" : "overflow-x-auto"}>
           <table className="w-full min-w-[1080px] table-fixed text-sm">
-            <thead className="bg-surface-50 text-left text-text-700">
+            <thead className={`${mode === "plan" ? "sticky top-0 z-20 shadow-sm" : ""} bg-surface-50 text-left text-text-700`}>
               <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "메인측정자", "조력자", "보고서담당", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-surface-200">

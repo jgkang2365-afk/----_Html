@@ -375,13 +375,11 @@ export default function SurveyPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-text-900">예비조사</h1>
-      </div>
+      <div className="flex items-center gap-[3cm] border-b border-surface-200">
+        <h1 className="shrink-0 text-2xl font-bold text-text-900">예비조사</h1>
 
-      {/* 탭 */}
-      <div className="border-surface-200 border-b">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* 탭 */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {tabOrder.map((tabId) => {
             const labels: Record<SurveyTabId, string> = {
               plans: "예비조사 계획",
