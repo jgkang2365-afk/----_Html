@@ -11,6 +11,38 @@ export interface MonthlyRevenueEntry {
   fallbackDate: string | null | undefined;
 }
 
+export interface SameMonthCumulativeRevenue {
+  cutoffMonth: number;
+  current: number;
+  previous: number;
+  difference: number;
+}
+
+export function calculateSameMonthCumulativeRevenue(
+  monthly: Array<{ month: string; current: number | null; previous: number }>,
+): SameMonthCumulativeRevenue {
+  const cutoffIndex = monthly.reduce(
+    (latestIndex, item, index) => item.current !== null ? index : latestIndex,
+    -1,
+  );
+
+  if (cutoffIndex < 0) {
+    return { cutoffMonth: 0, current: 0, previous: 0, difference: 0 };
+  }
+
+  const comparableMonths = monthly.slice(0, cutoffIndex + 1);
+  const current = comparableMonths.reduce((sum, item) => sum + (item.current ?? 0), 0);
+  const previous = comparableMonths.reduce((sum, item) => sum + item.previous, 0);
+  const parsedMonth = Number.parseInt(monthly[cutoffIndex].month, 10);
+
+  return {
+    cutoffMonth: Number.isNaN(parsedMonth) ? cutoffIndex + 1 : parsedMonth,
+    current,
+    previous,
+    difference: current - previous,
+  };
+}
+
 export function addMonthlyRevenueEntries(
   monthlyStats: Record<string, MonthlyRevenueValue>,
   entries: MonthlyRevenueEntry[],

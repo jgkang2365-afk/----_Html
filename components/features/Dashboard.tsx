@@ -22,6 +22,7 @@ import {
 import { Banknote, TrendingUp, ClipboardCheck, Send, AlertTriangle, Phone, ExternalLink, UserPlus } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { calculateSameMonthCumulativeRevenue } from "@/lib/dashboard/monthly-revenue";
 
 
 interface DashboardData {
@@ -246,6 +247,13 @@ export const Dashboard: React.FC<{ startYear: string; endYear: string; period: s
       total: data.periodStats.하반기.total
     }
   ];
+  const cumulativeRevenue = calculateSameMonthCumulativeRevenue(data.revenueTrend.monthly);
+  const cumulativeDifferenceSign = cumulativeRevenue.difference > 0 ? "+" : cumulativeRevenue.difference < 0 ? "-" : "";
+  const cumulativeDifferenceColor = cumulativeRevenue.difference > 0
+    ? "text-blue-600"
+    : cumulativeRevenue.difference < 0
+      ? "text-red-600"
+      : "text-gray-700";
 
 
   return (
@@ -294,10 +302,36 @@ export const Dashboard: React.FC<{ startYear: string; endYear: string; period: s
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* 월별 매출 추이 (비교 그래프) */}
         <Card className="col-span-2 p-6 shadow-sm">
-          <div className="flex justify-between items-center mb-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <h3 className="text-lg font-bold text-gray-800">
               월별 매출 추이 ({data.revenueTrend.comparisonYear} vs {data.revenueTrend.prevYear})
             </h3>
+            <div
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs sm:w-[210px] sm:shrink-0"
+              data-testid="monthly-revenue-cumulative-summary"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-gray-500">{data.revenueTrend.prevYear}년 {cumulativeRevenue.cutoffMonth}월 누적</span>
+                <span className="font-semibold tabular-nums text-gray-700" title={`${formatFullCurrency(cumulativeRevenue.previous)}원`}>
+                  {formatCurrency(cumulativeRevenue.previous)}원
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-3">
+                <span className="text-gray-500">{data.revenueTrend.comparisonYear}년 {cumulativeRevenue.cutoffMonth}월 누적</span>
+                <span className="font-semibold tabular-nums text-gray-900" title={`${formatFullCurrency(cumulativeRevenue.current)}원`}>
+                  {formatCurrency(cumulativeRevenue.current)}원
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-3 border-t border-gray-200 pt-1">
+                <span className="font-medium text-gray-600">차액</span>
+                <span
+                  className={`font-bold tabular-nums ${cumulativeDifferenceColor}`}
+                  title={`${cumulativeDifferenceSign}${formatFullCurrency(Math.abs(cumulativeRevenue.difference))}원`}
+                >
+                  {cumulativeDifferenceSign}{formatCurrency(Math.abs(cumulativeRevenue.difference))}원
+                </span>
+              </div>
+            </div>
           </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
