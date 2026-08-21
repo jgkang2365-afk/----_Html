@@ -58,6 +58,22 @@ export function recommendationDates(measurementDate: string) {
   ].flatMap((distance) => byDistance.get(distance) ?? []);
 }
 
+export type PhaseBBusinessType = "existing" | "first_measurement" | "external_new";
+
+/** Phase B: 측정예정일과 업체 유형에서 후보일을 만든다. */
+export function recommendationDatesForBusinessType(
+  measurementDate: string,
+  businessType: PhaseBBusinessType,
+) {
+  const maximum = businessType === "external_new" ? 60 : 30;
+  const dates = workingDaysBefore(measurementDate, maximum);
+  const byDistance = new Map(dates.map((item) => [item.workingDaysBefore, item]));
+  const distances = businessType === "external_new"
+    ? Array.from({ length: 31 }, (_, index) => 30 + index)
+    : Array.from({ length: 28 }, (_, index) => 3 + index);
+  return distances.flatMap((distance) => byDistance.get(distance) ?? []);
+}
+
 export function workingDayDistance(earlier: string, later: string): number | null {
   if (!parseDateOnly(earlier) || !parseDateOnly(later) || earlier >= later) return null;
   let cursor = later;

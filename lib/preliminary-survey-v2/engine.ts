@@ -1,4 +1,4 @@
-import { holidayCoverageWarning, recommendationDates } from "./calendar";
+import { holidayCoverageWarning, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { evaluateSameDayRoute, type EvaluatedSameDayRoute } from "./route-policy";
 import type {
   Availability, ExistingAssignment, RecommendationEvidence, RecommendationResult,
@@ -18,12 +18,21 @@ const SAME_ROUTE_THRESHOLD_MINUTES = 30 as const;
 const HARD_MAXIMUM_MINUTES = 60 as const;
 
 function deterministicTargets(targets: SurveyTarget[]) {
+  const priority = (target: SurveyTarget) => target.businessType === "first_measurement"
+    ? 0
+    : target.businessType === "external_new" ? 1 : 2;
   return [...targets].sort((left, right) =>
+    priority(left) - priority(right) ||
     left.measurementDate.localeCompare(right.measurementDate) ||
-    (left.kind === right.kind ? 0 : left.kind === "new" ? -1 : 1) ||
     (left.createdAt ?? "9999").localeCompare(right.createdAt ?? "9999") ||
     left.id - right.id,
   );
+}
+
+function targetRecommendationDates(target: SurveyTarget) {
+  return target.businessType
+    ? recommendationDatesForBusinessType(target.measurementDate, target.businessType)
+    : recommendationDates(target.measurementDate);
 }
 
 function existingResponsibleCount(assignments: ExistingAssignment[], userId: number, date: string) {
@@ -178,7 +187,7 @@ async function reconcileEarlierExistingReviewOverlaps(
     let nextDate = result.date;
     let choice = await tryDate(nextDate);
     if (!choice) {
-      for (const candidate of recommendationDates(target.measurementDate)) {
+      for (const candidate of targetRecommendationDates(target)) {
         if (candidate.date === result.date) continue;
         choice = await tryDate(candidate.date);
         if (!choice) continue;
@@ -226,7 +235,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
   for (const target of deterministicTargets(input.targets)) {
     let selected: RecommendationResult | null = null;
     const rejectedSameDayRoutes: SameDayRouteEvidence[] = [];
-    const dates = recommendationDates(target.measurementDate);
+    const dates = targetRecommendationDates(target);
 
     const evaluateCandidate = async (candidate: (typeof dates)[number], capacityPass: 1 | 2) => {
       if (target.kind === "existing" && capacityPass === 2) return null;
@@ -240,9 +249,8 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         if (dailyNew >= capacityPass || dailyNew >= 2) return null;
       }
 
-      // 예비조사 경력 규칙: 기존 사업장은 비경력자 단독이 허용된다.
-      // 최초실시/타기관 신규(new)에서만 비경력 responsible에 경력자 reviewer를 붙인다.
-      const requiresReviewer = !target.responsible.experienced && target.kind === "new";
+      // Phase B 경력 hard constraint: 업체 유형과 관계없이 비경력자 단독은 기본 추천하지 않는다.
+      const requiresReviewer = !target.responsible.experienced && (target.kind === "new" || Boolean(target.businessType));
       const reviewerChoice = requiresReviewer
         ? await chooseReviewer(target, candidate.date, input.experiencedUsers, virtual, input.availability, input.routes, capacityPass)
         : null;

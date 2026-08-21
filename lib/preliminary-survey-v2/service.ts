@@ -33,6 +33,12 @@ function coordinateFromRow(row: any) {
     coordinate.longitude >= 124 && coordinate.longitude <= 132 ? coordinate : null;
 }
 
+function optionalInteger(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
 async function loadProcessChangedPolicy(supabase: Client): Promise<ProcessChangedPolicySettings> {
   const { data, error } = await supabase
     .from("preliminary_survey_policy_settings")
@@ -91,6 +97,7 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
     address: targetRow.address, region: regionFromAddress(targetRow.address), coordinate: coordinateFromRow(infoRow),
     createdAt: targetRow.created_at,
     businessType: targetRow.business_type,
+    sourceMeasurerId: optionalInteger(targetRow.measurer_id),
     processChanged: targetRow.process_changed,
     processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
       policy,
@@ -152,6 +159,8 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
 
 export interface CalculationOptions {
   targetIds?: number[];
+  year?: number;
+  period?: string;
   measurementDateFrom?: string;
   measurementDateTo?: string;
   createdBeforeOrAt?: string;
@@ -179,6 +188,8 @@ export async function calculateV2Recommendations(
     "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).not("measurement_date", "is", null);
   if (options.targetIds?.length) targetQuery = targetQuery.in("id", options.targetIds);
+  if (options.year != null) targetQuery = targetQuery.eq("year", options.year);
+  if (options.period) targetQuery = targetQuery.eq("period", options.period);
   if (options.measurementDateFrom) targetQuery = targetQuery.gte("measurement_date", options.measurementDateFrom);
   if (options.measurementDateTo) targetQuery = targetQuery.lte("measurement_date", options.measurementDateTo);
   if (options.createdBeforeOrAt) targetQuery = targetQuery.lte("created_at", options.createdBeforeOrAt);
@@ -258,6 +269,7 @@ export async function calculateV2Recommendations(
       measurementDate: row.measurement_date, responsible: responsible!, address: row.address,
       region: regionFromAddress(row.address), coordinate, createdAt: row.created_at, classificationSource,
       businessType: row.business_type,
+      sourceMeasurerId: optionalInteger(row.measurer_id),
       processChanged: row.process_changed,
       processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
         policy: processChangedPolicy,
@@ -321,7 +333,11 @@ export async function calculateV2Recommendations(
   return { targets, results, missing, blockedKeys: [...blockedKeys] };
 }
 
-export async function persistV2Recommendations(supabase: Client, output: CalculationOutput) {
+export async function persistV2Recommendations(
+  supabase: Client,
+  output: CalculationOutput,
+  options: { planOrigin?: "automatic" | "manual" } = {},
+) {
   const targetById = new Map(output.targets.map((target) => [target.id, target]));
   const payload = output.results.flatMap((result) => {
     const target = targetById.get(result.targetId);
@@ -334,9 +350,10 @@ export async function persistV2Recommendations(supabase: Client, output: Calcula
       participant_user_ids: result.participants.map((user) => user.id),
       participant_names: result.participants.map((user) => user.name),
       status: result.status,
-      plan_origin: "automatic",
+      plan_origin: options.planOrigin ?? "automatic",
       source_measurement_date: target.measurementDate,
-      source_responsible_user_id: target.responsible.id,
+      // legacy column name과 달리 RPC stale-source는 measurer_id(보고서 담당자) snapshot을 검증한다.
+      source_responsible_user_id: target.sourceMeasurerId,
       source_rule_type: target.kind,
       survey_method: result.surveyMethod,
       recommendation_reason: { reason: result.reason, evidence: result.evidence },

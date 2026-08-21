@@ -54,7 +54,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
       p_status: "recommended",
       p_plan_origin: "manual",
       p_source_measurement_date: target.measurementDate,
-      p_source_responsible_user_id: target.responsible.id,
+      p_source_responsible_user_id: target.sourceMeasurerId,
       p_source_rule_type: target.kind,
       p_survey_method: surveyMethod,
       p_recommendation_reason: {

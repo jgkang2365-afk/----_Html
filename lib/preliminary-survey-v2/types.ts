@@ -24,6 +24,8 @@ export interface SurveyTarget {
   coordinate: Coordinate | null;
   createdAt: string | null;
   businessType?: "existing" | "first_measurement" | "external_new" | null;
+  /** 기존 V2 stale-source 검증용 보고서 담당자 snapshot. 예비조사 responsible와는 별개다. */
+  sourceMeasurerId?: number | null;
   processChanged?: boolean | null;
   processChangedPolicyApplicable?: boolean;
   classificationSource?: {
