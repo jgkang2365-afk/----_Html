@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   normalizeJournalManagerEmailForSave,
   resolveJournalManagerContact,
+  resolveJournalManagerEmailForCreate,
   resolveJournalManagerEmailUpdate,
 } from "../lib/journal/manager-email-policy";
 
@@ -98,10 +99,57 @@ test("계산서 메일만 있어도 신규 담당자 메일로 복사하지 않�
   assert.equal(contact.manager_email, "");
 });
 
+test("신규 저장은 manager_email null과 빈 문자열을 명시적 빈값으로 유지한다", () => {
+  assert.equal(
+    resolveJournalManagerEmailForCreate(
+      { manager_email: null },
+      "measurement-business@example.com",
+    ),
+    null,
+  );
+  assert.equal(
+    resolveJournalManagerEmailForCreate(
+      { manager_email: "" },
+      "measurement-business@example.com",
+    ),
+    null,
+  );
+});
+
+test("신규 저장은 manager_email 키가 없을 때만 measurement_business 값을 사용한다", () => {
+  assert.equal(
+    resolveJournalManagerEmailForCreate({}, "measurement-business@example.com"),
+    "measurement-business@example.com",
+  );
+});
+
+test("신규 저장은 담당자 메일 원천이 없고 계산서 메일만 있으면 null을 사용한다", () => {
+  assert.equal(
+    resolveJournalManagerEmailForCreate(
+      { invoice_email: "invoice@example.com" },
+      null,
+    ),
+    null,
+  );
+});
+
+test("담당자 메일과 계산서 메일이 동일한 명시적 정상값은 차단하지 않는다", () => {
+  assert.equal(
+    resolveJournalManagerEmailForCreate(
+      {
+        manager_email: "shared@example.com",
+        invoice_email: "shared@example.com",
+      },
+      null,
+    ),
+    "shared@example.com",
+  );
+});
+
 test("신규·수정 저장 API는 계산서 메일을 담당자 메일 fallback으로 사용하지 않는다", () => {
   assert.match(
     createJournalRouteSource,
-    /manager_email:\s*body\.manager_email\s*\|\|\s*businessData\.manager_email\s*\|\|\s*null/,
+    /manager_email:\s*resolveJournalManagerEmailForCreate\(body, businessData\.manager_email\)/,
   );
   assert.match(
     updateJournalRouteSource,
@@ -145,6 +193,17 @@ test("담당자 메일 삭제값을 저장 payload와 업데이트에 명시적�
   assert.deepEqual(payload, { manager_email: null });
   assert.equal(
     resolveJournalManagerEmailUpdate(payload, "old@example.com"),
+    null,
+  );
+  assert.equal(
+    resolveJournalManagerEmailUpdate({}, "old@example.com"),
+    "old@example.com",
+  );
+});
+
+test("수정 저장은 manager_email null을 유지하고 필드가 없으면 기존값을 유지한다", () => {
+  assert.equal(
+    resolveJournalManagerEmailUpdate({ manager_email: null }, "old@example.com"),
     null,
   );
   assert.equal(
