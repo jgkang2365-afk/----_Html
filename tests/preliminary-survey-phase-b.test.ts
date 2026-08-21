@@ -176,8 +176,12 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   assert.match(ui, /filteredRows\.filter\(\(row\) => selectedTargetIds\.size === 0 \|\| selectedTargetIds\.has\(row\.targetId\)\)/);
   assert.match(ui, /onChange=\{\(event\) => setSearchQuery\(event\.target\.value\)\}/);
   assert.match(ui, /explicitTargetSelection: Boolean\(targetId\) \|\| selectedTargetIds\.size > 0/);
-  assert.match(ui, /preliminaryDateFrom: recommendDateMode === "none" \? undefined : preliminaryDateFrom \|\| undefined/);
-  assert.match(ui, /preliminaryDateTo: recommendDateMode === "none" \? undefined :/);
+  assert.doesNotMatch(ui, /recommendDateMode|추천 범위"|>없음<|>일자<|>기간</);
+  assert.match(ui, /recommendationRangeFromStartDate\(value\)/);
+  assert.match(ui, /validateRecommendationRange\(preliminaryDateFrom, preliminaryDateTo\)/);
+  assert.match(ui, /preliminaryDateFrom,\s*preliminaryDateTo,/);
+  assert.match(ui, /getNextWeekRangeKst\(preliminaryDateFrom \|\| undefined\)/);
+  assert.match(ui, /!bg-orange-500/);
   assert.match(ui, /if \(draftScope !== currentScope\)/);
   assert.match(api, /!Array\.isArray\(body\.targetIds\) \|\| body\.targetIds\.length === 0/);
   assert.match(api, /new Set\(requestedTargetIds\)\.size !== requestedTargetIds\.length/);

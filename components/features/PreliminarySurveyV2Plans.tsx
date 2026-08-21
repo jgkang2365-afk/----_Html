@@ -7,6 +7,11 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
+import {
+  getNextWeekRangeKst,
+  recommendationRangeFromStartDate,
+  validateRecommendationRange,
+} from "@/lib/preliminary-survey-v2/recommendation-range";
 
 type WorkbenchStatus = "unassigned" | "recommended" | "adjustment_required" | "provisional" | "review_required" | "true_confirmed";
 
@@ -71,7 +76,6 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [surveyorFilter, setSurveyorFilter] = useState("");
   const [methodFilter, setMethodFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [recommendDateMode, setRecommendDateMode] = useState<"none" | "date" | "range">("none");
   const [preliminaryDateFrom, setPreliminaryDateFrom] = useState("");
   const [preliminaryDateTo, setPreliminaryDateTo] = useState("");
   const [selectedTargetIds, setSelectedTargetIds] = useState<Set<number>>(new Set());
@@ -128,11 +132,11 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   const currentScope = useMemo(() => JSON.stringify({
     year, period, statusFilter, kindFilter, preliminaryDateFilter, measurementDateFilter, surveyorFilter, methodFilter,
-    recommendDateMode, preliminaryDateFrom, preliminaryDateTo,
+    preliminaryDateFrom, preliminaryDateTo,
     targetIds: [...selectedTargetIds].sort((a, b) => a - b),
-  }), [kindFilter, measurementDateFilter, methodFilter, period, preliminaryDateFilter, preliminaryDateFrom, preliminaryDateTo, recommendDateMode, selectedTargetIds, statusFilter, surveyorFilter, year]);
+  }), [kindFilter, measurementDateFilter, methodFilter, period, preliminaryDateFilter, preliminaryDateFrom, preliminaryDateTo, selectedTargetIds, statusFilter, surveyorFilter, year]);
 
-  const invalidateDrafts = (message = "추천 범위가 변경되어 기존 임시 추천안을 초기화했습니다.") => {
+  const invalidateDrafts = (message = "추천 범위가 변경되어 새 추천이 필요합니다.") => {
     if (!drafts.size) return;
     setDrafts(new Map());
     setDraftScope(null);
@@ -147,17 +151,18 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   const selectedRows = useMemo(() => rows.filter((row) => selectedTargetIds.has(row.targetId)), [rows, selectedTargetIds]);
 
-  const setQuickWeek = (offsetWeeks: number) => {
-    const date = new Date();
-    const dayOffset = (date.getDay() + 6) % 7;
-    date.setDate(date.getDate() - dayOffset + offsetWeeks * 7);
-    const format = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
-    const friday = new Date(date);
-    friday.setDate(date.getDate() + 4);
+  const setNextWeek = () => {
+    const range = getNextWeekRangeKst(preliminaryDateFrom || undefined);
     invalidateDrafts();
-    setRecommendDateMode("range");
-    setPreliminaryDateFrom(format(date));
-    setPreliminaryDateTo(format(friday));
+    setPreliminaryDateFrom(range.startDate);
+    setPreliminaryDateTo(range.endDate);
+  };
+
+  const changeRecommendationStartDate = (value: string) => {
+    const range = recommendationRangeFromStartDate(value);
+    invalidateDrafts();
+    setPreliminaryDateFrom(range.startDate);
+    setPreliminaryDateTo(range.endDate);
   };
 
   const requestRecommendation = async (targetId?: number) => {
@@ -165,15 +170,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     setError(null);
     setNotice(null);
     try {
-      if (recommendDateMode === "date" && !preliminaryDateFrom) {
-        throw new Error("추천할 예비조사일을 선택해 주세요.");
-      }
-      if (recommendDateMode === "range" && (!preliminaryDateFrom || !preliminaryDateTo)) {
-        throw new Error("추천 시작일과 종료일을 모두 선택해 주세요.");
-      }
-      if (recommendDateMode === "range" && preliminaryDateFrom > preliminaryDateTo) {
-        throw new Error("추천 종료일은 시작일보다 빠를 수 없습니다.");
-      }
+      const rangeError = validateRecommendationRange(preliminaryDateFrom, preliminaryDateTo);
+      if (rangeError) throw new Error(rangeError);
       const recommendationTargetIds = targetId
         ? [targetId]
         : filteredRows.filter((row) => selectedTargetIds.size === 0 || selectedTargetIds.has(row.targetId)).map((row) => row.targetId);
@@ -187,8 +185,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           action: "recommend", year, period,
           targetIds: recommendationTargetIds,
           explicitTargetSelection: Boolean(targetId) || selectedTargetIds.size > 0,
-          preliminaryDateFrom: recommendDateMode === "none" ? undefined : preliminaryDateFrom || undefined,
-          preliminaryDateTo: recommendDateMode === "none" ? undefined : recommendDateMode === "date" ? preliminaryDateFrom || undefined : preliminaryDateTo || undefined,
+          preliminaryDateFrom,
+          preliminaryDateTo,
         }),
       });
       const result = await response.json();
@@ -196,9 +194,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       const generatedDrafts = result.drafts || [];
       const recommendedCount = generatedDrafts.filter((draft: WorkbenchRow) => draft.status === "recommended").length;
       const unavailableCount = generatedDrafts.length - recommendedCount + (result.missing || []).length;
-      const dateScopeLabel = recommendDateMode === "none"
-        ? "전체 후보일"
-        : recommendDateMode === "date" ? preliminaryDateFrom : `${preliminaryDateFrom} ~ ${preliminaryDateTo}`;
+      const dateScopeLabel = `${preliminaryDateFrom} ~ ${preliminaryDateTo}`;
       setDrafts((current) => {
         const next = new Map(current);
         for (const draft of generatedDrafts) next.set(draft.targetId, { ...rows.find((row) => row.targetId === draft.targetId), ...draft });
@@ -310,7 +306,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   return (
     <div className="space-y-4">
       <Card className="overflow-x-auto p-3">
-        <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"} className={mode === "plan" ? "grid min-w-[760px] grid-cols-12 items-end gap-2" : "flex items-end gap-2 flex-wrap xl:flex-nowrap"}>
+        <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"} className={mode === "plan" ? "grid min-w-[760px] grid-cols-12 items-end gap-2 2xl:grid-cols-14" : "flex items-end gap-2 flex-wrap xl:flex-nowrap"}>
           <label className={`${mode === "plan" ? "col-span-1" : "w-20 shrink-0"} text-xs font-medium text-text-700`}>연도
             <input aria-label="연도" type="number" value={year} onChange={(event) => changeScope(setYear, Number(event.target.value))} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
           </label>
@@ -330,17 +326,14 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             </select>
           </label>
           {mode === "plan" && <>
-            <label className="col-span-1 text-xs font-medium text-text-700">추천범위
-              <select aria-label="추천 범위" value={recommendDateMode} onChange={(event) => changeScope(setRecommendDateMode, event.target.value as "none" | "date" | "range")} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm"><option value="none">없음</option><option value="date">일자</option><option value="range">기간</option></select>
+            <label className="col-span-2 text-xs font-medium text-text-700">시작일
+              <input aria-label="추천 시작일" type="date" value={preliminaryDateFrom} onChange={(event) => changeRecommendationStartDate(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
-            {recommendDateMode === "date" && <label className="col-span-2 text-xs font-medium text-text-700">날짜
-              <input aria-label="추천 날짜" type="date" value={preliminaryDateFrom} onChange={(event) => changeScope(setPreliminaryDateFrom, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
-            </label>}
-            {recommendDateMode === "range" && <label className="col-span-2 text-xs font-medium text-text-700">시작 ~ 종료
-              <div className="mt-1 flex gap-1"><input aria-label="추천 시작일" type="date" value={preliminaryDateFrom} onChange={(event) => changeScope(setPreliminaryDateFrom, event.target.value)} className="h-9 min-w-0 flex-1 rounded-md border border-surface-300 bg-white px-1 text-sm" /><input aria-label="추천 종료일" type="date" value={preliminaryDateTo} onChange={(event) => changeScope(setPreliminaryDateTo, event.target.value)} className="h-9 min-w-0 flex-1 rounded-md border border-surface-300 bg-white px-1 text-sm" /></div>
-            </label>}
-            <div className="col-span-2 flex gap-1"><Button variant="secondary" className="h-9 px-2 text-xs" onClick={() => setQuickWeek(0)}>이번 주 월~금</Button><Button variant="secondary" className="h-9 px-2 text-xs" onClick={() => setQuickWeek(1)}>다음 주 월~금</Button></div>
-            <label className="col-span-3 text-xs font-medium text-text-700">코드 · 사업장명
+            <label className="col-span-2 text-xs font-medium text-text-700">종료일
+              <input aria-label="추천 종료일" type="date" value={preliminaryDateTo} onChange={(event) => changeScope(setPreliminaryDateTo, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
+            </label>
+            <div className="col-span-1 flex items-end"><Button className="h-9 w-full !bg-orange-500 px-2 text-xs hover:!bg-orange-600 focus-visible:!ring-orange-500" onClick={setNextWeek}>다음 주</Button></div>
+            <label className="col-span-2 text-xs font-medium text-text-700">코드 · 사업장명
               <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
             </label>
           </>}
@@ -358,14 +351,14 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               <select aria-label="방식 필터" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm"><option value="">전체</option><option value="field">현장</option><option value="phone">유선</option></select>
             </label>
           </>}
-          {mode === "plan" && <div className="col-span-12 flex items-center justify-between gap-2 border-t border-surface-100 pt-2">
-            <div className="flex min-w-0 items-center gap-1 text-xs text-text-600"><span>선택 {selectedTargetIds.size}건</span>{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
-            <div className="ml-auto flex shrink-0 gap-2">
-              <Button onClick={() => requestRecommendation()} disabled={working}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
-              <Button variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")}>대안 보기</Button>
-              <Button onClick={applyDrafts} disabled={working || drafts.size === 0 || draftScope !== currentScope}>추천안 적용</Button>
+          {mode === "plan" && <>
+            <div className="col-span-7 flex min-w-0 items-center gap-1 border-t border-surface-100 pt-2 text-xs text-text-600 2xl:col-span-14 2xl:row-start-2"><span>선택 {selectedTargetIds.size}건</span>{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
+            <div className="col-span-5 ml-auto flex shrink-0 gap-2 border-t border-surface-100 pt-2 2xl:col-span-3 2xl:col-start-12 2xl:row-start-1 2xl:border-t-0 2xl:pt-0">
+              <Button size="sm" onClick={() => requestRecommendation()} disabled={working}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
+              <Button size="sm" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")}>대안 보기</Button>
+              <Button size="sm" onClick={applyDrafts} disabled={working || drafts.size === 0 || draftScope !== currentScope}>추천안 적용</Button>
             </div>
-          </div>}
+          </>}
         </div>
       </Card>
       {error && <Alert variant="error">{error}</Alert>}
