@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { addMonthlyRevenueEntries, type MonthlyRevenueValue } from "../lib/dashboard/monthly-revenue";
+import {
+  addMonthlyRevenueEntries,
+  calculateSameMonthCumulativeRevenue,
+  type MonthlyRevenueValue,
+} from "../lib/dashboard/monthly-revenue";
 
 function emptyMonths() {
   return Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
@@ -27,4 +31,29 @@ test("대시보드 API는 other_revenue의 total_amount와 invoice_date를 월�
   assert.match(source, /from\("other_revenue"\)[\s\S]*?select\("revenue_year, revenue_period, total_amount, invoice_date, created_at"\)/);
   assert.match(source, /amount: item\.total_amount/);
   assert.match(source, /primaryDate: item\.invoice_date/);
+});
+
+test("동월 누적 매출은 금년도 값이 존재하는 마지막 월까지만 양쪽 연도를 합산한다", () => {
+  const result = calculateSameMonthCumulativeRevenue([
+    { month: "1월", current: 100, previous: 80 },
+    { month: "2월", current: 120, previous: 90 },
+    { month: "3월", current: null, previous: 500 },
+  ]);
+
+  assert.deepEqual(result, {
+    cutoffMonth: 2,
+    current: 220,
+    previous: 170,
+    difference: 50,
+  });
+});
+
+test("동월 누적 매출 차액은 금년 누적이 적으면 음수로 계산한다", () => {
+  const result = calculateSameMonthCumulativeRevenue([
+    { month: "1월", current: 30, previous: 50 },
+    { month: "2월", current: 40, previous: 60 },
+  ]);
+
+  assert.equal(result.cutoffMonth, 2);
+  assert.equal(result.difference, -40);
 });
