@@ -329,7 +329,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <label className="col-span-1 text-xs font-medium text-text-700">시작일
               <input aria-label="추천 시작일" type="date" value={preliminaryDateFrom} onChange={(event) => changeRecommendationStartDate(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
-            <label className="col-span-2 text-xs font-medium text-text-700">종료일
+            <label className="col-span-1 text-xs font-medium text-text-700">종료일
               <input aria-label="추천 종료일" type="date" value={preliminaryDateTo} onChange={(event) => changeScope(setPreliminaryDateTo, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
             <div className="col-span-1 flex items-end"><Button className="h-9 w-full !bg-orange-500 px-2 text-xs hover:!bg-orange-600 focus-visible:!ring-orange-500" onClick={setNextWeek}>다음 주</Button></div>
