@@ -5,9 +5,9 @@
 - 시작 main SHA: `555ae773484bd1533d4b0d252f0fa12592e93ebe`
 - 작업 branch: `feature/preliminary-survey-phase-b`
 - PR #42 보완 시작 head SHA: `52f214a58f929df5105c39b84c1178d8ff32ad5d`
-- 목록 검색·sticky 최종 구현 head SHA: `ada92d2f2404a165466177a0ce5b11aaac6d4d26`
-- 목록 검색·sticky 최종 구현 commit SHA: `ada92d2f2404a165466177a0ce5b11aaac6d4d26`
-- PR #42 구현 head SHA: `ada92d2f2404a165466177a0ce5b11aaac6d4d26`
+- 계획 검색·추천 scope 최종 구현 head SHA: `31ff85562f32c33261c931dcff624caceb31b08c`
+- 계획 검색·추천 scope 최종 구현 commit SHA: `31ff85562f32c33261c931dcff624caceb31b08c`
+- PR #42 구현 head SHA: `31ff85562f32c33261c931dcff624caceb31b08c`
 - PR: #42 `feat: rebuild preliminary survey planning workflow` (Draft 유지, merge하지 않음)
 
 보고서 자체를 반영하는 Git commit은 자신의 SHA를 파일 안에 미리 기록할 수 없으므로, 위 값은 최종 구현 commit 기준이다. 보고서 반영 후 실제 PR head는 PR 메타데이터와 완료 보고에 별도로 기록한다.
@@ -33,6 +33,9 @@
 - 기본 탭 순서 `계획 → 목록 → 검색 → 제외 일정`, HTML5 drag & drop, localStorage 복원, 오류 fallback, 누락 탭 보완, 기본 순서 복원을 유지했다.
 - 계획 화면은 카드 목록 없이 12개 필수 컬럼 테이블만 사용한다.
 - 계획 상단 기본 필터와 액션을 compact toolbar로 구성하고, 추천 조건 보완 후에도 데스크톱 최대 2행과 액션 우측 정렬을 유지했다.
+- 계획 화면에도 명시적 `검색` 버튼과 검색 snapshot을 적용했다. 연도·반기·상태·구분·코드·사업장명 입력을 바꾼 동안에는 기존 검색 결과를 유지하고 추천·대안·적용 버튼을 잠그며, `검색` 실행 후 결과를 새 scope로 확정한다.
+- 계획 추천 대상은 검색 결과 전체 또는 `검색 결과 ∩ 선택 사업장`만 사용한다. 화면에는 보이지 않는 검색 전 행이나 선택했지만 현재 검색 결과 밖인 사업장을 추천 요청에 포함하지 않는다.
+- 추천 완료 문구는 임시 draft 수를 추천 성공으로 오해하지 않도록 `추천 n개 · 조정 필요/불가 n개`로 구분했다. 적용 가능한 추천 draft가 없으면 `추천안 적용`을 비활성화한다.
 - 목록 상단 조사자 검색 필터를 제거하되 테이블의 `예비조사자` 컬럼은 유지했다. 연도·반기·상태·구분·예비조사일·측정예정일·방식과 `코드 · 사업장명`, 명시적 `검색` 버튼을 compact toolbar에 배치했다.
 - 코드·사업장명 검색은 대소문자와 공백을 정규화하며 정확·부분 일치, 쉼표·줄바꿈 다중 검색을 OR 조건으로 지원한다.
 - 목록의 연도·반기와 모든 필터·검색어는 입력 중 draft 상태로 유지하고 `검색`을 누른 시점의 snapshot으로 조회·표시 조건을 함께 확정한다.
@@ -117,8 +120,8 @@
 ## 테스트 결과
 
 - `npx tsc --noEmit`: 통과
-- Phase B 및 V2 집중 회귀 묶음: 132/132 통과
-- 신규 목록 검색 helper: 쉼표·줄바꿈 분리와 중복 제거, 코드 정확·부분 검색, 사업장명 정확·부분 검색, 다중 OR 검색 4/4 통과
+- Phase B 및 V2 집중 회귀 묶음: 134/134 통과
+- 신규 검색 helper: 쉼표·줄바꿈 분리와 중복 제거, 코드 정확·부분 검색, 사업장명 정확·부분 검색, 다중 OR 검색, 검색 결과와 선택 대상 교집합 5/5 통과
 - 신규 회귀에는 시작일→종료일 자동 동기화, 필수값·역전 범위 차단, 시작일과 현재 KST 각각을 기준으로 한 다음 주 월~금 계산, UTC/KST 날짜 경계, 하루·기간 후보 교집합, 선택 `targetIds`와 날짜 범위의 동시 적용, 선택·scope 변경 후 draft 적용 차단, apply 재계산 금지를 포함했다.
 - `npm test`: 362/362 통과
 - `npm run build`: 통과 (`Compiled successfully`, static pages 69/69)
@@ -149,6 +152,7 @@
 - `H0205` 선택 후 검색어를 `그린자동차`로 바꿔도 선택 1건이 유지됐으며, 검증 후 선택과 검색 조건을 모두 초기화했다.
 - 브라우저 worker는 자신의 터미널에서 `Browser is not available: iab`로 실패했으나, 메인 작업자가 같은 Orca 내장 브라우저 탭에 재연결해 위 검증을 완료했다.
 - 이번 목록 검색·sticky 최종 보완에서는 메인 작업자가 Orca 인앱 브라우저 런타임 재연결과 가용 브라우저 목록 조회를 다시 수행했으나 `Browser is not available: iab`, 가용 목록 `[]`가 반환됐다. 따라서 이번 변경분의 조사자 필터 제거, 검색 snapshot, 세로·가로 스크롤 위치는 새 브라우저 세션에서 실제 재검증했다고 기록하지 않는다.
+- 계획 검색·추천 scope 최종 보완에서도 자동 연결 가능한 브라우저가 없어 검색 버튼 클릭 전후, 추천 버튼 잠금, 검색 결과 건수 표시는 브라우저에서 재검증하지 못했다. 개발 서버는 build 후 같은 `npm run dev:turbo`와 3000번 포트로 복구했다.
 
 ## 브라우저 미완료 항목과 사유
 
@@ -184,6 +188,7 @@
 | GPT-5.6 Terra | Medium | 이번 보완 Orca 브라우저 검증 시도 | `Browser is not available: iab`로 중단, 메인 작업자가 재검증 완료 | 이번 보완 브라우저 worker 1회, 토큰/credits 확인 불가 |
 | GPT-5.6 Terra | Medium | 목록 조사자 필터 제거, 코드·사업장명 검색 snapshot, 계획·목록 sticky UI 구현 | 메인 검토 후 반영 | 목록 UI worker 1회, 토큰/credits 확인 불가 |
 | GPT-5.6 Terra | Medium | 코드·사업장명 정확·부분·다중 검색 helper와 단위 테스트 구현 | 메인 검토 후 반영 | 검색 helper worker 1회, 토큰/credits 확인 불가 |
+| GPT-5.6 Sol | Medium | 계획 검색 snapshot, 검색 결과와 추천 scope 일치, 추천 결과 문구·버튼 상태 보완, 테스트·빌드·Git/PR | 실제 수행 결과 반영 | 이번 최종 보완 주 작업자 1세션, 토큰/credits 확인 불가 |
 | GPT-5.6 Luna | - | 미사용 | 미반영 | 0회 |
 
 - Orca Run `run_a53b8bcb30b3`에서 구현, 엔진/테스트, 브라우저 검증을 하위 worker로 분담했다.
