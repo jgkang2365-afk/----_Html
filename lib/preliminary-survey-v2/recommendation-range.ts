@@ -1,18 +1,18 @@
 const KST_TIME_ZONE = "Asia/Seoul";
 const DAY_MS = 86_400_000;
 
-export type RecommendationRange = {
+export type DateRange = {
   startDate: string;
   endDate: string;
 };
 
-export function recommendationRangeFromStartDate(startDate: string): RecommendationRange {
+export function dateRangeFromStartDate(startDate: string): DateRange {
   return { startDate, endDate: startDate };
 }
 
-export function validateRecommendationRange(startDate: string, endDate: string): string | null {
-  if (!startDate || !endDate) return "추천 기간의 시작일과 종료일을 입력해 주세요.";
-  if (endDate < startDate) return "추천 종료일은 시작일보다 빠를 수 없습니다.";
+export function validateMeasurementDateRange(startDate: string, endDate: string): string | null {
+  if (!startDate || !endDate) return "측정예정일의 시작일과 종료일을 입력해 주세요.";
+  if (endDate < startDate) return "측정예정 종료일은 시작일보다 빠를 수 없습니다.";
   return null;
 }
 
@@ -59,7 +59,7 @@ function currentDateInKst(now: Date): string {
 }
 
 /** 기준일이 속한 주의 다음 주 월요일부터 금요일까지의 달력 범위. */
-export function getNextWeekRangeKst(baseDate?: string, now: Date = new Date()): RecommendationRange {
+export function getNextWeekRangeKst(baseDate?: string, now: Date = new Date()): DateRange {
   const referenceDate = parseDateOnly(baseDate ?? currentDateInKst(now));
   const weekday = referenceDate.getUTCDay();
   const daysUntilNextMonday = weekday === 0 ? 1 : 8 - weekday;

@@ -172,7 +172,7 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   assert.doesNotMatch(api, /sequence_number/);
 });
 
-test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고 draft scope 변경 시 적용을 막는다", () => {
+test("측정예정일 기간·선택 대상 추천은 검색 결과 교집합만 사용하고 draft scope 변경 시 적용을 막는다", () => {
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
@@ -180,10 +180,12 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   assert.match(ui, /onChange=\{\(event\) => setSearchDraft\(event\.target\.value\)\}/);
   assert.match(ui, /explicitTargetSelection: Boolean\(targetId\) \|\| selectedTargetIds\.size > 0/);
   assert.doesNotMatch(ui, /recommendDateMode|추천 범위"|>없음<|>일자<|>기간</);
-  assert.match(ui, /recommendationRangeFromStartDate\(value\)/);
-  assert.match(ui, /validateRecommendationRange\(preliminaryDateFrom, preliminaryDateTo\)/);
-  assert.match(ui, /preliminaryDateFrom,\s*preliminaryDateTo,/);
-  assert.match(ui, /getNextWeekRangeKst\(preliminaryDateFrom \|\| undefined\)/);
+  assert.match(ui, /dateRangeFromStartDate\(value\)/);
+  assert.match(ui, /validateMeasurementDateRange\(planSearchSnapshot\.measurementDateFrom, planSearchSnapshot\.measurementDateTo\)/);
+  assert.match(ui, /measurementDateFrom: planSearchSnapshot\.measurementDateFrom \|\| undefined/);
+  assert.match(ui, /measurementDateTo: planSearchSnapshot\.measurementDateTo \|\| undefined/);
+  assert.match(ui, /getNextWeekRangeKst\(measurementDateFrom \|\| undefined\)/);
+  assert.doesNotMatch(ui, /preliminaryDateFrom|preliminaryDateTo/);
   assert.match(ui, /!bg-orange-500/);
   assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 3);
   assert.match(ui, /grid w-full min-w-0 grid-cols-12 items-end gap-2/);
@@ -196,10 +198,12 @@ test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고
   assert.match(ui, /if \(draftScope !== currentScope\)/);
   assert.match(api, /!Array\.isArray\(body\.targetIds\) \|\| body\.targetIds\.length === 0/);
   assert.match(api, /new Set\(requestedTargetIds\)\.size !== requestedTargetIds\.length/);
-  assert.match(api, /parseDateOnly\(preliminaryDateFrom\)/);
+  assert.match(api, /parseDateOnly\(measurementDateFrom\)/);
+  assert.match(api, /candidateQuery = candidateQuery\.gte\("measurement_date", measurementDateFrom\)/);
+  assert.match(api, /candidateQuery = candidateQuery\.lte\("measurement_date", measurementDateTo\)/);
   assert.match(api, /selectedTargetIds\.has\(Number\(row\.id\)\)/);
   assert.match(api, /if \(explicitTargetSelection\) return true/);
-  assert.match(api, /preliminaryDateFrom,\s*preliminaryDateTo/);
+  assert.match(api, /measurementDateFrom,\s*measurementDateTo,\s*preliminaryDateFrom/);
   assert.match(service, /preliminaryDateFrom\?: string/);
   assert.match(service, /preliminaryDateTo\?: string/);
   assert.match(service, /candidateDatesByTarget/);
@@ -234,6 +238,9 @@ test("계획 검색은 명시적 snapshot을 확정한 뒤 화면 결과와 같�
   assert.match(ui, /collectWorkbenchRecommendationTargetIds\(displayRows, selectedTargetIds\)/);
   assert.doesNotMatch(ui, /filteredRows\.filter\(\(row\) => selectedTargetIds/);
   assert.match(ui, /action: "recommend", year: queryYear, period: queryPeriod/);
+  assert.match(ui, /matchesMeasurementDateRange\(row\.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo\)/);
+  assert.match(ui, /measurementDateFrom !== planSearchSnapshot\.measurementDateFrom/);
+  assert.match(ui, /측정예정일 범위:/);
   assert.match(ui, /searchQuery: activeSearchQuery/);
   assert.match(ui, /disabled=\{working \|\| isPlanSearchDirty\}/);
   assert.match(ui, /검색 조건 변경 · 검색 필요/);

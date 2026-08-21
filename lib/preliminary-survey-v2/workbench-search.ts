@@ -3,6 +3,15 @@ export interface WorkbenchSearchRow {
   businessName?: string | null;
 }
 
+export function matchesMeasurementDateRange(
+  measurementDate: string | null | undefined,
+  from: string,
+  to: string,
+): boolean {
+  if (!measurementDate) return !from && !to;
+  return (!from || measurementDate >= from) && (!to || measurementDate <= to);
+}
+
 function normalizedSearchValue(value: unknown): string {
   return typeof value === "string"
     ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("ko-KR")

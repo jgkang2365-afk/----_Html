@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   collectWorkbenchRecommendationTargetIds,
+  matchesMeasurementDateRange,
   matchesWorkbenchSearch,
   matchesWorkbenchSearchTerm,
   parseWorkbenchSearchTerms,
@@ -42,4 +43,12 @@ test("추천 대상은 확정된 검색 결과 전체 또는 검색 결과와 �
   const displayedRows = [{ targetId: 1 }, { targetId: 2 }, { targetId: 3 }];
   assert.deepEqual(collectWorkbenchRecommendationTargetIds(displayedRows, new Set()), [1, 2, 3]);
   assert.deepEqual(collectWorkbenchRecommendationTargetIds(displayedRows, new Set([2, 4])), [2]);
+});
+
+test("계획 검색은 측정예정일의 시작일과 종료일을 모두 포함해 필터한다", () => {
+  assert.equal(matchesMeasurementDateRange("2026-08-03", "2026-08-03", "2026-08-03"), true);
+  assert.equal(matchesMeasurementDateRange("2026-08-05", "2026-08-03", "2026-08-07"), true);
+  assert.equal(matchesMeasurementDateRange("2026-08-02", "2026-08-03", "2026-08-07"), false);
+  assert.equal(matchesMeasurementDateRange("2026-08-08", "2026-08-03", "2026-08-07"), false);
+  assert.equal(matchesMeasurementDateRange(null, "2026-08-03", "2026-08-07"), false);
 });

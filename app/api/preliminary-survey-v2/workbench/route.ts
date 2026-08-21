@@ -320,6 +320,15 @@ export async function POST(request: NextRequest) {
     }
     const targetIds = requestedTargetIds;
     const explicitTargetSelection = body.explicitTargetSelection === true;
+    const measurementDateFrom = body.measurementDateFrom == null || body.measurementDateFrom === ""
+      ? undefined : String(body.measurementDateFrom);
+    const measurementDateTo = body.measurementDateTo == null || body.measurementDateTo === ""
+      ? undefined : String(body.measurementDateTo);
+    if ((measurementDateFrom && !parseDateOnly(measurementDateFrom)) ||
+        (measurementDateTo && !parseDateOnly(measurementDateTo)) ||
+        (measurementDateFrom && measurementDateTo && measurementDateFrom > measurementDateTo)) {
+      return NextResponse.json({ error: "측정예정일 기간이 올바르지 않습니다." }, { status: 400 });
+    }
     const preliminaryDateFrom = body.preliminaryDateFrom == null || body.preliminaryDateFrom === ""
       ? undefined : String(body.preliminaryDateFrom);
     const preliminaryDateTo = body.preliminaryDateTo == null || body.preliminaryDateTo === ""
@@ -331,6 +340,8 @@ export async function POST(request: NextRequest) {
     }
     let candidateQuery = supabase.from("measurement_target_business").select("id, code, year, period, measurement_date");
     candidateQuery = candidateQuery.in("id", targetIds);
+    if (measurementDateFrom) candidateQuery = candidateQuery.gte("measurement_date", measurementDateFrom);
+    if (measurementDateTo) candidateQuery = candidateQuery.lte("measurement_date", measurementDateTo);
     const { data: candidateRows, error: candidateError } = await candidateQuery;
     if (candidateError) throw candidateError;
     const candidateCodes = [...new Set((candidateRows ?? []).map((row: any) => row.code))];
@@ -359,6 +370,8 @@ export async function POST(request: NextRequest) {
     }
     const output = await calculateV2Recommendations(supabase, {
       targetIds: eligibleTargetIds,
+      measurementDateFrom,
+      measurementDateTo,
       preliminaryDateFrom,
       preliminaryDateTo,
     });

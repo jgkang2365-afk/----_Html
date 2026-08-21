@@ -8,12 +8,13 @@ import { Input } from "@/components/ui/Input";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import {
+  dateRangeFromStartDate,
   getNextWeekRangeKst,
-  recommendationRangeFromStartDate,
-  validateRecommendationRange,
+  validateMeasurementDateRange,
 } from "@/lib/preliminary-survey-v2/recommendation-range";
 import {
   collectWorkbenchRecommendationTargetIds,
+  matchesMeasurementDateRange,
   matchesWorkbenchSearch,
 } from "@/lib/preliminary-survey-v2/workbench-search";
 
@@ -67,6 +68,8 @@ interface PlanSearchSnapshot {
   period: string;
   statusFilter: string;
   kindFilter: string;
+  measurementDateFrom: string;
+  measurementDateTo: string;
   searchQuery: string;
 }
 
@@ -113,10 +116,12 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     period: "",
     statusFilter: "",
     kindFilter: "",
+    measurementDateFrom: "",
+    measurementDateTo: "",
     searchQuery: "",
   });
-  const [preliminaryDateFrom, setPreliminaryDateFrom] = useState("");
-  const [preliminaryDateTo, setPreliminaryDateTo] = useState("");
+  const [measurementDateFrom, setMeasurementDateFrom] = useState("");
+  const [measurementDateTo, setMeasurementDateTo] = useState("");
   const [selectedTargetIds, setSelectedTargetIds] = useState<Set<number>>(new Set());
   const [draftScope, setDraftScope] = useState<string | null>(null);
   const [scopeSummary, setScopeSummary] = useState<string | null>(null);
@@ -161,6 +166,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const activeKindFilter = mode === "list" ? listSearchSnapshot.kindFilter : planSearchSnapshot.kindFilter;
   const activePreliminaryDateFilter = mode === "list" ? listSearchSnapshot.preliminaryDateFilter : preliminaryDateFilter;
   const activeMeasurementDateFilter = mode === "list" ? listSearchSnapshot.measurementDateFilter : measurementDateFilter;
+  const activeMeasurementDateFrom = mode === "plan" ? planSearchSnapshot.measurementDateFrom : "";
+  const activeMeasurementDateTo = mode === "plan" ? planSearchSnapshot.measurementDateTo : "";
   const activeMethodFilter = mode === "list" ? listSearchSnapshot.methodFilter : methodFilter;
   const activeSearchQuery = mode === "list" ? listSearchSnapshot.searchQuery : planSearchSnapshot.searchQuery;
 
@@ -169,8 +176,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     (!activeKindFilter || row.kind === activeKindFilter) &&
     (!activePreliminaryDateFilter || row.preliminaryDate === activePreliminaryDateFilter) &&
     (!activeMeasurementDateFilter || row.measurementDate === activeMeasurementDateFilter) &&
+    matchesMeasurementDateRange(row.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo) &&
     (!activeMethodFilter || row.surveyMethod === activeMethodFilter),
-  ), [activeKindFilter, activeMeasurementDateFilter, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, rows]);
+  ), [activeKindFilter, activeMeasurementDateFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, rows]);
 
   const displayRows = useMemo(
     () => filteredRows.filter((row) => matchesWorkbenchSearch(row, activeSearchQuery)),
@@ -182,17 +190,20 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     statusFilter: activeStatusFilter, kindFilter: activeKindFilter,
     preliminaryDateFilter: activePreliminaryDateFilter,
     measurementDateFilter: activeMeasurementDateFilter,
+    measurementDateFrom: activeMeasurementDateFrom,
+    measurementDateTo: activeMeasurementDateTo,
     methodFilter: activeMethodFilter,
     searchQuery: activeSearchQuery,
-    preliminaryDateFrom, preliminaryDateTo,
     targetIds: [...selectedTargetIds].sort((a, b) => a - b),
-  }), [activeKindFilter, activeMeasurementDateFilter, activeMethodFilter, activePreliminaryDateFilter, activeSearchQuery, activeStatusFilter, preliminaryDateFrom, preliminaryDateTo, queryPeriod, queryYear, selectedTargetIds]);
+  }), [activeKindFilter, activeMeasurementDateFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeSearchQuery, activeStatusFilter, queryPeriod, queryYear, selectedTargetIds]);
 
   const isPlanSearchDirty = mode === "plan" && (
     year !== planSearchSnapshot.year ||
     period !== planSearchSnapshot.period ||
     statusFilter !== planSearchSnapshot.statusFilter ||
     kindFilter !== planSearchSnapshot.kindFilter ||
+    measurementDateFrom !== planSearchSnapshot.measurementDateFrom ||
+    measurementDateTo !== planSearchSnapshot.measurementDateTo ||
     searchDraft !== planSearchSnapshot.searchQuery
   );
 
@@ -223,6 +234,11 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   };
 
   const applyPlanSearch = () => {
+    const rangeError = validateMeasurementDateRange(measurementDateFrom, measurementDateTo);
+    if (rangeError) {
+      setError(rangeError);
+      return;
+    }
     invalidateDrafts();
     setError(null);
     setNotice(null);
@@ -232,6 +248,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       period,
       statusFilter,
       kindFilter,
+      measurementDateFrom,
+      measurementDateTo,
       searchQuery: searchDraft,
     });
   };
@@ -243,17 +261,17 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   );
 
   const setNextWeek = () => {
-    const range = getNextWeekRangeKst(preliminaryDateFrom || undefined);
+    const range = getNextWeekRangeKst(measurementDateFrom || undefined);
     invalidateDrafts();
-    setPreliminaryDateFrom(range.startDate);
-    setPreliminaryDateTo(range.endDate);
+    setMeasurementDateFrom(range.startDate);
+    setMeasurementDateTo(range.endDate);
   };
 
-  const changeRecommendationStartDate = (value: string) => {
-    const range = recommendationRangeFromStartDate(value);
+  const changeMeasurementStartDate = (value: string) => {
+    const range = dateRangeFromStartDate(value);
     invalidateDrafts();
-    setPreliminaryDateFrom(range.startDate);
-    setPreliminaryDateTo(range.endDate);
+    setMeasurementDateFrom(range.startDate);
+    setMeasurementDateTo(range.endDate);
   };
 
   const requestRecommendation = async (targetId?: number) => {
@@ -261,7 +279,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     setError(null);
     setNotice(null);
     try {
-      const rangeError = validateRecommendationRange(preliminaryDateFrom, preliminaryDateTo);
+      const rangeError = targetId ? null : validateMeasurementDateRange(planSearchSnapshot.measurementDateFrom, planSearchSnapshot.measurementDateTo);
       if (rangeError) throw new Error(rangeError);
       if (!targetId && isPlanSearchDirty) throw new Error("검색 조건이 변경되었습니다. 먼저 검색을 실행해 주세요.");
       const recommendationTargetIds = targetId
@@ -277,8 +295,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           action: "recommend", year: queryYear, period: queryPeriod,
           targetIds: recommendationTargetIds,
           explicitTargetSelection: Boolean(targetId) || selectedTargetIds.size > 0,
-          preliminaryDateFrom,
-          preliminaryDateTo,
+          measurementDateFrom: planSearchSnapshot.measurementDateFrom || undefined,
+          measurementDateTo: planSearchSnapshot.measurementDateTo || undefined,
         }),
       });
       const result = await response.json();
@@ -286,14 +304,14 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       const generatedDrafts = result.drafts || [];
       const recommendedCount = generatedDrafts.filter((draft: WorkbenchRow) => draft.status === "recommended").length;
       const unavailableCount = generatedDrafts.length - recommendedCount + (result.missing || []).length;
-      const dateScopeLabel = `${preliminaryDateFrom} ~ ${preliminaryDateTo}`;
+      const dateScopeLabel = `${planSearchSnapshot.measurementDateFrom} ~ ${planSearchSnapshot.measurementDateTo}`;
       setDrafts((current) => {
         const next = new Map(current);
         for (const draft of generatedDrafts) next.set(draft.targetId, { ...rows.find((row) => row.targetId === draft.targetId), ...draft });
         return next;
       });
       setDraftScope(currentScope);
-      setScopeSummary(`추천 범위: ${dateScopeLabel} · ${selectedTargetIds.size > 0 || targetId ? "선택 사업장" : "필터 대상"}: ${recommendationTargetIds.length}개 · 추천 생성: ${recommendedCount}개 · 추천 불가: ${unavailableCount}개`);
+      setScopeSummary(`측정예정일 범위: ${dateScopeLabel} · ${selectedTargetIds.size > 0 || targetId ? "선택 사업장" : "필터 대상"}: ${recommendationTargetIds.length}개 · 추천 생성: ${recommendedCount}개 · 추천 불가: ${unavailableCount}개`);
       setNotice(targetId
         ? `${result.impactSummary || "영향 범위를 재검증했습니다."} ${(result.drafts || []).length}개 변경안을 검토해 주세요.`
         : `추천 검토 결과: 추천 ${recommendedCount}개 · 조정 필요/불가 ${unavailableCount}개입니다. 아직 저장되지 않았습니다.`);
@@ -418,11 +436,11 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             </select>
           </label>
           {mode === "plan" && <>
-            <label className="col-span-1 min-w-0 text-xs font-medium text-text-700">시작일
-              <input aria-label="추천 시작일" type="date" value={preliminaryDateFrom} onChange={(event) => changeRecommendationStartDate(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
+            <label className="col-span-1 min-w-0 text-xs font-medium text-text-700">측정 시작일
+              <input aria-label="측정예정 시작일" type="date" value={measurementDateFrom} onChange={(event) => changeMeasurementStartDate(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
-            <label className="col-span-1 min-w-0 text-xs font-medium text-text-700">종료일
-              <input aria-label="추천 종료일" type="date" value={preliminaryDateTo} onChange={(event) => changeScope(setPreliminaryDateTo, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
+            <label className="col-span-1 min-w-0 text-xs font-medium text-text-700">측정 종료일
+              <input aria-label="측정예정 종료일" type="date" value={measurementDateTo} onChange={(event) => changeScope(setMeasurementDateTo, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
             <div className="col-span-1 flex min-w-0 items-end"><Button className="h-9 w-full !bg-orange-500 px-2 text-xs hover:!bg-orange-600 focus-visible:!ring-orange-500" onClick={setNextWeek}>다음 주</Button></div>
             <label className="col-span-4 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명

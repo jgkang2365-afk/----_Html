@@ -1,24 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  dateRangeFromStartDate,
   getNextWeekRangeKst,
-  recommendationRangeFromStartDate,
-  validateRecommendationRange,
+  validateMeasurementDateRange,
 } from "../lib/preliminary-survey-v2/recommendation-range";
 
 test("시작일 선택은 종료일을 같은 날짜로 초기화한다", () => {
-  assert.deepEqual(recommendationRangeFromStartDate("2026-08-21"), {
+  assert.deepEqual(dateRangeFromStartDate("2026-08-21"), {
     startDate: "2026-08-21",
     endDate: "2026-08-21",
   });
 });
 
-test("추천 기간은 두 날짜를 요구하고 종료일 역전을 차단한다", () => {
-  assert.equal(validateRecommendationRange("", ""), "추천 기간의 시작일과 종료일을 입력해 주세요.");
-  assert.equal(validateRecommendationRange("2026-08-24", ""), "추천 기간의 시작일과 종료일을 입력해 주세요.");
-  assert.equal(validateRecommendationRange("2026-08-24", "2026-08-21"), "추천 종료일은 시작일보다 빠를 수 없습니다.");
-  assert.equal(validateRecommendationRange("2026-08-24", "2026-08-24"), null);
-  assert.equal(validateRecommendationRange("2026-08-24", "2026-08-28"), null);
+test("측정예정일 기간은 두 날짜를 요구하고 종료일 역전을 차단한다", () => {
+  assert.equal(validateMeasurementDateRange("", ""), "측정예정일의 시작일과 종료일을 입력해 주세요.");
+  assert.equal(validateMeasurementDateRange("2026-08-24", ""), "측정예정일의 시작일과 종료일을 입력해 주세요.");
+  assert.equal(validateMeasurementDateRange("2026-08-24", "2026-08-21"), "측정예정 종료일은 시작일보다 빠를 수 없습니다.");
+  assert.equal(validateMeasurementDateRange("2026-08-24", "2026-08-24"), null);
+  assert.equal(validateMeasurementDateRange("2026-08-24", "2026-08-28"), null);
 });
 
 test("기준일이 속한 주 다음 월요일부터 금요일을 반환한다", () => {
