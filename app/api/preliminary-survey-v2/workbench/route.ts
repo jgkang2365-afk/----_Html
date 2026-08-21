@@ -6,7 +6,7 @@ import {
   loadV2ManualContext,
 } from "@/lib/preliminary-survey-v2/service";
 import { v2BusinessKindLabel } from "@/lib/preliminary-survey-v2/presentation";
-import { recommendationDatesForBusinessType } from "@/lib/preliminary-survey-v2/calendar";
+import { parseDateOnly, recommendationDatesForBusinessType } from "@/lib/preliminary-survey-v2/calendar";
 import { measurementStaffForDate } from "@/lib/preliminary-survey-v2/measurement-staff";
 import { loadActualMeasurementBlockedKeys } from "@/lib/preliminary-survey-v2/measurement-conflicts";
 import { validateManualPlanHardRules } from "@/lib/preliminary-survey-v2/manual-validation";
@@ -307,16 +307,30 @@ export async function POST(request: NextRequest) {
     if (body.action === "apply") {
       return applySubmittedDrafts(supabase, Array.isArray(body.drafts) ? body.drafts : []);
     }
-    const targetIds: number[] = Array.isArray(body.targetIds)
-      ? [...new Set<number>(body.targetIds.map(Number).filter((value: number) => Number.isInteger(value)))]
-      : [];
-    let candidateQuery = supabase.from("measurement_target_business").select("id, code, year, period, measurement_date");
-    if (targetIds.length) {
-      candidateQuery = candidateQuery.in("id", targetIds);
-    } else {
-      candidateQuery = candidateQuery.eq("year", Number(body.year || new Date().getFullYear()));
-      if (body.period) candidateQuery = candidateQuery.eq("period", String(body.period));
+    if (body.action !== "recommend") {
+      return NextResponse.json({ error: "지원하지 않는 작업입니다." }, { status: 400 });
     }
+    if (!Array.isArray(body.targetIds) || body.targetIds.length === 0) {
+      return NextResponse.json({ error: "추천할 사업장을 선택해 주세요." }, { status: 400 });
+    }
+    const requestedTargetIds = body.targetIds.map(Number);
+    if (requestedTargetIds.some((value: number) => !Number.isInteger(value) || value <= 0) ||
+        new Set(requestedTargetIds).size !== requestedTargetIds.length) {
+      return NextResponse.json({ error: "추천 대상 사업장 정보가 올바르지 않습니다." }, { status: 400 });
+    }
+    const targetIds = requestedTargetIds;
+    const explicitTargetSelection = body.explicitTargetSelection === true;
+    const preliminaryDateFrom = body.preliminaryDateFrom == null || body.preliminaryDateFrom === ""
+      ? undefined : String(body.preliminaryDateFrom);
+    const preliminaryDateTo = body.preliminaryDateTo == null || body.preliminaryDateTo === ""
+      ? undefined : String(body.preliminaryDateTo);
+    if ((preliminaryDateFrom && !parseDateOnly(preliminaryDateFrom)) ||
+        (preliminaryDateTo && !parseDateOnly(preliminaryDateTo)) ||
+        (preliminaryDateFrom && preliminaryDateTo && preliminaryDateFrom > preliminaryDateTo)) {
+      return NextResponse.json({ error: "예비조사 기간이 올바르지 않습니다." }, { status: 400 });
+    }
+    let candidateQuery = supabase.from("measurement_target_business").select("id, code, year, period, measurement_date");
+    candidateQuery = candidateQuery.in("id", targetIds);
     const { data: candidateRows, error: candidateError } = await candidateQuery;
     if (candidateError) throw candidateError;
     const candidateCodes = [...new Set((candidateRows ?? []).map((row: any) => row.code))];
@@ -325,16 +339,18 @@ export async function POST(request: NextRequest) {
       candidateCodes.length
         ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", candidateCodes)
         : Promise.resolve({ data: [], error: null }),
-      candidateIds.length
+      !explicitTargetSelection && candidateIds.length
         ? supabase.from("preliminary_survey_v2_plans").select("measurement_target_business_id, plan_origin, source_measurement_date").in("measurement_target_business_id", candidateIds)
         : Promise.resolve({ data: [], error: null }),
     ]);
     if (journalError || planError) throw journalError || planError;
     const confirmedKeys = new Set((journalRows ?? []).map((row: any) => journalKey(row.code, row.measurement_year, row.measurement_period)));
+    const selectedTargetIds = new Set(targetIds);
     const planByTarget = new Map((planRows ?? []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]));
     const eligibleTargetIds = (candidateRows ?? []).filter((row: any) => {
+      if (!selectedTargetIds.has(Number(row.id))) return false;
       if (confirmedKeys.has(journalKey(row.code, row.year, row.period))) return false;
-      if (targetIds.length) return true;
+      if (explicitTargetSelection) return true;
       const plan: any = planByTarget.get(Number(row.id));
       return !plan || plan.plan_origin !== "manual" || plan.source_measurement_date !== row.measurement_date;
     }).map((row: any) => Number(row.id));
@@ -343,6 +359,8 @@ export async function POST(request: NextRequest) {
     }
     const output = await calculateV2Recommendations(supabase, {
       targetIds: eligibleTargetIds,
+      preliminaryDateFrom,
+      preliminaryDateTo,
     });
 
     return NextResponse.json({
@@ -369,7 +387,11 @@ export async function POST(request: NextRequest) {
           alternatives: recommendationDatesForBusinessType(
             target.measurementDate,
             target.businessType ?? (target.kind === "existing" ? "existing" : "first_measurement"),
-          ).map((item) => item.date).filter((date) => date !== result.date).slice(0, 3),
+          ).map((item) => item.date).filter((date) =>
+            (!preliminaryDateFrom || date >= preliminaryDateFrom) &&
+            (!preliminaryDateTo || date <= preliminaryDateTo) &&
+            date !== result.date,
+          ).slice(0, 3),
         };
       }),
       missing: output.missing,

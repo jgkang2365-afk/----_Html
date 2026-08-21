@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
-import { recommendationDates, recommendationDatesForBusinessType } from "./calendar";
+import { parseDateOnly, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
 import { loadActualMeasurementBlockedKeys } from "./measurement-conflicts";
@@ -160,6 +160,9 @@ export interface CalculationOptions {
   period?: string;
   measurementDateFrom?: string;
   measurementDateTo?: string;
+  /** 측정예정일 필터와 별개인, 사용자가 지정한 예비조사일 추천 범위. */
+  preliminaryDateFrom?: string;
+  preliminaryDateTo?: string;
   createdBeforeOrAt?: string;
   allowExternalRoutes?: boolean;
   routeMetrics?: RouteMetrics;
@@ -176,11 +179,53 @@ export interface CalculationOutput {
   blockedKeys: string[];
 }
 
+function preliminaryDateScope(options: Pick<CalculationOptions, "preliminaryDateFrom" | "preliminaryDateTo">) {
+  const from = options.preliminaryDateFrom;
+  const to = options.preliminaryDateTo;
+  if (from && !parseDateOnly(from)) throw new Error("INVALID_PRELIMINARY_DATE_FROM");
+  if (to && !parseDateOnly(to)) throw new Error("INVALID_PRELIMINARY_DATE_TO");
+  if (from && to && from > to) throw new Error("INVALID_PRELIMINARY_DATE_RANGE");
+  return { from, to };
+}
+
+function isInPreliminaryDateScope(date: string, scope: { from?: string; to?: string }) {
+  return (!scope.from || date >= scope.from) && (!scope.to || date <= scope.to);
+}
+
+export function filterPreliminaryCandidateDates<T extends { date: string }>(
+  candidates: T[],
+  options: Pick<CalculationOptions, "preliminaryDateFrom" | "preliminaryDateTo">,
+) {
+  const scope = preliminaryDateScope(options);
+  return candidates.filter((candidate) => isInPreliminaryDateScope(candidate.date, scope));
+}
+
+function manualRequiredOutsidePreliminaryScope(result: RecommendationResult): RecommendationResult {
+  return {
+    ...result,
+    status: "manual_required",
+    date: null,
+    participants: [],
+    experiencedReviewer: null,
+    evidence: {
+      ...result.evidence,
+      workingDaysBefore: null,
+      range: null,
+      capacityPass: null,
+      selectionMode: null,
+      selectionReason: "no_available_date",
+      warnings: [...result.evidence.warnings, "NO_AVAILABLE_DATE_IN_PRELIMINARY_SCOPE"],
+    },
+    reason: "선택한 예비조사 기간과 업체별 후보일의 교집합에 추천 가능한 날짜가 없습니다.",
+  };
+}
+
 /** SELECT 전용 계산 경로. 이 함수는 insert/update/upsert/rpc를 호출하지 않는다. */
 export async function calculateV2Recommendations(
   supabase: Client,
   options: CalculationOptions = {},
 ): Promise<CalculationOutput> {
+  const scope = preliminaryDateScope(options);
   let targetQuery = supabase.from("measurement_target_business").select(
     "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).not("measurement_date", "is", null);
@@ -277,9 +322,20 @@ export async function calculateV2Recommendations(
     } satisfies SurveyTarget];
   });
 
-  const candidateDates = targets.flatMap((target) => [target.measurementDate]);
-  const earliest = candidateDates.sort()[0];
-  const latest = candidateDates.sort().at(-1);
+  // 업체별 날짜 정책으로 먼저 후보를 만들고, 요청한 예비조사 기간과 교차한다.
+  // 추천 엔진은 자체 후보 정책을 유지하므로, availability의 기간 차단과 함께 둘 다 만족해야 한다.
+  const candidateDatesByTarget = new Map(targets.map((target) => [
+    target.id,
+    new Set(filterPreliminaryCandidateDates(
+      target.businessType
+        ? recommendationDatesForBusinessType(target.measurementDate, target.businessType)
+        : recommendationDates(target.measurementDate),
+      options,
+    ).map((item) => item.date)),
+  ]));
+  const candidateDates = [...new Set([...candidateDatesByTarget.values()].flatMap((dates) => [...dates]))].sort();
+  const earliest = candidateDates[0];
+  const latest = candidateDates.at(-1);
   const { data: blocks, error: blockError } = earliest && latest
     ? await supabase.from("user_schedule_blocks").select("user_id, start_date, end_date").lte("start_date", latest).gte("end_date", "2024-01-01")
     : { data: [], error: null };
@@ -288,10 +344,7 @@ export async function calculateV2Recommendations(
   const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
   const measurementBlockedKeys = await loadActualMeasurementBlockedKeys(
     supabase,
-    targets.flatMap((target) => recommendationDatesForBusinessType(
-      target.measurementDate,
-      target.businessType ?? (target.kind === "existing" ? "existing" : "first_measurement"),
-    ).map((item) => item.date)),
+    candidateDates,
     users,
   );
   for (const key of measurementBlockedKeys) blockedKeys.add(key);
@@ -315,10 +368,18 @@ export async function calculateV2Recommendations(
     }];
   });
 
-  const results = await recommendBatch({
+  const results = (await recommendBatch({
     targets, experiencedUsers: users.filter((user) => user.experienced && user.active !== false), existingAssignments,
-    availability: { isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`) },
+    availability: {
+      isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`),
+    },
     routes: options.routeMetrics ?? createRouteMetrics(options.allowExternalRoutes === false ? "" : undefined),
+  })).map((result) => {
+    const scopedCandidates = candidateDatesByTarget.get(result.targetId);
+    const scopeRestricted = Boolean(scope.from || scope.to);
+    return scopeRestricted && (scopedCandidates?.size === 0 || (result.date != null && !scopedCandidates?.has(result.date)))
+      ? manualRequiredOutsidePreliminaryScope(result)
+      : result;
   });
   return { targets, results, missing, blockedKeys: [...blockedKeys] };
 }

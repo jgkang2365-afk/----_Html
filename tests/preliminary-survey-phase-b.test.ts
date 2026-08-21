@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2/calendar";
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
+import { filterPreliminaryCandidateDates } from "../lib/preliminary-survey-v2/service";
 import { measurementStaffForDate } from "../lib/preliminary-survey-v2/measurement-staff";
 import { actualMeasurementBlockedKeys } from "../lib/preliminary-survey-v2/measurement-conflicts";
 import { SURVEY_TAB_IDS, moveSurveyTab, restoreSurveyTabOrder } from "../lib/preliminary-survey-v2/tab-order";
@@ -26,6 +27,17 @@ test("Phase B 유형별 날짜 후보는 측정예정일에서 역산한다", ()
   assert.equal(recommendationDatesForBusinessType("2026-07-14", "external_new").at(-1)?.workingDaysBefore, 60);
   assert.equal(recommendationDatesForBusinessType("2026-07-14", "existing")[0].workingDaysBefore, 3);
   assert.ok(recommendationDatesForBusinessType("2026-07-14", "first_measurement").every((item) => ![0, 6].includes(new Date(`${item.date}T00:00:00Z`).getUTCDay())));
+  const existingCandidates = recommendationDatesForBusinessType("2026-07-14", "existing");
+  const oneDayScope = filterPreliminaryCandidateDates(existingCandidates, {
+    preliminaryDateFrom: existingCandidates[0].date,
+    preliminaryDateTo: existingCandidates[0].date,
+  });
+  assert.deepEqual(oneDayScope.map((item) => item.date), [existingCandidates[0].date]);
+  const rangeScope = filterPreliminaryCandidateDates(existingCandidates, {
+    preliminaryDateFrom: existingCandidates[2].date,
+    preliminaryDateTo: existingCandidates[0].date,
+  });
+  assert.deepEqual(rangeScope.map((item) => item.date), existingCandidates.slice(0, 3).map((item) => item.date));
 });
 
 test("daily_staff는 측정예정일별 메인측정자/조력자를 우선하고 collaborators는 역할 없는 fallback이다", () => {
@@ -151,10 +163,37 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /calculateV2Recommendations|recommendBatch/);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
-  assert.match(ui, /min-w-\[760px\] flex-nowrap/);
+  assert.match(ui, /grid min-w-\[760px\] grid-cols-12/);
   assert.match(ui, /flex-wrap xl:flex-nowrap/);
   assert.match(api, /measurement_journal/);
   assert.doesNotMatch(api, /sequence_number/);
+});
+
+test("기간·선택 대상 추천은 업체별 후보 교집합만 사용하고 draft scope 변경 시 적용을 막는다", () => {
+  const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
+  const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
+  const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
+  assert.match(ui, /filteredRows\.filter\(\(row\) => selectedTargetIds\.size === 0 \|\| selectedTargetIds\.has\(row\.targetId\)\)/);
+  assert.match(ui, /onChange=\{\(event\) => setSearchQuery\(event\.target\.value\)\}/);
+  assert.match(ui, /explicitTargetSelection: Boolean\(targetId\) \|\| selectedTargetIds\.size > 0/);
+  assert.match(ui, /preliminaryDateFrom: recommendDateMode === "none" \? undefined : preliminaryDateFrom \|\| undefined/);
+  assert.match(ui, /preliminaryDateTo: recommendDateMode === "none" \? undefined :/);
+  assert.match(ui, /if \(draftScope !== currentScope\)/);
+  assert.match(api, /!Array\.isArray\(body\.targetIds\) \|\| body\.targetIds\.length === 0/);
+  assert.match(api, /new Set\(requestedTargetIds\)\.size !== requestedTargetIds\.length/);
+  assert.match(api, /parseDateOnly\(preliminaryDateFrom\)/);
+  assert.match(api, /selectedTargetIds\.has\(Number\(row\.id\)\)/);
+  assert.match(api, /if \(explicitTargetSelection\) return true/);
+  assert.match(api, /preliminaryDateFrom,\s*preliminaryDateTo/);
+  assert.match(service, /preliminaryDateFrom\?: string/);
+  assert.match(service, /preliminaryDateTo\?: string/);
+  assert.match(service, /candidateDatesByTarget/);
+  assert.match(service, /filter\(\(candidate\) => isInPreliminaryDateScope\(candidate\.date, scope\)\)/);
+  assert.match(service, /!isInPreliminaryDateScope\(date, scope\) \|\| blockedKeys\.has/);
+  assert.match(service, /manualRequiredOutsidePreliminaryScope/);
+  const applyStart = api.indexOf("async function applySubmittedDrafts");
+  const applyEnd = api.indexOf("export async function GET", applyStart);
+  assert.doesNotMatch(api.slice(applyStart, applyEnd), /calculateV2Recommendations|recommendBatch/);
 });
 
 test("측정대상사업장관리에는 예비조사 작업 UI가 없다", () => {
