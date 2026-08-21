@@ -56,7 +56,7 @@ test("권한 REVOKE(PUBLIC, anon, authenticated)와 service_role GRANT를 유지
 // TEXT source 비교 유지 (cast 없음)
 test("TEXT source 비교를 유지한다 (measurement_date 비교에 ::date 없음)", () => {
   assert.match(fix, /IF target_row\.measurement_date IS DISTINCT FROM p_source_measurement_date/);
-  assert.match(fix, /IF target_row\.measurement_date IS DISTINCT FROM \(plan->>'source_measurement_date'\)\n\s+OR target_row\.measurer_id IS DISTINCT FROM \(plan->>'source_responsible_user_id'\)::integer THEN/);
+  assert.match(fix, /IF target_row\.measurement_date IS DISTINCT FROM \(plan->>'source_measurement_date'\)\r?\n\s+OR target_row\.measurer_id IS DISTINCT FROM \(plan->>'source_responsible_user_id'\)::integer THEN/);
   assert.doesNotMatch(fix, /IS DISTINCT FROM \(plan->>'source_measurement_date'\)::date/);
   assert.doesNotMatch(fix, /IS DISTINCT FROM p_source_measurement_date::date/);
 });

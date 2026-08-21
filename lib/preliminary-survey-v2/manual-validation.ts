@@ -1,4 +1,4 @@
-import { recommendationDates } from "./calendar";
+import { recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { evaluateSameDayRoute } from "./route-policy";
 import type {
   ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyTarget, SurveyUser,
@@ -31,7 +31,10 @@ export async function validateManualPlanHardRules(
     .filter((user) => user.id !== input.target.responsible.id && user.experienced)
     .sort((left, right) => left.id - right.id)[0] ?? null;
 
-  if (!recommendationDates(input.target.measurementDate).some((item) => item.date === input.recommendedDate)) {
+  const allowedDates = input.target.businessType
+    ? recommendationDatesForBusinessType(input.target.measurementDate, input.target.businessType)
+    : recommendationDates(input.target.measurementDate);
+  if (!allowedDates.some((item) => item.date === input.recommendedDate)) {
     errors.push("예비조사일은 측정일보다 3~30 워킹데이 이전이어야 합니다.");
   }
   if (!participantIds.has(input.target.responsible.id)) {

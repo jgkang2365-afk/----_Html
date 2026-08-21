@@ -69,7 +69,10 @@ export function recommendationDatesForBusinessType(
   const dates = workingDaysBefore(measurementDate, maximum);
   const byDistance = new Map(dates.map((item) => [item.workingDaysBefore, item]));
   const distances = businessType === "external_new"
-    ? Array.from({ length: 31 }, (_, index) => 30 + index)
+    ? [
+        ...Array.from({ length: 28 }, (_, index) => 30 - index),
+        ...Array.from({ length: 30 }, (_, index) => 31 + index),
+      ]
     : Array.from({ length: 28 }, (_, index) => 3 + index);
   return distances.flatMap((distance) => byDistance.get(distance) ?? []);
 }

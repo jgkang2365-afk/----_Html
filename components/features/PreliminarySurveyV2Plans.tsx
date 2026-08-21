@@ -19,7 +19,12 @@ interface WorkbenchRow {
   measurementDate: string | null;
   preliminaryDate: string | null;
   surveyors: string[];
+  participantUserIds?: number[];
   surveyMethod: "field" | "phone";
+  sourceMeasurementDate?: string;
+  sourceMeasurerId?: number | null;
+  sourceResponsibleUserId?: number;
+  sourceRuleType?: "new" | "existing";
   mainMeasurer?: string;
   helper?: string;
   reportWriter?: string;
@@ -144,10 +149,18 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       const response = await fetch("/api/preliminary-survey-v2/workbench", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "apply", targetIds }),
+        body: JSON.stringify({ action: "apply", drafts: targetIds.map((id) => drafts.get(id)) }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "추천안 적용 실패");
+      if (!response.ok) {
+        if (result.reviewRequired) {
+          const affected = new Set<number>((result.reasons || []).map((item: { targetId: number }) => Number(item.targetId)));
+          setDrafts((current) => new Map([...current].map(([id, draft]) => [id, affected.has(id)
+            ? { ...draft, status: "review_required" as const, conflict: "원천값 변경 · 새 추천 필요" }
+            : draft])));
+        }
+        throw new Error(result.error || "추천안 적용 실패");
+      }
       setDrafts(new Map());
       setNotice(`${result.appliedCount}개 변경사항을 가확정했습니다.`);
       await loadRows();
@@ -195,37 +208,45 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   return (
     <div className="space-y-4">
-      <Card className="p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <Input label="연도" type="number" value={year} onChange={(event) => setYear(Number(event.target.value))} className="w-28" />
-          <label className="text-sm font-medium text-text-700">반기
-            <select aria-label="반기" value={period} onChange={(event) => setPeriod(event.target.value)} className="mt-1 block h-10 rounded-md border border-surface-300 bg-white px-3">
+      <Card className="overflow-x-auto p-3">
+        <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"} className={`flex items-end gap-2 ${mode === "plan" ? "min-w-[760px] flex-nowrap" : "flex-wrap xl:flex-nowrap"}`}>
+          <label className="w-20 shrink-0 text-xs font-medium text-text-700">연도
+            <input aria-label="연도" type="number" value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
+          </label>
+          <label className="w-24 shrink-0 text-xs font-medium text-text-700">반기
+            <select aria-label="반기" value={period} onChange={(event) => setPeriod(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">
               <option value="">전체</option><option value="상반기">상반기</option><option value="하반기">하반기</option>
             </select>
           </label>
-          <label className="text-sm font-medium text-text-700">상태
-            <select aria-label="상태 필터" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 block h-10 rounded-md border border-surface-300 bg-white px-3">
+          <label className="w-28 shrink-0 text-xs font-medium text-text-700">상태
+            <select aria-label="상태 필터" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">
               <option value="">전체</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
-          <label className="text-sm font-medium text-text-700">구분
-            <select aria-label="구분 필터" value={kindFilter} onChange={(event) => setKindFilter(event.target.value)} className="mt-1 block h-10 rounded-md border border-surface-300 bg-white px-3">
+          <label className="w-28 shrink-0 text-xs font-medium text-text-700">구분
+            <select aria-label="구분 필터" value={kindFilter} onChange={(event) => setKindFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">
               <option value="">전체</option><option>최초실시</option><option>타기관 신규</option><option>기존업체</option>
             </select>
           </label>
           {mode === "list" && <>
-            <Input label="예비조사일" type="date" value={preliminaryDateFilter} onChange={(event) => setPreliminaryDateFilter(event.target.value)} className="w-36" />
-            <Input label="측정예정일" type="date" value={measurementDateFilter} onChange={(event) => setMeasurementDateFilter(event.target.value)} className="w-36" />
-            <Input label="조사자" value={surveyorFilter} onChange={(event) => setSurveyorFilter(event.target.value)} placeholder="이름" className="w-28" />
-            <label className="text-sm font-medium text-text-700">방식
-              <select aria-label="방식 필터" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="mt-1 block h-10 rounded-md border border-surface-300 bg-white px-3"><option value="">전체</option><option value="field">현장</option><option value="phone">유선</option></select>
+            <label className="w-36 shrink-0 text-xs font-medium text-text-700">예비조사일
+              <input aria-label="예비조사일" type="date" value={preliminaryDateFilter} onChange={(event) => setPreliminaryDateFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
+            </label>
+            <label className="w-36 shrink-0 text-xs font-medium text-text-700">측정예정일
+              <input aria-label="측정예정일" type="date" value={measurementDateFilter} onChange={(event) => setMeasurementDateFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
+            </label>
+            <label className="w-24 shrink-0 text-xs font-medium text-text-700">조사자
+              <input aria-label="조사자" value={surveyorFilter} onChange={(event) => setSurveyorFilter(event.target.value)} placeholder="이름" className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
+            </label>
+            <label className="w-20 shrink-0 text-xs font-medium text-text-700">방식
+              <select aria-label="방식 필터" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm"><option value="">전체</option><option value="field">현장</option><option value="phone">유선</option></select>
             </label>
           </>}
-          <div className="ml-auto flex flex-wrap gap-2">
+          {mode === "plan" && <div className="ml-auto flex shrink-0 gap-2">
             <Button onClick={() => requestRecommendation()} disabled={working}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
             <Button variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")}>대안 보기</Button>
             <Button onClick={applyDrafts} disabled={working || drafts.size === 0}>추천안 적용</Button>
-          </div>
+          </div>}
         </div>
       </Card>
       {error && <Alert variant="error">{error}</Alert>}
