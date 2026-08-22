@@ -135,10 +135,10 @@ test("기존 단건 RPC는 삭제하지 않고 다른 기능 호환성을 유지
 });
 
 // ---- 3. service.ts 회귀: batch persist 사용 + 단건 RPC 제거(자동 경로) ----
-test("persistV2Recommendations는 batch RPC를 사용하며 row별 반복 호출을 제거한다", () => {
-  assert.match(service, /rpc\("persist_preliminary_survey_v2_plan_batch", \{ p_plans: payload \}\)/);
+test("legacy 자동 저장은 assignment 없는 batch RPC를 호출하지 않고 workbench로 유도한다", () => {
+  assert.match(service, /V2_LEGACY_PERSIST_DISABLED_USE_WORKBENCH/);
+  assert.doesNotMatch(service, /rpc\("persist_preliminary_survey_v2_plan_batch", \{ p_plans: payload \}\)/);
   assert.doesNotMatch(service, /supabase\.rpc\("persist_preliminary_survey_v2_plan",/);
-  assert.match(service, /V2_PLAN_SAVE_FAILED/);
 });
 
 test("batch payload는 RPC가 기대하는 키를 모두 포함한다", () => {

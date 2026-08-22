@@ -17,6 +17,10 @@ import {
   matchesMeasurementDateRange,
   matchesWorkbenchSearch,
 } from "@/lib/preliminary-survey-v2/workbench-search";
+import type {
+  CanonicalMeasurementAssignmentDraft,
+  RecommendationScopeSnapshot,
+} from "@/lib/preliminary-survey-v2/draft-canonical";
 
 type WorkbenchStatus = "unassigned" | "recommended" | "adjustment_required" | "provisional" | "review_required" | "true_confirmed";
 
@@ -42,6 +46,10 @@ interface WorkbenchRow {
   measurementAssigneeName?: string;
   publicSampleCode?: string;
   measurementAssignmentApprovalRequired?: boolean;
+  /** 서버 재추천 전체 snapshot hash. apply 시 임의 수정 draft를 거부한다. */
+  canonicalFingerprint?: string;
+  recommendationScope?: RecommendationScopeSnapshot;
+  measurementAssignments?: CanonicalMeasurementAssignmentDraft[];
   recommendationReasons?: string[];
   status: WorkbenchStatus;
   conflict: string | null;

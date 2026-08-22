@@ -15,6 +15,7 @@ import {
   type ProcessChangedPolicySettings,
 } from "./policy";
 import { createRouteMetrics } from "./route-metrics";
+import { recommendSurveyors, type SurveyorRecommendation } from "./surveyor-recommendation";
 import { surveyMethodForKind, type ExistingAssignment, type RecommendationResult, type RouteMetrics, type SurveyTarget, type SurveyUser } from "./types";
 
 type Client = SupabaseClient<any, "public", any>;
@@ -29,6 +30,22 @@ function coordinateFromRow(row: any) {
   const coordinate = row && { latitude: Number(row.latitude), longitude: Number(row.longitude) };
   return coordinate && coordinate.latitude >= 33 && coordinate.latitude <= 39 &&
     coordinate.longitude >= 124 && coordinate.longitude <= 132 ? coordinate : null;
+}
+
+function measurementAssignmentDates(
+  measurementDate: unknown,
+  measurementEndDate: unknown,
+  dailyStaff: unknown,
+): string[] | null {
+  const start = String(measurementDate ?? "");
+  const end = String(measurementEndDate ?? start);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
+  if (end === start) return [start];
+  if (!Array.isArray(dailyStaff) || dailyStaff.length < 2) return null;
+  const dates = dailyStaff.map((day: any) => String(day?.date ?? ""));
+  if (dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date)) || new Set(dates).size !== dates.length) return null;
+  const sorted = [...dates].sort();
+  return sorted[0] === start && sorted.at(-1) === end ? sorted : null;
 }
 
 function optionalInteger(value: unknown): number | null {
@@ -58,7 +75,7 @@ async function loadProcessChangedPolicy(supabase: Client): Promise<ProcessChange
 
 export async function loadV2ManualContext(supabase: Client, targetId: number, recommendedDate: string) {
   const { data: targetRow, error: targetError } = await supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, collaborators, daily_staff, created_at, business_type, process_changed, preliminary_survey_rule_type",
+    "id, code, year, period, business_name, address, measurement_date, measurement_end_date, measurer_id, link_measurer_id, collaborators, daily_staff, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).eq("id", targetId).single();
   if (targetError || !targetRow) throw new Error("TARGET_NOT_FOUND");
   const [{ data: userRows, error: userError }, { data: infoRow, error: infoError }, { data: journalRows, error: journalError }, policy] = await Promise.all([
@@ -94,12 +111,17 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   }, (journalRows ?? []) as MeasurementJournalClassificationRow[]);
   const target: SurveyTarget = {
     id: Number(targetRow.id), code: targetRow.code, name: targetRow.business_name,
-    kind: classification.kind, measurementDate: targetRow.measurement_date, responsible,
+    kind: classification.kind, measurementDate: targetRow.measurement_date,
+    measurementAssignmentDates: measurementAssignmentDates(
+      targetRow.measurement_date, targetRow.measurement_end_date, targetRow.daily_staff,
+    ), responsible,
     address: targetRow.address, region: regionFromAddress(targetRow.address), coordinate: coordinateFromRow(infoRow),
     createdAt: targetRow.created_at,
     businessType: targetRow.business_type,
     sourceMeasurerId: optionalInteger(targetRow.measurer_id),
     measurementParticipantsSnapshot,
+    sourceDailyStaffSnapshot: targetRow.daily_staff ?? null,
+    sourceCollaboratorsSnapshot: targetRow.collaborators ?? null,
     processChanged: targetRow.process_changed,
     processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
       policy,
@@ -225,6 +247,49 @@ function manualRequiredOutsidePreliminaryScope(result: RecommendationResult): Re
   };
 }
 
+function preservedTentativeResult(
+  target: SurveyTarget,
+  recommendation: SurveyorRecommendation,
+  candidate: { workingDaysBefore: number } | undefined,
+): RecommendationResult {
+  const surveyMethod = recommendation.surveyMethod;
+  return {
+    targetId: target.id,
+    status: "recommended",
+    date: recommendation.date,
+    participants: recommendation.participants,
+    responsible: recommendation.responsible!,
+    experiencedReviewer: recommendation.experiencedReviewer,
+    surveyMethod,
+    evidence: {
+      classificationSource: target.classificationSource,
+      processChangedPolicyApplicable: target.processChangedPolicyApplicable === true,
+      surveyMethod,
+      workingDaysBefore: candidate?.workingDaysBefore ?? null,
+      range: candidate ? (candidate.workingDaysBefore >= 20 ? "primary" : "fallback") : null,
+      capacityPass: 1,
+      responsibleConflict: false,
+      reviewerConflict: false,
+      route: null,
+      sameDayRoute: null,
+      rejectedSameDayRoutes: [],
+      singleCandidateAvailable: true,
+      sameRouteMinutes: null,
+      sameRouteThresholdMinutes: 30,
+      hardMaximumMinutes: 60,
+      selectionMode: "single",
+      selectionReason: "single_available",
+      experiencedNewAssignments: null,
+      experiencedAllFieldAssignments: null,
+      crossTypeOverlap: false,
+      crossTypeOverlapAvoided: false,
+      crossTypeOverlapReason: null,
+      warnings: ["MINIMUM_CHANGE_PRESERVED"],
+    },
+    reason: "기존 유효 가확정 유지",
+  };
+}
+
 /** SELECT 전용 계산 경로. 이 함수는 insert/update/upsert/rpc를 호출하지 않는다. */
 export async function calculateV2Recommendations(
   supabase: Client,
@@ -232,7 +297,7 @@ export async function calculateV2Recommendations(
 ): Promise<CalculationOutput> {
   const scope = preliminaryDateScope(options);
   let targetQuery = supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, collaborators, daily_staff, created_at, business_type, process_changed, preliminary_survey_rule_type",
+    "id, code, year, period, business_name, address, measurement_date, measurement_end_date, measurer_id, link_measurer_id, collaborators, daily_staff, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).not("measurement_date", "is", null);
   if (options.targetIds?.length) targetQuery = targetQuery.in("id", options.targetIds);
   if (options.year != null) targetQuery = targetQuery.eq("year", options.year);
@@ -278,7 +343,7 @@ export async function calculateV2Recommendations(
   const sortedRows = [...(rawTargets ?? [])].sort((left: any, right: any) =>
     String(left.measurement_date).localeCompare(String(right.measurement_date)) || Number(left.id) - Number(right.id),
   );
-  const targets = sortedRows.flatMap((row: any, index: number) => {
+  const targets = sortedRows.flatMap((row: any) => {
     const classification = classifyMeasurementJournalBusiness({
       code: row.code,
       year: Number(row.year),
@@ -293,9 +358,8 @@ export async function calculateV2Recommendations(
       measurementYear: Number(row.year),
       measurementPeriod: String(row.period).trim(),
     };
-    // 예비조사자는 측정자(공시료), 측정 참여자, 보고서 담당자와 독립적으로 배정한다.
-    // 엔진의 날짜·경력·용량 검증 전에 활성 조사자를 균등 순환시켜 초기 responsible를 만든다.
-    const responsible = activeUsers.length ? activeUsers[index % activeUsers.length] : undefined;
+    // 아래 순수 탐색 단계가 후보일별 조사자/조합을 고른다. 이 값은 탐색 전 placeholder일 뿐이다.
+    const responsible = activeUsers[0];
     const fields = [
       !row.measurement_date && "measurement_date",
       !responsible && "active_preliminary_surveyor",
@@ -315,7 +379,9 @@ export async function calculateV2Recommendations(
       ? rawCoordinate : null;
     return [{
       id: Number(row.id), code: row.code, name: row.business_name, kind: classification.kind,
-      measurementDate: row.measurement_date, responsible: responsible!, address: row.address,
+      measurementDate: row.measurement_date,
+      measurementAssignmentDates: measurementAssignmentDates(row.measurement_date, row.measurement_end_date, row.daily_staff),
+      responsible: responsible!, address: row.address,
       region: regionFromAddress(row.address), coordinate, createdAt: row.created_at, classificationSource,
       businessType: row.business_type,
       sourceMeasurerId: optionalInteger(row.measurer_id),
@@ -325,6 +391,8 @@ export async function calculateV2Recommendations(
         collaborators: row.collaborators,
         userNameById,
       }).measurementParticipants,
+      sourceDailyStaffSnapshot: row.daily_staff ?? null,
+      sourceCollaboratorsSnapshot: row.collaborators ?? null,
       processChanged: row.process_changed,
       processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
         policy: processChangedPolicy,
@@ -364,40 +432,99 @@ export async function calculateV2Recommendations(
   for (const key of measurementBlockedKeys) blockedKeys.add(key);
 
   const { data: queriedPlanRows, error: planError } = await supabase.from("preliminary_survey_v2_plans").select(
-    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status, source_rule_type",
+    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status, plan_origin, source_rule_type, survey_method",
   ).eq("status", "recommended");
   const v2TableMissing = planError?.code === "42P01" || planError?.code === "PGRST205";
   if (planError && !v2TableMissing) throw new Error(`V2_PLAN_QUERY_FAILED:${planError.message}`);
   const planRows = v2TableMissing ? [] : (queriedPlanRows ?? []);
   const targetById = new Map(targets.map((target) => [target.id, target]));
+  const targetIds = new Set(targets.map((target) => target.id));
   const existingAssignments: ExistingAssignment[] = (planRows ?? []).flatMap((plan: any) => {
-    if (!plan.recommended_date || options.targetIds?.includes(Number(plan.measurement_target_business_id))) return [];
+    if (!plan.recommended_date || targetIds.has(Number(plan.measurement_target_business_id))) return [];
     const target = targetById.get(Number(plan.measurement_target_business_id));
     return [{
       targetId: Number(plan.measurement_target_business_id), businessCode: target?.code ?? String(plan.measurement_target_business_id),
       kind: target?.kind ?? (plan.source_rule_type === "new" ? "new" : "existing"), date: plan.recommended_date,
       participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
       responsibleUserId: Number(plan.responsible_user_id), experiencedReviewerId: plan.experienced_reviewer_id ? Number(plan.experienced_reviewer_id) : null,
+      surveyMethod: plan.survey_method === "field" ? "field" as const : "phone" as const,
       coordinate: target?.coordinate ?? null, region: target?.region ?? null,
     }];
   });
 
-  const results = (await recommendBatch({
-    targets, experiencedUsers: users.filter((user) => user.experienced && user.active !== false), existingAssignments,
+  const tentativeAssignments = (planRows ?? []).flatMap((plan: any) => {
+    const target = targetById.get(Number(plan.measurement_target_business_id));
+    // 과거 automatic plan은 새 정책의 정답으로 보존하지 않는다. 사용자가 적용한
+    // manual plan만 현재 hard constraint를 통과할 때 minimum-change 후보로 유지한다.
+    if (!target || !plan.recommended_date || plan.plan_origin !== "manual") return [];
+    return [{
+      targetId: target.id, businessCode: target.code, kind: target.kind, date: plan.recommended_date,
+      participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
+      responsibleUserId: Number(plan.responsible_user_id),
+      experiencedReviewerId: plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
+      surveyMethod: plan.survey_method === "field" ? "field" as const : "phone" as const,
+      coordinate: target.coordinate, region: target.region, tentative: true,
+    }];
+  });
+  const surveyorRecommendations = recommendSurveyors({
+    targets: targets.map((target) => ({
+      id: target.id, kind: target.kind, businessType: target.businessType, measurementDate: target.measurementDate,
+      createdAt: target.createdAt, candidateDates: [...(candidateDatesByTarget.get(target.id) ?? [])],
+    })),
+    users,
+    assignments: [...existingAssignments, ...tentativeAssignments],
+    availability: { isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`) },
+  });
+  const surveyorRecommendationByTarget = new Map(surveyorRecommendations.map((item) => [item.targetId, item]));
+  const selectedTargets: SurveyTarget[] = targets.flatMap((target) => {
+    const recommendation = surveyorRecommendationByTarget.get(target.id);
+    if (recommendation?.responsible) return [{ ...target, responsible: recommendation.responsible }];
+    missing.push({
+      targetId: target.id, code: target.code, name: target.name, measurementDate: target.measurementDate,
+      kind: target.kind, fields: ["available_preliminary_surveyor"], classificationSource: target.classificationSource,
+    });
+    return [];
+  });
+  const selectedTargetById = new Map(selectedTargets.map((target) => [target.id, target]));
+  const preserved = surveyorRecommendations.flatMap((recommendation) => {
+    if (!recommendation.preserved || !recommendation.responsible || !recommendation.date) return [];
+    const target = selectedTargetById.get(recommendation.targetId);
+    if (!target) return [];
+    const candidate = (target.businessType
+      ? recommendationDatesForBusinessType(target.measurementDate, target.businessType)
+      : recommendationDates(target.measurementDate)
+    ).find((item) => item.date === recommendation.date);
+    return [preservedTentativeResult(target, recommendation, candidate)];
+  });
+  const preservedAssignments = preserved.map((result) => {
+    const target = selectedTargetById.get(result.targetId)!;
+    return {
+      targetId: target.id, businessCode: target.code, kind: target.kind, date: result.date!,
+      participants: result.participants.map((user) => user.id), responsibleUserId: result.responsible.id,
+      experiencedReviewerId: result.experiencedReviewer?.id ?? null, coordinate: target.coordinate, region: target.region,
+      surveyMethod: result.surveyMethod,
+    } satisfies ExistingAssignment;
+  });
+  const flexibleTargets = selectedTargets.filter((target) => !surveyorRecommendationByTarget.get(target.id)?.preserved);
+  const freshResults = await recommendBatch({
+    targets: flexibleTargets, experiencedUsers: users.filter((user) => user.experienced && user.active !== false),
+    existingAssignments: [...existingAssignments, ...preservedAssignments],
     availability: {
       isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`),
     },
     routes: options.routeMetrics ?? createRouteMetrics(options.allowExternalRoutes === false ? "" : undefined),
-  })).map((result) => {
+  });
+  const results = [...preserved, ...freshResults].map((result) => {
     const scopedCandidates = candidateDatesByTarget.get(result.targetId);
     const scopeRestricted = Boolean(scope.from || scope.to);
     return scopeRestricted && (scopedCandidates?.size === 0 || (result.date != null && !scopedCandidates?.has(result.date)))
       ? manualRequiredOutsidePreliminaryScope(result)
       : result;
   });
-  return { targets, results, missing, blockedKeys: [...blockedKeys] };
+  return { targets: selectedTargets, results, missing, blockedKeys: [...blockedKeys] };
 }
 
+/** @deprecated 새 plan/자동 plan 저장은 workbench canonical draft + assignment 원자 RPC만 사용한다. */
 export async function persistV2Recommendations(
   supabase: Client,
   output: CalculationOutput,
@@ -432,9 +559,9 @@ export async function persistV2Recommendations(
   });
   // 전체 결과를 하나의 PostgreSQL transaction에서 처리한다.
   // 한 건이라도 validation 실패하면 0건 저장(전체 rollback)된다.
-  const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan_batch", { p_plans: payload });
-  if (error) throw new Error(`V2_PLAN_SAVE_FAILED:${error.message}`);
-  return Array.isArray(data) ? data : [];
+  void supabase;
+  void payload;
+  throw new Error("V2_LEGACY_PERSIST_DISABLED_USE_WORKBENCH");
 }
 
 export async function recommendAndPersistV2(supabase: Client, targetIds: number[]) {
@@ -658,6 +785,16 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
   const result = results[0];
   if (!result) return { action: "blocked", reason: "V2_RECOMMEND_FAILED" };
 
+  // 구형 steady-state 저장은 중지했지만, 추천 가능일이 없는 결과는
+  // 기존 수동 지정 안내 의미를 보존한다. 이 분기는 DB를 변경하지 않는다.
+  if (result.status === "manual_required") {
+    return {
+      action: "manual_required",
+      reason: "NO_AVAILABLE_DATE_THROUGH_MINUS_3",
+      message: "추천 가능한 예비조사일이 없어 작업대에서 수동 지정이 필요합니다.",
+    };
+  }
+
   const payload = [{
     target_id: Number(target.id),
     recommended_date: result.date,
@@ -679,30 +816,13 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     warnings: result.evidence.warnings,
   }];
 
-  const { data: saved, error: persistError } = await supabase.rpc("persist_preliminary_survey_v2_plan_batch", { p_plans: payload });
-  if (persistError) return { action: "blocked", reason: `V2_PERSIST_FAILED:${persistError.message}` };
-  const plan = Array.isArray(saved) ? saved[0] : saved;
-  if (!plan) return { action: "blocked", reason: "V2_PERSIST_EMPTY" };
-
-  const staffSet = new Set(staff);
-  const linkCandidates = (plan.participant_names || [] as unknown[])
-    .map((name: unknown) => String(name))
-    .filter((name: string) => staffSet.has(name));
-
-  const action: SteadyStatePlanAction = result.status === "manual_required"
-    ? "manual_required"
-    : existingPlan ? "replaced" : "created";
+  void payload;
   return {
-    action,
-    plan,
-    linkCandidates,
-    reason: result.status === "manual_required" ? "NO_AVAILABLE_DATE_THROUGH_MINUS_3" : null,
-    message: result.status === "manual_required"
-      ? "측정일 기준 -3일까지 가능한 예비조사 추천일이 없습니다. 예비조사일을 수동으로 지정해 주세요."
-      : action === "replaced"
-        ? "측정일/실제 측정자 변경으로 예비조사 계획을 자동 재추천했습니다."
-        : "예비조사 계획을 자동 생성했습니다.",
+    action: "blocked",
+    reason: "V2_LEGACY_PERSIST_DISABLED_USE_WORKBENCH",
+    message: "구형 자동 저장 경로는 중지되었습니다. 예비조사 작업대에서 추천안을 검토·적용해 주세요.",
   };
+
 }
 
 /**

@@ -110,3 +110,19 @@
 ## 11. 후속 데이터 정리
 
 구형 V2 데이터는 새 시스템 안정화 전 삭제하지 않는다. 별도 Phase에서 automatic, manual, 실제 사용·확정, 미사용 구형 plan으로 분류해 유지·마이그레이션·archive·삭제 여부를 결정한다.
+
+## 12. 최적화·저장 경계 확정 규칙 (2026-08-22)
+
+- 사업장 배열 index나 직원 배열 순번으로 예비조사자를 round-robin 배정하지 않는다. 업체별 후보 날짜마다 가능한 단독 조사자와 허용 조합을 만든 뒤 제외 일정, 실제 측정 충돌, 방문·유선 용량, 기존 가확정 최소변경을 순서대로 적용한다.
+- 신규 방문은 경력자 단독 또는 경력자+비경력자만 허용한다. 기존업체 유선은 1인 배정을 기본으로 하며 신규 방문의 경력 hard constraint를 그대로 적용하지 않는다.
+- 업체별 재추천은 같은 예비조사일의 조사자/방문·유선 용량, 동일주소·방문 묶음, 다일을 포함한 같은 실제 측정일의 공시료 균형 관계를 dependency closure로 확장한다. 찐확정은 관계 계산에는 포함하되 변경 대상에서는 제외한다.
+- 측정자·공시료의 authoritative source는 plan별 실제 측정일 행을 갖는 `preliminary_survey_v2_measurement_assignments`다. 다일 측정은 `daily_staff`에 명시된 각 날짜만 저장하며 시작일~종료일 사이를 임의 생성하지 않는다.
+- 과거 `recommendation_reason.measurementAssignee`는 read-only 표시 fallback이다. 새 write, 자동 backfill, 보고서 담당·측정 참여자·예비조사자 기반 역산에 사용하지 않는다.
+- apply 서버는 현재 원천으로 예비조사와 측정자·공시료를 다시 계산하고 canonical draft, source fingerprint, 기존 날짜별 assignment baseline을 비교한다. 클라이언트의 사용자 ID·이름·공시료 코드·승인 필요 boolean을 신뢰하지 않는다.
+- plan과 날짜별 assignment는 하나의 PostgreSQL RPC transaction에서 저장한다. 같은 측정일은 transaction advisory lock으로 직렬화하며 baseline 또는 source context가 달라지면 409 재검토로 끝내고 0건 저장한다.
+- 동일주소 다음의 근거리 판단은 실제 vehicle route evidence가 route policy를 통과했을 때만 확정한다. 직선거리는 보조 순위일 뿐 `근거리 묶음` 사유가 아니다.
+- 찐확정 guard는 plan과 assignment의 INSERT·UPDATE·DELETE에서 OLD와 NEW target을 모두 검사한다. 일반 `service_role` 직접 DML은 허용하지 않고 관리자 repair의 transaction-local bypass만 유지한다.
+- 구형 plan 수정 RPC는 기존 manual plan의 예비조사 필드 수정만 허용하고 source 측정일·구분을 바꾸거나 assignment 없는 새 plan을 만들 수 없다.
+- migration은 검증 DB에서 함수 signature, trigger, RLS/GRANT/REVOKE, rollback을 확인한 뒤 적용한다. 권장 순서는 `migration 검증 → migration 적용 → schema reload → 코드 배포 → 권한 부여 → 안전한 E2E`다.
+
+이 문서는 이후 예비조사 변경의 기준이다. 규칙 변경 시 기존 기준, 새 기준, 영향 범위를 먼저 비교하고 구현·migration·테스트를 함께 갱신한다.

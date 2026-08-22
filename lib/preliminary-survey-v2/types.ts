@@ -18,6 +18,8 @@ export interface SurveyTarget {
   name: string;
   kind: BusinessKind;
   measurementDate: string;
+  /** 다일 사업장은 daily_staff에 명시된 모든 실제 측정일, 불완전하면 null. */
+  measurementAssignmentDates?: string[] | null;
   responsible: SurveyUser;
   address: string | null;
   region: string | null;
@@ -28,6 +30,9 @@ export interface SurveyTarget {
   sourceMeasurerId?: number | null;
   /** 적용 draft stale 검증용 실제 측정 참여자 이름 snapshot. 역할 순서는 의미가 없다. */
   measurementParticipantsSnapshot?: string;
+  /** apply 경쟁상태 검증용 원천. 역할 추론에는 사용하지 않는다. */
+  sourceDailyStaffSnapshot?: unknown;
+  sourceCollaboratorsSnapshot?: string | null;
   processChanged?: boolean | null;
   processChangedPolicyApplicable?: boolean;
   classificationSource?: {
@@ -46,6 +51,8 @@ export interface ExistingAssignment {
   participants: number[];
   responsibleUserId: number;
   experiencedReviewerId: number | null;
+  /** 기존업체가 근거리 묶음으로 선택 방문이 된 경우에만 field. 이전 데이터는 kind 기본값을 쓴다. */
+  surveyMethod?: SurveyMethod;
   coordinate: Coordinate | null;
   region: string | null;
 }

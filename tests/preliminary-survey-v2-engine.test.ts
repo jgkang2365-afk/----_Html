@@ -688,6 +688,26 @@ test("측정일 순서상 기존 사업장이 먼저 확정돼도 신규 현장�
   assert.equal(existingResult.experiencedReviewer?.id, reviewer.id);
 });
 
+test("기존업체 선택 방문은 같은 날 모든 필수 방문 중 동일주소 묶음을 선택한다", async () => {
+  const first = target(1, "new", experienced(1));
+  first.address = "충남 천안시 다른주소";
+  const sameAddress = target(2, "new", experienced(2));
+  sameAddress.address = "충남 천안시 동일주소";
+  const existing = target(3, "existing", novice(3));
+  existing.address = " 충남  천안시 동일주소 ";
+
+  const results = await recommendBatch({
+    targets: [first, sameAddress, existing],
+    experiencedUsers: [first.responsible, sameAddress.responsible],
+    availability: available(),
+    routes: route(10),
+  });
+  const existingResult = results.find((result) => result.targetId === existing.id)!;
+  assert.equal(existingResult.surveyMethod, "field");
+  assert.deepEqual(existingResult.participants.map((participant) => participant.id), [sameAddress.responsible.id]);
+  assert.match(existingResult.reason, /동일주소 묶음/);
+});
+
 test("기존 사업장은 경력 검토자 제한과 무관하게 담당자 단독으로 추천한다", async () => {
   const dates = recommendationDates("2026-07-14");
   const reviews: ExistingAssignment[] = Array.from({ length: 6 }, (_, index) => ({
@@ -754,7 +774,7 @@ test("Q-V: 단일 추천 저장/UI/수동수정/Google 신호 배제/score 제�
   const engine = readFileSync("lib/preliminary-survey-v2/engine.ts", "utf8");
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
   const migration = readFileSync("supabase/migrations/20260808_add_preliminary_survey_v2.sql", "utf8");
-  assert.match(recommendRoute, /recommendAndPersistV2/);
+  assert.match(recommendRoute, /V2_LEGACY_PERSIST_DISABLED_USE_WORKBENCH/);
   // Phase A: 수정 모달의 구형 V2 편집 UI(예비조사자 선택)는 제거됐다. V2 편집은 예비조사 전용 API로만 수행.
   assert.doesNotMatch(ui, /예비조사자\(복수선택 가능\)/);
   assert.doesNotMatch(ui, /예비조사 자동추천 V2/);

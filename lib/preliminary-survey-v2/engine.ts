@@ -76,6 +76,7 @@ function asAssignment(target: SurveyTarget, result: RecommendationResult): Exist
     participants: result.participants.map((user) => user.id),
     responsibleUserId: target.responsible.id,
     experiencedReviewerId: result.experiencedReviewer?.id ?? null,
+    surveyMethod: result.surveyMethod,
     coordinate: target.coordinate,
     region: target.region,
   };
@@ -236,25 +237,35 @@ async function optimizeExistingFieldVisits(
   for (const result of results) {
     const target = targetById.get(result.targetId);
     if (!target || target.kind !== "existing" || result.status !== "recommended" || !result.date) continue;
-    const mandatory = results.find((candidate) => {
+    const mandatoryCandidates = results.filter((candidate) => {
       const candidateTarget = targetById.get(candidate.targetId);
       return candidateTarget?.kind === "new" && candidate.status === "recommended" && candidate.date === result.date;
     });
-    if (!mandatory?.date) continue;
-    const mandatoryTarget = targetById.get(mandatory.targetId)!;
+    if (!mandatoryCandidates.length) continue;
     const fieldCount = (userId: number) => results.filter((candidate) =>
       candidate.status === "recommended" && candidate.date === result.date && candidate.surveyMethod === "field" &&
       candidate.participants.some((participant) => participant.id === userId),
     ).length;
-    if (mandatory.participants.some((participant) => fieldCount(participant.id) >= 2)) continue;
+    const evaluated = await Promise.all(mandatoryCandidates.flatMap(async (mandatory) => {
+      if (mandatory.participants.some((participant) => fieldCount(participant.id) >= 2)) return [];
+      const mandatoryTarget = targetById.get(mandatory.targetId)!;
+      const sameAddress = String(mandatoryTarget.address ?? "").replace(/\s+/g, "") !== "" &&
+        String(mandatoryTarget.address ?? "").replace(/\s+/g, "") === String(target.address ?? "").replace(/\s+/g, "");
+      const route = await evaluateSameDayRoute(mandatoryTarget, target, input.routes);
+      const nearby = route.evidence.routeSource === "vehicle" && route.evidence.routeDecision === "same_day_allowed" &&
+        (route.evidence.selectedRouteMinutes ?? Number.MAX_SAFE_INTEGER) <= SAME_ROUTE_THRESHOLD_MINUTES;
+      if (!sameAddress && !nearby) return [];
+      return [{ mandatory, route, sameAddress }];
+    }));
+    const selected = evaluated.flat().sort((left, right) =>
+      Number(!left.sameAddress) - Number(!right.sameAddress) ||
+      (left.route.evidence.selectedRouteMinutes ?? Number.MAX_SAFE_INTEGER) -
+        (right.route.evidence.selectedRouteMinutes ?? Number.MAX_SAFE_INTEGER) ||
+      left.mandatory.targetId - right.mandatory.targetId,
+    )[0];
+    if (!selected) continue;
 
-    const route = await evaluateSameDayRoute(mandatoryTarget, target, input.routes);
-    const sameAddress = String(mandatoryTarget.address ?? "").replace(/\s+/g, "") !== "" &&
-      String(mandatoryTarget.address ?? "").replace(/\s+/g, "") === String(target.address ?? "").replace(/\s+/g, "");
-    const nearby = route.evidence.routeDecision === "same_day_allowed" &&
-      (route.evidence.selectedRouteMinutes ?? Number.MAX_SAFE_INTEGER) <= SAME_ROUTE_THRESHOLD_MINUTES;
-    if (!sameAddress && !nearby) continue;
-
+    const { mandatory, route, sameAddress } = selected;
     result.participants = [...mandatory.participants];
     result.responsible = mandatory.participants.find((participant) => !participant.experienced) ?? mandatory.responsible;
     result.experiencedReviewer = mandatory.participants.find((participant) =>
@@ -289,8 +300,8 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         if (dailyNew >= capacityPass || dailyNew >= 2) return null;
       }
 
-      // Phase B 경력 hard constraint: 업체 유형과 관계없이 비경력자 단독은 기본 추천하지 않는다.
-      const requiresReviewer = !target.responsible.experienced && (target.kind === "new" || Boolean(target.businessType));
+      // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 개인별 하루 3건 용량만 적용한다.
+      const requiresReviewer = target.kind === "new" && !target.responsible.experienced;
       const reviewerChoice = requiresReviewer
         ? await chooseReviewer(target, candidate.date, input.experiencedUsers, virtual, input.availability, input.routes, capacityPass)
         : null;

@@ -115,13 +115,13 @@ test("daily_staff가 없을 때 legacy 실제 측정자만 차단하고 report_w
   assert.equal(blocked.has("2:2026-08-25"), true);
 });
 
-test("Phase B 기존업체도 비경력자 단독으로 자동 추천하지 않는다", async () => {
+test("Phase B 기존업체 유선은 비경력자 단독 추천을 허용한다", async () => {
   const [result] = await recommendBatch({
     targets: [target(1, "existing", novice)], experiencedUsers: [experienced],
     availability: { isBlocked: () => false },
     routes: { between: async () => ({ source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: true }) },
   });
-  assert.deepEqual(result.participants.map((user) => user.id), [2, 1]);
+  assert.deepEqual(result.participants.map((user) => user.id), [2]);
 });
 
 test("날짜별 통합 추천 정렬은 최초실시, 타기관 신규, 기존업체 순이다", async () => {
@@ -163,7 +163,9 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   assert.match(api, /DRAFT_REVIEW_REQUIRED/);
   const applyStart = api.indexOf("async function applySubmittedDrafts");
   const applyEnd = api.indexOf("export async function GET", applyStart);
-  assert.doesNotMatch(api.slice(applyStart, applyEnd), /calculateV2Recommendations|recommendBatch/);
+  // apply는 draft를 새로 저장하지 않지만, stale 방지를 위해 서버에서 동일 추천을 재계산한다.
+  assert.match(api.slice(applyStart, applyEnd), /calculateV2Recommendations/);
+  assert.match(api.slice(applyStart, applyEnd), /canonicalFingerprint/);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
   assert.match(ui, /grid w-full min-w-0 grid-cols-12/);
@@ -203,7 +205,8 @@ test("측정예정일 기간·선택 대상 추천은 검색 결과 교집합만
   assert.match(api, /candidateQuery = candidateQuery\.lte\("measurement_date", measurementDateTo\)/);
   assert.match(api, /selectedTargetIds\.has\(Number\(row\.id\)\)/);
   assert.match(api, /if \(explicitTargetSelection\) return true/);
-  assert.match(api, /measurementDateFrom,\s*measurementDateTo,\s*preliminaryDateFrom/);
+  assert.match(api, /measurementDateFrom: requestedTargetIds\.length === 1 \? undefined : measurementDateFrom/);
+  assert.match(api, /measurementDateTo: requestedTargetIds\.length === 1 \? undefined : measurementDateTo/);
   assert.match(service, /preliminaryDateFrom\?: string/);
   assert.match(service, /preliminaryDateTo\?: string/);
   assert.match(service, /candidateDatesByTarget/);
@@ -212,7 +215,8 @@ test("측정예정일 기간·선택 대상 추천은 검색 결과 교집합만
   assert.match(service, /manualRequiredOutsidePreliminaryScope/);
   const applyStart = api.indexOf("async function applySubmittedDrafts");
   const applyEnd = api.indexOf("export async function GET", applyStart);
-  assert.doesNotMatch(api.slice(applyStart, applyEnd), /calculateV2Recommendations|recommendBatch/);
+  assert.match(api.slice(applyStart, applyEnd), /calculateV2Recommendations/);
+  assert.doesNotMatch(api.slice(applyStart, applyEnd), /recommendBatch/);
 });
 
 test("목록 검색은 조사자 필터 없이 명시적 snapshot과 코드·사업장명 검색을 사용한다", () => {

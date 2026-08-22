@@ -74,9 +74,11 @@ test("사용자 수동 보정 10개 코드는 장기 정책에서 자동 재수�
 });
 
 test("선택 업체 재추천은 같은 예비조사일·조사자·주소·측정일 영향 범위를 함께 계산한다", () => {
-  assert.match(workbench, /targetPlan\?\.recommended_date/);
-  assert.match(workbench, /participant_user_ids/);
-  assert.match(workbench, /sameAddressTargets/);
-  assert.match(workbench, /sameMeasurementTargets/);
+  assert.match(workbench, /calculatePreliminarySurveyImpactScope/);
+  assert.match(workbench, /preliminaryDate: plan\?\.recommended_date/);
+  assert.match(workbench, /participantUserIds: Array\.isArray\(plan\?\.participant_user_ids\)/);
+  assert.match(workbench, /address: target\.address/);
+  assert.match(workbench, /measurementDate: target\.measurement_date/);
+  assert.match(workbench, /lockedTargetIds/);
   assert.match(workbench, /impactSummary/);
 });

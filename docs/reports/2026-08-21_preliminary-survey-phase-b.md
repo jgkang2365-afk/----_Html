@@ -366,3 +366,66 @@
 - Orca Run `run_8a7c334bb33a`에서 이번 목록 검색·sticky 보완을 UI와 검색 helper/test worker로 분담했다. 브라우저는 메인 작업자가 재연결을 시도했으나 가용 런타임이 없었다.
 - Orca Run `run_cb3f91db4a27`에서 이번 원천 검증을 데이터 구조, 코드 매핑, 예외 검색 worker로 분담했으며 3개 task 모두 `worker_done/succeeded`로 종료했다.
 - 모델별 토큰·credits는 이 세션에서 확인할 수 없어 추정하지 않았다.
+
+## 2026-08-22 PR #42 최종 blocker 보완
+
+### 기준과 안전 확인
+
+- 작업 기준 head: `e70bb1da40438b44a6ff383339283b648cafee66`, branch `feature/preliminary-survey-phase-b`, PR #42 Draft/Open이다.
+- READ-ONLY 확인 결과 `users.survey_code`는 이태환 A, 한기문 B, 강종구 C, 이주형 D, 고유빈 F, 김민영 G의 기존 공시료 원천과 일치했다.
+- 운영 DB에는 `preliminary_survey_v2_measurement_assignments`와 `is_preliminary_survey_manager`가 아직 없고, 관련 20260822 migration도 미적용 상태임을 확인했다.
+- H0399, H0524, H0288, H0528, H0348, H0126, H0281, H0260, H0063, H0077은 SELECT만 수행했다. 운영 DB write, migration 적용, 자동 보정은 0건이다.
+
+### blocker별 조치
+
+- round-robin: `activeUsers[index % activeUsers.length]` 배정을 제거했다. 후보 날짜별 단독/경력+비경력 조합을 만들고 제외 일정, 실제 측정 충돌, 방문·유선 개인 용량, 기존 manual 최소변경, 날짜·기간 배정량, 안정적인 user ID tie-break로 선택한다.
+- 영향 범위: `calculatePreliminarySurveyImpactScope` 순수 함수로 같은 예비조사일의 조사자·방문/유선 용량, 동일주소·방문 묶음, 다일을 포함한 같은 실제 측정일의 공시료 균형 관계를 closure로 계산한다. 새 추천 관계가 생기면 안정될 때까지 다시 확장하며, locked target은 조회에 포함하고 변경에서는 제외한다.
+- 측정자·공시료: `users.survey_code`를 유일한 코드 원천으로 사용하고 날짜별 `preliminary_survey_v2_measurement_assignments` table migration을 작성했다. 다일은 유효한 `daily_staff` 날짜 각각을 저장하며 JSON `measurementAssignee`는 과거 read-only fallback이다.
+- apply: 클라이언트 assignee/name/code/approval 값을 저장 근거로 사용하지 않는다. 서버가 예비조사와 공시료를 재계산해 canonical draft 및 source fingerprint를 비교하고, 같은 측정일의 기존 assignment baseline을 transaction advisory lock 뒤 재검증한다. 불일치 시 `DRAFT_REVIEW_REQUIRED`로 0건 저장한다.
+- transaction: plan과 assignment upsert, 이전 날짜 assignment 정리, 3건 승인자·서버 시각 저장을 단일 RPC transaction으로 묶었다. 구형 자동 저장 API는 assignment 없는 plan을 만들 수 없도록 폐기하고 workbench로 유도했다. 기존 manual plan의 survey-only 수정은 source 측정일·구분을 바꾸지 않으며 assignment를 보존한다.
+- DB guard: plan·assignment INSERT/UPDATE/DELETE에서 OLD와 NEW target의 `measurement_journal` 존재를 모두 검사한다. plan table의 service_role 직접 DML을 revoke하고 SELECT만 재부여했으며, 관리자 repair owner의 transaction-local bypass만 유지한다.
+- route: 동일주소를 먼저 비교하고, 그 외에는 실제 vehicle route evidence가 policy를 통과한 경우에만 근거리 사유를 사용한다. 기존 assignment 좌표도 로드하고 같은 날짜의 모든 필수 방문 후보를 비교한다.
+- 사업장 상세: 1일과 다일을 공통 `MeasurementDayAssignmentCard`와 `MeasurementDayForm[]`으로 렌더링한다. 보고서 담당자는 참여자 기본값일 뿐 해제 가능하고, 일자 추가·삭제마다 earliest/latest를 다시 계산한다. 모달 open만으로 저장하지 않는다.
+- 사용자 API: manager column migration 전에도 신규 사용자 POST와 수정 fallback이 동작하도록 column-missing 경계를 유지했다.
+
+### migration
+
+- 신규 파일: `supabase/migrations/20260822153000_add_preliminary_survey_v2_measurement_assignments.sql`.
+- 운영 적용: 0건. Supabase CLI, 연결된 Supabase MCP project, local/staging PostgreSQL이 없어 SQL 실행 검증은 수행하지 못했다.
+- 배포 순서는 `검증 DB migration 실행 → rollback 확인 → 운영 migration → schema reload → 코드 배포 → 권한 부여 → 안전한 관리자 E2E`로 고정한다.
+
+### 검증 결과
+
+- `npx tsc --noEmit`: 통과.
+- 예비조사 집중 테스트: 조사자 탐색, 영향 closure, 공시료 균형/route, canonical stale, 공통 Day Form과 기존 Phase B 회귀를 포함해 299/299 통과했다.
+- `npm test`: 358/358 통과.
+- `npm run build`: 3000번 dev server와 `.next`가 충돌한 첫 시도는 page artifact 누락으로 실패했다. 해당 3000번 프로세스만 종료한 뒤 재실행해 69개 page build가 통과했으며, 이후 `npm run dev:turbo`를 3000번에 복원했다.
+- 독립 보안 리뷰에서 발견한 OLD/NEW guard, source race, 다일 날짜, 다일 impact, legacy DML 우회 문제를 모두 보완했다.
+
+### 브라우저와 E2E
+
+- 메인과 별도 Browser worker가 Orca 인앱 브라우저 연결을 시도했으나 로컬 Node `v22.18.0`이 browser runtime 최소 `v22.22.0`보다 낮아 초기화가 차단됐다. 대체 브라우저로 전환하지 않았고 화면 검증을 완료했다고 기록하지 않는다.
+- 안전한 local/staging DB가 없고 신규 migration도 미적용이므로 관리자/예비조사 담당자 성공 apply, 원자 rollback, DB trigger INSERT/UPDATE/DELETE E2E는 미완료다.
+- 따라서 현재 merge 판정은 **보류**다. migration을 안전한 검증 DB에서 실행하고 성공 apply·stale·동시성·rollback E2E가 끝나기 전 merge하지 않는다.
+
+### 이번 작업 모델/worker
+
+| 작업자 | 요청 모델 / 추론 강도 | 담당 | 결과 |
+| --- | --- | --- | --- |
+| Main | GPT-5.6 Sol / High | 설계, 통합, 보안·DB 검토, 테스트, 빌드, 문서·Git/PR | 반영. 실제 effective 모델 메타데이터는 별도 노출되지 않아 요청값만 기록 |
+| Worker A | GPT-5.6 Terra / High | 조사자 후보 탐색, 용량, minimum-change | 재시도 후 반영. 최초 task는 `agent_prompt_stalled` |
+| Worker B | GPT-5.6 Terra / High | 영향 범위 dependency closure | 반영 |
+| Worker C | GPT-5.6 Terra / High | assignment migration, RPC, apply/guard | 보정 재시도 후 반영 |
+| Worker D | GPT-5.6 Terra / Medium | 공통 Day Card, 날짜 helper, UI | 반영 |
+| Worker E | GPT-5.6 Terra / High | 독립 보안·정합성 리뷰 | P1 발견 및 재검토 결과 반영 |
+| Browser worker | GPT-5.6 Terra / Medium | Orca 실제 화면 검증 | Node runtime 버전 blocker로 중단, 코드 반영 없음 |
+| GPT-5.6 Luna | 미사용 | - | 0회 |
+
+- Orca orchestration run: `run_f42e21be0a4c`. 실제 worker token/credits와 일부 effective 모델 메타데이터는 확인할 수 없어 추정하지 않았다.
+
+### 남은 TODO
+
+- 검증 DB에서 새 migration의 SQL signature, RLS/GRANT/REVOKE, OLD/NEW guard 6종, service_role 직접 DML 차단, repair bypass, transaction rollback을 실행 검증한다.
+- Node runtime을 browser 요구 버전 이상으로 준비한 뒤 사업장 상세와 `/survey`를 실제 검증한다.
+- 안전한 관리자/예비조사 담당자 환경에서 preview → apply 동일성, client 변조, 2건→3건 동시성, stale 409를 완료한다.
+- 새 시스템 안정화 뒤 구형 V2 plan을 automatic/manual/실사용·확정/미사용으로 분류한다. 안정화 전 삭제하지 않는다.

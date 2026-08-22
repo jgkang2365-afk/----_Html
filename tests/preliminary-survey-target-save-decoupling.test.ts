@@ -114,11 +114,11 @@ test("admin-repair API/service/audit/legacy sync는 보존된다 (예비조사 �
   assert.match(businessesRoute, /onConflict: "code,year,period,measurement_date"/);
 });
 
-test("수정 모달의 측정 정보 입력 UI는 유지된다 (실시일/보고서 담당자/조력자)", () => {
+test("수정 모달의 측정 정보 입력 UI는 공통 일자 카드로 유지된다", () => {
   assert.match(uiSource, /실시일/);
   assert.match(uiSource, /보고서 담당자/);
-  assert.match(uiSource, /조력자/);
-  assert.match(uiSource, /다중 일자 배정/);
+  assert.match(uiSource, /측정 참여자/);
+  assert.match(uiSource, /MeasurementDayAssignmentCard/);
   assert.match(uiSource, /일자 추가/);
 });
 
