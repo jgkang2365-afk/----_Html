@@ -372,6 +372,7 @@
 ### 기준과 안전 확인
 
 - 작업 기준 head: `e70bb1da40438b44a6ff383339283b648cafee66`, branch `feature/preliminary-survey-phase-b`, PR #42 Draft/Open이다.
+- 이번 blocker 보완 구현 commit: `4579457813e6193e5b43245fe27e8c704241e5d3`. 최종 PR head는 이 보고서 갱신 commit 기준이며 완료 보고와 PR 본문에 기록한다.
 - READ-ONLY 확인 결과 `users.survey_code`는 이태환 A, 한기문 B, 강종구 C, 이주형 D, 고유빈 F, 김민영 G의 기존 공시료 원천과 일치했다.
 - 운영 DB에는 `preliminary_survey_v2_measurement_assignments`와 `is_preliminary_survey_manager`가 아직 없고, 관련 20260822 migration도 미적용 상태임을 확인했다.
 - H0399, H0524, H0288, H0528, H0348, H0126, H0281, H0260, H0063, H0077은 SELECT만 수행했다. 운영 DB write, migration 적용, 자동 보정은 0건이다.
