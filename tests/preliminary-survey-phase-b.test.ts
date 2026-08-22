@@ -47,15 +47,15 @@ test("daily_staff는 측정예정일별 메인측정자/조력자를 우선하�
     { date: "2026-07-15", main_measurer_id: 3, helper_ids: [4] },
   ];
   assert.deepEqual(measurementStaffForDate({ dailyStaff, measurementDate: "2026-07-15", collaborators: "구형1,구형2", userNameById }), {
-    mainMeasurer: "둘째날 메인", helper: "둘째날 조력", source: "daily_staff",
+    mainMeasurer: "둘째날 메인", helper: "둘째날 조력", measurementParticipants: "-", source: "daily_staff",
   });
   assert.deepEqual(measurementStaffForDate({ dailyStaff: null, measurementDate: "2026-07-15", collaborators: "구형1,구형2", userNameById }), {
-    mainMeasurer: "-", helper: "구형1, 구형2", source: "collaborators",
+    mainMeasurer: "-", helper: "-", measurementParticipants: "구형1, 구형2", source: "collaborators",
   });
   assert.deepEqual(measurementStaffForDate({
     dailyStaff: [{ date: "2026-07-15", measurer_id: 3, collaborators: ["둘째날 조력"] }],
     measurementDate: "2026-07-15", collaborators: "구형1,구형2", userNameById,
-  }), { mainMeasurer: "둘째날 메인", helper: "둘째날 조력", source: "daily_staff" });
+  }), { mainMeasurer: "-", helper: "-", measurementParticipants: "둘째날 조력", source: "daily_staff" });
 });
 
 test("보고서 담당자는 실제 측정 참가자가 아니면 예비조사 가능 인원을 차단하지 않는다", () => {
@@ -149,14 +149,14 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   assert.match(page, /<PreliminarySurveyV2Plans mode="list"/);
   assert.match(ui, /<table/);
-  for (const column of ["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "메인측정자", "조력자", "보고서담당", "충돌"]) assert.match(ui, new RegExp(column));
+  for (const column of ["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자·공시료", "측정 참여자", "보고서담당", "충돌"]) assert.match(ui, new RegExp(column));
   assert.match(ui, /이 업체 재추천/);
   assert.match(ui, /action: "apply", drafts: targetIds\.map/);
   assert.match(api, /applySubmittedDrafts/);
   assert.match(api, /participant_user_ids: draft\.participantUserIds/);
   assert.match(api, /recommended_date: draft\.preliminaryDate/);
   assert.match(api, /survey_method: draft\.surveyMethod/);
-  assert.match(api, /context\.target\.responsible\.id !== draft\.sourceResponsibleUserId/);
+  assert.match(api, /participants\.find\(\(user\) => user\.id === draft\.sourceResponsibleUserId\)/);
   assert.match(api, /user_schedule_blocks/);
   assert.match(api, /blockedKeys\.has/);
   assert.match(api, /loadActualMeasurementBlockedKeys/);

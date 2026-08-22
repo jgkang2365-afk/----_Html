@@ -122,7 +122,7 @@ async function chooseReviewer(
         user,
         blocked: availability.isBlocked(user.id, date),
         hardConflict: availability.isBlocked(user.id, date) ||
-          (target.kind === "existing" && existingReviewCount(assignments, user.id, date) >= 6) || (
+          (target.kind === "existing" && existingReviewCount(assignments, user.id, date) >= 3) || (
           target.kind === "new" && (
             sameDayNewCount >= capacityPass ||
             hasExistingFieldResponsibility(assignments, user.id, date) ||
@@ -225,6 +225,46 @@ async function reconcileEarlierExistingReviewOverlaps(
     result.evidence.crossTypeOverlap = externalOverlap;
     result.evidence.crossTypeOverlapAvoided = false;
     result.evidence.crossTypeOverlapReason = externalOverlap ? "unavoidable_cross_type_overlap" : null;
+  }
+}
+
+async function optimizeExistingFieldVisits(
+  input: RecommendBatchInput,
+  results: RecommendationResult[],
+) {
+  const targetById = new Map(input.targets.map((target) => [target.id, target]));
+  for (const result of results) {
+    const target = targetById.get(result.targetId);
+    if (!target || target.kind !== "existing" || result.status !== "recommended" || !result.date) continue;
+    const mandatory = results.find((candidate) => {
+      const candidateTarget = targetById.get(candidate.targetId);
+      return candidateTarget?.kind === "new" && candidate.status === "recommended" && candidate.date === result.date;
+    });
+    if (!mandatory?.date) continue;
+    const mandatoryTarget = targetById.get(mandatory.targetId)!;
+    const fieldCount = (userId: number) => results.filter((candidate) =>
+      candidate.status === "recommended" && candidate.date === result.date && candidate.surveyMethod === "field" &&
+      candidate.participants.some((participant) => participant.id === userId),
+    ).length;
+    if (mandatory.participants.some((participant) => fieldCount(participant.id) >= 2)) continue;
+
+    const route = await evaluateSameDayRoute(mandatoryTarget, target, input.routes);
+    const sameAddress = String(mandatoryTarget.address ?? "").replace(/\s+/g, "") !== "" &&
+      String(mandatoryTarget.address ?? "").replace(/\s+/g, "") === String(target.address ?? "").replace(/\s+/g, "");
+    const nearby = route.evidence.routeDecision === "same_day_allowed" &&
+      (route.evidence.selectedRouteMinutes ?? Number.MAX_SAFE_INTEGER) <= SAME_ROUTE_THRESHOLD_MINUTES;
+    if (!sameAddress && !nearby) continue;
+
+    result.participants = [...mandatory.participants];
+    result.responsible = mandatory.participants.find((participant) => !participant.experienced) ?? mandatory.responsible;
+    result.experiencedReviewer = mandatory.participants.find((participant) =>
+      participant.experienced && participant.id !== result.responsible.id,
+    ) ?? null;
+    result.surveyMethod = "field";
+    result.evidence.surveyMethod = "field";
+    result.evidence.route = route.selectedRoute;
+    result.evidence.sameDayRoute = route.evidence;
+    result.reason = `${result.reason}; ${sameAddress ? "동일주소 묶음" : "근거리 묶음"}; 기존업체 선택 방문`;
   }
 }
 
@@ -458,5 +498,8 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
     });
   }
   await reconcileEarlierExistingReviewOverlaps(input, results);
+  // 필수 신규 방문을 먼저 고정한 뒤에만 기존업체를 같은 날 보조 방문으로 승격한다.
+  // 조건이 맞지 않으면 기존업체는 유선 기본을 유지해 별도 방문일을 만들지 않는다.
+  await optimizeExistingFieldVisits(input, results);
   return results;
 }

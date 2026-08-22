@@ -38,12 +38,12 @@ export async function validateManualPlanHardRules(
     errors.push("예비조사일은 측정일보다 3~30 워킹데이 이전이어야 합니다.");
   }
   if (!participantIds.has(input.target.responsible.id)) {
-    errors.push("연계측정자는 예비조사자에 반드시 포함되어야 합니다.");
+    errors.push("페이퍼 작성자는 예비조사자에 반드시 포함되어야 합니다.");
   }
-  // 경력 규칙: 기존 사업장은 비경력자 단독 허용. 최초실시/타기관 신규(new)만 경력자 필수.
+  // Phase B 기본 hard rule: 업체 유형과 관계없이 비경력자 단독은 허용하지 않는다.
   const experiencedCount = input.participants.filter((user) => user.experienced).length;
-  if (input.target.kind === "new" && experiencedCount === 0) {
-    errors.push("최초실시/타기관 신규는 비경력자 단독 예비조사가 불가하며 경력자가 최소 1명 필요합니다.");
+  if (experiencedCount === 0) {
+    errors.push("비경력자 단독 예비조사는 불가하며 경력자가 최소 1명 필요합니다.");
   }
   const requiresUserConfirmation = experiencedCount >= 2;
 
@@ -68,16 +68,11 @@ export async function validateManualPlanHardRules(
       }
     }
   } else {
-    const responsibleCount = sameDate.filter((item) =>
-      item.kind === "existing" && item.targetId !== input.target.id &&
-      item.responsibleUserId === input.target.responsible.id,
-    ).length;
-    if (responsibleCount >= 3) errors.push("기존업체 보고서 담당자는 하루 최대 3건입니다.");
-    if (reviewer) {
-      const reviewCount = sameDate.filter((item) =>
-        item.kind === "existing" && item.targetId !== input.target.id && item.experiencedReviewerId === reviewer.id,
+    for (const participantId of participantIds) {
+      const phoneCount = sameDate.filter((item) =>
+        item.kind === "existing" && item.targetId !== input.target.id && item.participants.includes(participantId),
       ).length;
-      if (reviewCount >= 6) errors.push("기존업체 경력 검토자는 하루 최대 6건입니다.");
+      if (phoneCount >= 3) errors.push(`예비조사자 ${participantId}의 유선 배정은 하루 최대 3건입니다.`);
     }
   }
 

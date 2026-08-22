@@ -1287,7 +1287,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const handleEditClick = (item: BusinessEntry) => {
         setEditingItem(item);
 
-        // 보고서 담당자(measurer_id)는 측정자와 별개 역할이므로 측정자(collaborators)에 강제 포함하지 않는다.
+        // 보고서 담당자(measurer_id)는 측정 참여자와 별개 역할이다.
+        // 모달에서는 편의를 위해 기본 체크하되 사용자가 자유롭게 해제할 수 있다.
         const initialForm = {
             ...item,
             sanjae: item.industrial_accident_number || item.sanjae || "",
@@ -2464,11 +2465,24 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         variant="secondary" 
                                         className="h-7 text-xs px-2"
                                         onClick={() => {
-                                            const currentStaff = editForm.daily_staff || [];
-                                            const newDate = ""; 
                                             setEditForm(prev => ({
                                                 ...prev,
-                                                daily_staff: [...currentStaff, { date: newDate, measurer_id: prev.measurer_id || null, collaborators: prev.collaborators ? prev.collaborators.split(",") : [] }]
+                                                daily_staff: [
+                                                    ...(Array.isArray(prev.daily_staff) && prev.daily_staff.length > 0
+                                                        ? prev.daily_staff
+                                                        : [{
+                                                            date: prev.measurement_date || "",
+                                                            measurer_id: prev.measurer_id || null,
+                                                            collaborators: prev.collaborators ? prev.collaborators.split(",").map((name: string) => name.trim()).filter(Boolean) : [],
+                                                        }]),
+                                                    {
+                                                        date: "",
+                                                        measurer_id: prev.measurer_id || null,
+                                                        collaborators: prev.measurer_id
+                                                            ? measurers.filter((member) => member.id === prev.measurer_id).map((member) => member.name)
+                                                            : [],
+                                                    },
+                                                ],
                                             }));
                                         }}
                                     >
@@ -2514,14 +2528,21 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                         value={editForm.measurer_id?.toString() || ""}
                                                         onChange={(e) => {
                                                             const newId = e.target.value ? parseInt(e.target.value) : null;
-                                                            setEditForm(prev => ({ ...prev, measurer_id: newId }));
+                                                            const reportWriter = currentMeasurers.find((member) => member.id === newId);
+                                                            setEditForm(prev => {
+                                                                const participants = prev.collaborators
+                                                                    ? prev.collaborators.split(",").map((name: string) => name.trim()).filter(Boolean)
+                                                                    : [];
+                                                                if (reportWriter && !participants.includes(reportWriter.name)) participants.push(reportWriter.name);
+                                                                return { ...prev, measurer_id: newId, collaborators: participants.join(",") };
+                                                            });
                                                         }}
                                                         />
                                                     );
                                                 })()}
                                             </div>
                                         <div className="col-span-2">
-                                            <label className="block text-sm font-medium mb-2 text-slate-700">조력자 (복수 선택) — 예·측은 실제 측정 인원에 항상 포함됩니다</label>
+                                            <label className="block text-sm font-medium mb-2 text-slate-700">측정 참여자 (복수 선택)</label>
                                             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 p-3 bg-white border border-slate-200 rounded-md">
                                                 {(() => {
                                                     const targetDate = editForm.measurement_date || editForm.future_measurement_date;
@@ -2532,15 +2553,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                     return currentMeasurers.map(m => {
                                                         const collaborators = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()) : [];
                                                         const isChecked = collaborators.includes(m.name);
-                                                        const isLink = m.id === editForm.link_measurer_id;
                                                         return (
-                                                            <label key={m.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 ${isLink ? "bg-blue-50/50" : ""}`}>
+                                                            <label key={m.id} className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50">
                                                                 <input
                                                                     type="checkbox"
-                                                                    checked={isChecked || isLink}
-                                                                    disabled={isLink}
+                                                                    checked={isChecked}
                                                                     onChange={(e) => {
-                                                                        if (isLink) return;
                                                                         const checked = e.target.checked;
                                                                         let newCollabs = [...collaborators];
                                                                         if (checked) {
@@ -2550,12 +2568,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                         }
                                                                         setEditForm(prev => ({ ...prev, collaborators: newCollabs.join(",") }));
                                                                     }}
-                                                                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-70 disabled:cursor-not-allowed"
+                                                                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                                                                 />
-                                                                <span className={`text-sm ${isLink ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
-                                                                    {m.name}
-                                                                    {isLink && <span className="ml-1 text-[10px] bg-blue-100 px-1 rounded">예·측</span>}
-                                                                </span>
+                                                                <span className="text-sm text-slate-700">{m.name}</span>
                                                             </label>
                                                         );
                                                     });
@@ -2604,7 +2619,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                             }} />
                                                         </div>
                                                         <div>
-                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">보고서 담당(코드)</label>
+                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">보고서 담당자</label>
                                                             <Select
                                                                 options={[
                                                                     { value: "", label: "선택" },
@@ -2615,12 +2630,18 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                                     const newId = e.target.value ? parseInt(e.target.value) : null;
                                                                     const newList = [...(editForm.daily_staff as any[])];
                                                                     newList[idx].measurer_id = newId;
+                                                                    const reportWriter = dayMeasurers.find((member) => member.id === newId);
+                                                                    const participants = Array.isArray(newList[idx].collaborators)
+                                                                        ? [...newList[idx].collaborators]
+                                                                        : [];
+                                                                    if (reportWriter && !participants.includes(reportWriter.name)) participants.push(reportWriter.name);
+                                                                    newList[idx].collaborators = participants;
                                                                     setEditForm(prev => ({ ...prev, daily_staff: newList }));
                                                                 }}
                                                             />
                                                         </div>
                                                         <div className="col-span-2">
-                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">측정자</label>
+                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">측정 참여자 (복수 선택)</label>
                                                             <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
                                                                 {dayMeasurers.map(m => {
                                                                     const isChecked = entry.collaborators?.includes(m.name);

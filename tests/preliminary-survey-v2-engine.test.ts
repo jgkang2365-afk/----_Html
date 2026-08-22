@@ -663,7 +663,7 @@ test("기존 사업장은 담당자 단독이므로 cross-type 중복 검토가 
   assert.equal(result.evidence.crossTypeOverlap, false);
 });
 
-test("측정일 순서상 기존 사업장이 먼저 확정돼도 신규 현장을 보존한다 (기존은 단독)", async () => {
+test("측정일 순서상 기존 사업장이 먼저 확정돼도 신규 현장을 보존한다 (비경력자 단독 금지)", async () => {
   const reviewer = experienced(10);
   const existingTarget = target(1, "existing", novice(1), "2026-07-13");
   const newTarget = target(2, "new", novice(20), "2026-07-14");
@@ -684,8 +684,8 @@ test("측정일 순서상 기존 사업장이 먼저 확정돼도 신규 현장�
   assert.equal(newResult.date, sharedDate);
   assert.equal(existingResult.status, "recommended");
   assert.equal(existingResult.date, sharedDate);
-  assert.equal(existingResult.participants.length, 1);
-  assert.equal(existingResult.experiencedReviewer, null);
+  assert.equal(existingResult.participants.length, 2);
+  assert.equal(existingResult.experiencedReviewer?.id, reviewer.id);
 });
 
 test("기존 사업장은 경력 검토자 제한과 무관하게 담당자 단독으로 추천한다", async () => {

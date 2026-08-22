@@ -28,6 +28,8 @@ interface User {
   is_journal_manager: boolean;
   is_national_support_manager: boolean;
   is_designated_office_report_manager: boolean;
+  is_preliminary_survey_experienced: boolean;
+  is_preliminary_survey_manager: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -52,6 +54,8 @@ export const UserManagement: React.FC = () => {
     is_journal_manager: false,
     is_national_support_manager: false,
     is_designated_office_report_manager: false,
+    is_preliminary_survey_experienced: false,
+    is_preliminary_survey_manager: false,
   });
 
   // 비밀번호 리셋 모달
@@ -74,6 +78,8 @@ export const UserManagement: React.FC = () => {
     is_journal_manager: false,
     is_national_support_manager: false,
     is_designated_office_report_manager: false,
+    is_preliminary_survey_experienced: false,
+    is_preliminary_survey_manager: false,
     is_active: true,
   });
 
@@ -257,6 +263,8 @@ export const UserManagement: React.FC = () => {
         is_journal_manager: false,
         is_national_support_manager: false,
         is_designated_office_report_manager: false,
+        is_preliminary_survey_experienced: false,
+        is_preliminary_survey_manager: false,
       });
       fetchUsers();
     } catch (err) {
@@ -317,6 +325,8 @@ export const UserManagement: React.FC = () => {
           is_journal_manager: !!editForm.is_journal_manager,
           is_national_support_manager: !!editForm.is_national_support_manager,
           is_designated_office_report_manager: !!editForm.is_designated_office_report_manager,
+          is_preliminary_survey_experienced: !!editForm.is_preliminary_survey_experienced,
+          is_preliminary_survey_manager: !!editForm.is_preliminary_survey_manager,
           is_active: !!editForm.is_active,
         }),
       });
@@ -340,6 +350,8 @@ export const UserManagement: React.FC = () => {
         is_journal_manager: false,
         is_national_support_manager: false,
         is_designated_office_report_manager: false,
+        is_preliminary_survey_experienced: false,
+        is_preliminary_survey_manager: false,
         is_active: true,
       });
       fetchUsers();
@@ -483,6 +495,8 @@ export const UserManagement: React.FC = () => {
                             is_journal_manager: !!user.is_journal_manager,
                             is_national_support_manager: !!user.is_national_support_manager,
                             is_designated_office_report_manager: !!user.is_designated_office_report_manager,
+                            is_preliminary_survey_experienced: !!user.is_preliminary_survey_experienced,
+                            is_preliminary_survey_manager: !!user.is_preliminary_survey_manager,
                             is_active: user.is_active !== false,
                           });
                           setShowEditModal(true);
@@ -535,6 +549,8 @@ export const UserManagement: React.FC = () => {
             is_journal_manager: false,
             is_national_support_manager: false,
             is_designated_office_report_manager: false,
+            is_preliminary_survey_experienced: false,
+            is_preliminary_survey_manager: false,
           });
           setError(null);
         }}
@@ -620,6 +636,16 @@ export const UserManagement: React.FC = () => {
                 </label>
               </div>
             </div>
+            <div className="flex flex-col gap-2 rounded-lg border border-orange-100 bg-orange-50/40 px-2 py-2">
+              <label className="flex items-center gap-2 text-sm font-bold text-text-900">
+                <input type="checkbox" checked={createForm.is_preliminary_survey_experienced} onChange={(e) => setCreateForm({ ...createForm, is_preliminary_survey_experienced: e.target.checked })} className="h-4 w-4 rounded border-gray-300" />
+                예비조사 경력자
+              </label>
+              <label className="flex items-center gap-2 text-sm font-bold text-text-900">
+                <input type="checkbox" checked={createForm.is_preliminary_survey_manager} onChange={(e) => setCreateForm({ ...createForm, is_preliminary_survey_manager: e.target.checked })} className="h-4 w-4 rounded border-gray-300" />
+                예비조사 담당 권한
+              </label>
+            </div>
             <div className="flex flex-col justify-end pb-1">
               <div className="flex items-center gap-2 px-1 py-2 bg-slate-50 rounded-lg border border-slate-100">
                 <input
@@ -670,6 +696,8 @@ export const UserManagement: React.FC = () => {
                   is_journal_manager: false,
                   is_national_support_manager: false,
                   is_designated_office_report_manager: false,
+                  is_preliminary_survey_experienced: false,
+                  is_preliminary_survey_manager: false,
                 });
                 setError(null);
               }}
@@ -745,6 +773,8 @@ export const UserManagement: React.FC = () => {
             is_journal_manager: false,
             is_national_support_manager: false,
             is_designated_office_report_manager: false,
+            is_preliminary_survey_experienced: false,
+            is_preliminary_survey_manager: false,
             is_active: true,
           });
           setError(null);
@@ -804,6 +834,16 @@ export const UserManagement: React.FC = () => {
                   측정일지 담당자로 지정
                 </label>
               </div>
+            </div>
+            <div className="flex flex-col gap-2 rounded-lg border border-orange-100 bg-orange-50/40 px-2 py-2">
+              <label className="flex items-center gap-2 text-sm font-bold text-text-900">
+                <input type="checkbox" checked={editForm.is_preliminary_survey_experienced} onChange={(e) => setEditForm({ ...editForm, is_preliminary_survey_experienced: e.target.checked })} className="h-4 w-4 rounded border-gray-300" />
+                예비조사 경력자
+              </label>
+              <label className="flex items-center gap-2 text-sm font-bold text-text-900">
+                <input type="checkbox" checked={editForm.is_preliminary_survey_manager} onChange={(e) => setEditForm({ ...editForm, is_preliminary_survey_manager: e.target.checked })} className="h-4 w-4 rounded border-gray-300" />
+                예비조사 담당 권한
+              </label>
             </div>
             <div className="flex flex-col justify-end pb-1">
               <div className="flex items-center gap-2 px-1 py-2 bg-slate-50 rounded-lg border border-slate-100">
@@ -888,6 +928,8 @@ export const UserManagement: React.FC = () => {
                   is_journal_manager: false,
                   is_national_support_manager: false,
                   is_designated_office_report_manager: false,
+                  is_preliminary_survey_experienced: false,
+                  is_preliminary_survey_manager: false,
                   is_active: true,
                 });
                 setError(null);

@@ -34,7 +34,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { role, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active } = body;
+    const { role, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_preliminary_survey_manager, is_active } = body;
 
     if (role && !["관리자", "사용자"].includes(role)) {
       return NextResponse.json(
@@ -70,10 +70,12 @@ export async function PATCH(
         is_journal_manager: !!is_journal_manager,
         is_national_support_manager: !!is_national_support_manager,
         is_designated_office_report_manager: !!is_designated_office_report_manager,
+        is_preliminary_survey_experienced: !!is_preliminary_survey_experienced,
+        is_preliminary_survey_manager: !!is_preliminary_survey_manager,
         ...(is_active !== undefined && { is_active }),
       })
       .eq("id", userId)
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active, updated_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_preliminary_survey_manager, is_active, updated_at")
       .maybeSingle();
 
     if (primaryUpdate.error) {
@@ -89,6 +91,7 @@ export async function PATCH(
           mobile: mobile || null,
           email: email || null,
           is_journal_manager: !!is_journal_manager,
+          is_preliminary_survey_experienced: !!is_preliminary_survey_experienced,
           ...(is_active !== undefined && { is_active }),
         })
         .eq("id", userId)
@@ -106,7 +109,8 @@ export async function PATCH(
       finalUpdatedUser = {
         ...fallbackUpdate.data,
         is_national_support_manager: false,
-        is_designated_office_report_manager: false
+        is_designated_office_report_manager: false,
+        is_preliminary_survey_manager: false,
       };
     } else {
       finalUpdatedUser = primaryUpdate.data;

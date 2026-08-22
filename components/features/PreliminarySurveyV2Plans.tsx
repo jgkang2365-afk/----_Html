@@ -36,8 +36,13 @@ interface WorkbenchRow {
   sourceResponsibleUserId?: number;
   sourceRuleType?: "new" | "existing";
   mainMeasurer?: string;
-  helper?: string;
+  measurementParticipants?: string;
   reportWriter?: string;
+  measurementAssigneeUserId?: number;
+  measurementAssigneeName?: string;
+  publicSampleCode?: string;
+  measurementAssignmentApprovalRequired?: boolean;
+  recommendationReasons?: string[];
   status: WorkbenchStatus;
   conflict: string | null;
   reason?: string;
@@ -332,12 +337,17 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     setWorking(true);
     setError(null);
     try {
-      const response = await fetch("/api/preliminary-survey-v2/workbench", {
+      const send = (approveThirdAssignment: boolean) => fetch("/api/preliminary-survey-v2/workbench", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "apply", drafts: targetIds.map((id) => drafts.get(id)) }),
+        body: JSON.stringify({ action: "apply", drafts: targetIds.map((id) => drafts.get(id)), approveThirdAssignment }),
       });
-      const result = await response.json();
+      let response = await send(false);
+      let result = await response.json();
+      if (response.status === 409 && result.approvalRequired && window.confirm(`${result.error}\n승인하여 적용하시겠습니까?`)) {
+        response = await send(true);
+        result = await response.json();
+      }
       if (!response.ok) {
         if (result.reviewRequired) {
           const affected = new Set<number>((result.reasons || []).map((item: { targetId: number }) => Number(item.targetId)));
@@ -480,7 +490,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : "phase-b-list-table-scroll"} className="max-h-[calc(100vh-20rem)] overflow-auto">
           <table className="w-full min-w-[1080px] table-fixed text-sm">
             <thead className="sticky top-0 z-20 bg-surface-50 text-left text-text-700 shadow-sm">
-              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "메인측정자", "조력자", "보고서담당", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
+              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자·공시료", "측정 참여자", "보고서담당", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-surface-200">
               {displayRows.map((row) => (
@@ -495,7 +505,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   <td className="truncate px-2 py-2" title={row.surveyors.join(", ")}>{row.surveyors.join(", ") || "-"}</td>
                   <td className="px-2 py-2">{row.surveyMethod === "field" ? "현장" : "유선"}</td>
                   <td className="truncate px-2 py-2">{row.mainMeasurer || "-"}</td>
-                  <td className="truncate px-2 py-2">{row.helper || "-"}</td>
+                  <td className="truncate px-2 py-2" title={row.measurementParticipants || ""}>{row.measurementParticipants || "-"}</td>
                   <td className="truncate px-2 py-2">{row.reportWriter || "-"}</td>
                   <td className="truncate px-2 py-2 text-amber-700" title={row.conflict || ""}>{row.conflict || "-"}</td>
                 </tr>
@@ -513,6 +523,12 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <div>측정예정일: <strong>{selected.measurementDate || "-"}</strong></div><div>충돌: <strong>{selected.conflict || "없음"}</strong></div>
           </div>
           {selected.reason && <Alert variant="warning">{selected.reason}</Alert>}
+          {selected.recommendationReasons && selected.recommendationReasons.length > 0 && <div className="flex flex-wrap gap-2">{selected.recommendationReasons.map((reason) => <span key={reason} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{reason}</span>)}</div>}
+          <div className="grid grid-cols-3 gap-3 rounded-lg border border-surface-200 p-3 text-sm">
+            <div>측정자·공시료: <strong>{selected.mainMeasurer || "-"}</strong></div>
+            <div>측정 참여자: <strong>{selected.measurementParticipants || "-"}</strong></div>
+            <div>보고서 담당자: <strong>{selected.reportWriter || "-"}</strong></div>
+          </div>
           {selected.alternatives && selected.alternatives.length > 0 && <div className="rounded-lg border border-surface-200 p-3 text-sm"><strong>대안 후보일</strong><div className="mt-1">{selected.alternatives.join(" · ")}</div></div>}
           <Input label="예비조사일" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} disabled={selected.locked} />
           <label className="block text-sm font-medium text-text-700">방식

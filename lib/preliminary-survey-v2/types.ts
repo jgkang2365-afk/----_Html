@@ -26,6 +26,8 @@ export interface SurveyTarget {
   businessType?: "existing" | "first_measurement" | "external_new" | null;
   /** 기존 V2 stale-source 검증용 보고서 담당자 snapshot. 예비조사 responsible와는 별개다. */
   sourceMeasurerId?: number | null;
+  /** 적용 draft stale 검증용 실제 측정 참여자 이름 snapshot. 역할 순서는 의미가 없다. */
+  measurementParticipantsSnapshot?: string;
   processChanged?: boolean | null;
   processChangedPolicyApplicable?: boolean;
   classificationSource?: {

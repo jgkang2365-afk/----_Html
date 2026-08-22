@@ -495,12 +495,11 @@ export async function PATCH(request: NextRequest) {
         .eq("code", code)
         .eq("measurement_year", Number(year))
         .like("measurement_period", `${basePeriod}%`)
-        .not("sequence_number", "is", null)
         .limit(1)
         .maybeSingle();
       if (confirmedJournal) {
         return NextResponse.json(
-          { error: "측정일지 연번이 부여되어 확정된 사업장입니다. 예비조사 계획 핵심값은 관리자만 수정할 수 있습니다." },
+          { error: "유효한 측정일지가 있어 찐확정된 사업장입니다. 예비조사 계획 핵심값은 관리자만 수정할 수 있습니다." },
           { status: 403 },
         );
       }
@@ -560,104 +559,9 @@ export async function PATCH(request: NextRequest) {
       delete updatePayload.business_category; // 잘못된 데이터는 무시하고 다른 필드만 저장
     }
 
-    // === [연계측정자 무결성 검증] ===
-    // 측정 인원(단일 일자 collaborators + 다일 daily_staff)이 변경될 때
-    // 연계측정자 조건(실제 측정 참여)과 예비조사 연계(예비조사자 중 최소 1명은 측정 참여)를 확인한다.
-    const measurementStaffChanged =
-      updates.hasOwnProperty('link_measurer_id') ||
-      updates.hasOwnProperty('collaborators') ||
-      updates.hasOwnProperty('daily_staff') ||
-      updates.hasOwnProperty('measurer_id') ||
-      updates.hasOwnProperty('measurement_date');
-
-    if (measurementStaffChanged) {
-      const rawLink = updates.hasOwnProperty('link_measurer_id')
-        ? updates.link_measurer_id
-        : existingLinkMeasurerId;
-      const newLinkMeasurerId =
-        rawLink == null || rawLink === ""
-          ? null
-          : Number(rawLink);
-      const newCollaborators = updates.hasOwnProperty('collaborators')
-        ? (updates.collaborators ?? null)
-        : existingCollaborators;
-      const newDailyStaff = updates.hasOwnProperty('daily_staff')
-        ? updates.daily_staff
-        : existingDailyStaff;
-
-      const staffNames = new Set<string>();
-      const addNameList = (value: string | null | undefined) => {
-        if (!value) return;
-        String(value).split(",").map((s) => s.trim()).filter(Boolean).forEach((s) => staffNames.add(s));
-      };
-      addNameList(newCollaborators);
-      if (Array.isArray(newDailyStaff)) {
-        for (const entry of newDailyStaff) {
-          if (!entry) continue;
-          if (Array.isArray(entry.collaborators)) {
-            entry.collaborators.map(String).map((s: string) => s.trim()).filter(Boolean)
-              .forEach((s: string) => staffNames.add(s));
-          } else {
-            addNameList(entry.collaborators);
-          }
-        }
-      }
-
-      // 1. 연계측정자는 실제 측정 인원에 반드시 포함되어야 한다.
-      if (newLinkMeasurerId != null) {
-        const { data: linkUser } = await supabase
-          .from("users").select("name").eq("id", newLinkMeasurerId).maybeSingle();
-        const linkName = linkUser?.name || null;
-        if (linkName && !staffNames.has(linkName)) {
-          return NextResponse.json(
-            { error: "연계측정자는 실제 측정 인원에 반드시 포함되어야 합니다. 측정 인원을 조정한 뒤 다시 저장해 주세요." },
-            { status: 400 },
-          );
-        }
-      }
-
-      // 2. 기존 V2 plan 예비조사자 전원이 측정 인원에서 빠지면 저장을 차단한다.
-      let targetIdForPlan: number | null = existingTargetId || (id ? Number(id) : null);
-      if (targetIdForPlan == null && code && year && period) {
-        const { data: planTarget } = await supabase
-          .from("measurement_target_business")
-          .select("id")
-          .eq("code", code).eq("year", Number(year)).eq("period", period)
-          .maybeSingle();
-        targetIdForPlan = planTarget?.id != null ? Number(planTarget.id) : null;
-      }
-      let v2Participants: string[] = [];
-      if (targetIdForPlan != null) {
-        const { data: v2Plan } = await supabase
-          .from("preliminary_survey_v2_plans")
-          .select("participant_names")
-          .eq("measurement_target_business_id", targetIdForPlan)
-          .maybeSingle();
-        if (v2Plan && Array.isArray(v2Plan.participant_names)) {
-          v2Participants = (v2Plan.participant_names as unknown[])
-            .map((n) => String(n).trim()).filter(Boolean);
-        }
-      }
-      if (v2Participants.length > 0 && !v2Participants.some((name) => staffNames.has(name))) {
-        return NextResponse.json(
-          { error: "기존 예비조사자 전원이 실제 측정 인원에서 빠집니다. 측정 인원을 조정하거나 예비조사를 재추천/재확정한 뒤 저장해 주세요." },
-          { status: 400 },
-        );
-      }
-
-      // 3. 연계측정자(예·측)는 예비조사자에 반드시 포함되어야 한다 (V2 plan이 있을 때).
-      if (newLinkMeasurerId != null && v2Participants.length > 0) {
-        const { data: linkUser } = await supabase
-          .from("users").select("name").eq("id", newLinkMeasurerId).maybeSingle();
-        const linkName = linkUser?.name || null;
-        if (linkName && !v2Participants.includes(linkName)) {
-          return NextResponse.json(
-            { error: "예·측(연계측정자)은 현재 예비조사자에 포함되어야 합니다. 예비조사자를 재확정하거나 예·측을 다시 선택해 주세요." },
-            { status: 400 },
-          );
-        }
-      }
-    }
+    // 보고서 담당자·측정 참여자·예비조사자·측정자(공시료)는 서로 다른 역할이다.
+    // 사업장 상세 저장에서 link_measurer_id나 기존 V2 조사자와의 일치 여부를 강제하지 않는다.
+    // 적용된 계획의 원천값 변화는 workbench에서 재검토 필요로 판정하며 자동 덮어쓰지 않는다.
 
     // [New Feature] Auto-calculate office_jurisdiction if address is being updated
     if (updates.hasOwnProperty('address')) {

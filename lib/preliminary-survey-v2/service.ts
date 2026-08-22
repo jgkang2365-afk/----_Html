@@ -6,6 +6,7 @@ import { parseDateOnly, recommendationDates, recommendationDatesForBusinessType 
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
 import { loadActualMeasurementBlockedKeys } from "./measurement-conflicts";
+import { measurementStaffForDate } from "./measurement-staff";
 import {
   PROCESS_CHANGED_POLICY_OFF,
   shouldApplyProcessChangedPolicy,
@@ -57,7 +58,7 @@ async function loadProcessChangedPolicy(supabase: Client): Promise<ProcessChange
 
 export async function loadV2ManualContext(supabase: Client, targetId: number, recommendedDate: string) {
   const { data: targetRow, error: targetError } = await supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
+    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, collaborators, daily_staff, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).eq("id", targetId).single();
   if (targetError || !targetRow) throw new Error("TARGET_NOT_FOUND");
   const [{ data: userRows, error: userError }, { data: infoRow, error: infoError }, { data: journalRows, error: journalError }, policy] = await Promise.all([
@@ -75,14 +76,17 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   const users: SurveyUser[] = (userRows ?? []).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
-  // 예비조사 responsible는 반드시 연계측정자(link_measurer_id)다.
-  // link_measurer_id가 없으면 연계측정자 미확정 상태로 보고 자동 추천을 진행하지 않는다.
-  // 보고서 담당자(measurer_id)는 responsible로 대체하지 않는다.
-  const responsibleId = targetRow.link_measurer_id;
-  const responsible = responsibleId == null
-    ? undefined
-    : users.find((user) => user.id === Number(responsibleId));
-  if (!responsible) throw new Error("LINK_MEASURER_REQUIRED");
+  const userNameById = new Map(users.map((user) => [user.id, user.name]));
+  const measurementParticipantsSnapshot = measurementStaffForDate({
+    dailyStaff: targetRow.daily_staff,
+    measurementDate: targetRow.measurement_date,
+    collaborators: targetRow.collaborators,
+    userNameById,
+  }).measurementParticipants;
+  // 수동 검증 context의 responsible는 제출된 예비조사 draft로 교체된다.
+  // legacy link_measurer_id·보고서 담당자·측정 참여자에서 예비조사자를 추론하지 않는다.
+  const responsible = users.find((user) => user.active !== false);
+  if (!responsible) throw new Error("NO_ACTIVE_PRELIMINARY_SURVEYOR");
   const classification = classifyMeasurementJournalBusiness({
     code: targetRow.code, year: Number(targetRow.year), period: targetRow.period,
     business_type: targetRow.business_type,
@@ -95,6 +99,7 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
     createdAt: targetRow.created_at,
     businessType: targetRow.business_type,
     sourceMeasurerId: optionalInteger(targetRow.measurer_id),
+    measurementParticipantsSnapshot,
     processChanged: targetRow.process_changed,
     processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
       policy,
@@ -227,7 +232,7 @@ export async function calculateV2Recommendations(
 ): Promise<CalculationOutput> {
   const scope = preliminaryDateScope(options);
   let targetQuery = supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
+    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, collaborators, daily_staff, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).not("measurement_date", "is", null);
   if (options.targetIds?.length) targetQuery = targetQuery.in("id", options.targetIds);
   if (options.year != null) targetQuery = targetQuery.eq("year", options.year);
@@ -246,7 +251,8 @@ export async function calculateV2Recommendations(
   const users: SurveyUser[] = (rawUsers ?? []).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
-  const userById = new Map(users.map((user) => [user.id, user]));
+  const activeUsers = users.filter((user) => user.active !== false).sort((left, right) => left.id - right.id);
+  const userNameById = new Map(users.map((user) => [user.id, user.name]));
   const codes = [...new Set((rawTargets ?? []).map((target: any) => target.code))];
   const years = [...new Set((rawTargets ?? []).map((target: any) => Number(target.year)))];
   let journalQuery = supabase.from("measurement_journal").select(
@@ -269,7 +275,10 @@ export async function calculateV2Recommendations(
   }]));
 
   const missing: CalculationOutput["missing"] = [];
-  const targets = (rawTargets ?? []).flatMap((row: any) => {
+  const sortedRows = [...(rawTargets ?? [])].sort((left: any, right: any) =>
+    String(left.measurement_date).localeCompare(String(right.measurement_date)) || Number(left.id) - Number(right.id),
+  );
+  const targets = sortedRows.flatMap((row: any, index: number) => {
     const classification = classifyMeasurementJournalBusiness({
       code: row.code,
       year: Number(row.year),
@@ -284,13 +293,12 @@ export async function calculateV2Recommendations(
       measurementYear: Number(row.year),
       measurementPeriod: String(row.period).trim(),
     };
-    // 예비조사 responsible는 반드시 연계측정자(link_measurer_id)다. 보고서 담당자(measurer_id)는 대체하지 않는다.
-    const responsible = row.link_measurer_id == null
-      ? undefined
-      : userById.get(Number(row.link_measurer_id));
+    // 예비조사자는 측정자(공시료), 측정 참여자, 보고서 담당자와 독립적으로 배정한다.
+    // 엔진의 날짜·경력·용량 검증 전에 활성 조사자를 균등 순환시켜 초기 responsible를 만든다.
+    const responsible = activeUsers.length ? activeUsers[index % activeUsers.length] : undefined;
     const fields = [
       !row.measurement_date && "measurement_date",
-      !responsible && "link_measurer",
+      !responsible && "active_preliminary_surveyor",
     ].filter(Boolean) as string[];
     if (fields.length) {
       missing.push({
@@ -311,6 +319,12 @@ export async function calculateV2Recommendations(
       region: regionFromAddress(row.address), coordinate, createdAt: row.created_at, classificationSource,
       businessType: row.business_type,
       sourceMeasurerId: optionalInteger(row.measurer_id),
+      measurementParticipantsSnapshot: measurementStaffForDate({
+        dailyStaff: row.daily_staff,
+        measurementDate: row.measurement_date,
+        collaborators: row.collaborators,
+        userNameById,
+      }).measurementParticipants,
       processChanged: row.process_changed,
       processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
         policy: processChangedPolicy,
@@ -505,7 +519,7 @@ export type SteadyStatePlanAction =
   | "replaced"       // 기존 automatic plan 재추천/갱신
   | "unchanged"      // 기존 plan 유지 (manual 보존 또는 변경 없음)
   | "manual_required"// 추천 가능 날짜 없음
-  | "confirmed"      // sequence_number 부여 확정 → 자동 변경 금지
+  | "confirmed"      // measurement_journal row 존재 → 자동 변경 금지
   | "paused"         // 예비조사 자동추천 정책 OFF → 자동 생성/재추천 중지
   | "blocked";       // 생성 조건 미충족 (측정일/실측정자 부족 등)
 
@@ -544,7 +558,7 @@ export async function loadV2AutomationPolicy(supabase: Client): Promise<ProcessC
  *
  * - 보고서 담당자(measurer_id)는 실제 측정자 판단·예비조사자 추천에 사용하지 않는다.
  * - 예·측 후보는 "추천 예비조사자 ∩ 실제 측정자"로 계산한다.
- * - sequence_number 부여(확정) 후에는 자동 변경하지 않는다.
+ * - measurement_journal row가 존재(찐확정)하면 자동 변경하지 않는다.
  * - 사용자가 수동 확정한 plan(plan_origin='manual')은 자동으로 덮어쓰지 않는다.
  * - upsert(measurement_target_business_id unique)로 중복 plan이 생기지 않는다.
  * - 자동추천 정책이 OFF이면 생성/재추천하지 않는다(paused). 기존 데이터는 보존된다.
@@ -567,12 +581,12 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     };
   }
 
-  // 확정(sequence_number 부여) 보호
+  // 찐확정(measurement_journal row 존재) 보호
   const basePeriod = String(target.period).trim().replace("(수시)", "");
   const { data: confirmedJournal } = await supabase.from("measurement_journal")
     .select("id").eq("code", target.code).eq("measurement_year", Number(target.year))
-    .like("measurement_period", `${basePeriod}%`).not("sequence_number", "is", null).limit(1).maybeSingle();
-  if (confirmedJournal) return { action: "confirmed", reason: "SEQUENCE_NUMBER_CONFIRMED" };
+    .like("measurement_period", `${basePeriod}%`).limit(1).maybeSingle();
+  if (confirmedJournal) return { action: "confirmed", reason: "MEASUREMENT_JOURNAL_CONFIRMED" };
 
   if (!target.measurement_date) return { action: "blocked", reason: "NO_MEASUREMENT_DATE" };
 
@@ -725,7 +739,7 @@ export interface GroupRecommendationLoadOptions {
 
 /**
  * 묶음 추천 입력 데이터 로드 (READ-ONLY).
- * - 확정(sequence_number 부여) 대상은 제외한다.
+ * - measurement_journal row가 존재하는 찐확정 대상은 제외한다.
  * - 좌표는 business_info(권위 저장소)를 최우선 사용하고, 없으면 행정구역(region) fallback.
  * - 가능한 예비조사일은 기존 추천일 규칙(recommendationDates)으로 계산.
  * - lead는 예·측(link) 우선, 없으면 실측정자 중 첫 유효 인원. 보고서 담당자는 미사용.
@@ -752,7 +766,7 @@ export async function loadGroupRecommendationTargets(
       : Promise.resolve({ data: [], error: null }),
     codes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
-    codes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes).not("sequence_number", "is", null)
+    codes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
     (targets ?? []).length ? supabase.from("preliminary_survey_v2_plans").select("measurement_target_business_id, plan_origin")
       .in("measurement_target_business_id", (targets ?? []).map((target: any) => Number(target.id)))
@@ -848,7 +862,7 @@ export interface GroupConfirmResult {
 }
 
 const CONFIRM_FAILURE_MESSAGES: Record<string, string> = {
-  SEQUENCE_NUMBER_CONFIRMED: "이미 측정일지 연번이 부여되어 자동 변경할 수 없습니다. 관리자 예외 정비만 가능합니다.",
+  MEASUREMENT_JOURNAL_CONFIRMED: "유효한 측정일지가 있어 자동 변경할 수 없습니다. 관리자 예외 정비만 가능합니다.",
   MANUAL_PLAN_PRESERVED: "수동 확정된 예비조사 계획은 자동으로 덮어쓰지 않습니다.",
   STALE_MEASUREMENT_DATE: "측정일이 변경되어 추천 날짜가 더 이상 유효하지 않습니다.",
   NO_STAFF: "실제 측정자를 확인할 수 없습니다.",
@@ -887,7 +901,7 @@ export async function confirmGroupRecommendation(
     supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
     targetCodes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", targetCodes)
       : Promise.resolve({ data: [], error: null }),
-    targetCodes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", targetCodes).not("sequence_number", "is", null)
+    targetCodes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", targetCodes)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id, plan_origin, survey_method").in("measurement_target_business_id", targetIds),
   ]);
@@ -916,7 +930,7 @@ export async function confirmGroupRecommendation(
       continue;
     }
     if (confirmedKeys.has(`${target.code}|${target.year}|${String(target.period).trim().replace("(수시)", "")}`)) {
-      failed.push({ targetId, code: target.code, reason: "SEQUENCE_NUMBER_CONFIRMED" });
+      failed.push({ targetId, code: target.code, reason: "MEASUREMENT_JOURNAL_CONFIRMED" });
       continue;
     }
     const existingPlan = planByTarget.get(targetId);
