@@ -430,3 +430,74 @@
 - Node runtime을 browser 요구 버전 이상으로 준비한 뒤 사업장 상세와 `/survey`를 실제 검증한다.
 - 안전한 관리자/예비조사 담당자 환경에서 preview → apply 동일성, client 변조, 2건→3건 동시성, stale 409를 완료한다.
 - 새 시스템 안정화 뒤 구형 V2 plan을 automatic/manual/실사용·확정/미사용으로 분류한다. 안정화 전 삭제하지 않는다.
+
+## 2026-08-22 최종 후속 검수 보완
+
+### 기준과 구현 결과
+
+- 시작 HEAD: `7e48c92ea35d1834266c14f21ac1488884ebde60`
+- 구현 commit: `3e4b8c15efb8ef3f73d8c51570b50044b7025c3c`
+- branch: `feature/preliminary-survey-phase-b`
+- PR: #42 Draft/Open, merge하지 않았다. 이 보고서를 포함한 최종 PR HEAD는 PR 본문과 완료 보고에 기록한다.
+- 기존 V2 자동추천 OFF, legacy sync, 기존 V2 데이터와 `measurement_journal` 찐확정 기준을 유지했다.
+
+### blocker별 조치
+
+- 3건 승인: `measurement_date + assignee_user_id`의 최종 그룹을 서버가 계산하고 기존 row를 먼저 정렬한 뒤 세 번째 이후 제안 row만 승인 대상으로 기록한다. 클라이언트 `approval_required`는 판단 근거에서 제외했고, 변경되지 않은 기존 승인 row는 승인자·시각을 보존한다.
+- SQLSTATE: 신규 assignment RPC의 stale source/baseline 업무 오류에서 `40001`을 제거하고 `22023`으로 통일했다.
+- 추천 planner: 서비스의 별도 조사자 pre-pass를 제거했다. `recommendBatch`가 후보 날짜, 책임자, 조합, 방식, 용량과 route를 한 virtual assignment에서 결정하고 날짜별·기간별 배정량과 안정적인 ID로 deterministic tie-break한다.
+- manual plan: 기존 manual이라는 이유만으로 보존하지 않고 현재 방식까지 포함해 hard constraint를 재검증한다. 기존업체 유선은 비경력자 단독을 허용하고, 기존업체 방문은 참여자가 겹치는 같은 날 필수 신규와 동일주소 또는 허용 vehicle route가 있어야 한다.
+- 영향 범위: 같은 날짜·같은 방식만으로 확장하지 않는다. 방문은 참여자가 겹칠 때, 유선은 책임자/참여자가 겹칠 때 용량 관계를 만들며 동일주소·방문묶음·같은 실제 측정일 공시료 관계는 유지한다.
+- 사업장 상세: 참여자가 빈 날짜만 보고서 담당자를 기본 체크하고 기존 참여자가 있으면 보존한다. 보고서 담당 변경은 새 담당자를 기본 추가하지만 사용자가 해제할 수 있고 이전 담당자를 자동 삭제하지 않는다.
+- 날짜 validation: 단일 빈 카드는 미실시 `null` 저장을 허용한다. 다일은 모든 날짜의 형식·실재 날짜·중복을 검사하고 오류 시 serializer와 저장을 차단한다.
+- 독립 검토에서 workbench apply와 단건 수동 수정이 선택한 `surveyMethod`를 hard-rule 검증에 전달하지 않는 P1을 발견했다. 두 API 경로를 수정하고 회귀 테스트를 추가한 뒤 재검증했다.
+
+### DB 검증과 안전
+
+- READ-ONLY REST 확인에서 `preliminary_survey_v2_measurement_assignments`가 PGRST205를 반환해 대상 migration 미적용 상태를 확인했다.
+- `supabase` 전역 CLI, Docker, 로컬 PostgreSQL 실행 파일과 연결된 Supabase test project가 없었다. `npx supabase 2.114.0`은 확인했으나 격리 DB를 실행할 backend가 없어 실제 migration, guard 6종, RPC rollback·동시성 행동 테스트는 수행하지 못했다.
+- 운영 DB migration 적용 0건, 운영 DB write 0건, 보호 대상 H0399/H0524/H0288/H0528/H0348/H0126/H0281/H0260/H0063/H0077 write 0건이다.
+- 따라서 SQL 정적/행동 단위 테스트는 통과했지만 실제 PostgreSQL 검증은 미완료이며 merge blocker로 남긴다.
+
+### Orca Browser Runtime 재진단
+
+- 진단 로그: `C:\Users\USER\AppData\Local\Temp\orca-runtime-diag-task_ecadecf33385` (Git 미포함).
+- 사용 CLI: `C:\Users\USER\AppData\Local\Programs\orca\resources\bin\orca.cmd` / `orca.exe`.
+- Orca 앱: `1.4.188`, PID 42260, runtime `ready/reachable`; `orca status --json`과 `orca tab list --json`은 exit 0이었다.
+- 새 `browserPageId` `85882ece-745a-49c0-8a1a-86573e0dbfd5`를 생성했다. `orca eval`은 `http://localhost:3000/dashboard`, 제목 `측정일지 관리 시스템`, `readyState=complete`를 반환했다.
+- 같은 fresh page의 `orca snapshot`은 약 30초 후 `runtime_unavailable: The Orca runtime closed the connection before responding`으로 실패했다.
+- Orca 내장 binary `resources/agent-browser-win32-x64.exe`는 존재하며 실제 프로세스도 확인됐다. PATH/전역 Node module의 `agent-browser`는 없지만 내장 binary가 있으므로 외부 전역 설치 필요성은 확인되지 않았다.
+- 시스템 Node는 v22.18.0이나 Orca runtime·tab·eval과 내장 native binary가 동작했고 Node engine 오류가 없었다. Node 직접 원인으로 확정하지 않았고 Node/Orca 설치를 변경하지 않았다.
+- 실패 계층은 프로젝트 코드가 아닌 Orca browser snapshot/runtime 응답 경계다. 실제 클릭 기반 사업장 상세와 `/survey` Browser E2E는 미완료다.
+
+### 테스트 결과
+
+- 집중 행동 테스트: 최종 101/101 통과.
+- `npx tsc --noEmit`: 통과.
+- `npm test`: 394/394 통과. 신규 Phase B·impact·assignment persistence 테스트도 기본 전체 테스트에 포함했다.
+- `npm run build`: 최종 코드 기준 69개 page 빌드 통과. 첫 시도는 실행 중인 dev server와 `.next` 충돌로 page artifact가 누락됐고, 확인된 이 작업공간 3000번 프로세스만 일시 종료 후 재실행해 통과했다.
+- `npm run dev:turbo`: 빌드 후 3000번에 복원했고 Ready 상태를 확인했다.
+
+### 이번 Orca worker 수행 현황
+
+| worker | 요청/effective 모델 | 추론 | 담당 | 결과 |
+| --- | --- | --- | --- | --- |
+| Main | GPT-5.6 Sol / 실제값 검증 불가 | High 요청 | 통합, P1 수정, 전체 테스트·빌드, 문서·Git/PR | 반영 |
+| DB 성공 worker `ctx_95ea72860677` | GPT-5.6 Terra | High | 3건 승인, SQLSTATE, migration/RPC 정적 검증 | 반영 |
+| Planner worker `ctx_41c298b598dc` | GPT-5.6 Terra | High | 단일 planner, manual hard constraint, 영향 범위 | 반영 |
+| Runtime worker `ctx_d570fc74e51b` | GPT-5.6 Terra | Medium | Orca CLI/runtime/browser 계층 진단 | 결과 반영, 코드 변경 없음 |
+| Review retry `ctx_a21615116c42` | GPT-5.6 Terra | High | 독립 보안·정합성 검토 | P1 발견, 메인 수정 반영 |
+| DB 최초 `ctx_0c6418013cf9` | GPT-5.6 Terra | High | DB 작업 | `agent_prompt_stalled`, 재시도 성공 |
+| UI `ctx_ef944be46a74`, `ctx_226fd3c35758` | GPT-5.6 Terra | Medium | 상세 모달/날짜 validation | 2회 `agent_prompt_stalled`, 메인 구현 |
+| Review 최초 `ctx_fe0f10d1afba` | GPT-5.6 Terra | High | 독립 검토 | `agent_prompt_stalled`, 재시도 성공 |
+
+- run: `run_ea896146d17b`; 생성 dispatch 8개, 성공 4개, stalled/failed 4개다. 모델·추론 수준은 Orca worker-start의 requested/effective 기록을 사용했다. 토큰·credits는 확인 불가다.
+- 모든 결과는 회수했고 worker terminal은 닫혔다. Orca `worker-show`에서 확인 가능한 exact worker는 exited이고 orphan=false였지만, runtime이 process stop을 확정하지 못해 7개 resource가 `release_unknown`, 최초 review retry 원본 1개가 `identity_unproven` retained 감사 상태로 남았다. 광범위 terminal close는 수행하지 않았으며 active worker는 0개다.
+
+### 최종 판정과 남은 blocker
+
+- 판정: **구현 완료·검증 미완료·merge 보류**.
+- 격리 PostgreSQL에서 migration 최초/rollback, plan·assignment guard INSERT/UPDATE/DELETE, 3건 승인, 원자 rollback, stale·동시 apply를 실행 검증해야 한다.
+- Orca snapshot/runtime 문제가 해결된 뒤 사업장 상세와 `/survey` 실제 클릭 검증 및 안전한 관리자/예비조사 담당자 성공 apply E2E를 완료해야 한다.
+- Orca의 `release_unknown` 7개와 `identity_unproven` retained 1개 resource settlement도 runtime 측 후속 확인이 필요하다. active worker는 0개지만 완료 조건의 release 확정에는 미달한다.
+- 새 시스템 안정화 전 구형 V2 plan 삭제 금지를 유지하며, 이후 automatic/manual/실사용·확정/미사용 분류 후 유지·migration·archive·삭제를 결정한다.
