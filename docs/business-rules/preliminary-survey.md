@@ -125,4 +125,15 @@
 - 구형 plan 수정 RPC는 기존 manual plan의 예비조사 필드 수정만 허용하고 source 측정일·구분을 바꾸거나 assignment 없는 새 plan을 만들 수 없다.
 - migration은 검증 DB에서 함수 signature, trigger, RLS/GRANT/REVOKE, rollback을 확인한 뒤 적용한다. 권장 순서는 `migration 검증 → migration 적용 → schema reload → 코드 배포 → 권한 부여 → 안전한 E2E`다.
 
+### 최종 추천·승인·입력 검증 보완
+
+- 예비조사 날짜·방식·조사자/조합은 하나의 authoritative planner가 함께 결정한다. 서비스에서 조사자를 먼저 정한 뒤 다른 엔진이 날짜와 조합을 다시 계산하지 않는다.
+- 기존 manual plan도 현재 hard constraint를 다시 통과한 경우에만 minimum-change 대상으로 보존한다. 특히 기존업체 유선은 경력 여부와 무관한 1인 배정을 허용하지만, 기존업체 선택 방문은 같은 날 참여자가 겹치는 필수 신규 방문과 동일주소 또는 검증된 vehicle route가 있어야 한다.
+- 방문·유선 용량 dependency는 같은 예비조사일과 같은 방식만으로 만들지 않는다. 방문은 참여자가 겹칠 때, 유선은 책임자 또는 참여자가 겹칠 때만 연결하며 같은 실제 측정일의 공시료 균형 관계는 별도로 유지한다.
+- 1인 3건 승인은 `measurement_date + assignee_user_id` 그룹의 최종 건수를 서버가 계산한다. 기존 배정을 먼저 두고 결정적 순서의 세 번째 이후 제안 row만 승인 대상으로 기록하며, 클라이언트의 `approval_required` 값은 신뢰하지 않는다. 변경되지 않은 기존 승인 row는 승인자와 시각을 보존한다.
+- stale draft, source/baseline 변경, 승인 조건 변경 같은 업무 validation에는 SQLSTATE `22023`을 사용한다. `40001`은 PostgreSQL이 실제로 발생시킨 serialization conflict에만 사용한다.
+- 상세 모달을 열 때 참여자가 빈 날짜만 보고서 담당자를 기본 체크한다. 기존 참여자가 있으면 명시적 사용자 선택으로 보존한다. 보고서 담당자 변경 시 새 담당자를 기본 추가하되 사용자가 즉시 해제할 수 있고 이전 담당자는 자동 삭제하지 않는다.
+- 측정일 카드가 하나이고 날짜가 비어 있으면 미실시로 저장할 수 있다. 카드가 둘 이상이면 모든 날짜가 유효하고 서로 달라야 하며, 빈 날짜·중복 날짜·잘못된 날짜가 있으면 serializer 전에 저장을 차단한다.
+- Orca Browser Runtime 장애는 프로젝트 업무 로직과 분리해 진단한다. Runtime 검증 실패를 이유로 Node·프로젝트 코드·운영 데이터를 추측 변경하지 않는다.
+
 이 문서는 이후 예비조사 변경의 기준이다. 규칙 변경 시 기존 기준, 새 기준, 영향 범위를 먼저 비교하고 구현·migration·테스트를 함께 갱신한다.

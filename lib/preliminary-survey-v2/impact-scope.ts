@@ -96,10 +96,14 @@ function relationReasons(
     reasons.push("same_measurement_date_assignee_balance");
   }
 
-  if (samePreliminaryDate && source.surveyMethod === "field" && candidate.surveyMethod === "field") {
+  // 용량은 같은 날짜·방식이라도 실제로 같은 사람이 겹칠 때만 서로 영향을 준다.
+  // 주소·측정일 공시료·찐확정 관계는 사람 겹침과 무관하게 그대로 closure에 남긴다.
+  const sameMethod = source.surveyMethod != null && source.surveyMethod === candidate.surveyMethod;
+  const sharesCapacity = samePreliminaryDate && sameMethod && hasOverlappingParticipants(source, candidate);
+  if (sharesCapacity && source.surveyMethod === "field") {
     reasons.push("same_date_field_capacity");
   }
-  if (samePreliminaryDate && source.surveyMethod === "phone" && candidate.surveyMethod === "phone") {
+  if (sharesCapacity && source.surveyMethod === "phone") {
     reasons.push("same_date_phone_capacity");
   }
 

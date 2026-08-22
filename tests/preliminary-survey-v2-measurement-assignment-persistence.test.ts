@@ -51,6 +51,22 @@ test("plan과 assignment는 하나의 RPC에서 source·승인 검증 후 원자
   assert.match(migration, /Rollback\(운영 적용 후 별도 승인\)/);
 });
 
+test("3건 승인은 측정일·측정자 그룹의 결정적 초과 row만 기록하고 client boolean은 신뢰하지 않는다", () => {
+  const rpc = migration.slice(
+    migration.indexOf("CREATE OR REPLACE FUNCTION public.persist_preliminary_survey_v2_plan_and_measurement_assignments"),
+    migration.indexOf("-- legacy API는 기존 plan의 수동 예비조사 필드만 수정할 수 있다."),
+  );
+
+  assert.match(rpc, /PARTITION BY measurement_date, assignee_user_id ORDER BY is_proposed, target_id/);
+  assert.match(rpc, /assignment_position > 2/);
+  assert.match(rpc, /MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED/);
+  assert.match(rpc, /RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED'/);
+  assert.match(rpc, /COALESCE\(existing\.approval_required, false\)/);
+  assert.match(rpc, /existing_approved_by_user_id/);
+  assert.doesNotMatch(rpc, /assignment->>'approval_required'/);
+  assert.doesNotMatch(rpc, /40001/);
+});
+
 test("workbench apply는 전체 draft fingerprint·서버 재추천을 대조하고 pre-migration 저장을 거부한다", () => {
   assert.match(workbench, /recomputeCanonicalMeasurementAssignments/);
   assert.match(workbench, /canonicalFingerprint/);

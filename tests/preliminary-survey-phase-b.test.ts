@@ -178,6 +178,7 @@ test("측정예정일 기간·선택 대상 추천은 검색 결과 교집합만
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
+  const engine = readFileSync("lib/preliminary-survey-v2/engine.ts", "utf8");
   assert.match(ui, /collectWorkbenchRecommendationTargetIds\(displayRows, selectedTargetIds\)/);
   assert.match(ui, /onChange=\{\(event\) => setSearchDraft\(event\.target\.value\)\}/);
   assert.match(ui, /explicitTargetSelection: Boolean\(targetId\) \|\| selectedTargetIds\.size > 0/);
@@ -210,6 +211,9 @@ test("측정예정일 기간·선택 대상 추천은 검색 결과 교집합만
   assert.match(service, /preliminaryDateFrom\?: string/);
   assert.match(service, /preliminaryDateTo\?: string/);
   assert.match(service, /candidateDatesByTarget/);
+  assert.doesNotMatch(service, /recommendSurveyors/);
+  assert.match(service, /validateManualPlanHardRules/);
+  assert.match(engine, /surveyors\?: SurveyUser\[\]/);
   assert.match(service, /filter\(\(candidate\) => isInPreliminaryDateScope\(candidate\.date, scope\)\)/);
   assert.match(service, /!isInPreliminaryDateScope\(date, scope\) \|\| blockedKeys\.has/);
   assert.match(service, /manualRequiredOutsidePreliminaryScope/);
@@ -266,4 +270,11 @@ test("측정대상사업장관리에는 예비조사 작업 UI가 없다", () =>
   const source = readFileSync("components/features/MeasurementTargetBusinessManagement.tsx", "utf8");
   assert.doesNotMatch(source, />예비조사 정보</);
   assert.doesNotMatch(source, /이 업체 재추천|추천안 적용|예비조사 상태/);
+});
+
+test("수동 수정과 draft apply는 선택한 조사 방식을 hard-rule 검증에 전달한다", () => {
+  const manualApi = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
+  const workbenchApi = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
+  assert.match(manualApi, /validateManualPlanHardRules\(\{[\s\S]*?surveyMethod,[\s\S]*?existingAssignments/);
+  assert.match(workbenchApi, /validateManualPlanHardRules\(\{[\s\S]*?surveyMethod: draft\.surveyMethod,[\s\S]*?existingAssignments/);
 });

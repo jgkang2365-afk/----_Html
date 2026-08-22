@@ -26,9 +26,13 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
     // 측정자/보고서 담당자/link_measurer_id에서는 예비조사 책임자를 추론하지 않는다.
     const responsible = participants.find((user) => !user.experienced) ?? participants[0];
     if (!responsible) throw new Error("NO_SURVEYOR");
+    const surveyMethod = body.surveyMethod === "field" || body.surveyMethod === "phone"
+      ? body.surveyMethod
+      : surveyMethodForKind(target.kind);
     const validationTarget = { ...target, responsible };
     const validation = await validateManualPlanHardRules({
       target: validationTarget, recommendedDate: body.recommendedDate, participants,
+      surveyMethod,
       existingAssignments: assignments, routes: createRouteMetrics(),
     });
     if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
@@ -49,9 +53,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
     const ordered = [...participants].sort((left, right) =>
       Number(right.id === responsible.id) - Number(left.id === responsible.id) || left.id - right.id,
     );
-    const surveyMethod = body.surveyMethod === "field" || body.surveyMethod === "phone"
-      ? body.surveyMethod
-      : surveyMethodForKind(target.kind);
     const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan", {
       p_target_id: targetId,
       p_recommended_date: body.recommendedDate,

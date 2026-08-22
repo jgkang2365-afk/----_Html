@@ -1,13 +1,14 @@
 import { recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { evaluateSameDayRoute } from "./route-policy";
 import type {
-  ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyTarget, SurveyUser,
+  ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyMethod, SurveyTarget, SurveyUser,
 } from "./types";
 
 export interface ManualPlanValidationInput {
   target: SurveyTarget;
   recommendedDate: string;
   participants: SurveyUser[];
+  surveyMethod?: SurveyMethod | null;
   existingAssignments: ExistingAssignment[];
   routes: RouteMetrics;
 }
@@ -30,6 +31,7 @@ export async function validateManualPlanHardRules(
   const reviewer = input.participants
     .filter((user) => user.id !== input.target.responsible.id && user.experienced)
     .sort((left, right) => left.id - right.id)[0] ?? null;
+  const surveyMethod = input.surveyMethod ?? (input.target.kind === "new" ? "field" : "phone");
 
   const allowedDates = input.target.businessType
     ? recommendationDatesForBusinessType(input.target.measurementDate, input.target.businessType)
@@ -40,9 +42,8 @@ export async function validateManualPlanHardRules(
   if (!participantIds.has(input.target.responsible.id)) {
     errors.push("페이퍼 작성자는 예비조사자에 반드시 포함되어야 합니다.");
   }
-  // Phase B 기본 hard rule: 업체 유형과 관계없이 비경력자 단독은 허용하지 않는다.
   const experiencedCount = input.participants.filter((user) => user.experienced).length;
-  if (experiencedCount === 0) {
+  if ((input.target.kind === "new" || surveyMethod === "field") && experiencedCount === 0) {
     errors.push("비경력자 단독 예비조사는 불가하며 경력자가 최소 1명 필요합니다.");
   }
   const requiresUserConfirmation = experiencedCount >= 2;
@@ -50,6 +51,7 @@ export async function validateManualPlanHardRules(
   const sameDate = input.existingAssignments.filter((item) => item.date === input.recommendedDate);
   const routeEvidence: SameDayRouteEvidence[] = [];
   if (input.target.kind === "new") {
+    if (surveyMethod !== "field") errors.push("최초실시·타기관 신규는 방문 예비조사만 가능합니다.");
     const otherNewByTarget = new Map<number, ExistingAssignment>();
     for (const participantId of participantIds) {
       const sameParticipantNew = sameDate.filter((item) =>
@@ -67,12 +69,34 @@ export async function validateManualPlanHardRules(
         errors.push(`신규 2건 차량 60분 규칙을 충족하지 못했습니다: ${evaluated.evidence.routeDecision}`);
       }
     }
-  } else {
+  } else if (surveyMethod === "phone") {
     for (const participantId of participantIds) {
       const phoneCount = sameDate.filter((item) =>
         item.kind === "existing" && item.targetId !== input.target.id && item.participants.includes(participantId),
       ).length;
       if (phoneCount >= 3) errors.push(`예비조사자 ${participantId}의 유선 배정은 하루 최대 3건입니다.`);
+    }
+  } else {
+    const mandatoryVisits = sameDate.filter((item) =>
+      item.kind === "new" && item.participants.some((participantId) => participantIds.has(participantId)),
+    );
+    for (const participantId of participantIds) {
+      const fieldCount = sameDate.filter((item) =>
+        item.surveyMethod === "field" && item.targetId !== input.target.id && item.participants.includes(participantId),
+      ).length;
+      if (fieldCount >= 2) errors.push(`예비조사자 ${participantId}의 방문 배정은 하루 최대 2건입니다.`);
+    }
+    const normalizeAddress = (value: string | null | undefined) => String(value ?? "").replace(/\s+/g, "").trim();
+    const targetAddress = normalizeAddress(input.target.address);
+    const bundleResults = await Promise.all(mandatoryVisits.map(async (assignment) => {
+      const sameAddress = Boolean(targetAddress) && targetAddress === normalizeAddress(assignment.address);
+      if (sameAddress) return { allowed: true, evidence: null };
+      const route = await evaluateSameDayRoute(assignment, input.target, input.routes);
+      return { allowed: route.evidence.routeDecision === "same_day_allowed", evidence: route.evidence };
+    }));
+    routeEvidence.push(...bundleResults.flatMap((result) => result.evidence ? [result.evidence] : []));
+    if (!bundleResults.some((result) => result.allowed)) {
+      errors.push("기존업체 방문은 같은 날 필수 신규 방문의 동일주소 또는 허용 동선이 필요합니다.");
     }
   }
 

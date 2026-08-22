@@ -753,6 +753,64 @@ test("수동 기존 담당자의 같은 날 네 번째 계획은 거부", async 
   assert.match(result.errors.join(" "), /하루 최대 3건/);
 });
 
+test("수동 기존업체 유선은 비경력자 단독도 현재 hard constraint를 충족한다", async () => {
+  const responsible = novice(1);
+  const current = target(4, "existing", responsible);
+  const date = recommendationDates(current.measurementDate)[0].date;
+  const result = await validateManualPlanHardRules({
+    target: current, recommendedDate: date, participants: [responsible], surveyMethod: "phone",
+    existingAssignments: [], routes: route(),
+  });
+  assert.equal(result.valid, true);
+});
+
+test("수동 기존업체 방문은 같은 날 참여자가 겹치는 필수 신규의 동일주소 또는 허용 route가 필요하다", async () => {
+  const responsible = experienced(1);
+  const current = { ...target(4, "existing", responsible), address: "충남 천안시 동일로 1" };
+  const date = recommendationDates(current.measurementDate)[0].date;
+  const mandatory: ExistingAssignment = {
+    ...existingAssignment(1, "C1", responsible.id, date),
+    address: "충남  천안시 동일로 1",
+    surveyMethod: "field",
+  };
+  const allowed = await validateManualPlanHardRules({
+    target: current, recommendedDate: date, participants: [responsible], surveyMethod: "field",
+    existingAssignments: [mandatory], routes: route(null, "distance"),
+  });
+  const denied = await validateManualPlanHardRules({
+    target: current, recommendedDate: date, participants: [responsible], surveyMethod: "field",
+    existingAssignments: [], routes: route(),
+  });
+  assert.equal(allowed.valid, true);
+  assert.equal(denied.valid, false);
+  assert.match(denied.errors.join(" "), /필수 신규 방문/);
+});
+
+test("단일 planner는 책임 조사자 후보·날짜·용량을 함께 결정한다", async () => {
+  const blockedLead = experienced(1);
+  const availableLead = experienced(2);
+  const [result] = await recommendBatch({
+    targets: [target(1, "new", blockedLead)],
+    surveyors: [blockedLead, availableLead],
+    experiencedUsers: [blockedLead, availableLead],
+    availability: available(new Set([`1:${recommendationDates("2026-07-14")[0].date}`])),
+    routes: route(),
+  });
+  assert.equal(result.status, "recommended");
+  assert.equal(result.responsible.id, availableLead.id);
+  assert.deepEqual(result.participants.map((user) => user.id), [availableLead.id]);
+});
+
+test("단일 planner는 기존업체 유선을 가능한 조사자에게 날짜별 균형 배정한다", async () => {
+  const first = novice(1);
+  const second = novice(2);
+  const results = await recommendBatch({
+    targets: [target(1, "existing", first), target(2, "existing", first)],
+    surveyors: [first, second], experiencedUsers: [], availability: available(), routes: route(),
+  });
+  assert.deepEqual(results.map((result) => result.responsible.id), [1, 2]);
+});
+
 test("M/N: 보고서 담당자 변경은 자동/수동 계획 구분 없이 재추천", () => {
   for (const manual of [false, true]) {
     assert.equal(targetChangeRecommendationPolicy({ responsibleChanged: true, measurementDateChanged: false, existingRecommendedDate: manual ? "2026-06-01" : "2026-06-02", nextMeasurementDate: "2026-07-14" }), "recalculate");

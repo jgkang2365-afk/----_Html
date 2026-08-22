@@ -15,8 +15,7 @@ import {
   type ProcessChangedPolicySettings,
 } from "./policy";
 import { createRouteMetrics } from "./route-metrics";
-import { recommendSurveyors, type SurveyorRecommendation } from "./surveyor-recommendation";
-import { surveyMethodForKind, type ExistingAssignment, type RecommendationResult, type RouteMetrics, type SurveyTarget, type SurveyUser } from "./types";
+import { surveyMethodForKind, type ExistingAssignment, type RecommendationResult, type RouteMetrics, type SurveyMethod, type SurveyTarget, type SurveyUser } from "./types";
 
 type Client = SupabaseClient<any, "public", any>;
 
@@ -175,7 +174,7 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
       participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
       responsibleUserId: Number(plan.responsible_user_id),
       experiencedReviewerId: plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
-      coordinate: coordinateFromRow(otherInfoByCode.get(row.code)), region: regionFromAddress(row.address),
+      address: row.address, coordinate: coordinateFromRow(otherInfoByCode.get(row.code)), region: regionFromAddress(row.address),
     }];
   });
   return { target, users, assignments };
@@ -247,9 +246,17 @@ function manualRequiredOutsidePreliminaryScope(result: RecommendationResult): Re
   };
 }
 
+interface PreservedManualRecommendation {
+  date: string;
+  responsible: SurveyUser;
+  participants: SurveyUser[];
+  experiencedReviewer: SurveyUser | null;
+  surveyMethod: SurveyMethod;
+}
+
 function preservedTentativeResult(
   target: SurveyTarget,
-  recommendation: SurveyorRecommendation,
+  recommendation: PreservedManualRecommendation,
   candidate: { workingDaysBefore: number } | undefined,
 ): RecommendationResult {
   const surveyMethod = recommendation.surveyMethod;
@@ -448,7 +455,7 @@ export async function calculateV2Recommendations(
       participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
       responsibleUserId: Number(plan.responsible_user_id), experiencedReviewerId: plan.experienced_reviewer_id ? Number(plan.experienced_reviewer_id) : null,
       surveyMethod: plan.survey_method === "field" ? "field" as const : "phone" as const,
-      coordinate: target?.coordinate ?? null, region: target?.region ?? null,
+      address: target?.address ?? null, coordinate: target?.coordinate ?? null, region: target?.region ?? null,
     }];
   });
 
@@ -463,56 +470,80 @@ export async function calculateV2Recommendations(
       responsibleUserId: Number(plan.responsible_user_id),
       experiencedReviewerId: plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
       surveyMethod: plan.survey_method === "field" ? "field" as const : "phone" as const,
-      coordinate: target.coordinate, region: target.region, tentative: true,
+      address: target.address, coordinate: target.coordinate, region: target.region, tentative: true,
     }];
   });
-  const surveyorRecommendations = recommendSurveyors({
-    targets: targets.map((target) => ({
-      id: target.id, kind: target.kind, businessType: target.businessType, measurementDate: target.measurementDate,
-      createdAt: target.createdAt, candidateDates: [...(candidateDatesByTarget.get(target.id) ?? [])],
-    })),
-    users,
-    assignments: [...existingAssignments, ...tentativeAssignments],
-    availability: { isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`) },
-  });
-  const surveyorRecommendationByTarget = new Map(surveyorRecommendations.map((item) => [item.targetId, item]));
-  const selectedTargets: SurveyTarget[] = targets.flatMap((target) => {
-    const recommendation = surveyorRecommendationByTarget.get(target.id);
-    if (recommendation?.responsible) return [{ ...target, responsible: recommendation.responsible }];
-    missing.push({
-      targetId: target.id, code: target.code, name: target.name, measurementDate: target.measurementDate,
-      kind: target.kind, fields: ["available_preliminary_surveyor"], classificationSource: target.classificationSource,
-    });
-    return [];
-  });
+  const activeSurveyors = users.filter((user) => user.active !== false).sort((left, right) => left.id - right.id);
+  if (!activeSurveyors.length) {
+    for (const target of targets) {
+      missing.push({
+        targetId: target.id, code: target.code, name: target.name, measurementDate: target.measurementDate,
+        kind: target.kind, fields: ["available_preliminary_surveyor"], classificationSource: target.classificationSource,
+      });
+    }
+  }
+  // engine이 책임 조사자·날짜·용량·경로를 한 번에 확정한다. 수동 plan만 그 전에
+  // 현재 hard constraint를 모두 다시 통과한 경우에 한해 minimum-change로 예약한다.
+  const selectedTargets = activeSurveyors.length
+    ? targets.map((target) => ({ ...target, responsible: activeSurveyors[0] }))
+    : [];
   const selectedTargetById = new Map(selectedTargets.map((target) => [target.id, target]));
-  const preserved = surveyorRecommendations.flatMap((recommendation) => {
-    if (!recommendation.preserved || !recommendation.responsible || !recommendation.date) return [];
-    const target = selectedTargetById.get(recommendation.targetId);
-    if (!target) return [];
+  const routes = options.routeMetrics ?? createRouteMetrics(options.allowExternalRoutes === false ? "" : undefined);
+  const tentativeByTarget = new Map(tentativeAssignments.map((assignment) => [assignment.targetId, assignment]));
+  const preserved = (await Promise.all(selectedTargets.map(async (target) => {
+    const tentative = tentativeByTarget.get(target.id);
+    if (!tentative || !candidateDatesByTarget.get(target.id)?.has(tentative.date)) return null;
+    const participants = [...new Set(tentative.participants)]
+      .map((userId) => users.find((user) => user.id === userId))
+      .filter((user): user is SurveyUser => Boolean(user));
+    const responsible = users.find((user) => user.id === tentative.responsibleUserId) ?? null;
+    if (!responsible || participants.length !== new Set(tentative.participants).size ||
+        !participants.some((user) => user.id === responsible.id) ||
+        participants.some((user) => user.active === false ||
+          !isInPreliminaryDateScope(tentative.date, scope) || blockedKeys.has(`${user.id}:${tentative.date}`))) return null;
+    const validation = await validateManualPlanHardRules({
+      target: { ...target, responsible },
+      recommendedDate: tentative.date,
+      participants,
+      surveyMethod: tentative.surveyMethod,
+      existingAssignments: [
+        ...existingAssignments,
+        ...tentativeAssignments.filter((assignment) => assignment.targetId !== target.id),
+      ],
+      routes,
+    });
+    if (!validation.valid) return null;
     const candidate = (target.businessType
       ? recommendationDatesForBusinessType(target.measurementDate, target.businessType)
       : recommendationDates(target.measurementDate)
-    ).find((item) => item.date === recommendation.date);
-    return [preservedTentativeResult(target, recommendation, candidate)];
-  });
+    ).find((item) => item.date === tentative.date);
+    const recommendation: PreservedManualRecommendation = {
+      date: tentative.date, responsible, participants,
+      experiencedReviewer: validation.experiencedReviewer,
+      surveyMethod: tentative.surveyMethod ?? surveyMethodForKind(target.kind),
+    };
+    return preservedTentativeResult(target, recommendation, candidate);
+  }))).filter((result): result is RecommendationResult => Boolean(result));
   const preservedAssignments = preserved.map((result) => {
     const target = selectedTargetById.get(result.targetId)!;
     return {
       targetId: target.id, businessCode: target.code, kind: target.kind, date: result.date!,
       participants: result.participants.map((user) => user.id), responsibleUserId: result.responsible.id,
-      experiencedReviewerId: result.experiencedReviewer?.id ?? null, coordinate: target.coordinate, region: target.region,
+      experiencedReviewerId: result.experiencedReviewer?.id ?? null, address: target.address,
+      coordinate: target.coordinate, region: target.region,
       surveyMethod: result.surveyMethod,
     } satisfies ExistingAssignment;
   });
-  const flexibleTargets = selectedTargets.filter((target) => !surveyorRecommendationByTarget.get(target.id)?.preserved);
+  const preservedTargetIds = new Set(preserved.map((result) => result.targetId));
+  const flexibleTargets = selectedTargets.filter((target) => !preservedTargetIds.has(target.id));
   const freshResults = await recommendBatch({
-    targets: flexibleTargets, experiencedUsers: users.filter((user) => user.experienced && user.active !== false),
+    targets: flexibleTargets, surveyors: activeSurveyors,
+    experiencedUsers: activeSurveyors.filter((user) => user.experienced),
     existingAssignments: [...existingAssignments, ...preservedAssignments],
     availability: {
       isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`),
     },
-    routes: options.routeMetrics ?? createRouteMetrics(options.allowExternalRoutes === false ? "" : undefined),
+    routes,
   });
   const results = [...preserved, ...freshResults].map((result) => {
     const scopedCandidates = candidateDatesByTarget.get(result.targetId);
@@ -624,6 +655,7 @@ export async function reconcileV2AfterTargetChange(
     const participants = participantIds.flatMap((id: number) => context.users.find((user) => user.id === id) ?? []);
     const validation = await validateManualPlanHardRules({
       target: context.target, recommendedDate: plan.recommended_date, participants,
+      surveyMethod: plan.survey_method === "field" ? "field" : "phone",
       existingAssignments: context.assignments, routes: createRouteMetrics(),
     });
     if (!validation.valid || plan.source_rule_type !== context.target.kind) {

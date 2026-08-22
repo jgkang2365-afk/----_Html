@@ -8,6 +8,8 @@ import { surveyMethodForKind } from "./types";
 
 export interface RecommendBatchInput {
   targets: SurveyTarget[];
+  /** 책임 예비조사자를 아직 정하지 않은 경우의 단일 planner 후보군. */
+  surveyors?: SurveyUser[];
   experiencedUsers: SurveyUser[];
   existingAssignments?: ExistingAssignment[];
   availability: Availability;
@@ -74,9 +76,10 @@ function asAssignment(target: SurveyTarget, result: RecommendationResult): Exist
     kind: target.kind,
     date: result.date!,
     participants: result.participants.map((user) => user.id),
-    responsibleUserId: target.responsible.id,
+    responsibleUserId: result.responsible.id,
     experiencedReviewerId: result.experiencedReviewer?.id ?? null,
     surveyMethod: result.surveyMethod,
+    address: target.address,
     coordinate: target.coordinate,
     region: target.region,
   };
@@ -229,6 +232,14 @@ async function reconcileEarlierExistingReviewOverlaps(
   }
 }
 
+function responsibleDailyCount(assignments: ExistingAssignment[], userId: number, date: string) {
+  return assignments.filter((item) => item.date === date && item.responsibleUserId === userId).length;
+}
+
+function responsibleTotalCount(assignments: ExistingAssignment[], userId: number) {
+  return assignments.filter((item) => item.responsibleUserId === userId).length;
+}
+
 async function optimizeExistingFieldVisits(
   input: RecommendBatchInput,
   results: RecommendationResult[],
@@ -284,26 +295,35 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
   const results: RecommendationResult[] = [];
 
   for (const target of deterministicTargets(input.targets)) {
+    // service에서 별도 조사자 planner를 한 번 더 실행하지 않는다. 책임 조사자 후보와
+    // 날짜·용량·경로를 이 planner의 같은 virtual assignment에서 함께 결정한다.
+    const responsibleCandidates = (input.surveyors?.length ? input.surveyors : [target.responsible])
+      .filter((user) => user.active !== false)
+      .sort((left, right) => left.id - right.id);
     let selected: RecommendationResult | null = null;
     const rejectedSameDayRoutes: SameDayRouteEvidence[] = [];
     const dates = targetRecommendationDates(target);
 
-    const evaluateCandidate = async (candidate: (typeof dates)[number], capacityPass: 1 | 2) => {
+    const evaluateCandidate = async (
+      planningTarget: SurveyTarget,
+      candidate: (typeof dates)[number],
+      capacityPass: 1 | 2,
+    ) => {
       if (target.kind === "existing" && capacityPass === 2) return null;
-      if (input.availability.isBlocked(target.responsible.id, candidate.date)) return null;
+      if (input.availability.isBlocked(planningTarget.responsible.id, candidate.date)) return null;
       if (target.kind === "existing") {
-        if (newFieldCount(virtual, target.responsible.id, candidate.date) > 0) return null;
-        if (existingResponsibleCount(virtual, target.responsible.id, candidate.date) >= 3) return null;
+        if (newFieldCount(virtual, planningTarget.responsible.id, candidate.date) > 0) return null;
+        if (existingResponsibleCount(virtual, planningTarget.responsible.id, candidate.date) >= 3) return null;
       } else {
-        if (hasExistingFieldResponsibility(virtual, target.responsible.id, candidate.date)) return null;
-        const dailyNew = newFieldCount(virtual, target.responsible.id, candidate.date);
+        if (hasExistingFieldResponsibility(virtual, planningTarget.responsible.id, candidate.date)) return null;
+        const dailyNew = newFieldCount(virtual, planningTarget.responsible.id, candidate.date);
         if (dailyNew >= capacityPass || dailyNew >= 2) return null;
       }
 
       // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 개인별 하루 3건 용량만 적용한다.
-      const requiresReviewer = target.kind === "new" && !target.responsible.experienced;
+      const requiresReviewer = target.kind === "new" && !planningTarget.responsible.experienced;
       const reviewerChoice = requiresReviewer
-        ? await chooseReviewer(target, candidate.date, input.experiencedUsers, virtual, input.availability, input.routes, capacityPass)
+        ? await chooseReviewer(planningTarget, candidate.date, input.experiencedUsers, virtual, input.availability, input.routes, capacityPass)
         : null;
       if (requiresReviewer && (!reviewerChoice || reviewerChoice.hardConflict)) {
         if (reviewerChoice?.route && reviewerChoice.route.evidence.routeDecision !== "same_day_allowed") {
@@ -315,12 +335,12 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       let route: RouteMetric | null = null;
       let sameDayRoute: SameDayRouteEvidence | null = null;
       if (target.kind === "new") {
-        const participants = [target.responsible.id, reviewerChoice?.user.id].filter((id): id is number => Boolean(id));
+        const participants = [planningTarget.responsible.id, reviewerChoice?.user.id].filter((id): id is number => Boolean(id));
         const requiresRoute = participants.some((userId) => newFieldCount(virtual, userId, candidate.date) > 0);
         for (const userId of participants) {
           const evaluated = reviewerChoice?.user.id === userId && reviewerChoice.route
             ? reviewerChoice.route
-            : await routeAgainstSameDayNew(target, userId, candidate.date, virtual, input.routes);
+            : await routeAgainstSameDayNew(planningTarget, userId, candidate.date, virtual, input.routes);
           if (!evaluated) continue;
           if (evaluated.evidence.routeDecision !== "same_day_allowed") {
             rejectedSameDayRoutes.push(evaluated.evidence);
@@ -339,7 +359,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
 
       const reviewer = reviewerChoice?.user ?? null;
       const crossTypeOverlap = target.kind === "new"
-        ? existingReviewCount(virtual, target.responsible.id, candidate.date) > 0 || Boolean(reviewerChoice?.crossTypeOverlap)
+        ? existingReviewCount(virtual, planningTarget.responsible.id, candidate.date) > 0 || Boolean(reviewerChoice?.crossTypeOverlap)
         : Boolean(reviewerChoice?.crossTypeOverlap);
       const evidence: RecommendationEvidence = {
         classificationSource: target.classificationSource,
@@ -370,13 +390,29 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         targetId: target.id,
         status: "recommended" as const,
         date: candidate.date,
-        participants: reviewer ? [target.responsible, reviewer] : [target.responsible],
-        responsible: target.responsible,
+        participants: reviewer ? [planningTarget.responsible, reviewer] : [planningTarget.responsible],
+        responsible: planningTarget.responsible,
         experiencedReviewer: reviewer,
         surveyMethod: surveyMethodForKind(target.kind),
         evidence,
         reason: `${evidence.range === "primary" ? "기본구간" : "후순위구간"} -${candidate.workingDaysBefore} 워킹데이`,
       };
+    };
+
+    const evaluateForResponsible = async (candidate: (typeof dates)[number], capacityPass: 1 | 2) => {
+      const feasible: RecommendationResult[] = [];
+      for (const responsible of responsibleCandidates) {
+        const result = await evaluateCandidate({ ...target, responsible }, candidate, capacityPass);
+        if (result) feasible.push(result);
+      }
+      feasible.sort((left, right) =>
+        responsibleDailyCount(virtual, left.responsible.id, candidate.date) -
+          responsibleDailyCount(virtual, right.responsible.id, candidate.date) ||
+        responsibleTotalCount(virtual, left.responsible.id) - responsibleTotalCount(virtual, right.responsible.id) ||
+        left.participants.length - right.participants.length ||
+        left.responsible.id - right.responsible.id,
+      );
+      return feasible[0] ?? null;
     };
 
     const finalize = (
@@ -404,7 +440,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
     if (target.kind === "existing") {
       let overlapFallback: RecommendationResult | null = null;
       for (const candidate of dates) {
-        const result = await evaluateCandidate(candidate, 1);
+        const result = await evaluateForResponsible(candidate, 1);
         if (!result) continue;
         if (result.evidence.crossTypeOverlap) {
           overlapFallback ??= result;
@@ -426,7 +462,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         let single: RecommendationResult | null = null;
         let singleIndex = rangeDates.length;
         for (let index = 0; index < rangeDates.length; index += 1) {
-          const result = await evaluateCandidate(rangeDates[index], 1);
+          const result = await evaluateForResponsible(rangeDates[index], 1);
           if (!result) continue;
           single = result;
           singleIndex = index;
@@ -436,7 +472,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         const pairCandidates: RecommendationResult[] = [];
         const pairDates = single ? rangeDates.slice(0, singleIndex) : rangeDates;
         for (const candidate of pairDates) {
-          const result = await evaluateCandidate(candidate, 2);
+          const result = await evaluateForResponsible(candidate, 2);
           if (result?.evidence.sameDayRoute?.routeDecision === "same_day_allowed") pairCandidates.push(result);
         }
         const sameRoute = pairCandidates.find((result) =>

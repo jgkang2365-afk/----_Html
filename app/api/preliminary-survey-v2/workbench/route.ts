@@ -432,6 +432,7 @@ async function applySubmittedDrafts(
       target: { ...context.target, responsible: responsible ?? context.target.responsible },
       recommendedDate: draft.preliminaryDate,
       participants,
+      surveyMethod: draft.surveyMethod,
       existingAssignments: [
         ...context.assignments.filter((assignment) => !draftIds.has(assignment.targetId)),
         ...draftAssignments.filter((assignment) => assignment.targetId !== draft.targetId),

@@ -53,6 +53,7 @@ export interface ExistingAssignment {
   experiencedReviewerId: number | null;
   /** 기존업체가 근거리 묶음으로 선택 방문이 된 경우에만 field. 이전 데이터는 kind 기본값을 쓴다. */
   surveyMethod?: SurveyMethod;
+  address?: string | null;
   coordinate: Coordinate | null;
   region: string | null;
 }

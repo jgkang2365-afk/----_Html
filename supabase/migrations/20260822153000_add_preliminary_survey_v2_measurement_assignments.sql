@@ -147,10 +147,14 @@ DECLARE
   plan jsonb;
   business_row public.measurement_target_business;
   configured_survey_code text;
-  assigned_count integer;
   legacy_plans jsonb;
   expected_measurement_dates text[];
   current_assignment_baseline jsonb;
+  approval_required_for_group boolean;
+  approval_required_for_assignment boolean;
+  existing_approval_preserved boolean;
+  existing_approved_by_user_id integer;
+  existing_approved_at timestamptz;
 BEGIN
   IF p_plans IS NULL OR jsonb_typeof(p_plans) <> 'array' OR jsonb_array_length(p_plans) = 0
      OR p_assignments IS NULL OR jsonb_typeof(p_assignments) <> 'array'
@@ -197,7 +201,7 @@ BEGIN
     SELECT DISTINCT (item->>'measurement_target_business_id')::bigint FROM jsonb_array_elements(p_plans) item
   );
   IF current_assignment_baseline IS DISTINCT FROM p_assignment_baseline THEN
-    RAISE EXCEPTION USING ERRCODE = '40001', MESSAGE = 'DRAFT_ASSIGNMENT_BASELINE_CHANGED';
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'DRAFT_ASSIGNMENT_BASELINE_CHANGED';
   END IF;
 
   FOR plan IN SELECT value FROM jsonb_array_elements(p_plans) LOOP
@@ -210,7 +214,7 @@ BEGIN
     IF (plan->>'source_address') IS DISTINCT FROM business_row.address
        OR COALESCE(plan->'source_daily_staff', 'null'::jsonb) IS DISTINCT FROM COALESCE(business_row.daily_staff, 'null'::jsonb)
        OR (plan->>'source_collaborators') IS DISTINCT FROM business_row.collaborators THEN
-      RAISE EXCEPTION USING ERRCODE = '40001', MESSAGE = 'DRAFT_SOURCE_CONTEXT_CHANGED';
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'DRAFT_SOURCE_CONTEXT_CHANGED';
     END IF;
     IF business_row.measurement_end_date IS NOT NULL
        AND business_row.measurement_end_date::date <> business_row.measurement_date::date THEN
@@ -264,26 +268,48 @@ BEGIN
     IF configured_survey_code NOT IN ('A', 'B', 'C', 'D', 'F', 'G') OR configured_survey_code <> assignment->>'survey_code' THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MEASUREMENT_ASSIGNMENT_SURVEY_CODE_MISMATCH';
     END IF;
-    SELECT COUNT(*) INTO assigned_count
+  END LOOP;
+
+  -- client의 approval_required는 저장 근거가 아니다. 이번 apply 후 남는 전체
+  -- (측정일, 측정자) 그룹을 target ID 순으로 결정해 세 번째부터만 승인 대상으로 한다.
+  -- 이미 같은 row에 기록된 승인은 재저장으로 지우지 않는다.
+  WITH final_rows AS (
+    SELECT existing_plan.measurement_target_business_id AS target_id,
+      existing.measurement_date, existing.assignee_user_id, false AS is_proposed
     FROM public.preliminary_survey_v2_measurement_assignments existing
     JOIN public.preliminary_survey_v2_plans existing_plan ON existing_plan.id = existing.plan_id
-    WHERE existing.measurement_date = (assignment->>'measurement_date')::date
-      AND existing.assignee_user_id = (assignment->>'assignee_user_id')::integer
+    WHERE existing_plan.measurement_target_business_id NOT IN (
+      SELECT DISTINCT (item->>'measurement_target_business_id')::bigint
+      FROM jsonb_array_elements(p_plans) item
+    )
+    UNION ALL
+    SELECT (item->>'measurement_target_business_id')::bigint,
+      (item->>'measurement_date')::date, (item->>'assignee_user_id')::integer, true
+    FROM jsonb_array_elements(p_assignments) item
+  ), numbered_rows AS (
+    SELECT *, row_number() OVER (
+      PARTITION BY measurement_date, assignee_user_id ORDER BY is_proposed, target_id
+    ) AS assignment_position
+    FROM final_rows
+  )
+  SELECT EXISTS (
+    SELECT 1
+    FROM numbered_rows numbered
+    WHERE numbered.is_proposed
+      AND numbered.assignment_position > 2
       AND NOT EXISTS (
-        SELECT 1 FROM jsonb_array_elements(p_assignments) replacing
-        WHERE (replacing->>'measurement_target_business_id')::bigint = existing_plan.measurement_target_business_id
-          AND replacing->>'measurement_date' = existing.measurement_date::text
-      );
-    assigned_count := assigned_count + (
-      SELECT COUNT(*) FROM jsonb_array_elements(p_assignments) proposed
-      WHERE proposed->>'measurement_date' = assignment->>'measurement_date'
-        AND (proposed->>'assignee_user_id')::integer = (assignment->>'assignee_user_id')::integer
-    );
-    IF assigned_count >= 3 AND (COALESCE((assignment->>'approval_required')::boolean, false) IS NOT TRUE
-       OR p_approve_third_assignment IS NOT TRUE OR p_approved_by_user_id IS NULL) THEN
-      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED';
-    END IF;
-  END LOOP;
+        SELECT 1
+        FROM public.preliminary_survey_v2_measurement_assignments existing
+        JOIN public.preliminary_survey_v2_plans existing_plan ON existing_plan.id = existing.plan_id
+        WHERE existing_plan.measurement_target_business_id = numbered.target_id
+          AND existing.measurement_date = numbered.measurement_date
+          AND existing.assignee_user_id = numbered.assignee_user_id
+          AND existing.approval_required IS TRUE
+      )
+  ) INTO approval_required_for_group;
+  IF approval_required_for_group AND (p_approve_third_assignment IS NOT TRUE OR p_approved_by_user_id IS NULL) THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED';
+  END IF;
 
   SELECT jsonb_agg(plan || jsonb_build_object('target' || '_id', plan->'measurement_target_business_id'))
     INTO legacy_plans FROM jsonb_array_elements(p_plans) plan;
@@ -303,14 +329,52 @@ BEGIN
     );
 
   FOR assignment IN SELECT value FROM jsonb_array_elements(p_assignments) LOOP
+    WITH final_rows AS (
+      SELECT existing_plan.measurement_target_business_id AS target_id,
+        existing.measurement_date, existing.assignee_user_id, false AS is_proposed
+      FROM public.preliminary_survey_v2_measurement_assignments existing
+      JOIN public.preliminary_survey_v2_plans existing_plan ON existing_plan.id = existing.plan_id
+      WHERE existing_plan.measurement_target_business_id NOT IN (
+        SELECT DISTINCT (item->>'measurement_target_business_id')::bigint
+        FROM jsonb_array_elements(p_plans) item
+      )
+      UNION ALL
+      SELECT (item->>'measurement_target_business_id')::bigint,
+        (item->>'measurement_date')::date, (item->>'assignee_user_id')::integer, true
+      FROM jsonb_array_elements(p_assignments) item
+    ), numbered_rows AS (
+      SELECT *, row_number() OVER (
+      PARTITION BY measurement_date, assignee_user_id ORDER BY is_proposed, target_id
+      ) AS assignment_position
+      FROM final_rows
+    )
+    SELECT numbered.assignment_position > 2,
+      COALESCE(existing.approval_required, false), existing.approved_by_user_id, existing.approved_at
+    INTO approval_required_for_assignment, existing_approval_preserved,
+      existing_approved_by_user_id, existing_approved_at
+    FROM numbered_rows numbered
+    LEFT JOIN public.preliminary_survey_v2_plans existing_plan
+      ON existing_plan.measurement_target_business_id = numbered.target_id
+    LEFT JOIN public.preliminary_survey_v2_measurement_assignments existing
+      ON existing.plan_id = existing_plan.id
+     AND existing.measurement_date = numbered.measurement_date
+     AND existing.assignee_user_id = numbered.assignee_user_id
+    WHERE numbered.is_proposed
+      AND numbered.target_id = (assignment->>'measurement_target_business_id')::bigint
+      AND numbered.measurement_date = (assignment->>'measurement_date')::date
+      AND numbered.assignee_user_id = (assignment->>'assignee_user_id')::integer;
+    existing_approval_preserved := approval_required_for_assignment AND existing_approval_preserved;
+
     INSERT INTO public.preliminary_survey_v2_measurement_assignments (
       plan_id, measurement_date, assignee_user_id, survey_code, assignment_reason,
       approval_required, approved_by_user_id, approved_at
     ) SELECT plan.id, (assignment->>'measurement_date')::date,
       (assignment->>'assignee_user_id')::integer, assignment->>'survey_code', assignment->>'assignment_reason',
-      COALESCE((assignment->>'approval_required')::boolean, false),
-      CASE WHEN COALESCE((assignment->>'approval_required')::boolean, false) THEN p_approved_by_user_id ELSE NULL END,
-      CASE WHEN COALESCE((assignment->>'approval_required')::boolean, false) THEN CURRENT_TIMESTAMP ELSE NULL END
+      approval_required_for_assignment,
+      CASE WHEN existing_approval_preserved THEN existing_approved_by_user_id
+        WHEN approval_required_for_assignment THEN p_approved_by_user_id ELSE NULL END,
+      CASE WHEN existing_approval_preserved THEN existing_approved_at
+        WHEN approval_required_for_assignment THEN CURRENT_TIMESTAMP ELSE NULL END
     FROM public.preliminary_survey_v2_plans plan
     WHERE plan.measurement_target_business_id = (assignment->>'measurement_target_business_id')::bigint
     ON CONFLICT (plan_id, measurement_date) DO UPDATE SET

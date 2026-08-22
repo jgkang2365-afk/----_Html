@@ -41,10 +41,10 @@ test("같은 날짜 방문·유선 용량과 같은 측정일 측정자 균등�
   const result = calculatePreliminarySurveyImpactScope({
     seedTargetIds: [1, 3],
     targets: [
-      target(1, { preliminaryDate: "2026-08-03", surveyMethod: "field", measurementDate: "2026-09-01" }),
-      target(2, { preliminaryDate: "2026-08-03", surveyMethod: "field", measurementDate: "2026-09-02" }),
-      target(3, { preliminaryDate: "2026-08-04", surveyMethod: "phone", measurementDate: "2026-09-03" }),
-      target(4, { preliminaryDate: "2026-08-04", surveyMethod: "phone", measurementDate: "2026-09-04" }),
+      target(1, { preliminaryDate: "2026-08-03", surveyMethod: "field", participantUserIds: [10], measurementDate: "2026-09-01" }),
+      target(2, { preliminaryDate: "2026-08-03", surveyMethod: "field", participantUserIds: [10], measurementDate: "2026-09-02" }),
+      target(3, { preliminaryDate: "2026-08-04", surveyMethod: "phone", participantUserIds: [20], measurementDate: "2026-09-03" }),
+      target(4, { preliminaryDate: "2026-08-04", surveyMethod: "phone", participantUserIds: [20], measurementDate: "2026-09-04" }),
       target(5, { preliminaryDate: "2026-08-09", surveyMethod: "field", measurementDate: "2026-09-01" }),
     ],
   });
@@ -53,6 +53,18 @@ test("같은 날짜 방문·유선 용량과 같은 측정일 측정자 균등�
   assert.ok(result.reasonsByTarget[2].includes("same_date_field_capacity"));
   assert.ok(result.reasonsByTarget[4].includes("same_date_phone_capacity"));
   assert.ok(result.reasonsByTarget[5].includes("same_measurement_date_assignee_balance"));
+});
+
+test("용량 관계는 같은 예비조사일·방식만으로 확장하지 않고 겹치는 조사자를 요구한다", () => {
+  const result = calculatePreliminarySurveyImpactScope({
+    seedTargetIds: [1],
+    targets: [
+      target(1, { preliminaryDate: "2026-08-03", surveyMethod: "field", participantUserIds: [10] }),
+      target(2, { preliminaryDate: "2026-08-03", surveyMethod: "field", participantUserIds: [20] }),
+      target(3, { preliminaryDate: "2026-08-03", surveyMethod: "phone", participantUserIds: [20] }),
+    ],
+  });
+  assert.deepEqual(result.targetIds, [1]);
 });
 
 test("주소 정규화는 공백 차이만 제거하고 빈 주소는 관계를 만들지 않는다", () => {

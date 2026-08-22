@@ -45,9 +45,13 @@ import {
 } from "@/lib/business-info/registration-context";
 import {
     MeasurementDayForm,
+    changeMeasurementDayReportWriter,
+    defaultEmptyParticipantsToReportWriter,
     measurementDayFormsFrom,
     serializeMeasurementDayForms,
+    serializeMeasurementDayFormsForEditing,
     swapMeasurerForMeasurementDateTransition,
+    validateMeasurementDayForms,
 } from "@/lib/business/measurement-day-form";
 
 interface BusinessEntry {
@@ -1374,16 +1378,17 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
         // 보고서 담당자(measurer_id)는 측정 참여자와 별개 역할이다.
         // 모달에서는 편의를 위해 기본 체크하되 사용자가 자유롭게 해제할 수 있다.
+        const initialDays = defaultEmptyParticipantsToReportWriter(measurementDayFormsFrom({
+            dailyStaff: item.daily_staff,
+            measurementDate: item.measurement_date,
+            measurerId: item.measurer_id,
+            collaborators: item.collaborators,
+        }), measurers);
         const initialForm = {
             ...item,
             sanjae: item.industrial_accident_number || item.sanjae || "",
             commencement: item.commencement_number || item.commencement || "",
-            ...serializeMeasurementDayForms(measurementDayFormsFrom({
-                dailyStaff: item.daily_staff,
-                measurementDate: item.measurement_date,
-                measurerId: item.measurer_id,
-                collaborators: item.collaborators,
-            })),
+            ...serializeMeasurementDayFormsForEditing(initialDays),
         };
 
         setEditForm(initialForm);
@@ -1394,7 +1399,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         days: MeasurementDayForm[],
         linkMeasurerId?: number | null,
     ) => {
-        const serialized = serializeMeasurementDayForms(days);
+        const serialized = serializeMeasurementDayFormsForEditing(days);
         setEditForm((previous) => ({
             ...previous,
             ...serialized,
@@ -1422,9 +1427,22 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
+
+        const measurementDays = measurementDayFormsFrom({
+            dailyStaff: editForm.daily_staff,
+            measurementDate: editForm.measurement_date,
+            measurerId: editForm.measurer_id,
+            collaborators: editForm.collaborators,
+        });
+        const measurementDayValidation = validateMeasurementDayForms(measurementDays);
+        if (!measurementDayValidation.valid) {
+            alert(measurementDayValidation.message);
+            return;
+        }
+
         try {
             // 저장이 성공(Resolve)한 후에만 모달을 닫음
-            const updatesToSave = { ...editForm };
+            const updatesToSave = { ...editForm, ...serializeMeasurementDayForms(measurementDays) };
             (["manager_name", "manager_mobile", "manager_email"] as const).forEach(field => {
                 if (String(editForm[field] ?? "") === String(editingItem[field] ?? "")) {
                     delete updatesToSave[field];
@@ -2538,7 +2556,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                                             collaborators: prev.collaborators,
                                                         }],
                                                 });
-                                                const serialized = serializeMeasurementDayForms([
+                                                const serialized = serializeMeasurementDayFormsForEditing([
                                                     ...days,
                                                     { date: "", measurerId: null, collaborators: [] },
                                                 ]);
@@ -2581,10 +2599,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                             onMeasurerChange={(measurerId) => {
                                                 const available = availableMeasurersForDate(measurers, day.date || editForm.future_measurement_date);
                                                 const reportWriter = available.find((member) => member.id === measurerId);
-                                                const participants = [...day.collaborators];
-                                                if (reportWriter && !participants.includes(reportWriter.name)) participants.push(reportWriter.name);
                                                 const nextDays = [...days];
-                                                nextDays[index] = { ...day, measurerId, collaborators: participants };
+                                                nextDays[index] = changeMeasurementDayReportWriter(day, measurerId, reportWriter?.name);
                                                 updateMeasurementDays(nextDays);
                                             }}
                                             onCollaboratorChange={(name, checked) => {

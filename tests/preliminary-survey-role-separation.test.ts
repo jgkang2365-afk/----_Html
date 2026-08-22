@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import {
+  changeMeasurementDayReportWriter,
+  defaultEmptyParticipantsToReportWriter,
+  serializeMeasurementDayForms,
+  validateMeasurementDayForms,
+} from "../lib/business/measurement-day-form";
 import { measurementStaffForDate } from "../lib/preliminary-survey-v2/measurement-staff";
 
 const businessApi = readFileSync("app/api/businesses/route.ts", "utf8");
@@ -23,9 +29,72 @@ test("보고서 담당·측정 참여자·예비조사자·측정자 공시료�
 test("사업장 상세는 측정 참여자 용어와 해제 가능한 보고서 담당 기본 체크를 사용한다", () => {
   assert.match(businessUi, /측정 참여자 \(복수 선택\)/);
   assert.doesNotMatch(businessUi, /조력자 \(복수 선택\)/);
-  assert.match(businessUi, /if \(reportWriter && !participants\.includes\(reportWriter\.name\)\) participants\.push/);
+  assert.match(businessUi, /defaultEmptyParticipantsToReportWriter/);
+  assert.match(businessUi, /changeMeasurementDayReportWriter/);
   assert.doesNotMatch(businessUi, /disabled=\{isLink\}/);
   assert.doesNotMatch(businessUi, /checked=\{isChecked \|\| isLink\}/);
+});
+
+test("모달 초기화는 참여자가 빈 날짜에만 보고서 담당자를 기본 체크한다", () => {
+  const result = defaultEmptyParticipantsToReportWriter([
+    { date: "2026-08-25", measurerId: 1, collaborators: [] },
+    { date: "2026-08-26", measurerId: 1, collaborators: ["김민영"] },
+  ], [{ id: 1, name: " 한기문 " }]);
+  assert.deepEqual(result[0].collaborators, ["한기문"]);
+  assert.deepEqual(result[1].collaborators, ["김민영"]);
+});
+
+test("보고서 담당 변경은 새 담당자를 추가하되 기존 참여자를 보존하고 중복을 제거한다", () => {
+  const changed = changeMeasurementDayReportWriter(
+    { date: "2026-08-25", measurerId: 1, collaborators: ["김민영", " 김민영 "] },
+    2,
+    " 강종구 ",
+  );
+  assert.equal(changed.measurerId, 2);
+  assert.deepEqual(changed.collaborators, ["김민영", "강종구"]);
+});
+
+test("단일 빈 측정일은 미실시 null로 저장한다", () => {
+  assert.deepEqual(serializeMeasurementDayForms([
+    { date: "", measurerId: null, collaborators: [] },
+  ]), {
+    daily_staff: null,
+    measurement_date: null,
+    measurement_end_date: null,
+    measurer_id: null,
+    collaborators: null,
+  });
+});
+
+test("다일 측정의 빈 날짜·중복 날짜·잘못된 날짜를 저장 전에 차단한다", () => {
+  assert.equal(validateMeasurementDayForms([
+    { date: "2026-08-25", measurerId: 1, collaborators: [] },
+    { date: "", measurerId: 1, collaborators: [] },
+  ]).valid, false);
+  assert.deepEqual(validateMeasurementDayForms([
+    { date: "2026-08-25", measurerId: 1, collaborators: [] },
+    { date: "2026-08-25", measurerId: 2, collaborators: [] },
+  ]), {
+    valid: false,
+    code: "DUPLICATE_MEASUREMENT_DATE",
+    message: "측정일이 중복되었습니다: 1, 2",
+  });
+  assert.equal(validateMeasurementDayForms([
+    { date: "2026-02-30", measurerId: 1, collaborators: [] },
+  ]).valid, false);
+  assert.throws(() => serializeMeasurementDayForms([
+    { date: "2026-08-25", measurerId: 1, collaborators: [] },
+    { date: "", measurerId: 1, collaborators: [] },
+  ]), /INCOMPLETE_MULTI_DAY_MEASUREMENT/);
+});
+
+test("다일 측정의 시작일·종료일은 정렬된 유효 날짜로 재계산한다", () => {
+  const serialized = serializeMeasurementDayForms([
+    { date: "2026-08-28", measurerId: 1, collaborators: [] },
+    { date: "2026-08-24", measurerId: 2, collaborators: [] },
+  ]);
+  assert.equal(serialized.measurement_date, "2026-08-24");
+  assert.equal(serialized.measurement_end_date, "2026-08-28");
 });
 
 test("일자 추가 시 기존 1일 일정을 첫 daily_staff entry로 보존해 UI 의미를 통일한다", () => {

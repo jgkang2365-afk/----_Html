@@ -26,6 +26,96 @@ const uniqueNames = (value: unknown): string[] => {
   return Array.from(new Set(names.map(String).map((name) => name.trim()).filter(Boolean)));
 };
 
+export type MeasurementDayValidationCode =
+  | "EMPTY_MEASUREMENT_DATE"
+  | "DUPLICATE_MEASUREMENT_DATE"
+  | "INVALID_MEASUREMENT_DATE"
+  | "INCOMPLETE_MULTI_DAY_MEASUREMENT";
+
+export type MeasurementDayValidation =
+  | { valid: true }
+  | { valid: false; code: MeasurementDayValidationCode; message: string };
+
+const isValidDateString = (value: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+};
+
+/** 편집 중인 1일/다일 일정이 저장 가능한지 검사한다. */
+export function validateMeasurementDayForms(days: MeasurementDayForm[]): MeasurementDayValidation {
+  const normalizedDates = days.map((day) => day.date.trim());
+  if (days.length <= 1) {
+    const date = normalizedDates[0] ?? "";
+    if (!date) return { valid: true };
+    return isValidDateString(date)
+      ? { valid: true }
+      : { valid: false, code: "INVALID_MEASUREMENT_DATE", message: "측정일 형식을 확인해 주세요." };
+  }
+
+  const firstEmptyIndex = normalizedDates.findIndex((date) => !date);
+  if (firstEmptyIndex >= 0) {
+    return {
+      valid: false,
+      code: "INCOMPLETE_MULTI_DAY_MEASUREMENT",
+      message: `측정일 ${firstEmptyIndex + 1}을 입력해 주세요.`,
+    };
+  }
+
+  const invalidIndex = normalizedDates.findIndex((date) => !isValidDateString(date));
+  if (invalidIndex >= 0) {
+    return {
+      valid: false,
+      code: "INVALID_MEASUREMENT_DATE",
+      message: `측정일 ${invalidIndex + 1}의 형식을 확인해 주세요.`,
+    };
+  }
+
+  const firstIndexes = new Map<string, number>();
+  for (let index = 0; index < normalizedDates.length; index += 1) {
+    const date = normalizedDates[index];
+    const firstIndex = firstIndexes.get(date);
+    if (firstIndex !== undefined) {
+      return {
+        valid: false,
+        code: "DUPLICATE_MEASUREMENT_DATE",
+        message: `측정일이 중복되었습니다: ${firstIndex + 1}, ${index + 1}`,
+      };
+    }
+    firstIndexes.set(date, index);
+  }
+
+  return { valid: true };
+}
+
+export function defaultEmptyParticipantsToReportWriter(
+  days: MeasurementDayForm[],
+  reportWriters: Array<{ id: number; name: string }>,
+): MeasurementDayForm[] {
+  const namesById = new Map(reportWriters.map((writer) => [writer.id, writer.name.trim()]));
+  return days.map((day) => {
+    if (uniqueNames(day.collaborators).length > 0 || day.measurerId == null) return day;
+    const reportWriterName = namesById.get(day.measurerId);
+    return reportWriterName ? { ...day, collaborators: [reportWriterName] } : day;
+  });
+}
+
+export function changeMeasurementDayReportWriter(
+  day: MeasurementDayForm,
+  measurerId: number | null,
+  reportWriterName?: string | null,
+): MeasurementDayForm {
+  return {
+    ...day,
+    measurerId,
+    collaborators: uniqueNames([
+      ...day.collaborators,
+      ...(reportWriterName?.trim() ? [reportWriterName.trim()] : []),
+    ]),
+  };
+}
+
 const toMeasurerId = (value: unknown): number | null => {
   const id = typeof value === "number" ? value : Number(value);
   return Number.isInteger(id) && id > 0 ? id : null;
@@ -96,8 +186,7 @@ export function swapMeasurerForMeasurementDateTransition(
   };
 }
 
-/** 날짜별 편집 상태를 DB의 단일일/다일 호환 형식으로 정규화한다. */
-export function serializeMeasurementDayForms(days: MeasurementDayForm[]): SerializedMeasurementDays {
+function serializeNormalizedMeasurementDayForms(days: MeasurementDayForm[]): SerializedMeasurementDays {
   const normalized = days.map((day) => ({
     date: day.date.trim(),
     measurerId: toMeasurerId(day.measurerId),
@@ -129,4 +218,16 @@ export function serializeMeasurementDayForms(days: MeasurementDayForm[]): Serial
     measurer_id: primary.measurerId,
     collaborators,
   };
+}
+
+/** 저장 경계용 serializer. 유효하지 않은 날짜 상태를 조용히 저장하지 않는다. */
+export function serializeMeasurementDayForms(days: MeasurementDayForm[]): SerializedMeasurementDays {
+  const validation = validateMeasurementDayForms(days);
+  if (!validation.valid) throw new Error(`${validation.code}: ${validation.message}`);
+  return serializeNormalizedMeasurementDayForms(days);
+}
+
+/** 사용자가 다일 일정을 입력하는 중의 빈 카드까지 보존하는 UI 전용 변환이다. */
+export function serializeMeasurementDayFormsForEditing(days: MeasurementDayForm[]): SerializedMeasurementDays {
+  return serializeNormalizedMeasurementDayForms(days);
 }
