@@ -9,6 +9,9 @@
 - 측정예정일 검색 scope 최종 구현 commit SHA: `fbd451c81187f87c74dac948a3074b237451a27f`
 - PR #42 구현 head SHA: `fbd451c81187f87c74dac948a3074b237451a27f`
 - 원천 데이터 검증 시작 head SHA: `5dbf55b5fd6b781883174ccab0cc87e031ec6d53`
+- 최종 정책 정렬 시작 head SHA: `c3ef18a4a413aa4ae2d629abaf7885913f72a175`
+- 최종 정책 정렬 확인 origin/main SHA: `74c5366fc9f012081bf7fe9a78e0cd74a0f7150b`
+- 최종 정책 정렬 구현 commit SHA: `7eff489fc032aac550e9b7c406ffd96aa220c051`
 - PR: #42 `feat: rebuild preliminary survey planning workflow` (Draft 유지, merge하지 않음)
 
 보고서 자체를 반영하는 Git commit은 자신의 SHA를 파일 안에 미리 기록할 수 없으므로, 위 값은 최종 구현 commit 기준이다. 보고서 반영 후 실제 PR head는 PR 메타데이터와 완료 보고에 별도로 기록한다.
@@ -252,11 +255,83 @@
 - DB 자동 보정은 금지한다. 특히 collaborators 배열 첫 사람 또는 보고서담당을 일괄 메인으로 저장하면 안 된다.
 - 코드 검증 worker가 관련 Phase B·역할 분리 테스트 50건을 실행해 모두 통과했다. 이번 변경은 보고서뿐이므로 제품 전체 테스트와 build는 다시 실행하지 않았다.
 
+## 2026-08-22 인력·공시료·재추천 정책 최종 정렬
+
+### 현재 구현 분류
+
+- 유지: 측정예정일 검색 snapshot, 유형별 예비조사 후보일, preview/apply 동일 draft, PAUSE OFF, 기존 V2/legacy 보존, `measurement_journal` 찐확정, minimum-change, 기존 탭·검색·sticky UI.
+- 수정: 사업장 상세의 `조력자`를 `측정 참여자`로 변경하고, 보고서 담당자를 기본 체크하되 사용자가 해제할 수 있게 했다. 단일일에서 일자를 추가할 때 기존 일정도 첫 `daily_staff` entry로 보존해 날짜별 UI 의미를 통일했다.
+- 제거: legacy `daily_staff.measurer_id → 메인측정자`, `daily_staff.collaborators → 조력자` fallback과 보고서 담당·측정 참여자·예비조사자에서 측정자(공시료)를 추론하는 경로를 제거했다.
+- 신규: 고정 공시료 코드 기반 측정자 균등배정, 3건 승인 흐름, 추천 사유, 예비조사 담당자 서버 권한, 영향 범위 재추천, 찐확정 DB guard migration을 추가했다.
+
+### 역할과 UI
+
+- 보고서 담당자는 `measurement_target_business.measurer_id` 또는 날짜별 `daily_staff.measurer_id`이며, 측정 참여자와 측정자(공시료)와 별도다.
+- `메인측정자 = 측정자 = 공시료 담당자`로 통합했다. 사업장 상세 모달에서는 이 역할이나 공시료 코드를 선택하지 않는다.
+- 계획/목록 테이블과 상세 모달은 `측정자·공시료`, `측정 참여자`, `보고서 담당자`를 별도 표시한다.
+- 캘린더 제목은 실제 측정 참여자만 표시한다. 보고서 담당자가 참여자에 포함되면 이름을 앞에 두며, 미포함이면 참여자만 표시한다. 색상은 기존대로 보고서 담당자 기준이다.
+- 사용자 관리에서 기존 `is_preliminary_survey_experienced`를 재사용하고 `예비조사 담당자` 권한 UI/API를 추가했다. 권한 column migration은 작성만 했으며 운영 DB에는 적용하지 않았다.
+
+### 추천 알고리즘
+
+- 예비조사자 계산이 끝난 뒤 측정자(공시료)를 별도 단계로 배정하므로 예비조사자·실측정자·보고서 담당자를 서로 맞추지 않는다.
+- 고정 코드는 `이태환 A / 한기문 B / 강종구 C / 이주형 D / 고유빈 F / 김민영 G`다.
+- 같은 측정일에 6개 업체는 6명에게 1건씩, 8개 업체는 기본 `2/2/1/1/1/1`로 배정한다. 추가 배정은 `동일주소 > 근거리/동선 > 현재 배정수` 순이다.
+- 1인 2건은 자동추천할 수 있고 3건부터 `3건 승인 필요`로 반환한다. 예비조사 담당자 또는 관리자가 명시적으로 확인한 동일 draft만 apply할 수 있다.
+- 최초실시·타기관 신규는 방문, 기존업체는 유선 기본이다. 기존업체 방문은 같은 날 필수 신규 방문과 동일주소 또는 검증된 근거리일 때만 최대 2건 범위에서 보조적으로 승격하며 별도 방문일을 만들지 않는다.
+- 유선 배정은 1인당 하루 3건으로 검증하고 경력 조건은 hard constraint로 유지한다.
+- 추천 사유는 `최초실시·방문`, `타기관 신규·방문`, `기존업체·유선`, `동일주소 묶음`, `근거리 묶음`, `측정자 균등배정`, `2건 배정`, `3건 승인 필요`의 짧은 문구로 표시한다.
+
+### 영향 범위·상태·잠금
+
+- 업체별 재추천은 대상 한 건만 저장하지 않고 같은 예비조사일, 예비조사자 조합, 동일주소, 같은 측정일의 관련 target을 후보 범위로 확장한다. 찐확정 대상은 추천 대상에서 제외한다.
+- 사업장 상세의 측정일·보고서 담당·측정 참여자·구분·주소가 적용 draft snapshot과 달라지면 GET에서 `재검토 필요`로 표시하고 apply 시 409 `DRAFT_REVIEW_REQUIRED`를 반환한다.
+- 일반 V2 단건·배치 write와 직접 table update를 `measurement_journal` row 존재 기준으로 차단하는 migration을 추가했다. `sequence_number`를 찐확정 판정에 사용하지 않는다.
+- 기존 관리자 repair API/service/audit는 삭제하지 않았고 trigger bypass가 관리자 repair RPC에만 열리도록 migration을 설계했다. migration은 운영 DB에 적용하지 않았다.
+
+### 사용자 수동 보정 10개 READ-ONLY 검증
+
+- H0399, H0524, H0288, H0528, H0348, H0126, H0281, H0260, H0063, H0077의 운영 DB 현재값을 SELECT로만 재확인했다.
+- 10개 모두 자동 correction 대상에서 제외했고, 코드에는 업체별 보정값이나 UPDATE SQL을 넣지 않았다. 운영 DB write는 0건이다.
+- H0260은 날짜별 참여자에 공백·중복이 남아 있으나 DB는 변경하지 않고 화면 문자열에서만 trim/dedup한다.
+- 이 절은 위 원천 검증의 과거 `확인·수정 판단 대상` 표를 대체한다. 해당 10개는 사용자 보정 완료 기준값이며 더 이상 수정 대기 대상이 아니다.
+
+### schema/migration
+
+- 작성: `20260822_add_preliminary_survey_manager.sql`, `20260822_lock_true_confirmed_v2_plans.sql`, `20260822_enforce_true_confirmed_trigger.sql`.
+- 운영 적용: 없음. 운영 적용 전 기존 함수 signature, trigger 순서, RLS/권한, rollback 절차를 별도 검토해야 한다.
+- 기존 V2 table/data/service/API/audit 삭제나 migration 적용은 없었다.
+
+### 테스트와 브라우저 검증
+
+- `npx tsc --noEmit`: 통과.
+- Phase B·역할·공시료·캘린더 집중 테스트: 33/33 통과.
+- `npm test`: 345/345 통과.
+- `npm run build`: 최종 통과(69개 static page 생성, 99.7초). 개발 서버와 동시 실행한 첫 시도는 184초 timeout되어 브라우저 검증 후 서버를 정상 중지하고 재실행했으며 이후 두 번 모두 성공했다.
+- Orca 브라우저 `/businesses`: `측정 참여자` 명칭, 보고서 담당 선택 시 기본 체크, 체크 해제 가능, 일자 추가 후 날짜 2개에 동일한 보고서 담당/측정 참여자 구조를 확인했다. 저장은 누르지 않고 취소했다.
+- Orca 브라우저 `/survey`: 측정예정일 `2026-08-01~2026-08-31` 검색 결과 100건, 역할 분리 컬럼, H0260 복수 참여자 표시, H0508 찐확정 상세 잠금과 재추천·수동 저장 disabled를 확인했다.
+- 현재 로그인은 일반 사용자라 추천 생성은 서버 403 `예비조사 담당자 또는 관리자만...`으로 차단됐다. 안전한 관리자 환경이 없어 추천 성공·선택 재추천·apply write E2E는 수행하지 않았다.
+- 외부 Google Calendar에 write하지 않았으므로 실제 이벤트 생성 결과는 실행하지 않았다. 이름 정렬과 보고서 담당 미참여 표시, 색상 원천은 순수 함수/기존 color-policy 테스트로 검증했다.
+
+### 이번 Orca worker 기록
+
+| 모델 | 추론 강도 | 담당 작업 | 결과 |
+| --- | --- | --- | --- |
+| GPT-5.6 Sol | Medium | 메인 통합, 구현, 테스트, Orca 브라우저, 보고서·Git/PR | 실제 Orca 터미널 표시값 확인, 반영 |
+| GPT-5.6 Terra | High | 사업장 상세·daily_staff·캘린더 데이터 흐름 분석 | `task_5961148080fe`, 반영 |
+| GPT-5.6 Terra | High | 권한·경력 속성·UI·테스트 경계 분석 | `task_57faa78517be`, 반영 |
+| GPT-5.6 Terra | High | 추천기·공시료·영향 범위 분석 | 최초 `task_99284b64d373`가 `agent_prompt_stalled`, 동일 terminal의 재시도 `task_11675936af96` 성공 후 반영 |
+| GPT-5.6 Luna | - | 미사용 | 0회 |
+
+- Orca Run: `run_5cded3c14af4`. 모델별 토큰·credits는 확인할 수 없어 추정하지 않았다.
+
 ## 알려진 제한사항
 
 - 관리자 권한의 안전한 테스트 데이터 환경에서 `추천 생성 → 업체별 재추천 → 추천안 적용` 성공 흐름과 실제 저장값 동일성을 추가 확인해야 한다.
 - 실제 외부 차량 경로 API 응답을 사용하는 운영 데이터 조합은 이번 브라우저 검증에서 실행하지 않았다.
 - 찐확정 관리자 정비는 기존 admin repair 경로를 유지하며 일반 작업대 모달에서는 제공하지 않는다.
+- 기존 legacy 관리자 repair RPC 내부에는 `sequence_number` 확인과 예·측(link) 정비 의미가 남아 있다. 새 workbench 일반 흐름에서는 호출하지 않지만, 모든 `measurement_journal` 찐확정 row에 대한 새 역할 정비로 확장하려면 별도 migration 설계와 사용자 승인이 필요하다.
+- 동일주소 영향 범위는 계산하지만 좌표 기반 근거리 묶음을 영속적으로 식별하는 별도 bundle ID는 없다. 근거리 영향 범위 자동 확장은 향후 route evidence 구조와 함께 보강해야 한다.
 
 ## 남은 TODO
 
