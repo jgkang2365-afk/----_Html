@@ -53,6 +53,11 @@ import {
     swapMeasurerForMeasurementDateTransition,
     validateMeasurementDayForms,
 } from "@/lib/business/measurement-day-form";
+import {
+    buildMeasurementScheduleBlockKeys,
+    isMeasurementStaffUnavailable,
+    validateMeasurementDayAvailability,
+} from "@/lib/business/measurement-day-availability";
 
 interface BusinessEntry {
     id: string | number;
@@ -175,6 +180,7 @@ interface MeasurementDayAssignmentCardProps {
     index: number;
     measurers: User[];
     fallbackDate: string | null | undefined;
+    blockedKeys: Set<string>;
     canRemove: boolean;
     onDateChange: (date: string) => void;
     onMeasurerChange: (measurerId: number | null) => void;
@@ -192,13 +198,21 @@ const MeasurementDayAssignmentCard: React.FC<MeasurementDayAssignmentCardProps> 
     index,
     measurers,
     fallbackDate,
+    blockedKeys,
     canRemove,
     onDateChange,
     onMeasurerChange,
     onCollaboratorChange,
     onRemove,
 }) => {
-    const dayMeasurers = availableMeasurersForDate(measurers, day.date || fallbackDate);
+    const assignmentDate = day.date || fallbackDate;
+    const allDayMeasurers = availableMeasurersForDate(measurers, assignmentDate);
+    const dayMeasurers = allDayMeasurers.filter((member) =>
+        !isMeasurementStaffUnavailable(member.id, assignmentDate, blockedKeys),
+    );
+    const unavailableMeasurers = allDayMeasurers.filter((member) =>
+        isMeasurementStaffUnavailable(member.id, assignmentDate, blockedKeys),
+    );
 
     return (
         <Card className="p-3 bg-white border-slate-200 relative group">
@@ -223,6 +237,9 @@ const MeasurementDayAssignmentCard: React.FC<MeasurementDayAssignmentCardProps> 
                         options={[
                             { value: "", label: "선택" },
                             ...dayMeasurers.map((member) => ({ value: member.id.toString(), label: member.name })),
+                            ...unavailableMeasurers
+                                .filter((member) => member.id === day.measurerId)
+                                .map((member) => ({ value: member.id.toString(), label: `${member.name} (불가 일정)` })),
                         ]}
                         value={day.measurerId?.toString() || ""}
                         onChange={(event) => onMeasurerChange(event.target.value ? Number(event.target.value) : null)}
@@ -231,16 +248,22 @@ const MeasurementDayAssignmentCard: React.FC<MeasurementDayAssignmentCardProps> 
                 <div className="col-span-2">
                     <label className="block text-xs font-semibold text-slate-500 mb-1">측정 참여자 (복수 선택)</label>
                     <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
-                        {dayMeasurers.map((member) => (
+                        {[...dayMeasurers, ...unavailableMeasurers.filter((member) => day.collaborators.includes(member.name))].map((member) => (
+                            (() => {
+                                const unavailable = isMeasurementStaffUnavailable(member.id, assignmentDate, blockedKeys);
+                                return (
                             <label key={member.id} className="flex items-center gap-1.5 cursor-pointer p-0.5 rounded hover:bg-slate-50">
                                 <input
                                     type="checkbox"
                                     checked={day.collaborators.includes(member.name)}
+                                    disabled={unavailable && !day.collaborators.includes(member.name)}
                                     onChange={(event) => onCollaboratorChange(member.name, event.target.checked)}
                                     className="w-3.5 h-3.5 rounded"
                                 />
-                                <span className="text-xs text-slate-600">{member.name}</span>
+                                <span className="text-xs text-slate-600">{member.name}{unavailable ? " (불가 일정)" : ""}</span>
                             </label>
+                                );
+                            })()
                         ))}
                     </div>
                 </div>
@@ -651,6 +674,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         void refreshCoordinateSummary();
     };
     const [measurers, setMeasurers] = useState<User[]>([]); // 측정자 목록
+    const [measurementScheduleBlockedKeys, setMeasurementScheduleBlockedKeys] = useState<Set<string>>(new Set());
     const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
 
     // Initial Filter Setup
@@ -1338,6 +1362,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         fetchData();
     }, [fetchData]);
 
+    useEffect(() => {
+        fetch("/api/user-schedule-blocks", { cache: "no-store" })
+            .then(async (response) => {
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || "직원 불가 일정 조회 실패");
+                setMeasurementScheduleBlockedKeys(buildMeasurementScheduleBlockKeys(result.blocks || []));
+            })
+            .catch((error) => console.error("직원 불가 일정 조회 실패:", error));
+    }, []);
+
     const hasPendingNationalSupport = data.some(item =>
         ["신청중", "조회중", "신청완료대기"].includes(item.sync_status || "")
     );
@@ -1373,8 +1407,19 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         if (e.key === 'Enter') handleSearch();
     };
 
-    const handleEditClick = (item: BusinessEntry) => {
+    const handleEditClick = async (item: BusinessEntry) => {
         setEditingItem(item);
+
+        let blockedKeys = measurementScheduleBlockedKeys;
+        try {
+            const response = await fetch("/api/user-schedule-blocks", { cache: "no-store" });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "직원 불가 일정 조회 실패");
+            blockedKeys = buildMeasurementScheduleBlockKeys(result.blocks || []);
+            setMeasurementScheduleBlockedKeys(blockedKeys);
+        } catch (error) {
+            console.error("직원 불가 일정 조회 실패:", error);
+        }
 
         // 보고서 담당자(measurer_id)는 측정 참여자와 별개 역할이다.
         // 모달에서는 편의를 위해 기본 체크하되 사용자가 자유롭게 해제할 수 있다.
@@ -1383,7 +1428,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             measurementDate: item.measurement_date,
             measurerId: item.measurer_id,
             collaborators: item.collaborators,
-        }), measurers);
+        }), measurers, (userId, date) => !isMeasurementStaffUnavailable(userId, date, blockedKeys));
         const initialForm = {
             ...item,
             sanjae: item.industrial_accident_number || item.sanjae || "",
@@ -1437,6 +1482,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         const measurementDayValidation = validateMeasurementDayForms(measurementDays);
         if (!measurementDayValidation.valid) {
             alert(measurementDayValidation.message);
+            return;
+        }
+        const availabilityValidation = validateMeasurementDayAvailability({
+            days: measurementDays,
+            users: measurers,
+            blockedKeys: measurementScheduleBlockedKeys,
+        });
+        if (!availabilityValidation.valid) {
+            alert(availabilityValidation.message);
             return;
         }
 
@@ -2584,6 +2638,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                             index={index}
                                             measurers={measurers}
                                             fallbackDate={editForm.future_measurement_date}
+                                            blockedKeys={measurementScheduleBlockedKeys}
                                             canRemove={days.length > 1}
                                             onDateChange={(date) => {
                                                 const transition = swapMeasurerForMeasurementDateTransition(

@@ -136,7 +136,7 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   };
 
   const { data: planRows, error: planError } = await supabase.from("preliminary_survey_v2_plans").select(
-    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status",
+    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, survey_method, status",
   ).eq("status", "recommended").eq("recommended_date", recommendedDate).neq("measurement_target_business_id", targetId);
   const v2TableMissing = planError?.code === "42P01" || planError?.code === "PGRST205";
   if (planError && !v2TableMissing) throw new Error(`V2_PLAN_QUERY_FAILED:${planError.message}`);
@@ -174,6 +174,7 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
       participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
       responsibleUserId: Number(plan.responsible_user_id),
       experiencedReviewerId: plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
+      surveyMethod: plan.survey_method === "field" ? "field" as const : "phone" as const,
       address: row.address, coordinate: coordinateFromRow(otherInfoByCode.get(row.code)), region: regionFromAddress(row.address),
     }];
   });

@@ -2,10 +2,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const migration = readFileSync(
+const baseMigration = readFileSync(
   "supabase/migrations/20260822153000_add_preliminary_survey_v2_measurement_assignments.sql",
   "utf8",
 );
+const forwardMigration = readFileSync(
+  "supabase/migrations/20260823120000_finalize_preliminary_survey_assignment_approval_groups.sql",
+  "utf8",
+);
+const migration = `${baseMigration}\n${forwardMigration}`;
 const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
 
 test("날짜별 측정자·공시료 배정은 plan UUID와 날짜 단위의 별도 원천 테이블에 저장한다", () => {
@@ -51,20 +56,30 @@ test("plan과 assignment는 하나의 RPC에서 source·승인 검증 후 원자
   assert.match(migration, /Rollback\(운영 적용 후 별도 승인\)/);
 });
 
-test("3건 승인은 측정일·측정자 그룹의 결정적 초과 row만 기록하고 client boolean은 신뢰하지 않는다", () => {
-  const rpc = migration.slice(
-    migration.indexOf("CREATE OR REPLACE FUNCTION public.persist_preliminary_survey_v2_plan_and_measurement_assignments"),
-    migration.indexOf("-- legacy API는 기존 plan의 수동 예비조사 필드만 수정할 수 있다."),
-  );
+test("3건 승인은 측정일·측정자·정렬 targetIds 지문으로 보존하고 구성 변경 시 재승인한다", () => {
+  const rpc = forwardMigration;
 
-  assert.match(rpc, /PARTITION BY measurement_date, assignee_user_id ORDER BY is_proposed, target_id/);
-  assert.match(rpc, /assignment_position > 2/);
+  assert.match(migration, /approval_group_fingerprint text/);
+  assert.match(rpc, /string_agg\(target_id::text, ',' ORDER BY target_id\)/);
+  assert.match(rpc, /md5\(measurement_date::text \|\| '\|' \|\| assignee_user_id::text/);
+  assert.match(rpc, /approved\.approval_group_fingerprint = grouped\.fingerprint/);
+  assert.match(rpc, /assignment_position = 3/);
   assert.match(rpc, /MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED/);
   assert.match(rpc, /RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED'/);
-  assert.match(rpc, /COALESCE\(existing\.approval_required, false\)/);
-  assert.match(rpc, /existing_approved_by_user_id/);
+  assert.match(rpc, /previous_fingerprint = ranked\.fingerprint/);
+  assert.match(rpc, /previous_approver/);
   assert.doesNotMatch(rpc, /assignment->>'approval_required'/);
   assert.doesNotMatch(rpc, /40001/);
+});
+
+test("4건 이상은 planner와 RPC가 모두 hard block하며 client approval boolean으로 우회할 수 없다", () => {
+  const rpc = forwardMigration;
+
+  assert.match(rpc, /assignment_count > 3/);
+  assert.match(rpc, /MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED/);
+  assert.match(workbench, /MeasurementAssignmentDailyLimitError/);
+  assert.match(workbench, /rpcMessage\.includes\("MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED"\)/);
+  assert.doesNotMatch(workbench, /approval_required: assignment\.approvalRequired/);
 });
 
 test("workbench apply는 전체 draft fingerprint·서버 재추천을 대조하고 pre-migration 저장을 거부한다", () => {
@@ -76,7 +91,7 @@ test("workbench apply는 전체 draft fingerprint·서버 재추천을 대조하
   assert.match(workbench, /DRAFT_REVIEW_REQUIRED/);
   assert.match(workbench, /MEASUREMENT_ASSIGNMENT_DAILY_STAFF_INCOMPLETE/);
   assert.match(workbench, /MEASUREMENT_ASSIGNMENT_SCHEMA_REQUIRED/);
-  assert.match(workbench, /persist_preliminary_survey_v2_plan_and_measurement_assignments/);
+  assert.match(workbench, /persist_preliminary_survey_v2_plan_and_assignment_groups/);
   assert.match(workbench, /p_approve_third_assignment: approveThirdAssignment/);
   assert.match(workbench, /p_approved_by_user_id: approveThirdAssignment \? approvedByUserId : null/);
   assert.doesNotMatch(workbench, /PUBLIC_SAMPLE_CODE_BY_NAME/);

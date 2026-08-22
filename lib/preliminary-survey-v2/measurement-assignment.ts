@@ -1,4 +1,4 @@
-import type { Coordinate, ExistingAssignment, RouteMetrics } from "./types";
+import type { Availability, Coordinate, ExistingAssignment, RouteMetrics } from "./types";
 
 export type SurveyCode = "A" | "B" | "C" | "D" | "F" | "G";
 
@@ -47,6 +47,22 @@ export interface MeasurementAssignmentResult {
   dailyCount: number;
   approvalRequired: boolean;
   reason: "측정자 균등배정" | "동일주소 묶음" | "근거리 묶음" | "2건 배정" | "3건 승인 필요";
+}
+
+export const MEASUREMENT_ASSIGNMENT_CAPACITY_CODE = "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED";
+
+/** 1인·1일 4건 이상은 승인으로도 허용하지 않는 planner hard block이다. */
+export class MeasurementAssignmentDailyLimitError extends Error {
+  readonly code = MEASUREMENT_ASSIGNMENT_CAPACITY_CODE;
+
+  constructor(
+    readonly targetId: number,
+    readonly measurementDate: string,
+    readonly userId: number,
+  ) {
+    super(MEASUREMENT_ASSIGNMENT_CAPACITY_CODE);
+    this.name = "MeasurementAssignmentDailyLimitError";
+  }
 }
 
 function normalizedAddress(value: string | null) {
@@ -140,6 +156,8 @@ export function assignMeasurementAssignees(input: {
   users: MeasurementAssigneeUser[];
   existing?: ExistingMeasurementAssignment[];
   routeEvidence?: MeasurementVehicleRouteEvidence[];
+  /** 직원 제외 일정은 측정자·공시료 배정에서도 예외 없는 hard constraint다. */
+  availability?: Availability;
 }): MeasurementAssignmentResult[] {
   const users = input.users
     .filter((user): user is MeasurementAssigneeUser & { surveyCode: SurveyCode } =>
@@ -159,9 +177,12 @@ export function assignMeasurementAssignees(input: {
     // 같은 날짜의 모든 기존 배정을 비교해 동일주소/실제 경로 후보를 판단한다.
     const sameDate = assigned.filter((item) => item.measurementDate === target.measurementDate);
     const count = (userId: number) => sameDate.filter((item) => item.userId === userId).length;
-    const unassigned = users.filter((user) => count(user.id) === 0);
-    let candidates = unassigned.length ? unassigned : users.filter((user) => count(user.id) < 2);
-    if (!candidates.length) candidates = users;
+    const availableUsers = users.filter((user) => !input.availability?.isBlocked(user.id, target.measurementDate));
+    // 불가 일정으로 후보가 0명이면 incomplete draft로 남긴다. 3건 hard max 소진과 구분한다.
+    if (!availableUsers.length) continue;
+    const unassigned = availableUsers.filter((user) => count(user.id) === 0);
+    let candidates = unassigned.length ? unassigned : availableUsers.filter((user) => count(user.id) < 2);
+    if (!candidates.length) candidates = availableUsers.filter((user) => count(user.id) < 3);
 
     const exactAddressUsers = new Set(sameDate
       .filter((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address))
@@ -175,8 +196,15 @@ export function assignMeasurementAssignees(input: {
       shortestVehicleRoute(left.id) - shortestVehicleRoute(right.id) ||
       count(left.id) - count(right.id) || left.id - right.id,
     );
+    // 해당 날짜에 가능한 측정자가 없으면 incomplete draft로 남겨 사용자 재검토를 요구한다.
     const selected = candidates[0];
+    if (!selected) {
+      throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, 0);
+    }
     const nextCount = count(selected.id) + 1;
+    if (nextCount > 3) {
+      throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, selected.id);
+    }
     const exactAddress = exactAddressUsers.has(selected.id);
     const hasVehicleRoute = Number.isFinite(shortestVehicleRoute(selected.id));
     const approvalRequired = nextCount >= 3;

@@ -8,6 +8,10 @@ import {
   validateMeasurementDayForms,
 } from "../lib/business/measurement-day-form";
 import { measurementStaffForDate } from "../lib/preliminary-survey-v2/measurement-staff";
+import {
+  buildMeasurementScheduleBlockKeys,
+  validateMeasurementDayAvailability,
+} from "../lib/business/measurement-day-availability";
 
 const businessApi = readFileSync("app/api/businesses/route.ts", "utf8");
 const businessUi = readFileSync("components/features/MeasurementTargetBusinessManagement.tsx", "utf8");
@@ -33,6 +37,9 @@ test("사업장 상세는 측정 참여자 용어와 해제 가능한 보고서 
   assert.match(businessUi, /changeMeasurementDayReportWriter/);
   assert.doesNotMatch(businessUi, /disabled=\{isLink\}/);
   assert.doesNotMatch(businessUi, /checked=\{isChecked \|\| isLink\}/);
+  assert.match(businessUi, /isMeasurementStaffUnavailable/);
+  assert.match(businessUi, /validateMeasurementDayAvailability/);
+  assert.match(businessApi, /validateMeasurementDayAvailability/);
 });
 
 test("모달 초기화는 참여자가 빈 날짜에만 보고서 담당자를 기본 체크한다", () => {
@@ -44,6 +51,15 @@ test("모달 초기화는 참여자가 빈 날짜에만 보고서 담당자를 �
   assert.deepEqual(result[1].collaborators, ["김민영"]);
 });
 
+test("불가 일정의 보고서 담당자는 측정 참여자로 기본 체크하지 않는다", () => {
+  const result = defaultEmptyParticipantsToReportWriter(
+    [{ date: "2026-08-25", measurerId: 1, collaborators: [] }],
+    [{ id: 1, name: "한기문" }],
+    () => false,
+  );
+  assert.deepEqual(result[0].collaborators, []);
+});
+
 test("보고서 담당 변경은 새 담당자를 추가하되 기존 참여자를 보존하고 중복을 제거한다", () => {
   const changed = changeMeasurementDayReportWriter(
     { date: "2026-08-25", measurerId: 1, collaborators: ["김민영", " 김민영 "] },
@@ -52,6 +68,30 @@ test("보고서 담당 변경은 새 담당자를 추가하되 기존 참여자�
   );
   assert.equal(changed.measurerId, 2);
   assert.deepEqual(changed.collaborators, ["김민영", "강종구"]);
+});
+
+test("직원 불가 일정은 날짜별 보고서 담당자와 측정 참여자 모두 차단하고 다일을 전부 검사한다", () => {
+  const blockedKeys = buildMeasurementScheduleBlockKeys([
+    { user_id: 1, start_date: "2026-08-25", end_date: "2026-08-25" },
+    { user_id: 2, start_date: "2026-08-26", end_date: "2026-08-26" },
+  ]);
+  const result = validateMeasurementDayAvailability({
+    days: [
+      { date: "2026-08-25", measurerId: 1, collaborators: ["측정 참여자"] },
+      { date: "2026-08-26", measurerId: 3, collaborators: ["다음날 참여자"] },
+    ],
+    users: [
+      { id: 1, name: "보고서 담당자" },
+      { id: 2, name: "다음날 참여자" },
+      { id: 3, name: "다른 담당자" },
+      { id: 4, name: "측정 참여자" },
+    ],
+    blockedKeys,
+  });
+  assert.deepEqual(result, {
+    valid: false,
+    message: "직원 불가 일정과 겹칩니다: 측정일 1(2026-08-25) 보고서 담당자 보고서 담당자, 측정일 2(2026-08-26) 측정 참여자 다음날 참여자",
+  });
 });
 
 test("단일 빈 측정일은 미실시 null로 저장한다", () => {

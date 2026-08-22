@@ -92,12 +92,15 @@ export function validateMeasurementDayForms(days: MeasurementDayForm[]): Measure
 export function defaultEmptyParticipantsToReportWriter(
   days: MeasurementDayForm[],
   reportWriters: Array<{ id: number; name: string }>,
+  isAvailable: (userId: number, date: string) => boolean = () => true,
 ): MeasurementDayForm[] {
   const namesById = new Map(reportWriters.map((writer) => [writer.id, writer.name.trim()]));
   return days.map((day) => {
     if (uniqueNames(day.collaborators).length > 0 || day.measurerId == null) return day;
     const reportWriterName = namesById.get(day.measurerId);
-    return reportWriterName ? { ...day, collaborators: [reportWriterName] } : day;
+    return reportWriterName && isAvailable(day.measurerId, day.date)
+      ? { ...day, collaborators: [reportWriterName] }
+      : day;
   });
 }
 

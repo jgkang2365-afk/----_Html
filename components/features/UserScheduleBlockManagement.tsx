@@ -69,7 +69,7 @@ export function UserScheduleBlockManagement() {
       blocksResponse.json(),
     ]);
     if (!usersResponse.ok) throw new Error(usersResult.error || "사용자 조회 실패");
-    if (!blocksResponse.ok) throw new Error(blocksResult.error || "제외 일정 조회 실패");
+    if (!blocksResponse.ok) throw new Error(blocksResult.error || "불가 일정 조회 실패");
     setUsers((usersResult.users || []).filter((user: UserOption) => user.job === "측정" && user.is_active));
     setBlocks(blocksResult.blocks || []);
   }, [filterEndDate, filterStartDate, filterUserId]);
@@ -120,7 +120,7 @@ export function UserScheduleBlockManagement() {
   };
 
   const remove = async (block: Block) => {
-    if (!window.confirm("이 제외 일정을 삭제하시겠습니까?")) return;
+    if (!window.confirm("이 불가 일정을 삭제하시겠습니까?")) return;
     const response = await fetch(`/api/user-schedule-blocks?id=${block.id}`, { method: "DELETE" });
     const result = await response.json();
     if (!response.ok) {
@@ -134,7 +134,8 @@ export function UserScheduleBlockManagement() {
     <div className="space-y-4">
       {error && <Alert variant="error">{error}</Alert>}
       <Card className="p-5">
-        <h3 className="mb-4 text-lg font-bold">직원 예비조사 제외 일정</h3>
+        <h3 className="mb-1 text-lg font-bold">직원 불가 일정</h3>
+        <p className="mb-4 text-sm text-slate-500">등록된 날짜에는 예비조사자, 측정자·공시료, 측정 참여자, 보고서 담당자로 배정되지 않습니다.</p>
         <div className="grid gap-3 xl:grid-cols-[minmax(620px,2.8fr)_minmax(135px,0.8fr)_minmax(135px,0.8fr)_minmax(130px,0.7fr)_minmax(180px,1fr)_auto] xl:items-end">
           <div>
             <div className="mb-1 flex items-center justify-between">
@@ -222,7 +223,7 @@ export function UserScheduleBlockManagement() {
               </div>
             </div>
           ))}
-          {blocks.length === 0 && <div className="p-8 text-center text-slate-500">등록된 제외 일정이 없습니다.</div>}
+          {blocks.length === 0 && <div className="p-8 text-center text-slate-500">등록된 불가 일정이 없습니다.</div>}
         </div>
       </Card>
     </div>

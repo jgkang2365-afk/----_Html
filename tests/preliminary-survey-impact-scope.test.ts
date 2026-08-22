@@ -99,6 +99,19 @@ test("찐확정 대상은 closure 조회·재검증에는 포함하되 별도 lo
   assert.ok(result.reasonsByTarget[3].includes("same_preliminary_date_participant"));
 });
 
+test("직원 제외 일정이 후발로 생긴 대상은 영향 범위에서 재검토 근거를 보존한다", () => {
+  const result = calculatePreliminarySurveyImpactScope({
+    seedTargetIds: [1],
+    targets: [
+      target(1, { preliminaryDate: "2026-08-03", participantUserIds: [10], scheduleBlocked: true }),
+      target(2, { preliminaryDate: "2026-08-03", participantUserIds: [10], locked: true, scheduleBlocked: true }),
+    ],
+  });
+  assert.ok(result.reasonsByTarget[1].includes("employee_schedule_blocked"));
+  assert.ok(result.reasonsByTarget[2].includes("employee_schedule_blocked"));
+  assert.ok(result.reasonsByTarget[2].includes("true_confirmed_locked"));
+});
+
 test("다일 측정은 시작일이 달라도 겹치는 실제 측정일의 공시료 균형 대상을 포함한다", () => {
   const result = calculatePreliminarySurveyImpactScope({
     seedTargetIds: [1],

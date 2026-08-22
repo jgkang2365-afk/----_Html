@@ -385,7 +385,7 @@ export default function SurveyPage() {
               plans: "예비조사 계획",
               list: "예비조사 목록",
               search: "사업장 검색",
-              "schedule-blocks": "직원 예비조사 제외 일정",
+              "schedule-blocks": "직원 불가 일정",
             };
             return <button
               key={tabId}

@@ -40,6 +40,11 @@ import {
   isNullableProcessChanged,
   resolveTargetBusinessCategory,
 } from "@/lib/business/target-classification";
+import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
+import {
+  buildMeasurementScheduleBlockKeys,
+  validateMeasurementDayAvailability,
+} from "@/lib/business/measurement-day-availability";
 
 export async function GET(request: NextRequest) {
   try {
@@ -562,6 +567,36 @@ export async function PATCH(request: NextRequest) {
     // 보고서 담당자·측정 참여자·예비조사자·측정자(공시료)는 서로 다른 역할이다.
     // 사업장 상세 저장에서 link_measurer_id나 기존 V2 조사자와의 일치 여부를 강제하지 않는다.
     // 적용된 계획의 원천값 변화는 workbench에서 재검토 필요로 판정하며 자동 덮어쓰지 않는다.
+
+    const hasMeasurementAssignmentUpdate = ["measurement_date", "measurer_id", "collaborators", "daily_staff"]
+      .some((field) => Object.prototype.hasOwnProperty.call(updates, field));
+    if (hasMeasurementAssignmentUpdate) {
+      const hasDailyStaffUpdate = Object.prototype.hasOwnProperty.call(updates, "daily_staff");
+      const finalDays = measurementDayFormsFrom({
+        dailyStaff: hasDailyStaffUpdate ? updates.daily_staff : existingDailyStaff,
+        measurementDate: Object.prototype.hasOwnProperty.call(updates, "measurement_date") ? updates.measurement_date : existingDate,
+        measurerId: Object.prototype.hasOwnProperty.call(updates, "measurer_id") ? updates.measurer_id : existingMeasurerId,
+        collaborators: Object.prototype.hasOwnProperty.call(updates, "collaborators") ? updates.collaborators : existingCollaborators,
+      });
+      const assignmentDates = finalDays.map((day) => day.date).filter(Boolean).sort();
+      if (assignmentDates.length > 0) {
+        const [{ data: users, error: userError }, { data: blocks, error: blockError }] = await Promise.all([
+          supabase.from("users").select("id, name").eq("job", "측정").neq("is_active", false),
+          supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
+            .lte("start_date", assignmentDates.at(-1)!).gte("end_date", assignmentDates[0]),
+        ]);
+        if (userError) throw userError;
+        if (blockError) throw blockError;
+        const availability = validateMeasurementDayAvailability({
+          days: finalDays,
+          users: (users || []).map((user) => ({ id: Number(user.id), name: String(user.name) })),
+          blockedKeys: buildMeasurementScheduleBlockKeys(blocks || []),
+        });
+        if (!availability.valid) {
+          return NextResponse.json({ error: availability.message }, { status: 400 });
+        }
+      }
+    }
 
     // [New Feature] Auto-calculate office_jurisdiction if address is being updated
     if (updates.hasOwnProperty('address')) {

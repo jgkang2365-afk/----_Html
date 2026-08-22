@@ -501,3 +501,59 @@
 - Orca snapshot/runtime 문제가 해결된 뒤 사업장 상세와 `/survey` 실제 클릭 검증 및 안전한 관리자/예비조사 담당자 성공 apply E2E를 완료해야 한다.
 - Orca의 `release_unknown` 7개와 `identity_unproven` retained 1개 resource settlement도 runtime 측 후속 확인이 필요하다. active worker는 0개지만 완료 조건의 release 확정에는 미달한다.
 - 새 시스템 안정화 전 구형 V2 plan 삭제 금지를 유지하며, 이후 automatic/manual/실사용·확정/미사용 분류 후 유지·migration·archive·삭제를 결정한다.
+
+## 2026-08-23 최종 정책 확정 보완
+
+### 기준과 변경 결과
+
+- 시작 HEAD: `7eed8536a93f427a975f4c7cc11a5d623be6a8d6`.
+- branch: `feature/preliminary-survey-phase-b`; PR #42는 Draft/Open 상태를 유지하고 merge하지 않는다.
+- 최초실시는 working day `-3 → -30`, 타기관 신규는 `-30 → -3`을 모두 소진한 뒤 `-31 → -60`으로 탐색하도록 business-type 후보 순서를 그대로 사용한다.
+- 방문 용량은 기존 manual/가확정 및 영향 범위 밖 유지 방문까지 포함한다. 동일주소 또는 실제 차량 이동 30분 이하만 2건 자동추천하고, 31~60분은 대안, 60분 초과는 불가로 분리했다. route evidence가 없으면 동일주소 외 근거리 자동판정을 하지 않는다.
+- 측정자·공시료 배정은 1~2건 자동, 3건 그룹 승인, 4건 이상 hard block이다. 승인 fingerprint는 `measurement_date + assignee_user_id + sorted target_ids`이며 동일 구성은 기존 승인자·승인시각을 보존하고 구성 변경만 재승인한다.
+- 기존 적용 가능성이 있는 `20260822153000` migration은 변경하지 않고, 후속 `20260823120000_finalize_preliminary_survey_assignment_approval_groups.sql`에서 승인 fingerprint, 4건 차단, 그룹 승인 wrapper RPC와 권한 경계를 추가했다.
+- `직원 예비조사 제외 일정`을 UI에서 `직원 불가 일정`으로 정리했다. `user_schedule_blocks`를 공통 원천으로 사용해 예비조사 책임자·경력 동행자, 측정자·공시료, 측정 참여자, 보고서 담당자를 모두 hard constraint로 검사한다.
+- workbench 추천·apply, 단건 수동 수정, 사업장 상세 저장이 같은 불가 일정 원천을 사용한다. 후발 불가 일정은 가확정을 재검토 대상으로 만들고, 찐확정은 자동변경하지 않으면서 충돌을 표시한다.
+
+### 테스트와 빌드
+
+- `npx tsc --noEmit --pretty false`: 통과.
+- `npm test`: 407/407 통과. 날짜 순서, 기존 방문 포함 용량, 승인 fingerprint·4건 차단, 불가 일정 역할별 차단과 기존 Phase B 회귀를 포함한다.
+- `npm run build`: 첫 시도는 실행 중 dev server의 `.next` 산출물 충돌로 실패했다. 이 작업공간의 3000번 프로세스만 확인해 일시 종료하고 기존 `.next`를 임시 경로로 이동한 뒤 69개 page build가 통과했다.
+- `npm run dev:turbo`: 빌드 후 3000번에 복원했고 Ready 상태를 확인했다.
+- 정적 테스트는 보조 증거다. 실제 PostgreSQL 행동 검증은 아래 제한 때문에 완료하지 못했다.
+
+### 실제 DB 검증과 안전
+
+- 사용 가능한 도구는 `npx supabase 2.114.0`이었으나 Docker/Podman, local Supabase 설정, 로컬 PostgreSQL/psql, 연결된 격리 test project가 없었다. `npx supabase status`는 Docker 부재로 실행할 수 없었다.
+- 따라서 migration 최초 적용·rollback, plan/assignment guard INSERT·UPDATE·DELETE 6종, 동일 3건 승인 재apply, 구성 변경 재승인, 4건 차단, 원자 rollback·동시 apply는 실제 PostgreSQL에서 미검증이다.
+- 운영 DB를 대체 검증 환경으로 사용하지 않았다. 운영 migration 0건, 운영 DB write 0건, 보호 대상 H0399/H0524/H0288/H0528/H0348/H0126/H0281/H0260/H0063/H0077 write 0건이다.
+
+### 실제 UI 검증
+
+- Orca snapshot 문제를 반복 진단하지 않고 Orca computer-use로 기존 Chrome과 `http://localhost:3000`을 사용했다.
+- `/survey`가 관리자 세션에서 정상 로드되고 계획 검색·추천 toolbar, 결과 table의 측정자·공시료/측정 참여자 컬럼, `직원 불가 일정` 탭을 확인했다.
+- 불가 일정 화면에서 `등록된 날짜에는 예비조사자, 측정자·공시료, 측정 참여자, 보고서 담당자로 배정되지 않습니다.` 설명과 기존 일정 목록을 확인했다. 조회만 수행했고 저장하지 않았다.
+- `/businesses` 목록은 정상 로드됐다. 접근성 기반 수정 버튼 클릭이 성공 상태를 확정하지 못해 공통 Day Card 모달의 이번 회차 실제 조작 검증은 완료로 기록하지 않는다.
+- 안전한 격리 DB가 없으므로 성공 apply, 승인, stale·client 변조 저장 E2E는 실행하지 않았다.
+
+### worker와 독립 검토
+
+| 작업자 | 모델 / 추론 | 담당 | 결과 |
+| --- | --- | --- | --- |
+| Main | GPT-5.6 Sol / High 요청 | 통합, 독립 검토 P1 보완, 전체 테스트·빌드, UI·문서·Git/PR | 반영. 실제 effective 값은 별도 노출되지 않아 요청값 적용·실제값 검증 불가 |
+| Worker A `ctx_ebb538a027c9` | GPT-5.6 Terra / High | 날짜 순서, planner, manual/방문 용량 | 반영 |
+| Worker B 최초 `ctx_067…` | GPT-5.6 Terra / High | 승인·migration | 사용량 제한으로 실패, 코드 반영 없음 |
+| Worker B 재시도 `ctx_97c22c0d57a3` | GPT-5.6 Terra / High | 3건 그룹 승인, 4건 hard max, RPC | 반영 |
+| Worker C `ctx_a274294b30a8` | GPT-5.6 Terra / High | 직원 불가 일정 공통 원천, planner/영향 범위 | 반영 |
+| Worker D `ctx_3854ef3b9981` | GPT-5.6 Terra / Medium | 사업장 상세 및 불가 일정 UI/save validation | 반영 |
+| 독립 검토 `independent_review_final` | GPT-5.6 Terra / High | migration 불변성, 수동/apply 우회, 실제 측정 역할 검토 | 발견사항 반영 |
+| GPT-5.6 Luna | 미사용 | - | 0회 |
+
+- 모든 worker 결과를 회수했다. 완료·실패 worker는 더 이상 실행 중이지 않으며 최종 active worker는 0개로 확인한다. 토큰·credits는 확인할 수 없어 추정하지 않는다.
+
+### 최종 판정
+
+- **구현 완료·검증 미완료·merge 보류**.
+- merge 전 필수 blocker는 격리 PostgreSQL 행동 검증과 안전한 성공 apply E2E다. 사업장 상세 공통 Day Card의 실제 조작 검증도 함께 완료해야 한다.
+- 기존 V2 자동추천 OFF, legacy sync, 기존 V2 데이터 보존, `measurement_journal` 찐확정 보호를 유지한다. 새 시스템 안정화 전 구형 V2 plan을 삭제하지 않는다.

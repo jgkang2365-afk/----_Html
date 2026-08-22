@@ -22,6 +22,10 @@ export interface ManualPlanValidationResult {
   requiresUserConfirmation: boolean;
 }
 
+function assignmentSurveyMethod(assignment: ExistingAssignment) {
+  return assignment.surveyMethod ?? (assignment.kind === "new" ? "field" : "phone");
+}
+
 /** 관리자 override에도 적용되는 hard rule만 검증한다. 30분 우선순위는 의도적으로 강제하지 않는다. */
 export async function validateManualPlanHardRules(
   input: ManualPlanValidationInput,
@@ -54,13 +58,13 @@ export async function validateManualPlanHardRules(
     if (surveyMethod !== "field") errors.push("최초실시·타기관 신규는 방문 예비조사만 가능합니다.");
     const otherNewByTarget = new Map<number, ExistingAssignment>();
     for (const participantId of participantIds) {
-      const sameParticipantNew = sameDate.filter((item) =>
-        item.kind === "new" && item.targetId !== input.target.id && item.participants.includes(participantId),
+      const sameParticipantField = sameDate.filter((item) =>
+        assignmentSurveyMethod(item) === "field" && item.targetId !== input.target.id && item.participants.includes(participantId),
       );
-      if (sameParticipantNew.length >= 2) {
-        errors.push(`참여자 ${participantId}의 하루 신규업체 배정은 최대 2건입니다.`);
+      if (sameParticipantField.length >= 2) {
+        errors.push(`참여자 ${participantId}의 하루 방문 배정은 최대 2건입니다.`);
       }
-      for (const assignment of sameParticipantNew) otherNewByTarget.set(assignment.targetId, assignment);
+      for (const assignment of sameParticipantField) otherNewByTarget.set(assignment.targetId, assignment);
     }
     for (const other of otherNewByTarget.values()) {
       const evaluated = await evaluateSameDayRoute(other, input.target, input.routes);
@@ -82,7 +86,7 @@ export async function validateManualPlanHardRules(
     );
     for (const participantId of participantIds) {
       const fieldCount = sameDate.filter((item) =>
-        item.surveyMethod === "field" && item.targetId !== input.target.id && item.participants.includes(participantId),
+        assignmentSurveyMethod(item) === "field" && item.targetId !== input.target.id && item.participants.includes(participantId),
       ).length;
       if (fieldCount >= 2) errors.push(`예비조사자 ${participantId}의 방문 배정은 하루 최대 2건입니다.`);
     }

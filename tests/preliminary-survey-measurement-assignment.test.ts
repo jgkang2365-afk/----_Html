@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   assignMeasurementAssignees,
   collectMeasurementVehicleRouteEvidence,
+  MEASUREMENT_ASSIGNMENT_CAPACITY_CODE,
+  MeasurementAssignmentDailyLimitError,
   type MeasurementVehicleRouteEvidence,
 } from "../lib/preliminary-survey-v2/measurement-assignment";
 
@@ -17,6 +19,18 @@ test("공시료 코드는 이름 상수가 아니라 사용자 surveyCode(A/B/C/
   const result = assignMeasurementAssignees({ targets: [target(1)], users: [{ ...users[0], name: "이름 변경" }] });
   assert.equal(result[0].publicSampleCode, "A");
   assert.equal(assignMeasurementAssignees({ targets: [target(2)], users: [{ ...users[0], surveyCode: null }] }).length, 0);
+});
+
+test("측정자·공시료 배정은 직원 제외 일정의 사용자를 후보에서 제외한다", () => {
+  const result = assignMeasurementAssignees({
+    targets: [target(1)],
+    users: users.slice(0, 2),
+    availability: { isBlocked: (userId, date) => userId === 1 && date === "2026-08-25" },
+  });
+  assert.equal(result[0]?.userId, 2);
+  assert.deepEqual(assignMeasurementAssignees({
+    targets: [target(1)], users: users.slice(0, 2), availability: { isBlocked: () => true },
+  }), []);
 });
 
 test("6개 업체는 측정자 6명에게 1개씩 균등 배정한다", () => {
@@ -36,6 +50,18 @@ test("8개 업체는 2/2/1/1/1/1이고 세 번째 배정은 승인 필요다", (
   assert.equal(overflow[0].dailyCount, 3);
   assert.equal(overflow[0].approvalRequired, true);
   assert.equal(overflow[0].reason, "3건 승인 필요");
+});
+
+test("같은 측정일 측정자 4건째는 승인 여부와 무관하게 planner에서 차단한다", () => {
+  assert.throws(
+    () => assignMeasurementAssignees({
+      targets: [target(400)],
+      users: [users[0]],
+      existing: [1, 2, 3].map((id) => ({ ...target(id), userId: users[0].id })),
+    }),
+    (error: unknown) => error instanceof MeasurementAssignmentDailyLimitError &&
+      error.code === MEASUREMENT_ASSIGNMENT_CAPACITY_CODE,
+  );
 });
 
 test("같은 날짜 전체 기존 배정 중 동일주소를 우선한다", () => {

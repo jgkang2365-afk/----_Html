@@ -18,13 +18,14 @@ const target = (id: number, businessType: NonNullable<SurveyTarget["businessType
 });
 
 test("Phase B 유형별 날짜 후보는 측정예정일에서 역산한다", () => {
-  assert.equal(recommendationDatesForBusinessType("2026-07-14", "first_measurement")[0].workingDaysBefore, 3);
-  assert.equal(recommendationDatesForBusinessType("2026-07-14", "external_new")[0].workingDaysBefore, 30);
   assert.deepEqual(
-    recommendationDatesForBusinessType("2026-07-14", "external_new").slice(0, 3).map((item) => item.workingDaysBefore),
-    [30, 29, 28],
+    recommendationDatesForBusinessType("2026-07-14", "first_measurement").map((item) => item.workingDaysBefore),
+    Array.from({ length: 28 }, (_, index) => index + 3),
   );
-  assert.equal(recommendationDatesForBusinessType("2026-07-14", "external_new").at(-1)?.workingDaysBefore, 60);
+  assert.deepEqual(
+    recommendationDatesForBusinessType("2026-07-14", "external_new").map((item) => item.workingDaysBefore),
+    [...Array.from({ length: 28 }, (_, index) => 30 - index), ...Array.from({ length: 30 }, (_, index) => 31 + index)],
+  );
   assert.equal(recommendationDatesForBusinessType("2026-07-14", "existing")[0].workingDaysBefore, 3);
   assert.ok(recommendationDatesForBusinessType("2026-07-14", "first_measurement").every((item) => ![0, 6].includes(new Date(`${item.date}T00:00:00Z`).getUTCDay())));
   const existingCandidates = recommendationDatesForBusinessType("2026-07-14", "existing");
@@ -277,4 +278,14 @@ test("수동 수정과 draft apply는 선택한 조사 방식을 hard-rule 검�
   const workbenchApi = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   assert.match(manualApi, /validateManualPlanHardRules\(\{[\s\S]*?surveyMethod,[\s\S]*?existingAssignments/);
   assert.match(workbenchApi, /validateManualPlanHardRules\(\{[\s\S]*?surveyMethod: draft\.surveyMethod,[\s\S]*?existingAssignments/);
+});
+
+test("수동 수정과 apply는 예비조사자 및 실제 측정 역할의 후발 직원 불가 일정을 저장 전에 차단한다", () => {
+  const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
+  const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
+  assert.match(manualRoute, /user_schedule_blocks/);
+  assert.match(manualRoute, /USER_UNAVAILABLE_ON_SURVEY_DATE/);
+  assert.match(workbench, /measurementRoleKeysByTarget/);
+  assert.match(workbench, /보고서 담당자 또는 측정 참여자에게 직원 불가 일정/);
+  assert.match(workbench, /measurementRoleConflictTargetIds/);
 });

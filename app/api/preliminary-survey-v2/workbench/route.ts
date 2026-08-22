@@ -10,9 +10,11 @@ import { v2BusinessKindLabel } from "@/lib/preliminary-survey-v2/presentation";
 import { parseDateOnly, recommendationDatesForBusinessType } from "@/lib/preliminary-survey-v2/calendar";
 import { measurementStaffForDate } from "@/lib/preliminary-survey-v2/measurement-staff";
 import { loadActualMeasurementBlockedKeys } from "@/lib/preliminary-survey-v2/measurement-conflicts";
+import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
 import {
   assignMeasurementAssignees,
   collectMeasurementVehicleRouteEvidence,
+  MeasurementAssignmentDailyLimitError,
   type ExistingMeasurementAssignment,
   type MeasurementAssignmentTarget,
   type SurveyCode,
@@ -56,6 +58,48 @@ function explicitMeasurementDates(target: any): string[] {
     : [];
   return [...new Set<string>(dailyDates.length ? dailyDates : [String(target?.measurement_date ?? "")])]
     .filter(Boolean).sort();
+}
+
+/** 모든 역할의 직원 제외 일정은 user_schedule_blocks 단일 원천에서 날짜별 key로 읽는다. */
+async function loadScheduleBlockKeys(supabase: any, datesInput: readonly string[], userIdsInput?: readonly number[]) {
+  const dates = [...new Set(datesInput.filter((date) => parseDateOnly(date)))].sort();
+  if (!dates.length) return new Set<string>();
+  const userIds = userIdsInput == null ? [] : [...new Set(userIdsInput.filter((id) => Number.isInteger(id) && id > 0))];
+  if (userIdsInput != null && !userIds.length) return new Set<string>();
+  let query = supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
+    .lte("start_date", dates.at(-1)).gte("end_date", dates[0]);
+  if (userIdsInput != null) query = query.in("user_id", userIds);
+  const { data, error } = await query;
+  if (error) throw error;
+  return buildScheduleBlockKeys(data ?? []);
+}
+
+function roleIdsForPlan(plan: any): number[] {
+  return [...new Set([
+    ...(Array.isArray(plan?.participant_user_ids) ? plan.participant_user_ids : []).map(Number),
+    Number(plan?.responsible_user_id),
+    Number(plan?.experienced_reviewer_id),
+  ].filter((id) => Number.isInteger(id) && id > 0))];
+}
+
+/** daily_staff를 우선하여 날짜별 보고서 담당자와 실제 측정 참여자를 불가 일정 검증 대상으로 만든다. */
+function measurementRoleKeys(target: any, userIdByName: Map<string, number>): string[] {
+  const days = Array.isArray(target?.daily_staff) && target.daily_staff.length > 0
+    ? target.daily_staff
+    : [{ date: target?.measurement_date, measurer_id: target?.measurer_id, collaborators: target?.collaborators }];
+  const keys: string[] = days.flatMap((day: any): string[] => {
+    const date = String(day?.date ?? "");
+    if (!parseDateOnly(date)) return [];
+    const reportWriterId = Number(day?.measurer_id);
+    const participantIds = (Array.isArray(day?.collaborators) ? day.collaborators : [])
+      .map((name: unknown) => userIdByName.get(String(name ?? "").trim()))
+      .filter((id: number | undefined): id is number => Number.isInteger(id) && Number(id) > 0);
+    return [...new Set([
+      ...(Number.isInteger(reportWriterId) && reportWriterId > 0 ? [reportWriterId] : []),
+      ...participantIds,
+    ])].map((userId) => `${userId}:${date}`);
+  });
+  return [...new Set<string>(keys)];
 }
 
 async function requireSurveyAccess() {
@@ -153,11 +197,40 @@ function parseDraft(value: any): SubmittedDraft | null {
 
 function isMeasurementAssignmentSchemaMissing(error: any) {
   return ["42P01", "PGRST202", "PGRST205"].includes(String(error?.code ?? "")) ||
-    /preliminary_survey_v2_measurement_assignments|persist_preliminary_survey_v2_plan_and_measurement_assignments/i.test(String(error?.message ?? ""));
+    /preliminary_survey_v2_measurement_assignments|persist_preliminary_survey_v2_plan_and_assignment_groups/i.test(String(error?.message ?? ""));
 }
 
 function canonicalFingerprint(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+/** SQL RPC와 같은 입력 순서로 3건 승인 그룹을 식별한다. */
+function measurementAssignmentApprovalGroupFingerprint(
+  measurementDate: string,
+  userId: number,
+  targetIds: readonly number[],
+) {
+  return createHash("md5")
+    .update(`${measurementDate}|${userId}|${[...targetIds].sort((left, right) => left - right).join(",")}`)
+    .digest("hex");
+}
+
+function thirdAssignmentApprovalGroupFingerprints(assignments: Array<{
+  targetId: number;
+  measurementDate: string;
+  userId: number;
+}>) {
+  const targetIdsByGroup = new Map<string, number[]>();
+  for (const assignment of assignments) {
+    const key = `${assignment.measurementDate}|${assignment.userId}`;
+    targetIdsByGroup.set(key, [...(targetIdsByGroup.get(key) ?? []), assignment.targetId]);
+  }
+  return [...targetIdsByGroup.entries()].flatMap(([key, targetIds]) => {
+    const [measurementDate, userId] = key.split("|");
+    const uniqueTargetIds = [...new Set(targetIds)].sort((left, right) => left - right);
+    return uniqueTargetIds.length === 3
+      ? [measurementAssignmentApprovalGroupFingerprint(measurementDate, Number(userId), uniqueTargetIds)] : [];
+  });
 }
 
 function sourcePlanFingerprint(target: Awaited<ReturnType<typeof calculateV2Recommendations>>["targets"][number]) {
@@ -211,7 +284,7 @@ async function recomputeCanonicalMeasurementAssignments(
   const [{ data: assigneeUsers, error: assigneeUserError }, { data: persisted, error: persistedError }] = await Promise.all([
     supabase.from("users").select("id, name, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
     supabase.from("preliminary_survey_v2_measurement_assignments").select(
-      "plan_id, measurement_date, assignee_user_id",
+      "plan_id, measurement_date, assignee_user_id, approval_required, approval_group_fingerprint",
     ),
   ]);
   if (persistedError && isMeasurementAssignmentSchemaMissing(persistedError)) return { schemaMissing: true as const };
@@ -260,6 +333,11 @@ async function recomputeCanonicalMeasurementAssignments(
     targetId: context.target.id, measurementDate, address: context.target.address, coordinate: context.target.coordinate,
     businessCode: context.target.code, region: context.target.region,
   })));
+  const assigneeBlockKeys = await loadScheduleBlockKeys(
+    supabase,
+    assignmentTargets.map((target) => target.measurementDate),
+    (assigneeUsers ?? []).map((user: any) => Number(user.id)),
+  );
   const assigneeCapacity = (assigneeUsers ?? []).filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
   const routeNeededDates = new Set(assigneeCapacity > 0 ? [...new Set(assignmentTargets.map((target) => target.measurementDate))].filter((date) =>
     assignmentTargets.filter((target) => target.measurementDate === date).length +
@@ -277,6 +355,7 @@ async function recomputeCanonicalMeasurementAssignments(
     })),
     existing,
     routeEvidence,
+    availability: { isBlocked: (userId, date) => assigneeBlockKeys.has(`${userId}:${date}`) },
   });
   const proposedMeasurementDates = new Set(assignmentTargets.map((target) => target.measurementDate));
   const baseline = existing.filter((assignment) => proposedMeasurementDates.has(assignment.measurementDate)).map((assignment) => ({
@@ -304,7 +383,19 @@ async function recomputeCanonicalMeasurementAssignments(
       reason: assignment.reason,
     } satisfies CanonicalMeasurementAssignment];
   });
-  return { schemaMissing: false as const, canonical, baseline, invalidSurveyCodeUserIds, incompleteTargetIds };
+  const approvedGroupFingerprints = new Set((persisted ?? []).flatMap((assignment: any) =>
+    assignment.approval_required === true && typeof assignment.approval_group_fingerprint === "string" &&
+      /^[a-f0-9]{32}$/i.test(assignment.approval_group_fingerprint)
+      ? [assignment.approval_group_fingerprint] : [],
+  ));
+  return {
+    schemaMissing: false as const,
+    canonical,
+    baseline,
+    approvedGroupFingerprints,
+    invalidSurveyCodeUserIds,
+    incompleteTargetIds,
+  };
 }
 
 async function applySubmittedDrafts(
@@ -370,22 +461,31 @@ async function applySubmittedDrafts(
   const lockedKeys = new Set((journals ?? []).map((row: any) =>
     journalKey(row.code, row.measurement_year, row.measurement_period)));
   const dates = [...new Set(submitted.map((draft) => draft.preliminaryDate))].sort();
-  const participantIds = [...new Set(submitted.flatMap((draft) => draft.participantUserIds))];
+  const participantIds = [...new Set(submitted.flatMap((draft) => [
+    ...draft.participantUserIds,
+    draft.sourceResponsibleUserId,
+  ]))];
   const allUsers = contexts[0]?.users ?? [];
-  const [{ data: blocks, error: blockError }, measurementBlockedKeys] = await Promise.all([
-    participantIds.length && dates.length
-      ? supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
-          .in("user_id", participantIds).lte("start_date", dates.at(-1)).gte("end_date", dates[0])
-      : Promise.resolve({ data: [], error: null }),
+  const userIdByName = new Map(allUsers.map((user) => [user.name.trim(), user.id]));
+  const measurementRoleKeysByTarget = new Map(contexts.map((context) => [
+    context.target.id,
+    measurementRoleKeys({
+      daily_staff: context.target.sourceDailyStaffSnapshot,
+      measurement_date: context.target.measurementDate,
+      measurer_id: context.target.sourceMeasurerId,
+      collaborators: context.target.sourceCollaboratorsSnapshot,
+    }, userIdByName),
+  ]));
+  const measurementRoleKeysAll = [...measurementRoleKeysByTarget.values()].flat();
+  const measurementRoleDates = measurementRoleKeysAll.map((key) => key.slice(key.indexOf(":") + 1));
+  const measurementRoleUserIds = measurementRoleKeysAll.map((key) => Number(key.slice(0, key.indexOf(":"))));
+  const [scheduleBlockedKeys, measurementRoleBlockedKeys, measurementBlockedKeys] = await Promise.all([
+    loadScheduleBlockKeys(supabase, dates, participantIds),
+    loadScheduleBlockKeys(supabase, measurementRoleDates, measurementRoleUserIds),
     loadActualMeasurementBlockedKeys(supabase, dates, allUsers),
   ]);
-  if (blockError) throw blockError;
   const blockedKeys = new Set(measurementBlockedKeys);
-  for (const block of blocks ?? []) {
-    for (const date of dates) {
-      if (String(block.start_date) <= date && String(block.end_date) >= date) blockedKeys.add(`${Number(block.user_id)}:${date}`);
-    }
-  }
+  for (const key of scheduleBlockedKeys) blockedKeys.add(key);
   const reasons: Array<{ targetId: number; reason: string }> = [];
   const routes = createRouteMetrics();
   const draftAssignments: ExistingAssignment[] = submitted.map((draft, index) => {
@@ -422,9 +522,6 @@ async function applySubmittedDrafts(
     if (participants.length !== draft.participantUserIds.length || currentNames.join("|") !== draft.surveyors.join("|")) {
       reasons.push({ targetId: draft.targetId, reason: "추천 생성 후 조사자 정보가 변경되었습니다." });
     }
-    if (participants.some((user) => user.active === false) || draft.participantUserIds.some((id) => blockedKeys.has(`${id}:${draft.preliminaryDate}`))) {
-      reasons.push({ targetId: draft.targetId, reason: "추천 생성 후 조사자 제외 일정 또는 측정 업무가 추가되었습니다." });
-    }
     if (context.target.kind === "new" && draft.surveyMethod !== "field") {
       reasons.push({ targetId: draft.targetId, reason: "신규업체는 현장 예비조사 방식이어야 합니다." });
     }
@@ -439,6 +536,18 @@ async function applySubmittedDrafts(
       ],
       routes,
     });
+    const roleUserIds = [...new Set([
+      ...draft.participantUserIds,
+      draft.sourceResponsibleUserId,
+      validation.experiencedReviewer?.id,
+    ].filter((id): id is number => id != null && Number.isInteger(id) && id > 0))];
+    if (participants.some((user) => user.active === false) || roleUserIds.some((id) => blockedKeys.has(`${id}:${draft.preliminaryDate}`))) {
+      reasons.push({ targetId: draft.targetId, reason: "추천 생성 후 조사자 제외 일정 또는 측정 업무가 추가되었습니다." });
+    }
+    if ((measurementRoleKeysByTarget.get(draft.targetId) ?? [])
+      .some((key) => measurementRoleBlockedKeys.has(key))) {
+      reasons.push({ targetId: draft.targetId, reason: "측정일의 보고서 담당자 또는 측정 참여자에게 직원 불가 일정이 추가되었습니다." });
+    }
     for (const reason of validation.errors) reasons.push({ targetId: draft.targetId, reason });
     return { validation, participants, responsible };
   }));
@@ -497,7 +606,13 @@ async function applySubmittedDrafts(
       reviewRequired: true,
     }, { status: 409 });
   }
-  if (canonicalResult.canonical.some((assignment) => assignment.approvalRequired) && !approveThirdAssignment) {
+  const approvalGroupFingerprints = thirdAssignmentApprovalGroupFingerprints([
+    ...canonicalResult.baseline,
+    ...canonicalResult.canonical,
+  ]);
+  const needsThirdAssignmentApproval = approvalGroupFingerprints
+    .some((fingerprint) => !canonicalResult.approvedGroupFingerprints.has(fingerprint));
+  if (needsThirdAssignmentApproval && !approveThirdAssignment) {
     return NextResponse.json({
       error: "측정자 1인 3건 배정이 포함되어 예비조사 담당자 또는 관리자 승인이 필요합니다.",
       code: "MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED",
@@ -541,9 +656,8 @@ async function applySubmittedDrafts(
     assignee_user_id: assignment.userId,
     survey_code: assignment.surveyCode,
     assignment_reason: assignment.reason,
-    approval_required: assignment.approvalRequired,
   }));
-  const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan_and_measurement_assignments", {
+  const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan_and_assignment_groups", {
     p_plans: payload,
     p_assignments: assignmentPayload,
     p_assignment_baseline: canonicalResult.baseline,
@@ -558,10 +672,12 @@ async function applySubmittedDrafts(
         reviewRequired: true,
       }, { status: 409 });
     }
+    const rpcMessage = String(error.message || "저장 직전 원천값이 변경되어 저장하지 않았습니다. 새 추천이 필요합니다.");
     return NextResponse.json({
-      error: String(error.message || "저장 직전 원천값이 변경되어 저장하지 않았습니다. 새 추천이 필요합니다."),
-      code: String(error.message || "DRAFT_REVIEW_REQUIRED").includes("TRUE_CONFIRMED_LOCKED")
-        ? "TRUE_CONFIRMED_LOCKED" : "DRAFT_REVIEW_REQUIRED",
+      error: rpcMessage,
+      code: rpcMessage.includes("MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED")
+        ? "MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED"
+        : rpcMessage.includes("TRUE_CONFIRMED_LOCKED") ? "TRUE_CONFIRMED_LOCKED" : "DRAFT_REVIEW_REQUIRED",
       reviewRequired: true,
     }, { status: 409 });
   }
@@ -585,7 +701,7 @@ export async function GET(request: NextRequest) {
 
     const targetIds = (targets ?? []).map((target: any) => Number(target.id));
     const codes = [...new Set((targets ?? []).map((target: any) => target.code))];
-    const [{ data: plans, error: planError }, { data: journals, error: journalError }, { data: users, error: userError }] = await Promise.all([
+    const [{ data: plans, error: planError }, { data: journals, error: journalError }, { data: users, error: userError }, { data: scheduleBlocks, error: scheduleBlockError }] = await Promise.all([
       targetIds.length
         ? supabase.from("preliminary_survey_v2_plans").select("*").in("measurement_target_business_id", targetIds)
         : Promise.resolve({ data: [], error: null }),
@@ -593,8 +709,9 @@ export async function GET(request: NextRequest) {
         ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period").in("code", codes)
         : Promise.resolve({ data: [], error: null }),
       supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced, job").eq("job", "측정"),
+      supabase.from("user_schedule_blocks").select("user_id, start_date, end_date"),
     ]);
-    if (planError || journalError || userError) throw planError || journalError || userError;
+    if (planError || journalError || userError || scheduleBlockError) throw planError || journalError || userError || scheduleBlockError;
 
     // migration 전에는 기존 plan snapshot을 읽기 fallback으로만 사용한다. POST apply는
     // fallback 저장을 허용하지 않고 새 원자 RPC를 요구한다.
@@ -607,14 +724,22 @@ export async function GET(request: NextRequest) {
 
     const planByTarget = new Map((plans ?? []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]));
     const userNameById = new Map((users ?? []).map((user: any) => [Number(user.id), user.name]));
+    const userIdByName = new Map((users ?? []).map((user: any) => [String(user.name ?? "").trim(), Number(user.id)]));
     const planTargetById = new Map((plans ?? []).map((plan: any) => [String(plan.id), Number(plan.measurement_target_business_id)]));
     const assignmentByTargetDate = new Map((assignmentRows ?? []).flatMap((assignment: any) => {
       const businessId = planTargetById.get(String(assignment.plan_id));
       return businessId == null ? [] : [[`${businessId}|${String(assignment.measurement_date)}`, assignment] as const];
     }));
+    const assignmentsByTarget = new Map<number, any[]>();
+    for (const assignment of assignmentRows ?? []) {
+      const targetId = planTargetById.get(String(assignment.plan_id));
+      if (targetId == null) continue;
+      assignmentsByTarget.set(targetId, [...(assignmentsByTarget.get(targetId) ?? []), assignment]);
+    }
     const confirmedKeys = new Set((journals ?? []).map((row: any) =>
       journalKey(row.code, row.measurement_year, row.measurement_period),
     ));
+    const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
 
     const rows = (targets ?? []).map((target: any) => {
       const plan: any = planByTarget.get(Number(target.id)) ?? null;
@@ -634,9 +759,17 @@ export async function GET(request: NextRequest) {
           sourceContext.measurementParticipants !== staff.measurementParticipants
         ))
       ));
+      const preliminaryScheduleBlocked = Boolean(plan?.recommended_date) && roleIdsForPlan(plan)
+        .some((userId) => scheduleBlockedKeys.has(`${userId}:${plan.recommended_date}`));
+      const measurementScheduleBlocked = (assignmentsByTarget.get(Number(target.id)) ?? []).some((assignment: any) =>
+        scheduleBlockedKeys.has(`${Number(assignment.assignee_user_id)}:${String(assignment.measurement_date)}`),
+      );
+      const measurementRoleScheduleBlocked = measurementRoleKeys(target, userIdByName)
+        .some((key) => scheduleBlockedKeys.has(key));
+      const scheduleConflict = preliminaryScheduleBlocked || measurementScheduleBlocked || measurementRoleScheduleBlocked;
       const status = trueConfirmed
         ? "true_confirmed"
-        : stale || plan?.plan_origin === "automatic"
+        : stale || scheduleConflict || plan?.plan_origin === "automatic"
           ? "review_required"
           : plan?.status === "manual_required"
             ? "adjustment_required"
@@ -671,7 +804,11 @@ export async function GET(request: NextRequest) {
         measurementParticipants: staff.measurementParticipants,
         reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",
         status,
-        conflict: stale ? "측정계획 영향값 변경" : plan?.status === "manual_required" ? "조정 필요" : null,
+        conflict: trueConfirmed && scheduleConflict
+          ? "찐확정 계획에 직원 제외 일정 충돌"
+          : stale ? "측정계획 영향값 변경"
+            : scheduleConflict ? "직원 제외 일정 추가 · 재검토 필요"
+              : plan?.status === "manual_required" ? "조정 필요" : null,
         reason: plan?.recommendation_reason?.reason ?? null,
         recommendationReasons: Array.isArray(plan?.recommendation_reason?.shortReasons)
           ? plan.recommendation_reason.shortReasons : [],
@@ -735,6 +872,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "예비조사 기간이 올바르지 않습니다." }, { status: 400 });
     }
     let impactScope: PreliminarySurveyImpactScope | null = null;
+    let lockedScheduleConflictTargetIds: number[] = [];
     // 업체별 재추천은 저장된 현재 관계의 dependency closure 전체를 재검증한다.
     if (requestedTargetIds.length === 1) {
       const targetId = requestedTargetIds[0];
@@ -743,19 +881,26 @@ export async function POST(request: NextRequest) {
       if (seedError) throw seedError;
       if (!seedTarget) return NextResponse.json({ error: "추천 대상 사업장을 찾을 수 없습니다." }, { status: 404 });
       const { data: relationTargets, error: relationTargetError } = await supabase.from("measurement_target_business")
-          .select("id, code, year, period, measurement_date, measurement_end_date, daily_staff, address")
+        .select("id, code, year, period, measurement_date, measurement_end_date, daily_staff, measurer_id, collaborators, address")
         .eq("year", seedTarget.year).eq("period", seedTarget.period);
       if (relationTargetError) throw relationTargetError;
       const relationIds = (relationTargets ?? []).map((target: any) => Number(target.id));
       const relationCodes = [...new Set((relationTargets ?? []).map((target: any) => target.code))];
-      const [{ data: relationPlans, error: relationPlanError }, { data: relationJournals, error: relationJournalError }] = await Promise.all([
+      const [
+        { data: relationPlans, error: relationPlanError },
+        { data: relationJournals, error: relationJournalError },
+        { data: relationUsers, error: relationUserError },
+      ] = await Promise.all([
         relationIds.length ? supabase.from("preliminary_survey_v2_plans")
           .select("id, measurement_target_business_id, recommended_date, participant_user_ids, survey_method, route_evidence, recommendation_reason")
           .in("measurement_target_business_id", relationIds) : Promise.resolve({ data: [], error: null }),
         relationCodes.length ? supabase.from("measurement_journal")
           .select("code, measurement_year, measurement_period").in("code", relationCodes) : Promise.resolve({ data: [], error: null }),
+        supabase.from("users").select("id, name").eq("job", "측정"),
       ]);
-      if (relationPlanError || relationJournalError) throw relationPlanError || relationJournalError;
+      if (relationPlanError || relationJournalError || relationUserError) {
+        throw relationPlanError || relationJournalError || relationUserError;
+      }
       const planIds = (relationPlans ?? []).map((plan: any) => String(plan.id));
       const { data: relationAssignments, error: relationAssignmentError } = planIds.length
         ? await supabase.from("preliminary_survey_v2_measurement_assignments")
@@ -769,12 +914,38 @@ export async function POST(request: NextRequest) {
           ...(assignmentsByPlan.get(String(assignment.plan_id)) ?? []), assignment,
         ]);
       }
+      const relationUserIdByName = new Map((relationUsers ?? [])
+        .map((user: any) => [String(user.name ?? "").trim(), Number(user.id)]));
+      const relationScheduleDates = [
+        ...(relationPlans ?? []).map((plan: any) => String(plan.recommended_date ?? "")),
+        ...(relationAssignments ?? []).map((assignment: any) => String(assignment.measurement_date ?? "")),
+        ...(relationTargets ?? []).flatMap((target: any) => explicitMeasurementDates(target)),
+      ].filter((date) => parseDateOnly(date));
+      const relationScheduleUserIds = [
+        ...(relationPlans ?? []).flatMap((plan: any) => roleIdsForPlan(plan)),
+        ...(relationAssignments ?? []).map((assignment: any) => Number(assignment.assignee_user_id)),
+        ...(relationTargets ?? []).flatMap((target: any) => measurementRoleKeys(target, relationUserIdByName)
+          .map((key) => Number(key.split(":", 1)[0]))),
+      ];
+      const relationScheduleBlockedKeys = await loadScheduleBlockKeys(
+        supabase,
+        relationScheduleDates,
+        relationScheduleUserIds,
+      );
       const confirmed = new Set((relationJournals ?? []).map((journal: any) =>
         journalKey(journal.code, journal.measurement_year, journal.measurement_period)));
       impactTargets = (relationTargets ?? []).map((target: any) => {
         const plan: any = planByTarget.get(Number(target.id));
-        const persistedDates = (assignmentsByPlan.get(String(plan?.id)) ?? [])
+        const planAssignments = assignmentsByPlan.get(String(plan?.id)) ?? [];
+        const persistedDates = planAssignments
           .map((assignment) => String(assignment.measurement_date));
+        const preliminaryScheduleBlocked = Boolean(plan?.recommended_date) && roleIdsForPlan(plan)
+          .some((userId) => relationScheduleBlockedKeys.has(`${userId}:${plan.recommended_date}`));
+        const measurementScheduleBlocked = planAssignments.some((assignment) =>
+          relationScheduleBlockedKeys.has(`${Number(assignment.assignee_user_id)}:${String(assignment.measurement_date)}`),
+        );
+        const measurementRoleScheduleBlocked = measurementRoleKeys(target, relationUserIdByName)
+          .some((key) => relationScheduleBlockedKeys.has(key));
         return {
           targetId: Number(target.id),
           preliminaryDate: plan?.recommended_date ?? null,
@@ -788,12 +959,16 @@ export async function POST(request: NextRequest) {
             (Number.isInteger(Number(plan?.recommendation_reason?.measurementAssignee?.userId))
               ? Number(plan.recommendation_reason.measurementAssignee.userId) : null),
           locked: confirmed.has(journalKey(target.code, target.year, target.period)),
+          scheduleBlocked: preliminaryScheduleBlocked || measurementScheduleBlocked || measurementRoleScheduleBlocked,
         } satisfies PreliminarySurveyImpactTarget;
       });
       impactScope = calculatePreliminarySurveyImpactScope({
         seedTargetIds: [targetId],
         targets: impactTargets,
       });
+      lockedScheduleConflictTargetIds = impactTargets
+        .filter((target) => target.locked && target.scheduleBlocked)
+        .map((target) => target.targetId).sort((left, right) => left - right);
       targetIds = impactScope.targetIds;
     }
     let candidateQuery = supabase.from("measurement_target_business").select("id, code, year, period, measurement_date");
@@ -829,6 +1004,7 @@ export async function POST(request: NextRequest) {
         impactSummary: "변경 가능한 대상이 없습니다.",
         impactTargetIds: impactScope?.targetIds ?? requestedTargetIds,
         lockedTargetIds: impactScope?.lockedTargetIds ?? [],
+        lockedScheduleConflictTargetIds,
         impactReasonsByTarget: impactScope?.reasonsByTarget ?? null,
       });
     }
@@ -873,14 +1049,38 @@ export async function POST(request: NextRequest) {
     }
 
     // 측정자(공시료 담당자)는 활성 users.survey_code와 plan 귀속 날짜별 원천만 사용한다.
-    const [{ data: assigneeUsers, error: assigneeUserError }, { data: persistedAssignments, error: persistedAssignmentError }, { data: persistedPlans, error: persistedPlanError }] = await Promise.all([
+    const [
+      { data: assigneeUsers, error: assigneeUserError },
+      { data: measurementRoleUsers, error: measurementRoleUserError },
+      { data: persistedAssignments, error: persistedAssignmentError },
+      { data: persistedPlans, error: persistedPlanError },
+    ] = await Promise.all([
       supabase.from("users").select("id, name, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
+      supabase.from("users").select("id, name").eq("job", "측정"),
       supabase.from("preliminary_survey_v2_measurement_assignments").select("plan_id, measurement_date, assignee_user_id"),
       supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id"),
     ]);
-    if (assigneeUserError || persistedPlanError || (persistedAssignmentError && !isMeasurementAssignmentSchemaMissing(persistedAssignmentError))) {
-      throw assigneeUserError || persistedPlanError || persistedAssignmentError;
+    if (assigneeUserError || measurementRoleUserError || persistedPlanError ||
+        (persistedAssignmentError && !isMeasurementAssignmentSchemaMissing(persistedAssignmentError))) {
+      throw assigneeUserError || measurementRoleUserError || persistedPlanError || persistedAssignmentError;
     }
+    const measurementRoleUserIdByName = new Map((measurementRoleUsers ?? [])
+      .map((user: any) => [String(user.name ?? "").trim(), Number(user.id)]));
+    const measurementRoleKeysByTarget = new Map(output.targets.map((target) => [target.id, measurementRoleKeys({
+      daily_staff: target.sourceDailyStaffSnapshot,
+      measurement_date: target.measurementDate,
+      measurer_id: target.sourceMeasurerId,
+      collaborators: target.sourceCollaboratorsSnapshot,
+    }, measurementRoleUserIdByName)]));
+    const measurementRoleKeysAll = [...measurementRoleKeysByTarget.values()].flat();
+    const measurementRoleBlockedKeys = await loadScheduleBlockKeys(
+      supabase,
+      measurementRoleKeysAll.map((key) => key.slice(key.indexOf(":") + 1)),
+      measurementRoleKeysAll.map((key) => Number(key.slice(0, key.indexOf(":")))),
+    );
+    const measurementRoleConflictTargetIds = new Set([...measurementRoleKeysByTarget.entries()]
+      .filter(([, keys]) => keys.some((key) => measurementRoleBlockedKeys.has(key)))
+      .map(([targetId]) => targetId));
     // migration 전 POST 추천은 draft 생성만 허용하며, apply는 위의 schema 409 경계에서 차단한다.
     const assignmentRowsForRecommendation = persistedAssignmentError ? [] : (persistedAssignments ?? []);
     const persistedPlanById = new Map((persistedPlans ?? []).map((plan: any) => [String(plan.id), plan]));
@@ -920,6 +1120,11 @@ export async function POST(request: NextRequest) {
           businessCode: target.code, region: target.region,
         }));
       });
+    const assigneeBlockKeys = await loadScheduleBlockKeys(
+      supabase,
+      measurementAssignmentTargets.map((target) => target.measurementDate),
+      (assigneeUsers ?? []).map((user: any) => Number(user.id)),
+    );
     const assigneeCapacity = (assigneeUsers ?? []).filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
     const routeNeededDates = new Set(assigneeCapacity > 0 ? [...new Set(measurementAssignmentTargets.map((target) => target.measurementDate))].filter((date) =>
       measurementAssignmentTargets.filter((target) => target.measurementDate === date).length +
@@ -937,6 +1142,7 @@ export async function POST(request: NextRequest) {
       })),
       existing: existingMeasurementAssignments,
       routeEvidence: measurementRouteEvidence,
+      availability: { isBlocked: (userId, date) => assigneeBlockKeys.has(`${userId}:${date}`) },
     });
     const measurementAssignmentByTarget = new Map<number, typeof measurementAssignments>();
     for (const assignment of measurementAssignments) {
@@ -955,7 +1161,8 @@ export async function POST(request: NextRequest) {
       const target = output.targets.find((item) => item.id === result.targetId)!;
       const assignments = measurementAssignmentByTarget.get(result.targetId) ?? [];
       return result.status === "recommended" && Boolean(target.measurementAssignmentDates?.length) &&
-        assignments.length === target.measurementAssignmentDates!.length ? [result.targetId] : [];
+        assignments.length === target.measurementAssignmentDates!.length &&
+        !measurementRoleConflictTargetIds.has(result.targetId) ? [result.targetId] : [];
     }));
     const canonicalPreview = canonicalizeWorkbenchDraft({
       scope: recommendationScope,
@@ -976,6 +1183,7 @@ export async function POST(request: NextRequest) {
         const targetAssignments = measurementAssignmentByTarget.get(result.targetId) ?? [];
         const assignmentIncomplete = !target.measurementAssignmentDates?.length ||
           targetAssignments.length !== target.measurementAssignmentDates.length;
+        const measurementRoleConflict = measurementRoleConflictTargetIds.has(result.targetId);
         const recommendationReasons = [
           `${target.businessType === "external_new" ? "타기관 신규" : target.businessType === "first_measurement" ? "최초실시" : "기존업체"} · ${result.surveyMethod === "field" ? "방문" : "유선"}`,
           ...targetAssignments.map((assignment) => assignment.reason),
@@ -1014,9 +1222,11 @@ export async function POST(request: NextRequest) {
           recommendationReasons,
           mainMeasurer: targetAssignments.length
             ? targetAssignments.map((assignment) => `${assignment.measurementDate}: ${assignment.userName} ${assignment.publicSampleCode}`).join(", ") : "-",
-          status: result.status === "recommended" && !assignmentIncomplete ? "recommended" : "adjustment_required",
+          status: result.status === "recommended" && !assignmentIncomplete && !measurementRoleConflict
+            ? "recommended" : "adjustment_required",
           conflict: result.status === "manual_required"
             ? result.reason
+            : measurementRoleConflict ? "측정일의 보고서 담당자 또는 측정 참여자 불가 일정 충돌"
             : assignmentIncomplete ? "다일 측정 날짜별 인력 정보 또는 측정자 배정 필요"
               : targetAssignments.some((assignment) => assignment.approvalRequired) ? "3건 승인 필요" : null,
           reason: result.reason,
@@ -1040,10 +1250,19 @@ export async function POST(request: NextRequest) {
         : null,
       impactTargetIds: impactScope?.targetIds ?? requestedTargetIds,
       lockedTargetIds: impactScope?.lockedTargetIds ?? [],
+      lockedScheduleConflictTargetIds,
       impactReasonsByTarget: impactScope?.reasonsByTarget ?? null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "WORKBENCH_RECOMMEND_FAILED";
+    if (error instanceof MeasurementAssignmentDailyLimitError) {
+      return NextResponse.json({
+        error: "측정자 1인당 같은 측정일에는 최대 3건까지만 배정할 수 있습니다.",
+        code: error.code,
+        targetId: error.targetId,
+        measurementDate: error.measurementDate,
+      }, { status: 409 });
+    }
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 500 });
   }
 }

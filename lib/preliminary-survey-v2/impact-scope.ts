@@ -14,6 +14,7 @@ export type PreliminarySurveyImpactReason =
   | "same_measurement_date_assignee_balance"
   | "same_date_field_capacity"
   | "same_date_phone_capacity"
+  | "employee_schedule_blocked"
   | "true_confirmed_locked";
 
 export interface PreliminarySurveyImpactTarget {
@@ -31,6 +32,8 @@ export interface PreliminarySurveyImpactTarget {
   measurementAssigneeUserId?: number | null;
   /** 찐확정 대상: 조회와 영향 계산에는 포함하지만 적용 대상에서는 제외한다. */
   locked?: boolean;
+  /** 예비조사 역할 또는 날짜별 측정자에 후발 직원 제외 일정이 생긴 상태다. */
+  scheduleBlocked?: boolean;
 }
 
 export interface PreliminarySurveyImpactScope {
@@ -136,6 +139,7 @@ export function calculatePreliminarySurveyImpactScope(input: {
     if (!target) return;
     const targetReasons = reasonsByTarget.get(targetId) ?? new Set<PreliminarySurveyImpactReason>();
     reasons.forEach((reason) => targetReasons.add(reason));
+    if (target.scheduleBlocked) targetReasons.add("employee_schedule_blocked");
     if (target.locked) targetReasons.add("true_confirmed_locked");
     reasonsByTarget.set(targetId, targetReasons);
     if (!included.has(targetId)) {
