@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getKSTDateString, getKSTYear, getKSTMonth } from "@/lib/utils/date-utils";
+import { addMonthlyRevenueEntries } from "@/lib/dashboard/monthly-revenue";
 
 export async function GET(request: NextRequest) {
   try {
@@ -304,6 +305,12 @@ export async function GET(request: NextRequest) {
 
     if (trendError) console.error("Trend Error:", trendError);
 
+    const { data: otherTrendData, error: otherTrendError } = await supabase.from("other_revenue")
+      .select("revenue_year, revenue_period, total_amount, invoice_date, created_at")
+      .in("revenue_year", [comparisonYear, prevYear]);
+
+    if (otherTrendError) console.error("Other Revenue Trend Error:", otherTrendError);
+
     // 11-1. 년도별 추이 (전체)
     const { data: yearlyData } = await supabase.from("measurement_journal").select("measurement_year, measurement_fee_total");
     const yearlyRevenueMap: Record<number, number> = {};
@@ -330,25 +337,22 @@ export async function GET(request: NextRequest) {
       monthlyStats[`${i}월`] = { current: initCurrent, previous: 0 };
     }
 
-    trendData?.forEach(item => {
-      // 날짜 기준: 측정 시작일 우선, 없으면 생성일, 둘 다 없으면 스킵
-      const dateStr = item.measurement_start_date || item.created_at;
-      if (!dateStr) return;
+    addMonthlyRevenueEntries(monthlyStats, (trendData ?? []).map((item) => ({
+      year: item.measurement_year,
+      period: item.measurement_period,
+      amount: item.measurement_fee_total,
+      primaryDate: item.measurement_start_date,
+      fallbackDate: item.created_at,
+    })), comparisonYear, prevYear, targetPeriod);
 
-      const date = new Date(dateStr);
-      const monthKey = `${date.getMonth() + 1}월`;
-      const fee = parseFloat(item.measurement_fee_total?.toString() || "0") || 0;
-
-      // 데이터 필터링 (주기)
-      if (targetPeriod && !item.measurement_period?.includes(targetPeriod)) return;
-
-      if (item.measurement_year === comparisonYear) {
-        const currentVal = monthlyStats[monthKey].current;
-        monthlyStats[monthKey].current = (currentVal === null ? 0 : currentVal) + fee;
-      } else if (item.measurement_year === prevYear) {
-        monthlyStats[monthKey].previous += fee;
-      }
-    });
+    // 기타매출은 계산서 발행일 기준으로 합산하고, 발행일이 없으면 등록일을 사용한다.
+    addMonthlyRevenueEntries(monthlyStats, (otherTrendData ?? []).map((item) => ({
+      year: item.revenue_year,
+      period: item.revenue_period,
+      amount: item.total_amount,
+      primaryDate: item.invoice_date,
+      fallbackDate: item.created_at,
+    })), comparisonYear, prevYear, targetPeriod);
 
     const monthlyComparisonList = Object.entries(monthlyStats).map(([month, val]) => ({
       month,

@@ -14,6 +14,7 @@ import {
   applyTargetClassificationToJournalNote,
   resolveTargetBusinessCategory,
 } from "@/lib/business/target-classification";
+import { resolveJournalManagerEmailForCreate } from "@/lib/journal/manager-email-policy";
 
 async function queueFinalNationalSupportLookup(
   supabase: any,
@@ -638,7 +639,7 @@ export async function POST(request: NextRequest) {
       })(),
       manager_position: body.manager_position || businessData.manager_position || null,
       manager_mobile: body.manager_mobile || businessData.manager_mobile || null,
-      manager_email: body.manager_email || businessData.manager_email || null,
+      manager_email: resolveJournalManagerEmailForCreate(body, businessData.manager_email),
       invoice_email: (() => {
         const rawEmail = body.invoice_email || businessData.invoice_email || null;
         if (rawEmail && (rawEmail.includes(',') || rawEmail.includes(';'))) {

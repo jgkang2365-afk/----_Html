@@ -57,6 +57,19 @@ export function normalizeJournalManagerEmailForSave(
   return value === "" || value === null || value === undefined ? null : value;
 }
 
+export function resolveJournalManagerEmailForCreate(
+  requestBody: Record<string, unknown>,
+  measurementBusinessValue: string | null | undefined,
+): string | null {
+  const value = Object.prototype.hasOwnProperty.call(requestBody, "manager_email")
+    ? requestBody.manager_email
+    : measurementBusinessValue;
+
+  return typeof value === "string"
+    ? normalizeJournalManagerEmailForSave(value)
+    : null;
+}
+
 export function resolveJournalManagerEmailUpdate(
   updates: Record<string, unknown>,
   existingValue: string | null | undefined,
