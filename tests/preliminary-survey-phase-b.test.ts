@@ -24,9 +24,12 @@ test("Phase B 유형별 날짜 후보는 측정예정일에서 역산한다", ()
   );
   assert.deepEqual(
     recommendationDatesForBusinessType("2026-07-14", "external_new").map((item) => item.workingDaysBefore),
-    [...Array.from({ length: 28 }, (_, index) => 30 - index), ...Array.from({ length: 30 }, (_, index) => 31 + index)],
+    [...Array.from({ length: 18 }, (_, index) => 20 - index), ...Array.from({ length: 5 }, (_, index) => 25 - index)],
   );
-  assert.equal(recommendationDatesForBusinessType("2026-07-14", "existing")[0].workingDaysBefore, 3);
+  assert.deepEqual(
+    recommendationDatesForBusinessType("2026-07-14", "existing").map((item) => item.workingDaysBefore),
+    [...Array.from({ length: 18 }, (_, index) => 20 - index), ...Array.from({ length: 5 }, (_, index) => 25 - index)],
+  );
   assert.ok(recommendationDatesForBusinessType("2026-07-14", "first_measurement").every((item) => ![0, 6].includes(new Date(`${item.date}T00:00:00Z`).getUTCDay())));
   const existingCandidates = recommendationDatesForBusinessType("2026-07-14", "existing");
   const oneDayScope = filterPreliminaryCandidateDates(existingCandidates, {
@@ -35,10 +38,29 @@ test("Phase B 유형별 날짜 후보는 측정예정일에서 역산한다", ()
   });
   assert.deepEqual(oneDayScope.map((item) => item.date), [existingCandidates[0].date]);
   const rangeScope = filterPreliminaryCandidateDates(existingCandidates, {
-    preliminaryDateFrom: existingCandidates[2].date,
-    preliminaryDateTo: existingCandidates[0].date,
+    preliminaryDateFrom: existingCandidates[0].date,
+    preliminaryDateTo: existingCandidates[2].date,
   });
   assert.deepEqual(rangeScope.map((item) => item.date), existingCandidates.slice(0, 3).map((item) => item.date));
+});
+
+test("실시간 후보는 KST 기준일 이전과 측정 당일을 자동추천하지 않는다", () => {
+  const all = recommendationDatesForBusinessType("2026-09-10", "external_new");
+  const minimumDate = all[8].date;
+  const filtered = recommendationDatesForBusinessType("2026-09-10", "external_new", { minimumDate });
+  assert.ok(filtered.length > 0);
+  assert.ok(filtered.every((item) => item.date >= minimumDate && item.date < "2026-09-10"));
+});
+
+test("정책 후보가 모두 기준일보다 과거면 강제 과거 배정 없이 수동조정한다", async () => {
+  const [result] = await recommendBatch({
+    targets: [target(1, "external_new")], experiencedUsers: [experienced],
+    availability: { isBlocked: () => false },
+    routes: { between: async () => ({ source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: true }) },
+    planningDate: "2026-07-14",
+  });
+  assert.equal(result.status, "manual_required");
+  assert.equal(result.date, null);
 });
 
 test("daily_staff는 측정예정일별 메인측정자/조력자를 우선하고 collaborators는 역할 없는 fallback이다", () => {
@@ -116,13 +138,14 @@ test("daily_staff가 없을 때 legacy 실제 측정자만 차단하고 report_w
   assert.equal(blocked.has("2:2026-08-25"), true);
 });
 
-test("Phase B 기존업체 유선은 비경력자 단독 추천을 허용한다", async () => {
+test("Phase B 기존업체 비경력 유선은 가능한 경력 검토자를 우선한다", async () => {
   const [result] = await recommendBatch({
     targets: [target(1, "existing", novice)], experiencedUsers: [experienced],
     availability: { isBlocked: () => false },
     routes: { between: async () => ({ source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: true }) },
   });
-  assert.deepEqual(result.participants.map((user) => user.id), [2]);
+  assert.deepEqual(result.participants.map((user) => user.id), [2, 1]);
+  assert.equal(result.experiencedReviewer?.id, 1);
 });
 
 test("날짜별 통합 추천 정렬은 최초실시, 타기관 신규, 기존업체 순이다", async () => {
@@ -150,7 +173,7 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   assert.match(page, /<PreliminarySurveyV2Plans mode="list"/);
   assert.match(ui, /<table/);
-  for (const column of ["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자·공시료", "측정 참여자", "보고서담당", "충돌"]) assert.match(ui, new RegExp(column));
+  for (const column of ["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자\\(공시료\\)", "측정 참여자", "보고서담당", "충돌"]) assert.match(ui, new RegExp(column));
   assert.match(ui, /이 업체 재추천/);
   assert.match(ui, /action: "apply", drafts: targetIds\.map/);
   assert.match(api, /applySubmittedDrafts/);

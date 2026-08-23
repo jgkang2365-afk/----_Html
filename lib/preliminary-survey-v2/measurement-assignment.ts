@@ -17,6 +17,10 @@ export interface MeasurementAssignmentTarget {
   coordinate: Coordinate | null;
   businessCode?: string;
   region?: string | null;
+  /** 아래 역할은 배정 preference일 뿐이며 측정자 원천으로 저장·승격하지 않는다. */
+  reportWriterUserId?: number | null;
+  measurementParticipantUserIds?: number[];
+  preliminarySurveyorUserId?: number | null;
 }
 
 export interface ExistingMeasurementAssignment extends MeasurementAssignmentTarget {
@@ -148,8 +152,8 @@ export async function collectMeasurementVehicleRouteEvidence(input: {
 }
 
 /**
- * 예비조사자·실측정자·보고서 담당자와 무관하게 측정자(공시료 담당자)를 배정한다.
- * 첫 순환은 하루별 균등 배정이고, 추가 배정은 동일주소 > 실제 차량경로 > 현재 배정수 > ID다.
+ * 역할 원천은 독립적으로 유지하면서, 첫 순환 균등 조건 안에서 역할 일치를 preference로 사용한다.
+ * 추가 배정은 현재 배정수 > 역할 일치 > 동일주소 > 실제 차량경로 > ID 순이다.
  */
 export function assignMeasurementAssignees(input: {
   targets: MeasurementAssignmentTarget[];
@@ -191,10 +195,16 @@ export function assignMeasurementAssignees(input: {
       ...sameDate.filter((item) => item.userId === userId).map((item) => routeMinutes(target, item, evidence)),
       Number.POSITIVE_INFINITY,
     );
+    const roleMatchScore = (userId: number) =>
+      Number(target.measurementParticipantUserIds?.includes(userId)) +
+      Number(target.reportWriterUserId === userId) +
+      Number(target.preliminarySurveyorUserId === userId);
     candidates.sort((left, right) =>
+      count(left.id) - count(right.id) ||
+      roleMatchScore(right.id) - roleMatchScore(left.id) ||
       Number(!exactAddressUsers.has(left.id)) - Number(!exactAddressUsers.has(right.id)) ||
       shortestVehicleRoute(left.id) - shortestVehicleRoute(right.id) ||
-      count(left.id) - count(right.id) || left.id - right.id,
+      left.id - right.id,
     );
     // 해당 날짜에 가능한 측정자가 없으면 incomplete draft로 남겨 사용자 재검토를 요구한다.
     const selected = candidates[0];

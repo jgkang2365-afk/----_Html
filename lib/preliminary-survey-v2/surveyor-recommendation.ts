@@ -85,11 +85,17 @@ function validParticipants(participants: SurveyUser[], date: string, availabilit
   return participants.length > 0 && participants.every((user) => user.active !== false && !availability.isBlocked(user.id, date));
 }
 
-function fitsCapacity(kind: BusinessKind, participants: SurveyUser[], date: string, assignments: ExistingAssignment[]) {
-  return participants.every((user) => kind === "existing"
-    ? phoneCount(assignments, user.id, date) < 3
-    : fieldCount(assignments, user.id, date) < 2,
-  );
+function fitsCapacity(
+  kind: BusinessKind,
+  responsible: SurveyUser,
+  participants: SurveyUser[],
+  date: string,
+  assignments: ExistingAssignment[],
+) {
+  // 기존업체의 경력자는 표 검토자이므로 책임자의 유선 용량만 센다.
+  return kind === "existing"
+    ? phoneCount(assignments, responsible.id, date) < 3
+    : participants.every((user) => fieldCount(assignments, user.id, date) < 2);
 }
 
 function asAssignment(target: SurveyorRecommendationTarget, recommendation: SurveyorRecommendation): ExistingAssignment {
@@ -109,8 +115,15 @@ function asAssignment(target: SurveyorRecommendationTarget, recommendation: Surv
 
 function candidateCombinations(target: SurveyorRecommendationTarget, users: SurveyUser[]): SurveyorCombination[] {
   if (target.kind === "existing") {
-    // 기존업체 유선은 경력 동행이 아닌 담당자 1명의 개인 용량만 확인한다.
-    return users.map((responsible) => ({ responsible, participants: [responsible], reviewer: null }));
+    const experienced = users.filter((user) => user.experienced);
+    return users.flatMap((responsible) => responsible.experienced
+      ? [{ responsible, participants: [responsible], reviewer: null }]
+      : [
+          ...experienced.filter((reviewer) => reviewer.id !== responsible.id).map((reviewer) => ({
+            responsible, participants: [responsible, reviewer], reviewer,
+          })),
+          { responsible, participants: [responsible], reviewer: null },
+        ]);
   }
 
   const experienced = users.filter((user) => user.experienced);
@@ -133,7 +146,8 @@ function compareCandidates(
     (sum, user) => sum + (kind === "existing" ? phoneCount(assignments, user.id, date) : fieldCount(assignments, user.id, date)), 0,
   );
   return load(left) - load(right) ||
-    left.participants.length - right.participants.length ||
+    Number(kind === "existing" && !left.responsible.experienced && left.participants.length === 1) -
+      Number(kind === "existing" && !right.responsible.experienced && right.participants.length === 1) ||
     left.responsible.id - right.responsible.id ||
     left.participants.map((user) => user.id).join(",").localeCompare(right.participants.map((user) => user.id).join(","));
 }
@@ -159,7 +173,7 @@ export function recommendSurveyors(input: SurveyorRecommendationInput): Surveyor
     if (tentative && target.candidateDates.includes(tentative.date)) {
       const { participants, responsible, reviewer } = participantsForTentative(tentative, usersById);
       if (responsible && validParticipants(participants, tentative.date, input.availability) &&
-        fitsCapacity(target.kind, participants, tentative.date, occupied)) {
+        fitsCapacity(target.kind, responsible, participants, tentative.date, occupied)) {
         const preserved = {
           targetId: target.id, date: tentative.date, responsible, participants, experiencedReviewer: reviewer,
           surveyMethod: assignmentMethod(tentative), preserved: true,
@@ -174,7 +188,7 @@ export function recommendSurveyors(input: SurveyorRecommendationInput): Surveyor
     for (const date of target.candidateDates) {
       const choices = candidateCombinations(target, users)
         .filter((choice) => validParticipants(choice.participants, date, input.availability))
-        .filter((choice) => fitsCapacity(target.kind, choice.participants, date, occupied))
+        .filter((choice) => fitsCapacity(target.kind, choice.responsible, choice.participants, date, occupied))
         .sort((left, right) => compareCandidates(occupied, date, left, right, target.kind));
       const choice = choices[0];
       if (!choice) continue;

@@ -692,3 +692,24 @@
 - Orca Worker A는 동일 prompt-injection stalled가 두 번 발생해 결과 없이 종료했고, 반복하지 않고 Main이 `/survey`를 검증했다. Worker B는 GPT-5.6 Terra / Medium 요청·effective 확인으로 상세 모달의 기본 체크/해제까지 확인했으며, 나머지는 Main이 이어서 검증했다. 생성 dispatch 3개, task active 0개이고 exact worker terminal은 닫혔다. Orca runtime의 resource 상태는 `release_unknown` 감사 상태 3건으로 남았다.
 - Orca `eval` 기반 UI·API·DB 검증은 성공했지만 `snapshot`과 `screenshot`은 runtime/CDP timeout으로 증거 이미지를 남기지 못했다. 이는 제품 기능 실패와 분리한다.
 - 최종 판정은 **PASS WITH MANUAL CHECK**다. Local UI/E2E와 persistence 경계는 통과했으며, 운영 외부 캘린더에 대한 실제 표시 확인만 운영 write 금지 때문에 별도 수동 확인 대상으로 남긴다.
+
+## 2026-08-23 1단계 배정 정책 보완 및 UI 간소화
+
+### 구현
+
+- 최초실시는 working day `-3 → -30`과 방문 필수를 유지했다. 타기관 신규와 기존업체는 `-20 → -3`을 먼저 탐색하고 유효 후보가 없을 때 `-25 → -21`을 사용하도록 변경했으며, 타기관 신규는 계속 방문만 허용한다.
+- 실시간 서비스는 KST 오늘을 최소 후보일로 전달한다. 정책 후보가 모두 과거이거나 hard constraint를 통과하지 못하면 과거 날짜나 측정 당일을 채우지 않고 `수동조정 필요`로 반환한다. pure 날짜 계산은 고정 planning date를 주입할 수 있어 deterministic test가 가능하다.
+- 같은 측정일의 측정자 배정은 hard constraint와 기존 배정을 먼저 고정한 뒤, 아직 0건인 배정 가능자를 우선해 6명 첫 순환을 최대화한다. 같은 균등 조건에서는 날짜별 측정 참여자·보고서 담당자·예비조사 책임자와의 역할 일치 점수를 사용하고 안정적인 user/target ID로 동점을 해소한다.
+- 단일일은 `measurer_id`와 정규화한 `collaborators`, 다일은 해당 `daily_staff` 행을 역할 preference 원천으로 사용한다. 이 값은 추천 점수에만 사용하며 역할 간 자동 복사·승격은 하지 않는다.
+- 기존업체의 비경력 책임자에게 가능한 경력자를 예비조사표 검토자로 우선 배정한다. 검토자는 방문 동행자나 별도 유선 수행자가 아니므로 방문·유선 수행 용량을 중복 소모하지 않는다. 검토 부하는 soft balancing하며 모두 불가능할 때는 비경력 단독과 `경력 검토자 미배정` 경고를 남긴다.
+- 요약 UI는 `측정자(공시료)`와 `이름(코드)` 형식으로 통일하고 측정일 prefix를 제거했다. 방식은 `유선`/`방문`만 표시한다. 공시료 원천은 계속 `users.survey_code`다.
+
+### 검증 및 안전
+
+- 집중 행동 테스트 117/117, `npx tsc --noEmit --pretty false`, 전체 `npm test` 421/421, `npm run build`가 모두 통과했다. 날짜 후보·KST cutoff·경력 검토자·역할 preference·6명 첫 순환·사용자 6개 fixture·기존 영향 범위를 포함한다.
+- Local Supabase 미래 측정일 fixture를 3000번 실제 브라우저에서 검색·선택·추천했다. 동일 측정일 6개 기존업체는 `한기문(B)`, `이태환(A)`, `강종구(C)`, `이주형(D)`, `고유빈(F)`, `김민영(G)`가 각각 1회 배정됐고, 비경력 책임자 고유빈·김민영에게 경력 검토자 이태환·한기문이 표시됐다. 컬럼은 `측정자(공시료)`, 값은 날짜 prefix 없는 `이름(코드)`, 방식은 `유선`으로 표시됐다.
+- 타기관 신규 fixture는 측정일 `2026-10-21`에서 working day `-20`인 `2026-09-17` 방문으로 추천됐다. 정책 후보가 모두 KST 오늘보다 과거인 최초실시 fixture는 예비조사일 `-`, 상태 `조정 필요`로 표시돼 과거 날짜와 측정 당일을 사용하지 않았다.
+- 추천 화면은 `아직 저장되지 않았습니다`를 표시했고 Local plan/assignment가 각각 0건임을 DB에서 대조했다. apply는 이번 1단계 필수 범위가 아니므로 수행하지 않았다. 검증 fixture 삭제 후 Local 사용자·사업장·plan 잔여가 모두 0건이며 테스트 탭도 닫았다. Orca screenshot은 runtime timeout으로 실패했지만 동일 page의 실제 DOM 조작과 API 결과 확인은 성공했다.
+- 운영 Supabase migration/data write 및 보호 대상 10개 업체 write는 0건이다. DB schema와 migration은 변경하지 않았고 2단계 운영 데이터 보정은 실행하지 않았다.
+- Orca Worker A/B를 두 방식으로 총 4회 dispatch했으나 모두 `agent_prompt_stalled`로 종료되어 결과를 사용하지 않았다. exact terminal은 종료됐으며 Main이 구현과 검증을 계속했다. 실제 요청/effective 모델은 GPT-5.6 Terra / High로 확인했다.
+- 1단계 최종 승인 후 측정일 2026-08-01 이후 운영DB V1 테스트 예비조사일을 대상으로 `찐확정 제외 → 기존 예비조사자 유지 → 날짜 순 재배정` 1회성 backfill을 별도 검토한다. 이번 변경에는 실행 코드나 운영 write가 없다.

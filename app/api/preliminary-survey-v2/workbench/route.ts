@@ -12,6 +12,7 @@ import { measurementStaffForDate } from "@/lib/preliminary-survey-v2/measurement
 import { loadActualMeasurementBlockedKeys } from "@/lib/preliminary-survey-v2/measurement-conflicts";
 import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
 import { measurementDayAvailabilityKeys } from "@/lib/business/measurement-day-availability";
+import { currentDateInKst } from "@/lib/preliminary-survey-v2/recommendation-range";
 import {
   assignMeasurementAssignees,
   collectMeasurementVehicleRouteEvidence,
@@ -136,6 +137,12 @@ function parseRecommendationScope(value: any): RecommendationScopeSnapshot | nul
 
 function isSurveyCode(value: unknown): value is SurveyCode {
   return value === "A" || value === "B" || value === "C" || value === "D" || value === "F" || value === "G";
+}
+
+function measurementAssigneeLabel(name: unknown, surveyCode: unknown) {
+  const normalizedName = String(name ?? "").trim();
+  const normalizedCode = String(surveyCode ?? "").trim();
+  return normalizedName && normalizedCode ? `${normalizedName}(${normalizedCode})` : "-";
 }
 
 function parseDraft(value: any): SubmittedDraft | null {
@@ -778,7 +785,7 @@ export async function GET(request: NextRequest) {
         ? { name: userNameById.get(Number(persistedAssignment.assignee_user_id)), publicSampleCode: persistedAssignment.survey_code }
         : plan?.recommendation_reason?.measurementAssignee;
       const measurementAssigneeLabel = measurementAssignee?.name && measurementAssignee?.publicSampleCode
-        ? `${measurementAssignee.name} ${measurementAssignee.publicSampleCode}`
+        ? `${measurementAssignee.name}(${measurementAssignee.publicSampleCode})`
         : "-";
       return {
         targetId: Number(target.id),
@@ -942,6 +949,8 @@ export async function POST(request: NextRequest) {
           targetId: Number(target.id),
           preliminaryDate: plan?.recommended_date ?? null,
           participantUserIds: Array.isArray(plan?.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
+          responsibleUserId: Number(plan?.responsible_user_id) || null,
+          experiencedReviewerUserId: Number(plan?.experienced_reviewer_id) || null,
           surveyMethod: plan?.survey_method === "field" ? "field" : plan?.survey_method === "phone" ? "phone" : null,
           address: target.address ?? null,
           visitBundleKey: plan?.route_evidence?.visitBundleKey ?? null,
@@ -1017,6 +1026,8 @@ export async function POST(request: NextRequest) {
             ...target,
             preliminaryDate: result.date,
             participantUserIds: result.participants.map((user) => user.id),
+            responsibleUserId: result.responsible.id,
+            experiencedReviewerUserId: result.experiencedReviewer?.id ?? null,
             surveyMethod: result.surveyMethod,
           } : target;
         });
@@ -1107,10 +1118,16 @@ export async function POST(request: NextRequest) {
     });
     const measurementAssignmentTargets = output.results.filter((result) => result.status === "recommended").flatMap((result) => {
         const target = output.targets.find((item) => item.id === result.targetId)!;
-        return (target.measurementAssignmentDates ?? []).map((measurementDate) => ({
-          targetId: target.id, measurementDate, address: target.address, coordinate: target.coordinate,
-          businessCode: target.code, region: target.region,
-        }));
+        return (target.measurementAssignmentDates ?? []).map((measurementDate) => {
+          const staff = target.measurementStaffByDate?.find((item) => item.date === measurementDate);
+          return {
+            targetId: target.id, measurementDate, address: target.address, coordinate: target.coordinate,
+            businessCode: target.code, region: target.region,
+            reportWriterUserId: staff?.reportWriterUserId ?? null,
+            measurementParticipantUserIds: staff?.measurementParticipantUserIds ?? [],
+            preliminarySurveyorUserId: result.responsible.id,
+          };
+        });
       });
     const assigneeBlockKeys = await loadScheduleBlockKeys(
       supabase,
@@ -1213,18 +1230,22 @@ export async function POST(request: NextRequest) {
           })),
           recommendationReasons,
           mainMeasurer: targetAssignments.length
-            ? targetAssignments.map((assignment) => `${assignment.measurementDate}: ${assignment.userName} ${assignment.publicSampleCode}`).join(", ") : "-",
+            ? [...new Set(targetAssignments.map((assignment) =>
+                measurementAssigneeLabel(assignment.userName, assignment.publicSampleCode),
+              ))].join(", ") : "-",
           status: result.status === "recommended" && !assignmentIncomplete && !measurementRoleConflict
             ? "recommended" : "adjustment_required",
           conflict: result.status === "manual_required"
             ? result.reason
             : measurementRoleConflict ? "측정일의 보고서 담당자 또는 측정 참여자 불가 일정 충돌"
             : assignmentIncomplete ? "다일 측정 날짜별 인력 정보 또는 측정자 배정 필요"
+              : result.evidence.warnings.includes("EXPERIENCED_REVIEWER_UNASSIGNED") ? "경력 검토자 미배정"
               : targetAssignments.some((assignment) => assignment.approvalRequired) ? "3건 승인 필요" : null,
           reason: result.reason,
           alternatives: recommendationDatesForBusinessType(
             target.measurementDate,
             target.businessType ?? (target.kind === "existing" ? "existing" : "first_measurement"),
+            { minimumDate: currentDateInKst() },
           ).map((item) => item.date).filter((date) =>
             (!preliminaryDateFrom || date >= preliminaryDateFrom) &&
             (!preliminaryDateTo || date <= preliminaryDateTo) &&

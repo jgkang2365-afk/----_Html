@@ -474,7 +474,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               <input aria-label="측정예정일" type="date" value={measurementDateFilter} onChange={(event) => setMeasurementDateFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
             <label className="w-20 shrink-0 text-xs font-medium text-text-700">방식
-              <select aria-label="방식 필터" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm"><option value="">전체</option><option value="field">현장</option><option value="phone">유선</option></select>
+              <select aria-label="방식 필터" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm"><option value="">전체</option><option value="field">방문</option><option value="phone">유선</option></select>
             </label>
             <label className="min-w-[14rem] flex-1 text-xs font-medium text-text-700">코드 · 사업장명
               <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
@@ -498,7 +498,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : "phase-b-list-table-scroll"} className="max-h-[calc(100vh-20rem)] overflow-auto">
           <table className="w-full min-w-[1080px] table-fixed text-sm">
             <thead className="sticky top-0 z-20 bg-surface-50 text-left text-text-700 shadow-sm">
-              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자·공시료", "측정 참여자", "보고서담당", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
+              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자(공시료)", "측정 참여자", "보고서담당", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-surface-200">
               {displayRows.map((row) => (
@@ -511,7 +511,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   <td className="px-2 py-2 whitespace-nowrap">{row.kind}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.measurementDate || "-"}</td>
                   <td className="truncate px-2 py-2" title={row.surveyors.join(", ")}>{row.surveyors.join(", ") || "-"}</td>
-                  <td className="px-2 py-2">{row.surveyMethod === "field" ? "현장" : "유선"}</td>
+                  <td className="px-2 py-2">{row.surveyMethod === "field" ? "방문" : "유선"}</td>
                   <td className="truncate px-2 py-2">{row.mainMeasurer || "-"}</td>
                   <td className="truncate px-2 py-2" title={row.measurementParticipants || ""}>{row.measurementParticipants || "-"}</td>
                   <td className="truncate px-2 py-2">{row.reportWriter || "-"}</td>
@@ -533,14 +533,14 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           {selected.reason && <Alert variant="warning">{selected.reason}</Alert>}
           {selected.recommendationReasons && selected.recommendationReasons.length > 0 && <div className="flex flex-wrap gap-2">{selected.recommendationReasons.map((reason) => <span key={reason} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{reason}</span>)}</div>}
           <div className="grid grid-cols-3 gap-3 rounded-lg border border-surface-200 p-3 text-sm">
-            <div>측정자·공시료: <strong>{selected.mainMeasurer || "-"}</strong></div>
+            <div>측정자(공시료): <strong>{selected.mainMeasurer || "-"}</strong></div>
             <div>측정 참여자: <strong>{selected.measurementParticipants || "-"}</strong></div>
             <div>보고서 담당자: <strong>{selected.reportWriter || "-"}</strong></div>
           </div>
           {selected.alternatives && selected.alternatives.length > 0 && <div className="rounded-lg border border-surface-200 p-3 text-sm"><strong>대안 후보일</strong><div className="mt-1">{selected.alternatives.join(" · ")}</div></div>}
           <Input label="예비조사일" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} disabled={selected.locked} />
           <label className="block text-sm font-medium text-text-700">방식
-            <select value={editMethod} onChange={(event) => setEditMethod(event.target.value as "field" | "phone")} disabled={selected.locked} className="mt-1 block h-10 w-full rounded-md border border-surface-300 bg-white px-3"><option value="field">현장</option><option value="phone">유선</option></select>
+            <select value={editMethod} onChange={(event) => setEditMethod(event.target.value as "field" | "phone")} disabled={selected.locked} className="mt-1 block h-10 w-full rounded-md border border-surface-300 bg-white px-3"><option value="field">방문</option><option value="phone">유선</option></select>
           </label>
           <fieldset disabled={selected.locked}><legend className="mb-2 text-sm font-medium text-text-700">예비조사자</legend><div className="grid grid-cols-2 gap-2">{users.filter((user) => user.is_active).map((user) => <label key={user.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editParticipants.includes(user.id)} onChange={() => setEditParticipants((current) => current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id])} />{user.name}{user.is_preliminary_survey_experienced ? " (경력)" : ""}</label>)}</div></fieldset>
           {selected.locked && <Alert variant="warning">유효한 측정일지가 있어 찐확정된 업체입니다. 일반 수정과 자동추천이 차단됩니다.</Alert>}

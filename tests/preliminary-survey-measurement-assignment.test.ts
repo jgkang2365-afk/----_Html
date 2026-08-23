@@ -39,6 +39,45 @@ test("6개 업체는 측정자 6명에게 1개씩 균등 배정한다", () => {
   assert.equal(new Set(result.map((item) => item.userId)).size, 6);
 });
 
+test("첫 순환 균등을 지킨 뒤 보고서 담당자·측정 참여자·예비조사자 역할 일치를 최대화한다", () => {
+  const targets = users.map((user, index) => ({
+    ...target(index + 1),
+    reportWriterUserId: user.id,
+    measurementParticipantUserIds: [user.id],
+    preliminarySurveyorUserId: user.id,
+  }));
+  const result = assignMeasurementAssignees({ targets: [...targets].reverse(), users });
+  assert.equal(new Set(result.map((item) => item.userId)).size, 6);
+  assert.deepEqual(result.map((item) => [item.targetId, item.userId]), targets.map((item) => [item.targetId, item.reportWriterUserId]));
+});
+
+test("역할이 일부 직원에게 몰려도 6명 첫 순환이 역할 일치보다 우선한다", () => {
+  const result = assignMeasurementAssignees({
+    targets: users.map((_, index) => ({
+      ...target(index + 1), reportWriterUserId: 1,
+      measurementParticipantUserIds: [1], preliminarySurveyorUserId: 1,
+    })),
+    users,
+  });
+  assert.equal(new Set(result.map((item) => item.userId)).size, 6);
+});
+
+test("사용자 6개 예시 구조는 A/B/C/D/F/G를 한 번씩 사용하고 역할 일치 대상을 선택한다", () => {
+  const expectedUserIds = [2, 1, 3, 4, 5, 6];
+  const result = assignMeasurementAssignees({
+    targets: [290, 200, 226, 188, 100, 101].map((targetId, index) => ({
+      ...target(targetId, `주소 ${targetId}`, "2026-08-24"),
+      reportWriterUserId: expectedUserIds[index],
+      measurementParticipantUserIds: [expectedUserIds[index]],
+      preliminarySurveyorUserId: expectedUserIds[index],
+    })),
+    users,
+  });
+  assert.deepEqual(result.map((item) => [item.targetId, item.userId, item.publicSampleCode]), [
+    [100, 5, "F"], [101, 6, "G"], [188, 4, "D"], [200, 1, "A"], [226, 3, "C"], [290, 2, "B"],
+  ]);
+});
+
 test("8개 업체는 2/2/1/1/1/1이고 세 번째 배정은 승인 필요다", () => {
   const result = assignMeasurementAssignees({ targets: Array.from({ length: 8 }, (_, index) => target(index + 1)), users });
   const counts = users.map((user) => result.filter((item) => item.userId === user.id).length).sort((a, b) => b - a);

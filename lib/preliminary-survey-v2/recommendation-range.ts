@@ -42,7 +42,7 @@ function formatDateOnly(date: Date): string {
   ].join("-");
 }
 
-function currentDateInKst(now: Date): string {
+export function currentDateInKst(now: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: KST_TIME_ZONE,
     year: "numeric",

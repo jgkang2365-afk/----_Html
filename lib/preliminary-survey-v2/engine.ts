@@ -14,6 +14,8 @@ export interface RecommendBatchInput {
   existingAssignments?: ExistingAssignment[];
   availability: Availability;
   routes: RouteMetrics;
+  /** 실시간 추천에서는 KST 오늘, 테스트에서는 고정 기준일을 전달한다. */
+  planningDate?: string;
 }
 
 const SAME_ROUTE_THRESHOLD_MINUTES = 30 as const;
@@ -31,10 +33,10 @@ function deterministicTargets(targets: SurveyTarget[]) {
   );
 }
 
-function targetRecommendationDates(target: SurveyTarget) {
+function targetRecommendationDates(target: SurveyTarget, planningDate?: string) {
   return target.businessType
-    ? recommendationDatesForBusinessType(target.measurementDate, target.businessType)
-    : recommendationDates(target.measurementDate);
+    ? recommendationDatesForBusinessType(target.measurementDate, target.businessType, { minimumDate: planningDate })
+    : recommendationDates(target.measurementDate).filter((candidate) => !planningDate || candidate.date >= planningDate);
 }
 
 function existingResponsibleCount(assignments: ExistingAssignment[], userId: number, date: string) {
@@ -123,6 +125,10 @@ async function routeAgainstSameDayField(
   return evaluateSameDayRoute(other, target, routes);
 }
 
+function existingReviewTotalCount(assignments: ExistingAssignment[], userId: number) {
+  return assignments.filter((item) => item.kind === "existing" && item.experiencedReviewerId === userId).length;
+}
+
 function compareRoute(left: EvaluatedSameDayRoute | null, right: EvaluatedSameDayRoute | null) {
   const rank = (route: EvaluatedSameDayRoute | null) => route?.evidence.routeDecision === "same_day_allowed" ? 0 : route ? 2 : 1;
   return rank(left) - rank(right) ||
@@ -142,7 +148,6 @@ async function chooseReviewer(
     .filter((user) => user.active !== false && user.experienced && user.id !== target.responsible.id)
     .map(async (user) => {
       const sameDayFieldCount = fieldVisitCount(assignments, user.id, date);
-      const sameDayNewCount = newFieldCount(assignments, user.id, date);
       const route = target.kind === "new" && capacityPass === 2
         ? await routeAgainstSameDayField(target, user.id, date, assignments, routes)
         : null;
@@ -150,24 +155,26 @@ async function chooseReviewer(
         user,
         blocked: availability.isBlocked(user.id, date),
         hardConflict: availability.isBlocked(user.id, date) ||
-          (target.kind === "existing" && existingReviewCount(assignments, user.id, date) >= 3) || (
-          target.kind === "new" && (
+          (target.kind === "new" && (
             sameDayFieldCount >= capacityPass ||
             (sameDayFieldCount > 0 && route?.evidence.routeDecision !== "same_day_allowed")
           )
         ),
         route,
-        crossTypeOverlap: target.kind === "existing"
-          ? sameDayNewCount > 0
-          : existingReviewCount(assignments, user.id, date) > 0,
+        // 기존업체 검토는 현장 동행·유선 수행이 아니므로 신규 방문과의 용량 중복으로 보지 않는다.
+        crossTypeOverlap: false,
         newCount: newFieldCount(assignments, user.id),
         allFieldCount: allFieldCount(assignments, user.id),
+        reviewCount: existingReviewCount(assignments, user.id, date),
+        totalReviewCount: existingReviewTotalCount(assignments, user.id),
       };
     }));
   choices.sort((left, right) =>
     Number(left.hardConflict) - Number(right.hardConflict) ||
     Number(left.crossTypeOverlap) - Number(right.crossTypeOverlap) ||
     compareRoute(left.route, right.route) ||
+    left.reviewCount - right.reviewCount ||
+    left.totalReviewCount - right.totalReviewCount ||
     left.newCount - right.newCount ||
     left.allFieldCount - right.allFieldCount ||
     left.user.id - right.user.id,
@@ -214,7 +221,7 @@ async function reconcileEarlierExistingReviewOverlaps(
     let nextDate = result.date;
     let choice = await tryDate(nextDate);
     if (!choice) {
-      for (const candidate of targetRecommendationDates(target)) {
+      for (const candidate of targetRecommendationDates(target, input.planningDate)) {
         if (candidate.date === result.date) continue;
         choice = await tryDate(candidate.date);
         if (!choice) continue;
@@ -264,8 +271,10 @@ function responsibleTotalCount(assignments: ExistingAssignment[], userId: number
 }
 
 function candidateRange(target: SurveyTarget, workingDaysBefore: number): "primary" | "fallback" {
-  if (target.businessType === "external_new") return workingDaysBefore <= 30 ? "primary" : "fallback";
-  if (target.businessType === "first_measurement" || target.businessType === "existing") return "primary";
+  if (target.businessType === "external_new" || target.businessType === "existing") {
+    return workingDaysBefore <= 20 ? "primary" : "fallback";
+  }
+  if (target.businessType === "first_measurement") return "primary";
   return workingDaysBefore >= 20 ? "primary" : "fallback";
 }
 
@@ -273,13 +282,13 @@ function candidateDateGroups(
   target: SurveyTarget,
   dates: ReturnType<typeof targetRecommendationDates>,
 ) {
-  if (target.businessType === "external_new") {
+  if (target.businessType === "external_new" || target.businessType === "existing") {
     return [
-      dates.filter((candidate) => candidate.workingDaysBefore <= 30),
-      dates.filter((candidate) => candidate.workingDaysBefore > 30),
+      dates.filter((candidate) => candidate.workingDaysBefore <= 20),
+      dates.filter((candidate) => candidate.workingDaysBefore > 20),
     ];
   }
-  if (target.businessType === "first_measurement" || target.businessType === "existing") return [dates];
+  if (target.businessType === "first_measurement") return [dates];
   return [
     dates.filter((candidate) => candidate.workingDaysBefore >= 20),
     dates.filter((candidate) => candidate.workingDaysBefore < 20),
@@ -349,7 +358,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       .sort((left, right) => left.id - right.id);
     let selected: RecommendationResult | null = null;
     const rejectedSameDayRoutes: SameDayRouteEvidence[] = [];
-    const dates = targetRecommendationDates(target);
+    const dates = targetRecommendationDates(target, input.planningDate);
 
     const evaluateCandidate = async (
       planningTarget: SurveyTarget,
@@ -368,7 +377,8 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
 
       // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 개인별 하루 3건 용량만 적용한다.
       const requiresReviewer = target.kind === "new" && !planningTarget.responsible.experienced;
-      const reviewerChoice = requiresReviewer
+      const prefersReviewer = target.kind === "existing" && !planningTarget.responsible.experienced;
+      const reviewerChoice = requiresReviewer || prefersReviewer
         ? await chooseReviewer(planningTarget, candidate.date, input.experiencedUsers, virtual, input.availability, input.routes, capacityPass)
         : null;
       if (requiresReviewer && (!reviewerChoice || reviewerChoice.hardConflict)) {
@@ -403,10 +413,9 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         if (participants.some((userId) => fieldVisitCount(virtual, userId, candidate.date) >= capacityPass)) return null;
       }
 
-      const reviewer = reviewerChoice?.user ?? null;
-      const crossTypeOverlap = target.kind === "new"
-        ? existingReviewCount(virtual, planningTarget.responsible.id, candidate.date) > 0 || Boolean(reviewerChoice?.crossTypeOverlap)
-        : Boolean(reviewerChoice?.crossTypeOverlap);
+      const reviewer = reviewerChoice && !reviewerChoice.hardConflict ? reviewerChoice.user : null;
+      const reviewerMissing = prefersReviewer && !reviewer;
+      const crossTypeOverlap = false;
       const evidence: RecommendationEvidence = {
         classificationSource: target.classificationSource,
         processChangedPolicyApplicable: target.processChangedPolicyApplicable === true,
@@ -415,7 +424,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         range: candidateRange(target, candidate.workingDaysBefore),
         capacityPass,
         responsibleConflict: false,
-        reviewerConflict: false,
+        reviewerConflict: reviewerMissing,
         route,
         sameDayRoute,
         rejectedSameDayRoutes,
@@ -430,7 +439,10 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         crossTypeOverlap,
         crossTypeOverlapAvoided: Boolean(reviewerChoice?.crossTypeOverlapAvoided),
         crossTypeOverlapReason: crossTypeOverlap ? "unavoidable_cross_type_overlap" : null,
-        warnings: [holidayCoverageWarning(target.measurementDate)].filter((value): value is string => Boolean(value)),
+        warnings: [
+          holidayCoverageWarning(target.measurementDate),
+          reviewerMissing ? "EXPERIENCED_REVIEWER_UNASSIGNED" : null,
+        ].filter((value): value is string => Boolean(value)),
       };
       return {
         targetId: target.id,
@@ -441,7 +453,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         experiencedReviewer: reviewer,
         surveyMethod: surveyMethodForKind(target.kind),
         evidence,
-        reason: `${evidence.range === "primary" ? "기본구간" : "후순위구간"} -${candidate.workingDaysBefore} 워킹데이`,
+        reason: `${evidence.range === "primary" ? "기본구간" : "후순위구간"} -${candidate.workingDaysBefore} 워킹데이${reviewerMissing ? "; 경력 검토자 미배정" : ""}`,
       };
     };
 
@@ -455,7 +467,13 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         responsibleDailyCount(virtual, left.responsible.id, candidate.date) -
           responsibleDailyCount(virtual, right.responsible.id, candidate.date) ||
         responsibleTotalCount(virtual, left.responsible.id) - responsibleTotalCount(virtual, right.responsible.id) ||
-        left.participants.length - right.participants.length ||
+        Number(!target.measurementStaffByDate?.some((staff) =>
+          staff.measurementParticipantUserIds.includes(left.responsible.id))) -
+          Number(!target.measurementStaffByDate?.some((staff) =>
+            staff.measurementParticipantUserIds.includes(right.responsible.id))) ||
+        Number(!target.measurementStaffByDate?.some((staff) => staff.reportWriterUserId === left.responsible.id)) -
+          Number(!target.measurementStaffByDate?.some((staff) => staff.reportWriterUserId === right.responsible.id)) ||
+        Number(Boolean(left.evidence.reviewerConflict)) - Number(Boolean(right.evidence.reviewerConflict)) ||
         left.responsible.id - right.responsible.id,
       );
       return feasible[0] ?? null;
@@ -587,7 +605,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       reason: "-3 워킹데이까지 추천 가능한 날짜가 없습니다.",
     });
   }
-  await reconcileEarlierExistingReviewOverlaps(input, results);
+  // 기존업체 경력자는 검토자이며 현장/유선 수행 용량을 소비하지 않으므로 날짜를 옮겨 중복을 피하지 않는다.
   // 필수 신규 방문을 먼저 고정한 뒤에만 기존업체를 같은 날 보조 방문으로 승격한다.
   // 조건이 맞지 않으면 기존업체는 유선 기본을 유지해 별도 방문일을 만들지 않는다.
   await optimizeExistingFieldVisits(input, results);

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
+import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
 import { parseDateOnly, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
@@ -7,6 +8,7 @@ import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
 import { loadActualMeasurementBlockedKeys } from "./measurement-conflicts";
 import { measurementStaffForDate } from "./measurement-staff";
+import { currentDateInKst } from "./recommendation-range";
 import {
   PROCESS_CHANGED_POLICY_OFF,
   shouldApplyProcessChangedPolicy,
@@ -193,6 +195,8 @@ export interface CalculationOptions {
   createdBeforeOrAt?: string;
   allowExternalRoutes?: boolean;
   routeMetrics?: RouteMetrics;
+  /** 실시간은 KST 오늘을 사용하고, 결정적 테스트만 고정값을 주입한다. */
+  planningDate?: string;
 }
 
 export interface CalculationOutput {
@@ -261,6 +265,13 @@ function preservedTentativeResult(
   candidate: { workingDaysBefore: number } | undefined,
 ): RecommendationResult {
   const surveyMethod = recommendation.surveyMethod;
+  const range = candidate == null
+    ? null
+    : target.businessType === "external_new" || target.businessType === "existing"
+      ? candidate.workingDaysBefore <= 20 ? "primary" as const : "fallback" as const
+      : target.businessType === "first_measurement"
+        ? "primary" as const
+        : candidate.workingDaysBefore >= 20 ? "primary" as const : "fallback" as const;
   return {
     targetId: target.id,
     status: "recommended",
@@ -274,7 +285,7 @@ function preservedTentativeResult(
       processChangedPolicyApplicable: target.processChangedPolicyApplicable === true,
       surveyMethod,
       workingDaysBefore: candidate?.workingDaysBefore ?? null,
-      range: candidate ? (candidate.workingDaysBefore >= 20 ? "primary" : "fallback") : null,
+      range,
       capacityPass: 1,
       responsibleConflict: false,
       reviewerConflict: false,
@@ -326,6 +337,8 @@ export async function calculateV2Recommendations(
   }));
   const activeUsers = users.filter((user) => user.active !== false).sort((left, right) => left.id - right.id);
   const userNameById = new Map(users.map((user) => [user.id, user.name]));
+  const userIdByName = new Map(users.map((user) => [user.name.trim(), user.id]));
+  const planningDate = options.planningDate ?? currentDateInKst();
   const codes = [...new Set((rawTargets ?? []).map((target: any) => target.code))];
   const years = [...new Set((rawTargets ?? []).map((target: any) => Number(target.year)))];
   let journalQuery = supabase.from("measurement_journal").select(
@@ -385,6 +398,19 @@ export async function calculateV2Recommendations(
     const coordinate = rawCoordinate && rawCoordinate.latitude >= 33 && rawCoordinate.latitude <= 39 &&
       rawCoordinate.longitude >= 124 && rawCoordinate.longitude <= 132
       ? rawCoordinate : null;
+    const measurementStaffByDate = measurementDayFormsFrom({
+      dailyStaff: row.daily_staff,
+      measurementDate: row.measurement_date,
+      measurerId: optionalInteger(row.measurer_id),
+      collaborators: row.collaborators,
+    }).filter((day) => parseDateOnly(day.date)).map((day) => ({
+      date: day.date,
+      reportWriterUserId: day.measurerId,
+      measurementParticipantUserIds: [...new Set(day.collaborators.flatMap((name) => {
+        const userId = userIdByName.get(name.trim());
+        return userId == null ? [] : [userId];
+      }))],
+    }));
     return [{
       id: Number(row.id), code: row.code, name: row.business_name, kind: classification.kind,
       measurementDate: row.measurement_date,
@@ -401,6 +427,7 @@ export async function calculateV2Recommendations(
       }).measurementParticipants,
       sourceDailyStaffSnapshot: row.daily_staff ?? null,
       sourceCollaboratorsSnapshot: row.collaborators ?? null,
+      measurementStaffByDate,
       processChanged: row.process_changed,
       processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
         policy: processChangedPolicy,
@@ -418,8 +445,8 @@ export async function calculateV2Recommendations(
     target.id,
     new Set(filterPreliminaryCandidateDates(
       target.businessType
-        ? recommendationDatesForBusinessType(target.measurementDate, target.businessType)
-        : recommendationDates(target.measurementDate),
+        ? recommendationDatesForBusinessType(target.measurementDate, target.businessType, { minimumDate: planningDate })
+        : recommendationDates(target.measurementDate).filter((candidate) => candidate.date >= planningDate),
       options,
     ).map((item) => item.date)),
   ]));
@@ -545,6 +572,7 @@ export async function calculateV2Recommendations(
       isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`),
     },
     routes,
+    planningDate,
   });
   const results = [...preserved, ...freshResults].map((result) => {
     const scopedCandidates = candidateDatesByTarget.get(result.targetId);
@@ -814,6 +842,7 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     existingAssignments: [],
     availability: { isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`) },
     routes: createRouteMetrics(),
+    planningDate: currentDateInKst(),
   });
   const result = results[0];
   if (!result) return { action: "blocked", reason: "V2_RECOMMEND_FAILED" };

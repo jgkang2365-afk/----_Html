@@ -34,6 +34,12 @@ export interface SurveyTarget {
   sourceDailyStaffSnapshot?: unknown;
   /** legacy CSV 또는 JSON 배열 모두 가능한 측정 참여자 원천 snapshot. */
   sourceCollaboratorsSnapshot?: unknown;
+  /** 추천 preference에만 사용하는 날짜별 원천 역할. 역할 자체를 서로 복사하지 않는다. */
+  measurementStaffByDate?: Array<{
+    date: string;
+    reportWriterUserId: number | null;
+    measurementParticipantUserIds: number[];
+  }>;
   processChanged?: boolean | null;
   processChangedPolicyApplicable?: boolean;
   classificationSource?: {

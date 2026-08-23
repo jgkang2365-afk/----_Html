@@ -21,6 +21,8 @@ export interface PreliminarySurveyImpactTarget {
   targetId: number;
   preliminaryDate?: string | null;
   participantUserIds?: readonly number[] | null;
+  responsibleUserId?: number | null;
+  experiencedReviewerUserId?: number | null;
   surveyMethod?: "field" | "phone" | null;
   address?: string | null;
   /** 주소와 별도로 사용자가 같은 방문 묶음으로 지정한 식별자 */
@@ -67,6 +69,22 @@ function hasOverlappingParticipants(
   return [...participants(right)].some((id) => leftParticipants.has(id));
 }
 
+function hasOverlappingCapacityUsers(
+  left: PreliminarySurveyImpactTarget,
+  right: PreliminarySurveyImpactTarget,
+): boolean {
+  const capacityUsers = (target: PreliminarySurveyImpactTarget) => {
+    if (target.surveyMethod === "phone" && Number.isInteger(Number(target.responsibleUserId))) {
+      return new Set([Number(target.responsibleUserId)]);
+    }
+    const reviewerId = Number(target.experiencedReviewerUserId);
+    return new Set([...participants(target)].filter((id) =>
+      target.surveyMethod !== "phone" || !Number.isInteger(reviewerId) || id !== reviewerId));
+  };
+  const leftUsers = capacityUsers(left);
+  return [...capacityUsers(right)].some((id) => leftUsers.has(id));
+}
+
 function relationReasons(
   source: PreliminarySurveyImpactTarget,
   candidate: PreliminarySurveyImpactTarget,
@@ -102,7 +120,7 @@ function relationReasons(
   // 용량은 같은 날짜·방식이라도 실제로 같은 사람이 겹칠 때만 서로 영향을 준다.
   // 주소·측정일 공시료·찐확정 관계는 사람 겹침과 무관하게 그대로 closure에 남긴다.
   const sameMethod = source.surveyMethod != null && source.surveyMethod === candidate.surveyMethod;
-  const sharesCapacity = samePreliminaryDate && sameMethod && hasOverlappingParticipants(source, candidate);
+  const sharesCapacity = samePreliminaryDate && sameMethod && hasOverlappingCapacityUsers(source, candidate);
   if (sharesCapacity && source.surveyMethod === "field") {
     reasons.push("same_date_field_capacity");
   }
