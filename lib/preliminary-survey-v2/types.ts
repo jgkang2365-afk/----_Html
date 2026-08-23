@@ -32,7 +32,8 @@ export interface SurveyTarget {
   measurementParticipantsSnapshot?: string;
   /** apply 경쟁상태 검증용 원천. 역할 추론에는 사용하지 않는다. */
   sourceDailyStaffSnapshot?: unknown;
-  sourceCollaboratorsSnapshot?: string | null;
+  /** legacy CSV 또는 JSON 배열 모두 가능한 측정 참여자 원천 snapshot. */
+  sourceCollaboratorsSnapshot?: unknown;
   processChanged?: boolean | null;
   processChangedPolicyApplicable?: boolean;
   classificationSource?: {

@@ -14,10 +14,11 @@ export interface MeasurementDaySource {
   dailyStaff?: unknown;
   measurementDate?: string | null;
   measurerId?: number | null;
-  collaborators?: string | null;
+  collaborators?: unknown;
 }
 
-const uniqueNames = (value: unknown): string[] => {
+/** 단일일 legacy CSV와 JSON 배열을 같은 측정 참여자 목록으로 정규화한다. */
+export const normalizeMeasurementCollaborators = (value: unknown): string[] => {
   const names = Array.isArray(value)
     ? value
     : typeof value === "string"
@@ -96,7 +97,7 @@ export function defaultEmptyParticipantsToReportWriter(
 ): MeasurementDayForm[] {
   const namesById = new Map(reportWriters.map((writer) => [writer.id, writer.name.trim()]));
   return days.map((day) => {
-    if (uniqueNames(day.collaborators).length > 0 || day.measurerId == null) return day;
+    if (normalizeMeasurementCollaborators(day.collaborators).length > 0 || day.measurerId == null) return day;
     const reportWriterName = namesById.get(day.measurerId);
     return reportWriterName && isAvailable(day.measurerId, day.date)
       ? { ...day, collaborators: [reportWriterName] }
@@ -112,7 +113,7 @@ export function changeMeasurementDayReportWriter(
   return {
     ...day,
     measurerId,
-    collaborators: uniqueNames([
+    collaborators: normalizeMeasurementCollaborators([
       ...day.collaborators,
       ...(reportWriterName?.trim() ? [reportWriterName.trim()] : []),
     ]),
@@ -129,14 +130,14 @@ export function measurementDayFormsFrom(source: MeasurementDaySource): Measureme
     return source.dailyStaff.map((entry: LegacyMeasurementDay) => ({
       date: typeof entry?.date === "string" ? entry.date : "",
       measurerId: toMeasurerId(entry?.measurer_id),
-      collaborators: uniqueNames(entry?.collaborators),
+      collaborators: normalizeMeasurementCollaborators(entry?.collaborators),
     }));
   }
 
   return [{
     date: source.measurementDate || "",
     measurerId: source.measurerId ?? null,
-    collaborators: uniqueNames(source.collaborators),
+    collaborators: normalizeMeasurementCollaborators(source.collaborators),
   }];
 }
 
@@ -193,7 +194,7 @@ function serializeNormalizedMeasurementDayForms(days: MeasurementDayForm[]): Ser
   const normalized = days.map((day) => ({
     date: day.date.trim(),
     measurerId: toMeasurerId(day.measurerId),
-    collaborators: uniqueNames(day.collaborators),
+    collaborators: normalizeMeasurementCollaborators(day.collaborators),
   }));
   const dated = normalized.filter((day) => Boolean(day.date));
   const sorted = [...dated].sort((left, right) => left.date.localeCompare(right.date));

@@ -483,7 +483,6 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       return result;
     };
 
-    let routeAlternative: RecommendationResult | null = null;
     if (target.kind === "existing") {
       let overlapFallback: RecommendationResult | null = null;
       for (const candidate of dates) {
@@ -501,6 +500,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         selected = finalize(overlapFallback, "single", "single_available", true, null);
       }
     } else {
+      let twoJobFallback: RecommendationResult | null = null;
       for (const rangeDates of candidateDateGroups(target, dates)) {
         let single: RecommendationResult | null = null;
         let singleIndex = rangeDates.length;
@@ -541,27 +541,19 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
             sameRoute.evidence.sameDayRoute!.selectedRouteMinutes,
           );
         } else if (pairCandidates[0]) {
-          routeAlternative ??= pairCandidates[0];
+          twoJobFallback ??= pairCandidates[0];
         }
         if (selected) break;
       }
-    }
-    if (!selected && routeAlternative) {
-      routeAlternative.status = "manual_required";
-      routeAlternative.date = null;
-      routeAlternative.participants = [];
-      routeAlternative.experiencedReviewer = null;
-      routeAlternative.evidence.capacityPass = null;
-      routeAlternative.evidence.selectionMode = "two_job_fallback";
-      routeAlternative.evidence.selectionReason = "two_job_fallback_no_single_day";
-      routeAlternative.evidence.singleCandidateAvailable = false;
-      routeAlternative.evidence.sameRouteMinutes = routeAlternative.evidence.sameDayRoute?.selectedRouteMinutes ?? null;
-      routeAlternative.evidence.warnings.push("ROUTE_ALTERNATIVE_REQUIRES_MANAGER");
-      routeAlternative.reason = "31~60분 차량 이동 대안이 있으나 자동추천하지 않습니다.";
-      selected = routeAlternative;
+      if (!selected && twoJobFallback) {
+        selected = finalize(
+          twoJobFallback, "two_job_fallback", "two_job_fallback_no_single_day", false,
+          twoJobFallback.evidence.sameDayRoute!.selectedRouteMinutes,
+        );
+      }
     }
 
-    if (selected?.status === "recommended" && selected.date) virtual.push(asAssignment(target, selected));
+    if (selected) virtual.push(asAssignment(target, selected));
 
     results.push(selected ?? {
       targetId: target.id,

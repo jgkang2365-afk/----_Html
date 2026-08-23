@@ -11,6 +11,7 @@ import { parseDateOnly, recommendationDatesForBusinessType } from "@/lib/prelimi
 import { measurementStaffForDate } from "@/lib/preliminary-survey-v2/measurement-staff";
 import { loadActualMeasurementBlockedKeys } from "@/lib/preliminary-survey-v2/measurement-conflicts";
 import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
+import { measurementDayAvailabilityKeys } from "@/lib/business/measurement-day-availability";
 import {
   assignMeasurementAssignees,
   collectMeasurementVehicleRouteEvidence,
@@ -84,22 +85,13 @@ function roleIdsForPlan(plan: any): number[] {
 
 /** daily_staff를 우선하여 날짜별 보고서 담당자와 실제 측정 참여자를 불가 일정 검증 대상으로 만든다. */
 function measurementRoleKeys(target: any, userIdByName: Map<string, number>): string[] {
-  const days = Array.isArray(target?.daily_staff) && target.daily_staff.length > 0
-    ? target.daily_staff
-    : [{ date: target?.measurement_date, measurer_id: target?.measurer_id, collaborators: target?.collaborators }];
-  const keys: string[] = days.flatMap((day: any): string[] => {
-    const date = String(day?.date ?? "");
-    if (!parseDateOnly(date)) return [];
-    const reportWriterId = Number(day?.measurer_id);
-    const participantIds = (Array.isArray(day?.collaborators) ? day.collaborators : [])
-      .map((name: unknown) => userIdByName.get(String(name ?? "").trim()))
-      .filter((id: number | undefined): id is number => Number.isInteger(id) && Number(id) > 0);
-    return [...new Set([
-      ...(Number.isInteger(reportWriterId) && reportWriterId > 0 ? [reportWriterId] : []),
-      ...participantIds,
-    ])].map((userId) => `${userId}:${date}`);
+  return measurementDayAvailabilityKeys({
+    dailyStaff: target?.daily_staff,
+    measurementDate: target?.measurement_date,
+    measurerId: target?.measurer_id,
+    collaborators: target?.collaborators,
+    userIdByName,
   });
-  return [...new Set<string>(keys)];
 }
 
 async function requireSurveyAccess() {

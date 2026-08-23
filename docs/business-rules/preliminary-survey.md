@@ -119,7 +119,7 @@
 - 측정자·공시료의 authoritative source는 plan별 실제 측정일 행을 갖는 `preliminary_survey_v2_measurement_assignments`다. 다일 측정은 `daily_staff`에 명시된 각 날짜만 저장하며 시작일~종료일 사이를 임의 생성하지 않는다.
 - 과거 `recommendation_reason.measurementAssignee`는 read-only 표시 fallback이다. 새 write, 자동 backfill, 보고서 담당·측정 참여자·예비조사자 기반 역산에 사용하지 않는다.
 - apply 서버는 현재 원천으로 예비조사와 측정자·공시료를 다시 계산하고 canonical draft, source fingerprint, 기존 날짜별 assignment baseline을 비교한다. 클라이언트의 사용자 ID·이름·공시료 코드·승인 필요 boolean을 신뢰하지 않는다.
-- plan과 날짜별 assignment는 하나의 PostgreSQL RPC transaction에서 저장한다. 같은 측정일은 transaction advisory lock으로 직렬화하며 baseline 또는 source context가 달라지면 409 재검토로 끝내고 0건 저장한다.
+- plan과 날짜별 assignment는 하나의 Supabase DB RPC transaction에서 저장한다. 같은 측정일은 transaction advisory lock으로 직렬화하며 baseline 또는 source context가 달라지면 409 재검토로 끝내고 0건 저장한다.
 - 동일주소 다음의 근거리 판단은 실제 vehicle route evidence가 route policy를 통과했을 때만 확정한다. 직선거리는 보조 순위일 뿐 `근거리 묶음` 사유가 아니다.
 - 찐확정 guard는 plan과 assignment의 INSERT·UPDATE·DELETE에서 OLD와 NEW target을 모두 검사한다. 일반 `service_role` 직접 DML은 허용하지 않고 관리자 repair의 transaction-local bypass만 유지한다.
 - 구형 plan 수정 RPC는 기존 manual plan의 예비조사 필드 수정만 허용하고 source 측정일·구분을 바꾸거나 assignment 없는 새 plan을 만들 수 없다.
@@ -144,8 +144,8 @@
 - 측정자·공시료 담당자는 같은 측정일에 1~2개까지 자동추천하고, 정확히 3개인 그룹은 예비조사 담당자 또는 관리자 승인을 요구한다. 4개 이상은 승인 여부와 무관하게 `MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED`로 차단한다.
 - 3건 승인의 단위는 `measurement_date + assignee_user_id + sorted target_ids`다. 이 구성의 fingerprint가 기존 승인과 같으면 승인자·승인시각을 보존하고 재승인하지 않는다. 날짜·담당자·업체 집합 중 하나라도 바뀌면 새 승인을 요구한다. 클라이언트의 승인 관련 값은 판단 근거로 사용하지 않는다.
 - 같은 직원의 방문은 기존 manual/가확정 방문, 영향 범위 밖 유지 방문, 새 추천 방문을 모두 합산한다. 하루 1개가 원칙이며 최대 2개를 넘길 수 없다.
-- 방문 2건 자동추천은 동일주소이거나 실제 vehicle route 이동시간이 30분 이하일 때만 허용한다. 31~60분은 관리자·예비조사 담당자가 선택할 수 있는 대안으로만 제시하고, 60분 초과는 같은 날 묶지 않는다. route evidence가 없으면 동일주소 외 자동 근거리 판정을 금지한다.
+- 방문은 하루 1건을 원칙으로 하고 동선이 적합한 경우 최대 2건까지 추천할 수 있다. 실제 vehicle route 30분 이하는 same-route를 적극 우선하는 기준이며 방문 허용의 hard maximum이 아니다. 31~60분은 단독 날짜가 없을 때 적용하던 기존 same-day fallback을 유지하고 별도 승인 경계로 만들지 않는다. 60분 초과는 같은 날 묶지 않으며, route evidence가 없으면 동일주소 외 자동 근거리 판정을 금지한다.
 - 기존 `user_schedule_blocks`는 `직원 불가 일정`의 공통 원천이다. 등록된 날짜에는 해당 직원을 예비조사 책임자·경력 동행자, 측정자·공시료 담당자, 측정 참여자, 보고서 담당자 중 어느 역할에도 배정하지 않는다. 불가 일정은 균등배정·동일주소·동선·3건 승인보다 우선하는 hard constraint다.
 - 사업장 상세는 날짜별 보고서 담당자와 측정 참여자를 같은 불가 일정 원천으로 검증한다. 다일 측정은 각 `daily_staff.date`별로 검사하며, 불가한 보고서 담당자는 참여자 기본값으로도 추가하지 않고 저장 전에 차단한다.
 - 계획 생성 뒤 불가 일정이 추가되면 관련 가확정 계획을 `재검토 필요`로 표시하고 영향 범위를 다시 계산한다. `measurement_journal`이 있는 찐확정은 자동 변경하지 않되 `확정 후 직원 불가 일정 발생` 충돌을 표시하고 관리자 repair 또는 사용자 판단 대상으로 남긴다.
-- assignment 승인 그룹·hard max 보완은 기존 적용 가능성이 있는 migration을 고쳐 쓰지 않고 후속 migration으로 적용한다. 격리 PostgreSQL에서 migration, rollback, guard 6종, 승인 유지·변경, 4건 차단, transaction rollback을 검증하기 전 운영에 적용하지 않는다.
+- assignment 승인 그룹·hard max 보완은 기존 적용 가능성이 있는 migration을 고쳐 쓰지 않고 후속 migration으로 적용한다. 저장 전 old 그룹과 저장 후 new 그룹의 합집합을 정규화하여 3건에서 2건으로 줄어든 그룹의 stale 승인정보를 지우고, 동일한 3건 fingerprint만 기존 승인을 보존한다. 비운영 Supabase 환경에서 migration/RPC, rollback, guard 6종, 승인 유지·변경, 4건 차단, transaction rollback을 검증하기 전 운영에 적용하지 않는다.

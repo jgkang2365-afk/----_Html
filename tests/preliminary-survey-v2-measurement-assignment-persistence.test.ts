@@ -10,7 +10,11 @@ const forwardMigration = readFileSync(
   "supabase/migrations/20260823120000_finalize_preliminary_survey_assignment_approval_groups.sql",
   "utf8",
 );
-const migration = `${baseMigration}\n${forwardMigration}`;
+const remedialMigration = readFileSync(
+  "supabase/migrations/20260823123000_limit_assignment_approval_groups_to_affected_dates.sql",
+  "utf8",
+);
+const migration = `${baseMigration}\n${forwardMigration}\n${remedialMigration}`;
 const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
 
 test("날짜별 측정자·공시료 배정은 plan UUID와 날짜 단위의 별도 원천 테이블에 저장한다", () => {
@@ -57,7 +61,7 @@ test("plan과 assignment는 하나의 RPC에서 source·승인 검증 후 원자
 });
 
 test("3건 승인은 측정일·측정자·정렬 targetIds 지문으로 보존하고 구성 변경 시 재승인한다", () => {
-  const rpc = forwardMigration;
+  const rpc = remedialMigration;
 
   assert.match(migration, /approval_group_fingerprint text/);
   assert.match(rpc, /string_agg\(target_id::text, ',' ORDER BY target_id\)/);
@@ -73,13 +77,29 @@ test("3건 승인은 측정일·측정자·정렬 targetIds 지문으로 보존�
 });
 
 test("4건 이상은 planner와 RPC가 모두 hard block하며 client approval boolean으로 우회할 수 없다", () => {
-  const rpc = forwardMigration;
+  const rpc = remedialMigration;
 
   assert.match(rpc, /assignment_count > 3/);
   assert.match(rpc, /MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED/);
+  assert.match(rpc, /proposed_keys AS/);
+  assert.match(rpc, /\(existing\.measurement_date, existing\.assignee_user_id\) IN/);
+  assert.match(rpc, /SELECT measurement_date, assignee_user_id FROM proposed_keys/);
   assert.match(workbench, /MeasurementAssignmentDailyLimitError/);
   assert.match(workbench, /rpcMessage\.includes\("MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED"\)/);
   assert.doesNotMatch(workbench, /approval_required: assignment\.approvalRequired/);
+});
+
+test("저장 전후 영향 그룹 합집합은 3건→2건 stale 승인 메타데이터를 지우고 동일 3건 승인만 보존한다", () => {
+  const rpc = remedialMigration;
+
+  assert.match(rpc, /old_affected_keys jsonb/);
+  assert.match(rpc, /preliminary-measurement-assignment\|/);
+  assert.match(rpc, /잠금 뒤의 현재값을 old key로 고정/);
+  assert.match(rpc, /INTO old_affected_keys/);
+  assert.match(rpc, /jsonb_array_elements\(old_affected_keys\)/);
+  assert.match(rpc, /UNION\s+SELECT DISTINCT assignment\.measurement_date, assignment\.assignee_user_id/);
+  assert.match(rpc, /WHEN ranked\.assignment_count <> 3 OR ranked\.assignment_position <> 3 THEN NULL/);
+  assert.match(rpc, /WHEN ranked\.previous_fingerprint = ranked\.fingerprint AND ranked\.previous_approver IS NOT NULL/);
 });
 
 test("workbench apply는 전체 draft fingerprint·서버 재추천을 대조하고 pre-migration 저장을 거부한다", () => {

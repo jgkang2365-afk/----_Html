@@ -2,9 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   measurementDayFormsFrom,
+  normalizeMeasurementCollaborators,
   serializeMeasurementDayForms,
   swapMeasurerForMeasurementDateTransition,
 } from "../lib/business/measurement-day-form";
+
+test("측정 참여자 정규화는 배열과 legacy CSV를 같은 trim/dedup 결과로 만든다", () => {
+  const expected = ["김민영", "한기문"];
+  assert.deepEqual(normalizeMeasurementCollaborators([" 김민영 ", "한기문", "김민영", ""]), expected);
+  assert.deepEqual(normalizeMeasurementCollaborators(" 김민영, 한기문,김민영,, "), expected);
+});
 
 test("단일일 legacy 값은 trim/dedup된 하나의 날짜 폼으로 변환한다", () => {
   assert.deepEqual(measurementDayFormsFrom({

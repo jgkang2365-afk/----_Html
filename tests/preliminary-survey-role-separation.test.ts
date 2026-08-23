@@ -10,6 +10,7 @@ import {
 import { measurementStaffForDate } from "../lib/preliminary-survey-v2/measurement-staff";
 import {
   buildMeasurementScheduleBlockKeys,
+  measurementDayAvailabilityKeys,
   validateMeasurementDayAvailability,
 } from "../lib/business/measurement-day-availability";
 
@@ -38,6 +39,7 @@ test("사업장 상세는 측정 참여자 용어와 해제 가능한 보고서 
   assert.doesNotMatch(businessUi, /disabled=\{isLink\}/);
   assert.doesNotMatch(businessUi, /checked=\{isChecked \|\| isLink\}/);
   assert.match(businessUi, /isMeasurementStaffUnavailable/);
+  assert.match(businessApi, /measurementDayFormsFrom/);
   assert.match(businessUi, /validateMeasurementDayAvailability/);
   assert.match(businessApi, /validateMeasurementDayAvailability/);
 });
@@ -92,6 +94,32 @@ test("직원 불가 일정은 날짜별 보고서 담당자와 측정 참여자 
     valid: false,
     message: "직원 불가 일정과 겹칩니다: 측정일 1(2026-08-25) 보고서 담당자 보고서 담당자, 측정일 2(2026-08-26) 측정 참여자 다음날 참여자",
   });
+});
+
+test("단일일 collaborators 배열과 CSV는 workbench 불가 일정 키에 같은 참여자를 포함한다", () => {
+  const userIdByName = new Map([["김민영", 2], ["한기문", 3]]);
+  const base = { measurementDate: "2026-08-25", measurerId: 1, userIdByName };
+  const expected = ["1:2026-08-25", "2:2026-08-25", "3:2026-08-25"];
+  assert.deepEqual(measurementDayAvailabilityKeys({
+    ...base, collaborators: [" 김민영 ", "한기문", "김민영"],
+  }), expected);
+  assert.deepEqual(measurementDayAvailabilityKeys({
+    ...base, collaborators: " 김민영,한기문, 김민영 ",
+  }), expected);
+});
+
+test("다일 측정은 날짜별 daily_staff를 유지해 다른 날짜 참여자를 섞지 않는다", () => {
+  const keys = measurementDayAvailabilityKeys({
+    measurementDate: "2026-08-25",
+    measurerId: 1,
+    collaborators: "단일일 fallback은 사용하지 않음",
+    dailyStaff: [
+      { date: "2026-08-25", measurer_id: 1, collaborators: ["김민영"] },
+      { date: "2026-08-26", measurer_id: 4, collaborators: [" 한기문 ", "한기문"] },
+    ],
+    userIdByName: new Map([["김민영", 2], ["한기문", 3]]),
+  });
+  assert.deepEqual(keys, ["1:2026-08-25", "2:2026-08-25", "4:2026-08-26", "3:2026-08-26"]);
 });
 
 test("단일 빈 측정일은 미실시 null로 저장한다", () => {
@@ -190,4 +218,5 @@ test("선택 업체 재추천은 같은 예비조사일·조사자·주소·측�
   assert.match(workbench, /measurementDate: target\.measurement_date/);
   assert.match(workbench, /lockedTargetIds/);
   assert.match(workbench, /impactSummary/);
+  assert.match(workbench, /measurementDayAvailabilityKeys/);
 });

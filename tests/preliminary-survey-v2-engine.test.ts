@@ -400,13 +400,13 @@ test("G: 신규업체는 가능한 날짜에 하루 1건씩 먼저 분산한다"
   assert.equal(results[1].evidence.capacityPass, 1);
 });
 
-test("H/I: 날짜 부족 시 신규 2건은 30분 이하만 자동추천하고 31~60분은 대안으로 남긴다", async () => {
+test("H/I: 날짜 부족 시 신규 2건을 60분 이내만 허용한다", async () => {
   const user = experienced(1);
+  const allowedDate = recommendationDates("2026-07-14")[0].date;
   const blocked = new Set(recommendationDates("2026-07-14").slice(1).map(item => `${user.id}:${item.date}`));
   const okay = await recommendBatch({ targets: [target(1, "new", user), target(2, "new", user)], experiencedUsers: [user], availability: available(blocked), routes: route(60) });
-  assert.equal(okay[1].date, null);
-  assert.equal(okay[1].status, "manual_required");
-  assert.equal(okay[1].evidence.selectionMode, "two_job_fallback");
+  assert.equal(okay[1].date, allowedDate);
+  assert.equal(okay[1].evidence.capacityPass, 2);
   const denied = await recommendBatch({ targets: [target(1, "new", user), target(2, "new", user)], experiencedUsers: [user], availability: available(blocked), routes: route(61) });
   assert.equal(denied[1].status, "manual_required");
 });
@@ -428,7 +428,7 @@ test("기존·가확정·영향범위 밖 방문도 참여자별 하루 2건 방
   assert.equal(result.status, "manual_required");
 });
 
-test("기존 선택방문과 신규 방문은 동일주소 또는 30분 이하 실제 차량경로만 자동 묶음이다", async () => {
+test("기존 선택방문과 신규 방문은 30분 이하 same-route를 우선하고 31~60분은 fallback으로 허용한다", async () => {
   const user = experienced(1);
   const dates = recommendationDatesForBusinessType("2026-07-14", "first_measurement");
   const blocked = new Set(dates.slice(1).map((item) => `${user.id}:${item.date}`));
@@ -445,14 +445,14 @@ test("기존 선택방문과 신규 방문은 동일주소 또는 30분 이하 �
   assert.equal(automatic.status, "recommended");
   assert.equal(automatic.evidence.selectionReason, "same_route_preferred_under_30");
 
-  const [alternative] = await recommendBatch({
+  const [fallback] = await recommendBatch({
     targets: [{ ...target(1, "new", user), businessType: "first_measurement" }],
     experiencedUsers: [user], existingAssignments: [existingField],
     availability: available(blocked), routes: route(31),
   });
-  assert.equal(alternative.status, "manual_required");
-  assert.equal(alternative.date, null);
-  assert.equal(alternative.evidence.selectionReason, "two_job_fallback_no_single_day");
+  assert.equal(fallback.status, "recommended");
+  assert.equal(fallback.date, dates[0].date);
+  assert.equal(fallback.evidence.selectionReason, "two_job_fallback_no_single_day");
 
   const [denied] = await recommendBatch({
     targets: [{ ...target(1, "new", user), businessType: "first_measurement" }],
@@ -504,7 +504,7 @@ test("기본구간 -30의 55분 묶음보다 후순위구간 정상 단독 날�
   assert.equal(result.evidence.singleCandidateAvailable, true);
 });
 
-test("전체 허용기간에 단독 날짜가 없어도 55분 묶음은 대안으로만 제시", async () => {
+test("전체 허용기간에 단독 날짜가 없을 때만 55분 묶음을 fallback으로 허용", async () => {
   const user = experienced(1);
   const dates = recommendationDates("2026-07-14");
   const blocked = new Set(dates.slice(1).map((item) => `${user.id}:${item.date}`));
@@ -513,12 +513,10 @@ test("전체 허용기간에 단독 날짜가 없어도 55분 묶음은 대안�
     existingAssignments: [existingAssignment(1, "C1", user.id, dates[0].date)],
     routes: directionalRoutes({ "C1->C2": 55, "C2->C1": 58 }),
   });
-  assert.equal(result.date, null);
-  assert.equal(result.status, "manual_required");
+  assert.equal(result.date, dates[0].date);
   assert.equal(result.evidence.selectionMode, "two_job_fallback");
   assert.equal(result.evidence.selectionReason, "two_job_fallback_no_single_day");
   assert.equal(result.evidence.singleCandidateAvailable, false);
-  assert.ok(result.evidence.warnings.includes("ROUTE_ALTERNATIVE_REQUIRES_MANAGER"));
 });
 
 test("동일주소 방문은 route provider 실패와 무관하게 하루 2건 자동추천 가능", async () => {
@@ -586,17 +584,17 @@ async function recommendTwoNewWithOnlyFirstDate(routes: RouteMetrics) {
   });
 }
 
-test("신규 2건 A→B 50분/B→A 55분이면 A→B 순서의 대안으로만 제시", async () => {
+test("신규 2건 A→B 50분/B→A 55분이면 A→B 순서로 허용", async () => {
   const results = await recommendTwoNewWithOnlyFirstDate(directionalRoutes({ "C1->C2": 50, "C2->C1": 55 }));
-  assert.equal(results[1].status, "manual_required");
+  assert.equal(results[1].status, "recommended");
   assert.equal(results[1].evidence.sameDayRoute?.selectedRouteMinutes, 50);
   assert.deepEqual(results[1].evidence.sameDayRoute?.selectedVisitOrder, ["C1", "C2"]);
   assert.equal(results[1].evidence.sameDayRoute?.routeDecision, "same_day_allowed");
 });
 
-test("신규 2건 A→B 67분/B→A 54분이면 B→A 순서의 대안으로만 제시", async () => {
+test("신규 2건 A→B 67분/B→A 54분이면 B→A 순서로 허용", async () => {
   const results = await recommendTwoNewWithOnlyFirstDate(directionalRoutes({ "C1->C2": 67, "C2->C1": 54 }));
-  assert.equal(results[1].status, "manual_required");
+  assert.equal(results[1].status, "recommended");
   assert.equal(results[1].evidence.sameDayRoute?.routeABMinutes, 67);
   assert.equal(results[1].evidence.sameDayRoute?.routeBAMinutes, 54);
   assert.deepEqual(results[1].evidence.sameDayRoute?.selectedVisitOrder, ["C2", "C1"]);
@@ -608,9 +606,9 @@ test("신규 2건 양방향 모두 60분 초과면 같은 날 배정하지 않�
   assert.equal(results[1].evidence.rejectedSameDayRoutes[0]?.routeDecision, "both_directions_over_60");
 });
 
-test("신규 2건 A→B 실패/B→A 48분이면 B→A 순서의 대안으로만 제시", async () => {
+test("신규 2건 A→B 실패/B→A 48분이면 B→A 순서로 허용", async () => {
   const results = await recommendTwoNewWithOnlyFirstDate(directionalRoutes({ "C1->C2": null, "C2->C1": 48 }));
-  assert.equal(results[1].status, "manual_required");
+  assert.equal(results[1].status, "recommended");
   assert.equal(results[1].evidence.sameDayRoute?.routeABMinutes, null);
   assert.deepEqual(results[1].evidence.sameDayRoute?.selectedVisitOrder, ["C2", "C1"]);
 });

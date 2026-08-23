@@ -509,7 +509,7 @@
 - 시작 HEAD: `7eed8536a93f427a975f4c7cc11a5d623be6a8d6`.
 - branch: `feature/preliminary-survey-phase-b`; PR #42는 Draft/Open 상태를 유지하고 merge하지 않는다.
 - 최초실시는 working day `-3 → -30`, 타기관 신규는 `-30 → -3`을 모두 소진한 뒤 `-31 → -60`으로 탐색하도록 business-type 후보 순서를 그대로 사용한다.
-- 방문 용량은 기존 manual/가확정 및 영향 범위 밖 유지 방문까지 포함한다. 동일주소 또는 실제 차량 이동 30분 이하만 2건 자동추천하고, 31~60분은 대안, 60분 초과는 불가로 분리했다. route evidence가 없으면 동일주소 외 근거리 자동판정을 하지 않는다.
+- 방문 용량은 기존 manual/가확정 및 영향 범위 밖 유지 방문까지 포함한다. 직전 구현의 `31~60분은 대안만` 처리는 확정 정책이 아니어서 원복했다. 30분은 same-route 우선 기준이지 hard maximum이 아니며, 31~60분은 단독 날짜가 없을 때 기존 same-day fallback을 유지하고 60분 초과만 같은 날 방문을 차단한다. route evidence가 없으면 동일주소 외 근거리 자동판정을 하지 않는다.
 - 측정자·공시료 배정은 1~2건 자동, 3건 그룹 승인, 4건 이상 hard block이다. 승인 fingerprint는 `measurement_date + assignee_user_id + sorted target_ids`이며 동일 구성은 기존 승인자·승인시각을 보존하고 구성 변경만 재승인한다.
 - 기존 적용 가능성이 있는 `20260822153000` migration은 변경하지 않고, 후속 `20260823120000_finalize_preliminary_survey_assignment_approval_groups.sql`에서 승인 fingerprint, 4건 차단, 그룹 승인 wrapper RPC와 권한 경계를 추가했다.
 - `직원 예비조사 제외 일정`을 UI에서 `직원 불가 일정`으로 정리했다. `user_schedule_blocks`를 공통 원천으로 사용해 예비조사 책임자·경력 동행자, 측정자·공시료, 측정 참여자, 보고서 담당자를 모두 hard constraint로 검사한다.
@@ -521,12 +521,12 @@
 - `npm test`: 407/407 통과. 날짜 순서, 기존 방문 포함 용량, 승인 fingerprint·4건 차단, 불가 일정 역할별 차단과 기존 Phase B 회귀를 포함한다.
 - `npm run build`: 첫 시도는 실행 중 dev server의 `.next` 산출물 충돌로 실패했다. 이 작업공간의 3000번 프로세스만 확인해 일시 종료하고 기존 `.next`를 임시 경로로 이동한 뒤 69개 page build가 통과했다.
 - `npm run dev:turbo`: 빌드 후 3000번에 복원했고 Ready 상태를 확인했다.
-- 정적 테스트는 보조 증거다. 실제 PostgreSQL 행동 검증은 아래 제한 때문에 완료하지 못했다.
+- 정적 테스트는 보조 증거다. 실제 Supabase DB migration/RPC 행동 검증은 아래 제한 때문에 완료하지 못했다.
 
 ### 실제 DB 검증과 안전
 
 - 사용 가능한 도구는 `npx supabase 2.114.0`이었으나 Docker/Podman, local Supabase 설정, 로컬 PostgreSQL/psql, 연결된 격리 test project가 없었다. `npx supabase status`는 Docker 부재로 실행할 수 없었다.
-- 따라서 migration 최초 적용·rollback, plan/assignment guard INSERT·UPDATE·DELETE 6종, 동일 3건 승인 재apply, 구성 변경 재승인, 4건 차단, 원자 rollback·동시 apply는 실제 PostgreSQL에서 미검증이다.
+- 따라서 migration 최초 적용·rollback, plan/assignment guard INSERT·UPDATE·DELETE 6종, 동일 3건 승인 재apply, 구성 변경 재승인, 4건 차단, 원자 rollback·동시 apply는 비운영 Supabase에서 미검증이다.
 - 운영 DB를 대체 검증 환경으로 사용하지 않았다. 운영 migration 0건, 운영 DB write 0건, 보호 대상 H0399/H0524/H0288/H0528/H0348/H0126/H0281/H0260/H0063/H0077 write 0건이다.
 
 ### 실제 UI 검증
@@ -555,5 +555,54 @@
 ### 최종 판정
 
 - **구현 완료·검증 미완료·merge 보류**.
-- merge 전 필수 blocker는 격리 PostgreSQL 행동 검증과 안전한 성공 apply E2E다. 사업장 상세 공통 Day Card의 실제 조작 검증도 함께 완료해야 한다.
+- merge 전 필수 blocker는 비운영 Supabase DB migration/RPC 행동 검증과 안전한 성공 apply E2E다. 사업장 상세 공통 Day Card의 실제 조작 검증도 함께 완료해야 한다.
 - 기존 V2 자동추천 OFF, legacy sync, 기존 V2 데이터 보존, `measurement_journal` 찐확정 보호를 유지한다. 새 시스템 안정화 전 구형 V2 plan을 삭제하지 않는다.
+
+## 2026-08-23 검수 지적 3건 후속 보완
+
+### 정책·코드 정정
+
+- 시작 HEAD는 `77fca03f1670aa3557f5d3149796194418d06039`이며 기존 PR #42 브랜치에서만 작업했다.
+- 직전 구현의 `31~60분 → 관리자 대안만` 처리를 제거했다. 30분은 same-route 우선 기준이고 hard maximum이 아니다. 단독 날짜가 없으면 31~60분 차량 route도 기존 same-day fallback으로 추천할 수 있으며, 60분 초과만 같은 날 방문을 차단한다.
+- 최초실시 `-3 → -30`, 타기관 신규 `-30 → -3` 후 `-31 → -60`의 authoritative 후보 순서는 유지했다.
+- 단일일 `collaborators`가 배열 또는 쉼표 문자열이어도 같은 trim·중복 제거 helper를 사용한다. `/businesses` 저장과 workbench GET·추천·apply·영향 범위가 동일한 날짜별 보고서 담당자·측정 참여자 불가 일정 key를 사용하고, 다일은 `daily_staff` 날짜별 검증을 유지한다.
+- 운영 Supabase에서 `approval_group_fingerprint` 컬럼 존재를 READ-ONLY로 확인해 `20260823120000` 적용 이력이 있는 것으로 판단했다. 기존 migration은 수정하지 않고 `20260823123000_limit_assignment_approval_groups_to_affected_dates.sql` forward migration을 추가했다.
+- hard max 사전검사는 proposed `(measurement_date, assignee_user_id)` 그룹으로 한정했다. 다른 날짜뿐 아니라 같은 날짜의 다른 측정자에게 남은 legacy 4건도 현재 apply를 막지 않는다.
+- 저장 전 old 그룹과 저장 후 new 그룹을 같은 advisory-lock 순서로 직렬화한 뒤 합집합으로 정규화한다. 3건에서 2건으로 줄어든 그룹은 승인 필요·fingerprint·승인자·승인시각을 지우고, 동일한 3건 fingerprint만 기존 승인을 보존한다.
+
+### 검증 결과
+
+- 집중 행동·정적 경계 테스트: 97/97 통과.
+- `npx tsc --noEmit --pretty false`: 통과.
+- `npm test`: 410/410 통과.
+- `npm run build`: 실행 중인 dev server와 `.next` 충돌로 첫 시도가 실패했다. 이 작업공간의 3000번 프로세스만 종료하고 기존 `.next`를 임시 경로로 이동한 뒤 clean build가 통과했다.
+- `npm run dev:turbo`: clean build 후 3000번에 복원했고 `/survey` 응답과 Ready 상태를 확인했다.
+- 독립 정적 검수는 첫 검수에서 같은 측정일·다른 측정자 legacy 4건이 포함되는 범위 오류를 발견했다. proposed 그룹 key로 수정한 뒤 재검수했으며 코드 blocker 없음 판정을 받았다.
+
+### 실제 UI 검증
+
+- 기존 Chrome 관리자 세션과 Orca computer-use를 사용했다. `/businesses`에서 사업장 상세 모달이 열리고 단일 공통 Day Card에 측정일, 보고서 담당자, 측정 참여자 복수 선택, `+ 일자 추가`가 함께 표시되는 것을 확인했다.
+- 저장과 데이터 변경은 수행하지 않았다. 접근성 action 제한으로 다일 카드 추가, 기본 체크 해제, 불가 직원 선택 차단은 이번 회차에 실제 조작하지 못했다.
+- clean build와 dev server 복원 후 `/survey`가 정상 로드되고 `직원 불가 일정` 탭 및 `등록된 날짜에는 예비조사자, 측정자·공시료, 측정 참여자, 보고서 담당자로 배정되지 않습니다.` 설명, 기존 일정 목록을 확인했다.
+
+### Supabase 검증 경계와 안전
+
+- 연결된 Supabase 도구에서 비운영 프로젝트가 없고 저장소에도 local Supabase 설정이 없었다. 운영 Supabase를 대체 테스트 환경으로 사용하지 않았다.
+- forward migration/RPC의 실제 실행, 같은 날짜·다른 측정자 legacy 4건 허용, 같은 proposed 그룹 4건 차단, old/new 승인 그룹 정규화, rollback·동시 apply는 비운영 Supabase에서 미검증이다.
+- 운영 Supabase migration 적용 0건, RPC write 0건, 데이터 write 0건이다. 보호 사업장 10개에도 write하지 않았다.
+- 판정은 **구현 완료·UI 부분 검증 완료·Supabase 실행 검증 미완료·merge 보류**다.
+
+### 이번 worker 수행 현황
+
+| 작업자 | 모델 / 추론 | 담당 | 결과 |
+| --- | --- | --- | --- |
+| Main | GPT-5.6 Sol / High 요청 | 통합, worker 결과 검토, migration lock·group 범위 보완, 테스트·build·UI·Git/PR | 반영. 실제 effective 값은 별도 노출되지 않아 요청값 적용·실제값 검증 불가 |
+| Route worker `ctx_1847f6e7d7aa` | GPT-5.6 Terra / High | 31~60분 fallback 원복과 route 테스트 | 메인 날짜 순서 재검토·보완 후 반영 |
+| Route 최초 `ctx_b122a2ddb315` | GPT-5.6 Terra / High | 동일 작업 최초 시도 | `agent_prompt_stalled`, 재시도 성공 |
+| Supabase worker `ctx_ac2940ff380f` | GPT-5.6 Terra / High | 적용 여부 READ-ONLY 확인, forward migration과 승인 정규화 | 메인·독립 검수 보완 후 반영 |
+| 불가 일정 worker `ctx_39ef4451c20b` | GPT-5.6 Terra / High | CSV/배열 collaborators 공통 정규화와 workbench 경계 | 반영 |
+| UI worker | GPT-5.6 Terra / Medium | 공통 Day Card 실제 화면 확인 | 단일 Day Card 확인, 저장 0건; 세부 조작은 접근성 제한으로 미검증 |
+| 독립 review worker | GPT-5.6 Terra / High | route·날짜·불가 일정·승인 migration 독립 검수 | 같은 날짜 다른 측정자 범위 오류 발견·수정 후 blocker 없음 |
+
+- Orca run `run_f26743801a8c`의 3개 task 결과를 모두 회수했다. task는 completed이고 정확한 worker terminal은 exited·orphan=false다. Orca runtime이 process stop을 확정하지 못해 일부 resource는 `release_unknown` 또는 `identity_unproven` 감사 상태지만 active worker는 0개다.
+- 토큰·credits는 확인할 수 없어 추정하지 않았다.
