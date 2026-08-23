@@ -149,3 +149,15 @@
 - 사업장 상세는 날짜별 보고서 담당자와 측정 참여자를 같은 불가 일정 원천으로 검증한다. 다일 측정은 각 `daily_staff.date`별로 검사하며, 불가한 보고서 담당자는 참여자 기본값으로도 추가하지 않고 저장 전에 차단한다.
 - 계획 생성 뒤 불가 일정이 추가되면 관련 가확정 계획을 `재검토 필요`로 표시하고 영향 범위를 다시 계산한다. `measurement_journal`이 있는 찐확정은 자동 변경하지 않되 `확정 후 직원 불가 일정 발생` 충돌을 표시하고 관리자 repair 또는 사용자 판단 대상으로 남긴다.
 - assignment 승인 그룹·hard max 보완은 기존 적용 가능성이 있는 migration을 고쳐 쓰지 않고 후속 migration으로 적용한다. 저장 전 old 그룹과 저장 후 new 그룹의 합집합을 정규화하여 3건에서 2건으로 줄어든 그룹의 stale 승인정보를 지우고, 동일한 3건 fingerprint만 기존 승인을 보존한다. 비운영 Supabase 환경에서 migration/RPC, rollback, guard 6종, 승인 유지·변경, 4건 차단, transaction rollback을 검증하기 전 운영에 적용하지 않는다.
+
+## V2 plan·측정자 배정 저장 불변식
+
+- plan과 날짜별 측정자·공시료 배정은 최종 wrapper RPC 한 transaction에서 저장한다. core RPC는 외부 `service_role`에 직접 노출하지 않는다.
+- PL/pgSQL 변수와 SQL relation alias에 같은 `plan` 식별자를 사용하지 않는다. JSON payload는 `plan_item`/`plan_payload`, relation은 `target_plan`처럼 역할이 드러나는 이름을 사용한다.
+- 3건 승인 단위는 `measurement_date + assignee_user_id + sorted target_ids`의 canonical fingerprint다. 정확히 같은 3건 구성만 기존 승인자·승인시각을 보존한다.
+- target 추가·제외·교체, 측정일 변경, 측정자 변경으로 fingerprint가 달라지면 이전 승인을 재사용하지 않는다.
+- 최종 1~2건 그룹은 `approval_required=false`이며 fingerprint·승인자·승인시각을 모두 `NULL`로 저장한다. 정확히 3건은 유효한 승인 metadata를 한 row에 저장하고, 4건 이상은 승인 여부와 관계없이 차단한다.
+- INSERT/UPDATE의 모든 중간 row는 `preliminary_survey_v2_assignment_approval_check`를 즉시 만족해야 한다. wrapper 후처리가 고칠 것을 전제로 stale fingerprint를 잠시 저장하지 않는다.
+- hard max와 승인 사전검사는 이번 apply가 영향을 주는 `(measurement_date, assignee_user_id)` 그룹에 한정한다. 다른 날짜 또는 같은 날짜의 다른 측정자에게 남은 legacy 4건은 unrelated apply를 막지 않는다.
+- 측정자를 옮길 때는 이전 그룹과 새 그룹을 모두 정규화한다. 실패 시 plan·assignment·승인 metadata는 전부 rollback되어야 한다.
+- 이미 적용된 migration을 수정하지 않고 forward-only migration으로 함수 정의를 교체한다. 운영 적용 전 Local/비운영 Supabase에서 전체 migration reset과 실제 RPC 회귀검증을 완료한다.

@@ -606,3 +606,43 @@
 
 - Orca run `run_f26743801a8c`의 3개 task 결과를 모두 회수했다. task는 completed이고 정확한 worker terminal은 exited·orphan=false다. Orca runtime이 process stop을 확정하지 못해 일부 resource는 `release_unknown` 또는 `identity_unproven` 감사 상태지만 active worker는 0개다.
 - 토큰·credits는 확인할 수 없어 추정하지 않았다.
+
+## 2026-08-23 V2 DB persistence 결함 2건 보완
+
+### 실제 결함과 원인
+
+- 결함 A: core RPC의 PL/pgSQL `plan jsonb` 변수와 `jsonb_array_elements(... ) plan`, `preliminary_survey_v2_plans plan` SQL alias가 충돌해 Local Supabase에서 `column reference "plan" is ambiguous`가 재현됐다.
+- 결함 B: 승인된 3건 그룹에서 한 target의 측정자를 변경할 때 core `ON CONFLICT UPDATE`가 승인 flag·승인자·시각만 지우고 `approval_group_fingerprint`를 남겼다. wrapper 정규화 전에 row CHECK가 실행되어 `preliminary_survey_v2_assignment_approval_check` 위반이 재현됐다.
+- 기존 CHECK나 historical migration을 약화·수정하지 않고 `20260823130000_fix_preliminary_survey_assignment_persistence.sql` forward migration을 추가했다.
+
+### 수정 내용
+
+- core RPC 전체에서 JSON loop/payload는 `plan_item`·`plan_payload`, plan relation은 `target_plan` 등으로 분리해 식별자 충돌을 제거했다.
+- 최종 `(measurement_date, assignee_user_id, sorted target_ids)` 그룹을 한 statement에서 계산한다. upsert가 `approval_required`, fingerprint, 승인자, 승인시각을 함께 갱신하므로 모든 중간 row가 CHECK-valid하다.
+- 동일한 정확한 3건 fingerprint만 이전 승인 metadata를 보존한다. target 교체·일자 변경·측정자 변경은 새 승인을 요구하고, 1~2건은 승인 metadata를 전부 지운다.
+- 4건 hard max와 승인 검사는 proposed 영향 그룹에만 적용한다. unrelated 다른 날짜 또는 같은 날짜의 다른 assignee legacy 4건은 현재 apply를 차단하지 않는다.
+- core RPC execute는 `PUBLIC/anon/authenticated/service_role`에서 revoke하고, 기존 wrapper RPC의 service-role 전용 경계를 유지했다. `SECURITY DEFINER SET search_path=public`도 유지했다.
+
+### Local Supabase 실제 검증
+
+- 검증 위치: `C:\Users\USER\supabase-pr42-validation` (Git 미포함). Docker Desktop 경로는 검증 PowerShell 세션 PATH에만 추가했으며 시스템 설정은 변경하지 않았다.
+- baseline부터 기존 6개 migration과 새 migration 사본을 순서대로 적용한 `npx supabase db reset --local --no-seed`가 성공했다. `patch_plan_alias_local.sql`은 실행하지 않았다.
+- 기존 P1 seed에서 승인 3건 중 target 1건을 다른 assignee로 이동하는 호출이 CHECK 오류 없이 성공했다. 이전 assignee 2건과 새 assignee 1건 모두 fingerprint·승인자·승인시각이 제거됐다.
+- repository 검증 스크립트 `supabase/verification/20260823_verify_preliminary_survey_assignment_persistence.sql`을 실제 Local RPC로 실행했고 `PR42_ASSIGNMENT_PERSISTENCE_VERIFICATION_OK`를 확인했다. script는 마지막에 rollback하며 fixture 잔여 0건을 확인했다.
+- 확인 범위: 1건, 2건, 2→3 승인 부족 rollback, 관리자 승인 3건, 동일 3건 승인 보존, 3→2·assignee 이동 old/new 정규화, target 교체 재승인, 측정일 변경 승인 무효화, 4건 hard block, unrelated 다른 날짜 legacy 4건, 같은 날짜 다른 assignee legacy 4건, 원자 rollback, `measurement_journal` 찐확정 lock.
+- Local 권한 확인: core RPC `service_role` execute=false, wrapper execute=true, core는 `SECURITY DEFINER`와 `search_path=public`을 유지했다.
+- 운영 Supabase migration 적용 0건, 운영 RPC/data write 0건, 보호 대상 10개 업체 write 0건이다.
+
+### 공식 회귀와 Orca worker
+
+- 정적 회귀는 새 forward migration이 historical migration을 대체하지 않고 alias 충돌을 제거하며 fingerprint를 동일 upsert statement에서 갱신하는지 고정했다. 실제 DB 의미는 위 Local verification SQL로 검증했다.
+- Worker A `ctx_84bb899dc965`: GPT-5.6 Terra / High 요청·effective 확인, core/wrapper·권한·affected scope 읽기 전용 검토. 결과를 반영했다.
+- Worker B `ctx_eea5a42c0f84`/retry `ctx_d3c551883c12`: GPT-5.6 Terra / High 요청·최초 effective 확인. Orca dispatch input이 stalled/revoked됐지만 동일 exact terminal의 읽기 전용 결과를 transcript에서 회수해 Local 검증 설계에 반영했다.
+- Main: GPT-5.6 Sol / High 요청. migration 통합, Local reset/RPC 검증, 테스트·문서·Git/PR을 담당했다. 실제 모델 메타데이터는 별도 노출되지 않아 요청값 적용·실제값 검증 불가다.
+- 이번 run의 worker terminal은 결과 회수 후 닫혔고 exact terminal은 disconnected/exited다. Orca resource settlement는 `release_unknown` 감사 상태여서 최종 보고에 그대로 기록한다.
+
+### 판정
+
+- DB persistence 결함 A/B와 지정 Local Supabase 회귀 범위는 수정·실행 검증 완료다.
+- `npx tsc --noEmit --pretty false` 통과, 관련 집중 테스트 32/32 통과, `npm test` 412/412 통과, `npm run build` 통과를 확인했다.
+- UI 코드는 변경하지 않았고 기존에 남은 관리자/예비조사 담당자 성공 apply 브라우저 E2E 제한은 그대로다. PR #42는 Draft/Open, 미병합 상태를 유지한다.

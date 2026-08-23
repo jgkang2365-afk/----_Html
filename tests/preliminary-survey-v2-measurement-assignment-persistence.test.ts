@@ -14,7 +14,11 @@ const remedialMigration = readFileSync(
   "supabase/migrations/20260823123000_limit_assignment_approval_groups_to_affected_dates.sql",
   "utf8",
 );
-const migration = `${baseMigration}\n${forwardMigration}\n${remedialMigration}`;
+const persistenceFixMigration = readFileSync(
+  "supabase/migrations/20260823130000_fix_preliminary_survey_assignment_persistence.sql",
+  "utf8",
+);
+const migration = `${baseMigration}\n${forwardMigration}\n${remedialMigration}\n${persistenceFixMigration}`;
 const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
 
 test("날짜별 측정자·공시료 배정은 plan UUID와 날짜 단위의 별도 원천 테이블에 저장한다", () => {
@@ -100,6 +104,33 @@ test("저장 전후 영향 그룹 합집합은 3건→2건 stale 승인 메타�
   assert.match(rpc, /UNION\s+SELECT DISTINCT assignment\.measurement_date, assignment\.assignee_user_id/);
   assert.match(rpc, /WHEN ranked\.assignment_count <> 3 OR ranked\.assignment_position <> 3 THEN NULL/);
   assert.match(rpc, /WHEN ranked\.previous_fingerprint = ranked\.fingerprint AND ranked\.previous_approver IS NOT NULL/);
+});
+
+test("forward-only persistence fix는 plan 식별자 충돌을 제거하고 historical migration을 대체하지 않는다", () => {
+  const rpc = persistenceFixMigration;
+
+  assert.match(rpc, /CREATE OR REPLACE FUNCTION public\.persist_preliminary_survey_v2_plan_and_measurement_assignments/);
+  assert.match(rpc, /plan_item jsonb/);
+  assert.match(rpc, /jsonb_array_elements\(p_plans\) plan_payload/);
+  assert.match(rpc, /public\.preliminary_survey_v2_plans target_plan/);
+  assert.doesNotMatch(rpc, /\bplan jsonb\b/);
+  assert.doesNotMatch(rpc, /jsonb_array_elements\(p_plans\) plan\b/);
+  assert.doesNotMatch(rpc, /public\.preliminary_survey_v2_plans plan\b/);
+});
+
+test("core upsert는 fingerprint까지 같은 statement에서 갱신해 CHECK-valid 중간 상태를 보장한다", () => {
+  const rpc = persistenceFixMigration;
+
+  assert.match(rpc, /prior_approvals AS/);
+  assert.match(rpc, /prior_approval\.fingerprint = ranked\.fingerprint/);
+  assert.match(rpc, /canonical\.assignment_count = 3 AND canonical\.assignment_position = 3/);
+  assert.match(rpc, /approval_group_fingerprint = EXCLUDED\.approval_group_fingerprint/);
+  assert.match(rpc, /COALESCE\(canonical\.prior_approved_by_user_id, p_approved_by_user_id\)/);
+  assert.match(rpc, /COALESCE\(canonical\.prior_approved_at, CURRENT_TIMESTAMP\)/);
+  assert.match(rpc, /assignment_count > 3/);
+  assert.match(rpc, /MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED/);
+  assert.doesNotMatch(rpc, /assignment_payload->>'approval_required'/);
+  assert.doesNotMatch(rpc, /40001/);
 });
 
 test("workbench apply는 전체 draft fingerprint·서버 재추천을 대조하고 pre-migration 저장을 거부한다", () => {
