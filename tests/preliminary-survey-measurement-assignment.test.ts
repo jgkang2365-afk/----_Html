@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assignMeasurementAssignees,
+  buildMeasurementAssignmentTargets,
   collectMeasurementVehicleRouteEvidence,
   MEASUREMENT_ASSIGNMENT_CAPACITY_CODE,
   MeasurementAssignmentDailyLimitError,
   type MeasurementVehicleRouteEvidence,
 } from "../lib/preliminary-survey-v2/measurement-assignment";
+import {
+  canonicalizeWorkbenchDraft,
+  sameCanonicalWorkbenchDraft,
+} from "../lib/preliminary-survey-v2/draft-canonical";
 
 const codes = ["A", "B", "C", "D", "F", "G"] as const;
 const users = codes.map((surveyCode, index) => ({ id: index + 1, name: `측정자${index + 1}`, surveyCode, active: true }));
@@ -62,20 +67,128 @@ test("역할이 일부 직원에게 몰려도 6명 첫 순환이 역할 일치�
   assert.equal(new Set(result.map((item) => item.userId)).size, 6);
 });
 
-test("사용자 6개 예시 구조는 A/B/C/D/F/G를 한 번씩 사용하고 역할 일치 대상을 선택한다", () => {
-  const expectedUserIds = [2, 1, 3, 4, 5, 6];
+test("실제 6개 업체 역할 충돌에서도 A/B/C/D/F/G를 한 번씩 사용한다", () => {
   const result = assignMeasurementAssignees({
-    targets: [290, 200, 226, 188, 100, 101].map((targetId, index) => ({
-      ...target(targetId, `주소 ${targetId}`, "2026-08-24"),
-      reportWriterUserId: expectedUserIds[index],
-      measurementParticipantUserIds: [expectedUserIds[index]],
-      preliminarySurveyorUserId: expectedUserIds[index],
-    })),
+    targets: [
+      { ...target(290), businessCode: "H0290", reportWriterUserId: 2, measurementParticipantUserIds: [2], preliminarySurveyorUserId: 2 },
+      { ...target(200), businessCode: "H0200", reportWriterUserId: 3, measurementParticipantUserIds: [3], preliminarySurveyorUserId: 1 },
+      // 두 이름 표시 중 책임 예비조사자만 preference에 넣고 reviewer는 제외한다.
+      { ...target(226), businessCode: "H0226", reportWriterUserId: 3, measurementParticipantUserIds: [3], preliminarySurveyorUserId: 3 },
+      { ...target(188), businessCode: "H0188", reportWriterUserId: 5, measurementParticipantUserIds: [5], preliminarySurveyorUserId: 4 },
+      // 두 이름 표시 중 책임 예비조사자만 preference에 넣고 reviewer는 제외한다.
+      { ...target(100), businessCode: "H0100", reportWriterUserId: 5, measurementParticipantUserIds: [5], preliminarySurveyorUserId: 5 },
+      { ...target(101), businessCode: "H0101", reportWriterUserId: 5, measurementParticipantUserIds: [5], preliminarySurveyorUserId: 6 },
+    ].map((item) => ({ ...item, measurementDate: "2026-08-24" })),
     users,
   });
   assert.deepEqual(result.map((item) => [item.targetId, item.userId, item.publicSampleCode]), [
     [100, 5, "F"], [101, 6, "G"], [188, 4, "D"], [200, 1, "A"], [226, 3, "C"], [290, 2, "B"],
   ]);
+  assert.equal(result.find((item) => item.targetId === 200)?.userId, 1,
+    "H0200은 참여자/보고서 담당자 강종구보다 첫 순환 전체 최적의 이태환(A)을 선택해야 한다");
+});
+
+test("추천과 Apply는 공통 builder로 역할 필드가 같은 canonical target을 만든다", () => {
+  const source = {
+    id: 200,
+    code: "H0200",
+    address: "충남 아산시 인주면",
+    coordinate: { latitude: 36.8, longitude: 126.9 },
+    region: "충남 아산시",
+    measurementAssignmentDates: ["2026-08-24"],
+    measurementStaffByDate: [{
+      date: "2026-08-24",
+      reportWriterUserId: 3,
+      measurementParticipantUserIds: [3],
+    }],
+  };
+  const recommendationTargets = buildMeasurementAssignmentTargets({ target: source, preliminarySurveyorUserId: 1 });
+  const applyTargets = buildMeasurementAssignmentTargets({ target: { ...source }, preliminarySurveyorUserId: 1 });
+
+  assert.deepEqual(applyTargets, recommendationTargets);
+  assert.deepEqual(applyTargets[0], {
+    targetId: 200,
+    measurementDate: "2026-08-24",
+    address: "충남 아산시 인주면",
+    coordinate: { latitude: 36.8, longitude: 126.9 },
+    businessCode: "H0200",
+    region: "충남 아산시",
+    reportWriterUserId: 3,
+    measurementParticipantUserIds: [3],
+    preliminarySurveyorUserId: 1,
+  });
+});
+
+test("공통 builder는 다일 측정의 날짜별 보고서 담당자와 참여자를 섞지 않는다", () => {
+  const targets = buildMeasurementAssignmentTargets({
+    target: {
+      id: 1, code: "H0001", address: null, coordinate: null, region: null,
+      measurementAssignmentDates: ["2026-08-24", "2026-08-25"],
+      measurementStaffByDate: [
+        { date: "2026-08-24", reportWriterUserId: 1, measurementParticipantUserIds: [2] },
+        { date: "2026-08-25", reportWriterUserId: 3, measurementParticipantUserIds: [4, 5] },
+      ],
+    },
+    preliminarySurveyorUserId: 6,
+  });
+  assert.deepEqual(targets.map((item) => [
+    item.measurementDate, item.reportWriterUserId, item.measurementParticipantUserIds,
+  ]), [
+    ["2026-08-24", 1, [2]],
+    ["2026-08-25", 3, [4, 5]],
+  ]);
+});
+
+test("Apply canonical E2E: 원천이 같으면 검토 draft를 그대로 적용하고 실제 변경만 재검토한다", () => {
+  const sourceTargets = [
+    [290, "H0290", 2, [2], 2],
+    [200, "H0200", 3, [3], 1],
+    [226, "H0226", 3, [3], 3],
+    [188, "H0188", 5, [5], 4],
+    [100, "H0100", 5, [5], 5],
+    [101, "H0101", 5, [5], 6],
+  ] as const;
+  const canonicalTargets = sourceTargets.flatMap(([id, code, reportWriterUserId, participantIds, responsibleId]) =>
+    buildMeasurementAssignmentTargets({
+      target: {
+        id, code, address: `주소 ${code}`, coordinate: null, region: "충남",
+        measurementAssignmentDates: ["2026-08-24"],
+        measurementStaffByDate: [{
+          date: "2026-08-24",
+          reportWriterUserId,
+          measurementParticipantUserIds: [...participantIds],
+        }],
+      },
+      preliminarySurveyorUserId: responsibleId,
+    }));
+  const toDraft = (assignments: ReturnType<typeof assignMeasurementAssignees>) => canonicalizeWorkbenchDraft({
+    scope: {
+      measurementDateFrom: "2026-08-24", measurementDateTo: "2026-08-24",
+      preliminaryDateFrom: null, preliminaryDateTo: null,
+    },
+    surveys: [],
+    measurementAssignments: assignments.map((assignment) => ({
+      targetId: assignment.targetId,
+      measurementDate: assignment.measurementDate,
+      userId: assignment.userId,
+      userName: assignment.userName,
+      surveyCode: assignment.publicSampleCode,
+      approvalRequired: assignment.approvalRequired,
+      reason: assignment.reason,
+    })),
+  });
+  const reviewedDraft = toDraft(assignMeasurementAssignees({ targets: canonicalTargets, users }));
+  const unchangedApplyRecalculation = toDraft(assignMeasurementAssignees({ targets: canonicalTargets, users }));
+
+  assert.equal(sameCanonicalWorkbenchDraft(reviewedDraft, unchangedApplyRecalculation), true,
+    "동일 원천에서 target shape 차이만으로 DRAFT_REVIEW_REQUIRED가 발생하면 안 된다");
+  assert.deepEqual(unchangedApplyRecalculation.measurementAssignments, reviewedDraft.measurementAssignments);
+
+  const changedTargets = canonicalTargets.map((item) => item.targetId === 200
+    ? { ...item, measurementDate: "2026-08-25" } : item);
+  const changedApplyRecalculation = toDraft(assignMeasurementAssignees({ targets: changedTargets, users }));
+  assert.equal(sameCanonicalWorkbenchDraft(reviewedDraft, changedApplyRecalculation), false,
+    "실제 역할 원천이 바뀌면 기존 stale draft 재검토 안전장치가 유지되어야 한다");
 });
 
 test("8개 업체는 2/2/1/1/1/1이고 세 번째 배정은 승인 필요다", () => {

@@ -24,6 +24,7 @@ const affectedGroupFixMigration = readFileSync(
 );
 const migration = `${baseMigration}\n${forwardMigration}\n${remedialMigration}\n${persistenceFixMigration}\n${affectedGroupFixMigration}`;
 const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
+const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
 
 test("날짜별 측정자·공시료 배정은 plan UUID와 날짜 단위의 별도 원천 테이블에 저장한다", () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.preliminary_survey_v2_measurement_assignments/);
@@ -169,4 +170,11 @@ test("workbench apply는 전체 draft fingerprint·서버 재추천을 대조하
   assert.match(workbench, /p_approved_by_user_id: approveThirdAssignment \? approvedByUserId : null/);
   assert.doesNotMatch(workbench, /PUBLIC_SAMPLE_CODE_BY_NAME/);
   assert.doesNotMatch(workbench, /measurer_user_id/);
+});
+
+test("추천과 Apply 재계산은 동일한 canonical target builder를 사용한다", () => {
+  assert.equal((workbench.match(/buildMeasurementAssignmentTargets\(\{/g) ?? []).length, 2);
+  assert.match(workbench, /submittedByTargetId[\s\S]*sourceResponsibleUserId/);
+  assert.doesNotMatch(workbench, /const assignmentTargets:[\s\S]*businessCode: context\.target\.code, region: context\.target\.region/);
+  assert.match(service, /loadV2ManualContext[\s\S]*measurementStaffByDate: measurementStaffByDateFromSource/);
 });

@@ -55,6 +55,28 @@ function optionalInteger(value: unknown): number | null {
   return Number.isInteger(parsed) ? parsed : null;
 }
 
+function measurementStaffByDateFromSource(input: {
+  dailyStaff: unknown;
+  measurementDate: string | null;
+  measurerId: unknown;
+  collaborators: unknown;
+  userIdByName: Map<string, number>;
+}) {
+  return measurementDayFormsFrom({
+    dailyStaff: input.dailyStaff,
+    measurementDate: input.measurementDate,
+    measurerId: optionalInteger(input.measurerId),
+    collaborators: input.collaborators,
+  }).filter((day) => parseDateOnly(day.date)).map((day) => ({
+    date: day.date,
+    reportWriterUserId: day.measurerId,
+    measurementParticipantUserIds: [...new Set(day.collaborators.flatMap((name) => {
+      const userId = input.userIdByName.get(name.trim());
+      return userId == null ? [] : [userId];
+    }))],
+  }));
+}
+
 async function loadProcessChangedPolicy(supabase: Client): Promise<ProcessChangedPolicySettings> {
   const { data, error } = await supabase
     .from("preliminary_survey_policy_settings")
@@ -95,6 +117,7 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
   const userNameById = new Map(users.map((user) => [user.id, user.name]));
+  const userIdByName = new Map(users.map((user) => [user.name.trim(), user.id]));
   const measurementParticipantsSnapshot = measurementStaffForDate({
     dailyStaff: targetRow.daily_staff,
     measurementDate: targetRow.measurement_date,
@@ -123,6 +146,13 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
     measurementParticipantsSnapshot,
     sourceDailyStaffSnapshot: targetRow.daily_staff ?? null,
     sourceCollaboratorsSnapshot: targetRow.collaborators ?? null,
+    measurementStaffByDate: measurementStaffByDateFromSource({
+      dailyStaff: targetRow.daily_staff,
+      measurementDate: targetRow.measurement_date,
+      measurerId: targetRow.measurer_id,
+      collaborators: targetRow.collaborators,
+      userIdByName,
+    }),
     processChanged: targetRow.process_changed,
     processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
       policy,
@@ -398,19 +428,13 @@ export async function calculateV2Recommendations(
     const coordinate = rawCoordinate && rawCoordinate.latitude >= 33 && rawCoordinate.latitude <= 39 &&
       rawCoordinate.longitude >= 124 && rawCoordinate.longitude <= 132
       ? rawCoordinate : null;
-    const measurementStaffByDate = measurementDayFormsFrom({
+    const measurementStaffByDate = measurementStaffByDateFromSource({
       dailyStaff: row.daily_staff,
       measurementDate: row.measurement_date,
       measurerId: optionalInteger(row.measurer_id),
       collaborators: row.collaborators,
-    }).filter((day) => parseDateOnly(day.date)).map((day) => ({
-      date: day.date,
-      reportWriterUserId: day.measurerId,
-      measurementParticipantUserIds: [...new Set(day.collaborators.flatMap((name) => {
-        const userId = userIdByName.get(name.trim());
-        return userId == null ? [] : [userId];
-      }))],
-    }));
+      userIdByName,
+    });
     return [{
       id: Number(row.id), code: row.code, name: row.business_name, kind: classification.kind,
       measurementDate: row.measurement_date,

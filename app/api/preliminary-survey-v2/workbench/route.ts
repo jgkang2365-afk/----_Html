@@ -15,6 +15,7 @@ import { measurementDayAvailabilityKeys } from "@/lib/business/measurement-day-a
 import { currentDateInKst } from "@/lib/preliminary-survey-v2/recommendation-range";
 import {
   assignMeasurementAssignees,
+  buildMeasurementAssignmentTargets,
   collectMeasurementVehicleRouteEvidence,
   MeasurementAssignmentDailyLimitError,
   type ExistingMeasurementAssignment,
@@ -328,10 +329,12 @@ async function recomputeCanonicalMeasurementAssignments(
   });
   const incompleteTargetIds = contexts.filter((context) => !context.target.measurementAssignmentDates?.length)
     .map((context) => context.target.id);
-  const assignmentTargets: MeasurementAssignmentTarget[] = contexts.flatMap((context) => (context.target.measurementAssignmentDates ?? []).map((measurementDate) => ({
-    targetId: context.target.id, measurementDate, address: context.target.address, coordinate: context.target.coordinate,
-    businessCode: context.target.code, region: context.target.region,
-  })));
+  const submittedByTargetId = new Map(submitted.map((draft) => [draft.targetId, draft]));
+  const assignmentTargets: MeasurementAssignmentTarget[] = contexts.flatMap((context) =>
+    buildMeasurementAssignmentTargets({
+      target: context.target,
+      preliminarySurveyorUserId: submittedByTargetId.get(context.target.id)?.sourceResponsibleUserId ?? null,
+    }));
   const assigneeBlockKeys = await loadScheduleBlockKeys(
     supabase,
     assignmentTargets.map((target) => target.measurementDate),
@@ -1117,18 +1120,12 @@ export async function POST(request: NextRequest) {
       }];
     });
     const measurementAssignmentTargets = output.results.filter((result) => result.status === "recommended").flatMap((result) => {
-        const target = output.targets.find((item) => item.id === result.targetId)!;
-        return (target.measurementAssignmentDates ?? []).map((measurementDate) => {
-          const staff = target.measurementStaffByDate?.find((item) => item.date === measurementDate);
-          return {
-            targetId: target.id, measurementDate, address: target.address, coordinate: target.coordinate,
-            businessCode: target.code, region: target.region,
-            reportWriterUserId: staff?.reportWriterUserId ?? null,
-            measurementParticipantUserIds: staff?.measurementParticipantUserIds ?? [],
-            preliminarySurveyorUserId: result.responsible.id,
-          };
-        });
+      const target = output.targets.find((item) => item.id === result.targetId)!;
+      return buildMeasurementAssignmentTargets({
+        target,
+        preliminarySurveyorUserId: result.responsible.id,
       });
+    });
     const assigneeBlockKeys = await loadScheduleBlockKeys(
       supabase,
       measurementAssignmentTargets.map((target) => target.measurementDate),
