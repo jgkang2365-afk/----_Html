@@ -3,7 +3,10 @@ import { config } from "dotenv";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { measurementDayFormsFrom } from "../lib/business/measurement-day-form";
+import { recommendationDatesForBusinessType, type PhaseBBusinessType } from "../lib/preliminary-survey-v2/calendar";
 import {
+  canonicalReplayCandidateUsers,
+  canonicalReplayScheduleBlocks,
   normalizeReplayPeriod,
   replayJournalKey,
   replaySourceFingerprint,
@@ -104,6 +107,8 @@ async function main() {
   const userById = new Map(users.map((row) => [Number(row.id), row]));
   const userIdByName = new Map(users.map((row) => [String(row.name).trim(), Number(row.id)]));
   const coordinateByCode = new Map(businessInfo.map((row) => [String(row.code), row]));
+  const candidateUserStates = canonicalReplayCandidateUsers(users);
+  const candidateUserIds = users.filter((user) => user.is_active !== false).map((user) => Number(user.id));
 
   const manifest = targets.map((row) => {
     const targetId = Number(row.id);
@@ -139,14 +144,18 @@ async function main() {
     const exclusionReason = trueConfirmed ? "excluded_true_confirmed"
       : isProtected ? "protected_manual_correction"
         : missing.length ? "source_incomplete" : null;
+    const preliminaryCandidateDates = row.business_type && ["existing", "first_measurement", "external_new"].includes(row.business_type)
+      ? recommendationDatesForBusinessType(row.measurement_date, row.business_type as PhaseBBusinessType).map((item) => item.date)
+      : [];
+    const relevantScheduleDates = [...new Set([...preliminaryCandidateDates, ...(dates ?? [])])];
     const source = {
       targetId, code: row.code, year: Number(row.year), period: normalizeReplayPeriod(row.period),
       measurementDate: row.measurement_date, measurementEndDate: row.measurement_end_date,
       dailyStaff: row.daily_staff ?? null, measurerId: row.measurer_id == null ? null : Number(row.measurer_id),
       collaborators: row.collaborators ?? null, businessType: row.business_type,
       preliminarySurveyRuleType: row.preliminary_survey_rule_type, processChanged: row.process_changed,
-      scheduleBlocks: blocks.filter((item) => currentPlanRoleIds.includes(Number(item.user_id)) ||
-        staff.some((day) => day.reportWriterUserId === Number(item.user_id) || day.measurementParticipantUserIds.includes(Number(item.user_id)))),
+      candidateUsers: candidateUserStates,
+      scheduleBlocks: canonicalReplayScheduleBlocks({ blocks, candidateUserIds, relevantDates: relevantScheduleDates }),
       manualV2Plan: plan?.plan_origin === "manual" ? plan : null,
       trueConfirmed,
     };

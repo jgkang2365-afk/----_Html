@@ -11,6 +11,7 @@ import {
 } from "../lib/preliminary-survey-v2/measurement-assignment";
 import {
   canonicalReplayResults,
+  measurementAssignmentBlockedKeys,
   replayChangeType,
   replaySourceFingerprint,
   sameReplayResults,
@@ -125,7 +126,18 @@ async function seedLocal() {
   }
 }
 
-async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; output: any; assignments: MeasurementAssignmentResult[]; hardBlockedTargetIds: Set<number> }> {
+async function loadMeasurementAssignmentBlockedKeys(measurementDates: string[]) {
+  const dates = [...new Set(measurementDates)].sort();
+  if (!dates.length) return new Set<string>();
+  const { data, error } = await supabase.from("user_schedule_blocks")
+    .select("user_id,start_date,end_date")
+    .lte("start_date", dates.at(-1)!)
+    .gte("end_date", dates[0]);
+  if (error) throw new Error(`MEASUREMENT_SCHEDULE_BLOCKS:${error.code ?? ""}:${error.message}`);
+  return measurementAssignmentBlockedKeys(data ?? [], dates);
+}
+
+async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; output: any; assignments: MeasurementAssignmentResult[]; hardBlockedTargetIds: Set<number>; measurementScheduleBlockAffectedTargetIds: Set<number>; measurementScheduleConflictTargetIds: Set<number> }> {
   const output = await calculateV2Recommendations(supabase as any, {
     targetIds: eligibleIds, planningDate: "1900-01-01", allowExternalRoutes: false,
   });
@@ -139,6 +151,24 @@ async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; outp
   const users = dataset.source.users.map((user: any) => ({
     id: Number(user.id), name: user.name, surveyCode: user.survey_code, active: user.is_active,
   }));
+  const measurementScheduleBlockedKeys = await loadMeasurementAssignmentBlockedKeys(
+    assignmentTargets.map((target) => target.measurementDate),
+  );
+  // 기존 actual measurement conflict hard constraint는 보존하고, 측정일 schedule block을 명시적으로 합친다.
+  const blockedKeys = new Set<string>([...output.blockedKeys, ...measurementScheduleBlockedKeys]);
+  const measurementCandidateUserIds = new Set(users.filter((user: any) => user.active !== false &&
+    ["A", "B", "C", "D", "F", "G"].includes(user.surveyCode)).map((user: any) => Number(user.id)));
+  const measurementScheduleBlockAffectedTargetIds = new Set(assignmentTargets.filter((target) =>
+    [...measurementCandidateUserIds].some((userId) => measurementScheduleBlockedKeys.has(`${userId}:${target.measurementDate}`)),
+  ).map((target) => target.targetId));
+  const measurementScheduleConflictTargetIds = new Set<number>();
+  assignmentTargets.forEach((target) => {
+    const roleUserIds = [target.reportWriterUserId, ...(target.measurementParticipantUserIds ?? [])]
+      .filter((id): id is number => id != null);
+    if (roleUserIds.some((userId) => measurementScheduleBlockedKeys.has(`${userId}:${target.measurementDate}`))) {
+      measurementScheduleConflictTargetIds.add(target.targetId);
+    }
+  });
   const assignments: MeasurementAssignmentResult[] = [];
   const hardBlockedTargetIds = new Set<number>();
   for (const measurementDate of [...new Set(assignmentTargets.map((target) => target.measurementDate))].sort()) {
@@ -146,12 +176,12 @@ async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; outp
       .sort((left, right) => left.targetId - right.targetId);
     const availableUserCount = users.filter((user: any) => user.active !== false &&
       ["A", "B", "C", "D", "F", "G"].includes(user.surveyCode) &&
-      !output.blockedKeys.includes(`${user.id}:${measurementDate}`)).length;
+      !blockedKeys.has(`${user.id}:${measurementDate}`)).length;
     const automaticCapacity = availableUserCount * 3;
     dateTargets.slice(automaticCapacity).forEach((target) => hardBlockedTargetIds.add(target.targetId));
     assignments.push(...assignMeasurementAssignees({
       targets: dateTargets.slice(0, automaticCapacity), users,
-      availability: { isBlocked: (userId, date) => output.blockedKeys.includes(`${userId}:${date}`) },
+      availability: { isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`) },
     }));
   }
   const comparable = eligibleIds.map((targetId: number) => {
@@ -166,11 +196,15 @@ async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; outp
         measurementDate: item.measurementDate, assigneeUserId: item.userId,
         surveyCode: item.publicSampleCode, approvalRequired: item.approvalRequired,
       })),
-      warning: result?.evidence?.warnings ?? [],
+      warning: [
+        ...(result?.evidence?.warnings ?? []),
+        ...(measurementScheduleConflictTargetIds.has(targetId) ? ["MEASUREMENT_SOURCE_SCHEDULE_CONFLICT_REVIEW_REQUIRED"] : []),
+      ],
       status: hardBlockedTargetIds.has(targetId) ? "hard_blocked" : result?.status ?? "source_incomplete",
     } satisfies ReplayComparableResult;
   });
-  return { comparable, output, assignments, hardBlockedTargetIds };
+  return { comparable, output, assignments, hardBlockedTargetIds, measurementScheduleBlockAffectedTargetIds,
+    measurementScheduleConflictTargetIds };
 }
 
 async function applyReplayLocally(replay: Awaited<ReturnType<typeof runReplay>>) {
@@ -319,6 +353,8 @@ async function main() {
         approvalRequired: first.assignments.filter((row) => row.approvalRequired).length,
         hardBlocked: replayManifest.filter((row: any) => row.change_type === "hard_blocked").length,
         manualRequired: first.comparable.filter((row) => row.status === "manual_required").length,
+        measurementScheduleBlockAffectedTargets: first.measurementScheduleBlockAffectedTargetIds.size,
+        measurementSourceScheduleConflicts: first.measurementScheduleConflictTargetIds.size,
       },
       replayDigest: replaySourceFingerprint(canonicalReplayResults(first.comparable)),
     };

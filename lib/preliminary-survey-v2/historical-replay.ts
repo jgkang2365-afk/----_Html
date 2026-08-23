@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { buildScheduleBlockKeys, type ScheduleBlockRange } from "./availability";
 
 export const STAGE2_PROTECTED_CODES = new Set([
   "H0399", "H0524", "H0288", "H0528", "H0348",
@@ -29,6 +30,61 @@ export function stableReplayJson(value: unknown) {
 
 export function replaySourceFingerprint(value: unknown) {
   return createHash("sha256").update(stableReplayJson(value)).digest("hex");
+}
+
+export interface ReplayCandidateUserState {
+  id: number | string;
+  is_active: boolean | null;
+  survey_code: string | null;
+  is_preliminary_survey_experienced: boolean | null;
+  is_preliminary_survey_support_assignable: boolean | null;
+}
+
+export interface ReplayScheduleBlockSource extends ScheduleBlockRange {
+  id?: number | string;
+  block_type?: string | null;
+}
+
+/** Stage 2 stale guard에서 후보 직원 상태를 입력 순서와 무관하게 고정한다. */
+export function canonicalReplayCandidateUsers(users: ReplayCandidateUserState[]) {
+  return users.map((user) => ({
+    id: Number(user.id),
+    active: user.is_active,
+    surveyCode: user.survey_code,
+    preliminarySurveyExperienced: user.is_preliminary_survey_experienced,
+    preliminarySurveySupportAssignable: user.is_preliminary_survey_support_assignable,
+  })).sort((left, right) => left.id - right.id);
+}
+
+/** 후보 직원과 실제 후보일/측정일에 겹치는 일정만 target fingerprint source에 넣는다. */
+export function canonicalReplayScheduleBlocks(input: {
+  blocks: ReplayScheduleBlockSource[];
+  candidateUserIds: Iterable<number>;
+  relevantDates: Iterable<string>;
+}) {
+  const userIds = new Set([...input.candidateUserIds].map(Number));
+  const dates = [...new Set(input.relevantDates)].sort();
+  return input.blocks.filter((block) => userIds.has(Number(block.user_id)) &&
+    dates.some((date) => block.start_date <= date && block.end_date >= date))
+    .map((block) => ({
+      id: block.id ?? null,
+      userId: Number(block.user_id),
+      startDate: block.start_date,
+      endDate: block.end_date,
+      blockType: block.block_type ?? null,
+    }))
+    .sort((left, right) => left.userId - right.userId ||
+      left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate) ||
+      String(left.blockType).localeCompare(String(right.blockType)) || String(left.id).localeCompare(String(right.id)));
+}
+
+/** 측정 역할은 예비조사 후보일 set과 분리하여 실제 측정일만 hard block으로 확장한다. */
+export function measurementAssignmentBlockedKeys(
+  blocks: ScheduleBlockRange[],
+  measurementDates: Iterable<string>,
+) {
+  const dates = new Set(measurementDates);
+  return new Set([...buildScheduleBlockKeys(blocks)].filter((key) => dates.has(key.slice(key.indexOf(":") + 1))));
 }
 
 export interface ReplayComparableResult {
