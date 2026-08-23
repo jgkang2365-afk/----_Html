@@ -657,3 +657,38 @@
 - 검증 결과: `npx tsc --noEmit --pretty false` 통과, 집중 테스트 33/33 통과, `npm test` 413/413 통과, `npm run build` 통과.
 - 운영 Supabase migration/write 0건, 보호 대상 10개 업체 write 0건이다. historical migration 변경은 없고 UI 코드는 수정하지 않았다.
 - Orca Worker A/B는 각각 GPT-5.6 Terra / High로 wrapper 영향 범위와 Local 회귀 설계를 읽기 전용 검토했다. 두 결과를 회수했으며 task active 수는 0이다. terminal은 닫혔으나 Orca resource 감사 상태는 `release_unknown` 2건으로 남아 있다.
+
+## 2026-08-23 최종 UI/E2E 검증
+
+### `/survey` 실제 흐름
+
+- Local Supabase 전용 사용자·사업장 fixture와 3000번 개발 서버를 사용했다. 운영 Supabase write는 0건이다.
+- 관리자 계정으로 측정예정일 검색, 대상 선택, 추천 생성, 검토, 적용, 새로고침과 Local DB 대조까지 완료했다.
+- 2개 업체 추천은 추천 직후 plan/assignment가 0건임을 확인했고, 적용 후에만 2개 plan과 날짜별 assignment가 저장됐다. 화면의 예비조사일·예비조사자·측정자/공시료가 DB와 일치했다.
+- 같은 측정일·같은 측정자 3건에서 `3건 승인 필요`와 승인 확인창을 확인했다. 승인 사유 입력 없이 관리자 승인 후 적용됐고, Local DB에는 canonical 세 번째 row에만 fingerprint·승인자·승인시각이 저장됐다.
+- 일반 사용자 세션에서 추천 및 `approveThirdAssignment=true` 적용을 직접 요청했으며 두 요청 모두 HTTP 403으로 차단됐다.
+- 4개 업체가 한 측정자에게 몰리는 fixture는 `측정자 1인당 같은 측정일에는 최대 3건` 안내와 적용 버튼 비활성화를 확인했다. Local DB의 해당 plan/assignment는 모두 0건이었다.
+- 추천 draft 생성 뒤 검색 대상을 변경하면 draft가 제거되고 적용 버튼이 비활성화됐다. 오래된 draft가 다른 검색 결과에 적용되지 않았다.
+- 역할 분리 fixture에서 `예비조사자=이태환`, `측정자·공시료=한기문 B`, `측정 참여자=김민영`, `보고서담당=한기문`을 동시에 정상 표시했다. 서로 다른 역할을 오류로 취급하거나 자동 동일화하지 않았다.
+- Local `measurement_journal` fixture를 추가한 대상은 새로고침 후 `찐확정`으로 표시됐다. 일반 적용은 `TRUE_CONFIRMED_LOCKED`로 거부됐고 plan/assignment는 바뀌지 않았다.
+
+### 직원 불가 일정과 사업장 상세
+
+- `/survey`의 `직원 불가 일정` 탭에서 Local 일정 등록과 목록 반영을 실제 조작했다. 측정 참여자에게 후발 불가 일정을 등록한 대상은 `재검토 필요` 및 `직원 제외 일정 추가` 충돌로 표시됐다.
+- `/businesses` 상세 모달은 `측정 참여자` 명칭과 공통 Day Card를 사용한다. 참여자가 빈 단일일은 보고서 담당자가 기본 체크됐으며, 모달 open만으로 DB write되지 않고 사용자가 해제해 저장할 수 있었다.
+- 기존 참여자가 있는 단일일은 보고서 담당자를 강제 추가하지 않았다. 보고서 담당자를 바꾸면 새 담당자가 기본 추가되고 기존 참여자는 유지됐으며, 새 기본 체크도 즉시 해제할 수 있었다.
+- 기존 참여자가 나중에 불가 상태가 되면 `김민영 (불가 일정)`으로 표시되고 그대로 저장하면 차단됐다. 해당 참여자를 해제한 뒤에는 저장됐으며 Local DB 결과와 일치했다.
+- 기존 보고서 담당자가 불가 상태가 되면 선택 항목에 `(불가 일정)`으로 표시되고 참여자로 자동 추가되지 않았다. 저장은 `보고서 담당자 한기문` 충돌로 차단됐다.
+- 다일 fixture는 동일한 Day Card 2개로 열렸다. 중복 날짜는 `측정일이 중복되었습니다`, 빈 두 번째 날짜는 `측정일 2을 입력해 주세요`로 저장이 차단됐다. 첫 날짜 삭제 후 남은 날짜를 저장하자 시작일·종료일이 모두 해당 날짜로 재계산되고 단일일 호환 형식으로 정규화됐다.
+- 외부 Google Calendar write는 금지 범위라 실제 캘린더 이벤트 생성·갱신은 수행하지 않았다. 이름 정렬 규칙은 전체 테스트의 calendar-policy 행동 테스트로 검증했다.
+
+### 검증·정리 결과
+
+- `npx tsc --noEmit --pretty false`: 통과.
+- 집중 테스트: 55/55 통과.
+- `npm test`: 413/413 통과.
+- `npm run build`: 통과.
+- 이번 E2E 중 제품 코드 결함은 재현되지 않아 UI·API·DB migration은 수정하지 않았다. Local fixture는 검증 후 모두 삭제했고 대상·사용자·불가 일정·plan·journal 잔여가 0건임을 확인했다.
+- Orca Worker A는 동일 prompt-injection stalled가 두 번 발생해 결과 없이 종료했고, 반복하지 않고 Main이 `/survey`를 검증했다. Worker B는 GPT-5.6 Terra / Medium 요청·effective 확인으로 상세 모달의 기본 체크/해제까지 확인했으며, 나머지는 Main이 이어서 검증했다. 생성 dispatch 3개, task active 0개이고 exact worker terminal은 닫혔다. Orca runtime의 resource 상태는 `release_unknown` 감사 상태 3건으로 남았다.
+- Orca `eval` 기반 UI·API·DB 검증은 성공했지만 `snapshot`과 `screenshot`은 runtime/CDP timeout으로 증거 이미지를 남기지 못했다. 이는 제품 기능 실패와 분리한다.
+- 최종 판정은 **PASS WITH MANUAL CHECK**다. Local UI/E2E와 persistence 경계는 통과했으며, 운영 외부 캘린더에 대한 실제 표시 확인만 운영 write 금지 때문에 별도 수동 확인 대상으로 남긴다.
