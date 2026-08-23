@@ -169,13 +169,15 @@ test("생성 요청은 정의, 템플릿, 매핑과 사업장 snapshot을 함께
   assert.match(workerRoute, /payloadDocuments\.length > 0/);
 });
 
-test("템플릿 업로드는 매핑·비활성 정의 오류를 사용자 조치가 가능한 409로 반환한다", () => {
+test("템플릿 업로드는 기존 오류 계약과 HWPX 자동 분석·수동 매핑 경로를 함께 유지한다", () => {
   const route = readFileSync("app/api/document-templates/route.ts", "utf8");
   const management = readFileSync("components/features/DocumentTemplateManagement.tsx", "utf8");
   assert.match(route, /error\?\.code === "DOCUMENT_MAPPING_REQUIRED"/);
   assert.match(route, /error\?\.code === "DOCUMENT_DEFINITION_INACTIVE"/);
   assert.match(route, /mappingRequired \|\| definitionInactive \? 409 : 500/);
   assert.match(management, /setSelectedId\(created\.id\)/);
-  assert.match(management, /HWPX 원본을 등록하려면 먼저 입력 설정/);
+  assert.match(management, /\/api\/document-templates\/analyze/);
+  assert.match(management, /매핑 추가/);
+  assert.match(management, /HWPX 누름틀 자동 분석 결과를 먼저 확인/);
   assert.match(management, /1 문서 종류 → 2 입력 설정 → 3 원본 등록/);
 });
