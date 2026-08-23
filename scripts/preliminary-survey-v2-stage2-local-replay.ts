@@ -1,0 +1,335 @@
+import { createClient } from "@supabase/supabase-js";
+import { Client } from "pg";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { calculateV2Recommendations } from "../lib/preliminary-survey-v2/service";
+import {
+  assignMeasurementAssignees,
+  buildMeasurementAssignmentTargets,
+  type MeasurementAssignmentResult,
+} from "../lib/preliminary-survey-v2/measurement-assignment";
+import {
+  canonicalReplayResults,
+  replayChangeType,
+  replaySourceFingerprint,
+  sameReplayResults,
+  type ReplayComparableResult,
+} from "../lib/preliminary-survey-v2/historical-replay";
+
+const inputPath = resolve(process.argv.find((value) => value.startsWith("--input="))?.slice(8) ||
+  "C:/Users/USER/Downloads/2026-08-23_stage2-1-production-inventory.json");
+const outputPath = resolve(process.argv.find((value) => value.startsWith("--output="))?.slice(9) ||
+  "C:/Users/USER/Downloads/2026-08-23_stage2-1-replay-manifest.json");
+const localDbUrl = process.env.STAGE2_LOCAL_DB_URL || "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const localApiUrl = process.env.STAGE2_LOCAL_API_URL || "http://127.0.0.1:54321";
+const localServiceKey = process.env.STAGE2_LOCAL_SERVICE_ROLE_KEY;
+if (!/^postgresql:\/\/[^@]+@127\.0\.0\.1:54322\//.test(localDbUrl) || !/^http:\/\/127\.0\.0\.1:54321$/.test(localApiUrl)) {
+  throw new Error("ISOLATED_LOCAL_SUPABASE_REQUIRED");
+}
+if (!localServiceKey) throw new Error("STAGE2_LOCAL_SERVICE_ROLE_KEY_REQUIRED");
+
+const dataset = JSON.parse(readFileSync(inputPath, "utf8"));
+const pg = new Client({ connectionString: localDbUrl });
+const supabase = createClient(localApiUrl, localServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+const eligibleIds = dataset.inventory.filter((row: any) => row.replay_eligible).map((row: any) => Number(row.target_id));
+const inventoryById = new Map(dataset.inventory.map((row: any) => [Number(row.target_id), row]));
+
+async function assertEmptyLocal() {
+  const result = await pg.query(`SELECT json_build_object(
+    'targets', (SELECT count(*) FROM public.measurement_target_business),
+    'users', (SELECT count(*) FROM public.users),
+    'plans', (SELECT count(*) FROM public.preliminary_survey_v2_plans),
+    'assignments', (SELECT count(*) FROM public.preliminary_survey_v2_measurement_assignments),
+    'v1_plans', (SELECT count(*) FROM public.preliminary_survey_plans),
+    'journals', (SELECT count(*) FROM public.measurement_journal),
+    'blocks', (SELECT count(*) FROM public.user_schedule_blocks),
+    'business_info', (SELECT count(*) FROM public.business_info),
+    'policy_settings', (SELECT count(*) FROM public.preliminary_survey_policy_settings)
+  ) AS counts`);
+  const counts = result.rows[0].counts;
+  if (Object.values(counts).some((value) => Number(value) !== 0)) throw new Error(`LOCAL_NOT_EMPTY:${JSON.stringify(counts)}`);
+  return counts;
+}
+
+async function seedLocal() {
+  await pg.query("BEGIN");
+  try {
+    await pg.query("SET LOCAL session_replication_role = replica");
+    for (const user of dataset.source.users) {
+      await pg.query(`INSERT INTO public.users
+        (id,name,role,job,survey_code,is_active,is_preliminary_survey_experienced,
+         is_preliminary_survey_support_assignable,is_designated_office_report_manager)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false)`, [
+        user.id, user.name, user.role, user.job, user.survey_code, user.is_active,
+        user.is_preliminary_survey_experienced, user.is_preliminary_survey_support_assignable,
+      ]);
+    }
+    for (const target of dataset.source.targets) {
+      await pg.query(`INSERT INTO public.measurement_target_business
+        (id,year,period,code,business_name,address,measurement_date,measurement_end_date,measurer_id,
+         link_measurer_id,collaborators,daily_staff,created_at,updated_at,business_type,process_changed,
+         preliminary_survey_rule_type,requires_field_preliminary_survey)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+          $17 IN ('general_new','other_org_new','unconfirmed_new'))`, [
+        target.id, target.year, target.period, target.code, target.business_name, target.address,
+        target.measurement_date, target.measurement_end_date, target.measurer_id, target.link_measurer_id,
+        target.collaborators, target.daily_staff == null ? null : JSON.stringify(target.daily_staff), target.created_at, target.updated_at, target.business_type,
+        target.process_changed, target.preliminary_survey_rule_type,
+      ]);
+    }
+    for (const info of dataset.source.businessInfo) {
+      await pg.query(`INSERT INTO public.business_info (code,business_name,latitude,longitude)
+        VALUES ($1,$2,$3,$4)`, [info.code, info.business_name, info.latitude, info.longitude]);
+    }
+    for (const plan of dataset.source.v2Plans) {
+      await pg.query(`INSERT INTO public.preliminary_survey_v2_plans
+        (id,measurement_target_business_id,recommended_date,responsible_user_id,experienced_reviewer_id,
+         participant_user_ids,participant_names,status,plan_origin,source_measurement_date,
+         source_responsible_user_id,source_rule_type,survey_method,recommendation_reason,route_evidence,
+         warnings,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, [
+        plan.id, plan.measurement_target_business_id, plan.recommended_date, plan.responsible_user_id,
+        plan.experienced_reviewer_id, JSON.stringify(plan.participant_user_ids), JSON.stringify(plan.participant_names), plan.status,
+        plan.plan_origin, plan.source_measurement_date, plan.source_responsible_user_id, plan.source_rule_type,
+        plan.survey_method, JSON.stringify(plan.recommendation_reason), JSON.stringify(plan.route_evidence),
+        JSON.stringify(plan.warnings), plan.created_at, plan.updated_at,
+      ]);
+    }
+    for (const journal of dataset.source.journals) {
+      await pg.query(`INSERT INTO public.measurement_journal
+        (id,code,measurement_year,measurement_period,note,business_name,designated_office,completion_status,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [
+        journal.id, journal.code, journal.measurement_year, journal.measurement_period, journal.note,
+        journal.business_name, journal.designated_office, journal.completion_status, journal.created_at, journal.updated_at,
+      ]);
+    }
+    for (const block of dataset.source.blocks) {
+      await pg.query(`INSERT INTO public.user_schedule_blocks
+        (id,user_id,start_date,end_date,block_type,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)`, [block.id, block.user_id, block.start_date, block.end_date,
+        block.block_type, block.created_at, block.updated_at]);
+    }
+    for (const policy of dataset.source.policyRows) {
+      await pg.query(`INSERT INTO public.preliminary_survey_policy_settings
+        (policy_key,enabled,effective_start_year,effective_start_period,effective_start_measurement_date)
+        VALUES ($1,$2,$3,$4,$5) ON CONFLICT (policy_key) DO UPDATE SET enabled=EXCLUDED.enabled,
+          effective_start_year=EXCLUDED.effective_start_year,effective_start_period=EXCLUDED.effective_start_period,
+          effective_start_measurement_date=EXCLUDED.effective_start_measurement_date`, [policy.policy_key, policy.enabled,
+        policy.effective_start_year, policy.effective_start_period, policy.effective_start_measurement_date]);
+    }
+    await pg.query("COMMIT");
+  } catch (error) {
+    await pg.query("ROLLBACK");
+    throw error;
+  }
+}
+
+async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; output: any; assignments: MeasurementAssignmentResult[]; hardBlockedTargetIds: Set<number> }> {
+  const output = await calculateV2Recommendations(supabase as any, {
+    targetIds: eligibleIds, planningDate: "1900-01-01", allowExternalRoutes: false,
+  });
+  const targetById = new Map(output.targets.map((target: any) => [target.id, target]));
+  const resultById = new Map(output.results.map((result: any) => [result.targetId, result]));
+  const assignmentTargets = output.results.flatMap((result: any) => {
+    const target: any = targetById.get(result.targetId);
+    if (!target || result.status !== "recommended") return [];
+    return buildMeasurementAssignmentTargets({ target, preliminarySurveyorUserId: result.responsible.id });
+  });
+  const users = dataset.source.users.map((user: any) => ({
+    id: Number(user.id), name: user.name, surveyCode: user.survey_code, active: user.is_active,
+  }));
+  const assignments: MeasurementAssignmentResult[] = [];
+  const hardBlockedTargetIds = new Set<number>();
+  for (const measurementDate of [...new Set(assignmentTargets.map((target) => target.measurementDate))].sort()) {
+    const dateTargets = assignmentTargets.filter((target) => target.measurementDate === measurementDate)
+      .sort((left, right) => left.targetId - right.targetId);
+    const availableUserCount = users.filter((user: any) => user.active !== false &&
+      ["A", "B", "C", "D", "F", "G"].includes(user.surveyCode) &&
+      !output.blockedKeys.includes(`${user.id}:${measurementDate}`)).length;
+    const automaticCapacity = availableUserCount * 3;
+    dateTargets.slice(automaticCapacity).forEach((target) => hardBlockedTargetIds.add(target.targetId));
+    assignments.push(...assignMeasurementAssignees({
+      targets: dateTargets.slice(0, automaticCapacity), users,
+      availability: { isBlocked: (userId, date) => output.blockedKeys.includes(`${userId}:${date}`) },
+    }));
+  }
+  const comparable = eligibleIds.map((targetId: number) => {
+    const result: any = resultById.get(targetId);
+    return {
+      targetId,
+      replayDate: result?.date ?? null,
+      responsibleUserId: result?.responsible?.id ?? null,
+      reviewerUserId: result?.experiencedReviewer?.id ?? null,
+      participantUserIds: result?.participants?.map((user: any) => Number(user.id)) ?? [],
+      measurementAssignments: assignments.filter((item) => item.targetId === targetId).map((item) => ({
+        measurementDate: item.measurementDate, assigneeUserId: item.userId,
+        surveyCode: item.publicSampleCode, approvalRequired: item.approvalRequired,
+      })),
+      warning: result?.evidence?.warnings ?? [],
+      status: hardBlockedTargetIds.has(targetId) ? "hard_blocked" : result?.status ?? "source_incomplete",
+    } satisfies ReplayComparableResult;
+  });
+  return { comparable, output, assignments, hardBlockedTargetIds };
+}
+
+async function applyReplayLocally(replay: Awaited<ReturnType<typeof runReplay>>) {
+  const targetById = new Map(replay.output.targets.map((target: any) => [target.id, target]));
+  await pg.query("BEGIN");
+  try {
+    for (const result of replay.output.results) {
+      if (replay.hardBlockedTargetIds.has(result.targetId)) continue;
+      const target: any = targetById.get(result.targetId);
+      if (!target) continue;
+      await pg.query(`INSERT INTO public.preliminary_survey_v2_plans
+        (measurement_target_business_id,recommended_date,responsible_user_id,experienced_reviewer_id,
+         participant_user_ids,participant_names,status,plan_origin,source_measurement_date,source_responsible_user_id,
+         source_rule_type,survey_method,recommendation_reason,route_evidence,warnings)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        ON CONFLICT (measurement_target_business_id) DO UPDATE SET
+          recommended_date=EXCLUDED.recommended_date,responsible_user_id=EXCLUDED.responsible_user_id,
+          experienced_reviewer_id=EXCLUDED.experienced_reviewer_id,participant_user_ids=EXCLUDED.participant_user_ids,
+          participant_names=EXCLUDED.participant_names,status=EXCLUDED.status,plan_origin=EXCLUDED.plan_origin,
+          source_measurement_date=EXCLUDED.source_measurement_date,
+          source_responsible_user_id=EXCLUDED.source_responsible_user_id,source_rule_type=EXCLUDED.source_rule_type,
+          survey_method=EXCLUDED.survey_method,recommendation_reason=EXCLUDED.recommendation_reason,
+          route_evidence=EXCLUDED.route_evidence,warnings=EXCLUDED.warnings`, [
+        result.targetId, result.date, result.responsible.id, result.experiencedReviewer?.id ?? null,
+        JSON.stringify(result.participants.map((user: any) => user.id)),
+        JSON.stringify(result.participants.map((user: any) => user.name)), result.status,
+        result.evidence.warnings.includes("MINIMUM_CHANGE_PRESERVED") ? "manual" : "automatic",
+        target.measurementDate, target.sourceMeasurerId, target.kind, result.surveyMethod,
+        JSON.stringify({ reason: result.reason, evidence: result.evidence }), JSON.stringify({}),
+        JSON.stringify(result.evidence.warnings),
+      ]);
+    }
+    await pg.query(`DELETE FROM public.preliminary_survey_v2_measurement_assignments a USING public.preliminary_survey_v2_plans p
+      WHERE a.plan_id=p.id AND p.measurement_target_business_id = ANY($1::bigint[])`, [eligibleIds]);
+    for (const assignment of replay.assignments) {
+      const plan = await pg.query("SELECT id FROM public.preliminary_survey_v2_plans WHERE measurement_target_business_id=$1", [assignment.targetId]);
+      const approvalAt = assignment.approvalRequired ? new Date("2026-08-23T00:00:00+09:00") : null;
+      await pg.query(`INSERT INTO public.preliminary_survey_v2_measurement_assignments
+        (plan_id,measurement_date,assignee_user_id,survey_code,assignment_reason,approval_required,
+         approved_by_user_id,approved_at,approval_group_fingerprint)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL)`, [plan.rows[0].id, assignment.measurementDate,
+        assignment.userId, assignment.publicSampleCode, assignment.reason, assignment.approvalRequired,
+        assignment.approvalRequired ? assignment.userId : null, approvalAt]);
+    }
+    await pg.query("COMMIT");
+  } catch (error) {
+    await pg.query("ROLLBACK");
+    throw error;
+  }
+}
+
+async function installV1Probe() {
+  const target = dataset.inventory.find((row: any) => row.replay_eligible &&
+    !dataset.source.v1Plans.some((plan: any) => Number(plan.measurement_target_business_id) === Number(row.target_id)));
+  const template = dataset.source.v1Plans[0];
+  if (!target || !template) throw new Error("V1_PROBE_SOURCE_MISSING");
+  const probe = { ...template, id: "00000000-0000-4000-8000-000000000021",
+    measurement_target_business_id: Number(target.target_id), status: "cancelled", recommended_date: "2026-07-01",
+    confirmed_date: null, confirmed_by: null, confirmed_at: null, row_version: 1 };
+  await pg.query(`INSERT INTO public.preliminary_survey_plans
+    SELECT * FROM json_populate_record(NULL::public.preliminary_survey_plans, $1::json)`, [JSON.stringify(probe)]);
+  return probe.id;
+}
+
+async function cleanupLocal() {
+  await pg.query("BEGIN");
+  try {
+    await pg.query("SET LOCAL session_replication_role = replica");
+    await pg.query("DELETE FROM public.preliminary_survey_v2_measurement_assignments");
+    await pg.query("DELETE FROM public.preliminary_survey_plans");
+    await pg.query("DELETE FROM public.measurement_journal");
+    await pg.query("DELETE FROM public.preliminary_survey_v2_plans");
+    await pg.query("DELETE FROM public.user_schedule_blocks");
+    await pg.query("DELETE FROM public.preliminary_survey_policy_settings");
+    await pg.query("DELETE FROM public.business_info");
+    await pg.query("DELETE FROM public.measurement_target_business");
+    await pg.query("DELETE FROM public.users");
+    await pg.query("COMMIT");
+  } catch (error) { await pg.query("ROLLBACK"); throw error; }
+}
+
+async function main() {
+  await pg.connect();
+  const initial = await assertEmptyLocal();
+  try {
+    await seedLocal();
+    const first = await runReplay();
+    const independent = await runReplay();
+    await applyReplayLocally(first);
+    const second = await runReplay();
+    const probeId = await installV1Probe();
+    const v1Results: ReplayComparableResult[][] = [];
+    for (const date of ["2026-07-01", "2025-01-02", null]) {
+      await pg.query("UPDATE public.preliminary_survey_plans SET recommended_date=$1 WHERE id=$2", [date, probeId]);
+      v1Results.push((await runReplay()).comparable);
+    }
+    const resultById = new Map(first.comparable.map((row) => [row.targetId, row]));
+    const replayManifest = dataset.inventory.map((current: any) => {
+      const replay = resultById.get(Number(current.target_id));
+      const excluded = current.true_confirmed ? "true_confirmed" : current.protected ? "protected"
+        : !current.source_complete ? "source_incomplete" : replay?.status === "hard_blocked" ? "hard_blocked" : undefined;
+      const currentAssignmentIds = current.current_measurement_assignee.map((item: any) => item.user_id).filter((id: any) => id != null);
+      const replayAssignmentIds = replay?.measurementAssignments.map((item) => item.assigneeUserId) ?? [];
+      const assignmentChanged = JSON.stringify(currentAssignmentIds) !== JSON.stringify(replayAssignmentIds);
+      const sourceResult: any = first.output.results.find((item: any) => item.targetId === current.target_id);
+      return {
+        target_id: current.target_id, code: current.code, measurement_date: current.measurement_date,
+        current_v2_date: current.current_v2_preliminary_date, replay_date: replay?.replayDate ?? null,
+        current_responsible: current.current_v2_responsible, replay_responsible: replay?.responsibleUserId ?? null,
+        current_reviewer: current.current_v2_reviewer, replay_reviewer: replay?.reviewerUserId ?? null,
+        current_measurement_assignee: current.current_measurement_assignee,
+        replay_measurement_assignee: replay?.measurementAssignments ?? [],
+        survey_method: sourceResult?.surveyMethod ?? null,
+        approval_required: replay?.measurementAssignments.some((item) => item.approvalRequired) ?? false,
+        warning: replay?.warning ?? [],
+        change_type: replayChangeType({ excluded, manualPreserved: replay?.warning.includes("MINIMUM_CHANGE_PRESERVED"),
+          currentDate: current.current_v2_preliminary_date, replayDate: replay?.replayDate ?? null,
+          currentResponsibleUserId: current.current_v2_responsible, replayResponsibleUserId: replay?.responsibleUserId ?? null,
+          measurementAssigneeChanged: assignmentChanged }),
+        exclusion_reason: current.exclusion_reason,
+      };
+    });
+    const changeCounts = Object.fromEntries([...new Set(replayManifest.map((row: any) => row.change_type))]
+      .sort().map((type) => [type, replayManifest.filter((row: any) => row.change_type === type).length]));
+    const secondById = new Map(second.comparable.map((row) => [row.targetId, row]));
+    const secondRunChangedTargetIds = first.comparable.filter((row) =>
+      !sameReplayResults([row], secondById.has(row.targetId) ? [secondById.get(row.targetId)!] : []),
+    ).map((row) => row.targetId);
+    const secondRunDiffs = secondRunChangedTargetIds.map((targetId) => ({
+      targetId, first: first.comparable.find((row) => row.targetId === targetId), second: secondById.get(targetId),
+    }));
+    const payload = {
+      generatedAt: new Date().toISOString(), environment: "docker-local-supabase",
+      inputPath, inputSha256: createHash("sha256").update(readFileSync(inputPath)).digest("hex"),
+      localInitialCounts: initial, replayTargetCount: eligibleIds.length,
+      firstReplay: canonicalReplayResults(first.comparable), manifest: replayManifest, changeCounts,
+      checks: {
+        todayCutoffDisabled: true,
+        deterministic: sameReplayResults(first.comparable, independent.comparable),
+        secondRunAdditionalChanges: secondRunChangedTargetIds.length,
+        secondRunChangedTargetIds,
+        secondRunDiffs,
+        v1Influence: sameReplayResults(v1Results[0], v1Results[1]) && sameReplayResults(v1Results[0], v1Results[2]) ? 0 : 1,
+        trueConfirmedProposals: replayManifest.filter((row: any) => row.change_type === "true_confirmed_excluded" && row.replay_date != null).length,
+        protectedProposals: replayManifest.filter((row: any) => row.change_type === "protected_excluded" && row.replay_date != null).length,
+        approvalRequired: first.assignments.filter((row) => row.approvalRequired).length,
+        hardBlocked: replayManifest.filter((row: any) => row.change_type === "hard_blocked").length,
+        manualRequired: first.comparable.filter((row) => row.status === "manual_required").length,
+      },
+      replayDigest: replaySourceFingerprint(canonicalReplayResults(first.comparable)),
+    };
+    writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    console.log(JSON.stringify({ outputPath, replayTargetCount: eligibleIds.length, changeCounts,
+      checks: payload.checks, replayDigest: payload.replayDigest }, null, 2));
+  } finally {
+    await cleanupLocal();
+    await assertEmptyLocal();
+    await pg.end();
+  }
+}
+
+main().catch((error) => { console.error(error); process.exitCode = 1; });
