@@ -25,7 +25,7 @@ SELECT fixture.id, 2026, '하반기', 'PR42-' || fixture.id::text,
 FROM (
   SELECT series AS id,
     ('2026-09-10'::date + ((series - 991001) / 10)::integer) AS measurement_date
-  FROM generate_series(991001, 991079) series
+  FROM generate_series(991001, 991099) series
 ) fixture
 ON CONFLICT (id) DO UPDATE SET
   measurement_date = EXCLUDED.measurement_date,
@@ -313,6 +313,15 @@ SELECT pg_temp.pr42_assert(EXISTS (
   JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
   WHERE target_plan.measurement_target_business_id = 991051
 ), 'TEST 13: unrelated date legacy 4건 허용');
+SELECT pg_temp.pr42_assert((
+  SELECT count(*) = 4 AND bool_and(assignment.assignee_user_id = 9902
+    AND NOT assignment.approval_required
+    AND assignment.approval_group_fingerprint IS NULL
+    AND assignment.approved_by_user_id IS NULL AND assignment.approved_at IS NULL)
+  FROM public.preliminary_survey_v2_measurement_assignments assignment
+  JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+  WHERE target_plan.measurement_target_business_id = ANY(ARRAY[991041,991042,991043,991044]::bigint[])
+), 'TEST 13: unrelated date legacy 4건 불변');
 
 -- TEST 14: 같은 날짜라도 다른 assignee legacy 4건은 정상 apply를 막지 않는다.
 SELECT pg_temp.pr42_seed_legacy_four(
@@ -324,6 +333,124 @@ SELECT pg_temp.pr42_assert(EXISTS (
   JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
   WHERE target_plan.measurement_target_business_id = 991065
 ), 'TEST 14: same date unrelated assignee legacy 4건 허용');
+SELECT pg_temp.pr42_assert((
+  SELECT count(*) = 4 AND bool_and(assignment.assignee_user_id = 9902
+    AND NOT assignment.approval_required
+    AND assignment.approval_group_fingerprint IS NULL
+    AND assignment.approved_by_user_id IS NULL AND assignment.approved_at IS NULL)
+  FROM public.preliminary_survey_v2_measurement_assignments assignment
+  JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+  WHERE target_plan.measurement_target_business_id = ANY(ARRAY[991061,991062,991063,991064]::bigint[])
+), 'TEST 14: same date unrelated assignee legacy 4건 불변');
+
+-- NEW TEST A: old legacy 4→3은 old group의 신규 승인이 필요하며 실패는 원자적이다.
+SELECT pg_temp.pr42_seed_legacy_four(
+  ARRAY[991081,991082,991083,991084]::bigint[], 9901, '2026-09-18'::date
+);
+DO $test$
+DECLARE before_plan jsonb; before_assignments jsonb;
+BEGIN
+  SELECT to_jsonb(target_plan) INTO before_plan
+  FROM public.preliminary_survey_v2_plans target_plan
+  WHERE target_plan.measurement_target_business_id = 991084;
+  SELECT jsonb_agg(to_jsonb(snapshot) ORDER BY snapshot.target_id) INTO before_assignments
+  FROM (
+    SELECT target_plan.measurement_target_business_id AS target_id, assignment.*
+    FROM public.preliminary_survey_v2_measurement_assignments assignment
+    JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+    WHERE target_plan.measurement_target_business_id = ANY(ARRAY[991081,991082,991083,991084]::bigint[])
+  ) snapshot;
+  BEGIN
+    PERFORM pg_temp.pr42_apply(
+      ARRAY[991084]::bigint[], ARRAY[9902], ARRAY['2026-09-18'::date]
+    );
+    RAISE EXCEPTION 'NEW TEST A expected approval error';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    IF SQLERRM <> 'MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.pr42_assert(before_plan = (
+    SELECT to_jsonb(target_plan)
+    FROM public.preliminary_survey_v2_plans target_plan
+    WHERE target_plan.measurement_target_business_id = 991084
+  ), 'NEW TEST A: plan atomic rollback');
+  PERFORM pg_temp.pr42_assert(before_assignments = (
+    SELECT jsonb_agg(to_jsonb(snapshot) ORDER BY snapshot.target_id)
+    FROM (
+      SELECT target_plan.measurement_target_business_id AS target_id, assignment.*
+      FROM public.preliminary_survey_v2_measurement_assignments assignment
+      JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+      WHERE target_plan.measurement_target_business_id = ANY(ARRAY[991081,991082,991083,991084]::bigint[])
+    ) snapshot
+  ), 'NEW TEST A: assignment/approval atomic rollback');
+END;
+$test$;
+
+-- NEW TEST B: 같은 old 4→3을 관리자가 승인하면 old/new 그룹을 모두 정상화한다.
+SELECT pg_temp.pr42_apply(
+  ARRAY[991084]::bigint[], ARRAY[9902], ARRAY['2026-09-18'::date], true, 9901
+);
+SELECT pg_temp.pr42_assert((
+  SELECT count(*) = 3
+    AND count(*) FILTER (WHERE assignment.approval_required) = 1
+    AND count(*) FILTER (WHERE assignment.approval_group_fingerprint =
+      md5('2026-09-18|9901|991081,991082,991083')) = 1
+    AND count(*) FILTER (WHERE assignment.approved_by_user_id = 9901
+      AND assignment.approved_at IS NOT NULL) = 1
+  FROM public.preliminary_survey_v2_measurement_assignments assignment
+  JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+  WHERE target_plan.measurement_target_business_id = ANY(ARRAY[991081,991082,991083]::bigint[])
+), 'NEW TEST B: old 4→3 canonical 승인');
+SELECT pg_temp.pr42_assert((
+  SELECT count(*) = 1 AND bool_and(NOT assignment.approval_required
+    AND assignment.approval_group_fingerprint IS NULL
+    AND assignment.approved_by_user_id IS NULL AND assignment.approved_at IS NULL)
+  FROM public.preliminary_survey_v2_measurement_assignments assignment
+  JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+  WHERE target_plan.measurement_target_business_id = 991084
+    AND assignment.assignee_user_id = 9902
+), 'NEW TEST B: new 1건 metadata');
+
+-- NEW TEST C: old legacy 5→4는 승인 flag와 관계없이 차단하고 전체 rollback한다.
+SELECT pg_temp.pr42_seed_legacy_four(
+  ARRAY[991091,991092,991093,991094,991095]::bigint[], 9901, '2026-09-19'::date
+);
+DO $test$
+DECLARE before_plan jsonb; before_assignments jsonb;
+BEGIN
+  SELECT to_jsonb(target_plan) INTO before_plan
+  FROM public.preliminary_survey_v2_plans target_plan
+  WHERE target_plan.measurement_target_business_id = 991095;
+  SELECT jsonb_agg(to_jsonb(snapshot) ORDER BY snapshot.target_id) INTO before_assignments
+  FROM (
+    SELECT target_plan.measurement_target_business_id AS target_id, assignment.*
+    FROM public.preliminary_survey_v2_measurement_assignments assignment
+    JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+    WHERE target_plan.measurement_target_business_id = ANY(ARRAY[991091,991092,991093,991094,991095]::bigint[])
+  ) snapshot;
+  BEGIN
+    PERFORM pg_temp.pr42_apply(
+      ARRAY[991095]::bigint[], ARRAY[9902], ARRAY['2026-09-19'::date], true, 9901
+    );
+    RAISE EXCEPTION 'NEW TEST C expected hard max error';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    IF SQLERRM <> 'MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.pr42_assert(before_plan = (
+    SELECT to_jsonb(target_plan)
+    FROM public.preliminary_survey_v2_plans target_plan
+    WHERE target_plan.measurement_target_business_id = 991095
+  ), 'NEW TEST C: plan atomic rollback');
+  PERFORM pg_temp.pr42_assert(before_assignments = (
+    SELECT jsonb_agg(to_jsonb(snapshot) ORDER BY snapshot.target_id)
+    FROM (
+      SELECT target_plan.measurement_target_business_id AS target_id, assignment.*
+      FROM public.preliminary_survey_v2_measurement_assignments assignment
+      JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+      WHERE target_plan.measurement_target_business_id = ANY(ARRAY[991091,991092,991093,991094,991095]::bigint[])
+    ) snapshot
+  ), 'NEW TEST C: assignment/approval atomic rollback');
+END;
+$test$;
 
 -- TEST 17: measurement_journal 기반 true-confirmed lock 유지.
 SELECT pg_temp.pr42_apply(ARRAY[991072]::bigint[], ARRAY[9901], ARRAY['2026-09-17'::date]);

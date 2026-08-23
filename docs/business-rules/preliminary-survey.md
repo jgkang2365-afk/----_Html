@@ -161,3 +161,6 @@
 - hard max와 승인 사전검사는 이번 apply가 영향을 주는 `(measurement_date, assignee_user_id)` 그룹에 한정한다. 다른 날짜 또는 같은 날짜의 다른 측정자에게 남은 legacy 4건은 unrelated apply를 막지 않는다.
 - 측정자를 옮길 때는 이전 그룹과 새 그룹을 모두 정규화한다. 실패 시 plan·assignment·승인 metadata는 전부 rollback되어야 한다.
 - 이미 적용된 migration을 수정하지 않고 forward-only migration으로 함수 정의를 교체한다. 운영 적용 전 Local/비운영 Supabase에서 전체 migration reset과 실제 RPC 회귀검증을 완료한다.
+- 저장 전 영향 그룹은 이번 대상이 기존 assignment에서 속한 `old_affected_keys`와 제안 assignment의 `proposed_keys` 합집합이다. 이 범위에서 기존 대상 row를 제거하고 제안 row를 더한 최종 예상 상태로 hard max와 3건 승인을 먼저 검증한 뒤 저장한다.
+- 기존 4건 그룹에서 한 target이 빠져 최종 3건이 되면 기존 4건에는 유효한 3건 fingerprint가 없으므로 새 승인이 필요하다. 기존 5건이 최종 4건으로 줄어도 hard max를 위반하므로 저장하지 않는다.
+- 이번 apply와 무관한 다른 날짜 또는 같은 날짜의 다른 측정자 legacy 4건은 영향 그룹에 포함하지 않는다. 측정자 이동 시 이전 그룹과 새 그룹은 모두 사전검증과 저장 후 정규화 대상이다.

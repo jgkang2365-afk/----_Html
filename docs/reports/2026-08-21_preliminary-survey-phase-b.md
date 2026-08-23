@@ -646,3 +646,14 @@
 - DB persistence 결함 A/B와 지정 Local Supabase 회귀 범위는 수정·실행 검증 완료다.
 - `npx tsc --noEmit --pretty false` 통과, 관련 집중 테스트 32/32 통과, `npm test` 412/412 통과, `npm run build` 통과를 확인했다.
 - UI 코드는 변경하지 않았고 기존에 남은 관리자/예비조사 담당자 성공 apply 브라우저 E2E 제한은 그대로다. PR #42는 Draft/Open, 미병합 상태를 유지한다.
+
+## 2026-08-23 old/new 영향 그룹 통합 검증
+
+- 마지막 blocker는 wrapper RPC가 저장 전 hard max·3건 승인을 proposed 그룹 중심으로 검사해, 측정자 이동으로 줄어드는 old 그룹을 놓칠 수 있다는 점이었다. 기존 core의 alias·stale fingerprint 수정은 유지하고 새 forward-only migration `20260823133000_fix_preliminary_survey_affected_assignment_groups.sql`에서 wrapper만 교체했다.
+- 영향 범위는 `old_affected_keys UNION proposed_keys`다. 이 범위의 기존 row에서 이번 대상 target을 제거하고 proposed row를 더한 `final_rows`를 실제 저장 후 예상 상태로 사용한다. 같은 범위의 날짜를 기존 advisory-lock namespace로 정렬 잠근다.
+- 사전검증은 final group의 4건 이상을 무조건 차단하고, 정확히 3건은 동일 canonical fingerprint의 기존 유효 승인만 재사용한다. 저장 뒤에도 old/new 양쪽 그룹을 정규화하며 1~2건은 승인 metadata를 모두 `NULL`로 만든다.
+- Local Supabase에서 baseline부터 새 migration까지 `npx supabase db reset --local --no-seed`가 성공했고 임시 alias patch를 사용하지 않았다. 실제 RPC 검증은 legacy 4→3 무승인 시 `MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED`와 원자 rollback, 4→3 관리자 승인 시 old 3건의 새 fingerprint 승인 및 new 1건 metadata 제거, legacy 5→4의 `MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED`와 rollback, unrelated 다른 날짜·같은 날짜 다른 측정자 legacy 4건 불변을 확인했다.
+- 기존 전체 persistence 회귀와 함께 `PR42_ASSIGNMENT_PERSISTENCE_VERIFICATION_OK` 및 최종 rollback을 확인했고 fixture 잔여는 0건이었다. Local 권한은 wrapper `service_role` execute=true, core execute=false이며 두 함수의 `SECURITY DEFINER`·`search_path=public`을 유지했다.
+- 검증 결과: `npx tsc --noEmit --pretty false` 통과, 집중 테스트 33/33 통과, `npm test` 413/413 통과, `npm run build` 통과.
+- 운영 Supabase migration/write 0건, 보호 대상 10개 업체 write 0건이다. historical migration 변경은 없고 UI 코드는 수정하지 않았다.
+- Orca Worker A/B는 각각 GPT-5.6 Terra / High로 wrapper 영향 범위와 Local 회귀 설계를 읽기 전용 검토했다. 두 결과를 회수했으며 task active 수는 0이다. terminal은 닫혔으나 Orca resource 감사 상태는 `release_unknown` 2건으로 남아 있다.

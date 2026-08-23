@@ -18,7 +18,11 @@ const persistenceFixMigration = readFileSync(
   "supabase/migrations/20260823130000_fix_preliminary_survey_assignment_persistence.sql",
   "utf8",
 );
-const migration = `${baseMigration}\n${forwardMigration}\n${remedialMigration}\n${persistenceFixMigration}`;
+const affectedGroupFixMigration = readFileSync(
+  "supabase/migrations/20260823133000_fix_preliminary_survey_affected_assignment_groups.sql",
+  "utf8",
+);
+const migration = `${baseMigration}\n${forwardMigration}\n${remedialMigration}\n${persistenceFixMigration}\n${affectedGroupFixMigration}`;
 const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
 
 test("날짜별 측정자·공시료 배정은 plan UUID와 날짜 단위의 별도 원천 테이블에 저장한다", () => {
@@ -131,6 +135,24 @@ test("core upsert는 fingerprint까지 같은 statement에서 갱신해 CHECK-va
   assert.match(rpc, /MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED/);
   assert.doesNotMatch(rpc, /assignment_payload->>'approval_required'/);
   assert.doesNotMatch(rpc, /40001/);
+});
+
+test("wrapper 사전검증은 old와 proposed 영향 그룹의 최종 상태를 함께 검사한다", () => {
+  const rpc = affectedGroupFixMigration;
+
+  assert.match(rpc, /old_affected_keys jsonb/);
+  assert.match(rpc, /proposed_keys AS/);
+  assert.match(rpc, /affected_keys AS[\s\S]*jsonb_array_elements\(old_affected_keys\)[\s\S]*UNION[\s\S]*SELECT measurement_date, assignee_user_id FROM proposed_keys/);
+  assert.match(rpc, /reapplied_targets AS/);
+  assert.match(rpc, /JOIN affected_keys USING \(measurement_date, assignee_user_id\)/);
+  assert.match(rpc, /final_rows AS[\s\S]*NOT EXISTS[\s\S]*UNION ALL[\s\S]*jsonb_array_elements\(p_assignments\)/);
+  assert.match(rpc, /assignment_count > 3/);
+  assert.match(rpc, /assignment_count = 3 AND NOT EXISTS/);
+  assert.match(rpc, /approved\.approval_group_fingerprint = grouped\.fingerprint/);
+  assert.match(rpc, /MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED/);
+  assert.match(rpc, /MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED/);
+  assert.doesNotMatch(rpc, /assignment_payload->>'approval_required'/);
+  assert.doesNotMatch(rpc, /ALTER TABLE[\s\S]*preliminary_survey_v2_assignment_approval_check/);
 });
 
 test("workbench apply는 전체 draft fingerprint·서버 재추천을 대조하고 pre-migration 저장을 거부한다", () => {
