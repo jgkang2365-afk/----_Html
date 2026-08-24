@@ -102,6 +102,35 @@ test("입력 매핑은 허용 필드, 대상 형식, A1 주소와 중복을 검�
   );
 });
 
+test("HWPX 내부 제어 기본값은 서버 저장 입력에서 제거한다", () => {
+  const [rawMapping, readableMapping] = parseDocumentFieldMappings(
+    [
+      {
+        source_field: "measurement_year",
+        target_type: "HWPX_FIELD",
+        target_sheet: null,
+        target_address: "measurement_year",
+        required: true,
+        default_value: "Clickhere:set:Direction:wstring:4:연도 HelpState:0",
+        sort_order: 0,
+      },
+      {
+        source_field: "business_name",
+        target_type: "HWPX_FIELD",
+        target_sheet: null,
+        target_address: "business_name",
+        required: false,
+        default_value: "기본 사업장",
+        sort_order: 1,
+      },
+    ],
+    "HWPX"
+  );
+
+  assert.equal(rawMapping.default_value, null);
+  assert.equal(readableMapping.default_value, "기본 사업장");
+});
+
 test("동적 템플릿 선택은 정의별 정확 주기를 annual보다 우선한다", () => {
   const selected = selectApplicableDefinitionTemplates(
     [

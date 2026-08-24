@@ -388,7 +388,9 @@ export function DocumentTemplateManagement() {
           target_sheet: null,
           target_address: placeholder.placeholder_name,
           required: existing?.required ?? placeholder.required,
-          default_value: existing?.default_value ?? placeholder.default_value,
+          default_value: sanitizeHwpxDefaultValue(
+            existing?.default_value ?? placeholder.default_value
+          ),
           sort_order: index,
           display_name: placeholder.display_name,
           match_type: existing
@@ -446,7 +448,12 @@ export function DocumentTemplateManagement() {
     if (mappingMode === "analysis") {
       const review = reviewHwpxRegistration(mappings);
       if (!file) return notify("분석한 HWPX 파일을 다시 선택해 주세요.");
-      setPendingMappings(mappings.map((mapping) => ({ ...mapping })));
+      setPendingMappings(
+        mappings.map((mapping) => ({
+          ...mapping,
+          default_value: sanitizeHwpxDefaultValue(mapping.default_value),
+        }))
+      );
       setConfirmedAnalysisFile(fileKey(file));
       setMappingModal(false);
       notify(
@@ -513,7 +520,7 @@ export function DocumentTemplateManagement() {
               target_sheet: null,
               target_address: mapping.target_address,
               required: mapping.required,
-              default_value: mapping.default_value ?? null,
+              default_value: sanitizeHwpxDefaultValue(mapping.default_value),
               sort_order: index,
             }))
           )
@@ -1095,7 +1102,11 @@ export function DocumentTemplateManagement() {
                       </td>
                       <td className="min-w-[160px] p-2 align-top">
                         <Input
-                          value={mapping.default_value || ""}
+                          value={
+                            selected?.file_format === "HWPX"
+                              ? sanitizeHwpxDefaultValue(mapping.default_value) || ""
+                              : mapping.default_value || ""
+                          }
                           onChange={(event) => update({ default_value: event.target.value })}
                         />
                       </td>
