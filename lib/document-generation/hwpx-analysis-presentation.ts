@@ -25,8 +25,8 @@ export type HwpxRegistrationReview = {
 
 const INTERNAL_CONTROL_VALUE = /(?:Clickhere\s*:|Direction\s*:\s*wstring\s*:|HelpState\s*:)/i;
 const PLACEHOLDER_GUIDE_VALUES: Record<string, Set<string>> = {
-  measurement_year: new Set(["측정연도", "측정년도"]),
-  measurement_period: new Set(["측정주기"]),
+  measurement_year: new Set(["측정연도", "측정년도", "년도"]),
+  measurement_period: new Set(["측정주기", "주기"]),
   business_name: new Set(["사업장명"]),
   representative_name: new Set(["대표자", "대표자명"]),
   address: new Set(["주소"]),
@@ -36,7 +36,7 @@ const PLACEHOLDER_GUIDE_VALUES: Record<string, Set<string>> = {
   fax: new Set(["팩스"]),
   total_employees: new Set(["총 근로자수", "총 근로자 수"]),
   manager_name: new Set(["담당자", "담당자명"]),
-  manager_email: new Set(["이메일", "담당자 이메일"]),
+  manager_email: new Set(["이메일", "담당자 이메일", "담당자 메일"]),
   manager_contact: new Set(["연락처", "담당자 연락처"]),
   preliminary_surveyor: new Set(["예비조사자"]),
   business_number: new Set(["사업자등록번호"]),

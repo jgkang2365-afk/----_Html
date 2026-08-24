@@ -32,7 +32,9 @@ WHERE definition.id = mapping.document_definition_id
       FROM (VALUES
         ('measurement_year', '측정연도'),
         ('measurement_year', '측정년도'),
+        ('measurement_year', '년도'),
         ('measurement_period', '측정주기'),
+        ('measurement_period', '주기'),
         ('business_name', '사업장명'),
         ('representative_name', '대표자'),
         ('representative_name', '대표자명'),
@@ -49,6 +51,7 @@ WHERE definition.id = mapping.document_definition_id
         ('manager_name', '담당자명'),
         ('manager_email', '이메일'),
         ('manager_email', '담당자 이메일'),
+        ('manager_email', '담당자 메일'),
         ('manager_contact', '연락처'),
         ('manager_contact', '담당자 연락처'),
         ('preliminary_surveyor', '예비조사자'),

@@ -210,6 +210,9 @@ test("HWPX 내부 제어 문자열은 업무용 기본값으로 노출하지 않
   assert.equal(sanitizeHwpxMappingDefaultValue("phone", "전화번호"), null);
   assert.equal(sanitizeHwpxMappingDefaultValue("fax", "팩스"), null);
   assert.equal(sanitizeHwpxMappingDefaultValue("total_employees", "총 근로자수"), null);
+  assert.equal(sanitizeHwpxMappingDefaultValue("measurement_year", "년도"), null);
+  assert.equal(sanitizeHwpxMappingDefaultValue("measurement_period", "주기"), null);
+  assert.equal(sanitizeHwpxMappingDefaultValue("manager_email", "담당자 메일"), null);
   assert.equal(
     sanitizeHwpxMappingDefaultValue("phone", "대표번호 없음"),
     "대표번호 없음"

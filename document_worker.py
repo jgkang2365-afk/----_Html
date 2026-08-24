@@ -114,7 +114,7 @@ FILE_FORMAT_EXTENSIONS = {
 }
 
 LOGGER = logging.getLogger("document-worker")
-WORKER_VERSION = "2026.07.27.1"
+WORKER_VERSION = "2026.08.25.1"
 
 
 def load_env_file(path: Path) -> None:
