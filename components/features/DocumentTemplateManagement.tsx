@@ -3,13 +3,8 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
-  FileSpreadsheet,
-  FileText,
   ListPlus,
-  Pencil,
   RotateCcw,
-  Settings2,
-  Trash2,
   Upload,
 } from "lucide-react";
 import { Button, Input, Modal, Select } from "@/components/ui";
@@ -83,6 +78,11 @@ type Template = {
   created_at: string;
   is_active: boolean;
 };
+type RegistrationSuccess = {
+  documentName: string;
+  measurementYear: number;
+  measurementPeriod: Period;
+};
 
 const emptyDefinition = (): Omit<Definition, "id" | "code"> => ({
   name: "",
@@ -126,7 +126,10 @@ export function DocumentTemplateManagement() {
   const [pendingMappings, setPendingMappings] = useState<Mapping[]>([]);
   const [showDeleted, setShowDeleted] = useState(false);
   const [deletionTarget, setDeletionTarget] = useState<Definition | null>(null);
+  const [registrationSuccess, setRegistrationSuccess] = useState<RegistrationSuccess | null>(null);
   const analysisRequest = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const templateSectionRef = useRef<HTMLElement>(null);
   const [templateForm, setTemplateForm] = useState({
     measurement_year: new Date().getFullYear(),
     measurement_period: "상반기" as Period,
@@ -141,6 +144,33 @@ export function DocumentTemplateManagement() {
     if (!response.ok) throw new Error(result.error || "요청 처리에 실패했습니다.");
     return result;
   };
+  const clearTemplateDraft = () => {
+    analysisRequest.current += 1;
+    setAnalyzing(false);
+    setFile(null);
+    setConfirmedAnalysisFile("");
+    setPendingMappings([]);
+    setAnalysisSummary(null);
+    setRegistrationSuccess(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+  const hasUnsavedTemplateWork = Boolean(
+    file || analysisSummary || pendingMappings.length || confirmedAnalysisFile
+  );
+  const selectDefinition = (definitionId: string, scrollToTemplate = false) => {
+    if (!definitionId || definitionId === selectedId) return;
+    if (
+      hasUnsavedTemplateWork &&
+      !window.confirm("현재 분석 결과가 저장되지 않았습니다. 문서를 변경하시겠습니까?")
+    )
+      return;
+    clearTemplateDraft();
+    setSelectedId(definitionId);
+    if (scrollToTemplate)
+      window.requestAnimationFrame(() =>
+        templateSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      );
+  };
   const loadDefinitions = useCallback(async () => {
     const result = await request(
       `/api/document-definitions?include_deleted=${showDeleted ? "true" : "false"}`
@@ -151,9 +181,9 @@ export function DocumentTemplateManagement() {
     );
     setFields(responseRows<Field>(result, ["source_fields"]));
     setSelectedId((current) =>
-      current && rows.some((row) => row.id === current && !row.deleted_at)
+      current && rows.some((row) => row.id === current && !row.deleted_at && row.is_active)
         ? current
-        : rows.find((row) => !row.deleted_at)?.id || ""
+        : rows.find((row) => !row.deleted_at && row.is_active)?.id || ""
     );
   }, [showDeleted]);
   const loadTemplates = useCallback(async (definitionId: string) => {
@@ -269,6 +299,13 @@ export function DocumentTemplateManagement() {
     }
   };
   const openMappings = async (definition: Definition) => {
+    if (
+      definition.id !== selectedId &&
+      hasUnsavedTemplateWork &&
+      !window.confirm("현재 분석 결과가 저장되지 않았습니다. 문서를 변경하시겠습니까?")
+    )
+      return;
+    if (definition.id !== selectedId) clearTemplateDraft();
     setSelectedId(definition.id);
     setMappingMode("manual");
     setAnalysisSummary(null);
@@ -359,7 +396,6 @@ export function DocumentTemplateManagement() {
       setMappings(analyzedMappings);
       setAnalysisSummary(summary);
       setMappingMode("analysis");
-      setMappingModal(true);
       notify(
         `누름틀 ${summary.discovered}개 발견 / 자동매칭 ${summary.auto_matched}개 / 확인 필요 ${summary.requires_confirmation}개`
       );
@@ -378,7 +414,8 @@ export function DocumentTemplateManagement() {
     setFile(selectedFile);
     setConfirmedAnalysisFile("");
     setPendingMappings([]);
-    if (selectedFile && selected?.file_format === "HWPX") void analyzeHwpxFile(selectedFile);
+    setAnalysisSummary(null);
+    setRegistrationSuccess(null);
   };
   const saveMappings = async () => {
     if (!selected) return;
@@ -465,12 +502,19 @@ export function DocumentTemplateManagement() {
       }
       body.set("file", file);
       await request("/api/document-templates", { method: "POST", body });
-      await loadTemplates(selected.id);
+      const completed: RegistrationSuccess = {
+        documentName: selected.name,
+        measurementYear: templateForm.measurement_year,
+        measurementPeriod: templateForm.measurement_period,
+      };
+      await Promise.all([loadTemplates(selected.id), loadDefinitions()]);
       setFile(null);
       setConfirmedAnalysisFile("");
       setPendingMappings([]);
       setAnalysisSummary(null);
-      notify("템플릿을 등록했습니다.");
+      setRegistrationSuccess(completed);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      notify("템플릿과 입력 매핑을 등록했습니다.");
     } catch (error) {
       notify(error instanceof Error ? error.message : "템플릿 등록에 실패했습니다.");
     } finally {
@@ -503,6 +547,15 @@ export function DocumentTemplateManagement() {
         .filter((option) => option.value),
     [fields]
   );
+  const selectedMappingCount = selected
+    ? selected.mapping_count ?? selected.mappings_count ?? 0
+    : 0;
+  const analysisConfirmed = Boolean(
+    selected?.file_format === "HWPX" && file && confirmedAnalysisFile === fileKey(file)
+  );
+  const showRegistrationPreview = Boolean(
+    selected && file && (selected.file_format !== "HWPX" || analysisConfirmed)
+  );
   if (loading)
     return (
       <main className="min-h-screen bg-slate-50 p-8 text-center text-sm text-slate-500">
@@ -510,423 +563,242 @@ export function DocumentTemplateManagement() {
       </main>
     );
   return (
-    <main className="min-h-screen bg-slate-50 px-3 py-5 sm:px-5 lg:px-6">
-      <div className="mx-auto max-w-[1480px] space-y-4">
-        <header className="pb-1">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">문서 템플릿 관리</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            문서 종류, 입력 위치와 연도·주기별 원본 양식을 관리합니다.
-          </p>
-          <p className="mt-2 text-sm font-medium text-blue-700">
-            1 문서 종류 → 2 입력 설정 → 3 원본 등록
-          </p>
+    <main className="min-h-screen bg-slate-50 px-3 py-3 sm:px-4 lg:px-5">
+      <div className="mx-auto max-w-[1480px] space-y-3">
+        <header>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">문서 템플릿 관리</h1>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <p className="text-slate-500">문서 종류, 입력 위치, 연도·주기별 원본 양식을 관리합니다.</p>
+            <p className="font-medium text-blue-700">1 문서 종류 → 2 입력 설정 → 3 원본 등록</p>
+          </div>
         </header>
         {message && (
-          <p className="border-y border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          <p className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
             {message}
           </p>
         )}
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
             <div>
-              <h2 className="font-bold text-slate-800">문서 종류 관리</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                사용 중지된 종류는 신규 문서 생성 목록에 표시되지 않습니다.
-              </p>
+              <h2 className="text-sm font-bold text-slate-800">1. 문서 종류 관리</h2>
+              <p className="mt-0.5 text-[11px] text-slate-500">행을 선택하면 아래 템플릿 관리가 같은 문서로 전환됩니다.</p>
             </div>
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={showDeleted}
-                  onChange={(event) => setShowDeleted(event.target.checked)}
-                />
+              <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                <input type="checkbox" checked={showDeleted} onChange={(event) => setShowDeleted(event.target.checked)} />
                 삭제된 문서 보기
               </label>
-              <Button size="sm" className="whitespace-nowrap px-4" onClick={() => openDefinition()}>
-                <ListPlus className="mr-1.5 h-4 w-4" />
-                문서 종류 추가
+              <Button size="sm" className="h-8 whitespace-nowrap px-3 text-xs" onClick={() => openDefinition()}>
+                <ListPlus className="mr-1 h-3.5 w-3.5" />문서 종류 추가
               </Button>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1220px] table-fixed text-sm">
+          <div className="max-h-[300px] overflow-auto">
+            <table className="w-full min-w-[1000px] table-fixed text-xs">
               <colgroup>
-                <col className="w-[230px]" />
-                <col className="w-[76px]" />
-                <col />
-                <col className="w-[100px]" />
-                <col className="w-[64px]" />
-                <col className="w-[88px]" />
-                <col className="w-[88px]" />
-                <col className="w-[300px]" />
+                <col className="w-[190px]" /><col className="w-[58px]" /><col />
+                <col className="w-[68px]" /><col className="w-[48px]" /><col className="w-[72px]" />
+                <col className="w-[62px]" /><col className="w-[260px]" />
               </colgroup>
-              <thead className="bg-slate-50 text-left text-xs text-slate-500">
+              <thead className="sticky top-0 z-10 bg-slate-100 text-left text-[11px] font-semibold text-slate-600 shadow-[0_1px_0_#e2e8f0]">
                 <tr>
-                  <th className="px-4 py-3">문서 종류</th>
-                  <th className="px-4 py-3">형식</th>
-                  <th className="px-4 py-3">출력 파일명 규칙</th>
-                  <th className="px-4 py-3">기본 선택</th>
-                  <th className="px-4 py-3">순서</th>
-                  <th className="px-4 py-3">상태</th>
-                  <th className="px-4 py-3">입력 매핑</th>
-                  <th className="px-4 py-3 text-center">관리</th>
+                  <th className="px-3 py-2">문서 종류</th><th className="px-2 py-2">형식</th>
+                  <th className="px-3 py-2">출력 파일명</th><th className="px-2 py-2">기본</th>
+                  <th className="px-2 py-2 text-center">순서</th><th className="px-2 py-2">상태</th>
+                  <th className="px-2 py-2 text-center">매핑</th><th className="px-2 py-2 text-center">관리</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {definitions.map((definition) => (
-                  <tr
-                    key={definition.id}
-                    className={
-                      definition.deleted_at || !definition.is_active
-                        ? "bg-slate-50 text-slate-400"
-                        : "transition-colors hover:bg-slate-50/70"
-                    }
-                  >
-                    <td className="px-4 py-3.5 font-medium text-slate-800">
-                      <span className="block truncate" title={definition.name}>
-                        {definition.name}
-                      </span>
-                      <p
-                        className="mt-1 truncate font-mono text-[11px] font-normal text-slate-400"
-                        title={definition.code}
-                      >
-                        {definition.code}
-                      </p>
-                    </td>
-                    <td className="px-3 py-3.5">
-                      <span className="inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
-                        {definition.file_format}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5" title={definition.filename_pattern}>
-                      <code className="block truncate text-xs text-slate-600">
-                        {definition.filename_pattern}
-                      </code>
-                    </td>
-                    <td className="px-3 py-3.5">
-                      <span
-                        className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${
-                          definition.default_selected
-                            ? "bg-blue-50 text-blue-700"
-                            : "bg-slate-100 text-slate-500"
-                        }`}
-                      >
-                        {definition.default_selected ? "기본 선택" : "선택 안 함"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3.5 text-center tabular-nums">
-                      {definition.sort_order}
-                    </td>
-                    <td className="px-3 py-3.5">
-                      <span
-                        className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${
-                          definition.deleted_at
-                            ? "bg-rose-50 text-rose-700"
-                            : definition.is_active
-                              ? "bg-emerald-50 text-emerald-700"
-                              : "bg-slate-100 text-slate-500"
-                        }`}
-                      >
-                        {definition.deleted_at
-                          ? "삭제됨"
-                          : definition.is_active
-                            ? "사용 중"
-                            : "사용 중지"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3.5 text-center tabular-nums">
-                      {definition.mapping_count ?? definition.mappings_count ?? 0}개
-                    </td>
-                    <td className="px-3 py-3.5">
-                      <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-                        {definition.deleted_at ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="h-8 whitespace-nowrap px-3 text-xs"
-                            disabled={saving}
-                            onClick={() => void restoreDefinition(definition)}
-                          >
-                            <RotateCcw className="mr-1 h-4 w-4" />
-                            복구
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="h-8 whitespace-nowrap px-3 text-xs"
-                              disabled={saving}
-                              onClick={() => openDefinition(definition)}
-                            >
-                              <Pencil className="mr-1 h-4 w-4" />
-                              수정
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="h-8 whitespace-nowrap px-3 text-xs"
-                              disabled={saving}
-                              onClick={() => void openMappings(definition)}
-                            >
-                              <Settings2 className="mr-1 h-4 w-4" />
-                              입력 설정
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="h-8 whitespace-nowrap px-3 text-xs"
-                              disabled={saving}
-                              onClick={() => void toggleDefinition(definition)}
-                            >
-                              {definition.is_active ? "사용 중지" : "재활성화"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="h-8 whitespace-nowrap px-3 text-xs text-rose-700"
-                              disabled={saving}
-                              onClick={() => setDeletionTarget(definition)}
-                            >
-                              <Trash2 className="mr-1 h-4 w-4" />
-                              삭제
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {definitions.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="py-10 text-center text-slate-500">
-                      등록된 문서 종류가 없습니다.
-                    </td>
-                  </tr>
-                )}
+                {definitions.map((definition) => {
+                  const selectable = !definition.deleted_at && definition.is_active;
+                  const isSelected = definition.id === selectedId;
+                  return (
+                    <tr
+                      key={definition.id}
+                      aria-selected={isSelected}
+                      tabIndex={selectable ? 0 : undefined}
+                      onClick={() => selectable && selectDefinition(definition.id, true)}
+                      onKeyDown={(event) => {
+                        if (selectable && (event.key === "Enter" || event.key === " ")) selectDefinition(definition.id, true);
+                      }}
+                      className={`border-l-2 ${
+                        isSelected
+                          ? "border-l-blue-500 bg-blue-50/70"
+                          : definition.deleted_at || !definition.is_active
+                            ? "border-l-transparent bg-slate-50 text-slate-400"
+                            : "cursor-pointer border-l-transparent hover:bg-slate-50"
+                      }`}
+                    >
+                      <td className="px-3 py-1.5">
+                        <button type="button" disabled={!selectable} className="block w-full text-left font-semibold text-slate-800 disabled:text-slate-400">
+                          <span className="block truncate" title={definition.name}>{definition.name}</span>
+                          <span className="block truncate font-mono text-[10px] font-normal text-slate-400" title={definition.code}>{definition.code}</span>
+                        </button>
+                      </td>
+                      <td className="px-2 py-1.5"><span className="rounded bg-slate-100 px-1.5 py-1 text-[10px] font-semibold text-slate-700">{definition.file_format}</span></td>
+                      <td className="px-3 py-1.5" title={definition.filename_pattern}><code className="block truncate text-[11px] text-slate-600">{definition.filename_pattern}</code></td>
+                      <td className="px-2 py-1.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${definition.default_selected ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-500"}`}>{definition.default_selected ? "기본" : "-"}</span></td>
+                      <td className="px-2 py-1.5 text-center tabular-nums">{definition.sort_order}</td>
+                      <td className="px-2 py-1.5"><span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${definition.deleted_at ? "bg-rose-50 text-rose-700" : definition.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{definition.deleted_at ? "삭제됨" : definition.is_active ? "사용 중" : "중지"}</span></td>
+                      <td className="px-2 py-1.5 text-center tabular-nums">{definition.mapping_count ?? definition.mappings_count ?? 0}개</td>
+                      <td className="px-2 py-1.5">
+                        <div className="flex items-center justify-end gap-1 whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
+                          {definition.deleted_at ? (
+                            <Button size="sm" variant="secondary" className="h-7 px-2 text-[11px]" disabled={saving} onClick={() => void restoreDefinition(definition)}><RotateCcw className="mr-1 h-3 w-3" />복구</Button>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="secondary" className="h-7 px-2 text-[11px]" disabled={saving} onClick={() => openDefinition(definition)}>수정</Button>
+                              <Button size="sm" variant="secondary" className="h-7 px-2 text-[11px]" disabled={saving} onClick={() => void openMappings(definition)}>입력 설정</Button>
+                              <Button size="sm" variant="secondary" className="h-7 px-2 text-[11px]" disabled={saving} onClick={() => void toggleDefinition(definition)}>{definition.is_active ? "중지" : "재활성"}</Button>
+                              <Button size="sm" variant="secondary" className="h-7 px-2 text-[11px] text-rose-700" disabled={saving} onClick={() => setDeletionTarget(definition)}>삭제</Button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {definitions.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-slate-500">등록된 문서 종류가 없습니다.</td></tr>}
               </tbody>
             </table>
           </div>
         </section>
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+
+        <section ref={templateSectionRef} className="scroll-mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
             <div>
-              <h2 className="font-bold text-slate-800">템플릿 파일 관리</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                문서 종류를 선택한 뒤 적용 연도와 주기별 원본을 등록합니다.
+              <h2 className="text-sm font-bold text-slate-800">2. 선택 문서 템플릿 관리</h2>
+              <p className="mt-0.5 text-xs text-slate-600">
+                선택 문서: <strong className="text-slate-900">{selected ? `${selected.name} (${selected.file_format})` : "없음"}</strong>
               </p>
             </div>
-            <div className="w-full md:w-[420px]">
+            <div className="w-full sm:w-[390px]">
               <Select
                 value={selectedId}
-                onChange={(event) => {
-                  analysisRequest.current += 1;
-                  setAnalyzing(false);
-                  setSelectedId(event.target.value);
-                  setFile(null);
-                  setConfirmedAnalysisFile("");
-                  setPendingMappings([]);
-                  setAnalysisSummary(null);
-                }}
-                options={[
-                  { value: "", label: "문서 종류 선택" },
-                  ...definitions
-                    .filter((definition) => !definition.deleted_at)
-                    .map((definition) => ({
-                      value: definition.id,
-                      label: `${definition.name} (${definition.file_format})`,
-                    })),
-                ]}
+                onChange={(event) => selectDefinition(event.target.value)}
+                options={[{ value: "", label: "문서 종류 선택" }, ...definitions.filter((definition) => !definition.deleted_at && definition.is_active).map((definition) => ({ value: definition.id, label: `${definition.name} (${definition.file_format})` }))]}
               />
             </div>
           </div>
+
           {selected ? (
             <>
               {selected.file_format === "HWPX" && (
-                <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
-                  <span>
-                    HWPX 파일을 선택하면 누름틀을 자동 분석합니다. 결과를 확인한 뒤 등록할 수
-                    있습니다.
-                  </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="h-8 whitespace-nowrap px-3 text-xs"
-                    disabled={saving}
-                    onClick={() => void openMappings(selected)}
-                  >
-                    수동 입력 설정
-                  </Button>
+                <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+                  <span>HWPX 파일을 선택하면 누름틀과 매핑을 분석합니다.</span>
+                  <Button type="button" size="sm" variant="secondary" className="h-7 whitespace-nowrap px-2.5 text-[11px]" disabled={saving} onClick={() => void openMappings(selected)}>수동 입력 설정</Button>
                 </div>
               )}
-              <form
-                onSubmit={uploadTemplate}
-                className="grid gap-4 border-b border-slate-200 bg-slate-50/40 p-5 md:grid-cols-2 xl:grid-cols-[180px_220px_minmax(360px,1fr)_auto] xl:items-end"
-              >
+
+              <form id="template-upload-form" onSubmit={uploadTemplate} className="grid gap-3 border-b border-slate-200 bg-slate-50/40 p-4 md:grid-cols-[150px_170px_minmax(320px,1fr)_130px] md:items-end">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">적용 연도</label>
-                  <Input
-                    type="number"
-                    min="2000"
-                    max="2100"
-                    value={templateForm.measurement_year}
-                    onChange={(event) =>
-                      setTemplateForm((previous) => ({
-                        ...previous,
-                        measurement_year: Number(event.target.value),
-                      }))
-                    }
-                  />
+                  <label className="mb-1 block text-xs font-medium text-slate-700">적용 연도</label>
+                  <Input type="number" min="2000" max="2100" value={templateForm.measurement_year} onChange={(event) => setTemplateForm((previous) => ({ ...previous, measurement_year: Number(event.target.value) }))} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">적용 주기</label>
-                  <Select
-                    value={templateForm.measurement_period}
-                    onChange={(event) =>
-                      setTemplateForm((previous) => ({
-                        ...previous,
-                        measurement_period: event.target.value as Period,
-                      }))
-                    }
-                    options={[
-                      { value: "상반기", label: "상반기" },
-                      { value: "하반기", label: "하반기" },
-                      { value: ANNUAL_TEMPLATE_PERIOD, label: "연간 공통" },
-                    ]}
-                  />
+                  <label className="mb-1 block text-xs font-medium text-slate-700">적용 주기</label>
+                  <Select value={templateForm.measurement_period} onChange={(event) => setTemplateForm((previous) => ({ ...previous, measurement_period: event.target.value as Period }))} options={[{ value: "상반기", label: "상반기" }, { value: "하반기", label: "하반기" }, { value: ANNUAL_TEMPLATE_PERIOD, label: "연간 공통" }]} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    원본 파일 ({extension(selected.file_format)})
-                  </label>
-                  <Input
-                    type="file"
-                    accept={extension(selected.file_format)}
-                    onChange={changeTemplateFile}
-                  />
-                  {selected.file_format === "HWPX" && analyzing && (
-                    <p className="mt-1 text-xs font-medium text-blue-700">누름틀 자동 분석 중…</p>
-                  )}
-                  {selected.file_format === "HWPX" &&
-                    file &&
-                    confirmedAnalysisFile === fileKey(file) &&
-                    analysisSummary && (
-                      <p className="mt-1 text-xs font-medium text-emerald-700">
-                        분석 확인 완료: 누름틀 {analysisSummary.discovered}개 / 자동매칭{" "}
-                        {analysisSummary.auto_matched}개
-                      </p>
-                    )}
+                  <label className="mb-1 block text-xs font-medium text-slate-700">원본 파일 ({extension(selected.file_format)})</label>
+                  <Input ref={fileInputRef} type="file" accept={extension(selected.file_format)} onChange={changeTemplateFile} />
                 </div>
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="h-10 whitespace-nowrap px-5"
-                  disabled={
-                    saving ||
-                    analyzing ||
-                    !selected.is_active ||
-                    (selected.file_format === "HWPX" &&
-                      (!file || confirmedAnalysisFile !== fileKey(file)))
-                  }
-                >
-                  <Upload className="mr-1.5 h-4 w-4" />
-                  {analyzing ? "분석 중" : saving ? "등록 중" : "등록"}
-                </Button>
-                <label className="flex items-center gap-2 text-sm md:col-span-2 xl:col-span-4">
-                  <input
-                    type="checkbox"
-                    checked={templateForm.activate}
-                    disabled={selected.file_format === "HWPX"}
-                    onChange={(event) =>
-                      setTemplateForm((previous) => ({
-                        ...previous,
-                        activate: event.target.checked,
-                      }))
-                    }
-                  />
-                  {selected.file_format === "HWPX"
-                    ? "HWPX 원본과 매핑을 함께 기본 양식으로 확정"
-                    : "이 연도·주기의 기본 양식으로 지정"}
-                </label>
-                {!selected.is_active && (
-                  <p className="text-sm text-amber-700 md:col-span-2 xl:col-span-4">
-                    사용 중지된 문서 종류에는 새 템플릿을 등록할 수 없습니다.
-                  </p>
+                {selected.file_format === "HWPX" ? (
+                  <Button type="button" size="sm" className="h-10 whitespace-nowrap px-3" disabled={!file || analyzing || saving || !selected.is_active} onClick={() => file && void analyzeHwpxFile(file)}>{analyzing ? "분석 중…" : "누름틀 분석"}</Button>
+                ) : (
+                  <div className="flex h-10 items-center rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-500">셀 매핑 흐름 유지</div>
                 )}
+                {!selected.is_active && <p className="text-xs text-amber-700 md:col-span-4">사용 중지된 문서 종류에는 새 템플릿을 등록할 수 없습니다.</p>}
               </form>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[860px] table-fixed text-sm">
-                  <colgroup>
-                    <col className="w-[190px]" />
-                    <col className="w-[80px]" />
-                    <col />
-                    <col className="w-[110px]" />
-                    <col className="w-[190px]" />
-                    <col className="w-[120px]" />
-                  </colgroup>
-                  <thead className="bg-slate-50 text-left text-xs text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">적용 연도·주기</th>
-                      <th className="px-4 py-3">버전</th>
-                      <th className="px-4 py-3">원본 파일명</th>
-                      <th className="px-4 py-3">크기</th>
-                      <th className="px-4 py-3">등록일</th>
-                      <th className="px-4 py-3 text-right">상태</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {templates.map((template) => (
-                      <tr key={template.id}>
-                        <td className="px-4 py-3">
-                          {template.measurement_year}년{" "}
-                          {templateMeasurementPeriodLabel(template.measurement_period)}
-                        </td>
-                        <td className="px-4 py-3">v{template.version}</td>
-                        <td className="truncate px-4 py-3" title={template.original_filename}>
-                          {template.original_filename}
-                        </td>
-                        <td className="px-4 py-3">{(template.size_bytes / 1024).toFixed(1)} KB</td>
-                        <td className="px-4 py-3">
-                          {new Date(template.created_at).toLocaleString("ko-KR")}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="h-8 whitespace-nowrap px-3 text-xs"
-                            disabled={saving}
-                            onClick={() => void changeActive(template, !template.is_active)}
-                          >
-                            {template.is_active ? (
-                              <>
-                                <CheckCircle2 className="mr-1 h-4 w-4 text-emerald-600" />
-                                활성
-                              </>
-                            ) : (
-                              "활성화"
-                            )}
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                    {templates.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-500">
-                          등록된 템플릿이 없습니다.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+
+              {selected.file_format === "HWPX" && analysisSummary && (
+                <div className="border-b border-slate-200 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800">3. 누름틀 분석 결과</h3>
+                      <p className="mt-0.5 text-[11px] text-slate-500">자동 매핑과 중복·중첩 경고를 확인합니다.</p>
+                    </div>
+                    <div className="grid grid-cols-4 overflow-hidden rounded-md border border-slate-200 bg-white text-center text-xs">
+                      {[
+                        ["총 누름틀", analysisSummary.discovered, "text-slate-800"],
+                        ["고유", analysisSummary.unique, "text-slate-800"],
+                        ["자동 매핑", analysisSummary.auto_matched, "text-emerald-700"],
+                        ["미매핑", analysisSummary.unmatched, analysisSummary.unmatched ? "text-amber-700" : "text-emerald-700"],
+                      ].map(([label, value, color]) => <div key={String(label)} className="min-w-[86px] border-r border-slate-200 px-3 py-2 last:border-r-0"><p className="text-[10px] text-slate-500">{label}</p><p className={`mt-0.5 text-base font-bold tabular-nums ${color}`}>{value}</p></div>)}
+                    </div>
+                  </div>
+                  <div className="max-h-[330px] overflow-auto rounded-md border border-slate-200">
+                    <table className="w-full min-w-[900px] table-fixed text-xs">
+                      <colgroup><col className="w-[190px]" /><col className="w-[140px]" /><col className="w-[230px]" /><col /><col className="w-[210px]" /></colgroup>
+                      <thead className="sticky top-0 z-10 bg-slate-100 text-left text-[11px] font-semibold text-slate-600 shadow-[0_1px_0_#e2e8f0]"><tr><th className="px-3 py-2">누름틀명</th><th className="px-3 py-2">표시명</th><th className="px-3 py-2">자동 매핑 결과</th><th className="px-3 py-2">기본값</th><th className="px-3 py-2">상태</th></tr></thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {mappings.map((mapping, index) => {
+                          const update = (changes: Partial<Mapping>) => {
+                            setMappings((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...changes } : row));
+                            setConfirmedAnalysisFile("");
+                            setPendingMappings([]);
+                          };
+                          const automatic = mapping.match_type === "exact" || mapping.match_type === "alias";
+                          return (
+                            <tr key={`${mapping.target_address}-${index}`} className={!mapping.source_field || mapping.present_in_file === false ? "bg-amber-50/60" : ""}>
+                              <td className="px-3 py-2 align-top font-mono text-[11px] text-slate-700" title={mapping.target_address}><span className="block truncate">{mapping.target_address || "—"}</span>{(mapping.occurrence_count || 0) > 1 && <p className="mt-1 font-sans text-[10px] font-medium text-amber-700">동일 누름틀 {mapping.occurrence_count}회 사용</p>}</td>
+                              <td className="px-3 py-2 align-top text-slate-700" title={mapping.display_name}>{mapping.display_name || "—"}</td>
+                              <td className="px-3 py-1.5 align-top"><Select value={mapping.source_field} onChange={(event) => update({ source_field: event.target.value, match_type: event.target.value ? "manual" : null })} options={[{ value: "", label: "필드 선택" }, ...fieldOptions]} /></td>
+                              <td className="px-3 py-2 align-top text-slate-500" title={mapping.default_value || ""}><span className="block truncate">{mapping.default_value || "—"}</span></td>
+                              <td className="px-3 py-2 align-top">
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${!mapping.source_field ? "bg-amber-100 text-amber-800" : automatic ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{!mapping.source_field ? "미매핑" : automatic ? "정상" : "수동 확인"}</span>
+                                {(mapping.warnings || []).map((warning) => <p key={warning} className="mt-1 text-[10px] leading-4 text-amber-700">{warning}</p>)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-3 flex justify-end"><Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" disabled={saving || analyzing} onClick={() => void saveMappings()}>매핑 미리보기</Button></div>
+                </div>
+              )}
+
+              {showRegistrationPreview && file && (
+                <div className="border-b border-slate-200 bg-slate-50/30 p-4">
+                  <h3 className="text-sm font-bold text-slate-800">4. 원본 및 매핑 미리보기</h3>
+                  <dl className="mt-3 grid gap-x-6 gap-y-2 rounded-md border border-slate-200 bg-white p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                    <div><dt className="text-slate-500">문서 종류</dt><dd className="mt-0.5 truncate font-semibold text-slate-800" title={selected.name}>{selected.name}</dd></div>
+                    <div><dt className="text-slate-500">적용 연도·주기</dt><dd className="mt-0.5 font-semibold text-slate-800">{templateForm.measurement_year}년 {templateMeasurementPeriodLabel(templateForm.measurement_period)}</dd></div>
+                    <div><dt className="text-slate-500">원본 파일</dt><dd className="mt-0.5 truncate font-semibold text-slate-800" title={file.name}>{file.name}</dd></div>
+                    <div><dt className="text-slate-500">등록 상태</dt><dd className="mt-0.5 font-semibold text-slate-800">{selected.file_format === "HWPX" ? "원본 + 매핑 원자 등록" : templateForm.activate ? "활성 템플릿" : "비활성 템플릿"}</dd></div>
+                    {analysisSummary && <><div><dt className="text-slate-500">누름틀</dt><dd className="mt-0.5 font-semibold">{analysisSummary.discovered}개</dd></div><div><dt className="text-slate-500">고유</dt><dd className="mt-0.5 font-semibold">{analysisSummary.unique}개</dd></div><div><dt className="text-slate-500">자동 매핑</dt><dd className="mt-0.5 font-semibold text-emerald-700">{analysisSummary.auto_matched}개</dd></div><div><dt className="text-slate-500">미매핑</dt><dd className={`mt-0.5 font-semibold ${analysisSummary.unmatched ? "text-amber-700" : "text-emerald-700"}`}>{analysisSummary.unmatched}개</dd></div></>}
+                  </dl>
+                  {selected.file_format !== "HWPX" && <label className="mt-3 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={templateForm.activate} onChange={(event) => setTemplateForm((previous) => ({ ...previous, activate: event.target.checked }))} />이 연도·주기의 기본 양식으로 지정</label>}
+                  <div className="mt-3 flex justify-end gap-2"><Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={clearTemplateDraft}>취소</Button><Button type="submit" form="template-upload-form" size="sm" className="h-8 px-4 text-xs" disabled={saving || analyzing || !selected.is_active}><Upload className="mr-1 h-3.5 w-3.5" />{saving ? "등록 중…" : "등록"}</Button></div>
+                </div>
+              )}
+
+              {registrationSuccess && (
+                <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-600" /><div><h3 className="text-sm font-bold text-emerald-900">등록 완료</h3><p className="mt-0.5 text-xs text-emerald-800">{registrationSuccess.documentName} · {registrationSuccess.measurementYear}년 {templateMeasurementPeriodLabel(registrationSuccess.measurementPeriod)} 템플릿과 매핑이 등록되었습니다.</p></div></div>
+                    <Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={() => setRegistrationSuccess(null)}>확인</Button>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5"><div><h3 className="text-sm font-bold text-slate-800">5. 등록된 템플릿</h3><p className="mt-0.5 text-[11px] text-slate-500">현재 매핑 {selectedMappingCount}개</p></div></div>
+                <div className="max-h-[300px] overflow-auto">
+                  <table className="w-full min-w-[820px] table-fixed text-xs">
+                    <colgroup><col className="w-[160px]" /><col className="w-[60px]" /><col /><col className="w-[90px]" /><col className="w-[170px]" /><col className="w-[110px]" /></colgroup>
+                    <thead className="sticky top-0 z-10 bg-slate-100 text-left text-[11px] font-semibold text-slate-600 shadow-[0_1px_0_#e2e8f0]"><tr><th className="px-3 py-2">적용 연도·주기</th><th className="px-3 py-2">버전</th><th className="px-3 py-2">원본 파일명</th><th className="px-3 py-2">크기</th><th className="px-3 py-2">등록일</th><th className="px-3 py-2 text-right">상태·관리</th></tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {templates.map((template) => <tr key={template.id}><td className="px-3 py-2">{template.measurement_year}년 {templateMeasurementPeriodLabel(template.measurement_period)}</td><td className="px-3 py-2">v{template.version}</td><td className="truncate px-3 py-2" title={template.original_filename}>{template.original_filename}</td><td className="px-3 py-2">{(template.size_bytes / 1024).toFixed(1)} KB</td><td className="px-3 py-2">{new Date(template.created_at).toLocaleString("ko-KR")}</td><td className="px-3 py-1.5 text-right"><Button size="sm" variant="secondary" className="h-7 whitespace-nowrap px-2.5 text-[11px]" disabled={saving} onClick={() => void changeActive(template, !template.is_active)}>{template.is_active ? <><CheckCircle2 className="mr-1 h-3.5 w-3.5 text-emerald-600" />활성</> : "활성화"}</Button></td></tr>)}
+                      {templates.length === 0 && <tr><td colSpan={6} className="py-7 text-center text-slate-500"><p>등록된 템플릿이 없습니다.</p><Button type="button" size="sm" variant="secondary" className="mt-2 h-8 px-3 text-xs" onClick={() => fileInputRef.current?.click()}>원본 등록</Button></td></tr>}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
-          ) : (
-            <p className="p-8 text-center text-sm text-slate-500">
-              관리할 문서 종류를 선택해 주세요.
-            </p>
-          )}
+          ) : <p className="p-8 text-center text-sm text-slate-500">관리할 활성 문서 종류를 선택해 주세요.</p>}
         </section>
       </div>
       <Modal
