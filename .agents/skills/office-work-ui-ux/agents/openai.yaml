@@ -1,0 +1,4 @@
+interface:
+  display_name: "Office Work UI/UX"
+  short_description: "사무형 업무 화면의 속도·밀도·일관성을 높이는 UI/UX 기준"
+  default_prompt: "Use $office-ui to design or improve this office workflow UI consistently."
