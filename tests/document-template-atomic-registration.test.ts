@@ -27,7 +27,7 @@ test("문서 종류 선택부터 분석·미리보기·등록 완료까지 한 �
   assert.match(ui, /분석 확인/);
   assert.doesNotMatch(ui, />매핑 미리보기</);
   assert.match(ui, /기존 템플릿 \/ 등록 이력/);
-  assert.match(ui, /sanitizeHwpxDefaultValue\(mapping\.default_value\)/);
+  assert.match(ui, /sanitizeHwpxMappingDefaultValue/);
   assert.match(ui, /analysisReview\.issue_mappings/);
   assert.match(ui, /!analysisReview\.can_register/);
   assert.match(ui, /form="template-upload-form"/);

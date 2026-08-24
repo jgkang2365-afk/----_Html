@@ -103,7 +103,7 @@ test("입력 매핑은 허용 필드, 대상 형식, A1 주소와 중복을 검�
 });
 
 test("HWPX 내부 제어 기본값은 서버 저장 입력에서 제거한다", () => {
-  const [rawMapping, readableMapping] = parseDocumentFieldMappings(
+  const [rawMapping, readableMapping, placeholderMapping] = parseDocumentFieldMappings(
     [
       {
         source_field: "measurement_year",
@@ -123,12 +123,22 @@ test("HWPX 내부 제어 기본값은 서버 저장 입력에서 제거한다", 
         default_value: "기본 사업장",
         sort_order: 1,
       },
+      {
+        source_field: "phone",
+        target_type: "HWPX_FIELD",
+        target_sheet: null,
+        target_address: "phone",
+        required: false,
+        default_value: "전화번호",
+        sort_order: 2,
+      },
     ],
     "HWPX"
   );
 
   assert.equal(rawMapping.default_value, null);
   assert.equal(readableMapping.default_value, "기본 사업장");
+  assert.equal(placeholderMapping.default_value, null);
 });
 
 test("동적 템플릿 선택은 정의별 정확 주기를 annual보다 우선한다", () => {

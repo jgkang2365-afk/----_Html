@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { normalizeText } from "./constants";
-import { sanitizeHwpxDefaultValue } from "./hwpx-analysis-presentation";
+import { sanitizeHwpxMappingDefaultValue } from "./hwpx-analysis-presentation";
 
 export const DOCUMENT_FILE_FORMATS = ["HWPX", "XLSX", "XLSM"] as const;
 export type DocumentFileFormat = (typeof DOCUMENT_FILE_FORMATS)[number];
@@ -179,7 +179,9 @@ export function parseDocumentFieldMappings(
       target_address: normalizedAddress,
       required: raw?.required === true,
       default_value:
-        fileFormat === "HWPX" ? sanitizeHwpxDefaultValue(defaultValue) : defaultValue,
+        fileFormat === "HWPX"
+          ? sanitizeHwpxMappingDefaultValue(sourceField, defaultValue)
+          : defaultValue,
       sort_order: sortOrder,
     };
   });

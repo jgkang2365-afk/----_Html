@@ -8,7 +8,10 @@ import {
   isDocumentGenerationRunning,
   shouldApplyDocumentGenerationResponse,
 } from "@/lib/document-generation/polling";
-import { isNewBusinessDocumentGenerationEligible } from "@/lib/document-generation/business-eligibility";
+import {
+  documentDefinitionDisplayName,
+  isNewBusinessDocumentGenerationEligible,
+} from "@/lib/document-generation/business-eligibility";
 type Document = {
   definition?: {
     id: string;
@@ -69,12 +72,10 @@ const documentId = (document: Document) =>
 const documentSelection = (document: Document) => documentId(document);
 const documentCode = (document: Document) => document.definition?.code || document.code || "";
 const documentName = (document: Document) =>
-  document.definition?.name ||
-  document.name ||
-  document.document_name ||
-  document.definition?.code ||
-  document.code ||
-  "문서";
+  documentDefinitionDisplayName({
+    code: document.definition?.code || document.code,
+    name: document.definition?.name || document.name || document.document_name,
+  });
 const isAvailable = (document: Document) =>
   document.available !== false && Boolean(document.template || document.available);
 export function NewBusinessDocumentGeneration({
@@ -306,7 +307,10 @@ export function NewBusinessDocumentGeneration({
               className="border-b border-slate-100 px-1 py-2 text-sm"
             >
               <b>
-                {file.document_name || file.document_type || "문서"}:{" "}
+                {documentDefinitionDisplayName({
+                  code: file.document_type,
+                  name: file.document_name,
+                })}:{" "}
                 {file.status === "COMPLETED" ? "완료" : "실패"}
               </b>
               {file.filename && <p className="text-xs text-slate-600">{file.filename}</p>}

@@ -10,6 +10,7 @@ import {
   getHwpxMappingStatus,
   reviewHwpxRegistration,
   sanitizeHwpxDefaultValue,
+  sanitizeHwpxMappingDefaultValue,
 } from "../lib/document-generation/hwpx-analysis-presentation";
 import { parseDocumentFieldMappings } from "../lib/document-generation/definitions";
 
@@ -33,7 +34,7 @@ async function hwpx(sections: string[]) {
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
-test("HWPX section XML에서 누름틀 이름·표시명·기본값·위치를 추출한다", async () => {
+test("HWPX 표시문구는 진단에만 유지하고 업무 기본값으로 반환하지 않는다", async () => {
   const result = await analyzeHwpxPlaceholders(
     await hwpx([
       section(field(1, "business_name", "사업장명", "기본 사업장")),
@@ -48,7 +49,7 @@ test("HWPX section XML에서 누름틀 이름·표시명·기본값·위치를 �
     display_name: "사업장명",
     mapped_db_field: "business_name",
     required: false,
-    default_value: "기본 사업장",
+    default_value: "",
     match_type: "exact",
     occurrence_count: 1,
     sections: [0],
@@ -206,6 +207,16 @@ test("HWPX 내부 제어 문자열은 업무용 기본값으로 노출하지 않
   );
   assert.equal(sanitizeHwpxDefaultValue("  사람이 읽는 기본값  "), "사람이 읽는 기본값");
   assert.equal(sanitizeHwpxDefaultValue(""), null);
+  assert.equal(sanitizeHwpxMappingDefaultValue("phone", "전화번호"), null);
+  assert.equal(sanitizeHwpxMappingDefaultValue("fax", "팩스"), null);
+  assert.equal(sanitizeHwpxMappingDefaultValue("total_employees", "총 근로자수"), null);
+  assert.equal(sanitizeHwpxMappingDefaultValue("measurement_year", "년도"), null);
+  assert.equal(sanitizeHwpxMappingDefaultValue("measurement_period", "주기"), null);
+  assert.equal(sanitizeHwpxMappingDefaultValue("manager_email", "담당자 메일"), null);
+  assert.equal(
+    sanitizeHwpxMappingDefaultValue("phone", "대표번호 없음"),
+    "대표번호 없음"
+  );
 });
 
 test("손상된 HWPX ZIP은 명확한 오류 코드로 실패한다", async () => {

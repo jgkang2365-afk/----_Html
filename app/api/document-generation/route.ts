@@ -14,9 +14,11 @@ import {
 } from "@/lib/document-generation/journal";
 import { isDocumentDefinitionVisibleForJurisdiction } from "@/lib/document-generation/selection-report-visibility";
 import {
+  documentDefinitionDisplayName,
+  documentDefinitionFilenamePattern,
   isDocumentDefinitionEligibleForTarget,
-  isIndustrialShopPreliminarySurvey,
   isNewBusinessDocumentGenerationEligible,
+  isPreliminarySurveyVariantEligibleForTarget,
 } from "@/lib/document-generation/business-eligibility";
 
 export const dynamic = "force-dynamic";
@@ -92,9 +94,12 @@ async function getContext(businessId: number) {
     return {
       document_definition_id: definition.id,
       code: definition.code,
-      name: definition.name,
+      name: documentDefinitionDisplayName(definition),
       file_format: definition.file_format,
-      filename_pattern: definition.filename_pattern,
+      filename_pattern: documentDefinitionFilenamePattern(
+        definition,
+        definition.filename_pattern
+      ),
       default_selected: definition.default_selected,
       sort_order: definition.sort_order,
       available: Boolean(template),
@@ -241,9 +246,14 @@ export async function POST(request: NextRequest) {
           { error: "선택한 문서 종류가 비활성화되어 생성할 수 없습니다." },
           { status: 409 }
         );
-      if (missingDefinitions.some((definition) => isIndustrialShopPreliminarySurvey(definition)))
+      if (
+        missingDefinitions.some(
+          (definition) =>
+            !isPreliminarySurveyVariantEligibleForTarget(definition, context.snapshot || {})
+        )
+      )
         return NextResponse.json(
-          { error: "공업사 신규 대상 조건을 충족하지 않아 해당 문서를 생성할 수 없습니다." },
+          { error: "현재 사업장 업종에는 선택한 예비조사표를 생성할 수 없습니다." },
           { status: 403 }
         );
     }
