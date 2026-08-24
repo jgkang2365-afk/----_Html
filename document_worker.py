@@ -94,6 +94,11 @@ DOCUMENT_TYPES = {
     "MEASUREMENT_PLAN_XLSM": {"extension": ".xlsm"},
 }
 
+PRELIMINARY_SURVEY_OVERWRITE_CODES = {
+    "GENERAL_PRELIMINARY_SURVEY",
+    "INDUSTRIAL_SHOP_PRELIMINARY_SURVEY",
+}
+
 XLSM_CELLS = {
     "B1": "business_year_period_label",
     "G1": "manager_name",
@@ -250,7 +255,39 @@ def unique_destination(path: Path) -> Path:
     return candidate
 
 
-def publish_file(source: Path, requested_destination: Path, attempts: int = 10, delay_seconds: float = 0.5) -> Path:
+def publish_file(
+    source: Path,
+    requested_destination: Path,
+    attempts: int = 10,
+    delay_seconds: float = 0.5,
+    overwrite: bool = False,
+) -> Path:
+    if overwrite:
+        descriptor, staged_name = tempfile.mkstemp(
+            prefix=f".{requested_destination.name}.",
+            suffix=".tmp",
+            dir=requested_destination.parent,
+        )
+        os.close(descriptor)
+        staged = Path(staged_name)
+        try:
+            shutil.copy2(source, staged)
+            last_error: PermissionError | None = None
+            for attempt in range(attempts):
+                try:
+                    os.replace(staged, requested_destination)
+                    return requested_destination
+                except PermissionError as error:
+                    last_error = error
+                    if attempt + 1 < attempts:
+                        time.sleep(delay_seconds)
+            raise RuntimeError(
+                "기존 예비조사표 파일을 교체할 수 없습니다. "
+                f"파일이 열려 있는지 확인해 주세요: {requested_destination.name}"
+            ) from last_error
+        finally:
+            staged.unlink(missing_ok=True)
+
     last_error: PermissionError | None = None
     for attempt in range(attempts):
         destination = unique_destination(requested_destination)
@@ -312,8 +349,9 @@ class HwpxAutomation:
 
             stage = "누름틀 값 입력"
             for field, value in values.items():
-                if field in available:
-                    hwp.PutFieldText(field, normalize_text(value))
+                normalized_value = normalize_text(value)
+                if field in available and normalized_value:
+                    hwp.PutFieldText(field, normalized_value)
 
             stage = "문서 저장"
             if not hwp.Save(True):
@@ -565,10 +603,14 @@ def process_job(
                                 mapping.get("value")
                             )
                             for mapping in resolved_mappings
+                            if normalize_text(mapping.get("value"))
                         }
                         # 설정한 누름틀은 모두 템플릿에 존재해야 한다. required는
                         # 누름틀 존재 여부가 아니라 입력값의 필수 여부에만 사용한다.
-                        required_targets = list(target_values)
+                        required_targets = [
+                            normalize_text(mapping.get("target_address"))
+                            for mapping in resolved_mappings
+                        ]
                         hwpx.fill(working_file, target_values, required_targets)
                     else:
                         if any(
@@ -591,7 +633,11 @@ def process_job(
 
                     if not working_file.exists() or working_file.stat().st_size <= 0:
                         raise RuntimeError("저장 검증에 실패했습니다.")
-                    destination = publish_file(working_file, final_folder / working_file.name)
+                    destination = publish_file(
+                        working_file,
+                        final_folder / working_file.name,
+                        overwrite=document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES,
+                    )
                     result.update(
                         {
                             "input_fields": [
@@ -627,7 +673,11 @@ def process_job(
 
                 if not working_file.exists() or working_file.stat().st_size <= 0:
                     raise RuntimeError("저장 검증에 실패했습니다.")
-                destination = publish_file(working_file, final_folder / working_file.name)
+                destination = publish_file(
+                    working_file,
+                    final_folder / working_file.name,
+                    overwrite=document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES,
+                )
                 result.update({"status": "COMPLETED", "filename": destination.name, "path": str(destination)})
             except Exception as error:
                 result["error"] = str(error)

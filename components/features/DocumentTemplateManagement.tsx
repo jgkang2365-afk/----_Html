@@ -18,8 +18,12 @@ import {
   classifyHwpxWarning,
   getHwpxMappingStatus,
   reviewHwpxRegistration,
-  sanitizeHwpxDefaultValue,
+  sanitizeHwpxMappingDefaultValue,
 } from "@/lib/document-generation/hwpx-analysis-presentation";
+import {
+  documentDefinitionDisplayName,
+  documentDefinitionFilenamePattern,
+} from "@/lib/document-generation/business-eligibility";
 
 type FileFormat = "HWPX" | "XLSX" | "XLSM";
 type Period = "상반기" | "하반기" | typeof ANNUAL_TEMPLATE_PERIOD;
@@ -199,7 +203,16 @@ export function DocumentTemplateManagement() {
     const result = await request(
       `/api/document-definitions?include_deleted=${showDeleted ? "true" : "false"}`
     );
-    const rows = responseRows<Definition>(result, ["definitions", "document_definitions", "data"]);
+    const rows = responseRows<Definition>(result, ["definitions", "document_definitions", "data"]).map(
+      (definition) => ({
+        ...definition,
+        name: documentDefinitionDisplayName(definition),
+        filename_pattern: documentDefinitionFilenamePattern(
+          definition,
+          definition.filename_pattern
+        ),
+      })
+    );
     setDefinitions(
       rows.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "ko"))
     );
@@ -388,7 +401,8 @@ export function DocumentTemplateManagement() {
           target_sheet: null,
           target_address: placeholder.placeholder_name,
           required: existing?.required ?? placeholder.required,
-          default_value: sanitizeHwpxDefaultValue(
+          default_value: sanitizeHwpxMappingDefaultValue(
+            existing?.source_field || suggestedField,
             existing?.default_value ?? placeholder.default_value
           ),
           sort_order: index,
@@ -451,7 +465,10 @@ export function DocumentTemplateManagement() {
       setPendingMappings(
         mappings.map((mapping) => ({
           ...mapping,
-          default_value: sanitizeHwpxDefaultValue(mapping.default_value),
+          default_value: sanitizeHwpxMappingDefaultValue(
+            mapping.source_field,
+            mapping.default_value
+          ),
         }))
       );
       setConfirmedAnalysisFile(fileKey(file));
@@ -520,7 +537,10 @@ export function DocumentTemplateManagement() {
               target_sheet: null,
               target_address: mapping.target_address,
               required: mapping.required,
-              default_value: sanitizeHwpxDefaultValue(mapping.default_value),
+              default_value: sanitizeHwpxMappingDefaultValue(
+                mapping.source_field,
+                mapping.default_value
+              ),
               sort_order: index,
             }))
           )
@@ -783,7 +803,10 @@ export function DocumentTemplateManagement() {
                           };
                           const status = getHwpxMappingStatus(mapping);
                           const statusUi = mappingStatusPresentation[status];
-                          const defaultValue = sanitizeHwpxDefaultValue(mapping.default_value);
+                          const defaultValue = sanitizeHwpxMappingDefaultValue(
+                            mapping.source_field,
+                            mapping.default_value
+                          );
                           return (
                             <tr key={`${mapping.target_address}-${index}`} className={statusUi.row}>
                               <td className="px-3 py-2 align-top font-mono text-[11px] text-slate-700" title={mapping.target_address}><span className="block truncate">{mapping.target_address || "—"}</span></td>
@@ -1104,7 +1127,10 @@ export function DocumentTemplateManagement() {
                         <Input
                           value={
                             selected?.file_format === "HWPX"
-                              ? sanitizeHwpxDefaultValue(mapping.default_value) || ""
+                              ? sanitizeHwpxMappingDefaultValue(
+                                  mapping.source_field,
+                                  mapping.default_value
+                                ) || ""
                               : mapping.default_value || ""
                           }
                           onChange={(event) => update({ default_value: event.target.value })}

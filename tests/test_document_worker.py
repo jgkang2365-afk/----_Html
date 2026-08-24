@@ -93,6 +93,34 @@ class DocumentWorkerTest(unittest.TestCase):
             self.assertNotEqual(candidate, original)
             self.assertEqual(original.read_bytes(), b"original")
 
+    def test_preliminary_survey_overwrites_same_filename_without_timestamp(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "working.hwpx"
+            destination = root / "ABC산업(예비조사표-26하).hwpx"
+            source.write_bytes(b"new")
+            destination.write_bytes(b"old")
+
+            published = publish_file(source, destination, overwrite=True)
+
+            self.assertEqual(published, destination)
+            self.assertEqual(destination.read_bytes(), b"new")
+            self.assertEqual(list(root.glob("ABC산업(예비조사표-26하)_*.hwpx")), [])
+
+    def test_locked_preliminary_survey_returns_clear_overwrite_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "working.hwpx"
+            destination = root / "ABC산업(예비조사표-26하).hwpx"
+            source.write_bytes(b"new")
+            destination.write_bytes(b"old")
+
+            with patch(
+                "document_worker.os.replace",
+                side_effect=PermissionError(5, "Access is denied"),
+            ), self.assertRaisesRegex(RuntimeError, "파일이 열려 있는지 확인"):
+                publish_file(source, destination, attempts=1, overwrite=True)
+
     def test_publish_retries_after_windows_file_lock(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

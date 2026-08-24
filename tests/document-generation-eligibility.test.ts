@@ -7,8 +7,13 @@ import {
 } from "../lib/document-generation/selection-report-visibility";
 import { DOCUMENT_GENERATION_STATUS_LABELS } from "../lib/document-generation/polling";
 import {
+  GENERAL_PRELIMINARY_SURVEY_CODE,
+  GENERAL_PRELIMINARY_SURVEY_NAME,
   INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_CODE,
   INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME,
+  PRELIMINARY_SURVEY_FILENAME_PATTERN,
+  documentDefinitionDisplayName,
+  documentDefinitionFilenamePattern,
   isDocumentDefinitionEligibleForTarget,
   isNewBusinessDocumentGenerationEligible,
 } from "../lib/document-generation/business-eligibility";
@@ -38,6 +43,10 @@ const industrialShopMigration = readFileSync(
   "supabase/migrations/20260824100000_add_industrial_shop_document_eligibility.sql",
   "utf8"
 );
+const preliminarySurveyPolicyMigration = readFileSync(
+  "supabase/migrations/20260824135437_preliminary_survey_document_policy.sql",
+  "utf8"
+);
 
 const target = (overrides: Record<string, unknown> = {}) => ({
   document_generation_enabled: true,
@@ -62,27 +71,52 @@ test("문서 자동생성은 최초실시와 타기관 신규에만 허용한다
   );
 });
 
-test("공업사 예비조사표는 공식 업종분류가 공업사인 신규 대상에만 노출한다", () => {
-  const definition = {
+test("일반/공업사 예비조사표는 공식 업종분류에 따라 상호배타 노출한다", () => {
+  const industrialDefinition = {
     code: INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_CODE,
     name: INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME,
   };
-  assert.equal(isDocumentDefinitionEligibleForTarget(definition, target()), true);
+  const generalDefinition = {
+    code: GENERAL_PRELIMINARY_SURVEY_CODE,
+    name: GENERAL_PRELIMINARY_SURVEY_NAME,
+  };
+  assert.equal(isDocumentDefinitionEligibleForTarget(industrialDefinition, target()), true);
+  assert.equal(isDocumentDefinitionEligibleForTarget(generalDefinition, target()), false);
   assert.equal(
-    isDocumentDefinitionEligibleForTarget(definition, target({ business_type: "external_new" })),
+    isDocumentDefinitionEligibleForTarget(
+      industrialDefinition,
+      target({ business_type: "external_new" })
+    ),
     true
   );
   assert.equal(
-    isDocumentDefinitionEligibleForTarget(definition, target({ business_type: "existing" })),
+    isDocumentDefinitionEligibleForTarget(
+      generalDefinition,
+      target({ business_type: "external_new" })
+    ),
     false
   );
   assert.equal(
-    isDocumentDefinitionEligibleForTarget(definition, target({ business_category: "제조업" })),
+    isDocumentDefinitionEligibleForTarget(industrialDefinition, target({ business_type: "existing" })),
     false
   );
   assert.equal(
     isDocumentDefinitionEligibleForTarget(
-      definition,
+      industrialDefinition,
+      target({ business_category: "제조업" })
+    ),
+    false
+  );
+  assert.equal(
+    isDocumentDefinitionEligibleForTarget(
+      generalDefinition,
+      target({ business_category: "제조업" })
+    ),
+    true
+  );
+  assert.equal(
+    isDocumentDefinitionEligibleForTarget(
+      industrialDefinition,
       target({ business_category: "공업사 사업장" })
     ),
     false,
@@ -90,11 +124,53 @@ test("공업사 예비조사표는 공식 업종분류가 공업사인 신규 �
   );
   assert.equal(
     isDocumentDefinitionEligibleForTarget(
-      { code: "GENERAL_PRELIMINARY_SURVEY", name: "일반 예비조사표" },
-      target({ business_category: "제조업" })
+      generalDefinition,
+      target({ business_category: "공업사", business_type: "existing" })
     ),
-    true
+    false
   );
+});
+
+test("예비조사표 표시명과 파일명 규칙은 code를 바꾸지 않고 통일한다", () => {
+  assert.equal(
+    documentDefinitionDisplayName({ code: GENERAL_PRELIMINARY_SURVEY_CODE }),
+    "예비조사표(일반)"
+  );
+  assert.equal(
+    documentDefinitionDisplayName({ code: INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_CODE }),
+    "예비조사표(공업사)"
+  );
+  for (const code of [
+    GENERAL_PRELIMINARY_SURVEY_CODE,
+    INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_CODE,
+  ])
+    assert.equal(
+      documentDefinitionFilenamePattern({ code }, "{business_name}({document_name})"),
+      PRELIMINARY_SURVEY_FILENAME_PATTERN
+    );
+});
+
+test("후속 migration은 두 예비조사표 이름·파일명과 queue 상호배타 정책만 갱신한다", () => {
+  assert.match(preliminarySurveyPolicyMigration, /'예비조사표\(일반\)'/);
+  assert.match(preliminarySurveyPolicyMigration, /'예비조사표\(공업사\)'/);
+  assert.match(
+    preliminarySurveyPolicyMigration,
+    /\{business_name\}\(예비조사표-\{short_year\}\{short_period\}\)/
+  );
+  assert.match(
+    preliminarySurveyPolicyMigration,
+    /selected_code = 'INDUSTRIAL_SHOP_PRELIMINARY_SURVEY'[\s\S]*<> '공업사'/
+  );
+  assert.match(
+    preliminarySurveyPolicyMigration,
+    /selected_code = 'GENERAL_PRELIMINARY_SURVEY'[\s\S]*= '공업사'/
+  );
+  assert.match(preliminarySurveyPolicyMigration, /UPDATE public\.document_field_mappings mapping/);
+  assert.match(preliminarySurveyPolicyMigration, /\('phone', '전화번호'\)/);
+  assert.match(preliminarySurveyPolicyMigration, /\('fax', '팩스'\)/);
+  assert.match(preliminarySurveyPolicyMigration, /\('total_employees', '총 근로자수'\)/);
+  assert.doesNotMatch(preliminarySurveyPolicyMigration, /UPDATE public\.measurement_target_business/);
+  assert.doesNotMatch(preliminarySurveyPolicyMigration, /preliminary_survey_plans/);
 });
 
 test("공업사 정의 1종만 멱등 추가하고 기존 4종을 변경하지 않는다", () => {

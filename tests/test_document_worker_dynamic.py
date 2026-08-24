@@ -5,6 +5,7 @@ from pathlib import Path
 
 from document_worker import (
     build_filename_from_definition,
+    build_output_path,
     process_job,
     resolve_mapping_values,
 )
@@ -46,7 +47,7 @@ class DynamicDocumentWorkerTest(unittest.TestCase):
 
     def test_dynamic_filename_preserves_legacy_and_supports_xlsx(self):
         general = {
-            "name": "일반 예비조사표",
+            "name": "예비조사표(일반)",
             "file_format": "HWPX",
             "filename_pattern": "{business_name}(예비조사표-{short_year}{short_period})",
         }
@@ -139,7 +140,7 @@ class DynamicDocumentWorkerTest(unittest.TestCase):
                 {
                     "document_definition_id": "general-id",
                     "code": "GENERAL_PRELIMINARY_SURVEY",
-                    "name": "일반 예비조사표",
+                    "name": "예비조사표(일반)",
                     "file_format": "HWPX",
                     "filename_pattern": "{business_name}(예비조사표-{short_year}{short_period})",
                     "template": template("hwpx", hwpx_template, ".hwpx"),
@@ -209,9 +210,9 @@ class DynamicDocumentWorkerTest(unittest.TestCase):
             document = {
                 "document_definition_id": "industrial-shop-id",
                 "code": "INDUSTRIAL_SHOP_PRELIMINARY_SURVEY",
-                "name": "공업사(예비조사표)",
+                "name": "예비조사표(공업사)",
                 "file_format": "HWPX",
-                "filename_pattern": "{business_name}(공업사 예비조사표-{short_year}{short_period})",
+                "filename_pattern": "{business_name}(예비조사표-{short_year}{short_period})",
                 "template": template,
                 "mappings": [
                     {
@@ -228,6 +229,13 @@ class DynamicDocumentWorkerTest(unittest.TestCase):
                         "required": True,
                         "sort_order": 2,
                     },
+                    {
+                        "source_field": "phone",
+                        "target_type": "HWPX_FIELD",
+                        "target_address": "phone",
+                        "required": False,
+                        "sort_order": 3,
+                    },
                 ],
             }
             job = {
@@ -241,10 +249,15 @@ class DynamicDocumentWorkerTest(unittest.TestCase):
                 },
             }
             hwpx = HwpxMock()
+            output_root = root / "output"
+            final_folder = build_output_path(output_root, self.snapshot)
+            final_folder.mkdir(parents=True)
+            existing = final_folder / "H0507 테스트_사업장(예비조사표-26하).hwpx"
+            existing.write_bytes(b"old-generated-file")
             status, results, error = process_job(
                 job,
                 LocalClient({"industrial-shop-template": template_path}),
-                root / "output",
+                output_root,
                 hwpx,
                 ExcelMock(),
             )
@@ -252,14 +265,23 @@ class DynamicDocumentWorkerTest(unittest.TestCase):
             self.assertEqual(status, "COMPLETED")
             self.assertIsNone(error)
             self.assertEqual(results[0]["document_definition_id"], "industrial-shop-id")
-            self.assertEqual(results[0]["document_name"], "공업사(예비조사표)")
+            self.assertEqual(results[0]["document_name"], "예비조사표(공업사)")
+            self.assertEqual(
+                results[0]["filename"],
+                "H0507 테스트_사업장(예비조사표-26하).hwpx",
+            )
+            self.assertEqual(existing.read_bytes(), b"industrial-shop-template")
+            self.assertEqual(
+                list(final_folder.glob("H0507 테스트_사업장(예비조사표-26하)_*.hwpx")),
+                [],
+            )
             self.assertEqual(len(hwpx.calls), 1)
             self.assertEqual(
                 hwpx.calls[0][1],
                 {"measurement_year": "2026", "business_name": "H0507 테스트/사업장"},
             )
             self.assertEqual(
-                hwpx.calls[0][2], ["measurement_year", "business_name"]
+                hwpx.calls[0][2], ["measurement_year", "business_name", "phone"]
             )
 
 

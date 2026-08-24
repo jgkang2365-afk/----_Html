@@ -13,7 +13,7 @@ export const DOCUMENT_TYPE_META: Record<
   DocumentType,
   { label: string; extension: ".hwpx" | ".xlsm" }
 > = {
-  GENERAL_PRELIMINARY_SURVEY: { label: "일반 예비조사표", extension: ".hwpx" },
+  GENERAL_PRELIMINARY_SURVEY: { label: "예비조사표(일반)", extension: ".hwpx" },
   FIELD_PRELIMINARY_SURVEY: { label: "현장 예비조사표", extension: ".hwpx" },
   MEASUREMENT_PLAN_XLSM: { label: "화학물질입력 및 측정계획", extension: ".xlsm" },
 };

@@ -392,7 +392,9 @@ export async function analyzeHwpxPlaceholders(
       display_name: first.display_name || first.placeholder_name,
       ...match,
       required: false,
-      default_value: first.default_value,
+      // 원본의 표시문구는 입력 안내용 placeholder이며 업무 기본값이 아니다.
+      // 실제 default_value는 관리자가 매핑 화면에서 명시적으로 입력한 값만 저장한다.
+      default_value: "",
       occurrence_count: group.length,
       sections: [...new Set(group.map(({ section }) => section))],
       occurrences: group.map(

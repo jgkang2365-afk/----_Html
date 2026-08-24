@@ -24,6 +24,24 @@ export type HwpxRegistrationReview = {
 };
 
 const INTERNAL_CONTROL_VALUE = /(?:Clickhere\s*:|Direction\s*:\s*wstring\s*:|HelpState\s*:)/i;
+const PLACEHOLDER_GUIDE_VALUES: Record<string, Set<string>> = {
+  measurement_year: new Set(["측정연도", "측정년도"]),
+  measurement_period: new Set(["측정주기"]),
+  business_name: new Set(["사업장명"]),
+  representative_name: new Set(["대표자", "대표자명"]),
+  address: new Set(["주소"]),
+  business_category: new Set(["업종", "업종분류"]),
+  phone: new Set(["전화번호"]),
+  main_product: new Set(["주요생산품", "주요 생산품"]),
+  fax: new Set(["팩스"]),
+  total_employees: new Set(["총 근로자수", "총 근로자 수"]),
+  manager_name: new Set(["담당자", "담당자명"]),
+  manager_email: new Set(["이메일", "담당자 이메일"]),
+  manager_contact: new Set(["연락처", "담당자 연락처"]),
+  preliminary_surveyor: new Set(["예비조사자"]),
+  business_number: new Set(["사업자등록번호"]),
+  industrial_accident_number: new Set(["산재관리번호"]),
+};
 const FATAL_WARNING =
   /(?:시작[·ㆍ\s-]*종료|짝이 맞지|내부 이름이 없는|구조적으로 안전|구조 오류)/;
 const INFO_WARNING = /(?:동일 누름틀 이름이 \d+회 등장|동일 이름 누름틀 .*회|여러 회 사용)/;
@@ -32,6 +50,16 @@ export function sanitizeHwpxDefaultValue(value?: string | null): string | null {
   const normalized = value?.replace(/\s+/g, " ").trim() || "";
   if (!normalized || INTERNAL_CONTROL_VALUE.test(normalized)) return null;
   return normalized;
+}
+
+export function sanitizeHwpxMappingDefaultValue(
+  sourceField: unknown,
+  value?: string | null
+): string | null {
+  const sanitized = sanitizeHwpxDefaultValue(value);
+  if (!sanitized) return null;
+  const guideValues = PLACEHOLDER_GUIDE_VALUES[String(sourceField ?? "").trim()];
+  return guideValues?.has(sanitized) ? null : sanitized;
 }
 
 export function classifyHwpxWarning(message: string): HwpxWarningSeverity {
