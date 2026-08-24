@@ -27,9 +27,15 @@ function errorResponse(error: any, fallback: string) {
   );
 }
 
-async function listDefinitions(admin: any) {
+async function listDefinitions(admin: any, includeDeleted = false) {
+  let definitionQuery = admin
+    .from("document_definitions")
+    .select("*")
+    .order("sort_order")
+    .order("created_at");
+  if (!includeDeleted) definitionQuery = definitionQuery.is("deleted_at", null);
   const [definitionResult, mappingResult, templateResult] = await Promise.all([
-    admin.from("document_definitions").select("*").order("sort_order").order("created_at"),
+    definitionQuery,
     admin.from("document_field_mappings").select("document_definition_id"),
     admin.from("document_templates").select("document_definition_id"),
   ]);
@@ -58,10 +64,11 @@ async function listDefinitions(admin: any) {
   }));
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     await requireAdmin();
-    const definitions = await listDefinitions(createAdminClient());
+    const includeDeleted = new URL(request.url).searchParams.get("include_deleted") === "true";
+    const definitions = await listDefinitions(createAdminClient(), includeDeleted);
     return NextResponse.json({
       definitions,
       source_fields: DOCUMENT_SOURCE_FIELDS,
@@ -113,6 +120,23 @@ export async function PATCH(request: NextRequest) {
     if (currentError) throw currentError;
     if (!current)
       return NextResponse.json({ error: "문서 종류를 찾을 수 없습니다." }, { status: 404 });
+    if (body?.restore === true) {
+      if (!current.deleted_at) return NextResponse.json({ success: true, definition: current });
+      const { data, error } = await admin
+        .from("document_definitions")
+        .update({ deleted_at: null, deleted_by: null, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .not("deleted_at", "is", null)
+        .select("*")
+        .single();
+      if (error) throw error;
+      return NextResponse.json({ success: true, definition: data });
+    }
+    if (current.deleted_at)
+      return NextResponse.json(
+        { error: "삭제된 문서 종류는 복구한 뒤 수정할 수 있습니다." },
+        { status: 409 }
+      );
 
     const input = parseDocumentDefinitionInput(body, current);
     if (input.file_format !== current.file_format) {
@@ -153,5 +177,36 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: true, definition: data });
   } catch (error: any) {
     return errorResponse(error, "문서 종류 수정에 실패했습니다.");
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const user = await requireAdmin();
+    const id = String((await request.json())?.id ?? "").trim();
+    if (!id) return NextResponse.json({ error: "문서 종류 ID가 필요합니다." }, { status: 400 });
+    const admin = createAdminClient();
+    const now = new Date().toISOString();
+    const { data, error } = await admin
+      .from("document_definitions")
+      .update({
+        deleted_at: now,
+        deleted_by: Number(user.id),
+        is_active: false,
+        updated_at: now,
+      })
+      .eq("id", id)
+      .is("deleted_at", null)
+      .select("*")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data)
+      return NextResponse.json(
+        { error: "문서 종류를 찾을 수 없거나 이미 삭제되었습니다." },
+        { status: 404 }
+      );
+    return NextResponse.json({ success: true, definition: data });
+  } catch (error: any) {
+    return errorResponse(error, "문서 종류 삭제에 실패했습니다.");
   }
 }

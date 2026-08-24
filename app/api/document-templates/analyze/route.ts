@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     const admin = createAdminClient();
     const { data: definition, error: definitionError } = await admin
       .from("document_definitions")
-      .select("id, file_format, is_active")
+      .select("id, file_format, is_active, deleted_at")
       .eq("id", definitionId)
       .maybeSingle();
     if (definitionError) throw definitionError;
@@ -62,6 +62,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "문서 종류를 찾을 수 없습니다.", errorCode: "DEFINITION_NOT_FOUND" },
         { status: 404 }
+      );
+    if (definition.deleted_at)
+      return NextResponse.json(
+        { error: "삭제된 문서 종류는 분석할 수 없습니다.", errorCode: "DEFINITION_DELETED" },
+        { status: 409 }
       );
     if (definition.file_format !== "HWPX")
       return NextResponse.json(

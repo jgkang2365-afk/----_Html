@@ -51,10 +51,7 @@ test("H0508 자격 백필은 전체 식별값이 일치하는 행만 멱등으�
     h0508BackfillMigration,
     /business_name = '남영물류산업 \(주\) YAN5 Manless Mezzanine 공사'/
   );
-  assert.match(
-    h0508BackfillMigration,
-    /document_generation_enabled IS DISTINCT FROM TRUE/
-  );
+  assert.match(h0508BackfillMigration, /document_generation_enabled IS DISTINCT FROM TRUE/);
   assert.doesNotMatch(h0508BackfillMigration, /\bid\s*=/i);
   assert.doesNotMatch(h0508BackfillMigration, /created_at|ILIKE|LIKE|%/i);
 });
@@ -174,10 +171,7 @@ test("작업환경측정기관 선정 신고서는 business_info 관할값의 �
     ),
     true
   );
-  assert.equal(
-    isDocumentDefinitionVisibleForJurisdiction("일반 예비조사표", "경기"),
-    true
-  );
+  assert.equal(isDocumentDefinitionVisibleForJurisdiction("일반 예비조사표", "경기"), true);
 });
 
 test("H0508 경기 사업장은 GET 목록과 POST 선택 검증이 공유하는 문서 목록에서 제외된다", () => {
@@ -186,8 +180,11 @@ test("H0508 경기 사업장은 GET 목록과 POST 선택 검증이 공유하는
   assert.match(route, /String\(businessInfo\?\.office_jurisdiction \?\? ""\)\.trim\(\)/);
   assert.doesNotMatch(route, /target\.office_jurisdiction/);
   assert.doesNotMatch(route, /toShortName/);
-  assert.match(route, /isDocumentDefinitionVisibleForJurisdiction\(definition\.name, officeJurisdiction\)/);
-  assert.match(route, /const documents = applicableDefinitions\.map/);
+  assert.match(
+    route,
+    /isDocumentDefinitionVisibleForJurisdiction\(definition\.name, officeJurisdiction\)/
+  );
+  assert.match(route, /const documents = applicableCatalog\.map/);
   assert.match(route, /const context = await getContext\(businessId\)/);
   assert.match(route, /const documentMap = new Map<string, any>\(\)/);
   assert.equal(

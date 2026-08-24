@@ -7,7 +7,9 @@ import {
   FileText,
   ListPlus,
   Pencil,
+  RotateCcw,
   Settings2,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { Button, Input, Modal, Select } from "@/components/ui";
@@ -30,6 +32,8 @@ type Definition = {
   mapping_count?: number;
   mappings_count?: number;
   template_count?: number;
+  deleted_at?: string | null;
+  deleted_by?: number | null;
 };
 type Mapping = {
   id?: string;
@@ -119,6 +123,9 @@ export function DocumentTemplateManagement() {
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [analysisSummary, setAnalysisSummary] = useState<AnalysisSummary | null>(null);
   const [confirmedAnalysisFile, setConfirmedAnalysisFile] = useState("");
+  const [pendingMappings, setPendingMappings] = useState<Mapping[]>([]);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [deletionTarget, setDeletionTarget] = useState<Definition | null>(null);
   const analysisRequest = useRef(0);
   const [templateForm, setTemplateForm] = useState({
     measurement_year: new Date().getFullYear(),
@@ -135,16 +142,20 @@ export function DocumentTemplateManagement() {
     return result;
   };
   const loadDefinitions = useCallback(async () => {
-    const result = await request("/api/document-definitions");
+    const result = await request(
+      `/api/document-definitions?include_deleted=${showDeleted ? "true" : "false"}`
+    );
     const rows = responseRows<Definition>(result, ["definitions", "document_definitions", "data"]);
     setDefinitions(
       rows.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "ko"))
     );
     setFields(responseRows<Field>(result, ["source_fields"]));
     setSelectedId((current) =>
-      current && rows.some((row) => row.id === current) ? current : rows[0]?.id || ""
+      current && rows.some((row) => row.id === current && !row.deleted_at)
+        ? current
+        : rows.find((row) => !row.deleted_at)?.id || ""
     );
-  }, []);
+  }, [showDeleted]);
   const loadTemplates = useCallback(async (definitionId: string) => {
     if (!definitionId) return setTemplates([]);
     const result = await request(
@@ -223,6 +234,40 @@ export function DocumentTemplateManagement() {
       setSaving(false);
     }
   };
+  const deleteDefinition = async () => {
+    if (!deletionTarget) return;
+    setSaving(true);
+    try {
+      await request("/api/document-definitions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: deletionTarget.id }),
+      });
+      setDeletionTarget(null);
+      await loadDefinitions();
+      notify("문서 종류를 삭제했습니다. 기존 템플릿, 매핑 및 생성 이력은 보존됩니다.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "문서 종류 삭제에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const restoreDefinition = async (definition: Definition) => {
+    setSaving(true);
+    try {
+      await request("/api/document-definitions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: definition.id, restore: true }),
+      });
+      await loadDefinitions();
+      notify("문서 종류를 복구했습니다. 사용 중지 상태이므로 필요할 때 활성화해 주세요.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "문서 종류 복구에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
   const openMappings = async (definition: Definition) => {
     setSelectedId(definition.id);
     setMappingMode("manual");
@@ -254,6 +299,7 @@ export function DocumentTemplateManagement() {
     analysisRequest.current = requestId;
     setAnalyzing(true);
     setConfirmedAnalysisFile("");
+    setPendingMappings([]);
     setAnalysisSummary(null);
     try {
       const body = new FormData();
@@ -331,6 +377,7 @@ export function DocumentTemplateManagement() {
     setAnalyzing(false);
     setFile(selectedFile);
     setConfirmedAnalysisFile("");
+    setPendingMappings([]);
     if (selectedFile && selected?.file_format === "HWPX") void analyzeHwpxFile(selectedFile);
   };
   const saveMappings = async () => {
@@ -350,6 +397,12 @@ export function DocumentTemplateManagement() {
         return notify("미매칭 누름틀의 DB 필드를 모두 선택한 뒤 확인해 주세요.");
       if (stale.length > 0)
         return notify("새 HWPX에 없는 기존 매핑을 확인하고 필요하면 삭제해 주세요.");
+      if (!file) return notify("분석한 HWPX 파일을 다시 선택해 주세요.");
+      setPendingMappings(mappings.map((mapping) => ({ ...mapping })));
+      setConfirmedAnalysisFile(fileKey(file));
+      setMappingModal(false);
+      notify("분석 결과를 확인했습니다. 등록 버튼을 누를 때 원본과 매핑을 함께 확정합니다.");
+      return;
     }
     setSaving(true);
     try {
@@ -370,10 +423,7 @@ export function DocumentTemplateManagement() {
       });
       setMappingModal(false);
       await loadDefinitions();
-      if (mappingMode === "analysis" && file) {
-        setConfirmedAnalysisFile(fileKey(file));
-        notify("자동 분석 매핑을 저장했습니다. 원본 등록 버튼을 눌러 최종 등록해 주세요.");
-      } else notify("입력 매핑을 저장했습니다.");
+      notify("입력 매핑을 저장했습니다.");
     } catch (error) {
       notify(error instanceof Error ? error.message : "입력 매핑 저장에 실패했습니다.");
     } finally {
@@ -396,11 +446,29 @@ export function DocumentTemplateManagement() {
       body.set("measurement_year", String(templateForm.measurement_year));
       body.set("measurement_period", templateForm.measurement_period);
       body.set("activate", String(templateForm.activate));
+      if (selected.file_format === "HWPX") {
+        body.set("activate", "true");
+        body.set(
+          "mappings",
+          JSON.stringify(
+            pendingMappings.map((mapping, index) => ({
+              source_field: mapping.source_field,
+              target_type: "HWPX_FIELD",
+              target_sheet: null,
+              target_address: mapping.target_address,
+              required: mapping.required,
+              default_value: mapping.default_value ?? null,
+              sort_order: index,
+            }))
+          )
+        );
+      }
       body.set("file", file);
       await request("/api/document-templates", { method: "POST", body });
       await loadTemplates(selected.id);
       setFile(null);
       setConfirmedAnalysisFile("");
+      setPendingMappings([]);
       setAnalysisSummary(null);
       notify("템플릿을 등록했습니다.");
     } catch (error) {
@@ -466,14 +534,20 @@ export function DocumentTemplateManagement() {
                 사용 중지된 종류는 신규 문서 생성 목록에 표시되지 않습니다.
               </p>
             </div>
-            <Button
-              size="sm"
-              className="w-full whitespace-nowrap px-4 sm:w-auto"
-              onClick={() => openDefinition()}
-            >
-              <ListPlus className="mr-1.5 h-4 w-4" />
-              문서 종류 추가
-            </Button>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={showDeleted}
+                  onChange={(event) => setShowDeleted(event.target.checked)}
+                />
+                삭제된 문서 보기
+              </label>
+              <Button size="sm" className="whitespace-nowrap px-4" onClick={() => openDefinition()}>
+                <ListPlus className="mr-1.5 h-4 w-4" />
+                문서 종류 추가
+              </Button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1220px] table-fixed text-sm">
@@ -504,7 +578,7 @@ export function DocumentTemplateManagement() {
                   <tr
                     key={definition.id}
                     className={
-                      !definition.is_active
+                      definition.deleted_at || !definition.is_active
                         ? "bg-slate-50 text-slate-400"
                         : "transition-colors hover:bg-slate-50/70"
                     }
@@ -547,12 +621,18 @@ export function DocumentTemplateManagement() {
                     <td className="px-3 py-3.5">
                       <span
                         className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${
-                          definition.is_active
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-100 text-slate-500"
+                          definition.deleted_at
+                            ? "bg-rose-50 text-rose-700"
+                            : definition.is_active
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-slate-100 text-slate-500"
                         }`}
                       >
-                        {definition.is_active ? "사용 중" : "사용 중지"}
+                        {definition.deleted_at
+                          ? "삭제됨"
+                          : definition.is_active
+                            ? "사용 중"
+                            : "사용 중지"}
                       </span>
                     </td>
                     <td className="px-3 py-3.5 text-center tabular-nums">
@@ -560,35 +640,60 @@ export function DocumentTemplateManagement() {
                     </td>
                     <td className="px-3 py-3.5">
                       <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="h-8 whitespace-nowrap px-3 text-xs"
-                          disabled={saving}
-                          onClick={() => openDefinition(definition)}
-                        >
-                          <Pencil className="mr-1 h-4 w-4" />
-                          수정
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="h-8 whitespace-nowrap px-3 text-xs"
-                          disabled={saving}
-                          onClick={() => void openMappings(definition)}
-                        >
-                          <Settings2 className="mr-1 h-4 w-4" />
-                          입력 설정
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="h-8 whitespace-nowrap px-3 text-xs"
-                          disabled={saving}
-                          onClick={() => void toggleDefinition(definition)}
-                        >
-                          {definition.is_active ? "사용 중지" : "재활성화"}
-                        </Button>
+                        {definition.deleted_at ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 whitespace-nowrap px-3 text-xs"
+                            disabled={saving}
+                            onClick={() => void restoreDefinition(definition)}
+                          >
+                            <RotateCcw className="mr-1 h-4 w-4" />
+                            복구
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 whitespace-nowrap px-3 text-xs"
+                              disabled={saving}
+                              onClick={() => openDefinition(definition)}
+                            >
+                              <Pencil className="mr-1 h-4 w-4" />
+                              수정
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 whitespace-nowrap px-3 text-xs"
+                              disabled={saving}
+                              onClick={() => void openMappings(definition)}
+                            >
+                              <Settings2 className="mr-1 h-4 w-4" />
+                              입력 설정
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 whitespace-nowrap px-3 text-xs"
+                              disabled={saving}
+                              onClick={() => void toggleDefinition(definition)}
+                            >
+                              {definition.is_active ? "사용 중지" : "재활성화"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 whitespace-nowrap px-3 text-xs text-rose-700"
+                              disabled={saving}
+                              onClick={() => setDeletionTarget(definition)}
+                            >
+                              <Trash2 className="mr-1 h-4 w-4" />
+                              삭제
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -621,14 +726,17 @@ export function DocumentTemplateManagement() {
                   setSelectedId(event.target.value);
                   setFile(null);
                   setConfirmedAnalysisFile("");
+                  setPendingMappings([]);
                   setAnalysisSummary(null);
                 }}
                 options={[
                   { value: "", label: "문서 종류 선택" },
-                  ...definitions.map((definition) => ({
-                    value: definition.id,
-                    label: `${definition.name} (${definition.file_format})`,
-                  })),
+                  ...definitions
+                    .filter((definition) => !definition.deleted_at)
+                    .map((definition) => ({
+                      value: definition.id,
+                      label: `${definition.name} (${definition.file_format})`,
+                    })),
                 ]}
               />
             </div>
@@ -730,6 +838,7 @@ export function DocumentTemplateManagement() {
                   <input
                     type="checkbox"
                     checked={templateForm.activate}
+                    disabled={selected.file_format === "HWPX"}
                     onChange={(event) =>
                       setTemplateForm((previous) => ({
                         ...previous,
@@ -737,7 +846,9 @@ export function DocumentTemplateManagement() {
                       }))
                     }
                   />
-                  이 연도·주기의 기본 양식으로 지정
+                  {selected.file_format === "HWPX"
+                    ? "HWPX 원본과 매핑을 함께 기본 양식으로 확정"
+                    : "이 연도·주기의 기본 양식으로 지정"}
                 </label>
                 {!selected.is_active && (
                   <p className="text-sm text-amber-700 md:col-span-2 xl:col-span-4">
@@ -1140,7 +1251,30 @@ export function DocumentTemplateManagement() {
               취소
             </Button>
             <Button type="button" disabled={saving} onClick={() => void saveMappings()}>
-              {saving ? "저장 중" : mappingMode === "analysis" ? "매핑 확인 및 저장" : "저장"}
+              {saving ? "저장 중" : mappingMode === "analysis" ? "분석 결과 확인" : "저장"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+      <Modal
+        isOpen={Boolean(deletionTarget)}
+        onClose={() => setDeletionTarget(null)}
+        title="문서 종류 삭제"
+      >
+        <div className="space-y-4 pt-5">
+          <p className="font-medium text-slate-900">
+            “{deletionTarget?.name}” 문서 종류를 삭제하시겠습니까?
+          </p>
+          <p className="text-sm leading-6 text-slate-600">
+            삭제 후 신규 문서 생성 목록에서는 표시되지 않습니다. 기존 템플릿, 매핑 및 생성 이력은
+            보존됩니다.
+          </p>
+          <div className="flex justify-end gap-2 border-t pt-4">
+            <Button type="button" variant="secondary" onClick={() => setDeletionTarget(null)}>
+              취소
+            </Button>
+            <Button type="button" disabled={saving} onClick={() => void deleteDefinition()}>
+              {saving ? "삭제 중" : "삭제"}
             </Button>
           </div>
         </div>
