@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { normalizeText } from "./constants";
+import { sanitizeHwpxDefaultValue } from "./hwpx-analysis-presentation";
 
 export const DOCUMENT_FILE_FORMATS = ["HWPX", "XLSX", "XLSM"] as const;
 export type DocumentFileFormat = (typeof DOCUMENT_FILE_FORMATS)[number];
@@ -166,6 +167,11 @@ export function parseDocumentFieldMappings(
     if (seen.has(targetKey)) throw new Error("같은 입력 대상 위치를 중복 등록할 수 없습니다.");
     seen.add(targetKey);
 
+    const defaultValue =
+      raw?.default_value === null || raw?.default_value === undefined
+        ? null
+        : String(raw.default_value);
+
     return {
       source_field: sourceField,
       target_type: targetType as DocumentTargetType,
@@ -173,9 +179,7 @@ export function parseDocumentFieldMappings(
       target_address: normalizedAddress,
       required: raw?.required === true,
       default_value:
-        raw?.default_value === null || raw?.default_value === undefined
-          ? null
-          : String(raw.default_value),
+        fileFormat === "HWPX" ? sanitizeHwpxDefaultValue(defaultValue) : defaultValue,
       sort_order: sortOrder,
     };
   });

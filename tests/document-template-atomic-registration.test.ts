@@ -18,6 +18,25 @@ test("HWPX 분석 확인은 pending 상태만 확정하고 운영 매핑 API를 
   assert.match(ui, /분석 결과 확인/);
 });
 
+test("문서 종류 선택부터 분석·미리보기·등록 완료까지 한 화면 흐름을 유지한다", () => {
+  const ui = readFileSync("components/features/DocumentTemplateManagement.tsx", "utf8");
+  assert.match(ui, /selectDefinition\(definition\.id, true\)/);
+  assert.match(ui, /현재 분석 결과가 저장되지 않았습니다/);
+  assert.match(ui, /3\. 누름틀 분석/);
+  assert.match(ui, /등록할 템플릿 최종 확인/);
+  assert.match(ui, /분석 확인/);
+  assert.doesNotMatch(ui, />매핑 미리보기</);
+  assert.match(ui, /기존 템플릿 \/ 등록 이력/);
+  assert.match(ui, /sanitizeHwpxDefaultValue\(mapping\.default_value\)/);
+  assert.match(ui, /analysisReview\.issue_mappings/);
+  assert.match(ui, /!analysisReview\.can_register/);
+  assert.match(ui, /form="template-upload-form"/);
+  assert.match(ui, /등록 완료/);
+  assert.match(ui, /sticky top-0/);
+  assert.match(ui, /!definition\.deleted_at && definition\.is_active/);
+  assert.doesNotMatch(ui, /공업사.*selectedId|selectedId.*공업사/);
+});
+
 test("HWPX 최종 등록은 Storage staging 후 단일 RPC로 템플릿과 매핑을 확정한다", () => {
   const route = readFileSync("app/api/document-templates/route.ts", "utf8");
   const upload = route.indexOf('stage = "STORAGE_UPLOAD"');
