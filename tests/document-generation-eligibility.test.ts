@@ -100,6 +100,10 @@ test("공업사 예비조사표는 공식 업종분류가 공업사인 신규 �
 test("공업사 정의 1종만 멱등 추가하고 기존 4종을 변경하지 않는다", () => {
   assert.match(industrialShopMigration, /INDUSTRIAL_SHOP_PRELIMINARY_SURVEY/);
   assert.match(industrialShopMigration, /공업사\(예비조사표\)/);
+  assert.match(industrialShopMigration, /DELETE FROM public\.document_definitions definition/);
+  assert.match(industrialShopMigration, /definition\.is_active = FALSE/);
+  assert.match(industrialShopMigration, /FROM public\.document_templates template/);
+  assert.match(industrialShopMigration, /FROM public\.document_field_mappings mapping/);
   assert.match(industrialShopMigration, /WHERE NOT EXISTS/);
   assert.doesNotMatch(industrialShopMigration, /UPDATE public\.document_definitions/);
   for (const code of [

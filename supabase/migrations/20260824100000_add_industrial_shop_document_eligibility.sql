@@ -1,5 +1,21 @@
 -- 공업사 예비조사표는 기존 동적 문서 정의/Worker 파이프라인을 그대로 사용한다.
--- 운영에 같은 이름의 관리자가 만든 정의가 이미 있으면 중복 생성하지 않는다.
+-- 운영에 같은 이름으로 시험 등록한 비활성 정의가 있고 템플릿/매핑이 전혀 없으면
+-- 공식 code로 다시 등록할 수 있도록 해당 빈 정의만 제거한다.
+DELETE FROM public.document_definitions definition
+WHERE definition.name = '공업사(예비조사표)'
+  AND definition.code <> 'INDUSTRIAL_SHOP_PRELIMINARY_SURVEY'
+  AND definition.is_active = FALSE
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.document_templates template
+    WHERE template.document_definition_id = definition.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.document_field_mappings mapping
+    WHERE mapping.document_definition_id = definition.id
+  );
+
 INSERT INTO public.document_definitions (
   code, name, file_format, filename_pattern, default_selected, sort_order, is_active
 )
