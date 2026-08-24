@@ -13,6 +13,11 @@ import {
   findActualMeasurementJournal,
 } from "@/lib/document-generation/journal";
 import { isDocumentDefinitionVisibleForJurisdiction } from "@/lib/document-generation/selection-report-visibility";
+import {
+  isDocumentDefinitionEligibleForTarget,
+  isIndustrialShopPreliminarySurvey,
+  isNewBusinessDocumentGenerationEligible,
+} from "@/lib/document-generation/business-eligibility";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,7 +44,7 @@ async function getContext(businessId: number) {
   if (businessInfoError) throw businessInfoError;
   const officeJurisdiction = String(businessInfo?.office_jurisdiction ?? "").trim();
 
-  const eligible = target.document_generation_enabled === true;
+  const eligible = isNewBusinessDocumentGenerationEligible(target);
   const period = normalizeMeasurementPeriod(target.period);
   const actualJournal = await findActualMeasurementJournal(admin, target);
   const { data: jobRows, error } = await admin
@@ -76,7 +81,10 @@ async function getContext(businessId: number) {
   if (catalogError) throw catalogError;
   const applicableCatalog = (catalog || []).filter((row: any) => {
     const definition = row.document_definition;
-    return isDocumentDefinitionVisibleForJurisdiction(definition.name, officeJurisdiction);
+    return (
+      isDocumentDefinitionVisibleForJurisdiction(definition.name, officeJurisdiction) &&
+      isDocumentDefinitionEligibleForTarget(definition, target)
+    );
   });
   const documents = applicableCatalog.map((row: any) => {
     const definition = row.document_definition;
@@ -195,32 +203,48 @@ export async function POST(request: NextRequest) {
     }
     const selectedDefinitions = requestedDocuments.map((value) => documentMap.get(value));
     if (selectedDefinitions.some((definition) => !definition)) {
-      const { data: deletedDefinitions, error: deletedError } = await admin
+      const { data: definitionsByCode, error: definitionError } = await admin
         .from("document_definitions")
-        .select("id, code")
-        .not("deleted_at", "is", null)
+        .select("id, code, name, is_active, deleted_at")
         .in("code", requestedDocuments);
-      if (deletedError) throw deletedError;
-      const deletedIds = requestedDocuments.filter((value) =>
+      if (definitionError) throw definitionError;
+      const requestedIds = requestedDocuments.filter((value) =>
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
       );
-      let deletedById: any[] = [];
-      if (deletedIds.length > 0) {
+      let definitionsById: any[] = [];
+      if (requestedIds.length > 0) {
         const result = await admin
           .from("document_definitions")
-          .select("id, code")
-          .not("deleted_at", "is", null)
-          .in("id", deletedIds);
+          .select("id, code, name, is_active, deleted_at")
+          .in("id", requestedIds);
         if (result.error) throw result.error;
-        deletedById = result.data || [];
+        definitionsById = result.data || [];
       }
-      if ((deletedDefinitions || []).length > 0 || deletedById.length > 0)
+      const missingDefinitions = Array.from(
+        new Map(
+          [...(definitionsByCode || []), ...definitionsById].map((definition) => [
+            definition.id,
+            definition,
+          ])
+        ).values()
+      );
+      if (missingDefinitions.some((definition) => definition.deleted_at))
         return NextResponse.json(
           {
             error: "삭제된 문서 종류로는 새 문서를 생성할 수 없습니다.",
             errorCode: "DOCUMENT_DEFINITION_DELETED",
           },
           { status: 409 }
+        );
+      if (missingDefinitions.some((definition) => !definition.is_active))
+        return NextResponse.json(
+          { error: "선택한 문서 종류가 비활성화되어 생성할 수 없습니다." },
+          { status: 409 }
+        );
+      if (missingDefinitions.some((definition) => isIndustrialShopPreliminarySurvey(definition)))
+        return NextResponse.json(
+          { error: "공업사 신규 대상 조건을 충족하지 않아 해당 문서를 생성할 수 없습니다." },
+          { status: 403 }
         );
     }
     if (selectedDefinitions.some((definition) => !definition?.available))
@@ -309,6 +333,24 @@ export async function POST(request: NextRequest) {
       if (String(error.message).includes("DOCUMENT_GENERATION_NOT_ELIGIBLE"))
         return NextResponse.json(
           { error: "문서 생성 자격이 없는 측정대상사업장입니다." },
+          { status: 403 }
+        );
+      if (String(error.message).includes("DOCUMENT_DEFINITION_DELETED"))
+        return NextResponse.json(
+          {
+            error: "삭제된 문서 종류로는 새 문서를 생성할 수 없습니다.",
+            errorCode: "DOCUMENT_DEFINITION_DELETED",
+          },
+          { status: 409 }
+        );
+      if (String(error.message).includes("DOCUMENT_DEFINITION_UNAVAILABLE"))
+        return NextResponse.json(
+          { error: "선택한 문서 종류가 비활성화되었거나 생성할 수 없는 상태입니다." },
+          { status: 409 }
+        );
+      if (String(error.message).includes("DOCUMENT_DEFINITION_NOT_ELIGIBLE"))
+        return NextResponse.json(
+          { error: "현재 사업장 조건에서는 선택한 문서를 생성할 수 없습니다." },
           { status: 403 }
         );
       throw error;
