@@ -50,6 +50,11 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
     const definition = await getDefinition(admin, params.id);
     if (!definition)
       return NextResponse.json({ error: "문서 종류를 찾을 수 없습니다." }, { status: 404 });
+    if (definition.deleted_at)
+      return NextResponse.json(
+        { error: "삭제된 문서 종류의 입력 설정은 변경할 수 없습니다." },
+        { status: 409 }
+      );
     return NextResponse.json({
       definition,
       mappings: await getMappings(admin, params.id),
@@ -67,6 +72,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const definition = await getDefinition(admin, params.id);
     if (!definition)
       return NextResponse.json({ error: "문서 종류를 찾을 수 없습니다." }, { status: 404 });
+    if (definition.deleted_at)
+      return NextResponse.json(
+        { error: "삭제된 문서 종류의 입력 설정은 변경할 수 없습니다." },
+        { status: 409 }
+      );
     const body = await request.json();
     const mappings = parseDocumentFieldMappings(
       body?.mappings,

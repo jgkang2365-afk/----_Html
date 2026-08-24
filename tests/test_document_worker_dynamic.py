@@ -194,6 +194,74 @@ class DynamicDocumentWorkerTest(unittest.TestCase):
             self.assertEqual(hwpx.calls[0][2], ["business_name"])
             self.assertEqual(len(excel.calls), 0)
 
+    def test_industrial_shop_uses_existing_dynamic_hwpx_pipeline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            template_path = root / "industrial-shop.hwpx"
+            template_path.write_bytes(b"industrial-shop-template")
+            template = {
+                "template_id": "industrial-shop-template",
+                "size_bytes": template_path.stat().st_size,
+                "sha256": hashlib.sha256(template_path.read_bytes()).hexdigest(),
+                "version": 1,
+                "extension": ".hwpx",
+            }
+            document = {
+                "document_definition_id": "industrial-shop-id",
+                "code": "INDUSTRIAL_SHOP_PRELIMINARY_SURVEY",
+                "name": "공업사(예비조사표)",
+                "file_format": "HWPX",
+                "filename_pattern": "{business_name}(공업사 예비조사표-{short_year}{short_period})",
+                "template": template,
+                "mappings": [
+                    {
+                        "source_field": "measurement_year",
+                        "target_type": "HWPX_FIELD",
+                        "target_address": "measurement_year",
+                        "required": True,
+                        "sort_order": 1,
+                    },
+                    {
+                        "source_field": "business_name",
+                        "target_type": "HWPX_FIELD",
+                        "target_address": "business_name",
+                        "required": True,
+                        "sort_order": 2,
+                    },
+                ],
+            }
+            job = {
+                "id": "industrial-shop-job",
+                "payload": {
+                    "snapshot": self.snapshot,
+                    "documents": [document],
+                    "templates": {document["code"]: template},
+                    "selected_documents": [document["code"]],
+                    "output_path": str(root / "output"),
+                },
+            }
+            hwpx = HwpxMock()
+            status, results, error = process_job(
+                job,
+                LocalClient({"industrial-shop-template": template_path}),
+                root / "output",
+                hwpx,
+                ExcelMock(),
+            )
+
+            self.assertEqual(status, "COMPLETED")
+            self.assertIsNone(error)
+            self.assertEqual(results[0]["document_definition_id"], "industrial-shop-id")
+            self.assertEqual(results[0]["document_name"], "공업사(예비조사표)")
+            self.assertEqual(len(hwpx.calls), 1)
+            self.assertEqual(
+                hwpx.calls[0][1],
+                {"measurement_year": "2026", "business_name": "H0507 테스트/사업장"},
+            )
+            self.assertEqual(
+                hwpx.calls[0][2], ["measurement_year", "business_name"]
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

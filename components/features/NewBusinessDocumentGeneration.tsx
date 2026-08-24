@@ -8,6 +8,7 @@ import {
   isDocumentGenerationRunning,
   shouldApplyDocumentGenerationResponse,
 } from "@/lib/document-generation/polling";
+import { isNewBusinessDocumentGenerationEligible } from "@/lib/document-generation/business-eligibility";
 type Document = {
   definition?: {
     id: string;
@@ -176,7 +177,14 @@ export function NewBusinessDocumentGeneration({
     String(business.code ?? "").trim()
   );
   const canShowWhileLoading =
-    loading && documentGenerationEnabled === true && hasActualMeasurementJournal === false;
+    loading &&
+    documentGenerationEnabled === true &&
+    hasActualMeasurementJournal === false &&
+    isNewBusinessDocumentGenerationEligible({
+      document_generation_enabled: documentGenerationEnabled,
+      business_type: business.business_type,
+      business_category: business.business_category,
+    });
   const open = () => {
     const failed = new Set(
       (context?.job?.result_files || [])
@@ -278,9 +286,7 @@ export function NewBusinessDocumentGeneration({
           ) : (
             <FilePlus2 className="mr-1.5 h-4 w-4" />
           )}
-          {loading
-            ? "문서 생성"
-            : DOCUMENT_GENERATION_STATUS_LABELS[status] || "문서 생성"}
+          {loading ? "문서 생성" : DOCUMENT_GENERATION_STATUS_LABELS[status] || "문서 생성"}
         </Button>
       </div>
       <Modal
