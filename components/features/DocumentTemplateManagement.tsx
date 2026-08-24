@@ -2,16 +2,24 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
   ListPlus,
   RotateCcw,
   Upload,
+  XCircle,
 } from "lucide-react";
 import { Button, Input, Modal, Select } from "@/components/ui";
 import {
   ANNUAL_TEMPLATE_PERIOD,
   templateMeasurementPeriodLabel,
 } from "@/lib/document-generation/constants";
+import {
+  classifyHwpxWarning,
+  getHwpxMappingStatus,
+  reviewHwpxRegistration,
+  sanitizeHwpxDefaultValue,
+} from "@/lib/document-generation/hwpx-analysis-presentation";
 
 type FileFormat = "HWPX" | "XLSX" | "XLSM";
 type Period = "상반기" | "하반기" | typeof ANNUAL_TEMPLATE_PERIOD;
@@ -82,7 +90,21 @@ type RegistrationSuccess = {
   documentName: string;
   measurementYear: number;
   measurementPeriod: Period;
+  mappingCount: number;
 };
+
+const mappingStatusPresentation = {
+  normal: { label: "정상", badge: "bg-emerald-50 text-emerald-700", row: "" },
+  review: { label: "확인 필요", badge: "bg-amber-100 text-amber-800", row: "bg-amber-50/50" },
+  unmapped: { label: "미매핑", badge: "bg-amber-100 text-amber-800", row: "bg-amber-50/70" },
+  error: { label: "오류", badge: "bg-rose-100 text-rose-700", row: "bg-rose-50/70" },
+} as const;
+
+const warningPresentation = {
+  info: { label: "정보", className: "text-blue-700" },
+  caution: { label: "주의", className: "text-amber-700" },
+  fatal: { label: "오류", className: "text-rose-700" },
+} as const;
 
 const emptyDefinition = (): Omit<Definition, "id" | "code"> => ({
   name: "",
@@ -151,6 +173,8 @@ export function DocumentTemplateManagement() {
     setConfirmedAnalysisFile("");
     setPendingMappings([]);
     setAnalysisSummary(null);
+    setMappings([]);
+    setMappingMode("manual");
     setRegistrationSuccess(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -420,25 +444,18 @@ export function DocumentTemplateManagement() {
   const saveMappings = async () => {
     if (!selected) return;
     if (mappingMode === "analysis") {
-      const unnamed = mappings.filter(
-        (mapping) => mapping.present_in_file !== false && !mapping.target_address
-      );
-      const unmatched = mappings.filter(
-        (mapping) =>
-          mapping.present_in_file !== false && (!mapping.target_address || !mapping.source_field)
-      );
-      const stale = mappings.filter((mapping) => mapping.present_in_file === false);
-      if (unnamed.length > 0)
-        return notify("내부 이름이 없는 누름틀이 있습니다. HWPX에서 누름틀 이름을 지정해 주세요.");
-      if (unmatched.length > 0)
-        return notify("미매칭 누름틀의 DB 필드를 모두 선택한 뒤 확인해 주세요.");
-      if (stale.length > 0)
-        return notify("새 HWPX에 없는 기존 매핑을 확인하고 필요하면 삭제해 주세요.");
+      const review = reviewHwpxRegistration(mappings);
       if (!file) return notify("분석한 HWPX 파일을 다시 선택해 주세요.");
       setPendingMappings(mappings.map((mapping) => ({ ...mapping })));
       setConfirmedAnalysisFile(fileKey(file));
       setMappingModal(false);
-      notify("분석 결과를 확인했습니다. 등록 버튼을 누를 때 원본과 매핑을 함께 확정합니다.");
+      notify(
+        review.status === "blocked"
+          ? "분석 결과를 확인했습니다. 등록 불가 항목을 해결한 뒤 다시 분석해 주세요."
+          : review.status === "review"
+          ? `분석 결과를 확인했습니다. 확인 필요 ${review.confirmation_count}건을 검토한 뒤 등록해 주세요.`
+          : "분석 결과를 확인했습니다. 원본과 매핑을 함께 등록할 수 있습니다."
+      );
       return;
     }
     setSaving(true);
@@ -476,6 +493,8 @@ export function DocumentTemplateManagement() {
       void analyzeHwpxFile(file);
       return notify("HWPX 누름틀 자동 분석 결과를 먼저 확인해 주세요.");
     }
+    if (selected.file_format === "HWPX" && !analysisReview.can_register)
+      return notify("등록을 차단하는 미매핑 또는 누름틀 구조 오류를 먼저 해결해 주세요.");
     setSaving(true);
     try {
       const body = new FormData();
@@ -506,12 +525,18 @@ export function DocumentTemplateManagement() {
         documentName: selected.name,
         measurementYear: templateForm.measurement_year,
         measurementPeriod: templateForm.measurement_period,
+        mappingCount:
+          selected.file_format === "HWPX"
+            ? pendingMappings.filter((mapping) => mapping.source_field).length
+            : selectedMappingCount,
       };
       await Promise.all([loadTemplates(selected.id), loadDefinitions()]);
       setFile(null);
       setConfirmedAnalysisFile("");
       setPendingMappings([]);
       setAnalysisSummary(null);
+      setMappings([]);
+      setMappingMode("manual");
       setRegistrationSuccess(completed);
       if (fileInputRef.current) fileInputRef.current.value = "";
       notify("템플릿과 입력 매핑을 등록했습니다.");
@@ -550,6 +575,8 @@ export function DocumentTemplateManagement() {
   const selectedMappingCount = selected
     ? selected.mapping_count ?? selected.mappings_count ?? 0
     : 0;
+  const analysisReview = useMemo(() => reviewHwpxRegistration(mappings), [mappings]);
+  const currentMappedCount = mappings.filter((mapping) => mapping.source_field).length;
   const analysisConfirmed = Boolean(
     selected?.file_format === "HWPX" && file && confirmedAnalysisFile === fileKey(file)
   );
@@ -569,7 +596,7 @@ export function DocumentTemplateManagement() {
           <h1 className="text-xl font-bold tracking-tight text-slate-900">문서 템플릿 관리</h1>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
             <p className="text-slate-500">문서 종류, 입력 위치, 연도·주기별 원본 양식을 관리합니다.</p>
-            <p className="font-medium text-blue-700">1 문서 종류 → 2 입력 설정 → 3 원본 등록</p>
+            <p className="font-medium text-blue-700">1 문서 선택 → 2 원본 선택 → 3 분석 → 4 문제 확인 → 5 최종 확인</p>
           </div>
         </header>
         {message && (
@@ -581,7 +608,7 @@ export function DocumentTemplateManagement() {
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
             <div>
-              <h2 className="text-sm font-bold text-slate-800">1. 문서 종류 관리</h2>
+              <h2 className="text-sm font-bold text-slate-800">1. 문서 종류 선택</h2>
               <p className="mt-0.5 text-[11px] text-slate-500">행을 선택하면 아래 템플릿 관리가 같은 문서로 전환됩니다.</p>
             </div>
             <div className="flex items-center gap-3">
@@ -668,7 +695,7 @@ export function DocumentTemplateManagement() {
         <section ref={templateSectionRef} className="scroll-mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
             <div>
-              <h2 className="text-sm font-bold text-slate-800">2. 선택 문서 템플릿 관리</h2>
+              <h2 className="text-sm font-bold text-slate-800">2. 원본 선택</h2>
               <p className="mt-0.5 text-xs text-slate-600">
                 선택 문서: <strong className="text-slate-900">{selected ? `${selected.name} (${selected.file_format})` : "없음"}</strong>
               </p>
@@ -716,22 +743,30 @@ export function DocumentTemplateManagement() {
                 <div className="border-b border-slate-200 p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-800">3. 누름틀 분석 결과</h3>
-                      <p className="mt-0.5 text-[11px] text-slate-500">자동 매핑과 중복·중첩 경고를 확인합니다.</p>
+                      <h3 className="text-sm font-bold text-slate-800">3. 누름틀 분석</h3>
+                      <p className="mt-0.5 text-[11px] text-slate-500">요약 숫자로 등록 상태를 먼저 판단합니다.</p>
                     </div>
-                    <div className="grid grid-cols-4 overflow-hidden rounded-md border border-slate-200 bg-white text-center text-xs">
+                    <div className="grid grid-cols-5 overflow-hidden rounded-md border border-slate-200 bg-white text-center text-xs">
                       {[
                         ["총 누름틀", analysisSummary.discovered, "text-slate-800"],
                         ["고유", analysisSummary.unique, "text-slate-800"],
                         ["자동 매핑", analysisSummary.auto_matched, "text-emerald-700"],
-                        ["미매핑", analysisSummary.unmatched, analysisSummary.unmatched ? "text-amber-700" : "text-emerald-700"],
+                        ["미매핑", analysisReview.unmapped_count, analysisReview.unmapped_count ? "text-amber-700" : "text-emerald-700"],
+                        ["확인 필요", analysisReview.confirmation_count, analysisReview.confirmation_count ? "text-amber-700" : "text-emerald-700"],
                       ].map(([label, value, color]) => <div key={String(label)} className="min-w-[86px] border-r border-slate-200 px-3 py-2 last:border-r-0"><p className="text-[10px] text-slate-500">{label}</p><p className={`mt-0.5 text-base font-bold tabular-nums ${color}`}>{value}</p></div>)}
                     </div>
                   </div>
+                  <div className="mb-2 flex items-end justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800">4. 매핑·문제 확인</h3>
+                      <p className="mt-0.5 text-[11px] text-slate-500">경고가 있는 행은 자동 매핑되어도 정상으로 표시하지 않습니다.</p>
+                    </div>
+                    <p className="text-[10px] text-slate-500">정보는 참고 · 주의는 원본 확인 · 오류는 등록 차단</p>
+                  </div>
                   <div className="max-h-[330px] overflow-auto rounded-md border border-slate-200">
-                    <table className="w-full min-w-[900px] table-fixed text-xs">
-                      <colgroup><col className="w-[190px]" /><col className="w-[140px]" /><col className="w-[230px]" /><col /><col className="w-[210px]" /></colgroup>
-                      <thead className="sticky top-0 z-10 bg-slate-100 text-left text-[11px] font-semibold text-slate-600 shadow-[0_1px_0_#e2e8f0]"><tr><th className="px-3 py-2">누름틀명</th><th className="px-3 py-2">표시명</th><th className="px-3 py-2">자동 매핑 결과</th><th className="px-3 py-2">기본값</th><th className="px-3 py-2">상태</th></tr></thead>
+                    <table className="w-full min-w-[860px] table-fixed text-xs">
+                      <colgroup><col className="w-[180px]" /><col className="w-[135px]" /><col className="w-[220px]" /><col /><col className="w-[250px]" /></colgroup>
+                      <thead className="sticky top-0 z-10 bg-slate-100 text-left text-[11px] font-semibold text-slate-600 shadow-[0_1px_0_#e2e8f0]"><tr><th className="px-3 py-2">누름틀명</th><th className="px-3 py-2">표시명</th><th className="px-3 py-2">매핑 결과</th><th className="px-3 py-2">기본값</th><th className="px-3 py-2">상태</th></tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {mappings.map((mapping, index) => {
                           const update = (changes: Partial<Mapping>) => {
@@ -739,16 +774,23 @@ export function DocumentTemplateManagement() {
                             setConfirmedAnalysisFile("");
                             setPendingMappings([]);
                           };
-                          const automatic = mapping.match_type === "exact" || mapping.match_type === "alias";
+                          const status = getHwpxMappingStatus(mapping);
+                          const statusUi = mappingStatusPresentation[status];
+                          const defaultValue = sanitizeHwpxDefaultValue(mapping.default_value);
                           return (
-                            <tr key={`${mapping.target_address}-${index}`} className={!mapping.source_field || mapping.present_in_file === false ? "bg-amber-50/60" : ""}>
-                              <td className="px-3 py-2 align-top font-mono text-[11px] text-slate-700" title={mapping.target_address}><span className="block truncate">{mapping.target_address || "—"}</span>{(mapping.occurrence_count || 0) > 1 && <p className="mt-1 font-sans text-[10px] font-medium text-amber-700">동일 누름틀 {mapping.occurrence_count}회 사용</p>}</td>
+                            <tr key={`${mapping.target_address}-${index}`} className={statusUi.row}>
+                              <td className="px-3 py-2 align-top font-mono text-[11px] text-slate-700" title={mapping.target_address}><span className="block truncate">{mapping.target_address || "—"}</span></td>
                               <td className="px-3 py-2 align-top text-slate-700" title={mapping.display_name}>{mapping.display_name || "—"}</td>
                               <td className="px-3 py-1.5 align-top"><Select value={mapping.source_field} onChange={(event) => update({ source_field: event.target.value, match_type: event.target.value ? "manual" : null })} options={[{ value: "", label: "필드 선택" }, ...fieldOptions]} /></td>
-                              <td className="px-3 py-2 align-top text-slate-500" title={mapping.default_value || ""}><span className="block truncate">{mapping.default_value || "—"}</span></td>
+                              <td className="px-3 py-2 align-top text-slate-500" title={defaultValue || undefined}><span className="block truncate">{defaultValue || "—"}</span></td>
                               <td className="px-3 py-2 align-top">
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${!mapping.source_field ? "bg-amber-100 text-amber-800" : automatic ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{!mapping.source_field ? "미매핑" : automatic ? "정상" : "수동 확인"}</span>
-                                {(mapping.warnings || []).map((warning) => <p key={warning} className="mt-1 text-[10px] leading-4 text-amber-700">{warning}</p>)}
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusUi.badge}`}>{statusUi.label}</span>
+                                {!mapping.source_field && <p className="mt-1 text-[10px] leading-4 text-amber-700">DB 필드를 선택해 주세요.</p>}
+                                {(mapping.warnings || []).map((warning) => {
+                                  const severity = classifyHwpxWarning(warning);
+                                  const warningUi = warningPresentation[severity];
+                                  return <p key={warning} className={`mt-1 text-[10px] leading-4 ${warningUi.className}`}><span className="font-semibold">{warningUi.label}</span> · {warning}</p>;
+                                })}
                               </td>
                             </tr>
                           );
@@ -756,36 +798,49 @@ export function DocumentTemplateManagement() {
                       </tbody>
                     </table>
                   </div>
-                  <div className="mt-3 flex justify-end"><Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" disabled={saving || analyzing} onClick={() => void saveMappings()}>매핑 미리보기</Button></div>
+                  <div className="mt-3 flex justify-end"><Button type="button" size="sm" className="h-8 px-3 text-xs" disabled={saving || analyzing} onClick={() => void saveMappings()}>분석 확인</Button></div>
                 </div>
               )}
 
               {showRegistrationPreview && file && (
                 <div className="border-b border-slate-200 bg-slate-50/30 p-4">
-                  <h3 className="text-sm font-bold text-slate-800">4. 원본 및 매핑 미리보기</h3>
+                  <h3 className="text-sm font-bold text-slate-800">5. 등록할 템플릿 최종 확인</h3>
                   <dl className="mt-3 grid gap-x-6 gap-y-2 rounded-md border border-slate-200 bg-white p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
                     <div><dt className="text-slate-500">문서 종류</dt><dd className="mt-0.5 truncate font-semibold text-slate-800" title={selected.name}>{selected.name}</dd></div>
                     <div><dt className="text-slate-500">적용 연도·주기</dt><dd className="mt-0.5 font-semibold text-slate-800">{templateForm.measurement_year}년 {templateMeasurementPeriodLabel(templateForm.measurement_period)}</dd></div>
                     <div><dt className="text-slate-500">원본 파일</dt><dd className="mt-0.5 truncate font-semibold text-slate-800" title={file.name}>{file.name}</dd></div>
                     <div><dt className="text-slate-500">등록 상태</dt><dd className="mt-0.5 font-semibold text-slate-800">{selected.file_format === "HWPX" ? "원본 + 매핑 원자 등록" : templateForm.activate ? "활성 템플릿" : "비활성 템플릿"}</dd></div>
-                    {analysisSummary && <><div><dt className="text-slate-500">누름틀</dt><dd className="mt-0.5 font-semibold">{analysisSummary.discovered}개</dd></div><div><dt className="text-slate-500">고유</dt><dd className="mt-0.5 font-semibold">{analysisSummary.unique}개</dd></div><div><dt className="text-slate-500">자동 매핑</dt><dd className="mt-0.5 font-semibold text-emerald-700">{analysisSummary.auto_matched}개</dd></div><div><dt className="text-slate-500">미매핑</dt><dd className={`mt-0.5 font-semibold ${analysisSummary.unmatched ? "text-amber-700" : "text-emerald-700"}`}>{analysisSummary.unmatched}개</dd></div></>}
+                    {analysisSummary && <><div><dt className="text-slate-500">누름틀</dt><dd className="mt-0.5 font-semibold">{analysisSummary.discovered}개</dd></div><div><dt className="text-slate-500">고유 누름틀</dt><dd className="mt-0.5 font-semibold">{analysisSummary.unique}개</dd></div><div><dt className="text-slate-500">매핑</dt><dd className="mt-0.5 font-semibold text-emerald-700">{currentMappedCount}개</dd></div><div><dt className="text-slate-500">미매핑</dt><dd className={`mt-0.5 font-semibold ${analysisReview.unmapped_count ? "text-amber-700" : "text-emerald-700"}`}>{analysisReview.unmapped_count}개</dd></div><div><dt className="text-slate-500">확인 필요</dt><dd className={`mt-0.5 font-semibold ${analysisReview.confirmation_count ? "text-amber-700" : "text-emerald-700"}`}>{analysisReview.confirmation_count}개</dd></div></>}
                   </dl>
+                  {selected.file_format === "HWPX" && (
+                    <div className={`mt-3 rounded-md border p-3 ${analysisReview.status === "ready" ? "border-emerald-200 bg-emerald-50" : analysisReview.status === "review" ? "border-amber-200 bg-amber-50" : "border-rose-200 bg-rose-50"}`}>
+                      <div className="flex items-start gap-2">
+                        {analysisReview.status === "ready" ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /> : analysisReview.status === "review" ? <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" /> : <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />}
+                        <div className="min-w-0">
+                          <p className={`text-sm font-bold ${analysisReview.status === "ready" ? "text-emerald-900" : analysisReview.status === "review" ? "text-amber-900" : "text-rose-900"}`}>{analysisReview.status === "ready" ? "등록 가능" : analysisReview.status === "review" ? `확인 필요 ${analysisReview.confirmation_count}건` : "등록 불가"}</p>
+                          <p className="mt-0.5 text-xs text-slate-700">{analysisReview.status === "ready" ? `누름틀 매핑 ${currentMappedCount}개가 모두 정상입니다. ${templateForm.measurement_year}년 ${templateMeasurementPeriodLabel(templateForm.measurement_period)} 템플릿으로 등록할 수 있습니다.` : analysisReview.status === "review" ? "경고 내용을 확인했습니다. 원본 확인 후 등록할 수 있습니다." : "미매핑 또는 누름틀 구조 오류가 있습니다. 원본 HWPX를 수정한 뒤 다시 분석하세요."}</p>
+                          {analysisReview.issue_mappings.length > 0 && <div className="mt-2 space-y-1 text-[11px] text-slate-700">{analysisReview.issue_mappings.map((issue) => <div key={issue.target_address}><p className="font-semibold">{issue.target_address}</p>{issue.warnings.length > 0 ? issue.warnings.map(({ message, severity }) => <p key={message} className={warningPresentation[severity].className}>- {warningPresentation[severity].label}: {message}</p>) : <p className="text-amber-700">- DB 필드를 선택해야 합니다.</p>}</div>)}</div>}
+                          <p className="mt-2 text-[11px] font-semibold">최종 판정: {analysisReview.status === "ready" ? "등록 가능" : analysisReview.status === "review" ? "원본 확인 후 등록 필요" : "원본 수정 후 재분석 필요"}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {selected.file_format !== "HWPX" && <label className="mt-3 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={templateForm.activate} onChange={(event) => setTemplateForm((previous) => ({ ...previous, activate: event.target.checked }))} />이 연도·주기의 기본 양식으로 지정</label>}
-                  <div className="mt-3 flex justify-end gap-2"><Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={clearTemplateDraft}>취소</Button><Button type="submit" form="template-upload-form" size="sm" className="h-8 px-4 text-xs" disabled={saving || analyzing || !selected.is_active}><Upload className="mr-1 h-3.5 w-3.5" />{saving ? "등록 중…" : "등록"}</Button></div>
+                  <div className="mt-3 flex justify-end gap-2"><Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={clearTemplateDraft}>{selected.file_format === "HWPX" && analysisReview.status !== "ready" ? "원본 다시 선택" : "취소"}</Button><Button type="submit" form="template-upload-form" size="sm" className="h-8 px-4 text-xs" disabled={saving || analyzing || !selected.is_active || (selected.file_format === "HWPX" && !analysisReview.can_register)}><Upload className="mr-1 h-3.5 w-3.5" />{saving ? "등록 중…" : selected.file_format === "HWPX" && analysisReview.status === "blocked" ? "등록 불가" : "등록"}</Button></div>
                 </div>
               )}
 
               {registrationSuccess && (
                 <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-600" /><div><h3 className="text-sm font-bold text-emerald-900">등록 완료</h3><p className="mt-0.5 text-xs text-emerald-800">{registrationSuccess.documentName} · {registrationSuccess.measurementYear}년 {templateMeasurementPeriodLabel(registrationSuccess.measurementPeriod)} 템플릿과 매핑이 등록되었습니다.</p></div></div>
+                    <div className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-600" /><div><h3 className="text-sm font-bold text-emerald-900">등록 완료</h3><p className="mt-0.5 text-xs text-emerald-800">{registrationSuccess.documentName} · {registrationSuccess.measurementYear}년 {templateMeasurementPeriodLabel(registrationSuccess.measurementPeriod)} · 매핑 {registrationSuccess.mappingCount}개 · 활성 템플릿 등록 완료</p></div></div>
                     <Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={() => setRegistrationSuccess(null)}>확인</Button>
                   </div>
                 </div>
               )}
 
               <div>
-                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5"><div><h3 className="text-sm font-bold text-slate-800">5. 등록된 템플릿</h3><p className="mt-0.5 text-[11px] text-slate-500">현재 매핑 {selectedMappingCount}개</p></div></div>
+                <div className="flex items-center justify-between border-y border-slate-200 bg-slate-50 px-4 py-2.5"><div><h3 className="text-sm font-bold text-slate-800">기존 템플릿 / 등록 이력</h3><p className="mt-0.5 text-[11px] text-slate-500">과거 등록 이력과 활성 상태를 관리합니다. 현재 매핑 {selectedMappingCount}개</p></div><span className="text-[11px] text-slate-500">{templates.length}건</span></div>
                 <div className="max-h-[300px] overflow-auto">
                   <table className="w-full min-w-[820px] table-fixed text-xs">
                     <colgroup><col className="w-[160px]" /><col className="w-[60px]" /><col /><col className="w-[90px]" /><col className="w-[170px]" /><col className="w-[110px]" /></colgroup>

@@ -6,6 +6,11 @@ import {
   analyzeHwpxPlaceholders,
   HwpxAnalysisError,
 } from "../lib/document-generation/hwpx-placeholder-analysis";
+import {
+  getHwpxMappingStatus,
+  reviewHwpxRegistration,
+  sanitizeHwpxDefaultValue,
+} from "../lib/document-generation/hwpx-analysis-presentation";
 import { parseDocumentFieldMappings } from "../lib/document-generation/definitions";
 
 const HP = "http://www.hancom.co.kr/hwpml/2011/paragraph";
@@ -127,6 +132,80 @@ test("중첩 누름틀을 감지하되 분석 결과에서 삭제하지 않는�
   assert.ok(
     result.placeholders.every(({ warnings }) => warnings.some((warning) => /중첩/.test(warning)))
   );
+});
+
+test("누름틀 매핑 상태는 warning과 치명적 구조 오류를 구분한다", () => {
+  assert.equal(
+    getHwpxMappingStatus({
+      source_field: "measurement_year",
+      target_address: "measurement_year",
+      warnings: [],
+    }),
+    "normal"
+  );
+  assert.equal(
+    getHwpxMappingStatus({
+      source_field: "measurement_year",
+      target_address: "measurement_year",
+      warnings: ["동일 누름틀 이름이 2회 등장합니다."],
+    }),
+    "review"
+  );
+  assert.equal(
+    getHwpxMappingStatus({ source_field: "", target_address: "measurement_year", warnings: [] }),
+    "unmapped"
+  );
+  assert.equal(
+    getHwpxMappingStatus({
+      source_field: "measurement_year",
+      target_address: "measurement_year",
+      warnings: ["누름틀 시작·종료 위치가 충돌하거나 짝이 맞지 않습니다."],
+    }),
+    "error"
+  );
+});
+
+test("등록 판정은 비차단 경고를 확인 필요로 두고 치명적 오류와 미매핑을 차단한다", () => {
+  const review = reviewHwpxRegistration([
+    {
+      source_field: "measurement_year",
+      target_address: "measurement_year",
+      warnings: [
+        "동일 누름틀 이름이 2회 등장합니다.",
+        "누름틀이 중첩되어 있습니다.",
+        "동일 이름 누름틀의 기본값이 서로 다릅니다.",
+      ],
+    },
+  ]);
+  assert.equal(review.status, "review");
+  assert.equal(review.confirmation_count, 1);
+  assert.equal(review.can_register, true);
+
+  const blocked = reviewHwpxRegistration([
+    {
+      source_field: "business_name",
+      target_address: "business_name",
+      warnings: ["누름틀 시작·종료 위치가 충돌하거나 짝이 맞지 않습니다."],
+    },
+  ]);
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.can_register, false);
+  assert.equal(blocked.fatal_count, 1);
+
+  const unmapped = reviewHwpxRegistration([
+    { source_field: "", target_address: "required_field", required: true, warnings: [] },
+  ]);
+  assert.equal(unmapped.unmapped_count, 1);
+  assert.equal(unmapped.can_register, false);
+});
+
+test("HWPX 내부 제어 문자열은 업무용 기본값으로 노출하지 않는다", () => {
+  assert.equal(
+    sanitizeHwpxDefaultValue("Clickhere:set:Direction:wstring:4:연도 HelpState:0"),
+    null
+  );
+  assert.equal(sanitizeHwpxDefaultValue("  사람이 읽는 기본값  "), "사람이 읽는 기본값");
+  assert.equal(sanitizeHwpxDefaultValue(""), null);
 });
 
 test("손상된 HWPX ZIP은 명확한 오류 코드로 실패한다", async () => {

@@ -181,5 +181,5 @@ test("템플릿 업로드는 기존 오류 계약과 HWPX 자동 분석·수동 
   assert.match(management, /\/api\/document-templates\/analyze/);
   assert.match(management, /매핑 추가/);
   assert.match(management, /HWPX 누름틀 자동 분석 결과를 먼저 확인/);
-  assert.match(management, /1 문서 종류 → 2 입력 설정 → 3 원본 등록/);
+  assert.match(management, /1 문서 선택 → 2 원본 선택 → 3 분석 → 4 문제 확인 → 5 최종 확인/);
 });
