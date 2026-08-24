@@ -112,9 +112,14 @@ test("작업 요청은 선택 문서와 템플릿 버전을 payload에 고정한
 
 test("템플릿 조회는 같은 연도의 정확 주기와 annual 후보로 제한한다", () => {
   const source = readFileSync("app/api/document-generation/route.ts", "utf8");
-  assert.match(source, /eq\("measurement_year", target\.year\)/);
-  assert.match(source, /in\("measurement_period", \[period, ANNUAL_TEMPLATE_PERIOD\]\)/);
-  assert.match(source, /selectApplicableDocumentTemplates/);
+  const migration = readFileSync(
+    "supabase/migrations/20260824090000_atomic_hwpx_registration_and_definition_soft_delete.sql",
+    "utf8"
+  );
+  assert.match(source, /get_document_generation_catalog/);
+  assert.match(source, /p_measurement_year: target\.year/);
+  assert.match(migration, /candidate\.measurement_year = p_measurement_year/);
+  assert.match(migration, /candidate\.measurement_period IN \(p_measurement_period, 'annual'\)/);
 });
 
 test("Worker API는 Bearer token 인증을 사용한다", () => {

@@ -6,6 +6,12 @@ import {
   isDocumentDefinitionVisibleForJurisdiction,
 } from "../lib/document-generation/selection-report-visibility";
 import { DOCUMENT_GENERATION_STATUS_LABELS } from "../lib/document-generation/polling";
+import {
+  INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_CODE,
+  INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME,
+  isDocumentDefinitionEligibleForTarget,
+  isNewBusinessDocumentGenerationEligible,
+} from "../lib/document-generation/business-eligibility";
 
 const migration = readFileSync(
   "supabase/migrations/20260724_target_document_generation_eligibility.sql",
@@ -28,6 +34,116 @@ const management = readFileSync(
   "components/features/MeasurementTargetBusinessManagement.tsx",
   "utf8"
 );
+const industrialShopMigration = readFileSync(
+  "supabase/migrations/20260824100000_add_industrial_shop_document_eligibility.sql",
+  "utf8"
+);
+
+const target = (overrides: Record<string, unknown> = {}) => ({
+  document_generation_enabled: true,
+  business_type: "first_measurement",
+  business_category: "공업사",
+  ...overrides,
+});
+
+test("문서 자동생성은 최초실시와 타기관 신규에만 허용한다", () => {
+  assert.equal(isNewBusinessDocumentGenerationEligible(target()), true);
+  assert.equal(
+    isNewBusinessDocumentGenerationEligible(target({ business_type: "external_new" })),
+    true
+  );
+  assert.equal(
+    isNewBusinessDocumentGenerationEligible(target({ business_type: "existing" })),
+    false
+  );
+  assert.equal(
+    isNewBusinessDocumentGenerationEligible(target({ document_generation_enabled: false })),
+    false
+  );
+});
+
+test("공업사 예비조사표는 공식 업종분류가 공업사인 신규 대상에만 노출한다", () => {
+  const definition = {
+    code: INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_CODE,
+    name: INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME,
+  };
+  assert.equal(isDocumentDefinitionEligibleForTarget(definition, target()), true);
+  assert.equal(
+    isDocumentDefinitionEligibleForTarget(definition, target({ business_type: "external_new" })),
+    true
+  );
+  assert.equal(
+    isDocumentDefinitionEligibleForTarget(definition, target({ business_type: "existing" })),
+    false
+  );
+  assert.equal(
+    isDocumentDefinitionEligibleForTarget(definition, target({ business_category: "제조업" })),
+    false
+  );
+  assert.equal(
+    isDocumentDefinitionEligibleForTarget(
+      definition,
+      target({ business_category: "공업사 사업장" })
+    ),
+    false,
+    "사업장명/부분 문자열로 공업사를 추론하지 않는다"
+  );
+  assert.equal(
+    isDocumentDefinitionEligibleForTarget(
+      { code: "GENERAL_PRELIMINARY_SURVEY", name: "일반 예비조사표" },
+      target({ business_category: "제조업" })
+    ),
+    true
+  );
+});
+
+test("공업사 정의 1종만 멱등 추가하고 기존 4종을 변경하지 않는다", () => {
+  assert.match(industrialShopMigration, /INDUSTRIAL_SHOP_PRELIMINARY_SURVEY/);
+  assert.match(industrialShopMigration, /공업사\(예비조사표\)/);
+  assert.match(industrialShopMigration, /DELETE FROM public\.document_definitions definition/);
+  assert.match(industrialShopMigration, /definition\.is_active = FALSE/);
+  assert.match(industrialShopMigration, /FROM public\.document_templates template/);
+  assert.match(industrialShopMigration, /FROM public\.document_field_mappings mapping/);
+  assert.match(industrialShopMigration, /WHERE NOT EXISTS/);
+  assert.doesNotMatch(industrialShopMigration, /UPDATE public\.document_definitions/);
+  for (const code of [
+    "GENERAL_PRELIMINARY_SURVEY",
+    "FIELD_PRELIMINARY_SURVEY",
+    "MEASUREMENT_PLAN_XLSM",
+  ]) {
+    assert.doesNotMatch(industrialShopMigration, new RegExp(`['\"]${code}['\"]`));
+  }
+  assert.doesNotMatch(industrialShopMigration, /작업환경측정기관 선정 신고서/);
+});
+
+test("최종 queue RPC가 신규 구분·공업사 조건·definition 삭제 race를 재검증한다", () => {
+  assert.match(
+    industrialShopMigration,
+    /target_row\.business_type NOT IN \('first_measurement', 'external_new'\)/
+  );
+  assert.match(industrialShopMigration, /target_row\.business_type IS NULL/);
+  assert.match(industrialShopMigration, /target_row\.business_category/);
+  assert.match(
+    industrialShopMigration,
+    /FROM public\.document_definitions definition[\s\S]*FOR UPDATE/
+  );
+  assert.match(industrialShopMigration, /definition\.deleted_at IS NOT NULL/);
+  assert.match(industrialShopMigration, /DOCUMENT_DEFINITION_DELETED/);
+  assert.match(industrialShopMigration, /DOCUMENT_DEFINITION_NOT_ELIGIBLE/);
+  assert.match(industrialShopMigration, /DOCUMENT_GENERATION_JOURNAL_EXISTS/);
+  assert.ok(
+    industrialShopMigration.indexOf("FOR UPDATE") <
+      industrialShopMigration.indexOf("INSERT INTO public.document_generation_jobs")
+  );
+});
+
+test("UI 목록과 API 직접 호출은 같은 eligibility helper 및 최종 RPC를 사용한다", () => {
+  assert.match(route, /isNewBusinessDocumentGenerationEligible\(target\)/);
+  assert.match(route, /isDocumentDefinitionEligibleForTarget\(definition, target\)/);
+  assert.match(component, /isNewBusinessDocumentGenerationEligible/);
+  assert.match(route, /queue_document_generation_job/);
+  assert.match(route, /DOCUMENT_DEFINITION_NOT_ELIGIBLE/);
+});
 
 test("기존 대상은 false이고 신규 등록 API만 자격을 true로 저장한다", () => {
   const createRoute = readFileSync("app/api/businesses/route.ts", "utf8");
@@ -51,10 +167,7 @@ test("H0508 자격 백필은 전체 식별값이 일치하는 행만 멱등으�
     h0508BackfillMigration,
     /business_name = '남영물류산업 \(주\) YAN5 Manless Mezzanine 공사'/
   );
-  assert.match(
-    h0508BackfillMigration,
-    /document_generation_enabled IS DISTINCT FROM TRUE/
-  );
+  assert.match(h0508BackfillMigration, /document_generation_enabled IS DISTINCT FROM TRUE/);
   assert.doesNotMatch(h0508BackfillMigration, /\bid\s*=/i);
   assert.doesNotMatch(h0508BackfillMigration, /created_at|ILIKE|LIKE|%/i);
 });
@@ -174,10 +287,7 @@ test("작업환경측정기관 선정 신고서는 business_info 관할값의 �
     ),
     true
   );
-  assert.equal(
-    isDocumentDefinitionVisibleForJurisdiction("일반 예비조사표", "경기"),
-    true
-  );
+  assert.equal(isDocumentDefinitionVisibleForJurisdiction("일반 예비조사표", "경기"), true);
 });
 
 test("H0508 경기 사업장은 GET 목록과 POST 선택 검증이 공유하는 문서 목록에서 제외된다", () => {
@@ -186,8 +296,11 @@ test("H0508 경기 사업장은 GET 목록과 POST 선택 검증이 공유하는
   assert.match(route, /String\(businessInfo\?\.office_jurisdiction \?\? ""\)\.trim\(\)/);
   assert.doesNotMatch(route, /target\.office_jurisdiction/);
   assert.doesNotMatch(route, /toShortName/);
-  assert.match(route, /isDocumentDefinitionVisibleForJurisdiction\(definition\.name, officeJurisdiction\)/);
-  assert.match(route, /const documents = applicableDefinitions\.map/);
+  assert.match(
+    route,
+    /isDocumentDefinitionVisibleForJurisdiction\(definition\.name, officeJurisdiction\)/
+  );
+  assert.match(route, /const documents = applicableCatalog\.map/);
   assert.match(route, /const context = await getContext\(businessId\)/);
   assert.match(route, /const documentMap = new Map<string, any>\(\)/);
   assert.equal(
