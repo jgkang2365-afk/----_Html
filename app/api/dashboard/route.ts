@@ -298,18 +298,32 @@ export async function GET(request: NextRequest) {
     const comparisonYear = endYear || getKSTYear();
     const prevYear = comparisonYear - 1;
 
-    // 비교 데이터 조회 (measurement_year 기준)
-    const { data: trendData, error: trendError } = await supabase.from("measurement_journal")
-      .select("measurement_year, measurement_period, measurement_fee_total, created_at, measurement_start_date")
-      .in("measurement_year", [comparisonYear, prevYear]);
+    // 두 연도를 한 번에 조회하면 Supabase의 행 제한이 양쪽 연도 합계에 적용되므로 연도별로 분리한다.
+    const [currentTrendResult, prevTrendResult] = await Promise.all([
+      supabase.from("measurement_journal")
+        .select("measurement_year, measurement_period, measurement_fee_total, created_at, measurement_start_date")
+        .eq("measurement_year", comparisonYear),
+      supabase.from("measurement_journal")
+        .select("measurement_year, measurement_period, measurement_fee_total, created_at, measurement_start_date")
+        .eq("measurement_year", prevYear),
+    ]);
+    const trendData = [...(currentTrendResult.data ?? []), ...(prevTrendResult.data ?? [])];
 
-    if (trendError) console.error("Trend Error:", trendError);
+    if (currentTrendResult.error) console.error("Current Trend Error:", currentTrendResult.error);
+    if (prevTrendResult.error) console.error("Previous Trend Error:", prevTrendResult.error);
 
-    const { data: otherTrendData, error: otherTrendError } = await supabase.from("other_revenue")
-      .select("revenue_year, revenue_period, total_amount, invoice_date, created_at")
-      .in("revenue_year", [comparisonYear, prevYear]);
+    const [currentOtherTrendResult, prevOtherTrendResult] = await Promise.all([
+      supabase.from("other_revenue")
+        .select("revenue_year, revenue_period, total_amount, invoice_date, created_at")
+        .eq("revenue_year", comparisonYear),
+      supabase.from("other_revenue")
+        .select("revenue_year, revenue_period, total_amount, invoice_date, created_at")
+        .eq("revenue_year", prevYear),
+    ]);
+    const otherTrendData = [...(currentOtherTrendResult.data ?? []), ...(prevOtherTrendResult.data ?? [])];
 
-    if (otherTrendError) console.error("Other Revenue Trend Error:", otherTrendError);
+    if (currentOtherTrendResult.error) console.error("Current Other Revenue Trend Error:", currentOtherTrendResult.error);
+    if (prevOtherTrendResult.error) console.error("Previous Other Revenue Trend Error:", prevOtherTrendResult.error);
 
     // 11-1. 년도별 추이 (전체)
     const { data: yearlyData } = await supabase.from("measurement_journal").select("measurement_year, measurement_fee_total");
