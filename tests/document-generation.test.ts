@@ -138,6 +138,57 @@ test("DB는 활성 템플릿 하나와 원자적 SKIP LOCKED 선점을 보장한
   assert.match(migration, /'PENDING', 'PROCESSING'/);
 });
 
+test("문서 작업 취소 migration은 상태와 감사 시각을 추가하고 취소된 PENDING을 선점하지 않는다", () => {
+  const migration = readFileSync(
+    "supabase/migrations/20260825100000_document_generation_job_cancellation.sql",
+    "utf8"
+  );
+  assert.match(migration, /cancel_requested_at TIMESTAMPTZ/);
+  assert.match(migration, /cancel_requested_by BIGINT REFERENCES public\.users\(id\)/);
+  assert.match(migration, /cancelled_at TIMESTAMPTZ/);
+  assert.match(migration, /'CANCELLED'/);
+  assert.match(migration, /FOR UPDATE SKIP LOCKED/);
+  assert.match(migration, /status = 'PENDING'\s+AND cancel_requested_at IS NULL/);
+});
+
+test("사용자 취소 API는 PENDING과 PROCESSING을 조건부 갱신하고 종료 결과는 보존한다", () => {
+  const route = readFileSync("app/api/document-generation/jobs/[jobId]/cancel/route.ts", "utf8");
+  assert.match(route, /checkPermission\("journal:write"\)/);
+  assert.match(route, /status: "CANCELLED"/);
+  assert.match(route, /\.eq\("status", "PENDING"\)/);
+  assert.match(route, /\.eq\("status", "PROCESSING"\)/);
+  assert.match(route, /\.is\("cancel_requested_at", null\)/);
+  assert.match(route, /already_terminal/);
+  assert.doesNotMatch(route, /error_message:\s*.*cancel/i);
+});
+
+test("Worker 취소 조회는 기존 token과 worker 소유권을 검증한다", () => {
+  const route = readFileSync("app/api/document-worker/jobs/[id]/cancel-status/route.ts", "utf8");
+  assert.match(route, /isAuthorizedDocumentWorker/);
+  assert.match(route, /\.eq\("worker_id", workerId\)/);
+  assert.match(route, /cancel_requested: Boolean\(data\.cancel_requested_at\)/);
+});
+
+test("Worker 완료 API는 취소 결과와 일부 성공을 기록하고 PROCESSING 소유권 race를 보호한다", () => {
+  const route = readFileSync("app/api/document-worker/jobs/[id]/complete/route.ts", "utf8");
+  assert.match(route, /"CANCELLED"/);
+  assert.match(route, /resultFiles\.some/);
+  assert.match(route, /cancelled_at: cancellationHandled \? completedAt : null/);
+  assert.match(route, /\.eq\("status", "PROCESSING"\)/);
+  assert.match(route, /\.eq\("worker_id"/);
+});
+
+test("CANCELLED는 running 작업이 아니며 새 queue를 차단하지 않는다", () => {
+  const polling = readFileSync("lib/document-generation/polling.ts", "utf8");
+  const queueMigration = readFileSync(
+    "supabase/migrations/20260824135437_preliminary_survey_document_policy.sql",
+    "utf8"
+  );
+  assert.match(polling, /CANCELLED: "다시 생성"/);
+  assert.match(queueMigration, /status IN \('PENDING', 'PROCESSING'\)/);
+  assert.doesNotMatch(queueMigration, /status IN \('PENDING', 'PROCESSING', 'CANCELLED'\)/);
+});
+
 test("manager_email과 invoice_email은 서로 다른 스냅샷 필드다", () => {
   const source = readFileSync("lib/document-generation/snapshot.ts", "utf8");
   assert.match(source, /manager_email: normalizeText\(target\.manager_email\)/);

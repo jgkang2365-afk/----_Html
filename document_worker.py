@@ -14,6 +14,7 @@ import socket
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -114,7 +115,7 @@ FILE_FORMAT_EXTENSIONS = {
 }
 
 LOGGER = logging.getLogger("document-worker")
-WORKER_VERSION = "2026.08.25.2"
+WORKER_VERSION = "2026.08.25.3"
 
 HWPX_INTERNAL_CONTROL_VALUE = re.compile(
     r"(?:Clickhere\s*:|Direction\s*:\s*wstring\s*:|HelpState\s*:)", re.IGNORECASE
@@ -518,6 +519,14 @@ class DocumentWorkerClient:
             detail = response_body[:500] or error.reason
             raise RuntimeError(f"템플릿 다운로드 실패 (HTTP {error.code}): {detail}") from error
         destination.write_bytes(content)
+
+    def is_cancellation_requested(self, job_id: str) -> bool:
+        query = urllib.parse.urlencode({"workerId": self.worker_id})
+        result = json.loads(
+            self._request(f"/api/document-worker/jobs/{job_id}/cancel-status?{query}")
+        )
+        return bool(result.get("cancel_requested"))
+
     def complete(self, job_id: str, status: str, results: list[dict[str, Any]], error_message: str | None) -> None:
         self._request(f"/api/document-worker/jobs/{job_id}/complete", "POST", {
             "worker_id": self.worker_id,
@@ -525,6 +534,43 @@ class DocumentWorkerClient:
             "result_files": results,
             "error_message": error_message,
         })
+
+
+class DocumentGenerationCancelled(RuntimeError):
+    pass
+
+
+DOCUMENT_GENERATION_CANCELLED_MESSAGE = "문서 생성 취소 요청"
+
+
+def is_job_cancellation_requested(client: Any, job_id: str) -> bool:
+    checker = getattr(client, "is_cancellation_requested", None)
+    return bool(checker(job_id)) if callable(checker) else False
+
+
+def raise_if_job_cancellation_requested(client: Any, job_id: str) -> None:
+    if is_job_cancellation_requested(client, job_id):
+        raise DocumentGenerationCancelled(DOCUMENT_GENERATION_CANCELLED_MESSAGE)
+
+
+def cancelled_document_result(
+    document_type: str, dynamic_documents: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "document_type": document_type,
+        "status": "CANCELLED",
+        "error": DOCUMENT_GENERATION_CANCELLED_MESSAGE,
+    }
+    dynamic_document = dynamic_documents.get(document_type)
+    if dynamic_document:
+        result.update(
+            {
+                "document_definition_id": dynamic_document.get("document_definition_id"),
+                "document_name": dynamic_document.get("name"),
+                "file_format": normalize_text(dynamic_document.get("file_format")).upper(),
+            }
+        )
+    return result
 
 
 def verify_download(path: Path, template: dict[str, Any]) -> None:
@@ -568,6 +614,7 @@ def process_job(
     hwpx = hwpx or HwpxAutomation()
     excel = excel or ExcelAutomation()
     results: list[dict[str, Any]] = []
+    job_id = str(job["id"])
 
     LOGGER.info(
         "작업 시작 id=%s code=%s business=%s year=%s period=%s documents=%s email=%s phone=%s output=%s",
@@ -576,24 +623,33 @@ def process_job(
         mask_email(snapshot.get("manager_email")), mask_phone(snapshot.get("manager_contact")), final_folder,
     )
 
+    if is_job_cancellation_requested(client, job_id):
+        results.extend(
+            cancelled_document_result(document_type, dynamic_documents)
+            for document_type in selected
+        )
+        return "CANCELLED", results, DOCUMENT_GENERATION_CANCELLED_MESSAGE
+
     with tempfile.TemporaryDirectory(prefix="measurement-doc-") as temporary:
         temporary_root = Path(temporary)
-        for document_type in selected:
+        for document_index, document_type in enumerate(selected):
             result: dict[str, Any] = {"document_type": document_type, "status": "FAILED"}
+            dynamic_document = dynamic_documents.get(document_type)
+            if dynamic_document:
+                result.update(
+                    {
+                        "document_definition_id": dynamic_document.get(
+                            "document_definition_id"
+                        ),
+                        "document_name": dynamic_document.get("name"),
+                        "file_format": normalize_text(
+                            dynamic_document.get("file_format")
+                        ).upper(),
+                    }
+                )
             try:
-                dynamic_document = dynamic_documents.get(document_type)
+                raise_if_job_cancellation_requested(client, job_id)
                 if dynamic_document:
-                    result.update(
-                        {
-                            "document_definition_id": dynamic_document.get(
-                                "document_definition_id"
-                            ),
-                            "document_name": dynamic_document.get("name"),
-                            "file_format": normalize_text(
-                                dynamic_document.get("file_format")
-                            ).upper(),
-                        }
-                    )
                     template = dynamic_document.get("template") or {}
                     file_format = result["file_format"]
                     extension = FILE_FORMAT_EXTENSIONS.get(file_format)
@@ -609,8 +665,9 @@ def process_job(
                         f"template-{sanitize_windows_filename(document_type, 'document')}{extension}"
                     )
                     client.download_template(
-                        str(job["id"]), str(template["template_id"]), template_file
+                        job_id, str(template["template_id"]), template_file
                     )
+                    raise_if_job_cancellation_requested(client, job_id)
                     verify_download(template_file, template)
                     working_file = temporary_root / build_filename_from_definition(
                         dynamic_document, snapshot
@@ -625,6 +682,7 @@ def process_job(
                         normalize_text(dynamic_document.get("name")) or document_type,
                     )
 
+                    raise_if_job_cancellation_requested(client, job_id)
                     if file_format == "HWPX":
                         if not resolved_mappings:
                             raise RuntimeError("HWPX 입력 매핑이 없습니다.")
@@ -666,8 +724,10 @@ def process_job(
                                 },
                             )
 
+                    raise_if_job_cancellation_requested(client, job_id)
                     if not working_file.exists() or working_file.stat().st_size <= 0:
                         raise RuntimeError("저장 검증에 실패했습니다.")
+                    raise_if_job_cancellation_requested(client, job_id)
                     destination = publish_file(
                         working_file,
                         final_folder / working_file.name,
@@ -684,6 +744,15 @@ def process_job(
                         }
                     )
                     results.append(result)
+                    if (
+                        document_index + 1 < len(selected)
+                        and is_job_cancellation_requested(client, job_id)
+                    ):
+                        results.extend(
+                            cancelled_document_result(remaining, dynamic_documents)
+                            for remaining in selected[document_index + 1 :]
+                        )
+                        break
                     continue
 
                 # 배포 전에 생성된 기존 payload 작업은 기존 3종 고정 규칙으로 처리한다.
@@ -693,11 +762,13 @@ def process_job(
                     raise RuntimeError("작업에 고정된 템플릿 정보가 없습니다.")
                 extension = definition["extension"]
                 template_file = temporary_root / f"template-{document_type}{extension}"
-                client.download_template(str(job["id"]), str(template["template_id"]), template_file)
+                client.download_template(job_id, str(template["template_id"]), template_file)
+                raise_if_job_cancellation_requested(client, job_id)
                 verify_download(template_file, template)
                 working_file = temporary_root / build_filename(document_type, snapshot)
                 shutil.copy2(template_file, working_file)
 
+                raise_if_job_cancellation_requested(client, job_id)
                 if extension == ".hwpx":
                     fields = list(definition["fields"])
                     hwpx.fill(working_file, snapshot, fields)
@@ -706,21 +777,55 @@ def process_job(
                     excel.fill(working_file, snapshot)
                     result["input_fields"] = list(XLSM_CELLS.values())
 
+                raise_if_job_cancellation_requested(client, job_id)
                 if not working_file.exists() or working_file.stat().st_size <= 0:
                     raise RuntimeError("저장 검증에 실패했습니다.")
+                raise_if_job_cancellation_requested(client, job_id)
                 destination = publish_file(
                     working_file,
                     final_folder / working_file.name,
                     overwrite=document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES,
                 )
                 result.update({"status": "COMPLETED", "filename": destination.name, "path": str(destination)})
+            except DocumentGenerationCancelled:
+                result.update(
+                    {
+                        "status": "CANCELLED",
+                        "error": DOCUMENT_GENERATION_CANCELLED_MESSAGE,
+                    }
+                )
+                results.append(result)
+                results.extend(
+                    cancelled_document_result(remaining, dynamic_documents)
+                    for remaining in selected[document_index + 1 :]
+                )
+                break
             except Exception as error:
                 result["error"] = str(error)
                 LOGGER.exception("문서 생성 실패 job=%s type=%s", job.get("id"), document_type)
             results.append(result)
+            if (
+                result["status"] == "COMPLETED"
+                and document_index + 1 < len(selected)
+                and is_job_cancellation_requested(client, job_id)
+            ):
+                results.extend(
+                    cancelled_document_result(remaining, dynamic_documents)
+                    for remaining in selected[document_index + 1 :]
+                )
+                break
 
     completed = sum(result["status"] == "COMPLETED" for result in results)
-    status = "COMPLETED" if completed == len(results) and results else "PARTIAL_SUCCESS" if completed else "FAILED"
+    cancelled = any(result["status"] == "CANCELLED" for result in results)
+    status = (
+        "COMPLETED"
+        if completed == len(results) and results
+        else "PARTIAL_SUCCESS"
+        if completed
+        else "CANCELLED"
+        if cancelled
+        else "FAILED"
+    )
     errors = [f"{result['document_type']}: {result.get('error')}" for result in results if result["status"] != "COMPLETED"]
     return status, results, "; ".join(errors) or None
 

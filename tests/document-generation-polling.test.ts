@@ -11,7 +11,7 @@ import {
 const component = readFileSync("components/features/NewBusinessDocumentGeneration.tsx", "utf8");
 const route = readFileSync("app/api/document-generation/route.ts", "utf8");
 
-test("문서 생성 상태 6종은 실행 여부와 버튼 문구를 정확히 표시한다", () => {
+test("문서 생성 상태 7종은 실행 여부와 버튼 문구를 정확히 표시한다", () => {
   const expectations = [
     ["NOT_REQUESTED", false, "문서 생성"],
     ["PENDING", true, "문서 생성 중"],
@@ -19,6 +19,7 @@ test("문서 생성 상태 6종은 실행 여부와 버튼 문구를 정확히 �
     ["COMPLETED", false, "문서 재생성"],
     ["PARTIAL_SUCCESS", false, "다시 생성"],
     ["FAILED", false, "다시 생성"],
+    ["CANCELLED", false, "다시 생성"],
   ] as const;
 
   for (const [status, running, label] of expectations) {
@@ -34,10 +35,35 @@ test("PROCESSING에서 COMPLETED가 되면 polling과 spinner 상태가 함께 �
   assert.equal(isDocumentGenerationRunning("COMPLETED"), false);
 });
 
-test("완료·부분 성공·실패 상태에서는 추가 polling을 예약하지 않는다", () => {
-  for (const status of ["COMPLETED", "PARTIAL_SUCCESS", "FAILED"]) {
+test("완료·부분 성공·실패·취소 상태에서는 추가 polling을 예약하지 않는다", () => {
+  for (const status of ["COMPLETED", "PARTIAL_SUCCESS", "FAILED", "CANCELLED"]) {
     assert.equal(documentGenerationPollDelay(status), null);
   }
+});
+
+test("취소 요청이 확인되면 자동 polling과 생성 spinner를 중단한다", () => {
+  assert.match(component, /if \(isCancellationRequested\) return;/);
+  assert.match(component, /isRunning && !isCancellationRequested/);
+  assert.match(component, /cancel_requested_at/);
+  assert.match(component, /문서 생성 취소 요청이 접수되었습니다\./);
+  assert.match(component, /문서 생성이 취소되었습니다\./);
+});
+
+test("ESC와 생성 중단 버튼은 중복 방지된 동일 취소 API 함수를 사용한다", () => {
+  assert.match(component, /const requestCancellation = useCallback/);
+  assert.match(component, /cancellationRequestInFlight\.current/);
+  assert.match(component, /event\.key !== "Escape"/);
+  assert.match(component, /event\.preventDefault\(\)/);
+  assert.match(component, /event\.stopPropagation\(\)/);
+  assert.match(component, /void requestCancellation\(\)/);
+  assert.match(component, /\{cancelling \? "취소 요청 중\.\.\." : "생성 중단"\}/);
+  assert.match(component, /\/api\/document-generation\/jobs\/\$\{jobId\}\/cancel/);
+});
+
+test("진행 중이 아닐 때는 ESC listener를 등록하지 않는다", () => {
+  assert.match(component, /if \(!isRunning \|\| isCancellationRequested\) return;/);
+  assert.match(component, /window\.addEventListener\("keydown", handleEscape, true\)/);
+  assert.match(component, /window\.removeEventListener\("keydown", handleEscape, true\)/);
 });
 
 test("늦게 도착한 PROCESSING 응답은 최신 COMPLETED 응답을 덮어쓰지 않는다", () => {
@@ -62,7 +88,10 @@ test("늦게 도착한 PROCESSING 응답은 최신 COMPLETED 응답을 덮어쓰
 
 test("polling 요청은 이전 조회와 unmount를 정리하고 job 객체 전체에 의존하지 않는다", () => {
   assert.match(component, /requestController\.current\?\.abort\(\)/);
-  assert.match(component, /shouldApplyDocumentGenerationResponse\(sequence, requestSequence\.current\)/);
+  assert.match(
+    component,
+    /shouldApplyDocumentGenerationResponse\(sequence, requestSequence\.current\)/
+  );
   assert.match(component, /window\.setTimeout\(\(\) => void poll\(\), delay\)/);
   assert.doesNotMatch(component, /\[context\?\.job, load\]/);
 });

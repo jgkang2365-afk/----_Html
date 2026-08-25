@@ -63,6 +63,9 @@ type Context = {
     attempt_count?: number | null;
     error_message?: string | null;
     result_files?: ResultFile[];
+    cancel_requested_at?: string | null;
+    cancel_requested_by?: number | null;
+    cancelled_at?: string | null;
   };
   snapshot?: Record<string, unknown>;
 };
@@ -95,10 +98,14 @@ export function NewBusinessDocumentGeneration({
     [loading, setLoading] = useState(true),
     [submitting, setSubmitting] = useState(false),
     [refreshing, setRefreshing] = useState(false),
+    [cancelling, setCancelling] = useState(false),
+    [cancellationMessage, setCancellationMessage] = useState(""),
+    [cancellationFailed, setCancellationFailed] = useState(false),
     [currentTime, setCurrentTime] = useState(() => Date.now()),
     [error, setError] = useState("");
   const requestSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
+  const cancellationRequestInFlight = useRef(false);
   const load = useCallback(
     async (silent = false) => {
       const sequence = ++requestSequence.current;
@@ -130,6 +137,12 @@ export function NewBusinessDocumentGeneration({
     [businessId]
   );
   useEffect(() => {
+    cancellationRequestInFlight.current = false;
+    setCancelling(false);
+    setCancellationMessage("");
+    setCancellationFailed(false);
+  }, [businessId]);
+  useEffect(() => {
     void load();
     return () => {
       requestSequence.current += 1;
@@ -139,7 +152,9 @@ export function NewBusinessDocumentGeneration({
   }, [load]);
   const status = context?.job?.status || "NOT_REQUESTED";
   const isRunning = isDocumentGenerationRunning(status);
+  const isCancellationRequested = isRunning && Boolean(context?.job?.cancel_requested_at);
   useEffect(() => {
+    if (isCancellationRequested) return;
     const delay = documentGenerationPollDelay(status);
     if (delay === null) return;
     let cancelled = false;
@@ -153,13 +168,13 @@ export function NewBusinessDocumentGeneration({
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [status, load]);
+  }, [status, isCancellationRequested, load]);
   useEffect(() => {
-    if (!isRunning) return;
+    if (!isRunning || isCancellationRequested) return;
     setCurrentTime(Date.now());
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 30000);
     return () => window.clearInterval(timer);
-  }, [isRunning, context?.job?.requested_at]);
+  }, [isRunning, isCancellationRequested, context?.job?.requested_at]);
   const documents = useMemo(
     () => (Array.isArray(context?.documents) ? context!.documents : []),
     [context]
@@ -169,7 +184,10 @@ export function NewBusinessDocumentGeneration({
     ? new Date(context.job.requested_at).getTime()
     : Number.NaN;
   const isLongRunning =
-    isRunning && Number.isFinite(requestedAt) && currentTime - requestedAt >= 300000;
+    isRunning &&
+    !isCancellationRequested &&
+    Number.isFinite(requestedAt) &&
+    currentTime - requestedAt >= 300000;
   const canRender = Boolean(
     businessId &&
     String(business.business_name ?? "").trim() &&
@@ -229,6 +247,10 @@ export function NewBusinessDocumentGeneration({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "문서 생성 요청 실패");
+      cancellationRequestInFlight.current = false;
+      setCancelling(false);
+      setCancellationMessage("");
+      setCancellationFailed(false);
       await load(true);
       setIsOpen(false);
     } catch (caught) {
@@ -245,6 +267,47 @@ export function NewBusinessDocumentGeneration({
       setRefreshing(false);
     }
   };
+  const requestCancellation = useCallback(async () => {
+    const jobId = context?.job?.id;
+    if (!jobId || !isRunning || isCancellationRequested || cancellationRequestInFlight.current)
+      return;
+
+    cancellationRequestInFlight.current = true;
+    setCancelling(true);
+    setCancellationMessage("취소 요청 중...");
+    setCancellationFailed(false);
+    try {
+      const response = await fetch(`/api/document-generation/jobs/${jobId}/cancel`, {
+        method: "POST",
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "문서 생성 취소 요청 실패");
+      setContext((previous) =>
+        previous?.job?.id === jobId
+          ? { ...previous, job: { ...previous.job, ...result.job } }
+          : previous
+      );
+      setCancellationMessage("문서 생성 취소 요청이 접수되었습니다.");
+      setError("");
+    } catch (caught) {
+      setCancellationFailed(true);
+      setCancellationMessage(caught instanceof Error ? caught.message : "문서 생성 취소 요청 실패");
+    } finally {
+      cancellationRequestInFlight.current = false;
+      setCancelling(false);
+    }
+  }, [context?.job?.id, isRunning, isCancellationRequested]);
+  useEffect(() => {
+    if (!isRunning || isCancellationRequested) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      void requestCancellation();
+    };
+    window.addEventListener("keydown", handleEscape, true);
+    return () => window.removeEventListener("keydown", handleEscape, true);
+  }, [isRunning, isCancellationRequested, requestCancellation]);
   if (
     !canRender ||
     (!canShowWhileLoading && (!context?.eligible || context.hasActualMeasurementJournal))
@@ -254,11 +317,22 @@ export function NewBusinessDocumentGeneration({
     <>
       <div className="flex items-center gap-2">
         {isRunning && (
-          <span className="max-w-xs text-xs text-slate-500">
-            {isLongRunning
-              ? "문서 생성이 예상보다 오래 걸리고 있습니다. 작업 상태를 계속 확인하고 있습니다."
-              : "문서를 생성하고 있습니다."}
+          <span
+            className={`max-w-xs text-xs ${cancellationFailed ? "text-red-600" : "text-slate-500"}`}
+          >
+            {cancelling
+              ? "취소 요청 중..."
+              : isCancellationRequested
+                ? "문서 생성 취소 요청이 접수되었습니다."
+                : cancellationMessage
+                  ? cancellationMessage
+                  : isLongRunning
+                    ? "문서 생성이 예상보다 오래 걸리고 있습니다. 작업 상태를 계속 확인하고 있습니다."
+                    : "문서를 생성하고 있습니다."}
           </span>
+        )}
+        {status === "CANCELLED" && (
+          <span className="max-w-xs text-xs text-slate-500">문서 생성이 취소되었습니다.</span>
         )}
         {isRunning && (
           <Button
@@ -273,6 +347,19 @@ export function NewBusinessDocumentGeneration({
             상태 새로고침
           </Button>
         )}
+        {isRunning && !isCancellationRequested && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={cancelling}
+            onClick={() => void requestCancellation()}
+            className="whitespace-nowrap"
+          >
+            {cancelling && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            {cancelling ? "취소 요청 중..." : "생성 중단"}
+          </Button>
+        )}
         <Button
           type="button"
           variant={isComplete ? "secondary" : "primary"}
@@ -280,9 +367,12 @@ export function NewBusinessDocumentGeneration({
           onClick={open}
           className="whitespace-nowrap"
         >
-          {loading || isRunning ? (
+          {loading || (isRunning && !isCancellationRequested) ? (
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-          ) : isComplete || status === "FAILED" || status === "PARTIAL_SUCCESS" ? (
+          ) : isComplete ||
+            status === "FAILED" ||
+            status === "PARTIAL_SUCCESS" ||
+            status === "CANCELLED" ? (
             <RotateCcw className="mr-1.5 h-4 w-4" />
           ) : (
             <FilePlus2 className="mr-1.5 h-4 w-4" />
@@ -310,8 +400,13 @@ export function NewBusinessDocumentGeneration({
                 {documentDefinitionDisplayName({
                   code: file.document_type,
                   name: file.document_name,
-                })}:{" "}
-                {file.status === "COMPLETED" ? "완료" : "실패"}
+                })}
+                :{" "}
+                {file.status === "COMPLETED"
+                  ? "완료"
+                  : file.status === "CANCELLED"
+                    ? "취소"
+                    : "실패"}
               </b>
               {file.filename && <p className="text-xs text-slate-600">{file.filename}</p>}
               {file.error && <p className="text-xs text-red-600">{file.error}</p>}
