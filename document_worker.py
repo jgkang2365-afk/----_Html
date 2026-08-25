@@ -19,6 +19,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from hwpx_blank_fields import (
+    capture_blank_click_here_fields,
+    restore_blank_click_here_fields,
+)
+
 WINDOWS_WORKER_MUTEX_NAME = r"Global\MeasurementJournalDocumentWorker"
 ERROR_ALREADY_EXISTS = 183
 
@@ -114,7 +119,29 @@ FILE_FORMAT_EXTENSIONS = {
 }
 
 LOGGER = logging.getLogger("document-worker")
-WORKER_VERSION = "2026.08.25.1"
+WORKER_VERSION = "2026.08.25.2"
+
+HWPX_INTERNAL_CONTROL_VALUE = re.compile(
+    r"(?:Clickhere\s*:|Direction\s*:\s*wstring\s*:|HelpState\s*:)", re.IGNORECASE
+)
+HWPX_PLACEHOLDER_GUIDE_VALUES = {
+    "measurement_year": {"측정연도", "측정년도", "년도"},
+    "measurement_period": {"측정주기", "주기"},
+    "business_name": {"사업장명"},
+    "representative_name": {"대표자", "대표자명"},
+    "address": {"주소"},
+    "business_category": {"업종", "업종분류"},
+    "phone": {"전화번호"},
+    "main_product": {"주요생산품", "주요 생산품"},
+    "fax": {"팩스"},
+    "total_employees": {"총 근로자수", "총 근로자 수"},
+    "manager_name": {"담당자", "담당자명"},
+    "manager_email": {"이메일", "담당자 이메일", "담당자 메일"},
+    "manager_contact": {"연락처", "담당자 연락처"},
+    "preliminary_surveyor": {"예비조사자"},
+    "business_number": {"사업자등록번호"},
+    "industrial_accident_number": {"산재관리번호"},
+}
 
 
 def load_env_file(path: Path) -> None:
@@ -130,6 +157,14 @@ def load_env_file(path: Path) -> None:
 
 def normalize_text(value: Any) -> str:
     return str(value if value is not None else "").strip()
+
+
+def sanitize_hwpx_mapping_default_value(source_field: Any, value: Any) -> str:
+    normalized = re.sub(r"\s+", " ", normalize_text(value))
+    if not normalized or HWPX_INTERNAL_CONTROL_VALUE.search(normalized):
+        return ""
+    guide_values = HWPX_PLACEHOLDER_GUIDE_VALUES.get(normalize_text(source_field), set())
+    return "" if normalized in guide_values else normalized
 
 
 def normalize_measurement_period(value: Any) -> str:
@@ -232,7 +267,12 @@ def resolve_mapping_values(
         source_field = normalize_text(mapping.get("source_field"))
         value = normalize_text(snapshot.get(source_field))
         if not value:
-            value = normalize_text(mapping.get("default_value"))
+            if mapping.get("target_type") == "HWPX_FIELD":
+                value = sanitize_hwpx_mapping_default_value(
+                    source_field, mapping.get("default_value")
+                )
+            else:
+                value = normalize_text(mapping.get("default_value"))
         if bool(mapping.get("required")) and not value:
             missing_sources.append(source_field or "(알 수 없는 필드)")
         resolved.append({**mapping, "value": value})
@@ -321,8 +361,21 @@ class HwpxAutomation:
         import win32com.client  # type: ignore
 
         hwp = None
-        stage = "COM 객체 생성"
+        document_open = False
+        normalized_values = {
+            normalize_text(field): normalize_text(value)
+            for field, value in values.items()
+            if normalize_text(field) and normalize_text(value)
+        }
+        blank_fields = {
+            normalize_text(field)
+            for field in required_fields
+            if normalize_text(field) and normalize_text(field) not in normalized_values
+        }
+        stage = "원본 빈 누름틀 상태 저장"
         try:
+            blank_snapshot = capture_blank_click_here_fields(path, blank_fields)
+            stage = "COM 객체 생성"
             hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
             security_module = os.environ.get("HWP_SECURITY_MODULE", "FilePathCheckDLL")
             security_module_name = os.environ.get("HWP_SECURITY_MODULE_NAME", "FilePathCheckerModule")
@@ -335,6 +388,7 @@ class HwpxAutomation:
             stage = "문서 열기"
             if not hwp.Open(str(path), "HWPX", "forceopen:true"):
                 raise RuntimeError("HWPX 복사본을 열지 못했습니다.")
+            document_open = True
 
             stage = "누름틀 목록 조회"
             raw_fields = normalize_text(hwp.GetFieldList(0, 0))
@@ -348,22 +402,27 @@ class HwpxAutomation:
                 raise RuntimeError("누락된 HWPX 누름틀: " + ", ".join(missing))
 
             stage = "누름틀 값 입력"
-            for field, value in values.items():
-                normalized_value = normalize_text(value)
-                if field in available and normalized_value:
+            for field, normalized_value in normalized_values.items():
+                if field in available:
                     hwp.PutFieldText(field, normalized_value)
 
             stage = "문서 저장"
             if not hwp.Save(True):
                 raise RuntimeError("HWPX 저장에 실패했습니다.")
+            stage = "문서 닫기"
+            hwp.Clear(1)
+            document_open = False
+            stage = "빈 누름틀 원본 상태 복원"
+            restore_blank_click_here_fields(path, blank_snapshot)
         except Exception as error:
             raise RuntimeError(f"HWPX {stage} 단계 실패: {error}") from error
         finally:
             if hwp is not None:
-                try:
-                    hwp.Clear(1)
-                except Exception:
-                    pass
+                if document_open:
+                    try:
+                        hwp.Clear(1)
+                    except Exception:
+                        pass
                 try:
                     hwp.Quit()
                 except Exception:
