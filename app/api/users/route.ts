@@ -11,6 +11,11 @@ import { createClient } from "@/lib/supabase/server";
 import { hashPassword } from "@/lib/utils/password";
 import { getSession } from "@/lib/auth/session";
 
+function isMissingPreliminarySurveyManagerColumn(error: any) {
+  return String(error?.code ?? "") === "42703" ||
+    /is_preliminary_survey_manager/i.test(String(error?.message ?? ""));
+}
+
 /**
  * 사용자 목록 조회
  * GET /api/users
@@ -28,7 +33,7 @@ export async function GET(request: NextRequest) {
     // 1차 조회 시도: is_national_support_manager 포함
     const primaryQuery = await supabase
       .from("users")
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_active, created_at, updated_at")
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_preliminary_survey_manager, is_active, created_at, updated_at")
       .order("name", { ascending: true });
 
     let finalUsers = [];
@@ -54,7 +59,8 @@ export async function GET(request: NextRequest) {
       finalUsers = (fallbackQuery.data || []).map(u => ({
         ...u,
         is_national_support_manager: false,
-        is_designated_office_report_manager: false
+        is_designated_office_report_manager: false,
+        is_preliminary_survey_manager: false,
       }));
     } else {
       finalUsers = primaryQuery.data || [];
@@ -87,7 +93,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, role, password, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager } = body;
+    const { name, role, password, survey_code, job, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_preliminary_survey_manager } = body;
 
     if (!name || !role) {
       return NextResponse.json(
@@ -130,10 +136,7 @@ export async function POST(request: NextRequest) {
     // 비밀번호 해싱 (비밀번호가 제공된 경우만)
     const passwordHash = password ? await hashPassword(password) : null;
 
-    // 사용자 생성
-    const { data: newUser, error: insertError } = await supabase
-      .from("users")
-      .insert({
+    const baseInsert = {
         name,
         role,
         password_hash: passwordHash,
@@ -144,10 +147,29 @@ export async function POST(request: NextRequest) {
         is_journal_manager: !!is_journal_manager,
         is_national_support_manager: !!is_national_support_manager,
         is_designated_office_report_manager: !!is_designated_office_report_manager,
+        is_preliminary_survey_experienced: !!is_preliminary_survey_experienced,
         is_active: true,
-      })
-      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_active, created_at")
+    };
+    const createUser = (includePreliminarySurveyManager: boolean) => supabase
+      .from("users")
+      .insert(includePreliminarySurveyManager
+        ? { ...baseInsert, is_preliminary_survey_manager: !!is_preliminary_survey_manager }
+        : baseInsert)
+      .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_preliminary_survey_manager, is_active, created_at")
       .single();
+
+    // 권한 migration보다 코드가 먼저 배포된 경우에도 관리자 사용자 생성 전체가 실패하지
+    // 않도록, 해당 컬럼 부재가 확인된 때에만 구형 schema로 한 번 재시도한다.
+    let { data: newUser, error: insertError } = await createUser(true);
+    if (insertError && isMissingPreliminarySurveyManagerColumn(insertError)) {
+      const fallback = await supabase
+        .from("users")
+        .insert(baseInsert)
+        .select("id, name, role, job, survey_code, mobile, email, is_journal_manager, is_national_support_manager, is_designated_office_report_manager, is_preliminary_survey_experienced, is_active, created_at")
+        .single();
+      newUser = fallback.data ? { ...fallback.data, is_preliminary_survey_manager: false } : null;
+      insertError = fallback.error;
+    }
 
     if (insertError) {
       console.error("Insert error details:", insertError);

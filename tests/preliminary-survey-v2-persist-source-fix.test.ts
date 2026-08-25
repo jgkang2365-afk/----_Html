@@ -15,7 +15,7 @@ const journal = (note: unknown): MeasurementJournalClassificationRow => ({
 test("A: batch RPC는 source_measurement_date를 ::date 없이 TEXT 그대로 비교한다", () => {
   assert.match(
     fixMigration,
-    /IF target_row\.measurement_date IS DISTINCT FROM \(plan->>'source_measurement_date'\)\n\s+OR target_row\.measurer_id IS DISTINCT FROM \(plan->>'source_responsible_user_id'\)::integer THEN/,
+    /IF target_row\.measurement_date IS DISTINCT FROM \(plan->>'source_measurement_date'\)\r?\n\s+OR target_row\.measurer_id IS DISTINCT FROM \(plan->>'source_responsible_user_id'\)::integer THEN/,
   );
   // 비교 구간(Phase 1)에는 source_measurement_date에 ::date가 없어야 한다
   const phase1 = fixMigration.slice(fixMigration.indexOf("V2_PLAN_SOURCE_CHANGED_AT_") - 120, fixMigration.indexOf("V2_PLAN_SOURCE_CHANGED_AT_"));

@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * GET  - 정비 화면 비교 정보 반환 (target/V2 plan/실제 측정자/legacy/확정 여부)
  * POST - 관리자 예외 정비 저장 (V2 예비조사자 정정 + link_measurer_id 지정 + 감사기록)
  *
- * 확정(sequence_number 부여) 이후 데이터의 예외 수정 경로로, 관리자만 사용할 수 있다.
+ * measurement_journal row가 존재하는 찐확정 데이터의 예외 수정 경로로, 관리자만 사용할 수 있다.
  * 실제 측정자·보고서 담당자·legacy 값은 이 API에서 변경하지 않는다.
  */
 
@@ -87,7 +87,6 @@ export async function GET(request: NextRequest) {
         .eq("code", target.code)
         .eq("measurement_year", target.year)
         .like("measurement_period", `${String(target.period).trim().replace("(수시)", "")}%`)
-        .not("sequence_number", "is", null)
         .limit(1)
         .maybeSingle(),
       supabase.from("users").select("id, name, job, is_active"),

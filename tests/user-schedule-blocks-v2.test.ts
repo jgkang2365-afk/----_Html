@@ -8,13 +8,13 @@ const page = read("app/survey/page.tsx");
 const route = read("app/api/user-schedule-blocks/route.ts");
 const service = read("lib/preliminary-survey-v2/service.ts");
 
-test("직원 예비조사 제외 일정은 기존 예비조사 화면 탭에 배치", () => {
+test("직원 불가 일정은 기존 예비조사 화면 탭에 배치", () => {
   assert.match(page, /UserScheduleBlockManagement/);
   assert.match(page, /schedule-blocks/);
-  assert.match(page, /직원 예비조사 제외 일정/);
+  assert.match(page, /직원 불가 일정/);
 });
 
-test("제외 일정 UI는 다중 직원·유형·기간 필터와 CRUD를 제공", () => {
+test("불가 일정 UI는 다중 직원·유형·기간 필터와 CRUD 및 전 역할 금지 설명을 제공", () => {
   for (const label of ["교육", "휴가", "출장", "회의", "건강검진", "개인 일정", "기타"]) {
     assert.match(component, new RegExp(label));
   }
@@ -25,6 +25,7 @@ test("제외 일정 UI는 다중 직원·유형·기간 필터와 CRUD를 제공
   assert.match(component, /filterEndDate/);
   assert.match(component, /method: form\.id \? "PATCH" : "POST"/);
   assert.match(component, /method: "DELETE"/);
+  assert.match(component, /예비조사자, 측정자·공시료, 측정 참여자, 보고서 담당자로 배정되지 않습니다/);
 });
 
 test("제외 일정 API는 권한·활성 측정직원 검증과 GET/POST/PATCH/DELETE를 제공", () => {

@@ -12,7 +12,7 @@ const read = (path: string) => readFileSync(path, "utf8");
 const route = read("app/api/preliminary-survey-v2/plans/route.ts");
 const component = read("components/features/PreliminarySurveyV2Plans.tsx");
 const page = read("app/survey/page.tsx");
-const recommendRoute = read("app/api/preliminary-survey-v2/recommend/route.ts");
+const workbenchRoute = read("app/api/preliminary-survey-v2/workbench/route.ts");
 const migration = read("supabase/migrations/20260808_add_preliminary_survey_v2.sql");
 
 test("V2 계획 GET은 V2 테이블만 읽고 mutation을 수행하지 않음", () => {
@@ -22,14 +22,13 @@ test("V2 계획 GET은 V2 테이블만 읽고 mutation을 수행하지 않음", 
   assert.doesNotMatch(route, /\.update\(|\.insert\(|\.delete\(|\.upsert\(|\.rpc\(/);
 });
 
-test("V2 화면은 전용 API와 V2 카드만 사용하고 PR #9 동작을 노출하지 않음", () => {
+test("V2 화면은 단일 작업대 API와 테이블을 사용하고 PR #9 동작을 노출하지 않음", () => {
   assert.match(page, /PreliminarySurveyV2Plans/);
   assert.match(page, /activeTab === "plans"/);
-  assert.match(component, /fetch\("\/api\/preliminary-survey-v2\/plans"/);
-  assert.match(component, /현재 생성된 V2 예비조사 계획이 없습니다/);
+  assert.match(component, /\/api\/preliminary-survey-v2\/workbench/);
+  assert.match(component, /<table/);
   assert.doesNotMatch(component, /preliminary-survey-plans/);
   assert.doesNotMatch(component, /MANUAL_SELECTION_APPLIED|PAST_PRELIMINARY_SURVEY_DATE|NO_AVAILABLE_DATE/);
-  assert.doesNotMatch(component, />재추천<|>취소</);
 });
 
 test("V2 표시값은 사용자용 한글로 변환됨", () => {
@@ -44,10 +43,10 @@ test("V2 표시값은 사용자용 한글로 변환됨", () => {
   assert.doesNotMatch(v2WarningLabel("NO_AVAILABLE_DATE_THROUGH_MINUS_3"), /^[A-Z0-9_]+$/);
 });
 
-test("V2 생성과 수동 수정은 관리자에게만 허용됨", () => {
-  assert.match(recommendRoute, /session\.role !== "관리자"/);
+test("V2 생성과 수동 수정은 관리자 또는 예비조사 담당자에게만 허용됨", () => {
+  assert.match(workbenchRoute, /canManagePreliminarySurvey\(supabase, session\)/);
   const manualRoute = read("app/api/preliminary-survey-v2/[targetId]/route.ts");
-  assert.match(manualRoute, /session\.role !== "관리자"/);
+  assert.match(manualRoute, /canManagePreliminarySurvey\(supabase, session\)/);
 });
 
 test("V2 migration은 기존 테이블/RPC를 사용하며 legacy 원본을 수정하지 않음", () => {

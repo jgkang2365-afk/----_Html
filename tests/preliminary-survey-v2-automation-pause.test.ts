@@ -114,10 +114,10 @@ test("H: 관리자 예외 정비는 자동추천 정책 게이트를 두지 않�
   assert.doesNotMatch(adminRepairRoute, /POLICY_DISABLED/);
 });
 
-// ===== I. 정책 OFF + sequence_number 보호 유지 =====
-test("I: 정책 OFF여도 sequence_number(확정) 보호는 유지된다", () => {
-  assert.match(service, /SEQUENCE_NUMBER_CONFIRMED/);
-  assert.match(service, /not\("sequence_number", "is", null\)/);
+// ===== I. 정책 OFF + measurement_journal 보호 유지 =====
+test("I: 정책 OFF여도 measurement_journal(찐확정) 보호는 유지된다", () => {
+  assert.match(service, /MEASUREMENT_JOURNAL_CONFIRMED/);
+  assert.doesNotMatch(service, /not\("sequence_number", "is", null\)/);
 });
 
 // ===== J. 정책 ON 회귀 =====

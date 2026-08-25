@@ -108,10 +108,10 @@ test("H: 묶음 추천 lead 결정에 보고서 담당자(measurer_id)를 사용
   assert.doesNotMatch(leadCall, /"measurer_id"|'measurer_id'/);
 });
 
-// ===== I. sequence_number 부여 대상 → 자동 재배치 금지 =====
-test("I: 확정(sequence_number 부여) 대상은 묶음 추천에서 제외된다", () => {
+// ===== I. measurement_journal row 대상 → 자동 재배치 금지 =====
+test("I: 찐확정(measurement_journal row 존재) 대상은 묶음 추천에서 제외된다", () => {
   assert.match(service, /confirmedKeys/);
-  assert.match(service, /not\("sequence_number", "is", null\)/);
+  assert.doesNotMatch(service, /not\("sequence_number", "is", null\)/);
 });
 
 // ===== J. 사용자 그룹 일부 제외 → 선택 사업장만 유지 =====

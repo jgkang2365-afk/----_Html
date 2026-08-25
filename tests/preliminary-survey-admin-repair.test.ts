@@ -125,8 +125,9 @@ test("정비 감사기록은 서비스 롤 전용이며 일반 사용자는 접�
 });
 
 // ===== 보호 =====
-test("일반 사용자의 확정(sequence_number) 이후 핵심값 수정 차단이 유지된다", () => {
-  assert.match(businessesRoute, /측정일지 연번이 부여되어 확정된 사업장입니다/);
+test("일반 사용자는 measurement_journal row가 있는 찐확정 핵심값을 수정할 수 없다", () => {
+  assert.match(businessesRoute, /유효한 측정일지가 있어 찐확정된 사업장입니다/);
+  assert.doesNotMatch(businessesRoute, /confirmedJournal[\s\S]*?not\("sequence_number"/);
   assert.match(businessesRoute, /if \(!isAdmin && planCriticalActuallyChanged/);
 });
 

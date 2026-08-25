@@ -11,6 +11,7 @@ const read = (file: string) => readFileSync(path.join(root, file), "utf8");
 const service = read("lib/preliminary-survey-v2/service.ts");
 const route = read("app/api/preliminary-survey-v2/group-confirm/route.ts");
 const migration = read("supabase/migrations/20260817_confirm_preliminary_survey_group.sql");
+const trueLockMigration = read("supabase/migrations/20260822_lock_true_confirmed_v2_plans.sql");
 const uiSource = read("components/features/MeasurementTargetBusinessManagement.tsx");
 
 const users = [
@@ -50,11 +51,11 @@ test("C: 동일 확정 요청 재실행 시 중복 plan이 생기지 않는다 (
   assert.match(migration, /updated_at = CURRENT_TIMESTAMP/);
 });
 
-// ===== D. sequence_number 생성 후 확정 차단 =====
-test("D: sequence_number 부여 대상은 확정에서 차단한다", () => {
-  assert.match(service, /SEQUENCE_NUMBER_CONFIRMED/);
-  assert.match(service, /not\("sequence_number", "is", null\)/);
-  assert.match(migration, /SEQUENCE_NUMBER_CONFIRMED/);
+// ===== D. measurement_journal 생성 후 확정 차단 =====
+test("D: measurement_journal row가 있는 대상은 확정에서 차단한다", () => {
+  assert.match(service, /MEASUREMENT_JOURNAL_CONFIRMED/);
+  assert.doesNotMatch(service, /not\("sequence_number", "is", null\)/);
+  assert.match(trueLockMigration, /TRUE_CONFIRMED_LOCKED/);
 });
 
 // ===== E. 실제 측정자 변경 → 예·측 재검증 =====

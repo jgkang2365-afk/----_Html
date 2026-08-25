@@ -48,7 +48,7 @@ export function workingDaysBefore(measurementDate: string, maximum = 30) {
   return result;
 }
 
-/** V2 후보 순서: -30..-20을 먼저, 실패 시 -19..-3. today는 의도적으로 받지 않는다. */
+/** @deprecated 업체 유형이 없는 legacy 호출용. 현재 Phase B는 recommendationDatesForBusinessType을 사용한다. */
 export function recommendationDates(measurementDate: string) {
   const dates = workingDaysBefore(measurementDate, 30);
   const byDistance = new Map(dates.map((item) => [item.workingDaysBefore, item]));
@@ -56,6 +56,28 @@ export function recommendationDates(measurementDate: string) {
     ...Array.from({ length: 11 }, (_, index) => 30 - index),
     ...Array.from({ length: 17 }, (_, index) => 19 - index),
   ].flatMap((distance) => byDistance.get(distance) ?? []);
+}
+
+export type PhaseBBusinessType = "existing" | "first_measurement" | "external_new";
+
+/** Phase B: 측정예정일과 업체 유형에서 후보일을 만든다. */
+export function recommendationDatesForBusinessType(
+  measurementDate: string,
+  businessType: PhaseBBusinessType,
+  options: { minimumDate?: string } = {},
+) {
+  const maximum = businessType === "first_measurement" ? 30 : 25;
+  const dates = workingDaysBefore(measurementDate, maximum);
+  const byDistance = new Map(dates.map((item) => [item.workingDaysBefore, item]));
+  const distances = businessType === "first_measurement"
+    ? Array.from({ length: 28 }, (_, index) => 3 + index)
+    : [
+        ...Array.from({ length: 18 }, (_, index) => 20 - index),
+        ...Array.from({ length: 5 }, (_, index) => 25 - index),
+      ];
+  return distances
+    .flatMap((distance) => byDistance.get(distance) ?? [])
+    .filter((candidate) => !options.minimumDate || candidate.date >= options.minimumDate);
 }
 
 export function workingDayDistance(earlier: string, later: string): number | null {

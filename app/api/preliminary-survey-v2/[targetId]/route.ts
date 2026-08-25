@@ -5,25 +5,53 @@ import { validateManualPlanHardRules } from "@/lib/preliminary-survey-v2/manual-
 import { createRouteMetrics } from "@/lib/preliminary-survey-v2/route-metrics";
 import { loadV2ManualContext } from "@/lib/preliminary-survey-v2/service";
 import { surveyMethodForKind, type SurveyUser } from "@/lib/preliminary-survey-v2/types";
+import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
+import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
 
 export async function PATCH(request: NextRequest, { params }: { params: { targetId: string } }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  if (session.role !== "관리자") return NextResponse.json({ error: "관리자만 수동 수정할 수 있습니다." }, { status: 403 });
   try {
     const targetId = Number(params.targetId);
     const body = await request.json();
     const participantIds = [...new Set((body.participantUserIds ?? []).map(Number).filter(Number.isFinite))];
     const supabase = await createClient();
+    if (!await canManagePreliminarySurvey(supabase, session)) {
+      return NextResponse.json({ error: "예비조사 담당자 또는 관리자만 수동 수정할 수 있습니다." }, { status: 403 });
+    }
     const { target, users, assignments } = await loadV2ManualContext(supabase, targetId, body.recommendedDate);
     const participants = participantIds.map((id) => users.find((user) => user.id === id))
       .filter((user): user is SurveyUser => Boolean(user));
     if (participants.length !== participantIds.length) throw new Error("PARTICIPANT_NOT_FOUND");
+    // 경력+비경력 조합에서는 비경력자가 페이퍼 작성자, 경력자 단독이면 경력자가 작성한다.
+    // 측정자/보고서 담당자/link_measurer_id에서는 예비조사 책임자를 추론하지 않는다.
+    const responsible = participants.find((user) => !user.experienced) ?? participants[0];
+    if (!responsible) throw new Error("NO_SURVEYOR");
+    const surveyMethod = body.surveyMethod === "field" || body.surveyMethod === "phone"
+      ? body.surveyMethod
+      : surveyMethodForKind(target.kind);
+    const validationTarget = { ...target, responsible };
     const validation = await validateManualPlanHardRules({
-      target, recommendedDate: body.recommendedDate, participants,
+      target: validationTarget, recommendedDate: body.recommendedDate, participants,
+      surveyMethod,
       existingAssignments: assignments, routes: createRouteMetrics(),
     });
     if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
+    const { data: scheduleBlocks, error: scheduleBlockError } = await supabase
+      .from("user_schedule_blocks")
+      .select("user_id, start_date, end_date")
+      .lte("start_date", body.recommendedDate)
+      .gte("end_date", body.recommendedDate)
+      .in("user_id", participantIds);
+    if (scheduleBlockError) throw scheduleBlockError;
+    const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
+    if (participantIds.some((userId) => scheduleBlockedKeys.has(`${userId}:${body.recommendedDate}`))) {
+      return NextResponse.json({
+        error: "직원 불가 일정에 등록된 예비조사자 또는 경력 동행자는 저장할 수 없습니다.",
+        code: "USER_UNAVAILABLE_ON_SURVEY_DATE",
+        reviewRequired: true,
+      }, { status: 409 });
+    }
 
     // 경력자 2명 이상 조합은 사용자 확인 전에는 저장하지 않는다.
     // 1차 요청(confirm 미포함)에서는 계획을 저장하지 않고 확인 요청만 반환한다.
@@ -39,22 +67,19 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
       });
     }
     const ordered = [...participants].sort((left, right) =>
-      Number(right.id === target.responsible.id) - Number(left.id === target.responsible.id) || left.id - right.id,
+      Number(right.id === responsible.id) - Number(left.id === responsible.id) || left.id - right.id,
     );
-    const surveyMethod = body.surveyMethod === "field" || body.surveyMethod === "phone"
-      ? body.surveyMethod
-      : surveyMethodForKind(target.kind);
     const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan", {
       p_target_id: targetId,
       p_recommended_date: body.recommendedDate,
-      p_responsible_user_id: target.responsible.id,
+      p_responsible_user_id: responsible.id,
       p_experienced_reviewer_id: validation.experiencedReviewer?.id ?? null,
       p_participant_user_ids: ordered.map((user) => user.id),
       p_participant_names: ordered.map((user) => user.name),
       p_status: "recommended",
       p_plan_origin: "manual",
       p_source_measurement_date: target.measurementDate,
-      p_source_responsible_user_id: target.responsible.id,
+      p_source_responsible_user_id: target.sourceMeasurerId,
       p_source_rule_type: target.kind,
       p_survey_method: surveyMethod,
       p_recommendation_reason: {

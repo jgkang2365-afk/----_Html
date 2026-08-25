@@ -75,7 +75,7 @@ test("sanitizeUpdates를 통과한 값은 실제 PATCH payload의 updates로 전
 test("기존 process_changed 미정(null)은 수정하지 않으면 false로 강제 변환되지 않는다", () => {
   const source = read("components/features/MeasurementTargetBusinessManagement.tsx");
 
-  const initFormSpread = /let initialForm = \{[\s\S]*?\.\.\.item,/.exec(source);
+  const initFormSpread = /(?:const|let) initialForm = \{[\s\S]*?\.\.\.item,/.exec(source);
   assert.ok(initFormSpread, "편집 폼이 기존 item 값을 상속해야 합니다.");
 
   assert.match(source, /checked=\{editForm\.process_changed === true\}/);

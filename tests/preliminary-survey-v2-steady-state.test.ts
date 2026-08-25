@@ -56,10 +56,10 @@ test("D: 실제 측정자(collaborators/daily_staff)는 측정계획 저장 경�
   assert.doesNotMatch(route, /ensureV2PlanForTarget/);
 });
 
-// ===== E. sequence_number 부여 후 자동 변경 차단 =====
-test("E: sequence_number(확정) 후에는 자동 생성/변경하지 않는다", () => {
-  assert.match(service, /SEQUENCE_NUMBER_CONFIRMED/);
-  assert.match(service, /not\("sequence_number", "is", null\)/);
+// ===== E. measurement_journal 생성 후 자동 변경 차단 =====
+test("E: measurement_journal row가 있으면 자동 생성/변경하지 않는다", () => {
+  assert.match(service, /MEASUREMENT_JOURNAL_CONFIRMED/);
+  assert.doesNotMatch(service, /not\("sequence_number", "is", null\)/);
   assert.match(service, /action: "confirmed"/);
 });
 

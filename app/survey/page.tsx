@@ -23,6 +23,13 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
 import { formatDateYYYYMMDD, calculateMeasurementWeekdays } from "@/lib/utils/date-utils";
+import {
+  SURVEY_TAB_IDS,
+  SURVEY_TAB_ORDER_STORAGE_KEY,
+  moveSurveyTab,
+  restoreSurveyTabOrder,
+  type SurveyTabId,
+} from "@/lib/preliminary-survey-v2/tab-order";
 
 interface Survey {
   id: number;
@@ -72,7 +79,9 @@ export default function SurveyPage() {
   const [editingSurvey, setEditingSurvey] = useState<Survey | null>(null);
   const [selectedBusinessForForm, setSelectedBusinessForForm] = useState<BusinessInfo | null>(null); // 선택된 사업장 정보
   // 탭 상태
-  const [activeTab, setActiveTab] = useState<"search" | "list" | "plans" | "schedule-blocks">("list");
+  const [activeTab, setActiveTab] = useState<SurveyTabId>("plans");
+  const [tabOrder, setTabOrder] = useState<SurveyTabId[]>([...SURVEY_TAB_IDS]);
+  const [draggedTab, setDraggedTab] = useState<SurveyTabId | null>(null);
 
   // 초기 로드 시 localStorage에서 탭 상태 복원 (Client-side only)
   useEffect(() => {
@@ -81,6 +90,7 @@ export default function SurveyPage() {
       if (savedTab === "search" || savedTab === "list" || savedTab === "plans" || savedTab === "schedule-blocks") {
         setActiveTab(savedTab);
       }
+      setTabOrder(restoreSurveyTabOrder(localStorage.getItem(SURVEY_TAB_ORDER_STORAGE_KEY)));
     }
   }, []);
 
@@ -90,6 +100,11 @@ export default function SurveyPage() {
       localStorage.setItem("surveyActiveTab", activeTab);
     }
   }, [activeTab]);
+
+  const saveTabOrder = (next: SurveyTabId[]) => {
+    setTabOrder(next);
+    localStorage.setItem(SURVEY_TAB_ORDER_STORAGE_KEY, JSON.stringify(next));
+  };
   const [isUnpaidWarningModalOpen, setIsUnpaidWarningModalOpen] = useState(false);
   const [pendingBusinessForForm, setPendingBusinessForForm] = useState<BusinessInfo | null>(null); // 경고 모달에서 대기 중인 사업장 정보
   // 정렬 상태
@@ -360,66 +375,40 @@ export default function SurveyPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-text-900">예비조사</h1>
-      </div>
+      <div className="sticky top-16 z-40 flex h-12 items-center gap-[3cm] border-b border-surface-200 bg-surface-50/95 backdrop-blur">
+        <h1 className="shrink-0 text-2xl font-bold text-text-900">예비조사</h1>
 
-      {/* 탭 */}
-      <div className="border-surface-200 border-b">
-        <div className="flex gap-4">
-          <button
-            onClick={() => {
-              setActiveTab("list");
-              // 목록이 비어있을 때만 로드 (이미 로드된 데이터 유지)
-              if (surveys.length === 0) {
-                loadSurveys();
-              }
-            }}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === "list"
-                ? "border-b-2 border-primary-500 text-primary-500"
-                : "text-text-700 hover:text-text-900"
-            }`}
-          >
-            예비조사 목록
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("search");
-              // 상태 유지 (검색 결과 초기화 안함)
-            }}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === "search"
-                ? "border-b-2 border-primary-500 text-primary-500"
-                : "text-text-700 hover:text-text-900"
-            }`}
-          >
-            사업장 검색
-          </button>
-          <button
-            onClick={() => setActiveTab("plans")}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === "plans"
-                ? "border-b-2 border-primary-500 text-primary-500"
-                : "text-text-700 hover:text-text-900"
-            }`}
-          >
-            예비조사 계획
-          </button>
-          <button
-            onClick={() => setActiveTab("schedule-blocks")}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === "schedule-blocks"
-                ? "border-b-2 border-primary-500 text-primary-500"
-                : "text-text-700 hover:text-text-900"
-            }`}
-          >
-            직원 예비조사 제외 일정
-          </button>
+        {/* 탭 */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          {tabOrder.map((tabId) => {
+            const labels: Record<SurveyTabId, string> = {
+              plans: "예비조사 계획",
+              list: "예비조사 목록",
+              search: "사업장 검색",
+              "schedule-blocks": "직원 불가 일정",
+            };
+            return <button
+              key={tabId}
+              type="button"
+              draggable
+              onDragStart={() => setDraggedTab(tabId)}
+              onDragEnd={() => setDraggedTab(null)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                if (draggedTab) saveTabOrder(moveSurveyTab(tabOrder, draggedTab, tabId));
+                setDraggedTab(null);
+              }}
+              onClick={() => setActiveTab(tabId)}
+              aria-current={activeTab === tabId ? "page" : undefined}
+              className={`cursor-grab px-4 py-2 text-sm font-medium transition-colors active:cursor-grabbing ${activeTab === tabId ? "border-b-2 border-primary-500 text-primary-500" : "text-text-700 hover:text-text-900"}`}
+            >{labels[tabId]}</button>;
+          })}
+          <button type="button" onClick={() => saveTabOrder([...SURVEY_TAB_IDS])} className="ml-auto px-3 py-2 text-xs text-text-500 hover:text-text-900">기본 순서로 복원</button>
         </div>
       </div>
 
       {activeTab === "plans" && <PreliminarySurveyV2Plans />}
+      {activeTab === "list" && <PreliminarySurveyV2Plans mode="list" />}
       {activeTab === "schedule-blocks" && <UserScheduleBlockManagement />}
 
       {/* 검색 폼 (사업장 검색 탭에서만 표시) */}
@@ -715,7 +704,7 @@ export default function SurveyPage() {
       {/* 목록 탭일 때 표시할 검색 필터 */}
 
       {/* 예비조사 목록 (예비조사 목록 탭) */}
-      {activeTab === "list" && !loading && (
+      {false && activeTab === "list" && !loading && (
         <Card className="p-6 shadow-sm">
           <div className="mb-6 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-text-900">

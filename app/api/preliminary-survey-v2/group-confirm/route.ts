@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * 예비조사 묶음 추천 확정(저장) API (관리자 전용)
  *
  * - 클라이언트는 추천 날짜와 선택 target IDs만 보낸다. participants/link는 서버가 재검증해 결정한다.
- * - 확정 직전 현재 DB를 다시 읽어 sequence_number / manual plan / 실제 측정자 / 측정일 변경을 재검증한다.
+ * - 확정 직전 현재 DB를 다시 읽어 measurement_journal 찐확정 / manual plan / 실제 측정자 / 측정일 변경을 재검증한다.
  * - 원자적으로 처리되며(전부 성공 또는 전부 rollback), 실패 시 사업장별 사유를 반환한다.
  * - 제외된 사업장은 변경하지 않는다.
  * - 예비조사 자동추천 정책 OFF이면 저장하지 않고 차단한다.

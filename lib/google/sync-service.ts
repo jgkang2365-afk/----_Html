@@ -1,6 +1,7 @@
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent, listEvents } from "./calendar";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveCalendarColorId } from "./calendar-policy";
+import { formatCalendarMeasurementParticipants } from "./calendar-staff-display";
 
 /**
  * 특정 사업장의 정보를 구글 캘린더와 동기화합니다.
@@ -99,26 +100,12 @@ export async function syncBusinessToCalendar(
         continue;
       }
 
-      // 제목 생성: 담당자가 측정자에 포함 → [담당자, 측정자...] / 미포함 → [측정자...(담당자)]
-      let staffDisplay = "미지정";
-      const measurers = survey.actual_measurer ? survey.actual_measurer.split(',').map((m: string) => m.trim()).filter(Boolean) : [];
-      const writer = survey.report_writer ? survey.report_writer.trim() : "";
-      const writerInMeasurers = writer && measurers.includes(writer);
-      
-      if (measurers.length > 0) {
-        if (writerInMeasurers) {
-          // 담당자가 측정자에 포함됨 → 맨 앞 정렬, 괄호 생략
-          const others = measurers.filter((m: string) => m !== writer);
-          staffDisplay = [writer, ...others].join(", ");
-        } else if (writer) {
-          // 담당자가 측정자에 미포함 → 뒤에 (담당자) 표시
-          staffDisplay = `${measurers.join(", ")}(${writer})`;
-        } else {
-          staffDisplay = measurers.join(", ");
-        }
-      } else {
-        staffDisplay = writer ? `(${writer})` : "미지정";
-      }
+      // 제목에는 실제 측정 참여자만 표시한다. 보고서 담당자는 포함된 경우에만 맨 앞에 둔다.
+      // 캘린더 색상은 아래 resolveCalendarColorId에서 보고서 담당자 기준을 그대로 유지한다.
+      const staffDisplay = formatCalendarMeasurementParticipants(
+        survey.actual_measurer,
+        survey.report_writer,
+      );
       
       const notesText = targetBiz.notes || "";
       const baseSummary = `[${staffDisplay}] ${targetBiz.business_name}`;

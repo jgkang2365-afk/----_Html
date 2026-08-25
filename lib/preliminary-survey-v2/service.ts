@@ -1,10 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
+import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
-import { recommendationDates } from "./calendar";
+import { parseDateOnly, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
+import { loadActualMeasurementBlockedKeys } from "./measurement-conflicts";
+import { measurementStaffForDate } from "./measurement-staff";
+import { currentDateInKst } from "./recommendation-range";
 import {
   PROCESS_CHANGED_POLICY_OFF,
   shouldApplyProcessChangedPolicy,
@@ -13,13 +17,9 @@ import {
   type ProcessChangedPolicySettings,
 } from "./policy";
 import { createRouteMetrics } from "./route-metrics";
-import { surveyMethodForKind, type ExistingAssignment, type RecommendationResult, type RouteMetrics, type SurveyTarget, type SurveyUser } from "./types";
+import { surveyMethodForKind, type ExistingAssignment, type RecommendationResult, type RouteMetrics, type SurveyMethod, type SurveyTarget, type SurveyUser } from "./types";
 
 type Client = SupabaseClient<any, "public", any>;
-
-function names(value: unknown): string[] {
-  return String(value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
-}
 
 function regionFromAddress(value: unknown): string | null {
   const parts = String(value ?? "").trim().split(/\s+/);
@@ -31,6 +31,50 @@ function coordinateFromRow(row: any) {
   const coordinate = row && { latitude: Number(row.latitude), longitude: Number(row.longitude) };
   return coordinate && coordinate.latitude >= 33 && coordinate.latitude <= 39 &&
     coordinate.longitude >= 124 && coordinate.longitude <= 132 ? coordinate : null;
+}
+
+function measurementAssignmentDates(
+  measurementDate: unknown,
+  measurementEndDate: unknown,
+  dailyStaff: unknown,
+): string[] | null {
+  const start = String(measurementDate ?? "");
+  const end = String(measurementEndDate ?? start);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
+  if (end === start) return [start];
+  if (!Array.isArray(dailyStaff) || dailyStaff.length < 2) return null;
+  const dates = dailyStaff.map((day: any) => String(day?.date ?? ""));
+  if (dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date)) || new Set(dates).size !== dates.length) return null;
+  const sorted = [...dates].sort();
+  return sorted[0] === start && sorted.at(-1) === end ? sorted : null;
+}
+
+function optionalInteger(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function measurementStaffByDateFromSource(input: {
+  dailyStaff: unknown;
+  measurementDate: string | null;
+  measurerId: unknown;
+  collaborators: unknown;
+  userIdByName: Map<string, number>;
+}) {
+  return measurementDayFormsFrom({
+    dailyStaff: input.dailyStaff,
+    measurementDate: input.measurementDate,
+    measurerId: optionalInteger(input.measurerId),
+    collaborators: input.collaborators,
+  }).filter((day) => parseDateOnly(day.date)).map((day) => ({
+    date: day.date,
+    reportWriterUserId: day.measurerId,
+    measurementParticipantUserIds: [...new Set(day.collaborators.flatMap((name) => {
+      const userId = input.userIdByName.get(name.trim());
+      return userId == null ? [] : [userId];
+    }))],
+  }));
 }
 
 async function loadProcessChangedPolicy(supabase: Client): Promise<ProcessChangedPolicySettings> {
@@ -54,7 +98,7 @@ async function loadProcessChangedPolicy(supabase: Client): Promise<ProcessChange
 
 export async function loadV2ManualContext(supabase: Client, targetId: number, recommendedDate: string) {
   const { data: targetRow, error: targetError } = await supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
+    "id, code, year, period, business_name, address, measurement_date, measurement_end_date, measurer_id, link_measurer_id, collaborators, daily_staff, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).eq("id", targetId).single();
   if (targetError || !targetRow) throw new Error("TARGET_NOT_FOUND");
   const [{ data: userRows, error: userError }, { data: infoRow, error: infoError }, { data: journalRows, error: journalError }, policy] = await Promise.all([
@@ -72,14 +116,18 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   const users: SurveyUser[] = (userRows ?? []).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
-  // 예비조사 responsible는 반드시 연계측정자(link_measurer_id)다.
-  // link_measurer_id가 없으면 연계측정자 미확정 상태로 보고 자동 추천을 진행하지 않는다.
-  // 보고서 담당자(measurer_id)는 responsible로 대체하지 않는다.
-  const responsibleId = targetRow.link_measurer_id;
-  const responsible = responsibleId == null
-    ? undefined
-    : users.find((user) => user.id === Number(responsibleId));
-  if (!responsible) throw new Error("LINK_MEASURER_REQUIRED");
+  const userNameById = new Map(users.map((user) => [user.id, user.name]));
+  const userIdByName = new Map(users.map((user) => [user.name.trim(), user.id]));
+  const measurementParticipantsSnapshot = measurementStaffForDate({
+    dailyStaff: targetRow.daily_staff,
+    measurementDate: targetRow.measurement_date,
+    collaborators: targetRow.collaborators,
+    userNameById,
+  }).measurementParticipants;
+  // 수동 검증 context의 responsible는 제출된 예비조사 draft로 교체된다.
+  // legacy link_measurer_id·보고서 담당자·측정 참여자에서 예비조사자를 추론하지 않는다.
+  const responsible = users.find((user) => user.active !== false);
+  if (!responsible) throw new Error("NO_ACTIVE_PRELIMINARY_SURVEYOR");
   const classification = classifyMeasurementJournalBusiness({
     code: targetRow.code, year: Number(targetRow.year), period: targetRow.period,
     business_type: targetRow.business_type,
@@ -87,10 +135,24 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   }, (journalRows ?? []) as MeasurementJournalClassificationRow[]);
   const target: SurveyTarget = {
     id: Number(targetRow.id), code: targetRow.code, name: targetRow.business_name,
-    kind: classification.kind, measurementDate: targetRow.measurement_date, responsible,
+    kind: classification.kind, measurementDate: targetRow.measurement_date,
+    measurementAssignmentDates: measurementAssignmentDates(
+      targetRow.measurement_date, targetRow.measurement_end_date, targetRow.daily_staff,
+    ), responsible,
     address: targetRow.address, region: regionFromAddress(targetRow.address), coordinate: coordinateFromRow(infoRow),
     createdAt: targetRow.created_at,
     businessType: targetRow.business_type,
+    sourceMeasurerId: optionalInteger(targetRow.measurer_id),
+    measurementParticipantsSnapshot,
+    sourceDailyStaffSnapshot: targetRow.daily_staff ?? null,
+    sourceCollaboratorsSnapshot: targetRow.collaborators ?? null,
+    measurementStaffByDate: measurementStaffByDateFromSource({
+      dailyStaff: targetRow.daily_staff,
+      measurementDate: targetRow.measurement_date,
+      measurerId: targetRow.measurer_id,
+      collaborators: targetRow.collaborators,
+      userIdByName,
+    }),
     processChanged: targetRow.process_changed,
     processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
       policy,
@@ -106,7 +168,7 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   };
 
   const { data: planRows, error: planError } = await supabase.from("preliminary_survey_v2_plans").select(
-    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status",
+    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, survey_method, status",
   ).eq("status", "recommended").eq("recommended_date", recommendedDate).neq("measurement_target_business_id", targetId);
   const v2TableMissing = planError?.code === "42P01" || planError?.code === "PGRST205";
   if (planError && !v2TableMissing) throw new Error(`V2_PLAN_QUERY_FAILED:${planError.message}`);
@@ -144,7 +206,8 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
       participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
       responsibleUserId: Number(plan.responsible_user_id),
       experiencedReviewerId: plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
-      coordinate: coordinateFromRow(otherInfoByCode.get(row.code)), region: regionFromAddress(row.address),
+      surveyMethod: plan.survey_method === "field" ? "field" as const : "phone" as const,
+      address: row.address, coordinate: coordinateFromRow(otherInfoByCode.get(row.code)), region: regionFromAddress(row.address),
     }];
   });
   return { target, users, assignments };
@@ -152,11 +215,20 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
 
 export interface CalculationOptions {
   targetIds?: number[];
+  year?: number;
+  period?: string;
   measurementDateFrom?: string;
   measurementDateTo?: string;
+  /** 측정예정일 필터와 별개인, 사용자가 지정한 예비조사일 추천 범위. */
+  preliminaryDateFrom?: string;
+  preliminaryDateTo?: string;
   createdBeforeOrAt?: string;
   allowExternalRoutes?: boolean;
   routeMetrics?: RouteMetrics;
+  /** 실시간은 KST 오늘을 사용하고, 결정적 테스트만 고정값을 주입한다. */
+  planningDate?: string;
+  /** Stage 2 clean baseline: DB의 과거 측정 역할은 stale snapshot으로만 보존하고 추천 preference에는 사용하지 않는다. */
+  ignoreLegacyAssignmentInputs?: boolean;
 }
 
 export interface CalculationOutput {
@@ -170,15 +242,117 @@ export interface CalculationOutput {
   blockedKeys: string[];
 }
 
+function preliminaryDateScope(options: Pick<CalculationOptions, "preliminaryDateFrom" | "preliminaryDateTo">) {
+  const from = options.preliminaryDateFrom;
+  const to = options.preliminaryDateTo;
+  if (from && !parseDateOnly(from)) throw new Error("INVALID_PRELIMINARY_DATE_FROM");
+  if (to && !parseDateOnly(to)) throw new Error("INVALID_PRELIMINARY_DATE_TO");
+  if (from && to && from > to) throw new Error("INVALID_PRELIMINARY_DATE_RANGE");
+  return { from, to };
+}
+
+function isInPreliminaryDateScope(date: string, scope: { from?: string; to?: string }) {
+  return (!scope.from || date >= scope.from) && (!scope.to || date <= scope.to);
+}
+
+export function filterPreliminaryCandidateDates<T extends { date: string }>(
+  candidates: T[],
+  options: Pick<CalculationOptions, "preliminaryDateFrom" | "preliminaryDateTo">,
+) {
+  const scope = preliminaryDateScope(options);
+  return candidates.filter((candidate) => isInPreliminaryDateScope(candidate.date, scope));
+}
+
+function manualRequiredOutsidePreliminaryScope(result: RecommendationResult): RecommendationResult {
+  return {
+    ...result,
+    status: "manual_required",
+    date: null,
+    participants: [],
+    experiencedReviewer: null,
+    evidence: {
+      ...result.evidence,
+      workingDaysBefore: null,
+      range: null,
+      capacityPass: null,
+      selectionMode: null,
+      selectionReason: "no_available_date",
+      warnings: [...result.evidence.warnings, "NO_AVAILABLE_DATE_IN_PRELIMINARY_SCOPE"],
+    },
+    reason: "선택한 예비조사 기간과 업체별 후보일의 교집합에 추천 가능한 날짜가 없습니다.",
+  };
+}
+
+interface PreservedManualRecommendation {
+  date: string;
+  responsible: SurveyUser;
+  participants: SurveyUser[];
+  experiencedReviewer: SurveyUser | null;
+  surveyMethod: SurveyMethod;
+}
+
+function preservedTentativeResult(
+  target: SurveyTarget,
+  recommendation: PreservedManualRecommendation,
+  candidate: { workingDaysBefore: number } | undefined,
+): RecommendationResult {
+  const surveyMethod = recommendation.surveyMethod;
+  const range = candidate == null
+    ? null
+    : target.businessType === "external_new" || target.businessType === "existing"
+      ? candidate.workingDaysBefore <= 20 ? "primary" as const : "fallback" as const
+      : target.businessType === "first_measurement"
+        ? "primary" as const
+        : candidate.workingDaysBefore >= 20 ? "primary" as const : "fallback" as const;
+  return {
+    targetId: target.id,
+    status: "recommended",
+    date: recommendation.date,
+    participants: recommendation.participants,
+    responsible: recommendation.responsible!,
+    experiencedReviewer: recommendation.experiencedReviewer,
+    surveyMethod,
+    evidence: {
+      classificationSource: target.classificationSource,
+      processChangedPolicyApplicable: target.processChangedPolicyApplicable === true,
+      surveyMethod,
+      workingDaysBefore: candidate?.workingDaysBefore ?? null,
+      range,
+      capacityPass: 1,
+      responsibleConflict: false,
+      reviewerConflict: false,
+      route: null,
+      sameDayRoute: null,
+      rejectedSameDayRoutes: [],
+      singleCandidateAvailable: true,
+      sameRouteMinutes: null,
+      sameRouteThresholdMinutes: 30,
+      hardMaximumMinutes: 60,
+      selectionMode: "single",
+      selectionReason: "single_available",
+      experiencedNewAssignments: null,
+      experiencedAllFieldAssignments: null,
+      crossTypeOverlap: false,
+      crossTypeOverlapAvoided: false,
+      crossTypeOverlapReason: null,
+      warnings: ["MINIMUM_CHANGE_PRESERVED"],
+    },
+    reason: "기존 유효 가확정 유지",
+  };
+}
+
 /** SELECT 전용 계산 경로. 이 함수는 insert/update/upsert/rpc를 호출하지 않는다. */
 export async function calculateV2Recommendations(
   supabase: Client,
   options: CalculationOptions = {},
 ): Promise<CalculationOutput> {
+  const scope = preliminaryDateScope(options);
   let targetQuery = supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, address, measurement_date, measurer_id, link_measurer_id, created_at, business_type, process_changed, preliminary_survey_rule_type",
+    "id, code, year, period, business_name, address, measurement_date, measurement_end_date, measurer_id, link_measurer_id, collaborators, daily_staff, created_at, business_type, process_changed, preliminary_survey_rule_type",
   ).not("measurement_date", "is", null);
   if (options.targetIds?.length) targetQuery = targetQuery.in("id", options.targetIds);
+  if (options.year != null) targetQuery = targetQuery.eq("year", options.year);
+  if (options.period) targetQuery = targetQuery.eq("period", options.period);
   if (options.measurementDateFrom) targetQuery = targetQuery.gte("measurement_date", options.measurementDateFrom);
   if (options.measurementDateTo) targetQuery = targetQuery.lte("measurement_date", options.measurementDateTo);
   if (options.createdBeforeOrAt) targetQuery = targetQuery.lte("created_at", options.createdBeforeOrAt);
@@ -193,8 +367,10 @@ export async function calculateV2Recommendations(
   const users: SurveyUser[] = (rawUsers ?? []).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
-  const userById = new Map(users.map((user) => [user.id, user]));
-  const userIdByName = new Map(users.map((user) => [user.name, user.id]));
+  const activeUsers = users.filter((user) => user.active !== false).sort((left, right) => left.id - right.id);
+  const userNameById = new Map(users.map((user) => [user.id, user.name]));
+  const userIdByName = new Map(users.map((user) => [user.name.trim(), user.id]));
+  const planningDate = options.planningDate ?? currentDateInKst();
   const codes = [...new Set((rawTargets ?? []).map((target: any) => target.code))];
   const years = [...new Set((rawTargets ?? []).map((target: any) => Number(target.year)))];
   let journalQuery = supabase.from("measurement_journal").select(
@@ -217,7 +393,10 @@ export async function calculateV2Recommendations(
   }]));
 
   const missing: CalculationOutput["missing"] = [];
-  const targets = (rawTargets ?? []).flatMap((row: any) => {
+  const sortedRows = [...(rawTargets ?? [])].sort((left: any, right: any) =>
+    String(left.measurement_date).localeCompare(String(right.measurement_date)) || Number(left.id) - Number(right.id),
+  );
+  const targets = sortedRows.flatMap((row: any) => {
     const classification = classifyMeasurementJournalBusiness({
       code: row.code,
       year: Number(row.year),
@@ -232,13 +411,11 @@ export async function calculateV2Recommendations(
       measurementYear: Number(row.year),
       measurementPeriod: String(row.period).trim(),
     };
-    // 예비조사 responsible는 반드시 연계측정자(link_measurer_id)다. 보고서 담당자(measurer_id)는 대체하지 않는다.
-    const responsible = row.link_measurer_id == null
-      ? undefined
-      : userById.get(Number(row.link_measurer_id));
+    // 아래 순수 탐색 단계가 후보일별 조사자/조합을 고른다. 이 값은 탐색 전 placeholder일 뿐이다.
+    const responsible = activeUsers[0];
     const fields = [
       !row.measurement_date && "measurement_date",
-      !responsible && "link_measurer",
+      !responsible && "active_preliminary_surveyor",
     ].filter(Boolean) as string[];
     if (fields.length) {
       missing.push({
@@ -253,11 +430,33 @@ export async function calculateV2Recommendations(
     const coordinate = rawCoordinate && rawCoordinate.latitude >= 33 && rawCoordinate.latitude <= 39 &&
       rawCoordinate.longitude >= 124 && rawCoordinate.longitude <= 132
       ? rawCoordinate : null;
+    const measurementStaffByDate = options.ignoreLegacyAssignmentInputs ?
+      (measurementAssignmentDates(row.measurement_date, row.measurement_end_date, row.daily_staff) ?? []).map((date) => ({
+        date, reportWriterUserId: null, measurementParticipantUserIds: [],
+      })) : measurementStaffByDateFromSource({
+      dailyStaff: row.daily_staff,
+      measurementDate: row.measurement_date,
+      measurerId: optionalInteger(row.measurer_id),
+      collaborators: row.collaborators,
+      userIdByName,
+      });
     return [{
       id: Number(row.id), code: row.code, name: row.business_name, kind: classification.kind,
-      measurementDate: row.measurement_date, responsible: responsible!, address: row.address,
+      measurementDate: row.measurement_date,
+      measurementAssignmentDates: measurementAssignmentDates(row.measurement_date, row.measurement_end_date, row.daily_staff),
+      responsible: responsible!, address: row.address,
       region: regionFromAddress(row.address), coordinate, createdAt: row.created_at, classificationSource,
       businessType: row.business_type,
+      sourceMeasurerId: optionalInteger(row.measurer_id),
+      measurementParticipantsSnapshot: options.ignoreLegacyAssignmentInputs ? undefined : measurementStaffForDate({
+        dailyStaff: row.daily_staff,
+        measurementDate: row.measurement_date,
+        collaborators: row.collaborators,
+        userNameById,
+      }).measurementParticipants,
+      sourceDailyStaffSnapshot: row.daily_staff ?? null,
+      sourceCollaboratorsSnapshot: row.collaborators ?? null,
+      measurementStaffByDate,
       processChanged: row.process_changed,
       processChangedPolicyApplicable: shouldApplyProcessChangedPolicy({
         policy: processChangedPolicy,
@@ -269,59 +468,157 @@ export async function calculateV2Recommendations(
     } satisfies SurveyTarget];
   });
 
-  const candidateDates = targets.flatMap((target) => [target.measurementDate]);
-  const earliest = candidateDates.sort()[0];
-  const latest = candidateDates.sort().at(-1);
+  // 업체별 날짜 정책으로 먼저 후보를 만들고, 요청한 예비조사 기간과 교차한다.
+  // 추천 엔진은 자체 후보 정책을 유지하므로, availability의 기간 차단과 함께 둘 다 만족해야 한다.
+  const candidateDatesByTarget = new Map(targets.map((target) => [
+    target.id,
+    new Set(filterPreliminaryCandidateDates(
+      target.businessType
+        ? recommendationDatesForBusinessType(target.measurementDate, target.businessType, { minimumDate: planningDate })
+        : recommendationDates(target.measurementDate).filter((candidate) => candidate.date >= planningDate),
+      options,
+    ).map((item) => item.date)),
+  ]));
+  const candidateDates = [...new Set([...candidateDatesByTarget.values()].flatMap((dates) => [...dates]))].sort();
+  const earliest = candidateDates[0];
+  const latest = candidateDates.at(-1);
   const { data: blocks, error: blockError } = earliest && latest
     ? await supabase.from("user_schedule_blocks").select("user_id, start_date, end_date").lte("start_date", latest).gte("end_date", "2024-01-01")
     : { data: [], error: null };
   if (blockError) throw new Error(`V2_BLOCK_QUERY_FAILED:${blockError.message}`);
 
-  // 실제 측정 일정은 candidate가 될 수 있는 충분히 넓은 범위를 읽는다.
-  const { data: measurementRows, error: scheduleError } = earliest && latest
-    ? await supabase.from("preliminary_survey").select("measurement_date, measurer, actual_measurer, report_writer")
-        .gte("measurement_date", "2024-01-01").lte("measurement_date", latest)
-    : { data: [], error: null };
-  if (scheduleError) throw new Error(`V2_MEASUREMENT_SCHEDULE_QUERY_FAILED:${scheduleError.message}`);
   const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
-  for (const schedule of measurementRows ?? []) {
-    const participantNames = new Set([
-      ...names(schedule.measurer), ...names(schedule.actual_measurer), ...names(schedule.report_writer),
-    ]);
-    for (const name of participantNames) {
-      const userId = userIdByName.get(name);
-      if (userId) blockedKeys.add(`${userId}:${schedule.measurement_date}`);
-    }
-  }
+  const measurementBlockedKeys = options.ignoreLegacyAssignmentInputs
+    ? new Set<string>()
+    : await loadActualMeasurementBlockedKeys(supabase, candidateDates, users);
+  for (const key of measurementBlockedKeys) blockedKeys.add(key);
 
-  const { data: queriedPlanRows, error: planError } = await supabase.from("preliminary_survey_v2_plans").select(
-    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status, source_rule_type",
-  ).eq("status", "recommended");
+  const { data: queriedPlanRows, error: planError } = options.ignoreLegacyAssignmentInputs
+    ? { data: [], error: null }
+    : await supabase.from("preliminary_survey_v2_plans").select(
+      "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status, plan_origin, source_rule_type, survey_method",
+    ).eq("status", "recommended");
   const v2TableMissing = planError?.code === "42P01" || planError?.code === "PGRST205";
   if (planError && !v2TableMissing) throw new Error(`V2_PLAN_QUERY_FAILED:${planError.message}`);
   const planRows = v2TableMissing ? [] : (queriedPlanRows ?? []);
   const targetById = new Map(targets.map((target) => [target.id, target]));
+  const targetIds = new Set(targets.map((target) => target.id));
   const existingAssignments: ExistingAssignment[] = (planRows ?? []).flatMap((plan: any) => {
-    if (!plan.recommended_date || options.targetIds?.includes(Number(plan.measurement_target_business_id))) return [];
+    if (!plan.recommended_date || targetIds.has(Number(plan.measurement_target_business_id))) return [];
     const target = targetById.get(Number(plan.measurement_target_business_id));
     return [{
       targetId: Number(plan.measurement_target_business_id), businessCode: target?.code ?? String(plan.measurement_target_business_id),
       kind: target?.kind ?? (plan.source_rule_type === "new" ? "new" : "existing"), date: plan.recommended_date,
       participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
       responsibleUserId: Number(plan.responsible_user_id), experiencedReviewerId: plan.experienced_reviewer_id ? Number(plan.experienced_reviewer_id) : null,
-      coordinate: target?.coordinate ?? null, region: target?.region ?? null,
+      surveyMethod: plan.survey_method === "field" ? "field" as const : "phone" as const,
+      address: target?.address ?? null, coordinate: target?.coordinate ?? null, region: target?.region ?? null,
     }];
   });
 
-  const results = await recommendBatch({
-    targets, experiencedUsers: users.filter((user) => user.experienced && user.active !== false), existingAssignments,
-    availability: { isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`) },
-    routes: options.routeMetrics ?? createRouteMetrics(options.allowExternalRoutes === false ? "" : undefined),
+  const tentativeAssignments = (planRows ?? []).flatMap((plan: any) => {
+    const target = targetById.get(Number(plan.measurement_target_business_id));
+    // 과거 automatic plan은 새 정책의 정답으로 보존하지 않는다. 사용자가 적용한
+    // manual plan만 현재 hard constraint를 통과할 때 minimum-change 후보로 유지한다.
+    if (!target || !plan.recommended_date || plan.plan_origin !== "manual") return [];
+    return [{
+      targetId: target.id, businessCode: target.code, kind: target.kind, date: plan.recommended_date,
+      participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
+      responsibleUserId: Number(plan.responsible_user_id),
+      experiencedReviewerId: plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
+      surveyMethod: plan.survey_method === "field" ? "field" as const : "phone" as const,
+      address: target.address, coordinate: target.coordinate, region: target.region, tentative: true,
+    }];
   });
-  return { targets, results, missing, blockedKeys: [...blockedKeys] };
+  const activeSurveyors = users.filter((user) => user.active !== false).sort((left, right) => left.id - right.id);
+  if (!activeSurveyors.length) {
+    for (const target of targets) {
+      missing.push({
+        targetId: target.id, code: target.code, name: target.name, measurementDate: target.measurementDate,
+        kind: target.kind, fields: ["available_preliminary_surveyor"], classificationSource: target.classificationSource,
+      });
+    }
+  }
+  // engine이 책임 조사자·날짜·용량·경로를 한 번에 확정한다. 수동 plan만 그 전에
+  // 현재 hard constraint를 모두 다시 통과한 경우에 한해 minimum-change로 예약한다.
+  const selectedTargets = activeSurveyors.length
+    ? targets.map((target) => ({ ...target, responsible: activeSurveyors[0] }))
+    : [];
+  const selectedTargetById = new Map(selectedTargets.map((target) => [target.id, target]));
+  const routes = options.routeMetrics ?? createRouteMetrics(options.allowExternalRoutes === false ? "" : undefined);
+  const tentativeByTarget = new Map(tentativeAssignments.map((assignment) => [assignment.targetId, assignment]));
+  const preserved = (await Promise.all(selectedTargets.map(async (target) => {
+    const tentative = tentativeByTarget.get(target.id);
+    if (!tentative || !candidateDatesByTarget.get(target.id)?.has(tentative.date)) return null;
+    const participants = [...new Set(tentative.participants)]
+      .map((userId) => users.find((user) => user.id === userId))
+      .filter((user): user is SurveyUser => Boolean(user));
+    const responsible = users.find((user) => user.id === tentative.responsibleUserId) ?? null;
+    if (!responsible || participants.length !== new Set(tentative.participants).size ||
+        !participants.some((user) => user.id === responsible.id) ||
+        participants.some((user) => user.active === false ||
+          !isInPreliminaryDateScope(tentative.date, scope) || blockedKeys.has(`${user.id}:${tentative.date}`))) return null;
+    const validation = await validateManualPlanHardRules({
+      target: { ...target, responsible },
+      recommendedDate: tentative.date,
+      participants,
+      surveyMethod: tentative.surveyMethod,
+      existingAssignments: [
+        ...existingAssignments,
+        ...tentativeAssignments.filter((assignment) => assignment.targetId !== target.id),
+      ],
+      routes,
+    });
+    if (!validation.valid) return null;
+    const candidate = (target.businessType
+      ? recommendationDatesForBusinessType(target.measurementDate, target.businessType)
+      : recommendationDates(target.measurementDate)
+    ).find((item) => item.date === tentative.date);
+    const recommendation: PreservedManualRecommendation = {
+      date: tentative.date, responsible, participants,
+      experiencedReviewer: validation.experiencedReviewer,
+      surveyMethod: tentative.surveyMethod ?? surveyMethodForKind(target.kind),
+    };
+    return preservedTentativeResult(target, recommendation, candidate);
+  }))).filter((result): result is RecommendationResult => Boolean(result));
+  const preservedAssignments = preserved.map((result) => {
+    const target = selectedTargetById.get(result.targetId)!;
+    return {
+      targetId: target.id, businessCode: target.code, kind: target.kind, date: result.date!,
+      participants: result.participants.map((user) => user.id), responsibleUserId: result.responsible.id,
+      experiencedReviewerId: result.experiencedReviewer?.id ?? null, address: target.address,
+      coordinate: target.coordinate, region: target.region,
+      surveyMethod: result.surveyMethod,
+    } satisfies ExistingAssignment;
+  });
+  const preservedTargetIds = new Set(preserved.map((result) => result.targetId));
+  const flexibleTargets = selectedTargets.filter((target) => !preservedTargetIds.has(target.id));
+  const freshResults = await recommendBatch({
+    targets: flexibleTargets, surveyors: activeSurveyors,
+    experiencedUsers: activeSurveyors.filter((user) => user.experienced),
+    existingAssignments: [...existingAssignments, ...preservedAssignments],
+    availability: {
+      isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`),
+    },
+    routes,
+    planningDate,
+  });
+  const results = [...preserved, ...freshResults].map((result) => {
+    const scopedCandidates = candidateDatesByTarget.get(result.targetId);
+    const scopeRestricted = Boolean(scope.from || scope.to);
+    return scopeRestricted && (scopedCandidates?.size === 0 || (result.date != null && !scopedCandidates?.has(result.date)))
+      ? manualRequiredOutsidePreliminaryScope(result)
+      : result;
+  });
+  return { targets: selectedTargets, results, missing, blockedKeys: [...blockedKeys] };
 }
 
-export async function persistV2Recommendations(supabase: Client, output: CalculationOutput) {
+/** @deprecated 새 plan/자동 plan 저장은 workbench canonical draft + assignment 원자 RPC만 사용한다. */
+export async function persistV2Recommendations(
+  supabase: Client,
+  output: CalculationOutput,
+  options: { planOrigin?: "automatic" | "manual" } = {},
+) {
   const targetById = new Map(output.targets.map((target) => [target.id, target]));
   const payload = output.results.flatMap((result) => {
     const target = targetById.get(result.targetId);
@@ -334,9 +631,10 @@ export async function persistV2Recommendations(supabase: Client, output: Calcula
       participant_user_ids: result.participants.map((user) => user.id),
       participant_names: result.participants.map((user) => user.name),
       status: result.status,
-      plan_origin: "automatic",
+      plan_origin: options.planOrigin ?? "automatic",
       source_measurement_date: target.measurementDate,
-      source_responsible_user_id: target.responsible.id,
+      // legacy column name과 달리 RPC stale-source는 measurer_id(보고서 담당자) snapshot을 검증한다.
+      source_responsible_user_id: target.sourceMeasurerId,
       source_rule_type: target.kind,
       survey_method: result.surveyMethod,
       recommendation_reason: { reason: result.reason, evidence: result.evidence },
@@ -350,9 +648,9 @@ export async function persistV2Recommendations(supabase: Client, output: Calcula
   });
   // 전체 결과를 하나의 PostgreSQL transaction에서 처리한다.
   // 한 건이라도 validation 실패하면 0건 저장(전체 rollback)된다.
-  const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan_batch", { p_plans: payload });
-  if (error) throw new Error(`V2_PLAN_SAVE_FAILED:${error.message}`);
-  return Array.isArray(data) ? data : [];
+  void supabase;
+  void payload;
+  throw new Error("V2_LEGACY_PERSIST_DISABLED_USE_WORKBENCH");
 }
 
 export async function recommendAndPersistV2(supabase: Client, targetIds: number[]) {
@@ -415,6 +713,7 @@ export async function reconcileV2AfterTargetChange(
     const participants = participantIds.flatMap((id: number) => context.users.find((user) => user.id === id) ?? []);
     const validation = await validateManualPlanHardRules({
       target: context.target, recommendedDate: plan.recommended_date, participants,
+      surveyMethod: plan.survey_method === "field" ? "field" : "phone",
       existingAssignments: context.assignments, routes: createRouteMetrics(),
     });
     if (!validation.valid || plan.source_rule_type !== context.target.kind) {
@@ -437,7 +736,7 @@ export type SteadyStatePlanAction =
   | "replaced"       // 기존 automatic plan 재추천/갱신
   | "unchanged"      // 기존 plan 유지 (manual 보존 또는 변경 없음)
   | "manual_required"// 추천 가능 날짜 없음
-  | "confirmed"      // sequence_number 부여 확정 → 자동 변경 금지
+  | "confirmed"      // measurement_journal row 존재 → 자동 변경 금지
   | "paused"         // 예비조사 자동추천 정책 OFF → 자동 생성/재추천 중지
   | "blocked";       // 생성 조건 미충족 (측정일/실측정자 부족 등)
 
@@ -476,7 +775,7 @@ export async function loadV2AutomationPolicy(supabase: Client): Promise<ProcessC
  *
  * - 보고서 담당자(measurer_id)는 실제 측정자 판단·예비조사자 추천에 사용하지 않는다.
  * - 예·측 후보는 "추천 예비조사자 ∩ 실제 측정자"로 계산한다.
- * - sequence_number 부여(확정) 후에는 자동 변경하지 않는다.
+ * - measurement_journal row가 존재(찐확정)하면 자동 변경하지 않는다.
  * - 사용자가 수동 확정한 plan(plan_origin='manual')은 자동으로 덮어쓰지 않는다.
  * - upsert(measurement_target_business_id unique)로 중복 plan이 생기지 않는다.
  * - 자동추천 정책이 OFF이면 생성/재추천하지 않는다(paused). 기존 데이터는 보존된다.
@@ -499,12 +798,12 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     };
   }
 
-  // 확정(sequence_number 부여) 보호
+  // 찐확정(measurement_journal row 존재) 보호
   const basePeriod = String(target.period).trim().replace("(수시)", "");
   const { data: confirmedJournal } = await supabase.from("measurement_journal")
     .select("id").eq("code", target.code).eq("measurement_year", Number(target.year))
-    .like("measurement_period", `${basePeriod}%`).not("sequence_number", "is", null).limit(1).maybeSingle();
-  if (confirmedJournal) return { action: "confirmed", reason: "SEQUENCE_NUMBER_CONFIRMED" };
+    .like("measurement_period", `${basePeriod}%`).limit(1).maybeSingle();
+  if (confirmedJournal) return { action: "confirmed", reason: "MEASUREMENT_JOURNAL_CONFIRMED" };
 
   if (!target.measurement_date) return { action: "blocked", reason: "NO_MEASUREMENT_DATE" };
 
@@ -572,9 +871,20 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     existingAssignments: [],
     availability: { isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`) },
     routes: createRouteMetrics(),
+    planningDate: currentDateInKst(),
   });
   const result = results[0];
   if (!result) return { action: "blocked", reason: "V2_RECOMMEND_FAILED" };
+
+  // 구형 steady-state 저장은 중지했지만, 추천 가능일이 없는 결과는
+  // 기존 수동 지정 안내 의미를 보존한다. 이 분기는 DB를 변경하지 않는다.
+  if (result.status === "manual_required") {
+    return {
+      action: "manual_required",
+      reason: "NO_AVAILABLE_DATE_THROUGH_MINUS_3",
+      message: "추천 가능한 예비조사일이 없어 작업대에서 수동 지정이 필요합니다.",
+    };
+  }
 
   const payload = [{
     target_id: Number(target.id),
@@ -597,30 +907,13 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     warnings: result.evidence.warnings,
   }];
 
-  const { data: saved, error: persistError } = await supabase.rpc("persist_preliminary_survey_v2_plan_batch", { p_plans: payload });
-  if (persistError) return { action: "blocked", reason: `V2_PERSIST_FAILED:${persistError.message}` };
-  const plan = Array.isArray(saved) ? saved[0] : saved;
-  if (!plan) return { action: "blocked", reason: "V2_PERSIST_EMPTY" };
-
-  const staffSet = new Set(staff);
-  const linkCandidates = (plan.participant_names || [] as unknown[])
-    .map((name: unknown) => String(name))
-    .filter((name: string) => staffSet.has(name));
-
-  const action: SteadyStatePlanAction = result.status === "manual_required"
-    ? "manual_required"
-    : existingPlan ? "replaced" : "created";
+  void payload;
   return {
-    action,
-    plan,
-    linkCandidates,
-    reason: result.status === "manual_required" ? "NO_AVAILABLE_DATE_THROUGH_MINUS_3" : null,
-    message: result.status === "manual_required"
-      ? "측정일 기준 -3일까지 가능한 예비조사 추천일이 없습니다. 예비조사일을 수동으로 지정해 주세요."
-      : action === "replaced"
-        ? "측정일/실제 측정자 변경으로 예비조사 계획을 자동 재추천했습니다."
-        : "예비조사 계획을 자동 생성했습니다.",
+    action: "blocked",
+    reason: "V2_LEGACY_PERSIST_DISABLED_USE_WORKBENCH",
+    message: "구형 자동 저장 경로는 중지되었습니다. 예비조사 작업대에서 추천안을 검토·적용해 주세요.",
   };
+
 }
 
 /**
@@ -657,7 +950,7 @@ export interface GroupRecommendationLoadOptions {
 
 /**
  * 묶음 추천 입력 데이터 로드 (READ-ONLY).
- * - 확정(sequence_number 부여) 대상은 제외한다.
+ * - measurement_journal row가 존재하는 찐확정 대상은 제외한다.
  * - 좌표는 business_info(권위 저장소)를 최우선 사용하고, 없으면 행정구역(region) fallback.
  * - 가능한 예비조사일은 기존 추천일 규칙(recommendationDates)으로 계산.
  * - lead는 예·측(link) 우선, 없으면 실측정자 중 첫 유효 인원. 보고서 담당자는 미사용.
@@ -684,7 +977,7 @@ export async function loadGroupRecommendationTargets(
       : Promise.resolve({ data: [], error: null }),
     codes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
-    codes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes).not("sequence_number", "is", null)
+    codes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
     (targets ?? []).length ? supabase.from("preliminary_survey_v2_plans").select("measurement_target_business_id, plan_origin")
       .in("measurement_target_business_id", (targets ?? []).map((target: any) => Number(target.id)))
@@ -780,7 +1073,7 @@ export interface GroupConfirmResult {
 }
 
 const CONFIRM_FAILURE_MESSAGES: Record<string, string> = {
-  SEQUENCE_NUMBER_CONFIRMED: "이미 측정일지 연번이 부여되어 자동 변경할 수 없습니다. 관리자 예외 정비만 가능합니다.",
+  MEASUREMENT_JOURNAL_CONFIRMED: "유효한 측정일지가 있어 자동 변경할 수 없습니다. 관리자 예외 정비만 가능합니다.",
   MANUAL_PLAN_PRESERVED: "수동 확정된 예비조사 계획은 자동으로 덮어쓰지 않습니다.",
   STALE_MEASUREMENT_DATE: "측정일이 변경되어 추천 날짜가 더 이상 유효하지 않습니다.",
   NO_STAFF: "실제 측정자를 확인할 수 없습니다.",
@@ -819,7 +1112,7 @@ export async function confirmGroupRecommendation(
     supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
     targetCodes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", targetCodes)
       : Promise.resolve({ data: [], error: null }),
-    targetCodes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", targetCodes).not("sequence_number", "is", null)
+    targetCodes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", targetCodes)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id, plan_origin, survey_method").in("measurement_target_business_id", targetIds),
   ]);
@@ -848,7 +1141,7 @@ export async function confirmGroupRecommendation(
       continue;
     }
     if (confirmedKeys.has(`${target.code}|${target.year}|${String(target.period).trim().replace("(수시)", "")}`)) {
-      failed.push({ targetId, code: target.code, reason: "SEQUENCE_NUMBER_CONFIRMED" });
+      failed.push({ targetId, code: target.code, reason: "MEASUREMENT_JOURNAL_CONFIRMED" });
       continue;
     }
     const existingPlan = planByTarget.get(targetId);

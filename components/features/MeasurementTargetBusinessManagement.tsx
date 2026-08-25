@@ -43,6 +43,21 @@ import {
     ExactMeasurementBusiness,
     RegistrationAutoFillValues,
 } from "@/lib/business-info/registration-context";
+import {
+    MeasurementDayForm,
+    changeMeasurementDayReportWriter,
+    defaultEmptyParticipantsToReportWriter,
+    measurementDayFormsFrom,
+    serializeMeasurementDayForms,
+    serializeMeasurementDayFormsForEditing,
+    swapMeasurerForMeasurementDateTransition,
+    validateMeasurementDayForms,
+} from "@/lib/business/measurement-day-form";
+import {
+    buildMeasurementScheduleBlockKeys,
+    isMeasurementStaffUnavailable,
+    validateMeasurementDayAvailability,
+} from "@/lib/business/measurement-day-availability";
 
 interface BusinessEntry {
     id: string | number;
@@ -159,6 +174,103 @@ interface User {
     job?: string;
     is_preliminary_survey_experienced?: boolean;
 }
+
+interface MeasurementDayAssignmentCardProps {
+    day: MeasurementDayForm;
+    index: number;
+    measurers: User[];
+    fallbackDate: string | null | undefined;
+    blockedKeys: Set<string>;
+    canRemove: boolean;
+    onDateChange: (date: string) => void;
+    onMeasurerChange: (measurerId: number | null) => void;
+    onCollaboratorChange: (name: string, checked: boolean) => void;
+    onRemove: () => void;
+}
+
+const availableMeasurersForDate = (measurers: User[], date: string | null | undefined) => {
+    const isAfterTransition = !date || date >= "2026-06-09";
+    return measurers.filter((member) => isAfterTransition ? member.name !== "배윤민" : member.name !== "김민영");
+};
+
+const MeasurementDayAssignmentCard: React.FC<MeasurementDayAssignmentCardProps> = ({
+    day,
+    index,
+    measurers,
+    fallbackDate,
+    blockedKeys,
+    canRemove,
+    onDateChange,
+    onMeasurerChange,
+    onCollaboratorChange,
+    onRemove,
+}) => {
+    const assignmentDate = day.date || fallbackDate;
+    const allDayMeasurers = availableMeasurersForDate(measurers, assignmentDate);
+    const dayMeasurers = allDayMeasurers.filter((member) =>
+        !isMeasurementStaffUnavailable(member.id, assignmentDate, blockedKeys),
+    );
+    const unavailableMeasurers = allDayMeasurers.filter((member) =>
+        isMeasurementStaffUnavailable(member.id, assignmentDate, blockedKeys),
+    );
+
+    return (
+        <Card className="p-3 bg-white border-slate-200 relative group">
+            {canRemove && (
+                <button
+                    type="button"
+                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    onClick={onRemove}
+                    aria-label={`측정일 ${index + 1} 삭제`}
+                >
+                    ×
+                </button>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+                <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">측정일 {index + 1}</label>
+                    <Input type="date" value={day.date} onChange={(event) => onDateChange(event.target.value)} />
+                </div>
+                <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">보고서 담당자</label>
+                    <Select
+                        options={[
+                            { value: "", label: "선택" },
+                            ...dayMeasurers.map((member) => ({ value: member.id.toString(), label: member.name })),
+                            ...unavailableMeasurers
+                                .filter((member) => member.id === day.measurerId)
+                                .map((member) => ({ value: member.id.toString(), label: `${member.name} (불가 일정)` })),
+                        ]}
+                        value={day.measurerId?.toString() || ""}
+                        onChange={(event) => onMeasurerChange(event.target.value ? Number(event.target.value) : null)}
+                    />
+                </div>
+                <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">측정 참여자 (복수 선택)</label>
+                    <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
+                        {[...dayMeasurers, ...unavailableMeasurers.filter((member) => day.collaborators.includes(member.name))].map((member) => (
+                            (() => {
+                                const unavailable = isMeasurementStaffUnavailable(member.id, assignmentDate, blockedKeys);
+                                return (
+                            <label key={member.id} className="flex items-center gap-1.5 cursor-pointer p-0.5 rounded hover:bg-slate-50">
+                                <input
+                                    type="checkbox"
+                                    checked={day.collaborators.includes(member.name)}
+                                    disabled={unavailable && !day.collaborators.includes(member.name)}
+                                    onChange={(event) => onCollaboratorChange(member.name, event.target.checked)}
+                                    className="w-3.5 h-3.5 rounded"
+                                />
+                                <span className="text-xs text-slate-600">{member.name}{unavailable ? " (불가 일정)" : ""}</span>
+                            </label>
+                                );
+                            })()
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </Card>
+    );
+};
 
 // State for Persistence
 const STORAGE_KEY = "measurement_target_filters_v1";
@@ -562,6 +674,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         void refreshCoordinateSummary();
     };
     const [measurers, setMeasurers] = useState<User[]>([]); // 측정자 목록
+    const [measurementScheduleBlockedKeys, setMeasurementScheduleBlockedKeys] = useState<Set<string>>(new Set());
     const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
 
     // Initial Filter Setup
@@ -1249,6 +1362,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         fetchData();
     }, [fetchData]);
 
+    useEffect(() => {
+        fetch("/api/user-schedule-blocks", { cache: "no-store" })
+            .then(async (response) => {
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || "직원 불가 일정 조회 실패");
+                setMeasurementScheduleBlockedKeys(buildMeasurementScheduleBlockKeys(result.blocks || []));
+            })
+            .catch((error) => console.error("직원 불가 일정 조회 실패:", error));
+    }, []);
+
     const hasPendingNationalSupport = data.some(item =>
         ["신청중", "조회중", "신청완료대기"].includes(item.sync_status || "")
     );
@@ -1284,18 +1407,50 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         if (e.key === 'Enter') handleSearch();
     };
 
-    const handleEditClick = (item: BusinessEntry) => {
+    const handleEditClick = async (item: BusinessEntry) => {
         setEditingItem(item);
 
-        // 보고서 담당자(measurer_id)는 측정자와 별개 역할이므로 측정자(collaborators)에 강제 포함하지 않는다.
+        let blockedKeys = measurementScheduleBlockedKeys;
+        try {
+            const response = await fetch("/api/user-schedule-blocks", { cache: "no-store" });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "직원 불가 일정 조회 실패");
+            blockedKeys = buildMeasurementScheduleBlockKeys(result.blocks || []);
+            setMeasurementScheduleBlockedKeys(blockedKeys);
+        } catch (error) {
+            console.error("직원 불가 일정 조회 실패:", error);
+        }
+
+        // 보고서 담당자(measurer_id)는 측정 참여자와 별개 역할이다.
+        // 모달에서는 편의를 위해 기본 체크하되 사용자가 자유롭게 해제할 수 있다.
+        const initialDays = defaultEmptyParticipantsToReportWriter(measurementDayFormsFrom({
+            dailyStaff: item.daily_staff,
+            measurementDate: item.measurement_date,
+            measurerId: item.measurer_id,
+            collaborators: item.collaborators,
+        }), measurers, (userId, date) => !isMeasurementStaffUnavailable(userId, date, blockedKeys));
         const initialForm = {
             ...item,
             sanjae: item.industrial_accident_number || item.sanjae || "",
-            commencement: item.commencement_number || item.commencement || ""
+            commencement: item.commencement_number || item.commencement || "",
+            ...serializeMeasurementDayFormsForEditing(initialDays),
         };
 
         setEditForm(initialForm);
         setIsEditModalOpen(true);
+    };
+
+    const updateMeasurementDays = (
+        days: MeasurementDayForm[],
+        linkMeasurerId?: number | null,
+    ) => {
+        const serialized = serializeMeasurementDayFormsForEditing(days);
+        setEditForm((previous) => ({
+            ...previous,
+            ...serialized,
+            ...(linkMeasurerId === undefined ? {} : { link_measurer_id: linkMeasurerId }),
+            is_registered_text: serialized.measurement_date ? "실시" : "미실시",
+        }));
     };
 
     const handleSaveEdit = async () => {
@@ -1317,9 +1472,31 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
+
+        const measurementDays = measurementDayFormsFrom({
+            dailyStaff: editForm.daily_staff,
+            measurementDate: editForm.measurement_date,
+            measurerId: editForm.measurer_id,
+            collaborators: editForm.collaborators,
+        });
+        const measurementDayValidation = validateMeasurementDayForms(measurementDays);
+        if (!measurementDayValidation.valid) {
+            alert(measurementDayValidation.message);
+            return;
+        }
+        const availabilityValidation = validateMeasurementDayAvailability({
+            days: measurementDays,
+            users: measurers,
+            blockedKeys: measurementScheduleBlockedKeys,
+        });
+        if (!availabilityValidation.valid) {
+            alert(availabilityValidation.message);
+            return;
+        }
+
         try {
             // 저장이 성공(Resolve)한 후에만 모달을 닫음
-            const updatesToSave = { ...editForm };
+            const updatesToSave = { ...editForm, ...serializeMeasurementDayForms(measurementDays) };
             (["manager_name", "manager_mobile", "manager_email"] as const).forEach(field => {
                 if (String(editForm[field] ?? "") === String(editingItem[field] ?? "")) {
                     delete updatesToSave[field];
@@ -1618,47 +1795,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         } catch (e: any) {
             console.error("Delete Error:", e);
             alert(`오류 발생: ${e.message}`);
-        }
-    };
-
-    const swapBaeAndKim = (prevDate: string | null | undefined, newDate: string | null | undefined, form: Partial<BusinessEntry>) => {
-        const isPrevAfter = !prevDate || prevDate >= "2026-06-09";
-        const isNewAfter = !newDate || newDate >= "2026-06-09";
-
-        if (isPrevAfter !== isNewAfter) {
-            let nextMeasurerId = form.measurer_id;
-            let nextLinkMeasurerId = form.link_measurer_id;
-            let nextCollaborators = form.collaborators ? form.collaborators.split(",").map(c => c.trim()).filter(Boolean) : [];
-
-            if (isNewAfter) {
-                // 배윤민(id: 14) -> 김민영(id: 20)
-                if (nextMeasurerId === 14) {
-                    nextMeasurerId = 20;
-                }
-                if (nextLinkMeasurerId === 14) {
-                    nextLinkMeasurerId = 20;
-                }
-                if (nextCollaborators.includes("배윤민")) {
-                    nextCollaborators = nextCollaborators.filter(c => c !== "배윤민");
-                    if (!nextCollaborators.includes("김민영")) nextCollaborators.push("김민영");
-                }
-            } else {
-                // 김민영(id: 20) -> 배윤민(id: 14)
-                if (nextMeasurerId === 20) {
-                    nextMeasurerId = 14;
-                }
-                if (nextLinkMeasurerId === 20) {
-                    nextLinkMeasurerId = 14;
-                }
-                if (nextCollaborators.includes("김민영")) {
-                    nextCollaborators = nextCollaborators.filter(c => c !== "김민영");
-                    if (!nextCollaborators.includes("배윤민")) nextCollaborators.push("배윤민");
-                }
-            }
-
-            form.measurer_id = nextMeasurerId;
-            form.link_measurer_id = nextLinkMeasurerId;
-            form.collaborators = nextCollaborators.length > 0 ? nextCollaborators.join(",") : null;
         }
     };
 
@@ -2455,205 +2591,85 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 <p className="text-xs text-slate-500 mt-1">* &apos;거래종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
                             </div>
 
-                                       {/* 다중 일자 배정 섹션 */}
+                            {/* 날짜별 인력 배정 */}
                             <div className="col-span-2 space-y-4">
                                 <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-2">
                                     <label className="text-sm font-bold text-slate-800">측정 일정 및 인력 배정</label>
-                                    <Button 
-                                        type="button" 
+                                    <Button
+                                        type="button"
                                         variant="secondary" 
                                         className="h-7 text-xs px-2"
                                         onClick={() => {
-                                            const currentStaff = editForm.daily_staff || [];
-                                            const newDate = ""; 
-                                            setEditForm(prev => ({
-                                                ...prev,
-                                                daily_staff: [...currentStaff, { date: newDate, measurer_id: prev.measurer_id || null, collaborators: prev.collaborators ? prev.collaborators.split(",") : [] }]
-                                            }));
+                                            setEditForm((prev) => {
+                                                const days = measurementDayFormsFrom({
+                                                    dailyStaff: Array.isArray(prev.daily_staff) && prev.daily_staff.length > 0
+                                                        ? prev.daily_staff
+                                                        : [{
+                                                            date: prev.measurement_date || "",
+                                                            measurer_id: prev.measurer_id || null,
+                                                            collaborators: prev.collaborators,
+                                                        }],
+                                                });
+                                                const serialized = serializeMeasurementDayFormsForEditing([
+                                                    ...days,
+                                                    { date: "", measurerId: null, collaborators: [] },
+                                                ]);
+                                                return {
+                                                    ...prev,
+                                                    ...serialized,
+                                                    is_registered_text: serialized.measurement_date ? "실시" : "미실시",
+                                                };
+                                            });
                                         }}
                                     >
                                         + 일자 추가
                                     </Button>
                                 </div>
-
-                                {(!(editForm.daily_staff) || (editForm.daily_staff.length === 0)) ? (
-                                    /* 기존 단일 일자 UI 유지 (이질감 최소화) */
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1 text-slate-700">실시일</label>
-                                            <Input type="date" value={editForm.measurement_date || ""} onChange={(e) => {
-                                                const val = e.target.value;
-                                                setEditForm(prev => {
-                                                    const updated = {
-                                                        ...prev,
-                                                        measurement_date: val,
-                                                        measurement_end_date: val,
-                                                        is_registered_text: val ? '실시' : '미실시'
-                                                    };
-                                                    const prevTargetDate = prev.measurement_date || prev.future_measurement_date;
-                                                    const newTargetDate = val || prev.future_measurement_date;
-                                                    swapBaeAndKim(prevTargetDate, newTargetDate, updated);
-                                                    return updated;
-                                                });
-                                            }} />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1 text-slate-700">보고서 담당자</label>
-                                            {(() => {
-                                                const targetDate = editForm.measurement_date || editForm.future_measurement_date;
-                                                const isAfter = !targetDate || targetDate >= "2026-06-09";
-                                                const currentMeasurers = measurers.filter(u => 
-                                                    isAfter ? u.name !== "배윤민" : u.name !== "김민영"
+                                <div className="space-y-4">
+                                    {measurementDayFormsFrom({
+                                        dailyStaff: editForm.daily_staff,
+                                        measurementDate: editForm.measurement_date,
+                                        measurerId: editForm.measurer_id,
+                                        collaborators: editForm.collaborators,
+                                    }).map((day, index, days) => (
+                                        <MeasurementDayAssignmentCard
+                                            key={`${index}-${day.date}`}
+                                            day={day}
+                                            index={index}
+                                            measurers={measurers}
+                                            fallbackDate={editForm.future_measurement_date}
+                                            blockedKeys={measurementScheduleBlockedKeys}
+                                            canRemove={days.length > 1}
+                                            onDateChange={(date) => {
+                                                const transition = swapMeasurerForMeasurementDateTransition(
+                                                    day,
+                                                    day.date || editForm.future_measurement_date,
+                                                    date || editForm.future_measurement_date,
+                                                    editForm.link_measurer_id,
                                                 );
-                                                return (
-                                                    <Select
-                                                        options={[
-                                                            { value: "", label: "선택" },
-                                                            ...currentMeasurers.map(m => ({ value: m.id.toString(), label: m.name }))
-                                                        ]}
-                                                        value={editForm.measurer_id?.toString() || ""}
-                                                        onChange={(e) => {
-                                                            const newId = e.target.value ? parseInt(e.target.value) : null;
-                                                            setEditForm(prev => ({ ...prev, measurer_id: newId }));
-                                                        }}
-                                                        />
-                                                    );
-                                                })()}
-                                            </div>
-                                        <div className="col-span-2">
-                                            <label className="block text-sm font-medium mb-2 text-slate-700">조력자 (복수 선택) — 예·측은 실제 측정 인원에 항상 포함됩니다</label>
-                                            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 p-3 bg-white border border-slate-200 rounded-md">
-                                                {(() => {
-                                                    const targetDate = editForm.measurement_date || editForm.future_measurement_date;
-                                                    const isAfter = !targetDate || targetDate >= "2026-06-09";
-                                                    const currentMeasurers = measurers.filter(u => 
-                                                        isAfter ? u.name !== "배윤민" : u.name !== "김민영"
-                                                    );
-                                                    return currentMeasurers.map(m => {
-                                                        const collaborators = editForm.collaborators ? editForm.collaborators.split(",").map(s => s.trim()) : [];
-                                                        const isChecked = collaborators.includes(m.name);
-                                                        const isLink = m.id === editForm.link_measurer_id;
-                                                        return (
-                                                            <label key={m.id} className={`flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 ${isLink ? "bg-blue-50/50" : ""}`}>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={isChecked || isLink}
-                                                                    disabled={isLink}
-                                                                    onChange={(e) => {
-                                                                        if (isLink) return;
-                                                                        const checked = e.target.checked;
-                                                                        let newCollabs = [...collaborators];
-                                                                        if (checked) {
-                                                                            if (!newCollabs.includes(m.name)) newCollabs.push(m.name);
-                                                                        } else {
-                                                                            newCollabs = newCollabs.filter(c => c !== m.name);
-                                                                        }
-                                                                        setEditForm(prev => ({ ...prev, collaborators: newCollabs.join(",") }));
-                                                                    }}
-                                                                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-70 disabled:cursor-not-allowed"
-                                                                />
-                                                                <span className={`text-sm ${isLink ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
-                                                                    {m.name}
-                                                                    {isLink && <span className="ml-1 text-[10px] bg-blue-100 px-1 rounded">예·측</span>}
-                                                                </span>
-                                                            </label>
-                                                        );
-                                                    });
-                                                })()}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    /* 다중 일자 UI (동적 생성) */
-                                    <div className="space-y-4">
-                                        {(editForm.daily_staff as any[]).map((entry, idx) => {
-                                            const dayMeasurers = (() => {
-                                                const targetDate = entry.date || editForm.future_measurement_date;
-                                                const isAfter = !targetDate || targetDate >= "2026-06-09";
-                                                return measurers.filter(u => isAfter ? u.name !== "배윤민" : u.name !== "김민영");
-                                            })();
-
-                                            return (
-                                                <Card key={idx} className="p-3 bg-white border-slate-200 relative group">
-                                                    <button 
-                                                        type="button"
-                                                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                                                        onClick={() => {
-                                                            const newList = [...(editForm.daily_staff as any[])];
-                                                            newList.splice(idx, 1);
-                                                            setEditForm(prev => ({ ...prev, daily_staff: newList.length > 0 ? newList : null }));
-                                                        }}
-                                                    >
-                                                        ×
-                                                    </button>
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <div>
-                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">측정일 {idx + 1}</label>
-                                                            <Input type="date" value={entry.date || ""} onChange={(e) => {
-                                                                const newList = [...(editForm.daily_staff as any[])];
-                                                                newList[idx].date = e.target.value;
-                                                                // Update measurement_date (start) and measurement_end_date (end)
-                                                                const sortedDates = newList.map(d => d.date).filter(Boolean).sort();
-                                                                setEditForm(prev => ({ 
-                                                                    ...prev, 
-                                                                    daily_staff: newList,
-                                                                    measurement_date: sortedDates[0] || null,
-                                                                    measurement_end_date: sortedDates[sortedDates.length - 1] || null,
-                                                                    is_registered_text: sortedDates.length > 0 ? '실시' : '미실시'
-                                                                }));
-                                                            }} />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">보고서 담당(코드)</label>
-                                                            <Select
-                                                                options={[
-                                                                    { value: "", label: "선택" },
-                                                                    ...dayMeasurers.map(m => ({ value: m.id.toString(), label: m.name }))
-                                                                ]}
-                                                                value={entry.measurer_id?.toString() || (idx === 0 ? editForm.measurer_id?.toString() : "")}
-                                                                onChange={(e) => {
-                                                                    const newId = e.target.value ? parseInt(e.target.value) : null;
-                                                                    const newList = [...(editForm.daily_staff as any[])];
-                                                                    newList[idx].measurer_id = newId;
-                                                                    setEditForm(prev => ({ ...prev, daily_staff: newList }));
-                                                                }}
-                                                            />
-                                                        </div>
-                                                        <div className="col-span-2">
-                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">측정자</label>
-                                                            <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
-                                                                {dayMeasurers.map(m => {
-                                                                    const isChecked = entry.collaborators?.includes(m.name);
-                                                                    // 예·측을 특정 날짜에 강제 배치하지 않는다. 각 날짜 인원은 사용자가 직접 선택한다.
-                                                                    return (
-                                                                        <label key={m.id} className={`flex items-center gap-1.5 cursor-pointer p-0.5 rounded hover:bg-slate-50`}>
-                                                                            <input 
-                                                                                type="checkbox"
-                                                                                checked={isChecked || false}
-                                                                                onChange={(e) => {
-                                                                                    const newList = [...(editForm.daily_staff as any[])];
-                                                                                    let collabs = newList[idx].collaborators || [];
-                                                                                    if (e.target.checked) collabs.push(m.name);
-                                                                                    else collabs = collabs.filter((c: string) => c !== m.name);
-                                                                                    newList[idx].collaborators = Array.from(new Set(collabs));
-                                                                                    setEditForm(prev => ({ ...prev, daily_staff: newList }));
-                                                                                }}
-                                                                                className="w-3.5 h-3.5 rounded"
-                                                                            />
-                                                                            <span className="text-xs text-slate-600">
-                                                                                {m.name}
-                                                                            </span>
-                                                                        </label>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </Card>
-                                            );
-                                        })}
-                                    </div>
-                                )}
+                                                const nextDays = [...days];
+                                                nextDays[index] = { ...transition.day, date };
+                                                updateMeasurementDays(nextDays, transition.linkMeasurerId);
+                                            }}
+                                            onMeasurerChange={(measurerId) => {
+                                                const available = availableMeasurersForDate(measurers, day.date || editForm.future_measurement_date);
+                                                const reportWriter = available.find((member) => member.id === measurerId);
+                                                const nextDays = [...days];
+                                                nextDays[index] = changeMeasurementDayReportWriter(day, measurerId, reportWriter?.name);
+                                                updateMeasurementDays(nextDays);
+                                            }}
+                                            onCollaboratorChange={(name, checked) => {
+                                                const collaborators = checked
+                                                    ? [...day.collaborators, name]
+                                                    : day.collaborators.filter((collaborator) => collaborator !== name);
+                                                const nextDays = [...days];
+                                                nextDays[index] = { ...day, collaborators };
+                                                updateMeasurementDays(nextDays);
+                                            }}
+                                            onRemove={() => updateMeasurementDays(days.filter((_, dayIndex) => dayIndex !== index))}
+                                        />
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
