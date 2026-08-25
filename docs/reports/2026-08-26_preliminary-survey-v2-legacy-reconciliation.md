@@ -14,8 +14,9 @@
 - raw inventory: `C:\Users\USER\Downloads\2026-08-26_preliminary-survey-v2-legacy-inventory.json`
 - raw inventory SHA-256: `AE6C2DA0A8B9184240F86EA76D7903A89B935EDC7933EA7E839C8B2056EAD823`
 - Docker evidence: `C:\Users\USER\Downloads\2026-08-26_preliminary-survey-v2-legacy-docker-evidence.json`
-- Docker evidence SHA-256: `D6B9CE3BB7ABC6FE5B85AA8DE10DCACE246AD5F87D1525B87C7D0973C578FCD6`
-- Docker canonical manifest SHA-256: `3e27f1fae8b1d1a7fdfe41c275449dd402296bf36818cbefcc8d4270767c2900`
+- Docker evidence SHA-256: `042926283983DB20A30EBA981E7CD5A5E598AB64ED33F172F40EF023AC81514F`
+- Docker/운영 canonical manifest SHA-256: `9454ec18fc3a910754c219e58afe0deb0df32c08a86b5e53bbd73b3f6331ceb0`
+- 운영 pre-apply evidence SHA-256: `68E1E13FFF529769835E2B26DD9827F55065E39AF4DDE4D5D0252A16C4D41194`
 
 Raw production 자료는 Git에 포함하지 않았다.
 
@@ -82,7 +83,7 @@ API는 `mainMeasurerSource`로 내부 source를 진단할 수 있다. 운영 `/s
 
 ## 검증
 
-- focused reconciliation/display: 13/13 PASS
+- focused reconciliation/display: 15/15 PASS
 - 전체 `npm test`: 478/478 PASS
 - `npx tsc --noEmit --pretty false`: PASS
 - `npm run build`: PASS

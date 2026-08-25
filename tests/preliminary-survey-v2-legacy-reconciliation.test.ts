@@ -35,6 +35,12 @@ test("명시 daily_staff 날짜와 exact user를 사용해 assignment gap만 복
   assert.equal(result.matchedPublicSampleUserId, 5);
 });
 
+test("bigint target ID가 문자열로 조회되어도 manifest는 숫자로 canonicalize한다", () => {
+  const result = classify({ targets: [{ ...target, id: "10" as unknown as number }] });
+  assert.equal(result.targetId, 10);
+  assert.equal(typeof result.targetId, "number");
+});
+
 test("기존 V2 assignment 우선, protected 및 모호한 key는 write하지 않는다", () => {
   assert.equal(classify({ assignments: [{ id: "a", plan_id: "plan-1", measurement_date: "2026-08-03" }] }).classification,
     "V2_ALREADY_AUTHORITATIVE");
