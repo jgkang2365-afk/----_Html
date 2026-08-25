@@ -114,7 +114,29 @@ FILE_FORMAT_EXTENSIONS = {
 }
 
 LOGGER = logging.getLogger("document-worker")
-WORKER_VERSION = "2026.08.25.1"
+WORKER_VERSION = "2026.08.25.2"
+
+HWPX_INTERNAL_CONTROL_VALUE = re.compile(
+    r"(?:Clickhere\s*:|Direction\s*:\s*wstring\s*:|HelpState\s*:)", re.IGNORECASE
+)
+HWPX_PLACEHOLDER_GUIDE_VALUES = {
+    "measurement_year": {"측정연도", "측정년도", "년도"},
+    "measurement_period": {"측정주기", "주기"},
+    "business_name": {"사업장명"},
+    "representative_name": {"대표자", "대표자명"},
+    "address": {"주소"},
+    "business_category": {"업종", "업종분류"},
+    "phone": {"전화번호"},
+    "main_product": {"주요생산품", "주요 생산품"},
+    "fax": {"팩스"},
+    "total_employees": {"총 근로자수", "총 근로자 수"},
+    "manager_name": {"담당자", "담당자명"},
+    "manager_email": {"이메일", "담당자 이메일", "담당자 메일"},
+    "manager_contact": {"연락처", "담당자 연락처"},
+    "preliminary_surveyor": {"예비조사자"},
+    "business_number": {"사업자등록번호"},
+    "industrial_accident_number": {"산재관리번호"},
+}
 
 
 def load_env_file(path: Path) -> None:
@@ -130,6 +152,14 @@ def load_env_file(path: Path) -> None:
 
 def normalize_text(value: Any) -> str:
     return str(value if value is not None else "").strip()
+
+
+def sanitize_hwpx_mapping_default_value(source_field: Any, value: Any) -> str:
+    normalized = re.sub(r"\s+", " ", normalize_text(value))
+    if not normalized or HWPX_INTERNAL_CONTROL_VALUE.search(normalized):
+        return ""
+    guide_values = HWPX_PLACEHOLDER_GUIDE_VALUES.get(normalize_text(source_field), set())
+    return "" if normalized in guide_values else normalized
 
 
 def normalize_measurement_period(value: Any) -> str:
@@ -232,7 +262,12 @@ def resolve_mapping_values(
         source_field = normalize_text(mapping.get("source_field"))
         value = normalize_text(snapshot.get(source_field))
         if not value:
-            value = normalize_text(mapping.get("default_value"))
+            if mapping.get("target_type") == "HWPX_FIELD":
+                value = sanitize_hwpx_mapping_default_value(
+                    source_field, mapping.get("default_value")
+                )
+            else:
+                value = normalize_text(mapping.get("default_value"))
         if bool(mapping.get("required")) and not value:
             missing_sources.append(source_field or "(알 수 없는 필드)")
         resolved.append({**mapping, "value": value})
