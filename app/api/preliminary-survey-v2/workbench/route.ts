@@ -204,6 +204,11 @@ function isMeasurementAssignmentSchemaMissing(error: any) {
     /preliminary_survey_v2_measurement_assignments|persist_preliminary_survey_v2_plan_and_assignment_groups/i.test(String(error?.message ?? ""));
 }
 
+function isLegacyReconciliationSchemaMissing(error: any) {
+  return ["42P01", "PGRST202", "PGRST205", "42703"].includes(String(error?.code ?? "")) ||
+    /preliminary_survey_v2_legacy_reconciliation/i.test(String(error?.message ?? ""));
+}
+
 function canonicalFingerprint(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -730,10 +735,18 @@ export async function GET(request: NextRequest) {
     // fallback 저장을 허용하지 않고 새 원자 RPC를 요구한다.
     const { data: assignmentRows, error: assignmentError } = targetIds.length
       ? await supabase.from("preliminary_survey_v2_measurement_assignments").select(
-        "plan_id, measurement_date, assignee_user_id, survey_code, approval_required",
+        "id, plan_id, measurement_date, assignee_user_id, survey_code, approval_required",
       )
       : { data: [], error: null };
     if (assignmentError && !isMeasurementAssignmentSchemaMissing(assignmentError)) throw assignmentError;
+
+    // 배포와 migration의 순서를 분리하기 위해 신규 snapshot table이 아직 없으면 live fallback만 유지한다.
+    const { data: reconciliationRows, error: reconciliationError } = targetIds.length
+      ? await supabase.from("preliminary_survey_v2_legacy_reconciliation").select(
+        "measurement_target_business_id, measurement_date, legacy_public_sample_measurer, legacy_survey_code_raw, applied_assignment_id",
+      ).in("measurement_target_business_id", targetIds)
+      : { data: [], error: null };
+    if (reconciliationError && !isLegacyReconciliationSchemaMissing(reconciliationError)) throw reconciliationError;
 
     const planByTarget = new Map((plans ?? []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]));
     const userNameById = new Map((users ?? []).map((user: any) => [Number(user.id), user.name]));
@@ -743,6 +756,14 @@ export async function GET(request: NextRequest) {
       const businessId = planTargetById.get(String(assignment.plan_id));
       return businessId == null ? [] : [[`${businessId}|${String(assignment.measurement_date)}`, assignment] as const];
     }));
+    const reconciliationByTargetDate = new Map((reconciliationRows ?? []).map((row: any) => [
+      `${Number(row.measurement_target_business_id)}|${String(row.measurement_date)}`,
+      {
+        measurer: row.legacy_public_sample_measurer == null ? null : String(row.legacy_public_sample_measurer),
+        surveyCode: row.legacy_survey_code_raw == null ? null : String(row.legacy_survey_code_raw),
+        appliedAssignmentId: row.applied_assignment_id == null ? null : String(row.applied_assignment_id),
+      },
+    ]));
     const assignmentsByTarget = new Map<number, any[]>();
     for (const assignment of assignmentRows ?? []) {
       const targetId = planTargetById.get(String(assignment.plan_id));
@@ -812,6 +833,10 @@ export async function GET(request: NextRequest) {
           assigneeUserId: Number(persistedAssignment.assignee_user_id),
           surveyCode: persistedAssignment.survey_code == null ? null : String(persistedAssignment.survey_code),
         } : null,
+        v2AssignmentId: persistedAssignment?.id == null ? null : String(persistedAssignment.id),
+        reconciliation: reconciliationByTargetDate.get(
+          `${Number(target.id)}|${String(target.measurement_date)}`,
+        ) ?? null,
         trueConfirmed,
         legacyAssignment: legacyMeasurementPublicSample,
         userNameById,
@@ -829,6 +854,7 @@ export async function GET(request: NextRequest) {
         surveyors: Array.isArray(plan?.participant_names) ? plan.participant_names : [],
         surveyMethod: plan?.survey_method ?? (kind === "기존업체" ? "phone" : "field"),
         mainMeasurer: measurementAssigneeDisplay.label,
+        mainMeasurerSource: measurementAssigneeDisplay.source,
         measurementParticipants: staff.measurementParticipants,
         reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",
         status,
