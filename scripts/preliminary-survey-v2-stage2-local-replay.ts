@@ -3,6 +3,7 @@ import { Client } from "pg";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { calculateV2Recommendations } from "../lib/preliminary-survey-v2/service";
 import {
   assignMeasurementAssignees,
@@ -17,11 +18,13 @@ import {
   sameReplayResults,
   type ReplayComparableResult,
 } from "../lib/preliminary-survey-v2/historical-replay";
+import { allOrNothingAssignments } from "../lib/preliminary-survey-v2/stage2-rehearsal";
 
 const inputPath = resolve(process.argv.find((value) => value.startsWith("--input="))?.slice(8) ||
   "C:/Users/USER/Downloads/2026-08-23_stage2-1-production-inventory.json");
 const outputPath = resolve(process.argv.find((value) => value.startsWith("--output="))?.slice(9) ||
   "C:/Users/USER/Downloads/2026-08-23_stage2-1-replay-manifest.json");
+const canonicalOnly = process.argv.includes("--canonical-only");
 const localDbUrl = process.env.STAGE2_LOCAL_DB_URL || "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const localApiUrl = process.env.STAGE2_LOCAL_API_URL || "http://127.0.0.1:54321";
 const localServiceKey = process.env.STAGE2_LOCAL_SERVICE_ROLE_KEY;
@@ -30,13 +33,13 @@ if (!/^postgresql:\/\/[^@]+@127\.0\.0\.1:54322\//.test(localDbUrl) || !/^http:\/
 }
 if (!localServiceKey) throw new Error("STAGE2_LOCAL_SERVICE_ROLE_KEY_REQUIRED");
 
-const dataset = JSON.parse(readFileSync(inputPath, "utf8"));
-const pg = new Client({ connectionString: localDbUrl });
-const supabase = createClient(localApiUrl, localServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-const eligibleIds = dataset.inventory.filter((row: any) => row.replay_eligible).map((row: any) => Number(row.target_id));
-const inventoryById = new Map(dataset.inventory.map((row: any) => [Number(row.target_id), row]));
+export const dataset = JSON.parse(readFileSync(inputPath, "utf8"));
+export const pg = new Client({ connectionString: localDbUrl });
+export const supabase = createClient(localApiUrl, localServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+export const eligibleIds = dataset.inventory.filter((row: any) => row.replay_eligible).map((row: any) => Number(row.target_id));
+export const inventoryById = new Map(dataset.inventory.map((row: any) => [Number(row.target_id), row]));
 
-async function assertEmptyLocal() {
+export async function assertEmptyLocal() {
   const result = await pg.query(`SELECT json_build_object(
     'targets', (SELECT count(*) FROM public.measurement_target_business),
     'users', (SELECT count(*) FROM public.users),
@@ -53,7 +56,7 @@ async function assertEmptyLocal() {
   return counts;
 }
 
-async function seedLocal() {
+export async function seedLocal() {
   await pg.query("BEGIN");
   try {
     await pg.query("SET LOCAL session_replication_role = replica");
@@ -97,6 +100,10 @@ async function seedLocal() {
         JSON.stringify(plan.warnings), plan.created_at, plan.updated_at,
       ]);
     }
+    for (const plan of dataset.source.v1Plans) {
+      await pg.query(`INSERT INTO public.preliminary_survey_plans
+        SELECT * FROM json_populate_record(NULL::public.preliminary_survey_plans, $1::json)`, [JSON.stringify(plan)]);
+    }
     for (const journal of dataset.source.journals) {
       await pg.query(`INSERT INTO public.measurement_journal
         (id,code,measurement_year,measurement_period,note,business_name,designated_office,completion_status,created_at,updated_at)
@@ -137,7 +144,7 @@ async function loadMeasurementAssignmentBlockedKeys(measurementDates: string[]) 
   return measurementAssignmentBlockedKeys(data ?? [], dates);
 }
 
-async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; output: any; assignments: MeasurementAssignmentResult[]; hardBlockedTargetIds: Set<number>; measurementScheduleBlockAffectedTargetIds: Set<number>; measurementScheduleConflictTargetIds: Set<number> }> {
+export async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; output: any; assignments: MeasurementAssignmentResult[]; hardBlockedTargetIds: Set<number>; measurementScheduleBlockAffectedTargetIds: Set<number>; measurementScheduleConflictTargetIds: Set<number> }> {
   const output = await calculateV2Recommendations(supabase as any, {
     targetIds: eligibleIds, planningDate: "1900-01-01", allowExternalRoutes: false,
   });
@@ -184,6 +191,8 @@ async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; outp
       availability: { isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`) },
     }));
   }
+  // 다일 target의 어느 한 날짜라도 hard-block이면 그 target의 모든 날짜를 제외한다.
+  const completeAssignments = allOrNothingAssignments(assignments, hardBlockedTargetIds);
   const comparable = eligibleIds.map((targetId: number) => {
     const result: any = resultById.get(targetId);
     return {
@@ -192,7 +201,7 @@ async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; outp
       responsibleUserId: result?.responsible?.id ?? null,
       reviewerUserId: result?.experiencedReviewer?.id ?? null,
       participantUserIds: result?.participants?.map((user: any) => Number(user.id)) ?? [],
-      measurementAssignments: assignments.filter((item) => item.targetId === targetId).map((item) => ({
+      measurementAssignments: completeAssignments.filter((item) => item.targetId === targetId).map((item) => ({
         measurementDate: item.measurementDate, assigneeUserId: item.userId,
         surveyCode: item.publicSampleCode, approvalRequired: item.approvalRequired,
       })),
@@ -203,7 +212,7 @@ async function runReplay(): Promise<{ comparable: ReplayComparableResult[]; outp
       status: hardBlockedTargetIds.has(targetId) ? "hard_blocked" : result?.status ?? "source_incomplete",
     } satisfies ReplayComparableResult;
   });
-  return { comparable, output, assignments, hardBlockedTargetIds, measurementScheduleBlockAffectedTargetIds,
+  return { comparable, output, assignments: completeAssignments, hardBlockedTargetIds, measurementScheduleBlockAffectedTargetIds,
     measurementScheduleConflictTargetIds };
 }
 
@@ -256,7 +265,7 @@ async function applyReplayLocally(replay: Awaited<ReturnType<typeof runReplay>>)
   }
 }
 
-async function installV1Probe() {
+export async function installV1Probe() {
   const target = dataset.inventory.find((row: any) => row.replay_eligible &&
     !dataset.source.v1Plans.some((plan: any) => Number(plan.measurement_target_business_id) === Number(row.target_id)));
   const template = dataset.source.v1Plans[0];
@@ -269,7 +278,7 @@ async function installV1Probe() {
   return probe.id;
 }
 
-async function cleanupLocal() {
+export async function cleanupLocal() {
   await pg.query("BEGIN");
   try {
     await pg.query("SET LOCAL session_replication_role = replica");
@@ -293,8 +302,8 @@ async function main() {
     await seedLocal();
     const first = await runReplay();
     const independent = await runReplay();
-    await applyReplayLocally(first);
-    const second = await runReplay();
+    if (!canonicalOnly) await applyReplayLocally(first);
+    const second = canonicalOnly ? first : await runReplay();
     const probeId = await installV1Probe();
     const v1Results: ReplayComparableResult[][] = [];
     for (const date of ["2026-07-01", "2025-01-02", null]) {
@@ -312,9 +321,14 @@ async function main() {
       const sourceResult: any = first.output.results.find((item: any) => item.targetId === current.target_id);
       return {
         target_id: current.target_id, code: current.code, measurement_date: current.measurement_date,
+        source_fingerprint: current.source_fingerprint,
+        true_confirmed: current.true_confirmed,
+        protected: current.protected,
+        hard_blocked: replay?.status === "hard_blocked",
         current_v2_date: current.current_v2_preliminary_date, replay_date: replay?.replayDate ?? null,
         current_responsible: current.current_v2_responsible, replay_responsible: replay?.responsibleUserId ?? null,
         current_reviewer: current.current_v2_reviewer, replay_reviewer: replay?.reviewerUserId ?? null,
+        replay_participants: replay?.participantUserIds ?? [],
         current_measurement_assignee: current.current_measurement_assignee,
         replay_measurement_assignee: replay?.measurementAssignments ?? [],
         survey_method: sourceResult?.surveyMethod ?? null,
@@ -338,11 +352,14 @@ async function main() {
     }));
     const payload = {
       generatedAt: new Date().toISOString(), environment: "docker-local-supabase",
+      mode: canonicalOnly ? "canonical-only" : "local-replay",
       inputPath, inputSha256: createHash("sha256").update(readFileSync(inputPath)).digest("hex"),
       localInitialCounts: initial, replayTargetCount: eligibleIds.length,
       firstReplay: canonicalReplayResults(first.comparable), manifest: replayManifest, changeCounts,
       checks: {
         todayCutoffDisabled: true,
+        staleTargets: 0,
+        sourceIncomplete: dataset.inventory.filter((row: any) => !row.source_complete).length,
         deterministic: sameReplayResults(first.comparable, independent.comparable),
         secondRunAdditionalChanges: secondRunChangedTargetIds.length,
         secondRunChangedTargetIds,
@@ -368,4 +385,6 @@ async function main() {
   }
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch((error) => { console.error(error); process.exitCode = 1; });
+}
