@@ -38,6 +38,10 @@ import {
   type PreliminarySurveyImpactScope,
   type PreliminarySurveyImpactTarget,
 } from "@/lib/preliminary-survey-v2/impact-scope";
+import {
+  buildLegacyMeasurementPublicSampleLookup,
+  resolveMeasurementPublicSampleDisplay,
+} from "@/lib/preliminary-survey-v2/public-sample-display";
 
 export const dynamic = "force-dynamic";
 
@@ -703,7 +707,7 @@ export async function GET(request: NextRequest) {
 
     const targetIds = (targets ?? []).map((target: any) => Number(target.id));
     const codes = [...new Set((targets ?? []).map((target: any) => target.code))];
-    const [{ data: plans, error: planError }, { data: journals, error: journalError }, { data: users, error: userError }, { data: scheduleBlocks, error: scheduleBlockError }] = await Promise.all([
+    const [{ data: plans, error: planError }, { data: journals, error: journalError }, { data: users, error: userError }, { data: scheduleBlocks, error: scheduleBlockError }, { data: legacySurveys, error: legacySurveyError }] = await Promise.all([
       targetIds.length
         ? supabase.from("preliminary_survey_v2_plans").select("*").in("measurement_target_business_id", targetIds)
         : Promise.resolve({ data: [], error: null }),
@@ -712,8 +716,15 @@ export async function GET(request: NextRequest) {
         : Promise.resolve({ data: [], error: null }),
       supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced, job").eq("job", "측정"),
       supabase.from("user_schedule_blocks").select("user_id, start_date, end_date"),
+      codes.length
+        ? supabase.from("preliminary_survey").select(
+          "code, year, period, measurement_date, measurer, survey_code",
+        ).in("code", codes).eq("year", year)
+        : Promise.resolve({ data: [], error: null }),
     ]);
-    if (planError || journalError || userError || scheduleBlockError) throw planError || journalError || userError || scheduleBlockError;
+    if (planError || journalError || userError || scheduleBlockError || legacySurveyError) {
+      throw planError || journalError || userError || scheduleBlockError || legacySurveyError;
+    }
 
     // migration 전에는 기존 plan snapshot을 읽기 fallback으로만 사용한다. POST apply는
     // fallback 저장을 허용하지 않고 새 원자 RPC를 요구한다.
@@ -741,6 +752,14 @@ export async function GET(request: NextRequest) {
     const confirmedKeys = new Set((journals ?? []).map((row: any) =>
       journalKey(row.code, row.measurement_year, row.measurement_period),
     ));
+    const legacyMeasurementPublicSampleForTarget = buildLegacyMeasurementPublicSampleLookup(
+      (legacySurveys ?? []).map((row: any) => ({
+        code: String(row.code ?? ""), year: Number(row.year), period: String(row.period ?? ""),
+        measurementDate: String(row.measurement_date ?? ""),
+        measurer: row.measurer == null ? null : String(row.measurer),
+        surveyCode: row.survey_code == null ? null : String(row.survey_code),
+      })),
+    );
     const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
 
     const rows = (targets ?? []).map((target: any) => {
@@ -784,12 +803,19 @@ export async function GET(request: NextRequest) {
             ? "기존업체"
             : v2BusinessKindLabel(plan?.source_rule_type ?? target.preliminary_survey_rule_type ?? "existing", plan?.recommendation_reason ?? null);
       const persistedAssignment: any = assignmentByTargetDate.get(`${Number(target.id)}|${String(target.measurement_date)}`) ?? null;
-      const measurementAssignee = persistedAssignment
-        ? { name: userNameById.get(Number(persistedAssignment.assignee_user_id)), publicSampleCode: persistedAssignment.survey_code }
-        : plan?.recommendation_reason?.measurementAssignee;
-      const measurementAssigneeLabel = measurementAssignee?.name && measurementAssignee?.publicSampleCode
-        ? `${measurementAssignee.name}(${measurementAssignee.publicSampleCode})`
-        : "-";
+      const legacyMeasurementPublicSample = legacyMeasurementPublicSampleForTarget({
+        code: String(target.code ?? ""), year: Number(target.year), period: String(target.period ?? ""),
+        measurementDate: String(target.measurement_date ?? ""),
+      });
+      const measurementAssigneeDisplay = resolveMeasurementPublicSampleDisplay({
+        v2Assignment: persistedAssignment ? {
+          assigneeUserId: Number(persistedAssignment.assignee_user_id),
+          surveyCode: persistedAssignment.survey_code == null ? null : String(persistedAssignment.survey_code),
+        } : null,
+        trueConfirmed,
+        legacyAssignment: legacyMeasurementPublicSample,
+        userNameById,
+      });
       return {
         targetId: Number(target.id),
         code: target.code,
@@ -802,7 +828,7 @@ export async function GET(request: NextRequest) {
         preliminaryDate: plan?.recommended_date ?? null,
         surveyors: Array.isArray(plan?.participant_names) ? plan.participant_names : [],
         surveyMethod: plan?.survey_method ?? (kind === "기존업체" ? "phone" : "field"),
-        mainMeasurer: measurementAssigneeLabel,
+        mainMeasurer: measurementAssigneeDisplay.label,
         measurementParticipants: staff.measurementParticipants,
         reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",
         status,
