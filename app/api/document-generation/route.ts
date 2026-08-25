@@ -52,7 +52,7 @@ async function getContext(businessId: number) {
   const { data: jobRows, error } = await admin
     .from("document_generation_jobs")
     .select(
-      "id, status, selected_documents, error_message, result_files, requested_at, started_at, completed_at, updated_at, worker_id, attempt_count, created_at"
+      "id, status, selected_documents, error_message, result_files, requested_at, started_at, completed_at, updated_at, worker_id, attempt_count, cancel_requested_at, cancel_requested_by, cancelled_at, created_at"
     )
     .eq("business_id", businessId)
     .order("created_at", { ascending: false })
@@ -96,10 +96,7 @@ async function getContext(businessId: number) {
       code: definition.code,
       name: documentDefinitionDisplayName(definition),
       file_format: definition.file_format,
-      filename_pattern: documentDefinitionFilenamePattern(
-        definition,
-        definition.filename_pattern
-      ),
+      filename_pattern: documentDefinitionFilenamePattern(definition, definition.filename_pattern),
       default_selected: definition.default_selected,
       sort_order: definition.sort_order,
       available: Boolean(template),

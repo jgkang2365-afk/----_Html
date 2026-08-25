@@ -7,6 +7,7 @@ export const DOCUMENT_GENERATION_STATUS_LABELS: Record<string, string> = {
   COMPLETED: "문서 재생성",
   PARTIAL_SUCCESS: "다시 생성",
   FAILED: "다시 생성",
+  CANCELLED: "다시 생성",
 };
 
 export function isDocumentGenerationRunning(status: string) {
