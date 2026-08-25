@@ -40,14 +40,16 @@ Docker prerequisite:
 - 지정 inventory: `C:\Users\USER\Downloads\2026-08-25_stage2-2b1-production-inventory.json`
 - SHA-256: `3A41591638CA6779D0904D27AB6B085A099B2B0DE7C07F9D6F4C3513B5FFEB24`
 
-실행 직전 production READ-ONLY inventory를 다시 생성했다.
+실행 직전 production READ-ONLY inventory를 다시 생성했다. 첫 rehearsal 직후 최종 stale gate에서 H0098/H0099의 collaborators 교체가 감지되어 그 결과를 폐기하고, 아래 최신 source로 canonical과 Docker actual apply를 처음부터 다시 실행했다.
 
-- 재조회 파일: `C:\Users\USER\Downloads\2026-08-25_stage2-2b1-production-inventory-recheck.json`
-- 파일 SHA-256: `D27F2FC24B803424E9AF261FCD70C67A0871C64F23389020209C96E826B62E9C`
+- canonical 기준 파일: `C:\Users\USER\Downloads\2026-08-25_stage2-2b1-production-inventory-final-check.json`
+- 파일 SHA-256: `F87B0EC2F3D24F9AB90D13D22D458B497A1F82C814BCDACBCC0F568EB297B8B2`
+- actual 직전 확인: `C:\Users\USER\Downloads\2026-08-25_stage2-2b1-production-inventory-preapply.json`
+- actual 직후 확인: `C:\Users\USER\Downloads\2026-08-25_stage2-2b1-production-inventory-postapply.json`
+- actual 직전/직후 target fingerprint stale: 0
 - 각 실행의 production before/after snapshot: 동일
-- target별 source fingerprint 변화: 0
-- target/users/blocks/V2 plans/V1 plans/policy source: 지정 inventory와 동일
-- measurement_journal 3행의 비권위 metadata는 조회 사이 변경됐으나 target true-confirmed 판정과 fingerprint는 전부 동일했다.
+- 최신 변경: H0098 collaborators `강종구→이태환`, H0099 collaborators `이태환→강종구`
+- 이 변경을 반영한 뒤 replay/actual 결과를 재승인했으며 이전 canonical을 우회하거나 재사용하지 않았다.
 
 최신 분류:
 
@@ -65,8 +67,8 @@ H0521은 최신 collaborators `강종구` 원천으로 재계산했다. H0527은
 ## 새 canonical replay / manifest
 
 - 파일: `C:\Users\USER\Downloads\2026-08-25_stage2-2b1-canonical-replay.json`
-- SHA-256: `BC2287FDC3C8E7EA5DADFDF3EDE6804EBAE706DEA3CE126EFF71DF3DA9A0C0C9`
-- canonical replay digest: `5023133209230c80584b397716dc9cda9ec94cf0a786e2ea3303098a6cd2254a`
+- SHA-256: `0C7872624FEF6F4AFCF3F81E05DF61C0B09E5E4C7BCB22E5A7C42A60646FA7B7`
+- canonical replay digest: `319eb1022da133db494eba5e92d7c9bb889009bb03f575f3ae842bdf3e683f5d`
 - 전체 manifest 행: 106
 - replay 행: 18
 - duplicate target: 0
@@ -89,7 +91,7 @@ H0521은 최신 collaborators `강종구` 원천으로 재계산했다. H0527은
 Raw evidence:
 
 - 파일: `C:\Users\USER\Downloads\2026-08-25_stage2-2b1-docker-apply-manifest.json`
-- SHA-256: `AC436735FCE41C3BE862CBAECC922B58AA1CC380F4092E042AE56B7C55D83DB0`
+- SHA-256: `6B9C3983F5B5185DB25B234C3829B38FE33F252A90BD25905CE79125468C5522`
 
 결과:
 
