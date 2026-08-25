@@ -19,7 +19,18 @@ export interface MeasurementPublicSampleTargetKey {
   measurementDate: string;
 }
 
-export type MeasurementPublicSampleDisplaySource = "v2" | "legacy_true_confirmed" | "none";
+export type MeasurementPublicSampleDisplaySource =
+  | "v2"
+  | "legacy_reconciled"
+  | "legacy_snapshot"
+  | "legacy_live_fallback"
+  | "none";
+
+export interface ReconciledMeasurementPublicSampleAssignment {
+  measurer: string | null;
+  surveyCode: string | null;
+  appliedAssignmentId: string | null;
+}
 
 function label(name: unknown, surveyCode: unknown) {
   const normalizedName = String(name ?? "").trim();
@@ -58,20 +69,35 @@ export function buildLegacyMeasurementPublicSampleLookup(rows: readonly LegacyMe
 
 export function resolveMeasurementPublicSampleDisplay(input: {
   v2Assignment: V2MeasurementPublicSampleAssignment | null;
+  v2AssignmentId?: string | null;
+  reconciliation?: ReconciledMeasurementPublicSampleAssignment | null;
   trueConfirmed: boolean;
   legacyAssignment: Pick<LegacyMeasurementPublicSampleAssignment, "measurer" | "surveyCode"> | null;
   userNameById: ReadonlyMap<number, string>;
 }): { label: string; source: MeasurementPublicSampleDisplaySource } {
+  if (input.v2Assignment && input.reconciliation
+      && input.reconciliation.appliedAssignmentId === input.v2AssignmentId) {
+    return {
+      label: label(input.reconciliation.measurer, input.reconciliation.surveyCode),
+      source: "legacy_reconciled",
+    };
+  }
   if (input.v2Assignment) {
     return {
       label: label(input.userNameById.get(input.v2Assignment.assigneeUserId), input.v2Assignment.surveyCode),
       source: "v2",
     };
   }
+  if (input.reconciliation) {
+    return {
+      label: label(input.reconciliation.measurer, input.reconciliation.surveyCode),
+      source: "legacy_snapshot",
+    };
+  }
   if (input.trueConfirmed && input.legacyAssignment) {
     return {
       label: label(input.legacyAssignment.measurer, input.legacyAssignment.surveyCode),
-      source: "legacy_true_confirmed",
+      source: "legacy_live_fallback",
     };
   }
   return { label: "-", source: "none" };

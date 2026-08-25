@@ -20,7 +20,7 @@ test("찐확정이고 V2 assignment가 없을 때만 legacy 값을 표시한다"
   assert.deepEqual(resolveMeasurementPublicSampleDisplay({
     v2Assignment: null, trueConfirmed: true,
     legacyAssignment: { measurer: "한기문", surveyCode: "B" }, userNameById: users,
-  }), { label: "한기문(B)", source: "legacy_true_confirmed" });
+  }), { label: "한기문(B)", source: "legacy_live_fallback" });
   assert.deepEqual(resolveMeasurementPublicSampleDisplay({
     v2Assignment: null, trueConfirmed: false,
     legacyAssignment: { measurer: "한기문", surveyCode: "B" }, userNameById: users,
@@ -28,6 +28,30 @@ test("찐확정이고 V2 assignment가 없을 때만 legacy 값을 표시한다"
   assert.deepEqual(resolveMeasurementPublicSampleDisplay({
     v2Assignment: null, trueConfirmed: true, legacyAssignment: null, userNameById: users,
   }), { label: "-", source: "none" });
+});
+
+test("복원 assignment와 snapshot은 live fallback보다 우선하며 원문 FF/GG를 보존한다", () => {
+  assert.deepEqual(resolveMeasurementPublicSampleDisplay({
+    v2Assignment: { assigneeUserId: 5, surveyCode: "F" }, v2AssignmentId: "assignment-1",
+    reconciliation: { measurer: "고유빈", surveyCode: "FF", appliedAssignmentId: "assignment-1" },
+    trueConfirmed: true, legacyAssignment: { measurer: "다른값", surveyCode: "G" }, userNameById: users,
+  }), { label: "고유빈(FF)", source: "legacy_reconciled" });
+  assert.deepEqual(resolveMeasurementPublicSampleDisplay({
+    v2Assignment: null,
+    reconciliation: { measurer: "김민영", surveyCode: "GG", appliedAssignmentId: null },
+    trueConfirmed: false, legacyAssignment: null, userNameById: users,
+  }), { label: "김민영(GG)", source: "legacy_snapshot" });
+});
+
+test("실제 공시료 원천이 있는 reconciliation 행은 찐확정 여부와 무관하게 '-'가 아니다", () => {
+  for (const trueConfirmed of [true, false]) {
+    const result = resolveMeasurementPublicSampleDisplay({
+      v2Assignment: null,
+      reconciliation: { measurer: "이태환", surveyCode: "A", appliedAssignmentId: null },
+      trueConfirmed, legacyAssignment: null, userNameById: users,
+    });
+    assert.notEqual(result.label, "-");
+  }
 });
 
 test("legacy historical survey_code FF/GG를 변환하지 않는다", () => {
