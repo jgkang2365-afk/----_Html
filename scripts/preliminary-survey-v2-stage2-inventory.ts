@@ -87,7 +87,8 @@ async function main() {
     "id,measurement_target_business_id,recommended_date,responsible_user_id,experienced_reviewer_id,participant_user_ids,participant_names,status,plan_origin,source_measurement_date,source_responsible_user_id,source_rule_type,survey_method,recommendation_reason,route_evidence,warnings,created_at,updated_at",
   ).order("measurement_target_business_id"), "V2_PLANS");
   const measurementAssignments = await select<any>(supabase.from("preliminary_survey_v2_measurement_assignments")
-    .select("id"), "V2_MEASUREMENT_ASSIGNMENTS");
+    .select("id,plan_id,measurement_date,assignee_user_id,survey_code,survey_code_source")
+    .order("plan_id").order("measurement_date"), "V2_MEASUREMENT_ASSIGNMENTS");
   const v1Plans = targetIds.length ? await select<any>(supabase.from("preliminary_survey_plans").select("*")
     .in("measurement_target_business_id", targetIds).order("measurement_target_business_id"), "V1_PLANS") : [];
   const policyRows = await select<any>(supabase.from("preliminary_survey_policy_settings").select(
@@ -105,6 +106,10 @@ async function main() {
   ]);
   const journalKeys = new Set(journals.map((row) => replayJournalKey(row.code, row.measurement_year, row.measurement_period)));
   const planByTargetId = new Map(v2Plans.map((row) => [Number(row.measurement_target_business_id), row]));
+  const assignmentByPlanAndDate = new Map(measurementAssignments.map((row) => [
+    `${String(row.plan_id)}|${String(row.measurement_date)}`,
+    row.assignee_user_id == null ? null : Number(row.assignee_user_id),
+  ]));
   const v1ByTargetId = new Map(v1Plans.map((row) => [Number(row.measurement_target_business_id), row]));
   const userIdByName = new Map(users.map((row) => [String(row.name).trim(), Number(row.id)]));
   const coordinateByCode = new Map(businessInfo.map((row) => [String(row.code), row]));
@@ -156,7 +161,12 @@ async function main() {
       current_v2_responsible: plan ? Number(plan.responsible_user_id) : null,
       current_v2_reviewer: plan?.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
       current_v2_participants: Array.isArray(plan?.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
-      current_measurement_assignee: (dates ?? []).map((date) => ({ date, user_id: currentMeasurementAssignment(plan, date) })),
+      current_measurement_assignee: (dates ?? []).map((date) => ({
+        date,
+        user_id: plan && assignmentByPlanAndDate.has(`${String(plan.id)}|${date}`)
+          ? assignmentByPlanAndDate.get(`${String(plan.id)}|${date}`)
+          : currentMeasurementAssignment(plan, date),
+      })),
       current_report_writer: staff.map((day) => ({ date: day.date, user_id: day.reportWriterUserId })),
       current_measurement_participants: staff.map((day) => ({ date: day.date, user_ids: day.measurementParticipantUserIds })),
       true_confirmed: trueConfirmed, protected: isProtected,
