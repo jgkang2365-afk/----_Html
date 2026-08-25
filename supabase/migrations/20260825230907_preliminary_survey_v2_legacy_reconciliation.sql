@@ -76,14 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_preliminary_survey_v2_legacy_reconciliation_targe
   ON public.preliminary_survey_v2_legacy_reconciliation(measurement_target_business_id, measurement_date);
 
 ALTER TABLE public.preliminary_survey_v2_legacy_reconciliation ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS preliminary_survey_v2_legacy_reconciliation_read
-  ON public.preliminary_survey_v2_legacy_reconciliation;
-CREATE POLICY preliminary_survey_v2_legacy_reconciliation_read
-  ON public.preliminary_survey_v2_legacy_reconciliation FOR SELECT TO authenticated
-  USING (true);
-
 REVOKE ALL ON TABLE public.preliminary_survey_v2_legacy_reconciliation FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON TABLE public.preliminary_survey_v2_legacy_reconciliation TO authenticated;
 GRANT ALL ON TABLE public.preliminary_survey_v2_legacy_reconciliation TO service_role;
 
 CREATE OR REPLACE FUNCTION public.preliminary_survey_v2_legacy_source_hash(p_legacy_id bigint)
@@ -127,6 +120,7 @@ DECLARE
   assignment_count integer;
   group_count integer;
   matching_user_count integer;
+  duplicate_source_count integer;
   matched_user public.users%ROWTYPE;
   actual_source_hash text;
   actual_classification text;
@@ -233,6 +227,12 @@ BEGIN
     FROM public.preliminary_survey_v2_measurement_assignments assignment
     WHERE plan_row.id IS NOT NULL AND assignment.plan_id = plan_row.id
       AND assignment.measurement_date = legacy_row.measurement_date;
+    SELECT count(*) INTO duplicate_source_count
+    FROM public.preliminary_survey candidate
+    WHERE candidate.code = legacy_row.code AND candidate.year = legacy_row.year
+      AND candidate.measurement_date = legacy_row.measurement_date
+      AND btrim(regexp_replace(candidate.period, '[[:space:]]*[(]수시[)][[:space:]]*$', '')) =
+        btrim(regexp_replace(legacy_row.period, '[[:space:]]*[(]수시[)][[:space:]]*$', ''));
 
     matched_user := NULL;
     SELECT count(*) INTO matching_user_count FROM public.users user_row
@@ -281,7 +281,9 @@ BEGIN
       CONTINUE;
     END IF;
 
-    IF assignment_count > 0 THEN
+    IF duplicate_source_count > 1 THEN
+      actual_classification := 'SNAPSHOT_ONLY';
+    ELSIF assignment_count > 0 THEN
       actual_classification := 'V2_ALREADY_AUTHORITATIVE';
     ELSIF btrim(COALESCE(legacy_row.preliminary_surveyor, '')) = ''
        AND btrim(COALESCE(legacy_row.measurer, '')) = ''
@@ -382,6 +384,11 @@ BEGIN
 END;
 $$;
 
+ALTER FUNCTION public.preliminary_survey_v2_legacy_source_hash(bigint) OWNER TO postgres;
+ALTER FUNCTION public.preliminary_survey_v2_legacy_manifest_sha(jsonb) OWNER TO postgres;
+ALTER FUNCTION public.reconcile_preliminary_survey_v2_legacy_history(uuid,jsonb,text,integer,integer)
+  OWNER TO postgres;
+
 CREATE OR REPLACE FUNCTION public.rollback_preliminary_survey_v2_legacy_reconciliation(
   p_batch_id uuid,
   p_expected_assignment_deletes integer
@@ -407,6 +414,9 @@ BEGIN
   RETURN jsonb_build_object('batchId', p_batch_id, 'assignmentDeleted', actual_count);
 END;
 $$;
+
+ALTER FUNCTION public.rollback_preliminary_survey_v2_legacy_reconciliation(uuid,integer)
+  OWNER TO postgres;
 
 REVOKE ALL ON FUNCTION public.preliminary_survey_v2_legacy_source_hash(bigint)
   FROM PUBLIC, anon, authenticated;

@@ -102,6 +102,11 @@ export function buildLegacyReconciliationManifest(input: {
   users: readonly LegacyReconciliationUserRow[];
   sourceHashes: ReadonlyMap<number, string>;
 }): LegacyReconciliationManifestRow[] {
+  const sourceKeyCounts = new Map<string, number>();
+  for (const source of input.sources) {
+    const key = `${source.code.trim()}|${source.year}|${normalizeLegacyReconciliationPeriod(source.period)}|${source.measurement_date}`;
+    sourceKeyCounts.set(key, (sourceKeyCounts.get(key) ?? 0) + 1);
+  }
   const planByTarget = new Map(input.plans.map((plan) => [Number(plan.measurement_target_business_id), plan]));
   const assignmentsByPlanDate = new Map(input.assignments.map((assignment) => [
     `${assignment.plan_id}|${assignment.measurement_date}`, assignment,
@@ -131,7 +136,11 @@ export function buildLegacyReconciliationManifest(input: {
     const validMeasurer = Boolean(measurer && measurer.is_active !== false && ["A", "B", "C", "D", "F", "G"].includes(currentCode));
     let classification: LegacyReconciliationClassification;
     let exclusionReason: string | null = null;
-    if (existing) classification = "V2_ALREADY_AUTHORITATIVE";
+    const sourceKey = `${source.code.trim()}|${source.year}|${normalizeLegacyReconciliationPeriod(source.period)}|${source.measurement_date}`;
+    if ((sourceKeyCounts.get(sourceKey) ?? 0) > 1) {
+      classification = "SNAPSHOT_ONLY";
+      exclusionReason = "DUPLICATE_LEGACY_SOURCE_KEY";
+    } else if (existing) classification = "V2_ALREADY_AUTHORITATIVE";
     else if (!target) {
       classification = String(source.preliminary_surveyor ?? "").trim() || String(source.measurer ?? "").trim()
         || String(source.survey_code ?? "").trim() ? "SNAPSHOT_ONLY" : "NO_RECOVERABLE_SOURCE";

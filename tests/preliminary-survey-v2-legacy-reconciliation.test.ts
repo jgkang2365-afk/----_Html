@@ -49,6 +49,16 @@ test("동명이인·미등록 사용자와 plan 미존재는 snapshot-only이며
   assert.equal(classify({ plans: [] }).classification, "SNAPSHOT_ONLY");
 });
 
+test("동일 normalized legacy source key가 두 행이면 모두 conflict snapshot-only다", () => {
+  const duplicate = { ...source, id: 2, period: "하반기 (수시)" };
+  const results = buildLegacyReconciliationManifest({
+    sources: [source, duplicate], targets: [target], plans: [plan], assignments: [], users,
+    sourceHashes: new Map([[1, "a".repeat(64)], [2, "b".repeat(64)]]),
+  });
+  assert.deepEqual(results.map((row) => row.classification), ["SNAPSHOT_ONLY", "SNAPSHOT_ONLY"]);
+  assert.ok(results.every((row) => row.exclusionReason === "DUPLICATE_LEGACY_SOURCE_KEY"));
+});
+
 test("수시 표기만 정규화한다", () => {
   assert.equal(normalizeLegacyReconciliationPeriod("하반기 (수시)"), "하반기");
   assert.equal(normalizeLegacyReconciliationPeriod("하반기(수시)"), "하반기");
@@ -61,6 +71,7 @@ test("migration은 stale/count/권한/감사/idempotency 경계를 유지한다"
     "STALE_LEGACY_SOURCE", "LEGACY_EXPECTED_COUNT_MISMATCH", "LEGACY_CLASSIFICATION_CHANGED",
     "SECURITY DEFINER", "SET search_path = public", "FROM PUBLIC, anon, authenticated",
     "assignment_origin = 'legacy_reconciled'", "LEGACY_RECONCILIATION_ASSIGNMENT_CHANGED",
+    "OWNER TO postgres",
   ]) assert.ok(sql.includes(marker), `missing migration guard: ${marker}`);
   assert.doesNotMatch(sql, /DISABLE\s+TRIGGER/i);
   assert.doesNotMatch(sql, /DELETE FROM public\.preliminary_survey_v2_legacy_reconciliation/);
