@@ -6,6 +6,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if (!isAuthorizedDocumentWorker(request))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await request.json();
+  const workerLeaseId = String(body.worker_lease_id || "").trim();
+  if (!workerLeaseId)
+    return NextResponse.json({ error: "worker_lease_id가 필요합니다." }, { status: 400 });
   const status = String(body.status || "");
   if (!["COMPLETED", "PARTIAL_SUCCESS", "FAILED", "CANCELLED"].includes(status))
     return NextResponse.json({ error: "완료 상태가 올바르지 않습니다." }, { status: 400 });
@@ -29,6 +32,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     .eq("id", params.id)
     .eq("status", "PROCESSING")
     .eq("worker_id", String(body.worker_id || ""))
+    .eq("worker_lease_id", workerLeaseId)
     .select("id, status")
     .maybeSingle();
   if (error) return NextResponse.json({ error: "작업 완료 상태 저장 실패" }, { status: 500 });

@@ -47,8 +47,18 @@ export async function POST(_request: NextRequest, { params }: { params: { jobId:
       .select(JOB_FIELDS)
       .maybeSingle();
     if (processingResult.error) throw processingResult.error;
-    if (processingResult.data)
-      return NextResponse.json({ success: true, job: processingResult.data });
+    if (processingResult.data) {
+      // 살아 있는 Worker의 lease는 건드리지 않고, 이미 만료된 동일/다른 취소 요청만 종결한다.
+      const recoveryResult = await admin.rpc("recover_cancelled_document_generation_jobs");
+      if (recoveryResult.error) throw recoveryResult.error;
+      const refreshedResult = await admin
+        .from("document_generation_jobs")
+        .select(JOB_FIELDS)
+        .eq("id", params.jobId)
+        .single();
+      if (refreshedResult.error) throw refreshedResult.error;
+      return NextResponse.json({ success: true, job: refreshedResult.data });
+    }
 
     // 중복 요청 또는 완료 race에서는 과거 결과를 변경하지 않고 현재 상태를 반환한다.
     const currentResult = await admin

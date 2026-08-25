@@ -146,9 +146,45 @@ test("문서 작업 취소 migration은 상태와 감사 시각을 추가하고 
   assert.match(migration, /cancel_requested_at TIMESTAMPTZ/);
   assert.match(migration, /cancel_requested_by BIGINT REFERENCES public\.users\(id\)/);
   assert.match(migration, /cancelled_at TIMESTAMPTZ/);
+  assert.match(migration, /worker_lease_id UUID/);
+  assert.match(migration, /worker_heartbeat_at TIMESTAMPTZ/);
+  assert.match(migration, /worker_lease_expires_at TIMESTAMPTZ/);
   assert.match(migration, /'CANCELLED'/);
   assert.match(migration, /FOR UPDATE SKIP LOCKED/);
-  assert.match(migration, /status = 'PENDING'\s+AND cancel_requested_at IS NULL/);
+  assert.match(
+    migration,
+    /candidate\.status = 'PENDING'\s+AND candidate\.cancel_requested_at IS NULL/
+  );
+  assert.match(migration, /p_worker_lease_id UUID/);
+});
+
+test("PROCESSING orphan recovery는 취소 요청과 확인 가능한 lease 만료를 모두 요구한다", () => {
+  const migration = readFileSync(
+    "supabase/migrations/20260825100000_document_generation_job_cancellation.sql",
+    "utf8"
+  );
+  const recovery = migration.slice(
+    migration.indexOf(
+      "CREATE OR REPLACE FUNCTION public.recover_cancelled_document_generation_jobs"
+    )
+  );
+  assert.match(recovery, /job\.status = 'PROCESSING'/);
+  assert.match(recovery, /job\.cancel_requested_at IS NOT NULL/);
+  assert.match(recovery, /job\.worker_lease_id IS NOT NULL/);
+  assert.match(recovery, /job\.worker_lease_expires_at IS NOT NULL/);
+  assert.match(recovery, /job\.worker_lease_expires_at <= CURRENT_TIMESTAMP/);
+  assert.doesNotMatch(recovery, /started_at\s*[+<>=]/);
+  assert.doesNotMatch(recovery, /updated_at\s*[+<>=].*INTERVAL/);
+});
+
+test("orphan recovery는 게시 완료 checkpoint가 있으면 PARTIAL_SUCCESS를 보존한다", () => {
+  const migration = readFileSync(
+    "supabase/migrations/20260825100000_document_generation_job_cancellation.sql",
+    "utf8"
+  );
+  assert.match(migration, /jsonb_array_elements\(job\.result_files\)/);
+  assert.match(migration, /result->>'status' = 'COMPLETED'/);
+  assert.match(migration, /THEN 'PARTIAL_SUCCESS'\s+ELSE 'CANCELLED'/);
 });
 
 test("사용자 취소 API는 PENDING과 PROCESSING을 조건부 갱신하고 종료 결과는 보존한다", () => {
@@ -158,15 +194,19 @@ test("사용자 취소 API는 PENDING과 PROCESSING을 조건부 갱신하고 �
   assert.match(route, /\.eq\("status", "PENDING"\)/);
   assert.match(route, /\.eq\("status", "PROCESSING"\)/);
   assert.match(route, /\.is\("cancel_requested_at", null\)/);
+  assert.match(route, /recover_cancelled_document_generation_jobs/);
   assert.match(route, /already_terminal/);
   assert.doesNotMatch(route, /error_message:\s*.*cancel/i);
 });
 
-test("Worker 취소 조회는 기존 token과 worker 소유권을 검증한다", () => {
+test("Worker heartbeat는 기존 token과 Job별 lease 소유권을 검증한다", () => {
   const route = readFileSync("app/api/document-worker/jobs/[id]/cancel-status/route.ts", "utf8");
   assert.match(route, /isAuthorizedDocumentWorker/);
+  assert.match(route, /renew_document_generation_job_lease/);
+  assert.match(route, /p_worker_lease_id: workerLeaseId/);
+  assert.match(route, /p_result_files: Array\.isArray\(body\.result_files\)/);
   assert.match(route, /\.eq\("worker_id", workerId\)/);
-  assert.match(route, /cancel_requested: Boolean\(data\.cancel_requested_at\)/);
+  assert.match(route, /\.eq\("worker_lease_id", workerLeaseId\)/);
 });
 
 test("Worker 완료 API는 취소 결과와 일부 성공을 기록하고 PROCESSING 소유권 race를 보호한다", () => {
@@ -176,6 +216,16 @@ test("Worker 완료 API는 취소 결과와 일부 성공을 기록하고 PROCES
   assert.match(route, /cancelled_at: cancellationHandled \? completedAt : null/);
   assert.match(route, /\.eq\("status", "PROCESSING"\)/);
   assert.match(route, /\.eq\("worker_id"/);
+  assert.match(route, /\.eq\("worker_lease_id", workerLeaseId\)/);
+});
+
+test("claim과 orphan recovery API는 Worker token 경계와 lease RPC를 유지한다", () => {
+  const claim = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
+  const recovery = readFileSync("app/api/document-worker/jobs/recover-cancelled/route.ts", "utf8");
+  assert.match(claim, /isAuthorizedDocumentWorker/);
+  assert.match(claim, /p_worker_lease_id: workerLeaseId/);
+  assert.match(recovery, /isAuthorizedDocumentWorker/);
+  assert.match(recovery, /recover_cancelled_document_generation_jobs/);
 });
 
 test("CANCELLED는 running 작업이 아니며 새 queue를 차단하지 않는다", () => {
@@ -260,6 +310,7 @@ test("문서 Worker는 Realtime 신호와 6시간 안전 확인을 사용한다"
   const worker = readFileSync("document_worker.py", "utf8");
   const runtime = readFileSync("document_worker_realtime.py", "utf8");
   assert.match(worker, /DOCUMENT_WORKER_RECOVERY_POLL_SECONDS/);
+  assert.match(worker, /PENDING queue 안전 확인 주기/);
   assert.match(worker, /DOCUMENT_WORKER_REALTIME_ENABLED/);
   assert.match(worker, /Global\\MeasurementJournalDocumentWorker/);
   assert.match(worker, /이미 실행 중인 문서 Worker가 있어 중복 프로세스를 종료합니다/);
@@ -271,6 +322,9 @@ test("문서 Worker는 Realtime 신호와 6시간 안전 확인을 사용한다"
   assert.ok(runtime.includes('await self.coordinator.wake("realtime-connected")'));
   assert.ok(runtime.includes("asyncio.Lock()"));
   assert.ok(runtime.includes("while processed < self.max_drain_jobs"));
+  assert.match(worker, /CancelledJobRecoveryMonitor/);
+  assert.match(worker, /DOCUMENT_WORKER_ORPHAN_RECOVERY_SECONDS = 15/);
+  assert.doesNotMatch(worker, /taskkill|TerminateProcess|hwp\.exe.*kill|Excel.*kill/i);
 });
 
 test("Node WorkerDaemon의 5초 루프는 background_jobs 전용이고 문서 claim을 호출하지 않는다", () => {

@@ -1,10 +1,16 @@
 import hashlib
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from document_worker import process_job
+from document_worker import (
+    CancelledJobRecoveryMonitor,
+    JobLeaseHeartbeat,
+    process_job,
+    process_next_queued_job,
+)
 
 
 class CancellationClient:
@@ -129,6 +135,85 @@ class DocumentWorkerCancellationTest(unittest.TestCase):
             self.assertEqual(status, "COMPLETED")
             self.assertEqual(results[0]["status"], "COMPLETED")
             self.assertIsNone(error)
+
+    def test_heartbeat_keeps_renewing_lease_until_completing_scope_exits(self):
+        class LeaseClient:
+            def __init__(self):
+                self.heartbeats = 0
+
+            def heartbeat(self, _job_id):
+                self.heartbeats += 1
+                return False
+
+        client = LeaseClient()
+        with JobLeaseHeartbeat(client, "job", interval_seconds=0.01):
+            deadline = time.monotonic() + 0.5
+            while client.heartbeats < 2 and time.monotonic() < deadline:
+                time.sleep(0.005)
+        completed_heartbeats = client.heartbeats
+        time.sleep(0.02)
+
+        self.assertGreaterEqual(completed_heartbeats, 2)
+        self.assertEqual(client.heartbeats, completed_heartbeats)
+
+    def test_recovery_monitor_rechecks_expired_cancelled_leases_independently(self):
+        class RecoveryClient:
+            def __init__(self):
+                self.recoveries = 0
+
+            def recover_cancelled_jobs(self):
+                self.recoveries += 1
+                return []
+
+        client = RecoveryClient()
+        monitor = CancelledJobRecoveryMonitor(client, interval_seconds=0.01)
+        monitor.start()
+        deadline = time.monotonic() + 0.5
+        while client.recoveries < 2 and time.monotonic() < deadline:
+            time.sleep(0.005)
+        monitor.stop()
+
+        self.assertGreaterEqual(client.recoveries, 2)
+
+    def test_worker_restart_recovers_cancelled_orphans_before_claim(self):
+        class RestartedClient:
+            def __init__(self):
+                self.events = []
+
+            def recover_cancelled_jobs(self):
+                self.events.append("recover")
+                return [{"id": "orphan", "status": "CANCELLED"}]
+
+            def claim(self):
+                self.events.append("claim")
+                return None
+
+        client = RestartedClient()
+        self.assertIsNone(process_next_queued_job(client, Path("unused")))
+        self.assertEqual(client.events, ["recover", "claim"])
+
+    def test_published_result_is_checkpointed_before_next_document(self):
+        class CheckpointClient(CancellationClient):
+            def __init__(self, sources):
+                super().__init__(sources, cancel_at_check=999)
+                self.checkpoints = []
+
+            def checkpoint_progress(self, _job_id, results):
+                self.checkpoints.append([dict(result) for result in results])
+                return False
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            job, sources = self._job(root, ["GENERAL_PRELIMINARY_SURVEY"])
+            client = CheckpointClient(sources)
+
+            status, results, _error = process_job(
+                job, client, root / "output", AutomationSpy(), AutomationSpy()
+            )
+
+            self.assertEqual(status, "COMPLETED")
+            self.assertEqual(results[0]["status"], "COMPLETED")
+            self.assertEqual(client.checkpoints[0][0]["status"], "COMPLETED")
 
     def _job(self, root, document_types):
         templates = {}
