@@ -164,7 +164,7 @@ export function buildLegacyReconciliationManifest(input: {
     } else classification = "NO_RECOVERABLE_SOURCE";
     return {
       legacySurveyId: source.id,
-      targetId: target?.id ?? null,
+      targetId: target == null ? null : Number(target.id),
       matchedResponsibleUserIds: responsibleUserIds(input.users, source.preliminary_surveyor),
       matchedPublicSampleUserId: measurer?.id ?? null,
       sourceHash: input.sourceHashes.get(source.id) ?? "",
