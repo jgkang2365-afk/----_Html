@@ -76,3 +76,10 @@ test("migration은 stale/count/권한/감사/idempotency 경계를 유지한다"
   assert.doesNotMatch(sql, /DISABLE\s+TRIGGER/i);
   assert.doesNotMatch(sql, /DELETE FROM public\.preliminary_survey_v2_legacy_reconciliation/);
 });
+
+test("운영 apply runner는 write opt-in과 정확한 production project ref를 모두 요구한다", () => {
+  const runner = readFileSync("scripts/preliminary-survey-v2-legacy-reconciliation.ts", "utf8");
+  assert.match(runner, /LEGACY_RECONCILIATION_PRODUCTION_WRITE/);
+  assert.match(runner, /xjxqbwvcgffunqnkmoqw\.supabase\.co/);
+  assert.match(runner, /LEGACY_RECONCILIATION_PRODUCTION_PROJECT_MISMATCH/);
+});

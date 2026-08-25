@@ -20,6 +20,9 @@ if (!/^https:\/\/[a-z]+\.supabase\.co$/i.test(apiUrl)) throw new Error("REMOTE_S
 if (mode === "apply" && process.env.LEGACY_RECONCILIATION_PRODUCTION_WRITE !== "YES") {
   throw new Error("LEGACY_RECONCILIATION_PRODUCTION_WRITE_GUARD");
 }
+if (mode === "apply" && new URL(apiUrl).hostname !== "xjxqbwvcgffunqnkmoqw.supabase.co") {
+  throw new Error("LEGACY_RECONCILIATION_PRODUCTION_PROJECT_MISMATCH");
+}
 let cancelled = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => { cancelled = true; });
 const checkpoint = () => { if (cancelled) throw new Error("LEGACY_RECONCILIATION_CANCELLED"); };
