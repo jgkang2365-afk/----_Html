@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 export const STAGE2_REHEARSAL_MODE = "LOCAL_DOCKER_REHEARSAL" as const;
 export const PRODUCTION_PROJECT_REF = "xjxqbwvcgffunqnkmoqw";
+export const STAGE2_PRODUCTION_MODE = "PRODUCTION_ONE_SHOT" as const;
 
 export function assertLocalDockerRehearsalEnvironment(input: {
   mode: string | undefined;
@@ -18,6 +19,14 @@ export function assertLocalDockerRehearsalEnvironment(input: {
   if (!/^postgresql:\/\/[^@]+@127\.0\.0\.1:54322\//.test(input.databaseUrl) ||
       !/^http:\/\/127\.0\.0\.1:54321$/.test(input.apiUrl)) {
     throw new Error("ISOLATED_LOCAL_SUPABASE_REQUIRED");
+  }
+}
+
+export function assertStage2ProductionEnvironment(input: { mode: string | undefined; apiUrl: string }) {
+  if (input.mode !== STAGE2_PRODUCTION_MODE) throw new Error("PRODUCTION_ONE_SHOT_MODE_REQUIRED");
+  const url = new URL(input.apiUrl);
+  if (url.protocol !== "https:" || url.hostname !== `${PRODUCTION_PROJECT_REF}.supabase.co`) {
+    throw new Error("PRODUCTION_PROJECT_MISMATCH");
   }
 }
 

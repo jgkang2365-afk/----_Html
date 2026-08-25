@@ -1,0 +1,19 @@
+사업장코드,사업장명,측정일,사업장유형,예비조사일,조사방법,새예비조사책임자,검토자,새측정자(공시료),approval,hard-block,상태,warning
+H0048,(주) 운성모터스,2026-08-28,existing,2026-08-25,phone,이태환,,2026-08-28:이태환(A),false,false,recommended,
+H0216,(주)신이십일세기자동차정비,2026-08-27,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0098,(주)정인모터스,2026-08-26,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0069,21세기모터스검사장 주식회사,2026-08-27,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0035,금빛종합모터스,2026-08-28,existing,2026-08-25,phone,고유빈,한기문,2026-08-28:고유빈(F),false,false,recommended,
+H0038,마이더스모터스,2026-08-26,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0182,대전특장공업,2026-08-26,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0238,대원자동차공업사,2026-08-27,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0070,모든모터스(Motors),2026-08-27,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0257,신유승자동차공업사,2026-08-26,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0099,안영자동차정비사업소,2026-08-26,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0034,종성모터스,2026-08-28,existing,2026-08-25,phone,한기문,,2026-08-28:한기문(B),false,false,recommended,
+H0016,중문공업사,2026-08-28,existing,2026-08-25,phone,김민영,이태환,2026-08-28:김민영(G),false,false,recommended,
+H0102,국립농업과학원,2026-09-14;2026-09-15;2026-09-16,existing,2026-08-25,phone,이태환,,2026-09-14:이태환(A);2026-09-15:이태환(A);2026-09-16:이태환(A),false,false,recommended,
+H0293,주식회사 네이처앤바이오텍,2026-08-27,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0294,주식회사 더가든오브내추럴솔루션,2026-08-27,existing,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0521,서현자동차정비,2026-08-26,first_measurement,,,,,,false,false,manual_required,NO_AVAILABLE_DATE_THROUGH_MINUS_3
+H0527,우송종합건설(주) 아산탕정2고등학교 교사 신축공사,2026-08-28,first_measurement,2026-08-25,field,강종구,이주형,2026-08-28:강종구(C),false,false,recommended,

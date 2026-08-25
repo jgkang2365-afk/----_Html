@@ -5,9 +5,9 @@ import { resolve } from "node:path";
 import { measurementDayFormsFrom } from "../lib/business/measurement-day-form";
 import { recommendationDatesForBusinessType, type PhaseBBusinessType } from "../lib/preliminary-survey-v2/calendar";
 import {
+  buildPreliminarySurveyV2CleanInput,
   canonicalReplayCandidateUsers,
   canonicalReplayScheduleBlocks,
-  normalizeReplayPeriod,
   replayJournalKey,
   replaySourceFingerprint,
   STAGE2_PROTECTED_CODES,
@@ -16,6 +16,9 @@ import {
 config({ path: resolve(process.cwd(), ".env.local"), quiet: true });
 
 const FROM_DATE = "2026-08-01";
+const baselineArg = process.argv.find((value) => value.startsWith("--baseline-date="));
+const BASELINE_DATE = baselineArg?.slice("--baseline-date=".length) ||
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const outputArg = process.argv.find((value) => value.startsWith("--output="));
 const outputPath = resolve(outputArg?.slice("--output=".length) ||
   "C:/Users/USER/Downloads/2026-08-23_stage2-1-production-inventory.json");
@@ -42,11 +45,6 @@ function assignmentDates(row: any): string[] | null {
   return dates[0] === start && dates.at(-1) === end ? dates : null;
 }
 
-function blocked(blocks: any[], userId: number | null, date: string | null) {
-  return userId != null && date != null && blocks.some((item) => Number(item.user_id) === userId &&
-    String(item.start_date) <= date && String(item.end_date) >= date);
-}
-
 function currentMeasurementAssignment(plan: any, date: string) {
   const reason = plan?.recommendation_reason;
   const candidates = [reason?.measurementAssignments, reason?.evidence?.measurementAssignments,
@@ -69,12 +67,12 @@ async function tableDigest(client: SupabaseClient, table: string, columns: strin
 
 async function main() {
   const targets = await select<any>(supabase.from("measurement_target_business").select(
-    "id,code,year,period,business_name,address,measurement_date,measurement_end_date,measurer_id,link_measurer_id,collaborators,daily_staff,created_at,updated_at,business_type,process_changed,preliminary_survey_rule_type",
+    "id,code,year,period,business_name,address,measurement_date,measurement_end_date,measurer_id,link_measurer_id,collaborators,daily_staff,created_at,updated_at,business_type,process_changed,preliminary_survey_rule_type,requires_field_preliminary_survey",
   ).gte("measurement_date", FROM_DATE).order("measurement_date").order("id"), "TARGETS");
   const targetIds = targets.map((row) => Number(row.id));
   const codes = [...new Set(targets.map((row) => String(row.code)))];
   const users = await select<any>(supabase.from("users").select(
-    "id,name,role,job,survey_code,is_active,is_preliminary_survey_experienced,is_preliminary_survey_support_assignable",
+    "id,name,role,job,survey_code,is_active,is_preliminary_survey_experienced,is_preliminary_survey_support_assignable,is_preliminary_survey_manager",
   ).eq("job", "측정").order("id"), "USERS");
   const journals = await select<any>(supabase.from("measurement_journal").select(
     "id,code,measurement_year,measurement_period,note,business_name,designated_office,completion_status,created_at,updated_at",
@@ -88,11 +86,15 @@ async function main() {
   const v2Plans = await select<any>(supabase.from("preliminary_survey_v2_plans").select(
     "id,measurement_target_business_id,recommended_date,responsible_user_id,experienced_reviewer_id,participant_user_ids,participant_names,status,plan_origin,source_measurement_date,source_responsible_user_id,source_rule_type,survey_method,recommendation_reason,route_evidence,warnings,created_at,updated_at",
   ).order("measurement_target_business_id"), "V2_PLANS");
+  const measurementAssignments = await select<any>(supabase.from("preliminary_survey_v2_measurement_assignments")
+    .select("id"), "V2_MEASUREMENT_ASSIGNMENTS");
   const v1Plans = targetIds.length ? await select<any>(supabase.from("preliminary_survey_plans").select("*")
     .in("measurement_target_business_id", targetIds).order("measurement_target_business_id"), "V1_PLANS") : [];
   const policyRows = await select<any>(supabase.from("preliminary_survey_policy_settings").select(
     "policy_key,enabled,effective_start_year,effective_start_period,effective_start_measurement_date",
   ).eq("policy_key", "process_changed_preliminary_survey"), "POLICY");
+  const cleanInput = buildPreliminarySurveyV2CleanInput({ targets, users, journals, businessInfo, blocks, policyRows });
+  const cleanTargetById = new Map(cleanInput.targets.map((target) => [target.id, target]));
 
   const before = await Promise.all([
     tableDigest(supabase, "measurement_target_business", "id,updated_at", "id"),
@@ -104,7 +106,6 @@ async function main() {
   const journalKeys = new Set(journals.map((row) => replayJournalKey(row.code, row.measurement_year, row.measurement_period)));
   const planByTargetId = new Map(v2Plans.map((row) => [Number(row.measurement_target_business_id), row]));
   const v1ByTargetId = new Map(v1Plans.map((row) => [Number(row.measurement_target_business_id), row]));
-  const userById = new Map(users.map((row) => [Number(row.id), row]));
   const userIdByName = new Map(users.map((row) => [String(row.name).trim(), Number(row.id)]));
   const coordinateByCode = new Map(businessInfo.map((row) => [String(row.code), row]));
   const candidateUserStates = canonicalReplayCandidateUsers(users);
@@ -116,6 +117,7 @@ async function main() {
     const dates = assignmentDates(row);
     const trueConfirmed = journalKeys.has(replayJournalKey(row.code, row.year, row.period));
     const isProtected = STAGE2_PROTECTED_CODES.has(String(row.code));
+    const pastDueUnmeasured = !trueConfirmed && String(row.measurement_date) <= BASELINE_DATE;
     const dayForms = measurementDayFormsFrom({
       dailyStaff: row.daily_staff, measurementDate: row.measurement_date,
       measurerId: row.measurer_id == null ? null : Number(row.measurer_id), collaborators: row.collaborators,
@@ -129,34 +131,21 @@ async function main() {
     const missing: string[] = [];
     if (!dates) missing.push("measurement_assignment_dates");
     if (!row.business_type || !["existing", "first_measurement", "external_new"].includes(row.business_type)) missing.push("business_type");
-    for (const date of dates ?? []) {
-      const day = staff.find((item) => item.date === date);
-      if (!day) missing.push(`daily_staff:${date}`);
-      if (day?.reportWriterUserId != null && !userById.has(Number(day.reportWriterUserId))) missing.push(`report_writer:${date}`);
-      if (day?.unresolvedParticipantNames.length) missing.push(`measurement_participants:${date}`);
-    }
-    const currentPlanRoleIds = plan ? [Number(plan.responsible_user_id),
-      plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
-      ...(Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [])].filter((id): id is number => id != null) : [];
-    const scheduleConflict = Boolean(plan?.recommended_date) && currentPlanRoleIds.some((id) => blocked(blocks, id, String(plan.recommended_date))) ||
-      staff.some((day) => [day.reportWriterUserId, ...day.measurementParticipantUserIds]
-        .some((id) => blocked(blocks, id == null ? null : Number(id), day.date)));
+    // 기존 V2/측정 역할의 일정 충돌은 CLEAN_INPUT 자격이나 계산에 영향을 주지 않는다.
+    const scheduleConflict = false;
     const exclusionReason = trueConfirmed ? "excluded_true_confirmed"
       : isProtected ? "protected_manual_correction"
+        : pastDueUnmeasured ? "past_due_unmeasured"
         : missing.length ? "source_incomplete" : null;
     const preliminaryCandidateDates = row.business_type && ["existing", "first_measurement", "external_new"].includes(row.business_type)
       ? recommendationDatesForBusinessType(row.measurement_date, row.business_type as PhaseBBusinessType).map((item) => item.date)
       : [];
     const relevantScheduleDates = [...new Set([...preliminaryCandidateDates, ...(dates ?? [])])];
+    const cleanTarget = cleanTargetById.get(targetId);
     const source = {
-      targetId, code: row.code, year: Number(row.year), period: normalizeReplayPeriod(row.period),
-      measurementDate: row.measurement_date, measurementEndDate: row.measurement_end_date,
-      dailyStaff: row.daily_staff ?? null, measurerId: row.measurer_id == null ? null : Number(row.measurer_id),
-      collaborators: row.collaborators ?? null, businessType: row.business_type,
-      preliminarySurveyRuleType: row.preliminary_survey_rule_type, processChanged: row.process_changed,
+      target: cleanTarget,
       candidateUsers: candidateUserStates,
       scheduleBlocks: canonicalReplayScheduleBlocks({ blocks, candidateUserIds, relevantDates: relevantScheduleDates }),
-      manualV2Plan: plan?.plan_origin === "manual" ? plan : null,
       trueConfirmed,
     };
     return {
@@ -171,6 +160,7 @@ async function main() {
       current_report_writer: staff.map((day) => ({ date: day.date, user_id: day.reportWriterUserId })),
       current_measurement_participants: staff.map((day) => ({ date: day.date, user_ids: day.measurementParticipantUserIds })),
       true_confirmed: trueConfirmed, protected: isProtected,
+      past_due_unmeasured: pastDueUnmeasured,
       manual_v2: plan?.plan_origin === "manual", automatic_v2: plan?.plan_origin === "automatic",
       schedule_conflict: scheduleConflict, source_complete: missing.length === 0,
       source_incomplete_fields: missing, replay_eligible: exclusionReason == null,
@@ -194,18 +184,30 @@ async function main() {
     v2PlanMissing: manifest.filter((row) => !row.manual_v2 && !row.automatic_v2).length,
     manualV2: manifest.filter((row) => row.manual_v2).length,
     automaticV2: manifest.filter((row) => row.automatic_v2).length,
+    measurementAssignmentRows: measurementAssignments.length,
     existingSurveyorSource: manifest.filter((row) => row.current_v2_responsible != null).length,
     scheduleBlockAffected: manifest.filter((row) => row.schedule_conflict).length,
     multiDay: manifest.filter((row) => (row.measurement_assignment_dates?.length ?? 0) > 1).length,
     sourceIncomplete: manifest.filter((row) => !row.source_complete).length,
     replayEligible: manifest.filter((row) => row.replay_eligible).length,
+    pastDueUnmeasured: manifest.filter((row) => row.past_due_unmeasured && !row.protected).length,
   };
   const payload = {
     generatedAt: new Date().toISOString(), source: "production-read-only", fromMeasurementDate: FROM_DATE,
+    baselineDate: BASELINE_DATE,
     productionHost: new URL(url).hostname, summary, snapshots: { before, after, unchanged: JSON.stringify(before) === JSON.stringify(after) },
-    schema: { measurementAssignmentTablePresent: false, processChangedEnabled: policyRows[0]?.enabled ?? null },
+    schema: { measurementAssignmentTablePresent: true, processChangedEnabled: policyRows[0]?.enabled ?? null },
     inventory: manifest,
-    source: { targets, users, journals, businessInfo, blocks, v2Plans, v1Plans, policyRows },
+    cleanInput,
+    diagnosticSource: {
+      v2Plans,
+      v1Plans,
+      persistenceSourceContexts: targets.map((target) => ({
+        id: Number(target.id), address: target.address ?? null,
+        measurer_id: target.measurer_id == null ? null : Number(target.measurer_id),
+        collaborators: target.collaborators ?? null, daily_staff: target.daily_staff ?? null,
+      })),
+    },
   };
   writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   console.log(JSON.stringify({ outputPath, summary, productionUnchanged: payload.snapshots.unchanged,

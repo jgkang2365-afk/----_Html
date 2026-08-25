@@ -202,6 +202,70 @@ async function callWrapper(payload: ReturnType<typeof buildPayload>, baseline: a
   });
 }
 
+async function verifyIsolatedExactThreeApproval(
+  payload: ReturnType<typeof buildPayload>,
+  approverId: number,
+) {
+  const byDate = new Map<string, typeof payload.assignments>();
+  payload.assignments.forEach((assignment) => {
+    byDate.set(assignment.measurement_date, [...(byDate.get(assignment.measurement_date) ?? []), assignment]);
+  });
+  const sourceGroup = [...byDate.values()].find((group) => group.length >= 3);
+  if (!sourceGroup) throw new Error("ISOLATED_EXACT_THREE_SOURCE_REQUIRED");
+  const selected = [...sourceGroup].sort((left, right) =>
+    left.measurement_target_business_id - right.measurement_target_business_id).slice(0, 3);
+  const date = selected[0].measurement_date;
+  const cleanUser = dataset.cleanInput.users.find((user: any) => user.active !== false &&
+    ["A", "B", "C", "D", "F", "G"].includes(user.surveyCode) &&
+    !dataset.cleanInput.scheduleBlocks.some((block: any) => Number(block.userId) === Number(user.id) &&
+      block.startDate <= date && block.endDate >= date));
+  if (!cleanUser) throw new Error("ISOLATED_EXACT_THREE_ASSIGNEE_REQUIRED");
+  const targetIds = selected.map((row) => row.measurement_target_business_id);
+  const probe = {
+    applyTargetIds: targetIds,
+    plans: payload.plans.filter((plan) => targetIds.includes(plan.measurement_target_business_id)),
+    assignments: selected.map((assignment) => ({
+      ...assignment, assignee_user_id: Number(cleanUser.id), survey_code: cleanUser.surveyCode,
+    })),
+  };
+  const before = { plans: await planState(targetIds), assignments: await assignmentState(targetIds) };
+  const rejected = await callWrapper(probe, [], false, null);
+  if (!rejected.error?.message.includes("MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED")) {
+    throw new Error(`ISOLATED_APPROVAL_REJECTION_FAILED:${rejected.error?.message ?? "NO_ERROR"}`);
+  }
+  const afterRejected = { plans: await planState(targetIds), assignments: await assignmentState(targetIds) };
+  if (stableJsonDigest(before) !== stableJsonDigest(afterRejected)) throw new Error("ISOLATED_APPROVAL_REJECTION_NOT_ATOMIC");
+  const approved = await callWrapper(probe, [], true, approverId);
+  if (approved.error) throw new Error(`ISOLATED_APPROVAL_APPLY_FAILED:${approved.error.message}`);
+  const approvalRows = await assignmentState(targetIds);
+  const expectedFingerprint = assignmentGroupFingerprint({
+    measurementDate: date,
+    assigneeUserId: Number(cleanUser.id),
+    targetIds,
+  });
+  const approvalRow = approvalRows.find((row: any) => row.approval_required === true);
+  if (approvalRows.length !== 3 || approvalRows.filter((row: any) => row.approval_required === true).length !== 1 ||
+      approvalRow?.approved_by_user_id !== approverId || approvalRow?.approval_group_fingerprint !== expectedFingerprint ||
+      approvalRow?.approved_at == null) {
+    throw new Error(`ISOLATED_APPROVAL_METADATA_MISMATCH:${JSON.stringify(approvalRows)}`);
+  }
+  await pg.query("BEGIN");
+  try {
+    await pg.query(`DELETE FROM public.preliminary_survey_v2_measurement_assignments a USING public.preliminary_survey_v2_plans p
+      WHERE a.plan_id=p.id AND p.measurement_target_business_id = ANY($1::bigint[])`, [targetIds]);
+    await pg.query("DELETE FROM public.preliminary_survey_v2_plans WHERE measurement_target_business_id = ANY($1::bigint[])", [targetIds]);
+    await pg.query("COMMIT");
+  } catch (error) {
+    await pg.query("ROLLBACK");
+    throw error;
+  }
+  const afterCleanup = { plans: await planState(targetIds), assignments: await assignmentState(targetIds) };
+  if (stableJsonDigest(before) !== stableJsonDigest(afterCleanup)) throw new Error("ISOLATED_APPROVAL_CLEANUP_FAILED");
+  return { targetIds, measurementDate: date, assigneeUserId: Number(cleanUser.id), approverId,
+    expectedFingerprint, actualFingerprint: approvalRow.approval_group_fingerprint,
+    rollbackAtomic: true, approved: true, cleanup: true };
+}
+
 function expectedPlanRows(payload: ReturnType<typeof buildPayload>) {
   return payload.plans.map((plan) => ({
     measurement_target_business_id: plan.measurement_target_business_id,
@@ -319,16 +383,29 @@ async function main() {
     const beforeCandidateAssignments = await assignmentState(payload.applyTargetIds);
     const baseline = await assignmentBaseline(payload);
     const beforeRollbackDigest = stableJsonDigest({ plans: beforeCandidatePlans, assignments: beforeCandidateAssignments });
-    const unapproved = await callWrapper(payload, baseline, false, null);
-    if (!unapproved.error?.message.includes("MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED")) {
-      throw new Error(`APPROVAL_ROLLBACK_NOT_ENFORCED:${unapproved.error?.message ?? "NO_ERROR"}`);
+    const assignmentGroupSizes = new Map<string, number>();
+    payload.assignments.forEach((assignment) => {
+      const key = `${assignment.measurement_date}|${assignment.assignee_user_id}`;
+      assignmentGroupSizes.set(key, (assignmentGroupSizes.get(key) ?? 0) + 1);
+    });
+    const approvalRequired = [...assignmentGroupSizes.values()].some((count) => count === 3);
+    let approvalRollback: { error: string; atomic: boolean } | { skipped: string };
+    if (approvalRequired) {
+      const unapproved = await callWrapper(payload, baseline, false, null);
+      if (!unapproved.error?.message.includes("MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED")) {
+        throw new Error(`APPROVAL_ROLLBACK_NOT_ENFORCED:${unapproved.error?.message ?? "NO_ERROR"}`);
+      }
+      const afterRejected = { plans: await planState(payload.applyTargetIds), assignments: await assignmentState(payload.applyTargetIds) };
+      if (stableJsonDigest(afterRejected) !== beforeRollbackDigest) throw new Error("APPROVAL_REJECTION_NOT_ATOMIC");
+      approvalRollback = { error: "MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED", atomic: true };
+    } else {
+      approvalRollback = { skipped: "NO_CANONICAL_EXACT_THREE_GROUP" };
     }
-    const afterRejected = { plans: await planState(payload.applyTargetIds), assignments: await assignmentState(payload.applyTargetIds) };
-    if (stableJsonDigest(afterRejected) !== beforeRollbackDigest) throw new Error("APPROVAL_REJECTION_NOT_ATOMIC");
-    const approver = dataset.source.users.find((user: any) => user.role === "관리자" || user.is_preliminary_survey_manager === true);
+    const approver = dataset.cleanInput.users.find((user: any) => user.administrator === true || user.preliminarySurveyManager === true);
     if (!approver) throw new Error("LOCAL_AUTHORIZED_APPROVER_REQUIRED");
+    const isolatedApproval = approvalRequired ? null : await verifyIsolatedExactThreeApproval(payload, Number(approver.id));
     assertNotInterrupted();
-    const approved = await callWrapper(payload, baseline, true, Number(approver.id));
+    const approved = await callWrapper(payload, baseline, approvalRequired, approvalRequired ? Number(approver.id) : null);
     if (approved.error) throw new Error(`WRAPPER_APPLY_FAILED:${approved.error.code ?? ""}:${approved.error.message}`);
     assertNotInterrupted();
     const actualPlans = await planState(payload.applyTargetIds);
@@ -337,7 +414,7 @@ async function main() {
     }));
     const planMismatches = expectedPlanRows(payload).map((row, index) => ({ expected: row, actual: actualPlanComparable[index] }))
       .filter((item) => replaySourceFingerprint(item.expected) !== replaySourceFingerprint(item.actual));
-    const assignmentVerification = await verifyAssignments(payload, Number(approver.id));
+    const assignmentVerification = await verifyAssignments(payload, approvalRequired ? Number(approver.id) : 0);
     const sourceContextMismatches = await verifySourceContexts(payload);
     if (planMismatches.length || sourceContextMismatches.length || assignmentVerification.mismatches.length || assignmentVerification.scheduleConflicts.length ||
         assignmentVerification.hardMaxGroups) {
@@ -370,7 +447,7 @@ async function main() {
     }));
     const secondPlanMismatches = expectedPlanRows(secondPayload).map((row, index) => ({ expected: row, actual: secondPlanComparable[index] }))
       .filter((item) => replaySourceFingerprint(item.expected) !== replaySourceFingerprint(item.actual));
-    const secondAssignmentVerification = await verifyAssignments(secondPayload, Number(approver.id));
+    const secondAssignmentVerification = await verifyAssignments(secondPayload, approvalRequired ? Number(approver.id) : 0);
     if (secondSourceContextMismatches.length || secondPlanMismatches.length || secondAssignmentVerification.mismatches.length) {
       throw new Error(`SECOND_RUN_PERSISTED_CHANGE_SET_NOT_EMPTY:${JSON.stringify({
         sourceContextMismatches: secondSourceContextMismatches,
@@ -413,8 +490,9 @@ async function main() {
       })),
       approvalRequired: approvalRows,
       approvalRequiredCodes: approvalRows.map((row) => canonical.manifest.find((item: any) => item.target_id === row.measurement_target_business_id)?.code),
-      authorizedLocalApproverId: Number(approver.id),
-      approvalRollback: { error: "MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED", atomic: true },
+      authorizedLocalApproverId: approvalRequired ? Number(approver.id) : null,
+      approvalRollback,
+      isolatedExactThreeApproval: isolatedApproval,
       approvedApply: { rpcBoundary: "persist_preliminary_survey_v2_plan_and_assignment_groups", appliedCount: Array.isArray(approved.data) ? approved.data.length : 0 },
       planCreated: payload.applyTargetIds.length - beforeCandidatePlans.length,
       planUpdated: beforeCandidatePlans.length,

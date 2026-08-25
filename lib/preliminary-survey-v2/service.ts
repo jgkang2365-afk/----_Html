@@ -227,6 +227,8 @@ export interface CalculationOptions {
   routeMetrics?: RouteMetrics;
   /** 실시간은 KST 오늘을 사용하고, 결정적 테스트만 고정값을 주입한다. */
   planningDate?: string;
+  /** Stage 2 clean baseline: DB의 과거 측정 역할은 stale snapshot으로만 보존하고 추천 preference에는 사용하지 않는다. */
+  ignoreLegacyAssignmentInputs?: boolean;
 }
 
 export interface CalculationOutput {
@@ -428,13 +430,16 @@ export async function calculateV2Recommendations(
     const coordinate = rawCoordinate && rawCoordinate.latitude >= 33 && rawCoordinate.latitude <= 39 &&
       rawCoordinate.longitude >= 124 && rawCoordinate.longitude <= 132
       ? rawCoordinate : null;
-    const measurementStaffByDate = measurementStaffByDateFromSource({
+    const measurementStaffByDate = options.ignoreLegacyAssignmentInputs ?
+      (measurementAssignmentDates(row.measurement_date, row.measurement_end_date, row.daily_staff) ?? []).map((date) => ({
+        date, reportWriterUserId: null, measurementParticipantUserIds: [],
+      })) : measurementStaffByDateFromSource({
       dailyStaff: row.daily_staff,
       measurementDate: row.measurement_date,
       measurerId: optionalInteger(row.measurer_id),
       collaborators: row.collaborators,
       userIdByName,
-    });
+      });
     return [{
       id: Number(row.id), code: row.code, name: row.business_name, kind: classification.kind,
       measurementDate: row.measurement_date,
@@ -443,7 +448,7 @@ export async function calculateV2Recommendations(
       region: regionFromAddress(row.address), coordinate, createdAt: row.created_at, classificationSource,
       businessType: row.business_type,
       sourceMeasurerId: optionalInteger(row.measurer_id),
-      measurementParticipantsSnapshot: measurementStaffForDate({
+      measurementParticipantsSnapshot: options.ignoreLegacyAssignmentInputs ? undefined : measurementStaffForDate({
         dailyStaff: row.daily_staff,
         measurementDate: row.measurement_date,
         collaborators: row.collaborators,
@@ -483,16 +488,16 @@ export async function calculateV2Recommendations(
   if (blockError) throw new Error(`V2_BLOCK_QUERY_FAILED:${blockError.message}`);
 
   const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
-  const measurementBlockedKeys = await loadActualMeasurementBlockedKeys(
-    supabase,
-    candidateDates,
-    users,
-  );
+  const measurementBlockedKeys = options.ignoreLegacyAssignmentInputs
+    ? new Set<string>()
+    : await loadActualMeasurementBlockedKeys(supabase, candidateDates, users);
   for (const key of measurementBlockedKeys) blockedKeys.add(key);
 
-  const { data: queriedPlanRows, error: planError } = await supabase.from("preliminary_survey_v2_plans").select(
-    "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status, plan_origin, source_rule_type, survey_method",
-  ).eq("status", "recommended");
+  const { data: queriedPlanRows, error: planError } = options.ignoreLegacyAssignmentInputs
+    ? { data: [], error: null }
+    : await supabase.from("preliminary_survey_v2_plans").select(
+      "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status, plan_origin, source_rule_type, survey_method",
+    ).eq("status", "recommended");
   const v2TableMissing = planError?.code === "42P01" || planError?.code === "PGRST205";
   if (planError && !v2TableMissing) throw new Error(`V2_PLAN_QUERY_FAILED:${planError.message}`);
   const planRows = v2TableMissing ? [] : (queriedPlanRows ?? []);
