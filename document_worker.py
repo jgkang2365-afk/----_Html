@@ -19,11 +19,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from hwpx_blank_fields import (
-    capture_blank_click_here_fields,
-    restore_blank_click_here_fields,
-)
-
 WINDOWS_WORKER_MUTEX_NAME = r"Global\MeasurementJournalDocumentWorker"
 ERROR_ALREADY_EXISTS = 183
 
@@ -361,21 +356,8 @@ class HwpxAutomation:
         import win32com.client  # type: ignore
 
         hwp = None
-        document_open = False
-        normalized_values = {
-            normalize_text(field): normalize_text(value)
-            for field, value in values.items()
-            if normalize_text(field) and normalize_text(value)
-        }
-        blank_fields = {
-            normalize_text(field)
-            for field in required_fields
-            if normalize_text(field) and normalize_text(field) not in normalized_values
-        }
-        stage = "원본 빈 누름틀 상태 저장"
+        stage = "COM 객체 생성"
         try:
-            blank_snapshot = capture_blank_click_here_fields(path, blank_fields)
-            stage = "COM 객체 생성"
             hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
             security_module = os.environ.get("HWP_SECURITY_MODULE", "FilePathCheckDLL")
             security_module_name = os.environ.get("HWP_SECURITY_MODULE_NAME", "FilePathCheckerModule")
@@ -388,7 +370,6 @@ class HwpxAutomation:
             stage = "문서 열기"
             if not hwp.Open(str(path), "HWPX", "forceopen:true"):
                 raise RuntimeError("HWPX 복사본을 열지 못했습니다.")
-            document_open = True
 
             stage = "누름틀 목록 조회"
             raw_fields = normalize_text(hwp.GetFieldList(0, 0))
@@ -402,27 +383,22 @@ class HwpxAutomation:
                 raise RuntimeError("누락된 HWPX 누름틀: " + ", ".join(missing))
 
             stage = "누름틀 값 입력"
-            for field, normalized_value in normalized_values.items():
-                if field in available:
+            for field, value in values.items():
+                normalized_value = normalize_text(value)
+                if field in available and normalized_value:
                     hwp.PutFieldText(field, normalized_value)
 
             stage = "문서 저장"
             if not hwp.Save(True):
                 raise RuntimeError("HWPX 저장에 실패했습니다.")
-            stage = "문서 닫기"
-            hwp.Clear(1)
-            document_open = False
-            stage = "빈 누름틀 원본 상태 복원"
-            restore_blank_click_here_fields(path, blank_snapshot)
         except Exception as error:
             raise RuntimeError(f"HWPX {stage} 단계 실패: {error}") from error
         finally:
             if hwp is not None:
-                if document_open:
-                    try:
-                        hwp.Clear(1)
-                    except Exception:
-                        pass
+                try:
+                    hwp.Clear(1)
+                except Exception:
+                    pass
                 try:
                     hwp.Quit()
                 except Exception:
