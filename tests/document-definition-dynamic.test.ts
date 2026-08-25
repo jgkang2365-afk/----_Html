@@ -24,7 +24,8 @@ test("문서 정의는 세 파일 형식과 서버 생성 code 계약을 사용�
 
   const route = readFileSync("app/api/document-definitions/route.ts", "utf8");
   assert.match(route, /createDocumentCode\(\)/);
-  assert.doesNotMatch(route, /export async function DELETE/);
+  assert.match(route, /export async function DELETE/);
+  assert.match(route, /deleted_at: now/);
 });
 
 test("입력 매핑은 허용 필드, 대상 형식, A1 주소와 중복을 검증한다", () => {
@@ -101,6 +102,45 @@ test("입력 매핑은 허용 필드, 대상 형식, A1 주소와 중복을 검�
   );
 });
 
+test("HWPX 내부 제어 기본값은 서버 저장 입력에서 제거한다", () => {
+  const [rawMapping, readableMapping, placeholderMapping] = parseDocumentFieldMappings(
+    [
+      {
+        source_field: "measurement_year",
+        target_type: "HWPX_FIELD",
+        target_sheet: null,
+        target_address: "measurement_year",
+        required: true,
+        default_value: "Clickhere:set:Direction:wstring:4:연도 HelpState:0",
+        sort_order: 0,
+      },
+      {
+        source_field: "business_name",
+        target_type: "HWPX_FIELD",
+        target_sheet: null,
+        target_address: "business_name",
+        required: false,
+        default_value: "기본 사업장",
+        sort_order: 1,
+      },
+      {
+        source_field: "phone",
+        target_type: "HWPX_FIELD",
+        target_sheet: null,
+        target_address: "phone",
+        required: false,
+        default_value: "전화번호",
+        sort_order: 2,
+      },
+    ],
+    "HWPX"
+  );
+
+  assert.equal(rawMapping.default_value, null);
+  assert.equal(readableMapping.default_value, "기본 사업장");
+  assert.equal(placeholderMapping.default_value, null);
+});
+
 test("동적 템플릿 선택은 정의별 정확 주기를 annual보다 우선한다", () => {
   const selected = selectApplicableDefinitionTemplates(
     [
@@ -161,7 +201,8 @@ test("생성 요청은 정의, 템플릿, 매핑과 사업장 snapshot을 함께
     "utf8"
   );
   assert.match(route, /const documents = uniqueDefinitions\.map/);
-  assert.match(route, /mappings: mappingsByDefinition/);
+  assert.match(route, /get_document_generation_catalog/);
+  assert.match(route, /mappings: definition\.mappings/);
   assert.match(route, /selected_documents: selected/);
   assert.match(route, /snapshot,/);
   assert.match(workerRoute, /job\.payload as any\)\?\.documents/);
@@ -169,13 +210,15 @@ test("생성 요청은 정의, 템플릿, 매핑과 사업장 snapshot을 함께
   assert.match(workerRoute, /payloadDocuments\.length > 0/);
 });
 
-test("템플릿 업로드는 매핑·비활성 정의 오류를 사용자 조치가 가능한 409로 반환한다", () => {
+test("템플릿 업로드는 기존 오류 계약과 HWPX 자동 분석·수동 매핑 경로를 함께 유지한다", () => {
   const route = readFileSync("app/api/document-templates/route.ts", "utf8");
   const management = readFileSync("components/features/DocumentTemplateManagement.tsx", "utf8");
   assert.match(route, /error\?\.code === "DOCUMENT_MAPPING_REQUIRED"/);
   assert.match(route, /error\?\.code === "DOCUMENT_DEFINITION_INACTIVE"/);
-  assert.match(route, /mappingRequired \|\| definitionInactive \? 409 : 500/);
+  assert.match(route, /mappingRequired \|\| definitionInactive \|\| definitionDeleted/);
   assert.match(management, /setSelectedId\(created\.id\)/);
-  assert.match(management, /HWPX 원본을 등록하려면 먼저 입력 설정/);
-  assert.match(management, /1 문서 종류 → 2 입력 설정 → 3 원본 등록/);
+  assert.match(management, /\/api\/document-templates\/analyze/);
+  assert.match(management, /매핑 추가/);
+  assert.match(management, /HWPX 누름틀 자동 분석 결과를 먼저 확인/);
+  assert.match(management, /1 문서 선택 → 2 원본 선택 → 3 분석 → 4 문제 확인 → 5 최종 확인/);
 });

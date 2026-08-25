@@ -101,8 +101,12 @@ test("관리자·API·DB가 annual을 지원하고 잘못된 값은 거부한다
 
 test("생성 API는 같은 연도의 정확 주기와 annual 후보만 조회한다", () => {
   const route = readFileSync("app/api/document-generation/route.ts", "utf8");
-  assert.match(route, /\.eq\("measurement_year", target\.year\)/);
-  assert.match(route, /\.in\("measurement_period", \[period, ANNUAL_TEMPLATE_PERIOD\]\)/);
-  assert.match(route, /selectApplicableDocumentTemplates/);
+  const migration = readFileSync(
+    "supabase/migrations/20260824090000_atomic_hwpx_registration_and_definition_soft_delete.sql",
+    "utf8"
+  );
+  assert.match(route, /get_document_generation_catalog/);
+  assert.match(migration, /candidate\.measurement_year = p_measurement_year/);
+  assert.match(migration, /candidate\.measurement_period IN \(p_measurement_period, 'annual'\)/);
   assert.match(route, /적용 가능한 활성 양식이 없는 항목/);
 });

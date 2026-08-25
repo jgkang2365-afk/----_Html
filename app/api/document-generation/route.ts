@@ -12,11 +12,14 @@ import {
   DOCUMENT_GENERATION_JOURNAL_ERROR,
   findActualMeasurementJournal,
 } from "@/lib/document-generation/journal";
-import {
-  selectApplicableDefinitionTemplates,
-  selectApplicableDocumentTemplates,
-} from "@/lib/document-generation/template-selection";
 import { isDocumentDefinitionVisibleForJurisdiction } from "@/lib/document-generation/selection-report-visibility";
+import {
+  documentDefinitionDisplayName,
+  documentDefinitionFilenamePattern,
+  isDocumentDefinitionEligibleForTarget,
+  isNewBusinessDocumentGenerationEligible,
+  isPreliminarySurveyVariantEligibleForTarget,
+} from "@/lib/document-generation/business-eligibility";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,13 +46,13 @@ async function getContext(businessId: number) {
   if (businessInfoError) throw businessInfoError;
   const officeJurisdiction = String(businessInfo?.office_jurisdiction ?? "").trim();
 
-  const eligible = target.document_generation_enabled === true;
+  const eligible = isNewBusinessDocumentGenerationEligible(target);
   const period = normalizeMeasurementPeriod(target.period);
   const actualJournal = await findActualMeasurementJournal(admin, target);
   const { data: jobRows, error } = await admin
     .from("document_generation_jobs")
     .select(
-      "id, status, selected_documents, error_message, result_files, requested_at, started_at, completed_at, updated_at, worker_id, attempt_count, created_at"
+      "id, status, selected_documents, error_message, result_files, requested_at, started_at, completed_at, updated_at, worker_id, attempt_count, cancel_requested_at, cancel_requested_by, cancelled_at, created_at"
     )
     .eq("business_id", businessId)
     .order("created_at", { ascending: false })
@@ -71,39 +74,29 @@ async function getContext(businessId: number) {
   }
 
   if (!period) throw new Error("지원하지 않는 측정주기입니다.");
-  const { data: templateCandidates, error: templateError } = await admin
-    .from("document_templates")
-    .select("*")
-    .eq("measurement_year", target.year)
-    .in("measurement_period", [period, ANNUAL_TEMPLATE_PERIOD])
-    .eq("is_active", true);
-  if (templateError) throw templateError;
-  // 기존 3종 선택 규칙의 회귀 기준도 같은 후보 집합에서 계속 검증한다.
-  selectApplicableDocumentTemplates(templateCandidates || [], target.year, period);
-  const selectedTemplateMap = selectApplicableDefinitionTemplates(
-    templateCandidates || [],
-    target.year,
-    period
+  // 템플릿과 매핑은 반드시 같은 PostgreSQL statement snapshot에서 읽는다.
+  // 템플릿 원자 교체 커밋 전/후 중 하나만 관찰하므로 서로 다른 버전이 섞이지 않는다.
+  const { data: catalog, error: catalogError } = await admin.rpc(
+    "get_document_generation_catalog",
+    { p_measurement_year: target.year, p_measurement_period: period }
   );
-  const { data: definitions, error: definitionsError } = await admin
-    .from("document_definitions")
-    .select("*")
-    .eq("is_active", true)
-    .order("sort_order")
-    .order("created_at");
-  if (definitionsError) throw definitionsError;
-  const applicableDefinitions = (definitions || []).filter(
-    (definition: any) =>
-      isDocumentDefinitionVisibleForJurisdiction(definition.name, officeJurisdiction)
-  );
-  const documents = applicableDefinitions.map((definition: any) => {
-    const template: any = selectedTemplateMap.get(definition.id) || null;
+  if (catalogError) throw catalogError;
+  const applicableCatalog = (catalog || []).filter((row: any) => {
+    const definition = row.document_definition;
+    return (
+      isDocumentDefinitionVisibleForJurisdiction(definition.name, officeJurisdiction) &&
+      isDocumentDefinitionEligibleForTarget(definition, target)
+    );
+  });
+  const documents = applicableCatalog.map((row: any) => {
+    const definition = row.document_definition;
+    const template = row.template;
     return {
       document_definition_id: definition.id,
       code: definition.code,
-      name: definition.name,
+      name: documentDefinitionDisplayName(definition),
       file_format: definition.file_format,
-      filename_pattern: definition.filename_pattern,
+      filename_pattern: documentDefinitionFilenamePattern(definition, definition.filename_pattern),
       default_selected: definition.default_selected,
       sort_order: definition.sort_order,
       available: Boolean(template),
@@ -124,9 +117,18 @@ async function getContext(businessId: number) {
             is_annual: template.measurement_period === ANNUAL_TEMPLATE_PERIOD,
           }
         : null,
+      mappings: (row.mappings || []).map((mapping: any) => ({
+        source_field: mapping.source_field,
+        target_type: mapping.target_type,
+        target_sheet: mapping.target_sheet,
+        target_address: mapping.target_address,
+        required: mapping.required,
+        default_value: mapping.default_value,
+        sort_order: mapping.sort_order,
+      })),
     };
   });
-  const templates = Array.from(selectedTemplateMap.values());
+  const templates = applicableCatalog.map((row: any) => row.template).filter(Boolean);
   const { snapshot } = await buildDocumentSnapshot(admin, businessId);
   return {
     eligible,
@@ -202,6 +204,56 @@ export async function POST(request: NextRequest) {
       documentMap.set(document.document_definition_id, document);
     }
     const selectedDefinitions = requestedDocuments.map((value) => documentMap.get(value));
+    if (selectedDefinitions.some((definition) => !definition)) {
+      const { data: definitionsByCode, error: definitionError } = await admin
+        .from("document_definitions")
+        .select("id, code, name, is_active, deleted_at")
+        .in("code", requestedDocuments);
+      if (definitionError) throw definitionError;
+      const requestedIds = requestedDocuments.filter((value) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+      );
+      let definitionsById: any[] = [];
+      if (requestedIds.length > 0) {
+        const result = await admin
+          .from("document_definitions")
+          .select("id, code, name, is_active, deleted_at")
+          .in("id", requestedIds);
+        if (result.error) throw result.error;
+        definitionsById = result.data || [];
+      }
+      const missingDefinitions = Array.from(
+        new Map(
+          [...(definitionsByCode || []), ...definitionsById].map((definition) => [
+            definition.id,
+            definition,
+          ])
+        ).values()
+      );
+      if (missingDefinitions.some((definition) => definition.deleted_at))
+        return NextResponse.json(
+          {
+            error: "삭제된 문서 종류로는 새 문서를 생성할 수 없습니다.",
+            errorCode: "DOCUMENT_DEFINITION_DELETED",
+          },
+          { status: 409 }
+        );
+      if (missingDefinitions.some((definition) => !definition.is_active))
+        return NextResponse.json(
+          { error: "선택한 문서 종류가 비활성화되어 생성할 수 없습니다." },
+          { status: 409 }
+        );
+      if (
+        missingDefinitions.some(
+          (definition) =>
+            !isPreliminarySurveyVariantEligibleForTarget(definition, context.snapshot || {})
+        )
+      )
+        return NextResponse.json(
+          { error: "현재 사업장 업종에는 선택한 예비조사표를 생성할 수 없습니다." },
+          { status: 403 }
+        );
+    }
     if (selectedDefinitions.some((definition) => !definition?.available))
       return NextResponse.json(
         {
@@ -224,28 +276,6 @@ export async function POST(request: NextRequest) {
         { error: "문서 생성을 위해 사업장명, 측정연도, 측정주기를 입력하고 먼저 저장해 주세요." },
         { status: 400 }
       );
-    const definitionIds = uniqueDefinitions.map((definition) => definition.document_definition_id);
-    const { data: mappingRows, error: mappingError } = await admin
-      .from("document_field_mappings")
-      .select("*")
-      .in("document_definition_id", definitionIds)
-      .order("sort_order")
-      .order("created_at");
-    if (mappingError) throw mappingError;
-    const mappingsByDefinition = new Map<string, any[]>();
-    for (const mapping of mappingRows || []) {
-      const current = mappingsByDefinition.get(mapping.document_definition_id) || [];
-      current.push({
-        source_field: mapping.source_field,
-        target_type: mapping.target_type,
-        target_sheet: mapping.target_sheet,
-        target_address: mapping.target_address,
-        required: mapping.required,
-        default_value: mapping.default_value,
-        sort_order: mapping.sort_order,
-      });
-      mappingsByDefinition.set(mapping.document_definition_id, current);
-    }
     const templates = Object.fromEntries(
       uniqueDefinitions.map((definition) => {
         const template: any = definition.template;
@@ -282,7 +312,7 @@ export async function POST(request: NextRequest) {
           measurement_year: template.measurement_year,
           measurement_period: template.measurement_period,
         },
-        mappings: mappingsByDefinition.get(definition.document_definition_id) || [],
+        mappings: definition.mappings || [],
       };
     });
     const payload = {
@@ -310,6 +340,24 @@ export async function POST(request: NextRequest) {
       if (String(error.message).includes("DOCUMENT_GENERATION_NOT_ELIGIBLE"))
         return NextResponse.json(
           { error: "문서 생성 자격이 없는 측정대상사업장입니다." },
+          { status: 403 }
+        );
+      if (String(error.message).includes("DOCUMENT_DEFINITION_DELETED"))
+        return NextResponse.json(
+          {
+            error: "삭제된 문서 종류로는 새 문서를 생성할 수 없습니다.",
+            errorCode: "DOCUMENT_DEFINITION_DELETED",
+          },
+          { status: 409 }
+        );
+      if (String(error.message).includes("DOCUMENT_DEFINITION_UNAVAILABLE"))
+        return NextResponse.json(
+          { error: "선택한 문서 종류가 비활성화되었거나 생성할 수 없는 상태입니다." },
+          { status: 409 }
+        );
+      if (String(error.message).includes("DOCUMENT_DEFINITION_NOT_ELIGIBLE"))
+        return NextResponse.json(
+          { error: "현재 사업장 조건에서는 선택한 문서를 생성할 수 없습니다." },
           { status: 403 }
         );
       throw error;

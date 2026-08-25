@@ -33,6 +33,16 @@ test("대시보드 API는 other_revenue의 total_amount와 invoice_date를 월�
   assert.match(source, /primaryDate: item\.invoice_date/);
 });
 
+test("월별 매출 추이는 Supabase 행 제한이 두 연도 합계에 적용되지 않도록 연도별로 조회한다", () => {
+  const source = readFileSync("app/api/dashboard/route.ts", "utf8");
+  assert.doesNotMatch(source, /\.in\("measurement_year", \[comparisonYear, prevYear\]\)/);
+  assert.match(source, /\.eq\("measurement_year", comparisonYear\)/);
+  assert.match(source, /\.eq\("measurement_year", prevYear\)/);
+  assert.doesNotMatch(source, /\.in\("revenue_year", \[comparisonYear, prevYear\]\)/);
+  assert.match(source, /\.eq\("revenue_year", comparisonYear\)/);
+  assert.match(source, /\.eq\("revenue_year", prevYear\)/);
+});
+
 test("동월 누적 매출은 금년도 값이 존재하는 마지막 월까지만 양쪽 연도를 합산한다", () => {
   const result = calculateSameMonthCumulativeRevenue([
     { month: "1월", current: 100, previous: 80 },

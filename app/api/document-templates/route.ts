@@ -7,7 +7,10 @@ import {
   parseTemplateMeasurementPeriod,
   templateMeasurementPeriodStorageSegment,
 } from "@/lib/document-generation/constants";
-import { documentExtension } from "@/lib/document-generation/definitions";
+import {
+  documentExtension,
+  parseDocumentFieldMappings,
+} from "@/lib/document-generation/definitions";
 
 export const dynamic = "force-dynamic";
 const MAX_TEMPLATE_BYTES = 100 * 1024 * 1024;
@@ -37,7 +40,7 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     let query = admin
       .from("document_templates")
-      .select("*, document_definition:document_definitions(*)")
+      .select("*, document_definition:document_definitions!inner(*)")
       .order("measurement_year", { ascending: false })
       .order("measurement_period")
       .order("document_type")
@@ -51,7 +54,11 @@ export async function GET(request: NextRequest) {
     if (period) query = query.eq("measurement_period", period);
     const definitionId = searchParams.get("document_definition_id");
     if (definitionId) query = query.eq("document_definition_id", definitionId);
-    if (activeOnly) query = query.eq("is_active", true);
+    if (activeOnly)
+      query = query
+        .eq("is_active", true)
+        .eq("document_definition.is_active", true)
+        .is("document_definition.deleted_at", null);
     const { data, error } = await query;
     if (error) throw error;
     return NextResponse.json({ templates: data || [] });
@@ -94,6 +101,11 @@ export async function POST(request: NextRequest) {
     if (definitionError) throw definitionError;
     if (!definition)
       return NextResponse.json({ error: "문서 종류를 찾을 수 없습니다." }, { status: 404 });
+    if (definition.deleted_at)
+      return NextResponse.json(
+        { error: "삭제된 문서 종류에는 새 템플릿을 등록할 수 없습니다." },
+        { status: 409 }
+      );
     if (!definition.is_active)
       return NextResponse.json(
         { error: "사용중지된 문서 종류에는 새 템플릿을 등록할 수 없습니다." },
@@ -113,6 +125,50 @@ export async function POST(request: NextRequest) {
         { error: "빈 파일이거나 템플릿 최대 크기(100MB)를 초과했습니다." },
         { status: 400 }
       );
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    if (definition.file_format === "HWPX") {
+      let mappings;
+      try {
+        mappings = parseDocumentFieldMappings(
+          JSON.parse(String(form.get("mappings") ?? "null")),
+          "HWPX"
+        );
+      } catch (error: any) {
+        return NextResponse.json(
+          { error: error?.message || "확정할 HWPX 매핑을 확인해 주세요." },
+          { status: 400 }
+        );
+      }
+      if (!activate)
+        return NextResponse.json(
+          { error: "HWPX 신규 원본은 매핑과 함께 활성화해야 합니다." },
+          { status: 400 }
+        );
+      const periodSegment = templateMeasurementPeriodStorageSegment(period);
+      uploadedPath = `${year}/${periodSegment}/${definition.code}/staging-${randomUUID()}${extension}`;
+      stage = "STORAGE_UPLOAD";
+      const { error: uploadError } = await admin.storage
+        .from("document-templates")
+        .upload(uploadedPath, bytes, { contentType: "application/octet-stream", upsert: false });
+      if (uploadError) throw uploadError;
+      stage = "ATOMIC_FINALIZE";
+      const finalized = await admin.rpc("finalize_hwpx_document_template", {
+        p_document_definition_id: definition.id,
+        p_measurement_year: year,
+        p_measurement_period: period,
+        p_original_filename: file.name,
+        p_storage_path: uploadedPath,
+        p_uploaded_by: Number(user.id),
+        p_size_bytes: file.size,
+        p_extension: extension,
+        p_sha256: hash,
+        p_mappings: mappings,
+      });
+      if (finalized.error) throw finalized.error;
+      return NextResponse.json({ success: true, template: finalized.data });
+    }
+
     stage = "VERSION_LOOKUP";
     const { data: latest, error: versionError } = await admin
       .from("document_templates")
@@ -125,7 +181,6 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (versionError) throw versionError;
     const version = Number(latest?.version || 0) + 1;
-    const bytes = Buffer.from(await file.arrayBuffer());
     const periodSegment = templateMeasurementPeriodStorageSegment(period);
     uploadedPath = `${year}/${periodSegment}/${definition.code}/v${version}-${randomUUID()}${extension}`;
     stage = "STORAGE_UPLOAD";
@@ -156,7 +211,7 @@ export async function POST(request: NextRequest) {
         uploaded_by: Number(user.id),
         size_bytes: file.size,
         extension,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
+        sha256: hash,
       })
       .select("*")
       .single();
@@ -183,13 +238,16 @@ export async function POST(request: NextRequest) {
     const definitionInactive =
       error?.code === "DOCUMENT_DEFINITION_INACTIVE" ||
       error?.message === "DOCUMENT_DEFINITION_INACTIVE";
+    const definitionDeleted = String(error?.message || "").includes("DOCUMENT_DEFINITION_DELETED");
     const errorCode = forbidden
       ? "DOCUMENT_TEMPLATE_ADMIN_REQUIRED"
       : mappingRequired
         ? "DOCUMENT_MAPPING_REQUIRED"
-        : definitionInactive
-          ? "DOCUMENT_DEFINITION_INACTIVE"
-          : "DOCUMENT_TEMPLATE_" + stage + "_FAILED";
+        : definitionDeleted
+          ? "DOCUMENT_DEFINITION_DELETED"
+          : definitionInactive
+            ? "DOCUMENT_DEFINITION_INACTIVE"
+            : "DOCUMENT_TEMPLATE_" + stage + "_FAILED";
     console.error("[DocumentTemplates] 업로드 실패:", {
       correlationId,
       errorCode,
@@ -203,12 +261,20 @@ export async function POST(request: NextRequest) {
       ? "관리자만 템플릿을 등록할 수 있습니다."
       : mappingRequired
         ? "활성화하려면 먼저 입력 설정을 완료해 주세요."
-        : definitionInactive
-          ? "사용 중지된 문서 종류에는 템플릿을 등록할 수 없습니다."
-          : "템플릿 등록에 실패했습니다. (단계: " + stage + ", 추적번호: " + correlationId + ")";
+        : definitionDeleted
+          ? "삭제된 문서 종류에는 템플릿을 등록할 수 없습니다."
+          : definitionInactive
+            ? "사용 중지된 문서 종류에는 템플릿을 등록할 수 없습니다."
+            : "템플릿 등록에 실패했습니다. (단계: " + stage + ", 추적번호: " + correlationId + ")";
     return NextResponse.json(
       { error: message, errorCode, correlationId },
-      { status: forbidden ? 403 : mappingRequired || definitionInactive ? 409 : 500 }
+      {
+        status: forbidden
+          ? 403
+          : mappingRequired || definitionInactive || definitionDeleted
+            ? 409
+            : 500,
+      }
     );
   }
 }
