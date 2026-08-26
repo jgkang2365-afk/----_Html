@@ -8,7 +8,7 @@
 - 측정예정일에서 역산한 정책 범위의 과거 기준일을 허용하며 today cutoff를 두지 않는다.
 - `user_schedule_blocks`의 직원 불가 일정은 해당 날짜의 예비조사 책임자·경력 검토자 후보에서 그 사용자를 제외하는 hard constraint다. 날짜 자체는 제외하지 않고 같은 날짜의 다른 유효 조사자, 다음 정책 유효 날짜 순으로 탐색한다.
 - 같은 날 다른 측정·예비조사, 이동 동선, 이동시간, 방문·유선 일일 capacity는 추천·적용·수동 저장의 hard blocker가 아니다. 필요하면 preference 또는 참고 warning으로만 사용한다.
-- 사업장 유형, 측정예정일, 영업일 범위, 조사 방식, 유효 조사자, 최초실시·타기관 신규의 경력자 조건 등 document integrity만 hard rule로 사용한다.
+- 사업장 유형, 측정예정일, 영업일 범위, 조사 방식, 유효 조사자, 최초실시·타기관 신규의 경력자 조건 등 document integrity와 날짜별 `user_schedule_blocks` 사용자 제외만 hard rule로 사용한다.
 
 ## 1. 역할과 원천 데이터
 

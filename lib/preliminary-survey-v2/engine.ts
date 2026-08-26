@@ -228,7 +228,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
     ) => {
       if (target.kind === "existing" && capacityPass === 2) return null;
 
-      // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 개인별 하루 3건 용량만 적용한다.
+      // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 일일 건수로 차단하지 않는다.
       const requiresReviewer = target.kind === "new" && !planningTarget.responsible.experienced;
       const prefersReviewer = target.kind === "existing" && !planningTarget.responsible.experienced;
       const reviewerChoice = requiresReviewer || prefersReviewer
