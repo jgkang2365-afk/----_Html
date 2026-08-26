@@ -155,7 +155,8 @@ DB schema와 운영 데이터는 변경하지 않았다.
 - TypeScript `npx tsc --noEmit --pretty false`: PASS
 - `npm run build`: PASS (운영 환경변수는 build-time 조회에만 사용, DB write 없음)
 - `git diff --check`: PASS
-- 로컬 dev server: 로그인 화면까지 로드, blank/error overlay 없음. 인증된 목록 화면은 Draft PR Preview에서 추가 확인한다.
+- 로컬 dev server: 로그인 화면까지 로드, blank/error overlay 없음.
+- Vercel Preview: Ready, blank/error overlay 없음. Preview가 Vercel 인증으로 보호되어 로그인 후 목록의 픽셀·모바일 실화면 조작은 미검증이다. 영업일 이동·필터 유지·빈 날짜는 focused test와 production build로 검증했다.
 
 ## 8. 남은 사항
 
