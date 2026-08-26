@@ -223,7 +223,7 @@ test("측정예정일 기간·선택 대상 추천은 검색 결과 교집합만
   assert.match(ui, /!bg-orange-500/);
   assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 3);
   assert.match(ui, /grid w-full min-w-0 grid-cols-12 items-end gap-2/);
-  assert.match(ui, /col-span-4 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명/);
+  assert.match(ui, /col-span-3 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명/);
   assert.match(ui, /col-span-5 flex shrink-0 justify-end gap-2/);
   assert.doesNotMatch(ui, /grid-cols-14|col-start-12|min-w-\[760px\]/);
   assert.match(ui, /phase-b-plan-table-scroll/);
@@ -270,6 +270,14 @@ test("목록 검색은 조사자 필터 없이 명시적 snapshot과 코드·사
   assert.match(ui, /applyListSearchForDate\(nextDate\)/);
   assert.match(ui, /aria-label="이전 영업일"/);
   assert.match(ui, /aria-label="다음 영업일"/);
+  assert.match(ui, /aria-label="이전 측정 주"/);
+  assert.match(ui, /aria-label="이후 측정 주"/);
+  assert.match(ui, /getAdjacentWeekRangeKst\(measurementDateFrom, direction\)/);
+  assert.match(ui, /aria-label="측정 주 이동"/);
+  assert.match(ui, /aria-label="예비조사일 이동"/);
+  assert.ok(ui.indexOf('aria-label="예비조사일"') < ui.indexOf('aria-label="이전 영업일"'));
+  assert.ok(ui.indexOf('aria-label="이전 영업일"') < ui.indexOf('aria-label="다음 영업일"'));
+  assert.ok(ui.indexOf('aria-label="다음 영업일"') < ui.indexOf('aria-label="측정예정일"'));
   assert.equal((ui.match(/disabled=\{!preliminaryDateFilter\}/g) || []).length, 2);
   assert.match(ui, /matchesWorkbenchSearch\(row, activeSearchQuery\)/);
 });

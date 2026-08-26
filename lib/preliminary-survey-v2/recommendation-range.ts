@@ -60,10 +60,20 @@ export function currentDateInKst(now: Date = new Date()): string {
 
 /** 기준일이 속한 주의 다음 주 월요일부터 금요일까지의 달력 범위. */
 export function getNextWeekRangeKst(baseDate?: string, now: Date = new Date()): DateRange {
+  return getAdjacentWeekRangeKst(baseDate, 1, now);
+}
+
+/** 기준일이 속한 주에서 이전/다음 주 월요일~금요일 범위를 계산한다. */
+export function getAdjacentWeekRangeKst(
+  baseDate: string | undefined,
+  direction: -1 | 1,
+  now: Date = new Date(),
+): DateRange {
   const referenceDate = parseDateOnly(baseDate ?? currentDateInKst(now));
   const weekday = referenceDate.getUTCDay();
-  const daysUntilNextMonday = weekday === 0 ? 1 : 8 - weekday;
-  const start = new Date(referenceDate.getTime() + daysUntilNextMonday * DAY_MS);
+  const daysSinceMonday = weekday === 0 ? 6 : weekday - 1;
+  const currentMonday = new Date(referenceDate.getTime() - daysSinceMonday * DAY_MS);
+  const start = new Date(currentMonday.getTime() + direction * 7 * DAY_MS);
   const end = new Date(start.getTime() + 4 * DAY_MS);
 
   return {

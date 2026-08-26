@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dateRangeFromStartDate,
+  getAdjacentWeekRangeKst,
   getNextWeekRangeKst,
   validateMeasurementDateRange,
 } from "../lib/preliminary-survey-v2/recommendation-range";
@@ -27,6 +28,17 @@ test("기준일이 속한 주 다음 월요일부터 금요일을 반환한다",
     endDate: "2026-08-28",
   });
   assert.deepEqual(getNextWeekRangeKst("2026-08-19"), {
+    startDate: "2026-08-24",
+    endDate: "2026-08-28",
+  });
+});
+
+test("선택한 기준 주에서 이전·이후 주의 월요일~금요일을 대칭 이동한다", () => {
+  assert.deepEqual(getAdjacentWeekRangeKst("2026-08-19", -1), {
+    startDate: "2026-08-10",
+    endDate: "2026-08-14",
+  });
+  assert.deepEqual(getAdjacentWeekRangeKst("2026-08-19", 1), {
     startDate: "2026-08-24",
     endDate: "2026-08-28",
   });
