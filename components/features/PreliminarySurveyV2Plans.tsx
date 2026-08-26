@@ -217,6 +217,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const lastCommittedSearchRef = useRef("");
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [toolbarHeight, setToolbarHeight] = useState(mode === "plan" ? 108 : 78);
+  const [stickyBaseTop, setStickyBaseTop] = useState(160);
 
   useEffect(() => {
     const defaultPlan: PlanSearchSnapshot = {
@@ -254,7 +255,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   }, [mode]);
 
   useEffect(() => {
-    if (!filtersReady) return;
+    if (!filtersReady || loading) return;
     const element = toolbarRef.current;
     if (!element) return;
     const updateHeight = () => setToolbarHeight(Math.ceil(element.getBoundingClientRect().height));
@@ -262,7 +263,15 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     const observer = new ResizeObserver(updateHeight);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [filtersReady, mode]);
+  }, [filtersReady, loading, mode]);
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const updateStickyBaseTop = () => setStickyBaseTop(desktop.matches ? 160 : 112);
+    updateStickyBaseTop();
+    desktop.addEventListener("change", updateStickyBaseTop);
+    return () => desktop.removeEventListener("change", updateStickyBaseTop);
+  }, []);
 
   const queryYear = mode === "list" ? listSearchSnapshot.year : planSearchSnapshot.year;
   const queryPeriod = mode === "list" ? listSearchSnapshot.period : planSearchSnapshot.period;
@@ -582,7 +591,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   };
 
   const navigationUnitLabel = measurementRangeUnit === "day" ? "일" : measurementRangeUnit === "week" ? "주" : "월";
-  const tableHeaderTop = 112 + toolbarHeight;
+  const tableHeaderTop = stickyBaseTop + toolbarHeight;
   const filterControlClass = "mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500";
   const commitSearchOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
@@ -594,7 +603,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   return (
     <div className="space-y-4">
-      <Card ref={toolbarRef} className="sticky top-28 z-30 bg-white p-3 shadow-sm">
+      <Card ref={toolbarRef} className="sticky top-28 z-30 bg-white p-3 shadow-sm lg:top-40">
         <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"}>
           {mode === "plan" ? <div className="flex flex-wrap items-end gap-2 xl:flex-nowrap">
             <label className="w-[68px] shrink-0 text-xs font-medium text-text-700">연도<input aria-label="연도" type="number" value={year} onChange={(event) => changeScope(setYear, Number(event.target.value))} className={filterControlClass} /></label>
