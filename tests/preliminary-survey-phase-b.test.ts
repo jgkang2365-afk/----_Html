@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2/calendar";
+import { adjacentWorkingDay, recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2/calendar";
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { filterPreliminaryCandidateDates } from "../lib/preliminary-survey-v2/service";
 import { measurementStaffForDate } from "../lib/preliminary-survey-v2/measurement-staff";
@@ -50,6 +50,13 @@ test("실시간 후보는 KST 기준일 이전과 측정 당일을 자동추천�
   const filtered = recommendationDatesForBusinessType("2026-09-10", "external_new", { minimumDate });
   assert.ok(filtered.length > 0);
   assert.ok(filtered.every((item) => item.date >= minimumDate && item.date < "2026-09-10"));
+});
+
+test("목록 날짜 이동은 예비조사 캘린더의 주말·공휴일을 건너뛴다", () => {
+  assert.equal(adjacentWorkingDay("2026-08-10", -1), "2026-08-07");
+  assert.equal(adjacentWorkingDay("2026-08-14", 1), "2026-08-18");
+  assert.equal(adjacentWorkingDay("2026-08-04", 1), "2026-08-05");
+  assert.equal(adjacentWorkingDay("", 1), null);
 });
 
 test("정책 후보가 모두 기준일보다 과거면 강제 과거 배정 없이 수동조정한다", async () => {
@@ -258,6 +265,12 @@ test("목록 검색은 조사자 필터 없이 명시적 snapshot과 코드·사
     assert.match(ui, new RegExp(`${field}[,:]`));
   }
   assert.match(ui, /onClick=\{applyListSearch\}>검색<\/Button>/);
+  assert.match(ui, /const moveListPreliminaryDate = \(direction: -1 \| 1\) =>/);
+  assert.match(ui, /adjacentWorkingDay\(preliminaryDateFilter, direction\)/);
+  assert.match(ui, /applyListSearchForDate\(nextDate\)/);
+  assert.match(ui, /aria-label="이전 영업일"/);
+  assert.match(ui, /aria-label="다음 영업일"/);
+  assert.equal((ui.match(/disabled=\{!preliminaryDateFilter\}/g) || []).length, 2);
   assert.match(ui, /matchesWorkbenchSearch\(row, activeSearchQuery\)/);
 });
 

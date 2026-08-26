@@ -12,6 +12,7 @@ import {
   getNextWeekRangeKst,
   validateMeasurementDateRange,
 } from "@/lib/preliminary-survey-v2/recommendation-range";
+import { adjacentWorkingDay } from "@/lib/preliminary-survey-v2/calendar";
 import {
   collectWorkbenchRecommendationTargetIds,
   matchesMeasurementDateRange,
@@ -233,17 +234,26 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     setter(value);
   };
 
-  const applyListSearch = () => {
+  const applyListSearchForDate = (preliminaryDate: string) => {
     setListSearchSnapshot({
       year,
       period,
       statusFilter,
       kindFilter,
-      preliminaryDateFilter,
+      preliminaryDateFilter: preliminaryDate,
       measurementDateFilter,
       methodFilter,
       searchQuery: searchDraft,
     });
+  };
+
+  const applyListSearch = () => applyListSearchForDate(preliminaryDateFilter);
+
+  const moveListPreliminaryDate = (direction: -1 | 1) => {
+    const nextDate = adjacentWorkingDay(preliminaryDateFilter, direction);
+    if (!nextDate) return;
+    setPreliminaryDateFilter(nextDate);
+    applyListSearchForDate(nextDate);
   };
 
   const applyPlanSearch = () => {
@@ -467,9 +477,14 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <div className="col-span-1 flex min-w-0 items-end"><Button className="h-9 w-full px-2 text-xs" onClick={applyPlanSearch}>검색</Button></div>
           </>}
           {mode === "list" && <>
-            <label className="w-36 shrink-0 text-xs font-medium text-text-700">예비조사일
-              <input aria-label="예비조사일" type="date" value={preliminaryDateFilter} onChange={(event) => setPreliminaryDateFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
-            </label>
+            <div className="shrink-0 text-xs font-medium text-text-700">
+              <span>예비조사일</span>
+              <div className="mt-1 flex items-center gap-1">
+                <Button aria-label="이전 영업일" variant="secondary" className="h-9 shrink-0 px-2 text-xs whitespace-nowrap" onClick={() => moveListPreliminaryDate(-1)} disabled={!preliminaryDateFilter}>← 이전</Button>
+                <input aria-label="예비조사일" type="date" value={preliminaryDateFilter} onChange={(event) => setPreliminaryDateFilter(event.target.value)} className="block h-9 w-36 rounded-md border border-surface-300 bg-white px-2 text-sm" />
+                <Button aria-label="다음 영업일" variant="secondary" className="h-9 shrink-0 px-2 text-xs whitespace-nowrap" onClick={() => moveListPreliminaryDate(1)} disabled={!preliminaryDateFilter}>다음 →</Button>
+              </div>
+            </div>
             <label className="w-36 shrink-0 text-xs font-medium text-text-700">측정예정일
               <input aria-label="측정예정일" type="date" value={measurementDateFilter} onChange={(event) => setMeasurementDateFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>

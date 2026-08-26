@@ -35,6 +35,17 @@ export function isWorkingDay(value: string): boolean {
   return weekday !== 0 && weekday !== 6 && !KOREAN_HOLIDAYS.has(value);
 }
 
+/** 예비조사 캘린더와 같은 휴일 기준으로 인접 영업일을 찾는다. */
+export function adjacentWorkingDay(value: string, direction: -1 | 1): string | null {
+  if (!parseDateOnly(value)) return null;
+  let cursor = value;
+  for (let guard = 0; guard < 31; guard += 1) {
+    cursor = addCalendarDays(cursor, direction);
+    if (isWorkingDay(cursor)) return cursor;
+  }
+  return null;
+}
+
 export function workingDaysBefore(measurementDate: string, maximum = 30) {
   if (!parseDateOnly(measurementDate)) return [];
   const result: Array<{ date: string; workingDaysBefore: number }> = [];
