@@ -216,13 +216,12 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   assert.match(api.slice(applyStart, applyEnd), /canonicalFingerprint/);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
-  assert.match(ui, /grid w-full min-w-0 grid-cols-12/);
-  assert.match(ui, /flex flex-wrap items-end gap-2/);
+  assert.match(ui, /flex flex-wrap items-end gap-2 xl:flex-nowrap/);
   assert.match(api, /measurement_journal/);
   assert.doesNotMatch(api, /sequence_number/);
 });
 
-test("측정예정일 기간·선택 대상 추천은 검색 결과 교집합만 사용하고 draft scope 변경 시 적용을 막는다", () => {
+test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합만 사용하고 draft scope 변경 시 적용을 막는다", () => {
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
@@ -231,21 +230,20 @@ test("측정예정일 기간·선택 대상 추천은 검색 결과 교집합만
   assert.match(ui, /onChange=\{\(event\) => setSearchDraft\(event\.target\.value\)\}/);
   assert.match(ui, /explicitTargetSelection: Boolean\(targetId\) \|\| selectedTargetIds\.size > 0/);
   assert.doesNotMatch(ui, /recommendDateMode|추천 범위"|>없음<|>일자<|>기간</);
-  assert.match(ui, /dateRangeFromStartDate\(value\)/);
-  assert.match(ui, /validateMeasurementDateRange\(planSearchSnapshot\.measurementDateFrom, planSearchSnapshot\.measurementDateTo\)/);
+  assert.match(ui, /measurementRangeFromReference\(measurementBaseDate, measurementRangeUnit\)/);
+  assert.match(ui, /adjacentMeasurementReferenceDate\(measurementBaseDate, measurementRangeUnit, direction\)/);
   assert.match(ui, /measurementDateFrom: planSearchSnapshot\.measurementDateFrom \|\| undefined/);
   assert.match(ui, /measurementDateTo: planSearchSnapshot\.measurementDateTo \|\| undefined/);
-  assert.match(ui, /getNextWeekRangeKst\(measurementDateFrom \|\| undefined\)/);
   assert.doesNotMatch(ui, /preliminaryDateFrom|preliminaryDateTo/);
-  assert.match(ui, /!bg-orange-500/);
+  assert.match(ui, /bg-slate-200 text-slate-900/);
+  assert.match(ui, /bg-slate-100 p-0 text-slate-700/);
   assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 3);
-  assert.match(ui, /grid w-full min-w-0 grid-cols-12 items-end gap-2/);
-  assert.match(ui, /col-span-3 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명/);
-  assert.match(ui, /col-span-5 flex shrink-0 justify-end gap-2/);
-  assert.doesNotMatch(ui, /grid-cols-14|col-start-12|min-w-\[760px\]/);
+  assert.match(ui, /w-\[360px\] max-w-\[420px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
+  assert.match(ui, /w-\[280px\] max-w-\[300px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
+  assert.doesNotMatch(ui, /<textarea|resize-none/);
   assert.match(ui, /phase-b-plan-table-scroll/);
-  assert.match(ui, /max-h-\[calc\(100vh-20rem\)\] overflow-auto/);
-  assert.match(ui, /sticky top-0 z-20 bg-surface-50/);
+  assert.match(ui, /className="overflow-visible"/);
+  assert.doesNotMatch(ui, /max-h-\[calc\(100vh-20rem\)\] overflow-auto/);
   assert.match(ui, /if \(draftScope !== currentScope\)/);
   assert.match(api, /!Array\.isArray\(body\.targetIds\) \|\| body\.targetIds\.length === 0/);
   assert.match(api, /new Set\(requestedTargetIds\)\.size !== requestedTargetIds\.length/);
@@ -271,61 +269,83 @@ test("측정예정일 기간·선택 대상 추천은 검색 결과 교집합만
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /recommendBatch/);
 });
 
-test("목록 검색은 조사자 필터 없이 명시적 snapshot과 코드·사업장명 검색을 사용한다", () => {
+test("목록 검색은 조사자 필터 없이 독립 snapshot과 기준일 범위를 사용한다", () => {
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   assert.doesNotMatch(ui, /aria-label="조사자"/);
   assert.match(ui, /"예비조사자"/);
   assert.equal((ui.match(/aria-label="코드 또는 사업장명 검색"/g) || []).length, 2);
   assert.match(ui, /const \[listSearchSnapshot, setListSearchSnapshot\]/);
-  assert.match(ui, /const applyListSearch = \(\) =>/);
-  for (const field of ["year", "period", "statusFilter", "kindFilter", "preliminaryDateFilter", "measurementDateFilter", "methodFilter", "searchQuery"]) {
+  assert.match(ui, /PRELIMINARY_SURVEY_LIST_FILTERS_STORAGE_KEY/);
+  for (const field of ["year", "period", "statusFilter", "kindFilter", "preliminaryDateFilter", "methodFilter", "measurementBaseDate", "measurementRangeUnit", "searchQuery"]) {
     assert.match(ui, new RegExp(`${field}[,:]`));
   }
-  assert.match(ui, /onClick=\{applyListSearch\}>검색<\/Button>/);
-  assert.match(ui, /const moveListPreliminaryDate = \(direction: -1 \| 1\) =>/);
-  assert.match(ui, /adjacentWorkingDay\(preliminaryDateFilter, direction\)/);
-  assert.match(ui, /applyListSearchForDate\(nextDate\)/);
-  assert.match(ui, /aria-label="이전 영업일"/);
-  assert.match(ui, /aria-label="다음 영업일"/);
-  assert.match(ui, /aria-label="이전 측정 주"/);
-  assert.match(ui, /aria-label="이후 측정 주"/);
-  assert.match(ui, /getAdjacentWeekRangeKst\(measurementDateFrom, direction\)/);
-  assert.match(ui, /aria-label="측정 주 이동"/);
-  assert.match(ui, /aria-label="예비조사일 이동"/);
-  assert.ok(ui.indexOf('aria-label="예비조사일"') < ui.indexOf('aria-label="이전 영업일"'));
-  assert.ok(ui.indexOf('aria-label="이전 영업일"') < ui.indexOf('aria-label="다음 영업일"'));
-  assert.ok(ui.indexOf('aria-label="다음 영업일"') < ui.indexOf('aria-label="측정예정일"'));
-  assert.equal((ui.match(/disabled=\{!preliminaryDateFilter\}/g) || []).length, 2);
+  assert.match(ui, /onClick=\{commitSearch\}>검색<\/Button>/);
+  assert.match(ui, /matchesMeasurementDateRange\(row\.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo\)/);
+  assert.match(ui, /!activePreliminaryDateFilter \|\| row\.preliminaryDate === activePreliminaryDateFilter/);
   assert.match(ui, /matchesWorkbenchSearch\(row, activeSearchQuery\)/);
 });
 
-test("계획 검색은 명시적 snapshot을 확정한 뒤 화면 결과와 같은 대상을 추천한다", () => {
+test("계획 검색은 기준일 snapshot을 확정한 뒤 화면 결과와 같은 대상을 추천한다", () => {
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   assert.match(ui, /interface PlanSearchSnapshot/);
   assert.match(ui, /const \[planSearchSnapshot, setPlanSearchSnapshot\]/);
-  assert.match(ui, /const applyPlanSearch = \(\) =>/);
-  assert.match(ui, /onClick=\{applyPlanSearch\}>검색<\/Button>/);
+  assert.match(ui, /PRELIMINARY_SURVEY_PLAN_FILTERS_STORAGE_KEY/);
+  assert.match(ui, /const commitSearch = \(\) =>/);
+  assert.match(ui, /onKeyDown=\{commitSearchOnEnter\} onBlur=\{commitSearch\}/);
+  assert.match(ui, /lastCommittedSearchRef\.current === searchDraft/);
   assert.match(ui, /collectWorkbenchRecommendationTargetIds\(displayRows, selectedTargetIds\)/);
   assert.doesNotMatch(ui, /filteredRows\.filter\(\(row\) => selectedTargetIds/);
   assert.match(ui, /action: "recommend", year: queryYear, period: queryPeriod/);
   assert.match(ui, /matchesMeasurementDateRange\(row\.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo\)/);
-  assert.match(ui, /measurementDateFrom !== planSearchSnapshot\.measurementDateFrom/);
+  assert.match(ui, /measurementBaseDate !== planSearchSnapshot\.measurementBaseDate/);
+  assert.match(ui, /measurementRangeUnit !== planSearchSnapshot\.measurementRangeUnit/);
   assert.match(ui, /측정예정일 범위:/);
   assert.match(ui, /searchQuery: activeSearchQuery/);
   assert.match(ui, /disabled=\{working \|\| isPlanSearchDirty\}/);
-  assert.match(ui, /검색 조건 변경 · 검색 필요/);
+  assert.match(ui, /검색어 변경 · 검색 필요/);
   assert.match(ui, /추천 검토 결과: 추천 \$\{recommendedCount\}개 · 조정 필요\/불가 \$\{unavailableCount\}개/);
 });
 
-test("예비조사 탭·toolbar와 계획·목록 table header는 겹치지 않는 sticky 계층을 사용한다", () => {
+test("예비조사 탭·toolbar와 table header는 동적 sticky 계층과 단일 세로 스크롤을 사용한다", () => {
   const page = readFileSync("app/survey/page.tsx", "utf8");
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   assert.match(page, /sticky top-16 z-40 flex h-12/);
   assert.match(ui, /sticky top-28 z-30 bg-white p-3 shadow-sm/);
   assert.match(ui, /phase-b-plan-table-scroll/);
   assert.match(ui, /phase-b-list-table-scroll/);
-  assert.match(ui, /max-h-\[calc\(100vh-20rem\)\] overflow-auto/);
-  assert.match(ui, /thead className="sticky top-0 z-20 bg-surface-50/);
+  assert.match(ui, /ResizeObserver/);
+  assert.match(ui, /const tableHeaderTop = 112 \+ toolbarHeight/);
+  assert.match(ui, /thead className="sticky z-20 bg-surface-50/);
+  assert.match(ui, /style=\{\{ top: tableHeaderTop \}\}/);
+  assert.match(ui, /className="overflow-visible"/);
+  assert.doesNotMatch(ui, /max-h-\[calc\(100vh-20rem\)\] overflow-auto/);
+});
+
+test("계획과 목록은 요구한 필터 순서·일주월 탐색·독립 저장 조건을 사용한다", () => {
+  const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
+  const planStart = ui.indexOf('{mode === "plan" ?');
+  const listStart = ui.indexOf(': <div className="flex flex-wrap items-end gap-2 xl:flex-nowrap">', planStart);
+  const plan = ui.slice(planStart, listStart);
+  const list = ui.slice(listStart, ui.indexOf('<div className="mt-2 flex h-9', listStart));
+  for (const labels of [
+    ["연도", "반기", "상태", "구분", "측정 기준일", "측정 조회 단위", "측정 기준일 이동", "코드 · 사업장명", "검색"],
+    ["연도", "반기", "예비조사일", "상태", "구분", "방식", "측정 기준일", "측정 조회 단위", "측정 기준일 이동", "코드 · 사업장명", "검색"],
+  ]) {
+    const source = labels === undefined ? "" : labels.length === 9 ? plan : list;
+    let cursor = -1;
+    for (const label of labels) {
+      const next = source.indexOf(label, cursor + 1);
+      assert.ok(next > cursor, `${label} 순서`);
+      cursor = next;
+    }
+  }
+  assert.match(ui, /\(\["day", "week", "month"\] as const\)/);
+  assert.match(ui, /aria-label=\{`이전 \$\{navigationUnitLabel\}`\}/);
+  assert.match(ui, /aria-label=\{`다음 \$\{navigationUnitLabel\}`\}/);
+  assert.doesNotMatch(ui, /측정 종료일|다음 주|<textarea/);
+  assert.match(ui, /preliminarySurveyV2PlanFiltersV2/);
+  assert.match(ui, /preliminarySurveyV2ListFiltersV2/);
+  assert.doesNotMatch(ui.slice(ui.indexOf("const stored ="), ui.indexOf("window.localStorage.setItem")), /selectedTargetIds|drafts|modal|fingerprint/);
 });
 
 test("측정대상사업장관리에는 예비조사 작업 UI가 없다", () => {
