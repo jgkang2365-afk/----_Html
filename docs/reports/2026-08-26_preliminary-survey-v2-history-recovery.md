@@ -108,3 +108,37 @@
 - 실제 model metadata: 확인 불가
 - 판정: PASS, blocker 0
 - manifest/canonical SHA, Docker evidence, owner/ACL/RLS/trigger, second-run 0, rollback 45, cleanup 0을 독립 재검산했다.
+
+## H0399 후속 마무리 복원 (PR #61)
+
+- 시작 HEAD: `1a1b32aca4d0f24689ebc052a80af68e94c8bb10`
+- 구현 HEAD: `4b5729bbb0f526f37e831eff5df4c915b85c75e2`
+- 대상: `H0399 (주)조은자동차서비스`, target `459`, 측정일 `2026-08-25`
+- 영구 코드 보호 해제: 역사 복원 보호 목록에서 H0399만 제거했고 나머지 9개 코드는 유지했다.
+- 미래 추천: 신규 future target fixture가 일반 추천 엔진에서 `recommended`로 처리됨을 확인했다.
+- 운영 직전 분류: 전체 88 / 기존 보존 87 / H0399 exact recovery 1 / 미해결 0
+- H0399 복원값: 예비조사일 `2026-08-14`, 예비조사자 `한기문`, 방식 `유선`, 상태 `recommended`(화면 업무 상태는 journal 기준 `찐확정`)
+- canonical manifest SHA: `5ab698714553a34aef8c0247eac46006ccee8671ba1ca2161dbe3fe3456ac832`
+- raw manifest: `C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-h0399-recovery-manifest.json`
+- raw manifest file SHA-256: `0bb1cd27972cec85e20669b81074c6c05552721d901d48a5899cda7596d26b5a`
+- Docker evidence: `C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-h0399-docker-evidence.json`
+- Docker evidence file SHA-256: `5b7c1db998405f585f4e7ed384adb1ebd26ed6e7e01219a0e6f1577a54b8a7b7`
+- Docker first run: plan insert 1 / 기존 87 변경 0 / assignment 변경 0 / source 변경 0
+- Docker second run: additional changes 0 / already applied 88
+- Docker rollback: H0399 plan 1건만 삭제 / Local fixture 최종 0
+- 운영 batch ID: `c620edf0-f70f-4e76-9741-628582efd09c`
+- 운영 first run: plan insert 1
+- 운영 second run: additional changes 0 / already applied 88
+- 운영 사후 범위: 대상 88 / V2 plan 88 / 누락 0
+- 기존 V2 plan 87건 full-row digest 변경: 0
+- 공시료 assignment: 49행 유지, 변경 0
+- target/legacy/users/schedule/journal 변경: 0
+- 자동 정책: OFF 유지
+- 공시료 회귀: 원천 98건 중 `-` 0, 기존 legacy 8건 및 V2 6건 mismatch 0, FF/GG 원문 유지
+- 운영 apply evidence: `C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-h0399-production-apply.json`
+- 운영 apply evidence file SHA-256: `5c41ab9dc5090fd339a69ce3ca8a28e47e5551c24d767f4c5a0667ae2eb80dff`
+- 공시료 postverify SHA-256: `88a4042d512a01cf5df1e7141249e62ee30e7869981256d287f254c147f86881`
+- 검증: focused 27 PASS / 전체 480 PASS / typecheck PASS / build PASS / diff check PASS
+- Vercel Preview: PR #61 구현 HEAD에서 SUCCESS
+- 내부 브라우저: Orca 탭은 생성했으나 현재 실행 세션에 in-app browser 제어 인터페이스가 제공되지 않아 클릭 기반 실화면 확인은 미검증이다. 일반 Chrome/Edge로 우회하지 않았다. DB/API 기준 H0399 표시 원천은 `2026-08-14 / 한기문 / phone / true-confirmed / 한기문(B)`로 확인했다.
+- PR #61: Draft / Open / Mergeable 유지, merge 미실행
