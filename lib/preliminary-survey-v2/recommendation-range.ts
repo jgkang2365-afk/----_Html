@@ -6,6 +6,8 @@ export type DateRange = {
   endDate: string;
 };
 
+export type MeasurementRangeUnit = "day" | "week" | "month";
+
 export function dateRangeFromStartDate(startDate: string): DateRange {
   return { startDate, endDate: startDate };
 }
@@ -42,6 +44,27 @@ function formatDateOnly(date: Date): string {
   ].join("-");
 }
 
+function addCalendarDays(value: string, amount: number): string {
+  const date = parseDateOnly(value);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return formatDateOnly(date);
+}
+
+function daysInMonth(year: number, monthIndex: number): number {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+function moveMonthWithClamp(value: string, amount: number): string {
+  const date = parseDateOnly(value);
+  const targetMonthStart = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1));
+  const targetDay = Math.min(
+    date.getUTCDate(),
+    daysInMonth(targetMonthStart.getUTCFullYear(), targetMonthStart.getUTCMonth()),
+  );
+  targetMonthStart.setUTCDate(targetDay);
+  return formatDateOnly(targetMonthStart);
+}
+
 export function currentDateInKst(now: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: KST_TIME_ZONE,
@@ -58,6 +81,42 @@ export function currentDateInKst(now: Date = new Date()): string {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+/** 측정 기준일과 조회 단위에서 실제 API/화면 필터 범위를 계산한다. */
+export function measurementRangeFromReference(
+  referenceDate: string,
+  unit: MeasurementRangeUnit,
+): DateRange {
+  const reference = parseDateOnly(referenceDate);
+  if (unit === "day") return { startDate: referenceDate, endDate: referenceDate };
+
+  if (unit === "month") {
+    const year = reference.getUTCFullYear();
+    const month = reference.getUTCMonth();
+    return {
+      startDate: formatDateOnly(new Date(Date.UTC(year, month, 1))),
+      endDate: formatDateOnly(new Date(Date.UTC(year, month, daysInMonth(year, month)))),
+    };
+  }
+
+  const weekday = reference.getUTCDay();
+  const daysSinceMonday = weekday === 0 ? 6 : weekday - 1;
+  const monday = new Date(reference.getTime() - daysSinceMonday * DAY_MS);
+  return {
+    startDate: formatDateOnly(monday),
+    endDate: formatDateOnly(new Date(monday.getTime() + 4 * DAY_MS)),
+  };
+}
+
+/** 현재 단위에 맞춰 기준일만 이전/다음으로 이동한다. */
+export function adjacentMeasurementReferenceDate(
+  referenceDate: string,
+  unit: MeasurementRangeUnit,
+  direction: -1 | 1,
+): string {
+  if (unit === "month") return moveMonthWithClamp(referenceDate, direction);
+  return addCalendarDays(referenceDate, direction * (unit === "week" ? 7 : 1));
+}
+
 /** 기준일이 속한 주의 다음 주 월요일부터 금요일까지의 달력 범위. */
 export function getNextWeekRangeKst(baseDate?: string, now: Date = new Date()): DateRange {
   return getAdjacentWeekRangeKst(baseDate, 1, now);
@@ -69,15 +128,9 @@ export function getAdjacentWeekRangeKst(
   direction: -1 | 1,
   now: Date = new Date(),
 ): DateRange {
-  const referenceDate = parseDateOnly(baseDate ?? currentDateInKst(now));
-  const weekday = referenceDate.getUTCDay();
-  const daysSinceMonday = weekday === 0 ? 6 : weekday - 1;
-  const currentMonday = new Date(referenceDate.getTime() - daysSinceMonday * DAY_MS);
-  const start = new Date(currentMonday.getTime() + direction * 7 * DAY_MS);
-  const end = new Date(start.getTime() + 4 * DAY_MS);
-
-  return {
-    startDate: formatDateOnly(start),
-    endDate: formatDateOnly(end),
-  };
+  const referenceDate = baseDate ?? currentDateInKst(now);
+  return measurementRangeFromReference(
+    adjacentMeasurementReferenceDate(referenceDate, "week", direction),
+    "week",
+  );
 }
