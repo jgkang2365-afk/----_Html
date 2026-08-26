@@ -40,6 +40,7 @@ import {
   buildLegacyMeasurementPublicSampleLookup,
   resolveMeasurementPublicSampleDisplay,
 } from "@/lib/preliminary-survey-v2/public-sample-display";
+import { storedPlanWorkbenchState } from "@/lib/preliminary-survey-v2/workbench-status";
 
 export const dynamic = "force-dynamic";
 
@@ -780,14 +781,16 @@ export async function GET(request: NextRequest) {
       );
       const measurementRoleScheduleBlocked = measurementRoleKeys(target, userIdByName)
         .some((key) => scheduleBlockedKeys.has(key));
-      const scheduleConflict = preliminaryScheduleBlocked || measurementScheduleBlocked || measurementRoleScheduleBlocked;
-      const status = trueConfirmed
-        ? "true_confirmed"
-        : stale || plan?.plan_origin === "automatic"
-          ? "review_required"
-          : plan?.status === "manual_required"
-            ? "adjustment_required"
-            : plan ? "provisional" : "unassigned";
+      const presentationState = storedPlanWorkbenchState({
+        trueConfirmed,
+        stale,
+        hasPlan: Boolean(plan),
+        planOrigin: plan?.plan_origin ?? null,
+        planStatus: plan?.status ?? null,
+        preliminaryScheduleBlocked,
+        measurementScheduleBlocked,
+        measurementRoleScheduleBlocked,
+      });
       const kind = target.business_type === "external_new"
         ? "타기관 신규"
         : target.business_type === "first_measurement"
@@ -829,12 +832,8 @@ export async function GET(request: NextRequest) {
         mainMeasurerSource: measurementAssigneeDisplay.source,
         measurementParticipants: staff.measurementParticipants,
         reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",
-        status,
-        conflict: trueConfirmed && scheduleConflict
-          ? "찐확정 계획에 직원 제외 일정 충돌"
-          : stale ? "측정계획 영향값 변경"
-            : scheduleConflict ? "직원 제외 일정 참고"
-              : plan?.status === "manual_required" ? "조정 필요" : null,
+        status: presentationState.status,
+        conflict: presentationState.conflict,
         reason: plan?.recommendation_reason?.reason ?? null,
         recommendationReasons: Array.isArray(plan?.recommendation_reason?.shortReasons)
           ? plan.recommendation_reason.shortReasons : [],

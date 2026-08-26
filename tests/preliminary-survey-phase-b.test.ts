@@ -7,6 +7,7 @@ import { filterPreliminaryCandidateDates } from "../lib/preliminary-survey-v2/se
 import { measurementStaffForDate } from "../lib/preliminary-survey-v2/measurement-staff";
 import { actualMeasurementBlockedKeys } from "../lib/preliminary-survey-v2/measurement-conflicts";
 import { SURVEY_TAB_IDS, moveSurveyTab, restoreSurveyTabOrder } from "../lib/preliminary-survey-v2/tab-order";
+import { storedPlanWorkbenchState } from "../lib/preliminary-survey-v2/workbench-status";
 import type { SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
 
 const experienced: SurveyUser = { id: 1, name: "경력", experienced: true, active: true };
@@ -382,4 +383,38 @@ test("기존 가확정·수동 plan은 blocked 조사자가 있으면 보존하�
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
   assert.match(service, /participants\.some\(\(user\) => user\.active === false \|\| blockedKeys\.has\(`\$\{user\.id\}:\$\{tentative\.date\}`\)\)/);
   assert.match(service, /preservedAssignments/);
+});
+
+const storedPlanState = (overrides: Partial<Parameters<typeof storedPlanWorkbenchState>[0]> = {}) =>
+  storedPlanWorkbenchState({
+    trueConfirmed: false, stale: false, hasPlan: true, planOrigin: "manual", planStatus: "recommended",
+    preliminaryScheduleBlocked: false, measurementScheduleBlocked: false, measurementRoleScheduleBlocked: false,
+    ...overrides,
+  });
+
+test("manual/provisional plan의 예비조사자가 blocked면 재추천 필요한 review_required다", () => {
+  const result = storedPlanState({ preliminaryScheduleBlocked: true });
+  assert.equal(result.status, "review_required");
+  assert.match(result.conflict ?? "", /예비조사자 직원 불가 일정.*재추천 필요/);
+});
+
+test("예비조사자 blocked가 없는 manual plan은 기존 provisional 상태를 유지한다", () => {
+  assert.deepEqual(storedPlanState(), { status: "provisional", conflict: null });
+});
+
+test("true-confirmed plan의 예비조사자가 blocked여도 확정 상태와 충돌 표시를 유지한다", () => {
+  const result = storedPlanState({ trueConfirmed: true, preliminaryScheduleBlocked: true });
+  assert.equal(result.status, "true_confirmed");
+  assert.match(result.conflict ?? "", /예비조사자 직원 불가 일정 충돌/);
+});
+
+test("공시료·측정 역할 schedule conflict만으로 예비조사 plan을 review_required로 승격하지 않는다", () => {
+  for (const conflict of [
+    { measurementScheduleBlocked: true },
+    { measurementRoleScheduleBlocked: true },
+  ]) {
+    const result = storedPlanState(conflict);
+    assert.equal(result.status, "provisional");
+    assert.equal(result.conflict, "직원 제외 일정 참고");
+  }
 });
