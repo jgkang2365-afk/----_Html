@@ -9,6 +9,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import {
   dateRangeFromStartDate,
+  getAdjacentWeekRangeKst,
   getNextWeekRangeKst,
   validateMeasurementDateRange,
 } from "@/lib/preliminary-survey-v2/recommendation-range";
@@ -290,6 +291,26 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     setMeasurementDateTo(range.endDate);
   };
 
+  const movePlanWeek = (direction: -1 | 1) => {
+    if (!measurementDateFrom) return;
+    const range = getAdjacentWeekRangeKst(measurementDateFrom, direction);
+    invalidateDrafts();
+    setError(null);
+    setNotice(null);
+    setScopeSummary(null);
+    setMeasurementDateFrom(range.startDate);
+    setMeasurementDateTo(range.endDate);
+    setPlanSearchSnapshot({
+      year,
+      period,
+      statusFilter,
+      kindFilter,
+      measurementDateFrom: range.startDate,
+      measurementDateTo: range.endDate,
+      searchQuery: searchDraft,
+    });
+  };
+
   const changeMeasurementStartDate = (value: string) => {
     const range = dateRangeFromStartDate(value);
     invalidateDrafts();
@@ -470,20 +491,23 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <label className="col-span-1 min-w-0 text-xs font-medium text-text-700">측정 종료일
               <input aria-label="측정예정 종료일" type="date" value={measurementDateTo} onChange={(event) => changeScope(setMeasurementDateTo, event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
             </label>
-            <div className="col-span-1 flex min-w-0 items-end"><Button className="h-9 w-full !bg-orange-500 px-2 text-xs hover:!bg-orange-600 focus-visible:!ring-orange-500" onClick={setNextWeek}>다음 주</Button></div>
-            <label className="col-span-4 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명
+            <div className="col-span-2 flex min-w-0 items-end gap-1" aria-label="측정 주 이동">
+              <Button aria-label="이전 측정 주" variant="secondary" className="h-9 min-w-0 flex-1 px-2 text-xs whitespace-nowrap" onClick={() => movePlanWeek(-1)} disabled={!measurementDateFrom}>← 이전</Button>
+              <Button aria-label="이후 측정 주" variant="secondary" className="h-9 min-w-0 flex-1 px-2 text-xs whitespace-nowrap" onClick={() => movePlanWeek(1)} disabled={!measurementDateFrom}>이후 →</Button>
+              <Button className="h-9 min-w-0 flex-1 !bg-orange-500 px-2 text-xs whitespace-nowrap hover:!bg-orange-600 focus-visible:!ring-orange-500" onClick={setNextWeek}>다음 주</Button>
+            </div>
+            <label className="col-span-3 min-w-0 text-xs font-medium text-text-700">코드 · 사업장명
               <textarea aria-label="코드 또는 사업장명 검색" rows={1} value={searchDraft} onChange={(event) => changeScope(setSearchDraft, event.target.value)} placeholder="부분/정확, 쉼표·줄바꿈 구분" className="mt-1 block h-9 min-w-0 w-full resize-none rounded-md border border-surface-300 bg-white px-2 py-2 text-sm" />
             </label>
             <div className="col-span-1 flex min-w-0 items-end"><Button className="h-9 w-full px-2 text-xs" onClick={applyPlanSearch}>검색</Button></div>
           </>}
           {mode === "list" && <>
-            <div className="shrink-0 text-xs font-medium text-text-700">
-              <span>예비조사일</span>
-              <div className="mt-1 flex items-center gap-1">
-                <Button aria-label="이전 영업일" variant="secondary" className="h-9 shrink-0 px-2 text-xs whitespace-nowrap" onClick={() => moveListPreliminaryDate(-1)} disabled={!preliminaryDateFilter}>← 이전</Button>
-                <input aria-label="예비조사일" type="date" value={preliminaryDateFilter} onChange={(event) => setPreliminaryDateFilter(event.target.value)} className="block h-9 w-36 rounded-md border border-surface-300 bg-white px-2 text-sm" />
-                <Button aria-label="다음 영업일" variant="secondary" className="h-9 shrink-0 px-2 text-xs whitespace-nowrap" onClick={() => moveListPreliminaryDate(1)} disabled={!preliminaryDateFilter}>다음 →</Button>
-              </div>
+            <label className="w-36 shrink-0 text-xs font-medium text-text-700">예비조사일
+              <input aria-label="예비조사일" type="date" value={preliminaryDateFilter} onChange={(event) => setPreliminaryDateFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
+            </label>
+            <div className="flex shrink-0 items-end gap-1" aria-label="예비조사일 이동">
+              <Button aria-label="이전 영업일" variant="secondary" className="h-9 shrink-0 px-2 text-xs whitespace-nowrap" onClick={() => moveListPreliminaryDate(-1)} disabled={!preliminaryDateFilter}>← 이전</Button>
+              <Button aria-label="다음 영업일" variant="secondary" className="h-9 shrink-0 px-2 text-xs whitespace-nowrap" onClick={() => moveListPreliminaryDate(1)} disabled={!preliminaryDateFilter}>이후 →</Button>
             </div>
             <label className="w-36 shrink-0 text-xs font-medium text-text-700">측정예정일
               <input aria-label="측정예정일" type="date" value={measurementDateFilter} onChange={(event) => setMeasurementDateFilter(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm" />
