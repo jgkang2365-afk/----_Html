@@ -254,6 +254,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   }, [mode]);
 
   useEffect(() => {
+    if (!filtersReady) return;
     const element = toolbarRef.current;
     if (!element) return;
     const updateHeight = () => setToolbarHeight(Math.ceil(element.getBoundingClientRect().height));
@@ -261,7 +262,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     const observer = new ResizeObserver(updateHeight);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [mode]);
+  }, [filtersReady, mode]);
 
   const queryYear = mode === "list" ? listSearchSnapshot.year : planSearchSnapshot.year;
   const queryPeriod = mode === "list" ? listSearchSnapshot.period : planSearchSnapshot.period;

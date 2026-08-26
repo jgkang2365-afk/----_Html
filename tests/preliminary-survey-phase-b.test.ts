@@ -314,6 +314,7 @@ test("예비조사 탭·toolbar와 table header는 동적 sticky 계층과 단�
   assert.match(ui, /phase-b-plan-table-scroll/);
   assert.match(ui, /phase-b-list-table-scroll/);
   assert.match(ui, /ResizeObserver/);
+  assert.match(ui, /if \(!filtersReady\) return;[\s\S]*?\}, \[filtersReady, mode\]\);/);
   assert.match(ui, /const tableHeaderTop = 112 \+ toolbarHeight/);
   assert.match(ui, /thead className="sticky z-20 bg-surface-50/);
   assert.match(ui, /style=\{\{ top: tableHeaderTop \}\}/);
