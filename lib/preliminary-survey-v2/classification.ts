@@ -23,9 +23,11 @@ export interface MeasurementJournalClassificationRow {
 
 export interface MeasurementJournalClassification {
   kind: BusinessKind;
+  businessType: TargetBusinessType;
   source: ClassificationSource;
   journalId: number | null;
   rawValue: string | null;
+  resolved: boolean;
 }
 
 // 측정일지 UI의 일반 신규 체크값은 현재 "최초실시"로 저장된다.
@@ -76,10 +78,12 @@ function currentJournalClassification(
   );
   const current = matching[0];
   const rawValue = current?.note == null || String(current.note).trim() === "" ? null : String(current.note);
-  const kind: BusinessKind = noteTokens(current?.note).some((token) => NEW_NOTE_TOKENS.has(token))
-    ? "new"
-    : "existing";
-  return { kind, journalId: current?.id == null ? null : Number(current.id), rawValue };
+  const tokens = noteTokens(current?.note);
+  const businessType: TargetBusinessType = tokens.includes("타기관 신규")
+    ? "external_new"
+    : tokens.some((token) => NEW_NOTE_TOKENS.has(token)) ? "first_measurement" : "existing";
+  const kind: BusinessKind = businessKindForTargetType(businessType);
+  return { kind, businessType, journalId: current?.id == null ? null : Number(current.id), rawValue };
 }
 
 /** 현재 측정대상의 code/year/period와 정확히 일치하는 최신 측정일지로 신규/기존을 판정한다. */
@@ -91,30 +95,48 @@ export function classifyMeasurementJournalBusiness(
   if (authoritativeBusinessType) {
     return {
       kind: businessKindForTargetType(authoritativeBusinessType),
+      businessType: authoritativeBusinessType,
       source: "target_business_type",
       journalId: null,
       rawValue: authoritativeBusinessType,
+      resolved: true,
+    };
+  }
+
+  // authoritative 값이 null/빈 값일 때만 legacy fallback을 허용한다.
+  if (target.business_type != null && String(target.business_type).trim() !== "") {
+    return {
+      kind: "existing",
+      businessType: "existing",
+      source: "target_business_type",
+      journalId: null,
+      rawValue: String(target.business_type),
+      resolved: false,
     };
   }
 
   const journal = currentJournalClassification(target, rows);
   // 기존 V2의 일지 기반 판정은 business_type이 없는 과거 target에서 계속 우선한다.
   if (journal.journalId !== null) {
-    return { ...journal, source: "legacy_journal" };
+    return { ...journal, source: "legacy_journal", resolved: true };
   }
 
   const legacyRuleKind = businessKindForLegacyRuleType(target.preliminary_survey_rule_type);
   if (legacyRuleKind) {
     return {
       kind: legacyRuleKind,
+      businessType: target.preliminary_survey_rule_type === "other_org_new" ? "external_new" :
+        legacyRuleKind === "existing" ? "existing" : "first_measurement",
       source: "legacy_rule_type",
       journalId: null,
       rawValue: String(target.preliminary_survey_rule_type),
+      resolved: true,
     };
   }
 
   return {
     ...journal,
     source: "legacy_journal",
+    resolved: false,
   };
 }

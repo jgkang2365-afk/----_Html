@@ -82,7 +82,10 @@ function fieldCount(assignments: ExistingAssignment[], userId: number, date: str
 }
 
 function validParticipants(participants: SurveyUser[], date: string, availability: Availability) {
-  return participants.length > 0 && participants.every((user) => user.active !== false && !availability.isBlocked(user.id, date));
+  // 직원 일정은 선택 참고값이며 서류상 조사자 유효성을 무효화하지 않는다.
+  void date;
+  void availability;
+  return participants.length > 0 && participants.every((user) => user.active !== false);
 }
 
 function fitsCapacity(
@@ -92,10 +95,13 @@ function fitsCapacity(
   date: string,
   assignments: ExistingAssignment[],
 ) {
-  // 기존업체의 경력자는 표 검토자이므로 책임자의 유선 용량만 센다.
-  return kind === "existing"
-    ? phoneCount(assignments, responsible.id, date) < 3
-    : participants.every((user) => fieldCount(assignments, user.id, date) < 2);
+  // 일일 방문·유선 건수는 실제 수행 feasibility이며 서류 배정 hard rule이 아니다.
+  void kind;
+  void responsible;
+  void participants;
+  void date;
+  void assignments;
+  return true;
 }
 
 function asAssignment(target: SurveyorRecommendationTarget, recommendation: SurveyorRecommendation): ExistingAssignment {
@@ -155,7 +161,7 @@ function compareCandidates(
 /**
  * DB/경로 호출 없이 후보일 × 조사자 조합만 탐색한다.
  * 이미 유효한 가확정은 먼저 reserve하여 불필요한 재추천을 피하고, 나머지는 날짜 정책 순서와
- * 개인별 현재 용량, 사용자 ID 순으로 안정적으로 선택한다.
+ * 기존 배정 균형과 사용자 ID 순으로 안정적으로 선택한다.
  */
 export function recommendSurveyors(input: SurveyorRecommendationInput): SurveyorRecommendation[] {
   const users = active(input.users);

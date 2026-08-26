@@ -11,7 +11,7 @@ const assignment = (targetId: number, kind: "new" | "existing", userId: number, 
   experiencedReviewerId: null, coordinate: null, region: null,
 });
 
-test("유선 기존업체는 비경력자도 경력 동행 없이 날짜별 개인 3건 용량을 탐색한다", () => {
+test("유선 기존업체의 기존 일일 건수는 배정 불가 사유가 아니다", () => {
   const result = recommendSurveyors({
     targets: [{ id: 1, kind: "existing", businessType: "existing", measurementDate: "2026-07-14", createdAt: null, candidateDates: ["2026-06-01", "2026-06-02"] }],
     users: [novice(2), experienced(10)],
@@ -23,14 +23,14 @@ test("유선 기존업체는 비경력자도 경력 동행 없이 날짜별 개�
   assert.deepEqual(result[0].participants.map((user) => user.id), [10]);
 });
 
-test("후보 날짜×조합에서 측정 충돌 제외와 방문 개인 용량을 적용한다", () => {
+test("직원 일정과 방문 개인 용량은 후보 날짜를 제외하지 않는다", () => {
   const result = recommendSurveyors({
     targets: [{ id: 1, kind: "new", businessType: "first_measurement", measurementDate: "2026-07-14", createdAt: null, candidateDates: ["2026-06-01", "2026-06-02"] }],
     users: [experienced(1), novice(2)],
     assignments: [assignment(10, "new", 1, "2026-06-01"), assignment(11, "new", 1, "2026-06-01")],
     availability: available(new Set(["2:2026-06-01"])),
   });
-  assert.equal(result[0].date, "2026-06-02");
+  assert.equal(result[0].date, "2026-06-01");
   assert.equal(result[0].responsible?.id, 1);
   assert.deepEqual(result[0].participants.map((user) => user.id), [1]);
 });

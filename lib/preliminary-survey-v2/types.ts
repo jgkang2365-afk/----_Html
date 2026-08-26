@@ -111,6 +111,7 @@ export interface RecommendationEvidence {
     | "two_job_fallback_no_single_day"
     | "over_60_rejected"
     | "route_unverified_rejected"
+    | "document_integrity_unresolved"
     | "no_available_date";
   experiencedNewAssignments: number | null;
   experiencedAllFieldAssignments: number | null;

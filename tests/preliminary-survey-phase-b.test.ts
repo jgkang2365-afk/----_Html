@@ -44,12 +44,10 @@ test("Phase B 유형별 날짜 후보는 측정예정일에서 역산한다", ()
   assert.deepEqual(rangeScope.map((item) => item.date), existingCandidates.slice(0, 3).map((item) => item.date));
 });
 
-test("실시간 후보는 KST 기준일 이전과 측정 당일을 자동추천하지 않는다", () => {
+test("서류 기준일 후보는 오늘 cutoff 없이 측정예정일에서만 역산한다", () => {
   const all = recommendationDatesForBusinessType("2026-09-10", "external_new");
-  const minimumDate = all[8].date;
-  const filtered = recommendationDatesForBusinessType("2026-09-10", "external_new", { minimumDate });
-  assert.ok(filtered.length > 0);
-  assert.ok(filtered.every((item) => item.date >= minimumDate && item.date < "2026-09-10"));
+  assert.equal(all.length, 23);
+  assert.ok(all.every((item) => item.date < "2026-09-10"));
 });
 
 test("목록 날짜 이동은 예비조사 캘린더의 주말·공휴일을 건너뛴다", () => {
@@ -59,15 +57,15 @@ test("목록 날짜 이동은 예비조사 캘린더의 주말·공휴일을 건
   assert.equal(adjacentWorkingDay("", 1), null);
 });
 
-test("정책 후보가 모두 기준일보다 과거면 강제 과거 배정 없이 수동조정한다", async () => {
+test("today=2026-08-26, measurement=2026-08-27이면 과거 영업일을 정상 추천한다", async () => {
   const [result] = await recommendBatch({
-    targets: [target(1, "external_new")], experiencedUsers: [experienced],
+    targets: [{ ...target(1, "external_new"), measurementDate: "2026-08-27" }], experiencedUsers: [experienced],
     availability: { isBlocked: () => false },
     routes: { between: async () => ({ source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: true }) },
-    planningDate: "2026-07-14",
   });
-  assert.equal(result.status, "manual_required");
-  assert.equal(result.date, null);
+  assert.equal(result.status, "recommended");
+  assert.ok(result.date && result.date < "2026-08-26");
+  assert.ok(result.date < "2026-08-27");
 });
 
 test("H0399 신규 future target은 사업장 코드 때문에 일반 추천에서 제외되지 않는다", async () => {
@@ -80,7 +78,6 @@ test("H0399 신규 future target은 사업장 코드 때문에 일반 추천에�
     targets: [futureTarget], surveyors: [experienced], experiencedUsers: [experienced],
     availability: { isBlocked: () => false },
     routes: { between: async () => ({ source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: true }) },
-    planningDate: "2026-08-26",
   });
   assert.equal(result.targetId, futureTarget.id);
   assert.equal(result.status, "recommended");
@@ -205,15 +202,13 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   assert.match(api, /recommended_date: draft\.preliminaryDate/);
   assert.match(api, /survey_method: draft\.surveyMethod/);
   assert.match(api, /participants\.find\(\(user\) => user\.id === draft\.sourceResponsibleUserId\)/);
-  assert.match(api, /user_schedule_blocks/);
-  assert.match(api, /blockedKeys\.has/);
-  assert.match(api, /loadActualMeasurementBlockedKeys/);
   assert.match(api, /DRAFT_REVIEW_REQUIRED/);
   const applyStart = api.indexOf("async function applySubmittedDrafts");
   const applyEnd = api.indexOf("export async function GET", applyStart);
   // apply는 draft를 새로 저장하지 않지만, stale 방지를 위해 서버에서 동일 추천을 재계산한다.
   assert.match(api.slice(applyStart, applyEnd), /calculateV2Recommendations/);
   assert.match(api.slice(applyStart, applyEnd), /canonicalFingerprint/);
+  assert.doesNotMatch(api.slice(applyStart, applyEnd), /blockedKeys\.has|loadActualMeasurementBlockedKeys|loadScheduleBlockKeys/);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
   assert.match(ui, /flex flex-wrap items-end gap-2 xl:flex-nowrap/);
@@ -261,7 +256,7 @@ test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합�
   assert.match(service, /validateManualPlanHardRules/);
   assert.match(engine, /surveyors\?: SurveyUser\[\]/);
   assert.match(service, /filter\(\(candidate\) => isInPreliminaryDateScope\(candidate\.date, scope\)\)/);
-  assert.match(service, /!isInPreliminaryDateScope\(date, scope\) \|\| blockedKeys\.has/);
+  assert.match(service, /isBlocked: \(_userId, date\) => !isInPreliminaryDateScope\(date, scope\)/);
   assert.match(service, /manualRequiredOutsidePreliminaryScope/);
   const applyStart = api.indexOf("async function applySubmittedDrafts");
   const applyEnd = api.indexOf("export async function GET", applyStart);
@@ -363,12 +358,11 @@ test("수동 수정과 draft apply는 선택한 조사 방식을 hard-rule 검�
   assert.match(workbenchApi, /validateManualPlanHardRules\(\{[\s\S]*?surveyMethod: draft\.surveyMethod,[\s\S]*?existingAssignments/);
 });
 
-test("수동 수정과 apply는 예비조사자 및 실제 측정 역할의 후발 직원 불가 일정을 저장 전에 차단한다", () => {
+test("수동 수정과 apply는 후발 직원 일정 충돌을 서류 저장 hard blocker로 사용하지 않는다", () => {
   const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
   const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
-  assert.match(manualRoute, /user_schedule_blocks/);
-  assert.match(manualRoute, /USER_UNAVAILABLE_ON_SURVEY_DATE/);
-  assert.match(workbench, /measurementRoleKeysByTarget/);
-  assert.match(workbench, /보고서 담당자 또는 측정 참여자에게 직원 불가 일정/);
-  assert.match(workbench, /measurementRoleConflictTargetIds/);
+  const applyStart = workbench.indexOf("async function applySubmittedDrafts");
+  const applyEnd = workbench.indexOf("export async function GET", applyStart);
+  assert.doesNotMatch(manualRoute, /user_schedule_blocks|USER_UNAVAILABLE_ON_SURVEY_DATE/);
+  assert.doesNotMatch(workbench.slice(applyStart, applyEnd), /직원 불가 일정|측정 업무가 추가|blockedKeys\.has/);
 });

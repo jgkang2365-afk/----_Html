@@ -75,7 +75,6 @@ export type PhaseBBusinessType = "existing" | "first_measurement" | "external_ne
 export function recommendationDatesForBusinessType(
   measurementDate: string,
   businessType: PhaseBBusinessType,
-  options: { minimumDate?: string } = {},
 ) {
   const maximum = businessType === "first_measurement" ? 30 : 25;
   const dates = workingDaysBefore(measurementDate, maximum);
@@ -86,9 +85,7 @@ export function recommendationDatesForBusinessType(
         ...Array.from({ length: 18 }, (_, index) => 20 - index),
         ...Array.from({ length: 5 }, (_, index) => 25 - index),
       ];
-  return distances
-    .flatMap((distance) => byDistance.get(distance) ?? [])
-    .filter((candidate) => !options.minimumDate || candidate.date >= options.minimumDate);
+  return distances.flatMap((distance) => byDistance.get(distance) ?? []);
 }
 
 export function workingDayDistance(earlier: string, later: string): number | null {
