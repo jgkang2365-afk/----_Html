@@ -10,6 +10,10 @@ import { loadActualMeasurementBlockedKeys } from "../lib/preliminary-survey-v2/m
 const envPath = process.argv.find((value) => value.startsWith("--env="))?.slice(6) ?? ".env.local";
 config({ path: envPath });
 const mode = process.argv.find((value) => value.startsWith("--mode="))?.slice(7) ?? "inventory";
+const phase = process.argv.find((value) => value.startsWith("--phase="))?.slice(8) ?? "initial";
+if (!new Set(["initial", "h0399"]).has(phase)) throw new Error("INVALID_HISTORY_RECOVERY_PHASE");
+const expectedExisting = phase === "h0399" ? 87 : 42;
+const expectedRecoverable = phase === "h0399" ? 1 : 45;
 const outputPath = resolve(process.argv.find((value) => value.startsWith("--output="))?.slice(9)
   ?? `C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-history-${mode}.json`);
 const apiUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -94,9 +98,17 @@ async function main() {
   const counts = Object.fromEntries([...new Set(canonical.manifest.map((row) => row.classification))].sort()
     .map((classification) => [classification, canonical.manifest.filter((row) => row.classification === classification).length]));
   const recoverable = canonical.manifest.filter((row) => row.classification === "HISTORICAL_EXACT_RECOVERY").length;
-  if (source.targets.length !== 88 || source.existingPlans.filter((plan) => source.targets.some((target) => target.id === plan.measurement_target_business_id)).length !== 42
-      || canonical.manifest.length !== 88 || Number(counts.EXISTING_V2_PRESERVED ?? 0) !== 42) {
-    throw new Error(`HISTORY_RECOVERY_BASELINE_CHANGED:${JSON.stringify({ targets: source.targets.length, counts })}`);
+  if (source.targets.length !== 88 || source.existingPlans.filter((plan) => source.targets.some((target) => target.id === plan.measurement_target_business_id)).length !== expectedExisting
+      || canonical.manifest.length !== 88 || Number(counts.EXISTING_V2_PRESERVED ?? 0) !== expectedExisting
+      || recoverable !== expectedRecoverable) {
+    throw new Error(`HISTORY_RECOVERY_BASELINE_CHANGED:${JSON.stringify({ phase, targets: source.targets.length, counts })}`);
+  }
+  if (phase === "h0399") {
+    const recoveryRows = canonical.manifest.filter((row) => row.classification === "HISTORICAL_EXACT_RECOVERY");
+    if (recoveryRows.length !== 1 || recoveryRows[0].code !== "H0399" || recoveryRows[0].measurementDate !== "2026-08-25"
+        || recoveryRows[0].legacyPreliminarySurveyor !== "한기문" || recoveryRows[0].surveyMethod !== "phone") {
+      throw new Error(`H0399_HISTORY_RECOVERY_SCOPE_MISMATCH:${JSON.stringify(recoveryRows)}`);
+    }
   }
 
   let applyResult: unknown = null;
@@ -134,7 +146,7 @@ async function main() {
   const afterExistingRows = after.existingPlans.filter((plan) => canonical.manifest.some((row) =>
     row.classification === "EXISTING_V2_PRESERVED" && row.targetId === plan.measurement_target_business_id));
   const evidence = {
-    generatedAt: new Date().toISOString(), mode, project: new URL(apiUrl).hostname, batchId,
+    generatedAt: new Date().toISOString(), mode, phase, project: new URL(apiUrl).hostname, batchId,
     targetCount: source.targets.length, existingPreserved: Number(counts.EXISTING_V2_PRESERVED ?? 0),
     missing: source.targets.length - Number(counts.EXISTING_V2_PRESERVED ?? 0), recoverable,
     unresolved: canonical.manifest.length - Number(counts.EXISTING_V2_PRESERVED ?? 0) - recoverable,

@@ -70,6 +70,23 @@ test("정책 후보가 모두 기준일보다 과거면 강제 과거 배정 없
   assert.equal(result.date, null);
 });
 
+test("H0399 신규 future target은 사업장 코드 때문에 일반 추천에서 제외되지 않는다", async () => {
+  const futureTarget = {
+    ...target(399, "existing"),
+    code: "H0399",
+    measurementDate: "2026-09-25",
+  };
+  const [result] = await recommendBatch({
+    targets: [futureTarget], surveyors: [experienced], experiencedUsers: [experienced],
+    availability: { isBlocked: () => false },
+    routes: { between: async () => ({ source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: true }) },
+    planningDate: "2026-08-26",
+  });
+  assert.equal(result.targetId, futureTarget.id);
+  assert.equal(result.status, "recommended");
+  assert.ok(result.date);
+});
+
 test("daily_staff는 측정예정일별 메인측정자/조력자를 우선하고 collaborators는 역할 없는 fallback이다", () => {
   const userNameById = new Map([[1, "첫날 메인"], [2, "첫날 조력"], [3, "둘째날 메인"], [4, "둘째날 조력"]]);
   const dailyStaff = [

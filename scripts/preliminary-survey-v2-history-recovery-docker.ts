@@ -9,6 +9,10 @@ import { actualMeasurementBlockedKeys } from "../lib/preliminary-survey-v2/measu
 
 const envPath = process.argv.find((value) => value.startsWith("--env="))?.slice(6) ?? ".env.local";
 config({ path: envPath });
+const phase = process.argv.find((value) => value.startsWith("--phase="))?.slice(8) ?? "initial";
+if (!new Set(["initial", "h0399"]).has(phase)) throw new Error("INVALID_HISTORY_RECOVERY_PHASE");
+const expectedExisting = phase === "h0399" ? 87 : 42;
+const expectedRecoverable = phase === "h0399" ? 1 : 45;
 const localUrl = process.env.HISTORY_RECOVERY_LOCAL_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 if (!/^postgres(?:ql)?:\/\/(?:postgres(?::[^@]*)?@)?(?:127\.0\.0\.1|localhost):54322\//i.test(localUrl)) {
   throw new Error("PRODUCTION_WRITE_FORBIDDEN_IN_HISTORY_REHEARSAL");
@@ -128,8 +132,16 @@ async function main() {
     const counts = Object.fromEntries([...new Set(manifest.map((row) => row.classification))].sort()
       .map((classification) => [classification, manifest.filter((row) => row.classification === classification).length]));
     const recoverable = manifest.filter((row) => row.classification === "HISTORICAL_EXACT_RECOVERY").length;
-    if (manifest.length !== 88 || Number(counts.EXISTING_V2_PRESERVED ?? 0) !== 42) {
+    if (manifest.length !== 88 || Number(counts.EXISTING_V2_PRESERVED ?? 0) !== expectedExisting
+        || recoverable !== expectedRecoverable) {
       throw new Error(`LOCAL_CANONICAL_COUNT_MISMATCH:${JSON.stringify(counts)}`);
+    }
+    if (phase === "h0399") {
+      const recoveryRows = manifest.filter((row) => row.classification === "HISTORICAL_EXACT_RECOVERY");
+      if (recoveryRows.length !== 1 || recoveryRows[0].code !== "H0399" || recoveryRows[0].measurementDate !== "2026-08-25"
+          || recoveryRows[0].legacyPreliminarySurveyor !== "한기문" || recoveryRows[0].surveyMethod !== "phone") {
+        throw new Error(`LOCAL_H0399_SCOPE_MISMATCH:${JSON.stringify(recoveryRows)}`);
+      }
     }
 
     const existingPlanRowsBefore = (await local.query("select * from public.preliminary_survey_v2_plans order by id")).rows;
@@ -196,11 +208,13 @@ async function main() {
     if (digest(existingPlanRowsBefore) !== digest(planRowsAfterRollback) || Number(auditAfterRollback.count) !== manifest.length
         || Number(auditAfterRollback.rolled_back) !== recoverable) throw new Error("LOCAL_ROLLBACK_FAILED");
 
-    const manifestPath = "C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-history-recovery-manifest.json";
+    const manifestPath = phase === "h0399"
+      ? "C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-h0399-recovery-manifest.json"
+      : "C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-history-recovery-manifest.json";
     const manifestFile = `${JSON.stringify(manifest, null, 2)}\n`;
     writeFileSync(manifestPath, manifestFile);
     const manifestFileSha256 = createHash("sha256").update(manifestFile).digest("hex");
-    const evidence = { generatedAt: new Date().toISOString(), batchId, manifestSha, contextHash, counts,
+    const evidence = { generatedAt: new Date().toISOString(), phase, batchId, manifestSha, contextHash, counts,
       manifestRows: manifest.length, recoverable, first, second, rollback, expectedActualMismatch: 0,
       existingV2Changed: 0, assignmentChanged: 0, sourceChanged: 0, secondRunAdditionalChanges: 0,
       trueConfirmedGuardBlocked, planFieldMismatch: 0, protectedWrites: 0,
@@ -209,7 +223,9 @@ async function main() {
       unresolved: manifest.filter((row) => !["EXISTING_V2_PRESERVED", "HISTORICAL_EXACT_RECOVERY"].includes(row.classification))
         .map((row) => ({ code: row.code, classification: row.classification, exclusionReason: row.exclusionReason,
           legacyPreliminarySurveyor: row.legacyPreliminarySurveyor })) };
-    const output = "C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-history-docker-evidence.json";
+    const output = phase === "h0399"
+      ? "C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-h0399-docker-evidence.json"
+      : "C:/Users/USER/Downloads/2026-08-26_preliminary-survey-v2-history-docker-evidence.json";
     writeFileSync(output, `${JSON.stringify(evidence, null, 2)}\n`);
     console.log(JSON.stringify({ output, outputSha256: digest(evidence), ...evidence }, null, 2));
 
