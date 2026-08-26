@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildHistoricalPlanRecoveryManifest,
+  HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES,
   type HistoricalPlanRecoveryTarget,
 } from "../lib/preliminary-survey-v2/historical-plan-recovery";
 import { recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2/calendar";
@@ -72,8 +73,21 @@ describe("historical plan recovery", () => {
     });
     assert.equal(existing.classification, "EXISTING_V2_PRESERVED");
 
-    const [protectedRow] = build({ targets: [target({ code: "H0399" })], legacySources: [{ id: 102, code: "H0399", year: 2026, period: "하반기", measurement_date: "2026-08-26", preliminary_surveyor: "경력" }], sourceHashes: new Map([[102, "d".repeat(64)]]) });
+    const [protectedRow] = build({ targets: [target({ code: "H0524" })], legacySources: [{ id: 102, code: "H0524", year: 2026, period: "하반기", measurement_date: "2026-08-26", preliminary_surveyor: "경력" }], sourceHashes: new Map([[102, "d".repeat(64)]]) });
     assert.equal(protectedRow.classification, "PROTECTED_PRESERVED");
+  });
+
+  it("H0399는 영구 코드 차단 없이 역사 복원 대상이고 기존 보호 9건은 유지한다", () => {
+    const [row] = build({
+      targets: [target({ code: "H0399", measurement_date: "2026-08-25" })],
+      legacySources: [{ id: 102, code: "H0399", year: 2026, period: "하반기", measurement_date: "2026-08-25", preliminary_surveyor: "경력" }],
+      sourceHashes: new Map([[102, "d".repeat(64)]]),
+    });
+    assert.equal(row.classification, "HISTORICAL_EXACT_RECOVERY");
+    assert.deepEqual(row.participantNames, ["경력"]);
+    assert.equal(HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES.has("H0399"), false);
+    assert.equal(HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES.size, 9);
+    assert.equal(HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES.has("H0524"), true);
   });
 
   it("legacy source 또는 user가 모호하면 plan을 만들지 않는다", () => {

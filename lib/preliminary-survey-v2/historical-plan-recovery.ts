@@ -2,8 +2,8 @@ import { recommendationDatesForBusinessType } from "./calendar";
 import { normalizeLegacyReconciliationPeriod } from "./legacy-reconciliation";
 
 export const HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES = new Set([
-  "H0399", "H0524", "H0288", "H0528", "H0348",
-  "H0126", "H0281", "H0260", "H0063", "H0077",
+  "H0524", "H0288", "H0528", "H0348", "H0126",
+  "H0281", "H0260", "H0063", "H0077",
 ]);
 
 export type HistoricalPlanRecoveryClassification =
