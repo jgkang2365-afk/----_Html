@@ -129,4 +129,8 @@ API는 `mainMeasurerSource`로 내부 source를 진단할 수 있다. 운영 `/s
 
 - PR #55, #56, #57: merge 완료
 - 각 Production deployment: success
-- Fresh-context GPT-5.6 Sol / high 독립 검증: 운영 상태 PASS, exact post-verify/2회차 evidence 최종 재검산
+- Fresh-context GPT-5.6 Sol / high 독립 검증: PASS
+  - exact route semantics 기준 source-backed 98 / `-` 0
+  - legacy 8 / 신규 V2 6 mismatch 0
+  - 2회차 0/110/insert 0 및 assignment full-row digest 불변
+  - 로그인 화면 픽셀 자동화만 런타임 제약으로 미수행(운영 DB/API 표시 데이터 검증에는 영향 없음)
