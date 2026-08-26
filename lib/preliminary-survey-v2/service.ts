@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
+import { buildScheduleBlockKeys } from "./availability";
 import { parseDateOnly, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
@@ -475,6 +476,15 @@ export async function calculateV2Recommendations(
       options,
     ).map((item) => item.date)),
   ]));
+  const candidateDates = [...new Set([...candidateDatesByTarget.values()].flatMap((dates) => [...dates]))].sort();
+  const earliestCandidateDate = candidateDates[0];
+  const latestCandidateDate = candidateDates.at(-1);
+  const { data: scheduleBlocks, error: scheduleBlockError } = earliestCandidateDate && latestCandidateDate
+    ? await supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
+      .lte("start_date", latestCandidateDate).gte("end_date", earliestCandidateDate)
+    : { data: [], error: null };
+  if (scheduleBlockError) throw new Error(`V2_BLOCK_QUERY_FAILED:${scheduleBlockError.message}`);
+  const blockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
 
   const { data: queriedPlanRows, error: planError } = options.ignoreLegacyAssignmentInputs
     ? { data: [], error: null }
@@ -539,7 +549,7 @@ export async function calculateV2Recommendations(
     const responsible = users.find((user) => user.id === tentative.responsibleUserId) ?? null;
     if (!responsible || participants.length !== new Set(tentative.participants).size ||
         !participants.some((user) => user.id === responsible.id) ||
-        participants.some((user) => user.active === false) ||
+        participants.some((user) => user.active === false || blockedKeys.has(`${user.id}:${tentative.date}`)) ||
         !isInPreliminaryDateScope(tentative.date, scope)) return null;
     const validation = await validateManualPlanHardRules({
       target: { ...target, responsible },
@@ -581,7 +591,7 @@ export async function calculateV2Recommendations(
     experiencedUsers: activeSurveyors.filter((user) => user.experienced),
     existingAssignments: [...existingAssignments, ...preservedAssignments],
     availability: {
-      isBlocked: (_userId, date) => !isInPreliminaryDateScope(date, scope),
+      isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`),
     },
     routes,
   });
@@ -592,7 +602,7 @@ export async function calculateV2Recommendations(
       ? manualRequiredOutsidePreliminaryScope(result)
       : result;
   });
-  return { targets: selectedTargets, results, missing, blockedKeys: [] };
+  return { targets: selectedTargets, results, missing, blockedKeys: [...blockedKeys] };
 }
 
 /** @deprecated 새 plan/자동 plan 저장은 workbench canonical draft + assignment 원자 RPC만 사용한다. */
@@ -801,19 +811,26 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     };
   }
 
-  const [{ data: users, error: userError }, { data: journals, error: journalError }] = await Promise.all([
+  const candidateDates = recommendationDates(target.measurement_date)
+    .map((candidate) => candidate.date);
+  const [{ data: users, error: userError }, { data: journals, error: journalError }, { data: blocks, error: blockError }] = await Promise.all([
     supabase.from("users").select("id, name, job, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
     supabase.from("measurement_journal").select(
       "id, code, measurement_year, measurement_period, note, updated_at, created_at",
     ).eq("code", target.code).eq("measurement_year", Number(target.year)),
+    candidateDates.length
+      ? supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
+        .lte("start_date", candidateDates.at(-1)).gte("end_date", candidateDates[0])
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  if (userError || journalError) {
+  if (userError || journalError || blockError) {
     return { action: "blocked", reason: "V2_LOAD_FAILED" };
   }
   const userRows: SurveyUser[] = (users ?? []).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced),
     active: user.is_active,
   }));
+  const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
   const userById = new Map(userRows.map((user) => [user.id, user]));
 
   // responsible(lead) 결정: 예·측(link)이 있으면 그것, 없으면 실제 측정자 중 첫 유효 인원.
@@ -849,7 +866,9 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     targets: [surveyTarget],
     experiencedUsers: userRows.filter((user) => user.experienced && user.active !== false),
     existingAssignments: [],
-    availability: { isBlocked: () => false },
+    availability: {
+      isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+    },
     routes: createRouteMetrics(),
   });
   const result = results[0];

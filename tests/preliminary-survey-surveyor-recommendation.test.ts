@@ -23,7 +23,7 @@ test("유선 기존업체의 기존 일일 건수는 배정 불가 사유가 아
   assert.deepEqual(result[0].participants.map((user) => user.id), [10]);
 });
 
-test("직원 일정과 방문 개인 용량은 후보 날짜를 제외하지 않는다", () => {
+test("직원 일정은 해당 사용자만 제외하고 방문 개인 용량은 후보 날짜를 제외하지 않는다", () => {
   const result = recommendSurveyors({
     targets: [{ id: 1, kind: "new", businessType: "first_measurement", measurementDate: "2026-07-14", createdAt: null, candidateDates: ["2026-06-01", "2026-06-02"] }],
     users: [experienced(1), novice(2)],
@@ -33,6 +33,16 @@ test("직원 일정과 방문 개인 용량은 후보 날짜를 제외하지 않
   assert.equal(result[0].date, "2026-06-01");
   assert.equal(result[0].responsible?.id, 1);
   assert.deepEqual(result[0].participants.map((user) => user.id), [1]);
+});
+
+test("첫 날짜의 모든 사용자가 blocked면 다음 정책 유효 날짜를 사용한다", () => {
+  const result = recommendSurveyors({
+    targets: [{ id: 1, kind: "existing", businessType: "existing", measurementDate: "2026-07-14", createdAt: null, candidateDates: ["2026-06-01", "2026-06-02"] }],
+    users: [experienced(1), novice(2)],
+    assignments: [],
+    availability: available(new Set(["1:2026-06-01", "2:2026-06-01"])),
+  });
+  assert.equal(result[0].date, "2026-06-02");
 });
 
 test("유효한 기존 가확정은 신규 후보보다 먼저 reserve하여 최소 변경으로 유지한다", () => {

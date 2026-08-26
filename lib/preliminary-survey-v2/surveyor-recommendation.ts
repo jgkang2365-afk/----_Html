@@ -82,10 +82,8 @@ function fieldCount(assignments: ExistingAssignment[], userId: number, date: str
 }
 
 function validParticipants(participants: SurveyUser[], date: string, availability: Availability) {
-  // 직원 일정은 선택 참고값이며 서류상 조사자 유효성을 무효화하지 않는다.
-  void date;
-  void availability;
-  return participants.length > 0 && participants.every((user) => user.active !== false);
+  return participants.length > 0 && participants.every((user) =>
+    user.active !== false && !availability.isBlocked(user.id, date));
 }
 
 function fitsCapacity(

@@ -6,6 +6,7 @@ import { createRouteMetrics } from "@/lib/preliminary-survey-v2/route-metrics";
 import { loadV2ManualContext } from "@/lib/preliminary-survey-v2/service";
 import { surveyMethodForKind, type SurveyUser } from "@/lib/preliminary-survey-v2/types";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
+import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
 
 export async function PATCH(request: NextRequest, { params }: { params: { targetId: string } }) {
   const session = await getSession();
@@ -36,6 +37,21 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
       existingAssignments: assignments, routes: createRouteMetrics(),
     });
     if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
+    const { data: scheduleBlocks, error: scheduleBlockError } = await supabase
+      .from("user_schedule_blocks")
+      .select("user_id, start_date, end_date")
+      .lte("start_date", body.recommendedDate)
+      .gte("end_date", body.recommendedDate)
+      .in("user_id", participantIds);
+    if (scheduleBlockError) throw scheduleBlockError;
+    const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
+    if (participantIds.some((userId) => scheduleBlockedKeys.has(`${userId}:${body.recommendedDate}`))) {
+      return NextResponse.json({
+        error: "직원 불가 일정에 등록된 예비조사자 또는 경력 검토자는 저장할 수 없습니다.",
+        code: "USER_UNAVAILABLE_ON_SURVEY_DATE",
+        reviewRequired: true,
+      }, { status: 409 });
+    }
     // 경력자 2명 이상 조합은 사용자 확인 전에는 저장하지 않는다.
     // 1차 요청(confirm 미포함)에서는 계획을 저장하지 않고 확인 요청만 반환한다.
     const confirmed = body.confirm === true;

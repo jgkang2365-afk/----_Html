@@ -208,7 +208,8 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   // apply는 draft를 새로 저장하지 않지만, stale 방지를 위해 서버에서 동일 추천을 재계산한다.
   assert.match(api.slice(applyStart, applyEnd), /calculateV2Recommendations/);
   assert.match(api.slice(applyStart, applyEnd), /canonicalFingerprint/);
-  assert.doesNotMatch(api.slice(applyStart, applyEnd), /blockedKeys\.has|loadActualMeasurementBlockedKeys|loadScheduleBlockKeys/);
+  assert.doesNotMatch(api.slice(applyStart, applyEnd), /loadActualMeasurementBlockedKeys/);
+  assert.match(api.slice(applyStart, applyEnd), /preliminaryScheduleBlockedKeys/);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
   assert.match(ui, /flex flex-wrap items-end gap-2 xl:flex-nowrap/);
@@ -256,7 +257,7 @@ test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합�
   assert.match(service, /validateManualPlanHardRules/);
   assert.match(engine, /surveyors\?: SurveyUser\[\]/);
   assert.match(service, /filter\(\(candidate\) => isInPreliminaryDateScope\(candidate\.date, scope\)\)/);
-  assert.match(service, /isBlocked: \(_userId, date\) => !isInPreliminaryDateScope\(date, scope\)/);
+  assert.match(service, /isBlocked: \(userId, date\) => !isInPreliminaryDateScope\(date, scope\) \|\| blockedKeys\.has\(`\$\{userId\}:\$\{date\}`\)/);
   assert.match(service, /manualRequiredOutsidePreliminaryScope/);
   const applyStart = api.indexOf("async function applySubmittedDrafts");
   const applyEnd = api.indexOf("export async function GET", applyStart);
@@ -358,11 +359,27 @@ test("수동 수정과 draft apply는 선택한 조사 방식을 hard-rule 검�
   assert.match(workbenchApi, /validateManualPlanHardRules\(\{[\s\S]*?surveyMethod: draft\.surveyMethod,[\s\S]*?existingAssignments/);
 });
 
-test("수동 수정과 apply는 후발 직원 일정 충돌을 서류 저장 hard blocker로 사용하지 않는다", () => {
+test("F: 수동 수정은 blocked 조사자를 명확한 오류로 거부한다", () => {
   const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
+  assert.match(manualRoute, /user_schedule_blocks/);
+  assert.match(manualRoute, /USER_UNAVAILABLE_ON_SURVEY_DATE/);
+  assert.match(manualRoute, /status: 409/);
+});
+
+test("E: apply는 추천 후 추가된 직원 불가 일정을 stale draft로 거부한다", () => {
   const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   const applyStart = workbench.indexOf("async function applySubmittedDrafts");
   const applyEnd = workbench.indexOf("export async function GET", applyStart);
-  assert.doesNotMatch(manualRoute, /user_schedule_blocks|USER_UNAVAILABLE_ON_SURVEY_DATE/);
-  assert.doesNotMatch(workbench.slice(applyStart, applyEnd), /직원 불가 일정|측정 업무가 추가|blockedKeys\.has/);
+  const apply = workbench.slice(applyStart, applyEnd);
+  assert.match(apply, /loadScheduleBlockKeys/);
+  assert.match(apply, /preliminaryScheduleBlockedKeys\.has/);
+  assert.match(apply, /USER_UNAVAILABLE_ON_SURVEY_DATE/);
+  assert.match(apply, /DRAFT_REVIEW_REQUIRED/);
+  assert.match(apply, /status: 409/);
+});
+
+test("기존 가확정·수동 plan은 blocked 조사자가 있으면 보존하지 않고 재추천한다", () => {
+  const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
+  assert.match(service, /participants\.some\(\(user\) => user\.active === false \|\| blockedKeys\.has\(`\$\{user\.id\}:\$\{tentative\.date\}`\)\)/);
+  assert.match(service, /preservedAssignments/);
 });

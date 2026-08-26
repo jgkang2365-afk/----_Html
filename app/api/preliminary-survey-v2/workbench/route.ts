@@ -471,6 +471,11 @@ async function applySubmittedDrafts(
     journalKey(row.code, row.measurement_year, row.measurement_period)));
   const reasons: Array<{ targetId: number; reason: string }> = [];
   const routes = createRouteMetrics();
+  const preliminaryScheduleBlockedKeys = await loadScheduleBlockKeys(
+    supabase,
+    submitted.map((draft) => draft.preliminaryDate),
+    submitted.flatMap((draft) => draft.participantUserIds),
+  );
   const draftAssignments: ExistingAssignment[] = submitted.map((draft, index) => {
     const context = contexts[index];
     const participants = draft.participantUserIds.flatMap((id) => context.users.find((user) => user.id === id) ?? []);
@@ -504,6 +509,10 @@ async function applySubmittedDrafts(
     }
     if (participants.length !== draft.participantUserIds.length || currentNames.join("|") !== draft.surveyors.join("|")) {
       reasons.push({ targetId: draft.targetId, reason: "추천 생성 후 조사자 정보가 변경되었습니다." });
+    }
+    if (draft.participantUserIds.some((userId) =>
+      preliminaryScheduleBlockedKeys.has(`${userId}:${draft.preliminaryDate}`))) {
+      reasons.push({ targetId: draft.targetId, reason: "USER_UNAVAILABLE_ON_SURVEY_DATE" });
     }
     if (context.target.kind === "new" && draft.surveyMethod !== "field") {
       reasons.push({ targetId: draft.targetId, reason: "신규업체는 현장 예비조사 방식이어야 합니다." });

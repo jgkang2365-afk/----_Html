@@ -6,7 +6,8 @@
 
 - 추천 기준점은 오늘이 아니라 측정예정일이다.
 - 측정예정일에서 역산한 정책 범위의 과거 기준일을 허용하며 today cutoff를 두지 않는다.
-- 직원 일정, 같은 날 다른 측정·예비조사, 이동 동선, 이동시간, 방문·유선 일일 capacity는 추천·적용·수동 저장의 hard blocker가 아니다. 필요하면 preference 또는 참고 warning으로만 사용한다.
+- `user_schedule_blocks`의 직원 불가 일정은 해당 날짜의 예비조사 책임자·경력 검토자 후보에서 그 사용자를 제외하는 hard constraint다. 날짜 자체는 제외하지 않고 같은 날짜의 다른 유효 조사자, 다음 정책 유효 날짜 순으로 탐색한다.
+- 같은 날 다른 측정·예비조사, 이동 동선, 이동시간, 방문·유선 일일 capacity는 추천·적용·수동 저장의 hard blocker가 아니다. 필요하면 preference 또는 참고 warning으로만 사용한다.
 - 사업장 유형, 측정예정일, 영업일 범위, 조사 방식, 유효 조사자, 최초실시·타기관 신규의 경력자 조건 등 document integrity만 hard rule로 사용한다.
 
 ## 1. 역할과 원천 데이터
@@ -89,6 +90,7 @@
 - 기본 흐름은 `검색 → 추천 → 확인 → 적용`이다. 예외 시 `업체 선택 → 영향 범위 재추천`을 사용한다.
 - 영향 범위는 같은 예비조사일, 같은 조사자/조합, 같은 주소·참고 묶음, 같은 측정일의 측정자 균등 배정을 포함할 수 있다. 이 관계만으로 추천·적용을 차단하지 않는다.
 - 문제없는 가확정은 minimum-change로 최대한 유지하고 변경안을 사용자에게 보여준 뒤 적용한다.
+- 기존 가확정·수동 plan의 조사자 또는 경력 검토자가 해당 예비조사일의 `user_schedule_blocks`에 걸리면 보존하지 않고 재추천한다.
 - 측정일, 다일 일정, 참여자, 보고서 담당자, 사업장 구분, 주소 등 영향값이 바뀌면 기존 계획을 자동 덮어쓰지 않고 `재검토 필요`로 표시한다.
 - `measurement_journal` row가 존재하면 찐확정이다. `sequence_number`를 판정 기준으로 사용하지 않으며 일반 추천·재추천·수정을 차단하고 관리자 repair만 허용한다.
 - 추천 사유는 `최초실시 · 방문`, `기존업체 · 유선`, `동일주소 묶음`, `측정자 균등배정`, `2건 배정`, `3건 승인 필요`, `재추천`처럼 짧게 표시한다.
@@ -152,17 +154,20 @@
 - 위 후보는 측정예정일만을 기준으로 계산한다. KST 오늘, 실행 시각 또는 `candidate >= today` 조건으로 과거 후보를 제외하지 않는다.
 - 최초실시와 타기관 신규는 방문, 기존업체는 유선으로 분류한다. 최초실시·타기관 신규의 비경력자 단독 금지와 유효 경력자 조건은 계속 hard rule이다.
 - `measurement_target_business.business_type`이 authoritative source다. 값이 null일 때만 현재 측정일지와 legacy rule fallback을 검토하며, authoritative 값이 legacy 값에 의해 덮어써지지 않는다.
-- 직원 불가 일정, 동일 날짜 측정 업무, 동일 날짜 다른 예비조사, 방문·유선 건수, 주소·지역·차량 route·이동시간은 operational feasibility 참고정보다. 이 정보만으로 `recommended`를 `review_required`/`manual_required`로 바꾸거나 적용·수동 저장을 거부하지 않는다.
+- `user_schedule_blocks`는 날짜별 사용자 hard exclusion이다. blocked 사용자는 해당 날짜의 책임자·경력 검토자로 추천하지 않으며, 수동 저장도 `USER_UNAVAILABLE_ON_SURVEY_DATE`로 거부한다. 추천 후 불가 일정이 추가되면 apply는 stale draft로 409를 반환하고 새 추천을 요구한다.
+- 직원 불가 일정은 날짜 자체를 막지 않는다. 같은 날짜의 다른 유효 조사자를 먼저 찾고, 없으면 다음 정책 유효 날짜를 탐색하며, 모든 후보 날짜에서 필요한 조합을 만들 수 없을 때만 `manual_required`로 처리한다.
+- 단순한 동일 날짜 측정 업무, 동일 날짜 다른 예비조사, 방문·유선 건수, 주소·지역·차량 route·이동시간은 operational feasibility 참고정보다. 이 정보만으로 `recommended`를 `review_required`/`manual_required`로 바꾸거나 적용·수동 저장을 거부하지 않는다.
 - 조정 필요는 측정일·사업장 유형·정책 날짜·유효 조사자·신규 경력자 조건 등 서류를 정상 구성할 수 없는 경우에만 사용한다.
 - 측정자·공시료 담당자는 같은 측정일에 1~2개까지 자동추천하고, 정확히 3개인 그룹은 예비조사 담당자 또는 관리자 승인을 요구한다. 4개 이상은 승인 여부와 무관하게 `MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED`로 차단한다.
 - 3건 승인의 단위는 `measurement_date + assignee_user_id + sorted target_ids`다. 이 구성의 fingerprint가 기존 승인과 같으면 승인자·승인시각을 보존하고 재승인하지 않는다. 날짜·담당자·업체 집합 중 하나라도 바뀌면 새 승인을 요구한다. 클라이언트의 승인 관련 값은 판단 근거로 사용하지 않는다.
 - 측정자·공시료 3건 승인과 4건 차단은 예비조사자의 현장 capacity가 아니라 별도 측정자 배정 transaction의 승인·무결성 규칙이므로 유지한다. 예비조사 기준일 추천의 일일 수용량 차단으로 해석하지 않는다.
+- 측정자·공시료 배정에서도 기존 `user_schedule_blocks` hard constraint를 그대로 유지한다. 이는 예비조사 책임자·경력 검토자 선택과 별도의 배정 정책이며 이번 변경으로 완화하지 않는다.
 - 사업장 상세의 보고서 담당자·측정 참여자 입력 검증과 찐확정/locked 보호는 별도 정책으로 유지하며, 이번 추천 정책이 원천 역할을 변경하거나 기존 확정 데이터를 덮어쓰지 않는다.
 - assignment 승인 그룹·hard max 보완은 기존 적용 가능성이 있는 migration을 고쳐 쓰지 않고 후속 migration으로 적용한다. 저장 전 old 그룹과 저장 후 new 그룹의 합집합을 정규화하여 3건에서 2건으로 줄어든 그룹의 stale 승인정보를 지우고, 동일한 3건 fingerprint만 기존 승인을 보존한다. 비운영 Supabase 환경에서 migration/RPC, rollback, guard 6종, 승인 유지·변경, 4건 차단, transaction rollback을 검증하기 전 운영에 적용하지 않는다.
 
 ## 14. 1단계 배정 preference와 요약 표시 (2026-08-23)
 
-- 예비조사 책임자는 document integrity hard rule을 통과한 후보 중 배정 균형을 soft preference로 비교하고, 해당 날짜의 측정 참여자를 가장 먼저, 보고서 담당자를 다음으로 선호하며 최종 측정자와도 일치하는 안을 선호한다. 같은 날 건수나 실제 일정은 후보를 제외하지 않으며 역할별 authoritative source는 계속 분리한다.
+- 예비조사 책임자는 document integrity hard rule과 해당 날짜의 `user_schedule_blocks`를 통과한 후보 중 배정 균형을 soft preference로 비교하고, 해당 날짜의 측정 참여자를 가장 먼저, 보고서 담당자를 다음으로 선호하며 최종 측정자와도 일치하는 안을 선호한다. 같은 날 건수나 단순한 다른 측정 업무는 후보를 제외하지 않으며 역할별 authoritative source는 계속 분리한다.
 - 측정 참여자와 보고서 담당자는 단일일의 `measurer_id`/정규화한 `collaborators`, 다일의 해당 `daily_staff` 행을 사용한다. 다일 역할을 상단 요약 배열에서 역산하지 않는다.
 - 측정자 공시료 코드는 계속 `users.survey_code`만 사용한다. 추천 요약 컬럼은 `측정자(공시료)`, 값은 `강종구(C)`처럼 표시하며 측정예정일 prefix를 반복하지 않는다.
 - 방식 요약은 `유선` 또는 `방문`만 표시한다. 기존업체의 비경력 책임자와 경력 검토자는 두 이름을 간단히 표시하되 underlying data의 책임자와 검토자 의미를 유지한다.

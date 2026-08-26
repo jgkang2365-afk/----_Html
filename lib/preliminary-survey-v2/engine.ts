@@ -137,7 +137,8 @@ async function chooseReviewer(
   capacityPass: 1 | 2,
 ) {
   const choices = await Promise.all(users
-    .filter((user) => user.active !== false && user.experienced && user.id !== target.responsible.id)
+    .filter((user) => user.active !== false && user.experienced && user.id !== target.responsible.id &&
+      !availability.isBlocked(user.id, date))
     .map(async (user) => {
       const sameDayFieldCount = fieldVisitCount(assignments, user.id, date);
       const route = target.kind === "new" && capacityPass === 2
@@ -145,9 +146,8 @@ async function chooseReviewer(
         : null;
       return {
         user,
-        blocked: availability.isBlocked(user.id, date),
-        // 직원 일정·일일 방문량·동선은 서류 정합성 hard rule이 아니다.
-        // 기존 선택 경향을 위한 정렬 정보로만 남긴다.
+        // 직원 불가 일정은 날짜별 조사자 후보에서 이미 제외한다.
+        // 일일 방문량·동선만 기존 선택 경향을 위한 정렬 정보로 남긴다.
         hardConflict: false,
         route,
         // 기존업체 검토는 현장 동행·유선 수행이 아니므로 신규 방문과의 용량 중복으로 보지 않는다.
@@ -159,7 +159,6 @@ async function chooseReviewer(
       };
     }));
   choices.sort((left, right) =>
-    Number(left.blocked) - Number(right.blocked) ||
     Number(left.crossTypeOverlap) - Number(right.crossTypeOverlap) ||
     compareRoute(left.route, right.route) ||
     left.reviewCount - right.reviewCount ||
@@ -310,6 +309,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
     const evaluateForResponsible = async (candidate: (typeof dates)[number], capacityPass: 1 | 2) => {
       const feasible: RecommendationResult[] = [];
       for (const responsible of responsibleCandidates) {
+        if (input.availability.isBlocked(responsible.id, candidate.date)) continue;
         const result = await evaluateCandidate({ ...target, responsible }, candidate, capacityPass);
         if (result) feasible.push(result);
       }
