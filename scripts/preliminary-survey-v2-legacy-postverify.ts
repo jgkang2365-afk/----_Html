@@ -3,6 +3,7 @@ import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { resolveMeasurementPublicSampleDisplay } from "../lib/preliminary-survey-v2/public-sample-display";
 
 config({ path: ".env.local" });
 
@@ -44,7 +45,7 @@ async function main() {
     supabase.from("preliminary_survey_v2_plans").select("id,measurement_target_business_id,status"),
     supabase.from("preliminary_survey_v2_measurement_assignments")
       .select("id,plan_id,measurement_date,assignee_user_id,survey_code,assignment_origin,legacy_survey_code_snapshot"),
-    supabase.from("users").select("id,name,survey_code"),
+    supabase.from("users").select("id,name,survey_code").eq("job", "측정"),
     supabase.from("preliminary_survey_v2_legacy_reconciliation").select("*"),
     supabase.from("preliminary_survey").select("*").eq("year", 2026).gte("measurement_date", "2026-08-01"),
     supabase.from("preliminary_survey_plans").select("id,measurement_target_business_id,recommended_date"),
@@ -64,39 +65,58 @@ async function main() {
   const userById = new Map(users.map((row) => [String(row.id), row]));
   const planById = new Map(plans.map((row) => [String(row.id), row]));
 
-  const assignmentLabelsByCode = new Map<string, string[]>();
+  const assignmentByTargetDate = new Map<string, typeof assignments[number]>();
   for (const assignment of assignments) {
     const plan = planById.get(String(assignment.plan_id));
     const target = plan ? targetById.get(String(plan.measurement_target_business_id)) : undefined;
     if (!target) continue;
-    const user = userById.get(String(assignment.assignee_user_id));
-    const label = `${user?.name ?? "?"}(${assignment.survey_code})`;
-    assignmentLabelsByCode.set(target.code, [...(assignmentLabelsByCode.get(target.code) ?? []), label]);
+    assignmentByTargetDate.set(`${target.id}|${assignment.measurement_date}`, assignment);
   }
 
-  const reconciledLabelsByCode = new Map<string, string[]>();
+  const auditByTargetDate = new Map<string, typeof audits[number]>();
   for (const row of audits) {
-    const name = String(row.legacy_public_sample_measurer ?? "").trim();
-    const code = String(row.legacy_survey_code_raw ?? "").trim();
-    if (!name || !code) continue;
-    reconciledLabelsByCode.set(row.code, [...(reconciledLabelsByCode.get(row.code) ?? []), `${name}(${code})`]);
+    auditByTargetDate.set(`${row.measurement_target_business_id}|${row.measurement_date}`, row);
   }
 
-  const resolveExpected = (expected: Record<string, string>, source: Map<string, string[]>) => {
-    const actual = Object.fromEntries(Object.keys(expected).map((code) => [code, source.get(code)?.[0] ?? "-"]));
+  const displayFor = (targetId: unknown, measurementDate: string) => {
+    const key = `${targetId}|${measurementDate}`;
+    const assignment = assignmentByTargetDate.get(key);
+    const reconciliation = auditByTargetDate.get(key);
+    return resolveMeasurementPublicSampleDisplay({
+      v2Assignment: assignment ? {
+        assigneeUserId: Number(assignment.assignee_user_id),
+        surveyCode: assignment.survey_code,
+      } : null,
+      v2AssignmentId: assignment?.id ?? null,
+      reconciliation: reconciliation ? {
+        measurer: reconciliation.legacy_public_sample_measurer,
+        surveyCode: reconciliation.legacy_survey_code_raw,
+        appliedAssignmentId: reconciliation.applied_assignment_id,
+      } : null,
+      trueConfirmed: false,
+      legacyAssignment: null,
+      userNameById: new Map(users.map((row) => [Number(row.id), row.name])),
+    });
+  };
+  const resolveExpected = (expected: Record<string, string>, dates: Record<string, string>) => {
+    const actual = Object.fromEntries(Object.keys(expected).map((code) => {
+      const plan = plans.find((row) => targetById.get(String(row.measurement_target_business_id))?.code === code);
+      return [code, plan ? displayFor(plan.measurement_target_business_id, dates[code]).label : "-"];
+    }));
     return { expected, actual, mismatch: Object.keys(expected).filter((code) => actual[code] !== expected[code]) };
   };
-  const legacy8 = resolveExpected(legacyExpected, reconciledLabelsByCode);
-  const v2Six = resolveExpected(v2Expected, assignmentLabelsByCode);
+  const legacy8 = resolveExpected(legacyExpected, Object.fromEntries(Object.keys(legacyExpected).map((code) => [code, "2026-08-03"])));
+  const v2Six = resolveExpected(v2Expected, {
+    H0048: "2026-08-28", H0035: "2026-08-28", H0034: "2026-08-28", H0016: "2026-08-28",
+    H0102: "2026-09-14", H0527: "2026-08-28",
+  });
 
   const sourceBackedAudits = audits.filter((row) =>
     String(row.legacy_public_sample_measurer ?? "").trim()
       && String(row.legacy_survey_code_raw ?? "").trim(),
   );
   const sourceBackedDash = sourceBackedAudits.filter((row) => {
-    const v2Labels = assignmentLabelsByCode.get(row.code) ?? [];
-    const fallback = `${String(row.legacy_public_sample_measurer).trim()}(${String(row.legacy_survey_code_raw).trim()})`;
-    return (v2Labels[0] ?? fallback) === "-";
+    return displayFor(row.measurement_target_business_id, row.measurement_date).label === "-";
   });
 
   const scopedV1NonNull = (v1Result.data ?? []).filter((row) => {

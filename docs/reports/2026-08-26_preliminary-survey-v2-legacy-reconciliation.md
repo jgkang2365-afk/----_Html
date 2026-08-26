@@ -22,7 +22,9 @@
 - 운영 apply evidence: `C:\Users\USER\Downloads\2026-08-26_preliminary-survey-v2-legacy-production-apply.json`
 - 운영 apply evidence SHA-256: `5185B39001A40DBF2EB545FE3716BDCDAA17AB55EFF99253EBDFCC90A66AA863`
 - 운영 post-verify evidence: `C:\Users\USER\Downloads\2026-08-26_preliminary-survey-v2-legacy-production-postverify.json`
-- 운영 post-verify evidence SHA-256: `54F4FDF93018221226AF9FDD1E0213061F3DC753EB3E1BDFB1B2F5222A89A4A3`
+- 운영 post-verify evidence SHA-256: `C994971475052DD2D2550E3EC29A49AEFBEF7C24279A22FD2C78A156C22D04D9`
+- 운영 2회차 evidence: `C:\Users\USER\Downloads\2026-08-26_preliminary-survey-v2-legacy-production-second-run.json`
+- 운영 2회차 evidence SHA-256: `01F7E736CCBB9DB04F5D0A022BCD2A1D33532D76F5B6B63124A2F6ECB506E9D3`
 
 Raw production 자료는 Git에 포함하지 않았다.
 
@@ -109,6 +111,7 @@ API는 `mainMeasurerSource`로 내부 source를 진단할 수 있다. 운영 `/s
 - FF/GG raw 원문: FF 5, GG 2 보존
 - expected/actual mismatch: 0
 - 동일 manifest 2회차 additional changes: 0 (`alreadyReconciled=110`)
+- 2회차 assignment count: 49 → 49, full-row digest 변경: 0
 - 지시 범위인 측정일 2026-08-01 이후 V1 `recommended_date` non-null: 0
 
 ## 운영 표시 전수검증
@@ -126,4 +129,4 @@ API는 `mainMeasurerSource`로 내부 source를 진단할 수 있다. 운영 `/s
 
 - PR #55, #56, #57: merge 완료
 - 각 Production deployment: success
-- Fresh-context GPT-5.6 Sol / high 독립 검증: 최종 사후 evidence 확인 후 기록
+- Fresh-context GPT-5.6 Sol / high 독립 검증: 운영 상태 PASS, exact post-verify/2회차 evidence 최종 재검산
