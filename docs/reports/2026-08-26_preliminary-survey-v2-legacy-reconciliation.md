@@ -2,12 +2,14 @@
 
 ## 판정
 
-구현 및 Docker one-shot 리허설 PASS. 운영 migration/data apply는 Fresh-context 독립 검증과 PR 병합 후에만 수행한다.
+운영 역산 복원 및 사후검증 PASS. 정확히 역산 가능한 assignment gap만 one-shot으로 복원했고, 원본 legacy/V2 값은 변경하지 않았다.
 
 ## 기준
 
 - 시작 main: `0aad6a9cf5e4268102736ef8405df5e51274115d`
 - PR #55 merge: `0aad6a9cf5e4268102736ef8405df5e51274115d`
+- reconciliation PR #56 merge: `487d0db14e0d60baeddc7bc66824b89600503788`
+- canonical ID 보완 PR #57 merge: `4b933a5045433398119bba35e659c8d372c1af7f`
 - 총지휘 요청 모델: GPT-5.6 Sol Pro / high
 - 실제 모델 metadata: 확인 불가
 - 운영 snapshot: 2026-08-26 08:30 KST 전후
@@ -17,6 +19,10 @@
 - Docker evidence SHA-256: `042926283983DB20A30EBA981E7CD5A5E598AB64ED33F172F40EF023AC81514F`
 - Docker/운영 canonical manifest SHA-256: `9454ec18fc3a910754c219e58afe0deb0df32c08a86b5e53bbd73b3f6331ceb0`
 - 운영 pre-apply evidence SHA-256: `68E1E13FFF529769835E2B26DD9827F55065E39AF4DDE4D5D0252A16C4D41194`
+- 운영 apply evidence: `C:\Users\USER\Downloads\2026-08-26_preliminary-survey-v2-legacy-production-apply.json`
+- 운영 apply evidence SHA-256: `5185B39001A40DBF2EB545FE3716BDCDAA17AB55EFF99253EBDFCC90A66AA863`
+- 운영 post-verify evidence: `C:\Users\USER\Downloads\2026-08-26_preliminary-survey-v2-legacy-production-postverify.json`
+- 운영 post-verify evidence SHA-256: `54F4FDF93018221226AF9FDD1E0213061F3DC753EB3E1BDFB1B2F5222A89A4A3`
 
 Raw production 자료는 Git에 포함하지 않았다.
 
@@ -91,4 +97,33 @@ API는 `mainMeasurerSource`로 내부 source를 진단할 수 있다. 운영 `/s
 
 ## 운영 반영 결과
 
-PR 병합, Production migration, one-shot apply, UI 전수검증 및 Fresh-context verifier 결과는 실행 완료 후 이 절에 최종 기록한다.
+- batch ID: `7ecbc1be-587c-4f82-8eb2-4a1669a8cd45`
+- forward-only migration: 적용 PASS
+- reconciliation audit insert: 110
+- assignment insert: 41
+- V2 plan: 49 → 49 (변경 0)
+- V2 assignment: 8 → 49 (`v2` 8 유지, `legacy_reconciled` 41 추가)
+- 기존 V2 assignment overwrite: 0
+- legacy `preliminary_survey` source digest 변경: 0
+- protected write: 0
+- FF/GG raw 원문: FF 5, GG 2 보존
+- expected/actual mismatch: 0
+- 동일 manifest 2회차 additional changes: 0 (`alreadyReconciled=110`)
+- 지시 범위인 측정일 2026-08-01 이후 V1 `recommended_date` non-null: 0
+
+## 운영 표시 전수검증
+
+- 공시료 이름과 코드 원천이 존재하는 legacy 행: 98
+- 원천 존재 행 중 `/survey` 표시 `-`: **0**
+- 실제 원천이 없는 행: 12 (`-` 허용)
+- 찐확정 기준 8건 expected/actual mismatch: 0
+- 신규 V2 6건 expected/actual mismatch: 0
+- H0102 다일 2026-09-14/15/16 assignment 모두 `이태환(A)` 확인
+
+표시 검증은 운영 DB의 실제 plan → target ID → 날짜별 assignment와 reconciliation snapshot을 API 표시 우선순위와 동일하게 READ-ONLY로 전수 대조했다. 브라우저 자동화 런타임 제약으로 로그인된 화면 픽셀 검증은 수행하지 못했으나, Production 배포 성공과 화면 API의 모든 표시 원천/결과값을 검증했다.
+
+## 배포 및 독립 검증
+
+- PR #55, #56, #57: merge 완료
+- 각 Production deployment: success
+- Fresh-context GPT-5.6 Sol / high 독립 검증: 최종 사후 evidence 확인 후 기록
