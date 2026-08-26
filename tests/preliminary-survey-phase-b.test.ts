@@ -385,6 +385,11 @@ test("기존 가확정·수동 plan은 blocked 조사자가 있으면 보존하�
   assert.match(service, /preservedAssignments/);
 });
 
+test("기존업체 유선 4건이 되는 가확정·수동 plan은 보존하지 않고 재추천한다", () => {
+  const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
+  assert.match(service, /fitsExistingPhoneResponsibleLimit\(otherAssignments, responsible\.id, tentative\.date\)/);
+});
+
 const storedPlanState = (overrides: Partial<Parameters<typeof storedPlanWorkbenchState>[0]> = {}) =>
   storedPlanWorkbenchState({
     trueConfirmed: false, stale: false, hasPlan: true, planOrigin: "manual", planStatus: "recommended",

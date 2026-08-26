@@ -11,7 +11,7 @@ const assignment = (targetId: number, kind: "new" | "existing", userId: number, 
   experiencedReviewerId: null, coordinate: null, region: null,
 });
 
-test("유선 기존업체의 기존 일일 건수는 배정 불가 사유가 아니다", () => {
+test("유선 책임자 3건 한도에 도달하면 같은 날짜의 다른 조사자를 선택한다", () => {
   const result = recommendSurveyors({
     targets: [{ id: 1, kind: "existing", businessType: "existing", measurementDate: "2026-07-14", createdAt: null, candidateDates: ["2026-06-01", "2026-06-02"] }],
     users: [novice(2), experienced(10)],
@@ -33,6 +33,31 @@ test("직원 일정은 해당 사용자만 제외하고 방문 개인 용량은 
   assert.equal(result[0].date, "2026-06-01");
   assert.equal(result[0].responsible?.id, 1);
   assert.deepEqual(result[0].participants.map((user) => user.id), [1]);
+});
+
+test("유선 책임자 후보가 첫 날짜에 모두 3건이면 다음 정책 날짜를 선택한다", () => {
+  const users = [experienced(1), experienced(2)];
+  const assignments = users.flatMap((user) => [1, 2, 3].map((id) =>
+    assignment(user.id * 10 + id, "existing", user.id, "2026-06-01")));
+  const [result] = recommendSurveyors({
+    targets: [{ id: 1, kind: "existing", businessType: "existing", measurementDate: "2026-07-14", createdAt: null, candidateDates: ["2026-06-01", "2026-06-02"] }],
+    users, assignments, availability: available(),
+  });
+  assert.equal(result.date, "2026-06-02");
+});
+
+test("유선 4건이 되는 기존 tentative plan은 보존하지 않고 재추천한다", () => {
+  const responsible = experienced(1);
+  const assignments = [
+    ...[1, 2, 3].map((id) => assignment(10 + id, "existing", responsible.id, "2026-06-01")),
+    { ...assignment(1, "existing", responsible.id, "2026-06-01"), tentative: true },
+  ];
+  const [result] = recommendSurveyors({
+    targets: [{ id: 1, kind: "existing", businessType: "existing", measurementDate: "2026-07-14", createdAt: null, candidateDates: ["2026-06-01", "2026-06-02"] }],
+    users: [responsible], assignments, availability: available(),
+  });
+  assert.equal(result.preserved, false);
+  assert.equal(result.date, "2026-06-02");
 });
 
 test("첫 날짜의 모든 사용자가 blocked면 다음 정책 유효 날짜를 사용한다", () => {

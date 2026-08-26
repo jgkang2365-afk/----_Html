@@ -7,7 +7,7 @@
 - 추천 기준점은 오늘이 아니라 측정예정일이다.
 - 측정예정일에서 역산한 정책 범위의 과거 기준일을 허용하며 today cutoff를 두지 않는다.
 - `user_schedule_blocks`의 직원 불가 일정은 해당 날짜의 예비조사 책임자·경력 검토자 후보에서 그 사용자를 제외하는 hard constraint다. 날짜 자체는 제외하지 않고 같은 날짜의 다른 유효 조사자, 다음 정책 유효 날짜 순으로 탐색한다.
-- 같은 날 다른 측정·예비조사, 이동 동선, 이동시간, 방문·유선 일일 capacity는 추천·적용·수동 저장의 hard blocker가 아니다. 필요하면 preference 또는 참고 warning으로만 사용한다.
+- 같은 날 다른 측정·예비조사, 이동 동선, 이동시간, 방문 건수는 추천·적용·수동 저장의 hard blocker가 아니다. 단, 기존업체 유선 책임자는 동일 예비조사일에 최대 3건으로 제한한다.
 - 사업장 유형, 측정예정일, 영업일 범위, 조사 방식, 유효 조사자, 최초실시·타기관 신규의 경력자 조건 등 document integrity와 날짜별 `user_schedule_blocks` 사용자 제외만 hard rule로 사용한다.
 
 ## 1. 역할과 원천 데이터
@@ -72,7 +72,7 @@
 
 ## 6. 조사량과 작성자
 
-- 방문·유선의 같은 날 건수와 동선은 실제 수행 참고정보이며 서류 추천·저장의 hard capacity로 사용하지 않는다.
+- 방문 건수와 동선은 실제 수행 참고정보이며 서류 추천·저장의 hard capacity로 사용하지 않는다. 기존업체 유선만 responsible 기준 동일 예비조사일 최대 3건을 적용하며 경력 검토 건수는 이 한도를 소비하지 않는다.
 - 경력자 단독이면 경력자가 페이퍼를 작성하고, 경력자+비경력자 조합이면 비경력자가 작성한다.
 - 기존업체 유선의 비경력 책임자에게는 가능한 경력자를 예비조사표 검토자로 배정한다. 검토자는 방문 동행자나 별도 유선 수행자가 아니며 검토 부하는 soft balancing한다. 유효한 경력 검토자를 배정할 수 없으면 비경력 단독을 허용하되 `경력 검토자 미배정`을 표시한다.
 - 경력 여부는 `users.is_preliminary_survey_experienced`만 사용하며 입사일 등으로 추론하지 않는다.
@@ -156,7 +156,7 @@
 - `measurement_target_business.business_type`이 authoritative source다. 값이 null일 때만 현재 측정일지와 legacy rule fallback을 검토하며, authoritative 값이 legacy 값에 의해 덮어써지지 않는다.
 - `user_schedule_blocks`는 날짜별 사용자 hard exclusion이다. blocked 사용자는 해당 날짜의 책임자·경력 검토자로 추천하지 않으며, 수동 저장도 `USER_UNAVAILABLE_ON_SURVEY_DATE`로 거부한다. 추천 후 불가 일정이 추가되면 apply는 stale draft로 409를 반환하고 새 추천을 요구한다.
 - 직원 불가 일정은 날짜 자체를 막지 않는다. 같은 날짜의 다른 유효 조사자를 먼저 찾고, 없으면 다음 정책 유효 날짜를 탐색하며, 모든 후보 날짜에서 필요한 조합을 만들 수 없을 때만 `manual_required`로 처리한다.
-- 단순한 동일 날짜 측정 업무, 동일 날짜 다른 예비조사, 방문·유선 건수, 주소·지역·차량 route·이동시간은 operational feasibility 참고정보다. 이 정보만으로 `recommended`를 `review_required`/`manual_required`로 바꾸거나 적용·수동 저장을 거부하지 않는다.
+- 단순한 동일 날짜 측정 업무, 동일 날짜 다른 예비조사, 방문 건수, 주소·지역·차량 route·이동시간은 operational feasibility 참고정보다. 이 정보만으로 `recommended`를 `review_required`/`manual_required`로 바꾸거나 적용·수동 저장을 거부하지 않는다. 기존업체 유선 responsible의 동일 예비조사일 3건 한도만 별도 hard rule로 적용한다.
 - 조정 필요는 측정일·사업장 유형·정책 날짜·유효 조사자·신규 경력자 조건 등 서류를 정상 구성할 수 없는 경우에만 사용한다.
 - 측정자·공시료 담당자는 같은 측정일에 1~2개까지 자동추천하고, 정확히 3개인 그룹은 예비조사 담당자 또는 관리자 승인을 요구한다. 4개 이상은 승인 여부와 무관하게 `MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED`로 차단한다.
 - 3건 승인의 단위는 `measurement_date + assignee_user_id + sorted target_ids`다. 이 구성의 fingerprint가 기존 승인과 같으면 승인자·승인시각을 보존하고 재승인하지 않는다. 날짜·담당자·업체 집합 중 하나라도 바뀌면 새 승인을 요구한다. 클라이언트의 승인 관련 값은 판단 근거로 사용하지 않는다.
@@ -167,7 +167,7 @@
 
 ## 14. 1단계 배정 preference와 요약 표시 (2026-08-23)
 
-- 예비조사 책임자는 document integrity hard rule과 해당 날짜의 `user_schedule_blocks`를 통과한 후보 중 배정 균형을 soft preference로 비교하고, 해당 날짜의 측정 참여자를 가장 먼저, 보고서 담당자를 다음으로 선호하며 최종 측정자와도 일치하는 안을 선호한다. 같은 날 건수나 단순한 다른 측정 업무는 후보를 제외하지 않으며 역할별 authoritative source는 계속 분리한다.
+- 예비조사 책임자는 document integrity와 `user_schedule_blocks`, 기존업체 유선 3건 한도를 먼저 통과해야 한다. 이후 `측정 참여자 일치 → 보고서 담당자 일치 → 다일 측정 역할 연계 횟수 → 같은 예비조사일 배정 균형 → 전체 배정 균형 → 사용자 ID` 순으로 비교한다. 방문 건수나 단순한 다른 측정 업무는 후보를 제외하지 않으며 역할별 authoritative source는 계속 분리한다.
 - 측정 참여자와 보고서 담당자는 단일일의 `measurer_id`/정규화한 `collaborators`, 다일의 해당 `daily_staff` 행을 사용한다. 다일 역할을 상단 요약 배열에서 역산하지 않는다.
 - 측정자 공시료 코드는 계속 `users.survey_code`만 사용한다. 추천 요약 컬럼은 `측정자(공시료)`, 값은 `강종구(C)`처럼 표시하며 측정예정일 prefix를 반복하지 않는다.
 - 방식 요약은 `유선` 또는 `방문`만 표시한다. 기존업체의 비경력 책임자와 경력 검토자는 두 이름을 간단히 표시하되 underlying data의 책임자와 검토자 의미를 유지한다.

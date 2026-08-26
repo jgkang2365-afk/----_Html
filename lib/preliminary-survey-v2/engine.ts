@@ -5,6 +5,7 @@ import type {
   RouteMetric, RouteMetrics, SameDayRouteEvidence, SurveyTarget, SurveyUser,
 } from "./types";
 import { surveyMethodForKind } from "./types";
+import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
 
 export interface RecommendBatchInput {
   targets: SurveyTarget[];
@@ -182,6 +183,15 @@ function responsibleTotalCount(assignments: ExistingAssignment[], userId: number
   return assignments.filter((item) => item.responsibleUserId === userId).length;
 }
 
+function responsibleRolePreference(target: SurveyTarget, userId: number) {
+  const roles = target.measurementStaffByDate ?? [];
+  const participantMatch = roles.some((staff) => staff.measurementParticipantUserIds.includes(userId));
+  const reportWriterMatch = roles.some((staff) => staff.reportWriterUserId === userId);
+  const linkageCount = roles.reduce((count, staff) => count +
+    Number(staff.measurementParticipantUserIds.includes(userId)) + Number(staff.reportWriterUserId === userId), 0);
+  return { participantMatch, reportWriterMatch, linkageCount };
+}
+
 function candidateRange(target: SurveyTarget, workingDaysBefore: number): "primary" | "fallback" {
   if (target.businessType === "external_new" || target.businessType === "existing") {
     return workingDaysBefore <= 20 ? "primary" : "fallback";
@@ -228,7 +238,9 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
     ) => {
       if (target.kind === "existing" && capacityPass === 2) return null;
 
-      // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 일일 건수로 차단하지 않는다.
+      // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 책임자 기준 하루 3건까지만 허용한다.
+      if (target.kind === "existing" &&
+          !fitsExistingPhoneResponsibleLimit(virtual, planningTarget.responsible.id, candidate.date)) return null;
       const requiresReviewer = target.kind === "new" && !planningTarget.responsible.experienced;
       const prefersReviewer = target.kind === "existing" && !planningTarget.responsible.experienced;
       const reviewerChoice = requiresReviewer || prefersReviewer
@@ -314,16 +326,15 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         if (result) feasible.push(result);
       }
       feasible.sort((left, right) =>
+        Number(!responsibleRolePreference(target, left.responsible.id).participantMatch) -
+          Number(!responsibleRolePreference(target, right.responsible.id).participantMatch) ||
+        Number(!responsibleRolePreference(target, left.responsible.id).reportWriterMatch) -
+          Number(!responsibleRolePreference(target, right.responsible.id).reportWriterMatch) ||
+        responsibleRolePreference(target, right.responsible.id).linkageCount -
+          responsibleRolePreference(target, left.responsible.id).linkageCount ||
         responsibleDailyCount(virtual, left.responsible.id, candidate.date) -
           responsibleDailyCount(virtual, right.responsible.id, candidate.date) ||
         responsibleTotalCount(virtual, left.responsible.id) - responsibleTotalCount(virtual, right.responsible.id) ||
-        Number(!target.measurementStaffByDate?.some((staff) =>
-          staff.measurementParticipantUserIds.includes(left.responsible.id))) -
-          Number(!target.measurementStaffByDate?.some((staff) =>
-            staff.measurementParticipantUserIds.includes(right.responsible.id))) ||
-        Number(!target.measurementStaffByDate?.some((staff) => staff.reportWriterUserId === left.responsible.id)) -
-          Number(!target.measurementStaffByDate?.some((staff) => staff.reportWriterUserId === right.responsible.id)) ||
-        Number(Boolean(left.evidence.reviewerConflict)) - Number(Boolean(right.evidence.reviewerConflict)) ||
         left.responsible.id - right.responsible.id,
       );
       return feasible[0] ?? null;

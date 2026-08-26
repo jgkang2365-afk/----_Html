@@ -2,6 +2,7 @@ import { recommendationDates, recommendationDatesForBusinessType } from "./calen
 import type {
   ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyMethod, SurveyTarget, SurveyUser,
 } from "./types";
+import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
 
 export interface ManualPlanValidationInput {
   target: SurveyTarget;
@@ -56,9 +57,14 @@ export async function validateManualPlanHardRules(
     errors.push("기존업체는 유선 예비조사 방식이어야 합니다.");
   }
 
-  // 같은 날 일정·예비조사 건수·이동 동선은 실제 수행 가능성 정보이며
-  // 서류 기준일과 조사자 구성을 저장하는 hard rule로 사용하지 않는다.
-  void input.existingAssignments;
+  if (input.target.kind === "existing" && surveyMethod === "phone" &&
+      !fitsExistingPhoneResponsibleLimit(
+        input.existingAssignments, input.target.responsible.id, input.recommendedDate,
+      )) {
+    errors.push("기존업체 유선 예비조사 책임자는 같은 날 최대 3건까지 배정할 수 있습니다.");
+  }
+
+  // 방문 건수·이동 동선은 실제 수행 가능성 정보이며 hard rule로 사용하지 않는다.
   void input.routes;
 
   return {

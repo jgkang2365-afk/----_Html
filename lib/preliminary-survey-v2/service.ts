@@ -3,6 +3,7 @@ import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
+import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
 import { parseDateOnly, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
@@ -551,15 +552,18 @@ export async function calculateV2Recommendations(
         !participants.some((user) => user.id === responsible.id) ||
         participants.some((user) => user.active === false || blockedKeys.has(`${user.id}:${tentative.date}`)) ||
         !isInPreliminaryDateScope(tentative.date, scope)) return null;
+    const otherAssignments = [
+      ...existingAssignments,
+      ...tentativeAssignments.filter((assignment) => assignment.targetId !== target.id),
+    ];
+    if (target.kind === "existing" &&
+        !fitsExistingPhoneResponsibleLimit(otherAssignments, responsible.id, tentative.date)) return null;
     const validation = await validateManualPlanHardRules({
       target: { ...target, responsible },
       recommendedDate: tentative.date,
       participants,
       surveyMethod: tentative.surveyMethod,
-      existingAssignments: [
-        ...existingAssignments,
-        ...tentativeAssignments.filter((assignment) => assignment.targetId !== target.id),
-      ],
+      existingAssignments: otherAssignments,
       routes,
     });
     if (!validation.valid) return null;

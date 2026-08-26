@@ -1,4 +1,5 @@
 import { surveyMethodForKind, type Availability, type BusinessKind, type ExistingAssignment, type SurveyMethod, type SurveyUser } from "./types";
+import { fitsExistingPhoneResponsibleLimit, responsiblePhoneCount } from "./responsible-capacity";
 
 export interface SurveyorRecommendationTarget {
   id: number;
@@ -7,6 +8,11 @@ export interface SurveyorRecommendationTarget {
   measurementDate: string;
   createdAt: string | null;
   candidateDates: string[];
+  measurementStaffByDate?: Array<{
+    date: string;
+    reportWriterUserId: number | null;
+    measurementParticipantUserIds: number[];
+  }>;
 }
 
 export interface TentativeSurveyorAssignment extends ExistingAssignment {
@@ -69,12 +75,6 @@ function assignmentMethod(assignment: ExistingAssignment): SurveyMethod {
   return assignment.surveyMethod ?? surveyMethodForKind(assignment.kind);
 }
 
-function phoneCount(assignments: ExistingAssignment[], userId: number, date: string) {
-  return assignments.filter((assignment) =>
-    assignmentMethod(assignment) === "phone" && assignment.date === date && assignment.participants.includes(userId),
-  ).length;
-}
-
 function fieldCount(assignments: ExistingAssignment[], userId: number, date: string) {
   return assignments.filter((assignment) =>
     assignmentMethod(assignment) === "field" && assignment.date === date && assignment.participants.includes(userId),
@@ -93,13 +93,9 @@ function fitsCapacity(
   date: string,
   assignments: ExistingAssignment[],
 ) {
-  // 일일 방문·유선 건수는 실제 수행 feasibility이며 서류 배정 hard rule이 아니다.
-  void kind;
-  void responsible;
+  // 방문 건수는 hard rule이 아니지만 기존업체 유선 책임자는 같은 날 최대 3건이다.
   void participants;
-  void date;
-  void assignments;
-  return true;
+  return kind !== "existing" || fitsExistingPhoneResponsibleLimit(assignments, responsible.id, date);
 }
 
 function asAssignment(target: SurveyorRecommendationTarget, recommendation: SurveyorRecommendation): ExistingAssignment {
@@ -145,11 +141,24 @@ function compareCandidates(
   left: { responsible: SurveyUser; participants: SurveyUser[] },
   right: { responsible: SurveyUser; participants: SurveyUser[] },
   kind: BusinessKind,
+  target: SurveyorRecommendationTarget,
 ) {
-  const load = (candidate: { participants: SurveyUser[] }) => candidate.participants.reduce(
-    (sum, user) => sum + (kind === "existing" ? phoneCount(assignments, user.id, date) : fieldCount(assignments, user.id, date)), 0,
-  );
-  return load(left) - load(right) ||
+  const rolePreference = (candidate: { responsible: SurveyUser }) => {
+    const roles = target.measurementStaffByDate ?? [];
+    const participantMatch = roles.some((staff) => staff.measurementParticipantUserIds.includes(candidate.responsible.id));
+    const reportWriterMatch = roles.some((staff) => staff.reportWriterUserId === candidate.responsible.id);
+    const linkageCount = roles.reduce((count, staff) => count +
+      Number(staff.measurementParticipantUserIds.includes(candidate.responsible.id)) +
+      Number(staff.reportWriterUserId === candidate.responsible.id), 0);
+    return { participantMatch, reportWriterMatch, linkageCount };
+  };
+  const load = (candidate: { responsible: SurveyUser; participants: SurveyUser[] }) => kind === "existing"
+    ? responsiblePhoneCount(assignments, candidate.responsible.id, date)
+    : candidate.participants.reduce((sum, user) => sum + fieldCount(assignments, user.id, date), 0);
+  return Number(!rolePreference(left).participantMatch) - Number(!rolePreference(right).participantMatch) ||
+    Number(!rolePreference(left).reportWriterMatch) - Number(!rolePreference(right).reportWriterMatch) ||
+    rolePreference(right).linkageCount - rolePreference(left).linkageCount ||
+    load(left) - load(right) ||
     Number(kind === "existing" && !left.responsible.experienced && left.participants.length === 1) -
       Number(kind === "existing" && !right.responsible.experienced && right.participants.length === 1) ||
     left.responsible.id - right.responsible.id ||
@@ -193,7 +202,7 @@ export function recommendSurveyors(input: SurveyorRecommendationInput): Surveyor
       const choices = candidateCombinations(target, users)
         .filter((choice) => validParticipants(choice.participants, date, input.availability))
         .filter((choice) => fitsCapacity(target.kind, choice.responsible, choice.participants, date, occupied))
-        .sort((left, right) => compareCandidates(occupied, date, left, right, target.kind));
+        .sort((left, right) => compareCandidates(occupied, date, left, right, target.kind, target));
       const choice = choices[0];
       if (!choice) continue;
       selected = {
