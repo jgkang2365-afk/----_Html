@@ -90,6 +90,15 @@
 - `measurement_journal` row가 존재하면 찐확정이다. `sequence_number`를 판정 기준으로 사용하지 않으며 일반 추천·재추천·수정을 차단하고 관리자 repair만 허용한다.
 - 추천 사유는 `최초실시 · 방문`, `기존업체 · 유선`, `동일주소 묶음`, `측정자 균등배정`, `2건 배정`, `3건 승인 필요`, `재추천`처럼 짧게 표시한다.
 
+### V2 plan 안전 삭제
+
+- 찐확정되지 않은 persisted V2 plan은 예비조사 담당자 또는 관리자가 삭제할 수 있다.
+- 삭제 대상은 `preliminary_survey_v2_plans`와 해당 plan에 귀속된 `preliminary_survey_v2_measurement_assignments`다. `measurement_target_business`, 측정예정일, `measurement_journal`, legacy 원천은 삭제하지 않는다.
+- true-confirmed plan과 legacy reconciliation 또는 historical recovery 추적에 사용된 plan은 일반 삭제할 수 없다.
+- 삭제 후 영향을 받는 측정자·공시료 assignment 그룹은 기존 3건 승인과 4건 hard max 정책에 맞게 같은 transaction에서 원자적으로 재정규화한다.
+- 삭제가 성공하면 대상은 미추천 상태가 되며, 측정예정일을 변경한 뒤 새 측정일 기준으로 예비조사를 다시 추천할 수 있다.
+- 모든모터스처럼 측정이 연기된 경우의 정상 업무 흐름은 `계획 삭제 → 측정예정일 변경 → 새 측정일 기준 예비조사 재추천`이다.
+
 ## 9. 권한과 자동화
 
 - 관리자 또는 `users.is_preliminary_survey_manager`가 추천·재추천·적용·1인 3건 승인을 수행한다. 서버가 매 요청 권한을 authoritative하게 확인한다.
