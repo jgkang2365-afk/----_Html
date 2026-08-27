@@ -1234,6 +1234,47 @@ test("manual validator는 비활성 사용자와 근거 없는 기존업체 fiel
   assert.match(result.errors.join(" "), /필수 신규 방문/);
 });
 
+test("Apply 재검증에서 기존업체 선택 방문은 유선 책임자 3건 한도를 소비하지 않는다", async () => {
+  const responsible = experienced(1);
+  const current = { ...target(10, "existing", responsible, "2026-08-27"), businessType: "existing" as const };
+  const date = recommendationDatesForBusinessType(current.measurementDate, "existing")[0].date;
+  const assignments: ExistingAssignment[] = [
+    ...[1, 2].map((id) => ({
+      targetId: id, businessCode: `P${id}`, kind: "existing" as const, date,
+      participants: [responsible.id], responsibleUserId: responsible.id, experiencedReviewerId: null,
+      surveyMethod: "phone" as const, coordinate: null, region: null,
+    })),
+    {
+      targetId: 3, businessCode: "F3", kind: "existing", date,
+      participants: [responsible.id], responsibleUserId: responsible.id, experiencedReviewerId: null,
+      surveyMethod: "field", address: current.address, coordinate: null, region: null,
+    },
+  ];
+  const result = await validateManualPlanHardRules({
+    target: current, recommendedDate: date, participants: [responsible], surveyMethod: "phone",
+    existingAssignments: assignments, routes: route(),
+  });
+  assert.equal(result.valid, true);
+});
+
+test("Apply 재검증은 동일주소 신규 field와 기존업체 선택 방문을 route 미검증이어도 허용한다", async () => {
+  const responsible = experienced(1);
+  const current = { ...target(10, "existing", responsible, "2026-08-27"), businessType: "existing" as const };
+  current.address = " 충남  천안시 동일주소 ";
+  const date = recommendationDatesForBusinessType(current.measurementDate, "existing")[0].date;
+  const mandatoryNew: ExistingAssignment = {
+    targetId: 1, businessCode: "N1", kind: "new", date,
+    participants: [responsible.id], responsibleUserId: responsible.id, experiencedReviewerId: null,
+    surveyMethod: "field", address: "충남 천안시 동일주소", coordinate: null, region: null,
+  };
+  const result = await validateManualPlanHardRules({
+    target: current, recommendedDate: date, participants: [responsible], surveyMethod: "field",
+    existingAssignments: [mandatoryNew], routes: route(null, "unknown"),
+  });
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.routeEvidence, []);
+});
+
 test("recommend/apply/manual은 기존 route·방문 capacity와 유선 3건 한도를 함께 적용한다", () => {
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
   const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");

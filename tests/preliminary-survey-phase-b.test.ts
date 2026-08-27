@@ -360,6 +360,18 @@ test("수동 수정과 draft apply는 선택한 조사 방식을 hard-rule 검�
   assert.match(workbenchApi, /validateManualPlanHardRules\(\{[\s\S]*?surveyMethod: draft\.surveyMethod,[\s\S]*?existingAssignments/);
 });
 
+test("Apply draftAssignments는 canonical 조사 방식과 사업장 주소를 보존한다", () => {
+  const workbenchApi = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
+  const applyStart = workbenchApi.indexOf("async function applySubmittedDrafts");
+  const applyEnd = workbenchApi.indexOf("const validations", applyStart);
+  const draftAssignments = workbenchApi.slice(
+    workbenchApi.indexOf("const draftAssignments", applyStart),
+    applyEnd,
+  );
+  assert.match(draftAssignments, /surveyMethod: draft\.surveyMethod/);
+  assert.match(draftAssignments, /address: context\.target\.address/);
+});
+
 test("F: 수동 수정은 blocked 조사자를 명확한 오류로 거부한다", () => {
   const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
   assert.match(manualRoute, /user_schedule_blocks/);

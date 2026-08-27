@@ -512,6 +512,8 @@ async function applySubmittedDrafts(
       participants: draft.participantUserIds,
       responsibleUserId: responsible?.id ?? draft.sourceResponsibleUserId,
       experiencedReviewerId: reviewer?.id ?? null,
+      surveyMethod: draft.surveyMethod,
+      address: context.target.address,
       coordinate: context.target.coordinate,
       region: context.target.region,
     };
