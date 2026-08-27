@@ -23,7 +23,26 @@ import type {
   RecommendationScopeSnapshot,
 } from "@/lib/preliminary-survey-v2/draft-canonical";
 
-type WorkbenchStatus = "unassigned" | "recommended" | "adjustment_required" | "provisional" | "review_required" | "true_confirmed";
+type WorkbenchStatus = "unassigned" | "recommended" | "confirmed_repair" | "adjustment_required" | "provisional" | "review_required" | "true_confirmed";
+
+interface ConfirmedRepairDraft {
+  targetId: number;
+  classification: "MISSING_DOCUMENTARY_INFO" | "PROTECTED_MANUAL" | "NEEDS_MANUAL_REVIEW";
+  fillDate: boolean;
+  fillSurveyors: boolean;
+  recommendedDate: string | null;
+  responsibleUserId: number | null;
+  experiencedReviewerUserId: number | null;
+  participantUserIds: number[];
+  participantNames: string[];
+  surveyMethod: "field" | "phone" | null;
+  sourceMeasurementDate: string;
+  sourceRuleType: "new" | "existing" | null;
+  reason: string;
+  existingPlanId: string | null;
+  code: string;
+  businessName: string;
+}
 
 interface WorkbenchRow {
   targetId: number;
@@ -54,10 +73,12 @@ interface WorkbenchRow {
   recommendationReasons?: string[];
   status: WorkbenchStatus;
   conflict: string | null;
+  conflicts?: string[];
   reason?: string;
   alternatives?: string[];
   hasPersistedPlan?: boolean;
   locked?: boolean;
+  deleteProtectionReason?: "history" | null;
 }
 
 interface SurveyUser {
@@ -146,6 +167,7 @@ function restoreSearchSnapshot<T extends PlanSearchSnapshot | ListSearchSnapshot
 const STATUS_LABELS: Record<WorkbenchStatus, string> = {
   unassigned: "미추천",
   recommended: "추천",
+  confirmed_repair: "누락 보정안",
   adjustment_required: "조정 필요",
   provisional: "가확정",
   review_required: "재검토 필요",
@@ -155,6 +177,7 @@ const STATUS_LABELS: Record<WorkbenchStatus, string> = {
 const STATUS_STYLES: Record<WorkbenchStatus, string> = {
   unassigned: "bg-slate-100 text-slate-700",
   recommended: "bg-blue-100 text-blue-700",
+  confirmed_repair: "bg-cyan-100 text-cyan-800",
   adjustment_required: "bg-amber-100 text-amber-800",
   provisional: "bg-emerald-100 text-emerald-800",
   review_required: "bg-orange-100 text-orange-800",
@@ -203,6 +226,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [scopeSummary, setScopeSummary] = useState<string | null>(null);
   const [rows, setRows] = useState<WorkbenchRow[]>([]);
   const [drafts, setDrafts] = useState<Map<number, WorkbenchRow>>(new Map());
+  const [confirmedRepairDrafts, setConfirmedRepairDrafts] = useState<ConfirmedRepairDraft[]>([]);
   const [users, setUsers] = useState<SurveyUser[]>([]);
   const [selected, setSelected] = useState<WorkbenchRow | null>(null);
   const [editDate, setEditDate] = useState("");
@@ -347,8 +371,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   );
 
   const invalidateDrafts = (message = "추천 범위가 변경되어 새 추천이 필요합니다.") => {
-    if (!drafts.size) return;
+    if (!drafts.size && !confirmedRepairDrafts.length) return;
     setDrafts(new Map());
+    setConfirmedRepairDrafts([]);
     setDraftScope(null);
     setScopeSummary(null);
     setNotice(message);
@@ -479,17 +504,44 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       const generatedDrafts = result.drafts || [];
       const recommendedCount = generatedDrafts.filter((draft: WorkbenchRow) => draft.status === "recommended").length;
       const unavailableCount = generatedDrafts.length - recommendedCount + (result.missing || []).length;
+      const repairResponse = await fetch("/api/preliminary-survey-v2/confirmed-document-repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", targetIds: recommendationTargetIds }),
+      });
+      const repairResult = await repairResponse.json();
+      if (!repairResponse.ok) throw new Error(repairResult.error || "찐확정 누락정보 보정안 생성 실패");
+      const repairDrafts = (repairResult.drafts || []) as ConfirmedRepairDraft[];
+      const repairableDrafts = repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO");
+      setConfirmedRepairDrafts(repairableDrafts);
       const dateScopeLabel = `${planSearchSnapshot.measurementDateFrom} ~ ${planSearchSnapshot.measurementDateTo}`;
       setDrafts((current) => {
         const next = new Map(current);
         for (const draft of generatedDrafts) next.set(draft.targetId, { ...rows.find((row) => row.targetId === draft.targetId), ...draft });
+        for (const repair of repairDrafts) {
+          const base = rows.find((row) => row.targetId === repair.targetId);
+          if (!base) continue;
+          const warning = repair.classification === "MISSING_DOCUMENTARY_INFO"
+            ? "찐확정 누락정보 보정안 · 별도 확인 필요" : repair.reason;
+          const conflicts = [...new Set([...(base.conflicts ?? (base.conflict ? [base.conflict] : [])), warning])];
+          next.set(repair.targetId, {
+            ...base,
+            preliminaryDate: repair.recommendedDate ?? base.preliminaryDate,
+            surveyors: repair.participantNames.length ? repair.participantNames : base.surveyors,
+            surveyMethod: repair.surveyMethod ?? base.surveyMethod,
+            status: repair.classification === "MISSING_DOCUMENTARY_INFO" ? "confirmed_repair" : "review_required",
+            conflict: conflicts.join(" · "),
+            conflicts,
+          });
+        }
         return next;
       });
       setDraftScope(currentScope);
-      setScopeSummary(`측정예정일 범위: ${dateScopeLabel} · ${selectedTargetIds.size > 0 || targetId ? "선택 사업장" : "필터 대상"}: ${recommendationTargetIds.length}개 · 추천 생성: ${recommendedCount}개 · 추천 불가: ${unavailableCount}개`);
+      const manualReviewCount = Number(repairResult.manualReviewCount || 0) + unavailableCount;
+      setScopeSummary(`측정예정일 범위: ${dateScopeLabel} · 대상 ${recommendationTargetIds.length}개 · 일반 추천 ${recommendedCount}건 · 찐확정 누락 보정안 ${repairableDrafts.length}건 · 변경 없음 ${Number(repairResult.unchangedCount || 0)}건 · 수동 확인 필요 ${manualReviewCount}건`);
       setNotice(targetId
-        ? `${result.impactSummary || "영향 범위를 재검증했습니다."} ${(result.drafts || []).length}개 변경안을 검토해 주세요.`
-        : `추천 검토 결과: 추천 ${recommendedCount}개 · 조정 필요/불가 ${unavailableCount}개입니다. 아직 저장되지 않았습니다.`);
+        ? `${result.impactSummary || "영향 범위를 재검증했습니다."} 일반 추천과 찐확정 누락 보정안을 구분해 검토해 주세요.`
+        : `일반 추천 ${recommendedCount}건 · 찐확정 누락정보 보정 ${repairableDrafts.length}건 · 변경 없음 ${Number(repairResult.unchangedCount || 0)}건 · 수동 확인 필요 ${manualReviewCount}건입니다. 아직 저장되지 않았습니다.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "추천 생성 실패");
     } finally {
@@ -528,6 +580,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         throw new Error(result.error || "추천안 적용 실패");
       }
       setDrafts(new Map());
+      setConfirmedRepairDrafts([]);
       setDraftScope(null);
       setScopeSummary(null);
       setNotice(`${result.appliedCount}개 변경사항을 가확정했습니다.`);
@@ -591,10 +644,40 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     }
   };
 
-  const deletePlan = async () => {
-    if (!selected?.hasPersistedPlan || selected.locked) return;
+  const applyConfirmedRepairs = async () => {
+    if (!confirmedRepairDrafts.length || draftScope !== currentScope) return;
+    if (!window.confirm(`찐확정 계획 ${confirmedRepairDrafts.length}건의 누락된 예비조사 정보만 보정하시겠습니까?\n기존 값과 측정 원천은 변경되지 않습니다.`)) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/preliminary-survey-v2/confirmed-document-repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "apply",
+          targetIds: confirmedRepairDrafts.map((draft) => draft.targetId),
+          drafts: confirmedRepairDrafts,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "찐확정 누락정보 보정 실패");
+      setDrafts(new Map());
+      setConfirmedRepairDrafts([]);
+      setDraftScope(null);
+      setScopeSummary(null);
+      setNotice(`찐확정 누락정보 ${result.repairedCount}건을 보정했습니다.`);
+      await loadRows();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "찐확정 누락정보 보정 실패");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const deletePlan = async (row: WorkbenchRow) => {
+    if (!row.hasPersistedPlan || row.locked || row.deleteProtectionReason) return;
     const confirmed = window.confirm(
-      `${selected.businessName}의 예비조사 계획을 삭제하시겠습니까?\n` +
+      `${row.businessName}의 예비조사 계획을 삭제하시겠습니까?\n` +
       "예비조사일, 조사자와 해당 계획의 측정자(공시료) 배정이 함께 삭제됩니다.\n" +
       "측정대상 사업장 자체와 측정예정일은 삭제되지 않습니다.",
     );
@@ -604,7 +687,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     setError(null);
     setNotice(null);
     try {
-      const send = (approveThirdAssignment: boolean) => fetch(`/api/preliminary-survey-v2/${selected.targetId}`, {
+      const send = (approveThirdAssignment: boolean) => fetch(`/api/preliminary-survey-v2/${row.targetId}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approveThirdAssignment }),
@@ -621,6 +704,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
       setSelected(null);
       setDrafts(new Map());
+      setConfirmedRepairDrafts([]);
       setDraftScope(null);
       setScopeSummary(null);
       setNotice("예비조사 계획을 삭제했습니다. 측정예정일을 변경한 뒤 새로 추천해 주세요.");
@@ -686,6 +770,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                 <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => requestRecommendation()} disabled={working || isPlanSearchDirty}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
                 <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")} disabled={isPlanSearchDirty}>대안 보기</Button>
                 <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={applyDrafts} disabled={working || isPlanSearchDirty || applicableDraftCount === 0 || draftScope !== currentScope}>추천안 적용</Button>
+                <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={applyConfirmedRepairs} disabled={working || isPlanSearchDirty || confirmedRepairDrafts.length === 0 || draftScope !== currentScope}>누락정보 보정</Button>
               </div>
             </>}
           </div>
@@ -698,7 +783,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : "phase-b-list-table-scroll"} className="overflow-visible">
           <table className="w-full min-w-[1080px] table-fixed text-sm">
             <thead className="sticky z-20 bg-surface-50 text-left text-text-700 shadow-sm" style={{ top: tableHeaderTop }}>
-              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자(공시료)", "측정 참여자", "보고서담당", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
+              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자(공시료)", "측정 참여자", "보고서담당", "관리", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-surface-200">
               {displayRows.map((row) => (
@@ -715,7 +800,22 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   <td className="truncate px-2 py-2">{row.mainMeasurer || "-"}</td>
                   <td className="truncate px-2 py-2" title={row.measurementParticipants || ""}>{row.measurementParticipants || "-"}</td>
                   <td className="truncate px-2 py-2">{row.reportWriter || "-"}</td>
-                  <td className="truncate px-2 py-2 text-amber-700" title={row.conflict || ""}>{row.conflict || "-"}</td>
+                  <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={working || !row.hasPersistedPlan || Boolean(row.locked) || Boolean(row.deleteProtectionReason)}
+                      title={!row.hasPersistedPlan
+                        ? "저장된 예비조사 계획이 없습니다."
+                        : row.locked ? "찐확정 계획은 삭제할 수 없습니다."
+                          : row.deleteProtectionReason ? "역사 복원 보호 계획입니다."
+                            : "예비조사 계획 삭제"}
+                      onClick={() => deletePlan(row)}
+                    >삭제</Button>
+                  </td>
+                  <td className="px-2 py-2 text-amber-700" title={(row.conflicts ?? []).join("\n") || row.conflict || ""}>{row.conflicts?.length
+                    ? row.conflicts.map((warning) => <div key={warning}>{warning}</div>)
+                    : row.conflict || "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -728,7 +828,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 rounded-lg bg-surface-50 p-3 text-sm">
             <div>상태: <strong>{STATUS_LABELS[selected.status]}</strong></div><div>구분: <strong>{selected.kind}</strong></div>
-            <div>측정예정일: <strong>{selected.measurementDate || "-"}</strong></div><div>충돌: <strong>{selected.conflict || "없음"}</strong></div>
+            <div>측정예정일: <strong>{selected.measurementDate || "-"}</strong></div><div>충돌: <strong>{selected.conflicts?.join(" · ") || selected.conflict || "없음"}</strong></div>
           </div>
           {selected.reason && <Alert variant="warning">{selected.reason}</Alert>}
           {selected.recommendationReasons && selected.recommendationReasons.length > 0 && <div className="flex flex-wrap gap-2">{selected.recommendationReasons.map((reason) => <span key={reason} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{reason}</span>)}</div>}
@@ -744,8 +844,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           </label>
           <fieldset disabled={selected.locked}><legend className="mb-2 text-sm font-medium text-text-700">예비조사자</legend><div className="grid grid-cols-2 gap-2">{users.filter((user) => user.is_active).map((user) => <label key={user.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editParticipants.includes(user.id)} onChange={() => setEditParticipants((current) => current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id])} />{user.name}{user.is_preliminary_survey_experienced ? " (경력)" : ""}</label>)}</div></fieldset>
           {selected.locked && <Alert variant="warning">유효한 측정일지가 있어 찐확정된 업체입니다. 일반 수정과 자동추천이 차단됩니다.</Alert>}
-          <div className="flex items-center justify-between gap-2">
-            <div>{selected.hasPersistedPlan && !selected.locked && <Button variant="danger" onClick={deletePlan} disabled={working}>계획 삭제</Button>}</div>
+          <div className="flex justify-end gap-2">
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => requestRecommendation(selected.targetId)} disabled={working || selected.locked}>이 업체 재추천</Button>
               <Button onClick={saveManual} disabled={working || selected.locked || !editDate || editParticipants.length === 0}>수동 저장</Button>

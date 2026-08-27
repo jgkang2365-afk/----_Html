@@ -42,6 +42,12 @@ import {
   buildLegacyMeasurementPublicSampleLookup,
   resolveMeasurementPublicSampleDisplay,
 } from "@/lib/preliminary-survey-v2/public-sample-display";
+import {
+  combineWorkbenchWarnings,
+  reportWriterParticipationWarning,
+} from "@/lib/preliminary-survey-v2/report-writer-participation";
+import { compareCanonicalTargetBusinesses } from "@/lib/business/target-business-sort";
+import { HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES } from "@/lib/preliminary-survey-v2/historical-plan-recovery";
 
 export const dynamic = "force-dynamic";
 
@@ -706,8 +712,8 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
 
     let targetQuery = supabase.from("measurement_target_business").select(
-      "id, code, year, period, business_name, address, measurement_date, business_type, preliminary_survey_rule_type, collaborators, daily_staff, measurer_id, link_measurer_id",
-    ).eq("year", year).order("measurement_date", { ascending: true });
+      "id, code, year, period, business_name, address, measurement_date, business_type, preliminary_survey_rule_type, collaborators, daily_staff, measurer_id, link_measurer_id, is_registered, measurement_month",
+    ).eq("year", year);
     if (period) targetQuery = targetQuery.eq("period", period);
     const { data: targets, error: targetError } = await targetQuery;
     if (targetError) throw targetError;
@@ -745,12 +751,22 @@ export async function GET(request: NextRequest) {
     // 배포와 migration의 순서를 분리하기 위해 신규 snapshot table이 아직 없으면 live fallback만 유지한다.
     const { data: reconciliationRows, error: reconciliationError } = targetIds.length
       ? await supabase.from("preliminary_survey_v2_legacy_reconciliation").select(
-        "measurement_target_business_id, measurement_date, legacy_public_sample_measurer, legacy_survey_code_raw, applied_assignment_id",
+        "measurement_target_business_id, measurement_date, legacy_public_sample_measurer, legacy_survey_code_raw, applied_plan_id, applied_assignment_id",
       ).in("measurement_target_business_id", targetIds)
       : { data: [], error: null };
     if (reconciliationError && !isLegacyReconciliationSchemaMissing(reconciliationError)) throw reconciliationError;
+    const planIds = (plans ?? []).map((plan: any) => String(plan.id));
+    const { data: historyRows, error: historyError } = planIds.length
+      ? await supabase.from("preliminary_survey_v2_history_recovery_audit")
+        .select("created_plan_id").in("created_plan_id", planIds)
+      : { data: [], error: null };
+    if (historyError) throw historyError;
 
     const planByTarget = new Map((plans ?? []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]));
+    const protectedPlanIds = new Set([
+      ...(reconciliationRows ?? []).flatMap((row: any) => row.applied_plan_id == null ? [] : [String(row.applied_plan_id)]),
+      ...(historyRows ?? []).flatMap((row: any) => row.created_plan_id == null ? [] : [String(row.created_plan_id)]),
+    ]);
     const userNameById = new Map((users ?? []).map((user: any) => [Number(user.id), user.name]));
     const userIdByName = new Map((users ?? []).map((user: any) => [String(user.name ?? "").trim(), Number(user.id)]));
     const planTargetById = new Map((plans ?? []).map((plan: any) => [String(plan.id), Number(plan.measurement_target_business_id)]));
@@ -785,7 +801,11 @@ export async function GET(request: NextRequest) {
     );
     const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
 
-    const rows = (targets ?? []).map((target: any) => {
+    const rows = [...(targets ?? [])].sort((left: any, right: any) => compareCanonicalTargetBusinesses({
+      code: left.code, isRegisteredText: left.is_registered, measurementMonth: left.measurement_month,
+    }, {
+      code: right.code, isRegisteredText: right.is_registered, measurementMonth: right.measurement_month,
+    })).map((target: any) => {
       const plan: any = planByTarget.get(Number(target.id)) ?? null;
       const trueConfirmed = confirmedKeys.has(journalKey(target.code, target.year, target.period));
       const staff = measurementStaffForDate({
@@ -820,6 +840,18 @@ export async function GET(request: NextRequest) {
         measurementScheduleBlocked,
         measurementRoleScheduleBlocked,
       });
+      const warnings = combineWorkbenchWarnings(
+        presentationState.conflict,
+        reportWriterParticipationWarning({
+          source: {
+            dailyStaff: target.daily_staff,
+            measurementDate: target.measurement_date,
+            measurerId: target.measurer_id,
+            collaborators: target.collaborators,
+          },
+          userIdByName,
+        }),
+      );
       const kind = target.business_type === "external_new"
         ? "타기관 신규"
         : target.business_type === "first_measurement"
@@ -862,13 +894,17 @@ export async function GET(request: NextRequest) {
         measurementParticipants: staff.measurementParticipants,
         reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",
         status: presentationState.status,
-        conflict: presentationState.conflict,
+        conflict: warnings.join(" · ") || null,
+        conflicts: warnings,
         reason: plan?.recommendation_reason?.reason ?? null,
         recommendationReasons: Array.isArray(plan?.recommendation_reason?.shortReasons)
           ? plan.recommendation_reason.shortReasons : [],
         planOrigin: plan?.plan_origin ?? null,
         hasPersistedPlan: Boolean(plan),
         locked: trueConfirmed,
+        deleteProtectionReason: plan && (
+          HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES.has(String(target.code)) || protectedPlanIds.has(String(plan.id))
+        ) ? "history" : null,
       };
     });
     return NextResponse.json({ rows, users: users ?? [], year, period });
@@ -1247,6 +1283,24 @@ export async function POST(request: NextRequest) {
           `${target.businessType === "external_new" ? "타기관 신규" : target.businessType === "first_measurement" ? "최초실시" : "기존업체"} · ${result.surveyMethod === "field" ? "방문" : "유선"}`,
           ...targetAssignments.map((assignment) => assignment.reason),
         ].filter(Boolean);
+        const conflict = result.status === "manual_required"
+          ? result.reason
+          : measurementRoleConflict ? "측정일의 보고서 담당자 또는 측정 참여자 불가 일정 충돌"
+          : assignmentIncomplete ? "다일 측정 날짜별 인력 정보 또는 측정자 배정 필요"
+            : result.evidence.warnings.includes("EXPERIENCED_REVIEWER_UNASSIGNED") ? "경력 검토자 미배정"
+            : targetAssignments.some((assignment) => assignment.approvalRequired) ? "3건 승인 필요" : null;
+        const conflicts = combineWorkbenchWarnings(
+          conflict,
+          reportWriterParticipationWarning({
+            source: {
+              dailyStaff: target.sourceDailyStaffSnapshot,
+              measurementDate: target.measurementDate,
+              measurerId: target.sourceMeasurerId,
+              collaborators: target.sourceCollaboratorsSnapshot,
+            },
+            userIdByName: measurementRoleUserIdByName,
+          }),
+        );
         return {
           targetId: result.targetId,
           code: target.code,
@@ -1285,12 +1339,8 @@ export async function POST(request: NextRequest) {
               ))].join(", ") : "-",
           status: result.status === "recommended" && !assignmentIncomplete && !measurementRoleConflict
             ? "recommended" : "adjustment_required",
-          conflict: result.status === "manual_required"
-            ? result.reason
-            : measurementRoleConflict ? "측정일의 보고서 담당자 또는 측정 참여자 불가 일정 충돌"
-            : assignmentIncomplete ? "다일 측정 날짜별 인력 정보 또는 측정자 배정 필요"
-              : result.evidence.warnings.includes("EXPERIENCED_REVIEWER_UNASSIGNED") ? "경력 검토자 미배정"
-              : targetAssignments.some((assignment) => assignment.approvalRequired) ? "3건 승인 필요" : null,
+          conflict: conflicts.join(" · ") || null,
+          conflicts,
           reason: result.reason,
           alternatives: recommendationDatesForBusinessType(
             target.measurementDate,

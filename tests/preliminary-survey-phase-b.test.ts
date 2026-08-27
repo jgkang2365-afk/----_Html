@@ -234,7 +234,8 @@ test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합�
   assert.doesNotMatch(ui, /preliminaryDateFrom|preliminaryDateTo/);
   assert.match(ui, /bg-slate-200 text-slate-900/);
   assert.match(ui, /bg-slate-100 p-0 text-slate-700/);
-  assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 3);
+  assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 4);
+  assert.match(ui, /confirmed-document-repair/);
   assert.match(ui, /w-\[360px\] max-w-\[420px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
   assert.match(ui, /w-\[280px\] max-w-\[300px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
   assert.doesNotMatch(ui, /<textarea|resize-none/);
@@ -300,7 +301,7 @@ test("계획 검색은 기준일 snapshot을 확정한 뒤 화면 결과와 같�
   assert.match(ui, /searchQuery: activeSearchQuery/);
   assert.match(ui, /disabled=\{working \|\| isPlanSearchDirty\}/);
   assert.match(ui, /검색어 변경 · 검색 필요/);
-  assert.match(ui, /추천 검토 결과: 추천 \$\{recommendedCount\}개 · 조정 필요\/불가 \$\{unavailableCount\}개/);
+  assert.match(ui, /일반 추천 \$\{recommendedCount\}건 · 찐확정 누락정보 보정 \$\{repairableDrafts\.length\}건/);
 });
 
 test("예비조사 탭·toolbar와 table header는 동적 sticky 계층과 단일 세로 스크롤을 사용한다", () => {

@@ -237,17 +237,19 @@ test("DELETE API는 권한·원천·보호 reference를 사전 검사하고 RPC 
   assert.doesNotMatch(manualRoute, /\.from\("preliminary_survey_v2_plans"\)[\s\S]{0,200}\.delete\(/);
 });
 
-test("상세 UI는 persisted plan만 안전 삭제를 노출하고 취소 전 write 없이 성공 시 모든 draft를 무효화한다", () => {
+test("관리 열은 모든 행에 안전 삭제 상태를 노출하고 취소 전 write 없이 성공 시 모든 draft를 무효화한다", () => {
   assert.match(workbench, /hasPersistedPlan: Boolean\(plan\)/);
   assert.match(plansUi, /hasPersistedPlan\?: boolean/);
-  assert.match(plansUi, /if \(!selected\?\.hasPersistedPlan \|\| selected\.locked\) return/);
+  assert.match(plansUi, /if \(!row\.hasPersistedPlan \|\| row\.locked \|\| row\.deleteProtectionReason\) return/);
   const confirmAt = plansUi.indexOf("const confirmed = window.confirm");
   const fetchAt = plansUi.indexOf('method: "DELETE"', confirmAt);
   assert.ok(confirmAt >= 0 && fetchAt > confirmAt);
   assert.match(plansUi, /if \(!confirmed\) return/);
-  assert.match(plansUi, /selected\.hasPersistedPlan && !selected\.locked/);
-  assert.match(plansUi, /variant="danger"[\s\S]*계획 삭제/);
-  assert.match(plansUi, /setDrafts\(new Map\(\)\)[\s\S]*setDraftScope\(null\)[\s\S]*setScopeSummary\(null\)[\s\S]*await loadRows\(\)/);
+  assert.match(plansUi, /!row\.hasPersistedPlan \|\| Boolean\(row\.locked\) \|\| Boolean\(row\.deleteProtectionReason\)/);
+  assert.match(plansUi, /"보고서담당", "관리", "충돌"/);
+  assert.match(plansUi, /variant="danger"[\s\S]*>삭제<\/Button>/);
+  assert.doesNotMatch(plansUi, />계획 삭제<\/Button>/);
+  assert.match(plansUi, /setDrafts\(new Map\(\)\)[\s\S]*setConfirmedRepairDrafts\(\[\]\)[\s\S]*setDraftScope\(null\)[\s\S]*setScopeSummary\(null\)[\s\S]*await loadRows\(\)/);
   assert.match(plansUi, /측정대상 사업장 자체와 측정예정일은 삭제되지 않습니다/);
   assert.match(plansUi, /승인하고 삭제하시겠습니까/);
 });
