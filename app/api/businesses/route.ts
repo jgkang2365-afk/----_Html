@@ -15,7 +15,10 @@ import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
 import { normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
-import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
+import {
+  classifyDesignatedOffice,
+  findOfficeByAddress,
+} from "@/lib/utils/jurisdiction-matcher";
 import {
   ensureBusinessCoordinate,
   invalidateBusinessCoordinateForAddress,
@@ -50,8 +53,7 @@ import {
   isTargetBusinessTerminated,
   normalizeTargetBusinessStatus,
   resolveTargetBusinessStatusForCreate,
-  resolveOfficeJurisdiction,
-  serializeTargetBusinessFormValues,
+  serializeTargetBusinessCreateValues,
 } from "@/lib/business/target-business-form";
 import {
   buildMeasurementScheduleBlockKeys,
@@ -145,23 +147,8 @@ export async function GET(request: NextRequest) {
       query = query.eq("measurement_date", confirmedDate);
     }
 
-    // 지정지청 (Exact 검색 or IN 검색) - office_jurisdiction 컬럼 사용? 
-    // TRD에는 office_jurisdiction(소재지 관할청)만 있고 designated_office 컬럼이 없음.
-    // 하지만 UI 요건상 "지정지청" 필터가 있음.
-    // 기존 로직은 주소 기반 계산 등을 수행했음.
-    // 새로 만든 테이블에는 'office_jurisdiction'이 있으므로 이를 필터링에 사용할 수 있음.
-    // 단, designated_office(지정기관)와 office_jurisdiction(관할청)은 다를 수 있음.
-    // 요구사항 분석: "지정지청" 필터는 보통 담당 지역을 의미함. 
-    // PRD에는 designated_office 컬럼이 없으므로, office_jurisdiction으로 매핑하거나, 
-    // 조회 후 JS 레벨에서 필터링해야 함. 일단 office_jurisdiction을 기준으로 필터링 시도.
-    if (designatedOffice && designatedOffice !== "전체") {
-      // 입력은 "대전, 천안" 등일 수 있음
-      const offices = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
-      // DB에는 약어("천안")로 저장될 것으로 예상됨 (TRD: 소재지 관할청 - 약어로 저장/표시)
-      if (offices.length > 0) {
-        query = query.in("office_jurisdiction", offices);
-      }
-    }
+    // target에는 소재지지청(office_jurisdiction)만 저장된다. 지정지청 필터는
+    // 조회 후 기존 4분류 함수를 적용해야 두 업무 개념이 섞이지 않는다.
 
     // 정렬: 코드순 (기본)
     query = query.order("code", { ascending: true });
@@ -404,8 +391,8 @@ export async function GET(request: NextRequest) {
         national_unpaid_count: nationalCount, // 국고 미수 (Calculated)
         unpaid_details: filteredDetails, // Filtered details
         has_actual_measurement_journal: hasActualMeasurementJournal,
-        // UI 호환성을 위한 필드 매핑
-        designated_office: item.office_jurisdiction, // 임시 매핑
+        // 지정지청은 소재지지청을 기존 production 4분류 규칙으로 파생한다.
+        designated_office: classifyDesignatedOffice(item.office_jurisdiction),
         isRegistered: isRegisteredText === "실시", // Frontend 호환성
         is_registered_text: isRegisteredText, // 텍스트 값 전달
         future_measurement_period: futurePeriod, // 최신 값으로 덮어쓰기
@@ -438,7 +425,17 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    console.log(`[API] 조회된 사업장 수: ${result.length}, 요청 조건: year=${year}, period=${period}`);
+    const filteredResult = designatedOffice && designatedOffice !== "전체"
+      ? result.filter((item: any) =>
+          designatedOffice
+            .split(",")
+            .map((office) => office.trim())
+            .filter(Boolean)
+            .includes(item.designated_office)
+        )
+      : result;
+
+    console.log(`[API] 조회된 사업장 수: ${filteredResult.length}, 요청 조건: year=${year}, period=${period}`);
 
     // 예비조사 V2 자동추천 상위 정책 상태 (UI 중지 안내용)
     let preliminarySurveyV2AutomationEnabled = true;
@@ -450,8 +447,8 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      businesses: result,
-      count: result.length,
+      businesses: filteredResult,
+      count: filteredResult.length,
       preliminarySurveyV2AutomationEnabled,
     });
 
@@ -548,10 +545,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     const allowedUpdateColumns = new Set([
-      "business_name", "business_category", "address", "office_jurisdiction",
-      "business_number", "invoice_email", "fax",
+      "business_name", "business_category", "address",
       "is_registered", "plan_manager", "manager_name",
-      "manager_mobile", "manager_phone", "manager_email", "phone", "total_employees", "management_status", "notes", "measurement_date",
+      "manager_mobile", "manager_email", "management_status", "notes", "measurement_date",
       "measurement_end_date", "future_measurement_period", "future_measurement_date",
       "measurer_id", "link_measurer_id", "period", "collaborators", "daily_staff", "representative_name",
       "industrial_accident_number", "commencement_number",
@@ -624,8 +620,7 @@ export async function PATCH(request: NextRequest) {
     // [New Feature] Auto-calculate office_jurisdiction if address is being updated
     if (updates.hasOwnProperty('address')) {
       const office = findOfficeByAddress(updates.address);
-      const resolvedOffice = resolveOfficeJurisdiction(updatePayload.office_jurisdiction, office);
-      if (resolvedOffice) updatePayload.office_jurisdiction = resolvedOffice;
+      updatePayload.office_jurisdiction = office;
 
       // 주소 변경 시 좌표 무효화 (동일 주소가 아니고 수동 고정 상태가 아닌 경우에만 STALE 처리)
       const normalizedOld = normalizeAddressForGeocoding(existingAddress);
@@ -961,42 +956,6 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    if (
-      code &&
-      (
-        updates.hasOwnProperty('total_employees') ||
-        updates.hasOwnProperty('phone')
-      )
-    ) {
-      try {
-        const masterPayload: any = {
-          code,
-          year: Number(year || updatedData.year),
-          period: period || updatedData.period,
-          business_name: updatedData.business_name,
-          updated_at: new Date().toISOString(),
-        };
-
-        if (updates.hasOwnProperty('total_employees')) {
-          masterPayload.total_employees = updates.total_employees;
-        }
-        if (updates.hasOwnProperty('phone')) {
-          masterPayload.phone = updates.phone;
-        }
-
-        const { error: measurementBusinessSyncError } = await supabase
-          .from("measurement_business")
-          .upsert(masterPayload, { onConflict: "code,year,period" });
-
-        if (measurementBusinessSyncError) {
-          console.error("Measurement Business detail sync error:", measurementBusinessSyncError);
-        }
-
-      } catch (detailSyncError) {
-        console.error("Business detail sync exception:", detailSyncError);
-      }
-    }
-
     // === [마스터 테이블 최종 동기화 Logic] ===
     // 계획 진행 상태가 '실시' 또는 '확정'일 때만, 입력된 건강디딤돌 필수 정보를 마스터 DB에 최종 검증(확정) 저장합니다.
     const isConfirmedStatus = updatedData.is_registered === "실시" || updatedData.is_registered === "확정";
@@ -1030,7 +989,10 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: updatedData,
+      data: {
+        ...updatedData,
+        designated_office: classifyDesignatedOffice(updatedData.office_jurisdiction),
+      },
       geocodeStatus: geocodeResult?.geocoding_status || null,
     });
 
@@ -1203,7 +1165,7 @@ export async function POST(request: NextRequest) {
     await checkPermission("journal:write");
 
     const body = await request.json();
-    const formValues = serializeTargetBusinessFormValues(body);
+    const formValues = serializeTargetBusinessCreateValues(body);
     const { code, year } = body;
     const {
       period,
@@ -1345,10 +1307,7 @@ export async function POST(request: NextRequest) {
         business_name,
         business_number: String(business_number || "").replace(/\D/g, "") || null,
         address: address || null,
-        office_jurisdiction: resolveOfficeJurisdiction(
-          office_jurisdiction,
-          calculatedOfficeJurisdiction
-        ),
+        office_jurisdiction: office_jurisdiction || calculatedOfficeJurisdiction,
         business_category: business_category || null,
         business_type: business_type ?? null,
         process_changed: initialProcessChanged,
@@ -1426,7 +1385,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       businessCreated: true,
-      data: newTarget,
+      data: {
+        ...newTarget,
+        designated_office: classifyDesignatedOffice(newTarget.office_jurisdiction),
+      },
       geocodeStatus: geocodeResult?.geocoding_status?.toLowerCase() || "failed",
       latitude: geocodeResult?.latitude ?? null,
       longitude: geocodeResult?.longitude ?? null,

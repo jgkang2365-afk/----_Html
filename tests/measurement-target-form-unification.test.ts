@@ -3,11 +3,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import {
+  EDIT_SOURCE_OWNED_FIELDS,
   buildInlineMeasurementDateUpdates,
+  buildTargetBusinessEditPatch,
   buildTargetBusinessSaveValues,
   resolveTargetBusinessStatusForCreate,
-  resolveOfficeJurisdiction,
-  serializeTargetBusinessFormValues,
+  serializeTargetBusinessCreateValues,
+  serializeTargetBusinessEditValues,
 } from "../lib/business/target-business-form";
 import {
   serializeMeasurementDayForms,
@@ -16,12 +18,17 @@ import {
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
-test("신규등록 payload에 지정지청·상태·비고·다일 날짜별 배정이 함께 포함된다", () => {
+test("신규등록 payload에 소재지지청·연락정보·상태·비고·다일 날짜별 배정이 함께 포함된다", () => {
   const payload = buildTargetBusinessSaveValues(
     {
       period: "하반기",
       business_name: "테스트 사업장",
+      office_jurisdiction: "보령",
       designated_office: "천안",
+      phone: "041-000-0000",
+      fax: "041-000-0001",
+      total_employees: 12,
+      invoice_email: "invoice@example.com",
       is_registered_text: "실시",
       notes: "최초 등록 비고",
       plan_manager: "한기문",
@@ -34,7 +41,12 @@ test("신규등록 payload에 지정지청·상태·비고·다일 날짜별 배
     ]
   );
 
-  assert.equal(payload.office_jurisdiction, "천안");
+  assert.equal(payload.office_jurisdiction, "보령");
+  assert.equal("designated_office" in payload, false);
+  assert.equal(payload.phone, "041-000-0000");
+  assert.equal(payload.fax, "041-000-0001");
+  assert.equal(payload.total_employees, 12);
+  assert.equal(payload.invoice_email, "invoice@example.com");
   assert.equal(payload.is_registered, "실시");
   assert.equal(payload.notes, "최초 등록 비고");
   assert.equal(payload.plan_manager, "한기문");
@@ -48,16 +60,14 @@ test("신규등록 payload에 지정지청·상태·비고·다일 날짜별 배
   ]);
 });
 
-test("신규 alias와 상세수정 canonical 필드는 같은 공통 직렬화 결과를 만든다", () => {
-  const createValues = serializeTargetBusinessFormValues({
-    designated_office: "대전",
+test("신규/상세수정의 공통 업무 필드는 같은 canonical column으로 직렬화된다", () => {
+  const createValues = serializeTargetBusinessCreateValues({
     sanjae: "123",
     commencement: "456",
     is_registered_text: "확정",
     notes: "동일",
   });
-  const editValues = serializeTargetBusinessFormValues({
-    office_jurisdiction: "대전",
+  const editValues = serializeTargetBusinessEditValues({
     industrial_accident_number: "123",
     commencement_number: "456",
     is_registered: "실시",
@@ -67,10 +77,48 @@ test("신규 alias와 상세수정 canonical 필드는 같은 공통 직렬화 �
   assert.deepEqual(createValues, editValues);
 });
 
-test("명시적인 지정지청은 주소 자동계산 결과보다 우선한다", () => {
-  assert.equal(resolveOfficeJurisdiction("천안", "대전"), "천안");
-  assert.equal(resolveOfficeJurisdiction("", "대전"), "대전");
-  assert.equal(resolveOfficeJurisdiction(null, null), null);
+test("상세수정에서 비고만 바꾸면 source-owned 값과 소재지지청은 PATCH payload에서 제외된다", () => {
+  const original = {
+    business_name: "테스트 사업장",
+    notes: "기존 비고",
+    phone: "041-000-0000",
+    fax: "041-000-0001",
+    total_employees: 12,
+    invoice_email: "invoice@example.com",
+    manager_phone: "041-000-0002",
+    business_number: "1234567890",
+    office_jurisdiction: "보령",
+  };
+  const days = [{ date: "2026-09-01", measurerId: 2, collaborators: ["한기문"] }];
+  const patch = buildTargetBusinessEditPatch(
+    original,
+    { ...original, notes: "수정 비고" },
+    days,
+    days
+  );
+
+  assert.deepEqual(patch, { notes: "수정 비고" });
+  for (const field of EDIT_SOURCE_OWNED_FIELDS) {
+    assert.equal(field in patch, false, `${field}가 dirty PATCH에 포함되면 안 됩니다.`);
+  }
+});
+
+test("상세수정 일정이 바뀐 경우에만 날짜별 배정 묶음을 PATCH한다", () => {
+  const form = { business_name: "테스트 사업장", is_registered_text: "실시" };
+  const originalDays = [
+    { date: "2026-09-01", measurerId: 2, collaborators: ["한기문"] },
+    { date: "2026-09-02", measurerId: 3, collaborators: ["강종구"] },
+  ];
+  assert.deepEqual(buildTargetBusinessEditPatch(form, form, originalDays, originalDays), {});
+
+  const changedDays = [originalDays[0], { ...originalDays[1], date: "2026-09-03" }];
+  const patch = buildTargetBusinessEditPatch(form, form, originalDays, changedDays);
+  assert.equal("measurement_date" in patch, false);
+  assert.equal(patch.measurement_end_date, "2026-09-03");
+  assert.deepEqual(patch.daily_staff, [
+    { date: "2026-09-01", measurer_id: 2, collaborators: ["한기문"] },
+    { date: "2026-09-03", measurer_id: 3, collaborators: ["강종구"] },
+  ]);
 });
 
 test("inline 날짜는 실제 change에서 시작일·종료일·상태를 함께 만들고 거래종료를 보존한다", () => {
@@ -159,4 +207,40 @@ test("신규 POST는 공통 배정 validation과 legacy Calendar 후속 처리�
     /syncBusinessToCalendar\(supabase, params\.code, params\.year, params\.period\)/
   );
   assert.doesNotMatch(route, /ensureV2PlanForTarget|reconcileV2AfterTargetChange/);
+});
+
+test("지정지청과 소재지지청은 화면·serializer·API에서 alias로 혼용되지 않는다", () => {
+  const helper = read("lib/business/target-business-form.ts");
+  const commonForm = read("components/features/MeasurementTargetBusinessFormSections.tsx");
+  const management = read("components/features/MeasurementTargetBusinessManagement.tsx");
+  const route = read("app/api/businesses/route.ts");
+
+  assert.doesNotMatch(helper, /normalized\.office_jurisdiction\s*=\s*raw\.designated_office/);
+  assert.match(commonForm, />지정지청</);
+  assert.match(commonForm, />소재지지청</);
+  assert.doesNotMatch(commonForm, /onChange=\{\(event\) => onChange\(\{ designated_office:/);
+  assert.match(commonForm, /address: event\.target\.value,[\s\S]{0,120}office_jurisdiction: "",[\s\S]{0,80}designated_office: ""/);
+  assert.match(route, /designated_office: classifyDesignatedOffice\(item\.office_jurisdiction\)/);
+  assert.match(route, /const office = findOfficeByAddress\(updates\.address\);[\s\S]{0,120}updatePayload\.office_jurisdiction = office/);
+  assert.doesNotMatch(route, /if \(office\) \{[\s\S]{0,80}updatePayload\.office_jurisdiction = office/);
+  assert.match(
+    management,
+    /const result = await response\.json\(\);[\s\S]{0,260}\{ \.\.\.item, \.\.\.result\.data \}/
+  );
+});
+
+test("비고-only edit payload는 measurement_business detail upsert 경로를 만들지 않는다", () => {
+  const route = read("app/api/businesses/route.ts");
+  const patch = serializeTargetBusinessEditValues({
+    notes: "수정 비고",
+    phone: "041-000-0000",
+    total_employees: 12,
+  });
+
+  assert.deepEqual(patch, { notes: "수정 비고" });
+  assert.doesNotMatch(
+    route.match(/const allowedUpdateColumns = new Set\(\[[\s\S]*?\]\);/)?.[0] || "",
+    /"business_number"|"phone"|"fax"|"total_employees"|"invoice_email"|"manager_phone"|"office_jurisdiction"/
+  );
+  assert.doesNotMatch(route, /Measurement Business detail sync|\.upsert\(masterPayload/);
 });

@@ -33,7 +33,6 @@ interface MeasurementTargetBusinessFormSectionsProps {
   value: TargetBusinessFormValues;
   onChange: (patch: Partial<TargetBusinessFormValues>) => void;
   businessCategories: Array<{ value: string; label: string }>;
-  officeOptions: Array<{ value: string; label: string }>;
   planManagerOptions: Array<{ value: string; label: string }>;
   measurers: MeasurementFormUser[];
   measurementDays: MeasurementDayFormWithUiKey[];
@@ -198,7 +197,6 @@ export const MeasurementTargetBusinessFormSections: React.FC<
   value,
   onChange,
   businessCategories,
-  officeOptions,
   planManagerOptions,
   measurers,
   measurementDays,
@@ -212,7 +210,6 @@ export const MeasurementTargetBusinessFormSections: React.FC<
 }) => {
   const isCreate = mode === "create";
   const contactReadOnlyClass = isCreate ? "" : "bg-slate-50 text-slate-700";
-  const selectedOffice = value.designated_office ?? value.office_jurisdiction ?? "";
   const displayedStatus = value.is_registered_text || value.is_registered || "미실시";
 
   const updateDay = (
@@ -328,7 +325,13 @@ export const MeasurementTargetBusinessFormSections: React.FC<
             <label className="mb-1 block text-sm font-medium text-slate-700">소재지</label>
             <Input
               value={value.address || ""}
-              onChange={(event) => onChange({ address: event.target.value })}
+              onChange={(event) =>
+                onChange({
+                  address: event.target.value,
+                  office_jurisdiction: "",
+                  designated_office: "",
+                })
+              }
             />
           </div>
           <div className="col-span-6">
@@ -430,7 +433,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
 
       <section>
         <SectionTitle>관리 정보</SectionTitle>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">계획담당</label>
             <Select
@@ -441,13 +444,23 @@ export const MeasurementTargetBusinessFormSections: React.FC<
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">지정지청</label>
-            <Select
-              options={officeOptions.map((option) =>
-                option.value ? option : { ...option, label: "선택" }
-              )}
-              value={selectedOffice}
-              onChange={(event) => onChange({ designated_office: event.target.value })}
+            <Input
+              readOnly
+              className="bg-slate-50 text-slate-700"
+              value={value.designated_office || ""}
+              placeholder="주소 기준 자동 판정"
             />
+            <p className="mt-1 text-[11px] text-slate-400">연번용 4분류 값</p>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">소재지지청</label>
+            <Input
+              readOnly
+              className="bg-slate-50 text-slate-700"
+              value={value.office_jurisdiction || ""}
+              placeholder="저장 시 주소 기준 자동 판정"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">결과보고 신고 관할청</p>
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">국고지원여부</label>

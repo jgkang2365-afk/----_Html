@@ -63,7 +63,7 @@ export interface TargetBusinessFormValues {
   sync_error_message?: string | null;
 }
 
-const SHARED_TARGET_BUSINESS_FIELDS = [
+const CREATE_TARGET_BUSINESS_FIELDS = [
   "period",
   "business_name",
   "business_number",
@@ -98,8 +98,49 @@ const SHARED_TARGET_BUSINESS_FIELDS = [
 ] as const;
 
 export type SerializedTargetBusinessForm = Partial<
-  Pick<TargetBusinessFormValues, (typeof SHARED_TARGET_BUSINESS_FIELDS)[number]>
+  Pick<TargetBusinessFormValues, (typeof CREATE_TARGET_BUSINESS_FIELDS)[number]>
 >;
+
+const EDITABLE_TARGET_BUSINESS_FIELDS = [
+  "period",
+  "business_name",
+  "business_category",
+  "business_type",
+  "process_changed",
+  "address",
+  "plan_manager",
+  "is_registered",
+  "management_status",
+  "notes",
+  "industrial_accident_number",
+  "commencement_number",
+  "representative_name",
+  "manager_name",
+  "manager_mobile",
+  "manager_email",
+  "future_measurement_period",
+  "future_measurement_date",
+  "link_measurer_id",
+] as const;
+
+const MEASUREMENT_SCHEDULE_FIELDS = [
+  "measurement_date",
+  "measurement_end_date",
+  "measurer_id",
+  "collaborators",
+  "daily_staff",
+] as const;
+
+/** 상세수정 화면에서 source-owned/read-only로 유지하며 PATCH에 싣지 않는 필드. */
+export const EDIT_SOURCE_OWNED_FIELDS = [
+  "business_number",
+  "phone",
+  "fax",
+  "total_employees",
+  "invoice_email",
+  "manager_phone",
+  "office_jurisdiction",
+] as const;
 
 const hasOwn = (value: object, key: PropertyKey) =>
   Object.prototype.hasOwnProperty.call(value, key);
@@ -118,20 +159,9 @@ export function isTargetBusinessTerminated(value: unknown): boolean {
   return normalizeTargetBusinessStatus(value) === "거래종료";
 }
 
-export function resolveOfficeJurisdiction(
-  explicitOffice: unknown,
-  calculatedOffice: unknown
-): string | null {
-  const explicit = String(explicitOffice ?? "").trim();
-  if (explicit) return explicit;
-  const calculated = String(calculatedOffice ?? "").trim();
-  return calculated || null;
-}
-
-/** 신규/수정에서 같은 UI 필드를 같은 DB column으로 직렬화한다. */
-export function serializeTargetBusinessFormValues(
+function normalizeTargetBusinessAliases(
   raw: TargetBusinessFormValues
-): SerializedTargetBusinessForm {
+): Record<string, unknown> {
   const normalized: Record<string, unknown> = { ...raw };
 
   if (hasOwn(raw, "is_registered_text")) {
@@ -140,9 +170,6 @@ export function serializeTargetBusinessFormValues(
     normalized.is_registered = normalizeTargetBusinessStatus(raw.is_registered);
   }
 
-  if (hasOwn(raw, "designated_office")) {
-    normalized.office_jurisdiction = raw.designated_office;
-  }
   if (hasOwn(raw, "sanjae")) {
     normalized.industrial_accident_number = raw.sanjae;
   }
@@ -158,19 +185,84 @@ export function serializeTargetBusinessFormValues(
     if (normalized[field] === "") normalized[field] = null;
   }
 
+  return normalized;
+}
+
+/** 신규등록에서 입력 가능한 값을 target POST payload로 직렬화한다. */
+export function serializeTargetBusinessCreateValues(
+  raw: TargetBusinessFormValues
+): SerializedTargetBusinessForm {
+  const normalized = normalizeTargetBusinessAliases(raw);
+
   return Object.fromEntries(
-    SHARED_TARGET_BUSINESS_FIELDS.filter((field) => hasOwn(normalized, field)).map((field) => [
+    CREATE_TARGET_BUSINESS_FIELDS.filter((field) => hasOwn(normalized, field)).map((field) => [
       field,
       normalized[field],
     ])
   ) as SerializedTargetBusinessForm;
 }
 
+/**
+ * inline 수정 등 이미 dirty field만 받은 호출용 serializer.
+ * 상세 모달 전체 form에는 buildTargetBusinessEditPatch를 사용한다.
+ */
+export function serializeTargetBusinessEditValues(
+  raw: TargetBusinessFormValues
+): SerializedTargetBusinessForm {
+  const normalized = normalizeTargetBusinessAliases(raw);
+  const allowedFields = [...EDITABLE_TARGET_BUSINESS_FIELDS, ...MEASUREMENT_SCHEDULE_FIELDS];
+
+  return Object.fromEntries(
+    allowedFields.filter((field) => hasOwn(normalized, field)).map((field) => [
+      field,
+      normalized[field],
+    ])
+  ) as SerializedTargetBusinessForm;
+}
+
+/** 기존 import 호환용. 신규 저장 경계는 create serializer를 사용한다. */
+export const serializeTargetBusinessFormValues = serializeTargetBusinessCreateValues;
+
+const comparableValue = (value: unknown): unknown => {
+  if (value === "" || value === null || value === undefined) return null;
+  if (typeof value === "object") return JSON.stringify(value);
+  return value;
+};
+
+/** 상세 모달 최초값과 현재값을 비교해 실제로 바뀐 edit-allowed field만 반환한다. */
+export function buildTargetBusinessEditPatch(
+  original: TargetBusinessFormValues,
+  current: TargetBusinessFormValues,
+  originalDays: MeasurementDayForm[],
+  currentDays: MeasurementDayForm[]
+): SerializedTargetBusinessForm {
+  const originalValues = normalizeTargetBusinessAliases(original);
+  const currentValues = normalizeTargetBusinessAliases(current);
+  const patch: Record<string, unknown> = {};
+
+  for (const field of EDITABLE_TARGET_BUSINESS_FIELDS) {
+    if (!hasOwn(currentValues, field)) continue;
+    if (comparableValue(currentValues[field]) !== comparableValue(originalValues[field])) {
+      patch[field] = currentValues[field];
+    }
+  }
+
+  const originalSchedule = serializeMeasurementDayForms(originalDays);
+  const currentSchedule = serializeMeasurementDayForms(currentDays);
+  for (const field of MEASUREMENT_SCHEDULE_FIELDS) {
+    if (comparableValue(currentSchedule[field]) !== comparableValue(originalSchedule[field])) {
+      patch[field] = currentSchedule[field];
+    }
+  }
+
+  return patch as SerializedTargetBusinessForm;
+}
+
 export function buildTargetBusinessSaveValues(
   form: TargetBusinessFormValues,
   days: MeasurementDayForm[]
 ): SerializedTargetBusinessForm {
-  return serializeTargetBusinessFormValues({
+  return serializeTargetBusinessCreateValues({
     ...form,
     ...serializeMeasurementDayForms(days),
   });

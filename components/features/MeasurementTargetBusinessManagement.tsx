@@ -45,20 +45,21 @@ import {
     RegistrationAutoFillValues,
 } from "@/lib/business-info/registration-context";
 import {
+    MeasurementDayForm,
     MeasurementDayFormWithUiKey,
     createEmptyMeasurementDayForm,
     defaultEmptyParticipantsToReportWriter,
     measurementDayFormsFrom,
-    serializeMeasurementDayForms,
     withMeasurementDayUiKeys,
     validateMeasurementDayForms,
 } from "@/lib/business/measurement-day-form";
 import {
     buildInlineMeasurementDateUpdates,
+    buildTargetBusinessEditPatch,
     buildTargetBusinessSaveValues,
     getTargetBusinessTypeLabel,
     isProcessChangedDefaultCategory,
-    serializeTargetBusinessFormValues,
+    serializeTargetBusinessEditValues,
     statusForMeasurementDays,
     TargetBusinessFormValues,
 } from "@/lib/business/target-business-form";
@@ -155,6 +156,7 @@ interface BusinessInfoSearchResult {
     industrial_accident_number: string;
     commencement_number: string;
     office_jurisdiction: string;
+    designated_office?: string;
     invoice_contact_candidate: {
         name: string;
         position: string;
@@ -800,6 +802,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [editMeasurementDays, setEditMeasurementDays] = useState<MeasurementDayFormWithUiKey[]>(
         () => [createEmptyMeasurementDayForm()],
     );
+    const editInitialStateRef = useRef<{
+        form: TargetBusinessFormValues;
+        days: MeasurementDayForm[];
+    } | null>(null);
     const [addForm, setAddForm] = useState<Partial<BusinessEntry>>({
         year: new Date().getFullYear(),
         period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
@@ -866,7 +872,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     ...target,
                     isRegistered: target.is_registered === "실시",
                     is_registered_text: target.is_registered || "미실시",
-                    designated_office: target.office_jurisdiction || "",
+                    designated_office: target.designated_office || "",
                     sanjae: target.industrial_accident_number || "",
                     commencement: target.commencement_number || "",
                     unpaid_count: 0,
@@ -912,6 +918,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             manager_mobile: "",
             manager_email: "",
             designated_office: "",
+            office_jurisdiction: "",
             is_registered_text: "미실시",
             notes: "",
         });
@@ -969,7 +976,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             business_number: business.business_number || prev.business_number,
             invoice_email: business.invoice_email || prev.invoice_email,
             office_jurisdiction: business.office_jurisdiction || prev.office_jurisdiction,
-            designated_office: business.office_jurisdiction || prev.designated_office,
+            designated_office: business.designated_office || prev.designated_office,
         }));
         applyRegistrationAutoValues(buildRegistrationAutoFillValues(business, null));
         void loadExactMeasurementBusiness(
@@ -1058,7 +1065,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     ...created,
                     isRegistered: created.is_registered === "실시",
                     is_registered_text: created.is_registered || "미실시",
-                    designated_office: created.office_jurisdiction || "",
+                    designated_office: created.designated_office || "",
                     sanjae: created.industrial_accident_number || "",
                     commencement: created.commencement_number || "",
                     unpaid_count: 0,
@@ -1123,10 +1130,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         let result = data;
 
         if (filters.designatedOffice) {
-            result = result.filter(item => {
-                const office = toShortName(item.office_jurisdiction || "") || item.designated_office || "";
-                return office.includes(filters.designatedOffice);
-            });
+            result = result.filter(item =>
+                (item.designated_office || "").includes(filters.designatedOffice)
+            );
         }
 
         if (filters.businessCategory) {
@@ -1366,6 +1372,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         };
 
         setEditForm(initialForm);
+        editInitialStateRef.current = { form: initialForm, days: initialDays };
         setEditMeasurementDays(withMeasurementDayUiKeys(initialDays));
         setIsEditModalOpen(true);
     };
@@ -1430,19 +1437,27 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
 
         try {
+            const initialState = editInitialStateRef.current;
+            const updatesToSave = buildTargetBusinessEditPatch(
+                initialState?.form || editingItem,
+                editForm,
+                initialState?.days || measurementDayFormsFrom({
+                    dailyStaff: editingItem.daily_staff,
+                    measurementDate: editingItem.measurement_date,
+                    measurerId: editingItem.measurer_id,
+                    collaborators: editingItem.collaborators,
+                }),
+                measurementDays,
+            );
+            if (Object.keys(updatesToSave).length === 0) {
+                setIsEditModalOpen(false);
+                return;
+            }
+
             // 저장이 성공(Resolve)한 후에만 모달을 닫음
-            const updatesToSave: TargetBusinessFormValues = {
-                ...editForm,
-                ...serializeMeasurementDayForms(measurementDays),
-            };
-            (["manager_name", "manager_mobile", "manager_email"] as const).forEach(field => {
-                if (String(editForm[field] ?? "") === String(editingItem[field] ?? "")) {
-                    delete updatesToSave[field];
-                }
-            });
             await saveChanges(
                 editingItem.code,
-                serializeTargetBusinessFormValues(updatesToSave) as Partial<BusinessEntry>,
+                updatesToSave as Partial<BusinessEntry>,
                 editingItem,
             );
             setIsEditModalOpen(false);
@@ -1534,17 +1549,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         const previousData = [...data]; // For rollback
 
         try {
-            const cleanUpdates = serializeTargetBusinessFormValues(updates);
+            const cleanUpdates = serializeTargetBusinessEditValues(updates);
 
             // 1. Optimistic Update (UI 먼저 반영)
             const optimisticUpdates = { ...updates };
             if (cleanUpdates.is_registered) {
                 optimisticUpdates.is_registered = cleanUpdates.is_registered;
                 optimisticUpdates.is_registered_text = cleanUpdates.is_registered;
-            }
-            if (cleanUpdates.office_jurisdiction) {
-                optimisticUpdates.office_jurisdiction = cleanUpdates.office_jurisdiction;
-                optimisticUpdates.designated_office = cleanUpdates.office_jurisdiction;
             }
             if (cleanUpdates.industrial_accident_number !== undefined) {
                 optimisticUpdates.sanjae = cleanUpdates.industrial_accident_number || "";
@@ -1578,6 +1589,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 throw new Error(errData.details || errData.error || "Failed to update");
             }
 
+            const result = await response.json();
+            if (result.data) {
+                setData(prev => prev.map(item =>
+                    item.code === code && item.year === targetYear && item.period === targetPeriod
+                        ? { ...item, ...result.data }
+                        : item
+                ));
+            }
+
         } catch (error) {
             console.error("Update error:", error);
             alert(`수정 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
@@ -1608,7 +1628,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "No": idx + 1,
             "년도": item.year,
             "주기": item.period,
-            "지정지청": item.designated_office || toShortName(item.office_jurisdiction || ""),
+            "지정지청": item.designated_office || "",
+            "소재지지청": toShortName(item.office_jurisdiction || ""),
             "코드": item.code,
             "사업자등록번호": item.business_number || "",
             "산재관리번호": item.industrial_accident_number || item.sanjae || "",
@@ -1951,7 +1972,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             소재지 {renderSortIcon("address")}
                         </div>
                         <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("office_jurisdiction")}>
-                            관할 {renderSortIcon("office_jurisdiction")}
+                            소재지지청 {renderSortIcon("office_jurisdiction")}
                         </div>
                         <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("unpaid_count")}>
                             미수 {renderSortIcon("unpaid_count")}
@@ -2237,7 +2258,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         value={editForm}
                         onChange={(patch) => setEditForm(previous => ({ ...previous, ...patch }) as Partial<BusinessEntry>)}
                         businessCategories={businessCategories}
-                        officeOptions={OFFICE_OPTIONS}
                         planManagerOptions={PLAN_MANAGER_EDIT_OPTIONS}
                         measurers={measurers}
                         measurementDays={editMeasurementDays}
@@ -2346,7 +2366,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             value={addForm}
                             onChange={(patch) => setAddForm(previous => ({ ...previous, ...patch }) as Partial<BusinessEntry>)}
                             businessCategories={businessCategories}
-                            officeOptions={OFFICE_OPTIONS}
                             planManagerOptions={PLAN_MANAGER_EDIT_OPTIONS}
                             measurers={measurers}
                             measurementDays={addMeasurementDays}

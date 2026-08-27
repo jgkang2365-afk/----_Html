@@ -123,8 +123,8 @@ test("건강디딤돌 담당자는 사용자 입력을 우선하고 MES는 빈�
   assert.match(formSource, /manager_name: event\.target\.value/);
   assert.match(formSource, /manager_mobile: event\.target\.value/);
   assert.match(formSource, /manager_email: event\.target\.value/);
-  assert.match(componentSource, /\["manager_name", "manager_mobile", "manager_email"\] as const/);
-  assert.match(componentSource, /delete updatesToSave\[field\]/);
+  assert.match(componentSource, /buildTargetBusinessEditPatch\(/);
+  assert.match(componentSource, /editInitialStateRef\.current = \{ form: initialForm, days: initialDays \}/);
   assert.match(excelSyncSource, /hasUserValue\(existing\.manager_name\)/);
   assert.match(excelSyncSource, /hasUserValue\(existing\.manager_mobile\)/);
   assert.match(excelSyncSource, /hasUserValue\(existing\.manager_email\)/);

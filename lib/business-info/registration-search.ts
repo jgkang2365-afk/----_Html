@@ -1,4 +1,13 @@
 import { extractInsuranceNumbers } from "@/lib/national-support/eligibility";
+import { classifyDesignatedOffice } from "@/lib/utils/jurisdiction-matcher";
+
+export function matchesDesignatedOffice(
+  officeJurisdiction: string | null | undefined,
+  designatedOffice: string | null | undefined,
+) {
+  if (!designatedOffice) return true;
+  return classifyDesignatedOffice(officeJurisdiction) === designatedOffice.trim();
+}
 
 export function mapBusinessInfoToRegistrationSearchResult(
   business: any,
@@ -28,6 +37,7 @@ export function mapBusinessInfoToRegistrationSearchResult(
       : null,
     notes: business.notes || "",
     office_jurisdiction: officeJurisdiction,
+    designated_office: classifyDesignatedOffice(officeJurisdiction),
     unpaid_count: unpaidCount,
     national_unpaid_count: nationalUnpaidCount,
   };
