@@ -867,6 +867,7 @@ export async function GET(request: NextRequest) {
         recommendationReasons: Array.isArray(plan?.recommendation_reason?.shortReasons)
           ? plan.recommendation_reason.shortReasons : [],
         planOrigin: plan?.plan_origin ?? null,
+        hasPersistedPlan: Boolean(plan),
         locked: trueConfirmed,
       };
     });

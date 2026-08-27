@@ -8,6 +8,113 @@ import { surveyMethodForKind, type SurveyUser } from "@/lib/preliminary-survey-v
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
 
+function deleteErrorResponse(message: string) {
+  if (message.includes("TRUE_CONFIRMED_LOCKED")) {
+    return NextResponse.json({ error: "찐확정된 예비조사 계획은 삭제할 수 없습니다.", code: "TRUE_CONFIRMED_LOCKED" }, { status: 409 });
+  }
+  if (message.includes("PLAN_DELETE_PROTECTED_HISTORY")) {
+    return NextResponse.json({ error: "역사 복원 또는 정합성 추적에 사용된 계획은 삭제할 수 없습니다.", code: "PLAN_DELETE_PROTECTED_HISTORY" }, { status: 409 });
+  }
+  if (message.includes("MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED")) {
+    return NextResponse.json({
+      error: "계획 삭제 후 해당 측정자의 배정이 3건이 되어 승인이 필요합니다.",
+      code: "MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED",
+      approvalRequired: true,
+    }, { status: 409 });
+  }
+  if (message.includes("MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED")) {
+    return NextResponse.json({ error: "계획 삭제 후에도 측정자 배정이 4건 이상인 그룹이 남아 삭제할 수 없습니다.", code: "MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED" }, { status: 409 });
+  }
+  if (message.includes("PLAN_NOT_FOUND")) {
+    return NextResponse.json({ error: "삭제할 예비조사 계획이 없습니다.", code: "PLAN_NOT_FOUND" }, { status: 404 });
+  }
+  if (message.includes("PLAN_DELETE_SOURCE_CHANGED")) {
+    return NextResponse.json({ error: "계획의 측정자 배정이 변경되었습니다. 목록을 새로고침한 뒤 다시 시도해 주세요.", code: "PLAN_DELETE_SOURCE_CHANGED", reviewRequired: true }, { status: 409 });
+  }
+  return NextResponse.json({ error: "예비조사 계획 삭제에 실패했습니다.", code: "PLAN_DELETE_FAILED" }, { status: 500 });
+}
+
+function normalizedPeriod(value: unknown) {
+  return String(value ?? "").replace("(수시)", "").trim();
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: { targetId: string } }) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+
+  const targetId = Number(params.targetId);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    return NextResponse.json({ error: "측정대상 정보가 올바르지 않습니다.", code: "INVALID_TARGET_ID" }, { status: 400 });
+  }
+
+  try {
+    const supabase = await createClient();
+    if (!await canManagePreliminarySurvey(supabase, session)) {
+      return NextResponse.json({ error: "예비조사 담당자 또는 관리자만 계획을 삭제할 수 있습니다." }, { status: 403 });
+    }
+
+    const { data: target, error: targetError } = await supabase
+      .from("measurement_target_business")
+      .select("code, year, period")
+      .eq("id", targetId)
+      .maybeSingle();
+    if (targetError) throw targetError;
+    if (!target) return NextResponse.json({ error: "측정대상을 찾을 수 없습니다.", code: "TARGET_NOT_FOUND" }, { status: 404 });
+
+    const { data: plan, error: planError } = await supabase
+      .from("preliminary_survey_v2_plans")
+      .select("id")
+      .eq("measurement_target_business_id", targetId)
+      .maybeSingle();
+    if (planError) throw planError;
+    if (!plan) return deleteErrorResponse("PLAN_NOT_FOUND");
+
+    const { data: journalRows, error: journalError } = await supabase
+      .from("measurement_journal")
+      .select("measurement_period")
+      .eq("code", target.code)
+      .eq("measurement_year", target.year);
+    if (journalError) throw journalError;
+    if ((journalRows ?? []).some((journal) => normalizedPeriod(journal.measurement_period) === normalizedPeriod(target.period))) {
+      return deleteErrorResponse("TRUE_CONFIRMED_LOCKED");
+    }
+
+    const { data: assignments, error: assignmentError } = await supabase
+      .from("preliminary_survey_v2_measurement_assignments")
+      .select("id")
+      .eq("plan_id", plan.id);
+    if (assignmentError) throw assignmentError;
+    const assignmentIds = (assignments ?? []).map((assignment) => String(assignment.id));
+    const [planReconciliation, assignmentReconciliation, recoveryAudit] = await Promise.all([
+      supabase.from("preliminary_survey_v2_legacy_reconciliation").select("id").eq("applied_plan_id", plan.id).limit(1),
+      assignmentIds.length > 0
+        ? supabase.from("preliminary_survey_v2_legacy_reconciliation").select("id").in("applied_assignment_id", assignmentIds).limit(1)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from("preliminary_survey_v2_history_recovery_audit").select("id").eq("created_plan_id", plan.id).limit(1),
+    ]);
+    const protectionError = planReconciliation.error || assignmentReconciliation.error || recoveryAudit.error;
+    if (protectionError) throw protectionError;
+    if ((planReconciliation.data?.length ?? 0) > 0 ||
+        (assignmentReconciliation.data?.length ?? 0) > 0 ||
+        (recoveryAudit.data?.length ?? 0) > 0) {
+      return deleteErrorResponse("PLAN_DELETE_PROTECTED_HISTORY");
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const approveThirdAssignment = body.approveThirdAssignment === true;
+    const { data, error } = await supabase.rpc("delete_preliminary_survey_v2_plan_and_rebalance_assignments", {
+      p_target_id: targetId,
+      p_approve_third_assignment: approveThirdAssignment,
+      p_approved_by_user_id: approveThirdAssignment ? session.userId : null,
+    });
+    if (error) return deleteErrorResponse(error.message);
+
+    return NextResponse.json({ success: true, deletedPlan: Array.isArray(data) ? data[0] ?? null : data });
+  } catch (error) {
+    return deleteErrorResponse(error instanceof Error ? error.message : "PLAN_DELETE_FAILED");
+  }
+}
+
 export async function PATCH(request: NextRequest, { params }: { params: { targetId: string } }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });

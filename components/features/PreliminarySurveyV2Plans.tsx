@@ -56,6 +56,7 @@ interface WorkbenchRow {
   conflict: string | null;
   reason?: string;
   alternatives?: string[];
+  hasPersistedPlan?: boolean;
   locked?: boolean;
 }
 
@@ -590,6 +591,47 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     }
   };
 
+  const deletePlan = async () => {
+    if (!selected?.hasPersistedPlan || selected.locked) return;
+    const confirmed = window.confirm(
+      `${selected.businessName}의 예비조사 계획을 삭제하시겠습니까?\n` +
+      "예비조사일, 조사자와 해당 계획의 측정자(공시료) 배정이 함께 삭제됩니다.\n" +
+      "측정대상 사업장 자체와 측정예정일은 삭제되지 않습니다.",
+    );
+    if (!confirmed) return;
+
+    setWorking(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const send = (approveThirdAssignment: boolean) => fetch(`/api/preliminary-survey-v2/${selected.targetId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approveThirdAssignment }),
+      });
+      let response = await send(false);
+      let result = await response.json();
+      if (response.status === 409 && result.approvalRequired && window.confirm(
+        "계획 삭제 후 해당 측정자의 배정이 3건이 되어 승인이 필요합니다.\n승인하고 삭제하시겠습니까?",
+      )) {
+        response = await send(true);
+        result = await response.json();
+      }
+      if (!response.ok || !result.success) throw new Error(result.error || "예비조사 계획 삭제 실패");
+
+      setSelected(null);
+      setDrafts(new Map());
+      setDraftScope(null);
+      setScopeSummary(null);
+      setNotice("예비조사 계획을 삭제했습니다. 측정예정일을 변경한 뒤 새로 추천해 주세요.");
+      await loadRows();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "예비조사 계획 삭제 실패");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const navigationUnitLabel = measurementRangeUnit === "day" ? "일" : measurementRangeUnit === "week" ? "주" : "월";
   const tableHeaderTop = stickyBaseTop + toolbarHeight;
   const filterControlClass = "mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500";
@@ -702,9 +744,12 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           </label>
           <fieldset disabled={selected.locked}><legend className="mb-2 text-sm font-medium text-text-700">예비조사자</legend><div className="grid grid-cols-2 gap-2">{users.filter((user) => user.is_active).map((user) => <label key={user.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editParticipants.includes(user.id)} onChange={() => setEditParticipants((current) => current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id])} />{user.name}{user.is_preliminary_survey_experienced ? " (경력)" : ""}</label>)}</div></fieldset>
           {selected.locked && <Alert variant="warning">유효한 측정일지가 있어 찐확정된 업체입니다. 일반 수정과 자동추천이 차단됩니다.</Alert>}
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => requestRecommendation(selected.targetId)} disabled={working || selected.locked}>이 업체 재추천</Button>
-            <Button onClick={saveManual} disabled={working || selected.locked || !editDate || editParticipants.length === 0}>수동 저장</Button>
+          <div className="flex items-center justify-between gap-2">
+            <div>{selected.hasPersistedPlan && !selected.locked && <Button variant="danger" onClick={deletePlan} disabled={working}>계획 삭제</Button>}</div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => requestRecommendation(selected.targetId)} disabled={working || selected.locked}>이 업체 재추천</Button>
+              <Button onClick={saveManual} disabled={working || selected.locked || !editDate || editParticipants.length === 0}>수동 저장</Button>
+            </div>
           </div>
         </div>
       </Modal>}
