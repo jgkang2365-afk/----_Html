@@ -7,6 +7,7 @@ import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
 import { parseDateOnly, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
+import { loadActualMeasurementBlockedKeys } from "./measurement-conflicts";
 import { measurementStaffForDate } from "./measurement-staff";
 import {
   PROCESS_CHANGED_POLICY_OFF,
@@ -486,6 +487,10 @@ export async function calculateV2Recommendations(
     : { data: [], error: null };
   if (scheduleBlockError) throw new Error(`V2_BLOCK_QUERY_FAILED:${scheduleBlockError.message}`);
   const blockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
+  const measurementBlockedKeys = options.ignoreLegacyAssignmentInputs
+    ? new Set<string>()
+    : await loadActualMeasurementBlockedKeys(supabase, candidateDates, users);
+  for (const key of measurementBlockedKeys) blockedKeys.add(key);
 
   const { data: queriedPlanRows, error: planError } = options.ignoreLegacyAssignmentInputs
     ? { data: [], error: null }

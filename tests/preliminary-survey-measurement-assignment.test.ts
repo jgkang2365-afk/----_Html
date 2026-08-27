@@ -44,7 +44,7 @@ test("6개 업체는 측정자 6명에게 1개씩 균등 배정한다", () => {
   assert.equal(new Set(result.map((item) => item.userId)).size, 6);
 });
 
-test("첫 순환 균등을 지킨 뒤 보고서 담당자·측정 참여자·예비조사자 역할 일치를 최대화한다", () => {
+test("역할 연계가 일치하면 균형 범위 안에서 해당 측정자·공시료 담당자를 선택한다", () => {
   const targets = users.map((user, index) => ({
     ...target(index + 1),
     reportWriterUserId: user.id,
@@ -85,7 +85,7 @@ test("실제 6개 업체 역할 충돌에서도 A/B/C/D/F/G를 한 번씩 사용
     [100, 5, "F"], [101, 6, "G"], [188, 4, "D"], [200, 1, "A"], [226, 3, "C"], [290, 2, "B"],
   ]);
   assert.equal(result.find((item) => item.targetId === 200)?.userId, 1,
-    "H0200은 참여자/보고서 담당자 강종구보다 첫 순환 전체 최적의 이태환(A)을 선택해야 한다");
+    "H0200은 참여자/보고서 담당자 강종구보다 예비조사 책임자 이태환(A) 연계를 우선해야 한다");
 });
 
 test("추천과 Apply는 공통 builder로 역할 필드가 같은 canonical target을 만든다", () => {
@@ -117,6 +117,44 @@ test("추천과 Apply는 공통 builder로 역할 필드가 같은 canonical tar
     measurementParticipantUserIds: [3],
     preliminarySurveyorUserId: 1,
   });
+});
+
+test("공시료 후보는 첫 순환 균등을 지킨 뒤 예비조사 책임자 일치를 선호한다", () => {
+  const [result] = assignMeasurementAssignees({
+    targets: [{
+      ...target(1), preliminarySurveyorUserId: 2,
+      measurementParticipantUserIds: [1], reportWriterUserId: 1,
+    }],
+    users: users.slice(0, 2),
+    existing: [{ ...target(100), userId: 2 }],
+  });
+  assert.equal(result.userId, 1);
+  assert.equal(result.dailyCount, 1);
+  assert.equal(result.approvalRequired, false);
+});
+
+test("예비조사 책임자가 불가 일정이어도 첫 순환 균등 후보를 우선한다", () => {
+  const [result] = assignMeasurementAssignees({
+    targets: [{
+      ...target(1), preliminarySurveyorUserId: 3,
+      measurementParticipantUserIds: [2], reportWriterUserId: 1,
+    }],
+    users: users.slice(0, 3),
+    availability: { isBlocked: (userId) => userId === 3 },
+  });
+  assert.equal(result.userId, 1);
+});
+
+test("동일주소 target별 예비조사 책임자 X/Y를 공시료 배정 preference로 각각 유지한다", () => {
+  const address = "충남 천안시 동일주소 20";
+  const result = assignMeasurementAssignees({
+    targets: [
+      { ...target(1, address), preliminarySurveyorUserId: 1 },
+      { ...target(2, address), preliminarySurveyorUserId: 2 },
+    ],
+    users: users.slice(0, 2),
+  });
+  assert.deepEqual(result.map((item) => [item.targetId, item.userId]), [[1, 1], [2, 2]]);
 });
 
 test("공통 builder는 다일 측정의 날짜별 보고서 담당자와 참여자를 섞지 않는다", () => {

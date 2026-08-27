@@ -5,7 +5,7 @@ import type {
   RouteMetric, RouteMetrics, SameDayRouteEvidence, SurveyTarget, SurveyUser,
 } from "./types";
 import { surveyMethodForKind } from "./types";
-import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
+import { fitsExistingPhoneResponsibleLimit, responsiblePhoneCount } from "./responsible-capacity";
 
 export interface RecommendBatchInput {
   targets: SurveyTarget[];
@@ -138,8 +138,7 @@ async function chooseReviewer(
   capacityPass: 1 | 2,
 ) {
   const choices = await Promise.all(users
-    .filter((user) => user.active !== false && user.experienced && user.id !== target.responsible.id &&
-      !availability.isBlocked(user.id, date))
+    .filter((user) => user.active !== false && user.experienced && user.id !== target.responsible.id)
     .map(async (user) => {
       const sameDayFieldCount = fieldVisitCount(assignments, user.id, date);
       const route = target.kind === "new" && capacityPass === 2
@@ -147,9 +146,11 @@ async function chooseReviewer(
         : null;
       return {
         user,
-        // 직원 불가 일정은 날짜별 조사자 후보에서 이미 제외한다.
-        // 일일 방문량·동선만 기존 선택 경향을 위한 정렬 정보로 남긴다.
-        hardConflict: false,
+        hardConflict: availability.isBlocked(user.id, date) ||
+          (target.kind === "new" && (
+            sameDayFieldCount >= capacityPass ||
+            (sameDayFieldCount > 0 && route?.evidence.routeDecision !== "same_day_allowed")
+          )),
         route,
         // 기존업체 검토는 현장 동행·유선 수행이 아니므로 신규 방문과의 용량 중복으로 보지 않는다.
         crossTypeOverlap: false,
@@ -160,6 +161,7 @@ async function chooseReviewer(
       };
     }));
   choices.sort((left, right) =>
+    Number(left.hardConflict) - Number(right.hardConflict) ||
     Number(left.crossTypeOverlap) - Number(right.crossTypeOverlap) ||
     compareRoute(left.route, right.route) ||
     left.reviewCount - right.reviewCount ||
@@ -183,13 +185,108 @@ function responsibleTotalCount(assignments: ExistingAssignment[], userId: number
   return assignments.filter((item) => item.responsibleUserId === userId).length;
 }
 
+function normalizedAddress(value: string | null | undefined) {
+  return String(value ?? "").replace(/\s+/g, "").trim();
+}
+
+async function reconcileEarlierExistingReviewOverlaps(
+  input: RecommendBatchInput,
+  results: RecommendationResult[],
+) {
+  const targetById = new Map(input.targets.map((target) => [target.id, target]));
+  let assignments = [
+    ...(input.existingAssignments ?? []),
+    ...results.filter((result) => result.status === "recommended").map((result) =>
+      asAssignment(targetById.get(result.targetId)!, result)),
+  ];
+
+  for (const result of results) {
+    const target = targetById.get(result.targetId);
+    const reviewer = result.experiencedReviewer;
+    if (!target || target.kind !== "existing" || result.status !== "recommended" || !result.date || !reviewer) continue;
+    const hasOverlap = assignments.some((assignment) =>
+      assignment.kind === "new" && assignment.date === result.date && assignment.participants.includes(reviewer.id),
+    );
+    if (!hasOverlap) continue;
+
+    const responsible = result.responsible;
+    const withoutCurrent = assignments.filter((assignment) => assignment.targetId !== target.id);
+    const tryDate = async (date: string) => {
+      if (input.availability.isBlocked(responsible.id, date)) return null;
+      if (newFieldCount(withoutCurrent, responsible.id, date) > 0) return null;
+      if (responsiblePhoneCount(withoutCurrent, responsible.id, date) >= 3) return null;
+      const choice = await chooseReviewer(
+        { ...target, responsible }, date, input.experiencedUsers, withoutCurrent, input.availability, input.routes, 1,
+      );
+      return choice && !choice.hardConflict && !choice.crossTypeOverlap ? choice : null;
+    };
+
+    let nextDate = result.date;
+    let choice = await tryDate(nextDate);
+    if (!choice) {
+      for (const candidate of targetRecommendationDates(target)) {
+        if (candidate.date === result.date) continue;
+        choice = await tryDate(candidate.date);
+        if (!choice) continue;
+        nextDate = candidate.date;
+        result.evidence.workingDaysBefore = candidate.workingDaysBefore;
+        result.evidence.range = candidateRange(target, candidate.workingDaysBefore);
+        result.reason = `${result.evidence.range === "primary" ? "기본구간" : "후순위구간"} -${candidate.workingDaysBefore} 워킹데이; 기존업체 배정 규칙; 신규 현장 중복 회피`;
+        break;
+      }
+    }
+
+    if (choice) {
+      result.date = nextDate;
+      result.experiencedReviewer = choice.user;
+      result.participants = [responsible, choice.user];
+      result.evidence.crossTypeOverlap = false;
+      result.evidence.crossTypeOverlapAvoided = true;
+      result.evidence.crossTypeOverlapReason = null;
+      result.evidence.experiencedNewAssignments = newFieldCount(withoutCurrent, choice.user.id);
+      result.evidence.experiencedAllFieldAssignments = allFieldCount(withoutCurrent, choice.user.id);
+      assignments = [...withoutCurrent, asAssignment(target, result)];
+    } else {
+      result.evidence.crossTypeOverlap = true;
+      result.evidence.crossTypeOverlapReason = "unavoidable_cross_type_overlap";
+    }
+  }
+  for (const result of results) {
+    const target = targetById.get(result.targetId);
+    if (target?.kind !== "new") continue;
+    const participantIds = new Set(result.participants.map((user) => user.id));
+    const externalOverlap = (input.existingAssignments ?? []).some((assignment) =>
+      assignment.kind === "existing" && assignment.date === result.date &&
+      assignment.experiencedReviewerId !== null && participantIds.has(assignment.experiencedReviewerId),
+    );
+    result.evidence.crossTypeOverlap = externalOverlap;
+    result.evidence.crossTypeOverlapAvoided = false;
+    result.evidence.crossTypeOverlapReason = externalOverlap ? "unavoidable_cross_type_overlap" : null;
+  }
+}
+
 function responsibleRolePreference(target: SurveyTarget, userId: number) {
-  const roles = target.measurementStaffByDate ?? [];
+  // 다일 target도 예비조사 책임자 preference에는 기준 측정일 행만 사용한다.
+  const roles = (target.measurementStaffByDate ?? []).filter((staff) => staff.date === target.measurementDate);
   const participantMatch = roles.some((staff) => staff.measurementParticipantUserIds.includes(userId));
   const reportWriterMatch = roles.some((staff) => staff.reportWriterUserId === userId);
-  const linkageCount = roles.reduce((count, staff) => count +
-    Number(staff.measurementParticipantUserIds.includes(userId)) + Number(staff.reportWriterUserId === userId), 0);
-  return { participantMatch, reportWriterMatch, linkageCount };
+  return { participantMatch, reportWriterMatch };
+}
+
+function sameAddressCommonParticipantCount(target: SurveyTarget, targets: SurveyTarget[], userId: number) {
+  const address = normalizedAddress(target.address);
+  if (!address || !responsibleRolePreference(target, userId).participantMatch) return 0;
+  return targets.filter((other) => other.id !== target.id && other.measurementDate === target.measurementDate &&
+    normalizedAddress(other.address) === address && responsibleRolePreference(other, userId).participantMatch).length;
+}
+
+function sameAddressSelectedCount(
+  assignments: ExistingAssignment[], target: SurveyTarget, userId: number, preliminaryDate: string,
+) {
+  const address = normalizedAddress(target.address);
+  if (!address) return 0;
+  return assignments.filter((assignment) => assignment.date === preliminaryDate &&
+    assignment.responsibleUserId === userId && normalizedAddress(assignment.address) === address).length;
 }
 
 function candidateRange(target: SurveyTarget, workingDaysBefore: number): "primary" | "fallback" {
@@ -217,13 +314,64 @@ function candidateDateGroups(
   ];
 }
 
+async function optimizeExistingFieldVisits(
+  input: RecommendBatchInput,
+  results: RecommendationResult[],
+) {
+  const targetById = new Map(input.targets.map((target) => [target.id, target]));
+  for (const result of results) {
+    const target = targetById.get(result.targetId);
+    if (!target || target.kind !== "existing" || result.status !== "recommended" || !result.date) continue;
+    const mandatoryCandidates = results.filter((candidate) => {
+      const candidateTarget = targetById.get(candidate.targetId);
+      return candidateTarget?.kind === "new" && candidate.status === "recommended" && candidate.date === result.date;
+    });
+    if (!mandatoryCandidates.length) continue;
+    const fieldCount = (userId: number) => fieldVisitCount([
+      ...(input.existingAssignments ?? []),
+      ...results.filter((candidate) => candidate.status === "recommended").map((candidate) =>
+        asAssignment(targetById.get(candidate.targetId)!, candidate)),
+    ], userId, result.date!);
+    const evaluated = await Promise.all(mandatoryCandidates.flatMap(async (mandatory) => {
+      if (mandatory.participants.some((participant) => fieldCount(participant.id) >= 2)) return [];
+      const mandatoryTarget = targetById.get(mandatory.targetId)!;
+      const sameAddress = normalizedAddress(mandatoryTarget.address) !== "" &&
+        normalizedAddress(mandatoryTarget.address) === normalizedAddress(target.address);
+      const route = await evaluateSameDayRoute(mandatoryTarget, target, input.routes);
+      const nearby = route.evidence.routeSource === "vehicle" && route.evidence.routeDecision === "same_day_allowed" &&
+        (route.evidence.selectedRouteMinutes ?? Number.MAX_SAFE_INTEGER) <= SAME_ROUTE_THRESHOLD_MINUTES;
+      if (!sameAddress && !nearby) return [];
+      return [{ mandatory, route, sameAddress }];
+    }));
+    const selected = evaluated.flat().sort((left, right) =>
+      Number(!left.sameAddress) - Number(!right.sameAddress) ||
+      (left.route.evidence.selectedRouteMinutes ?? Number.MAX_SAFE_INTEGER) -
+        (right.route.evidence.selectedRouteMinutes ?? Number.MAX_SAFE_INTEGER) ||
+      left.mandatory.targetId - right.mandatory.targetId,
+    )[0];
+    if (!selected) continue;
+
+    const { mandatory, route, sameAddress } = selected;
+    result.participants = [...mandatory.participants];
+    result.responsible = mandatory.participants.find((participant) => !participant.experienced) ?? mandatory.responsible;
+    result.experiencedReviewer = mandatory.participants.find((participant) =>
+      participant.experienced && participant.id !== result.responsible.id,
+    ) ?? null;
+    result.surveyMethod = "field";
+    result.evidence.surveyMethod = "field";
+    result.evidence.route = route.selectedRoute;
+    result.evidence.sameDayRoute = route.evidence;
+    result.reason = `${result.reason}; ${sameAddress ? "동일주소 묶음" : "근거리 묶음"}; 기존업체 선택 방문`;
+  }
+}
+
 export async function recommendBatch(input: RecommendBatchInput): Promise<RecommendationResult[]> {
   const virtual = [...(input.existingAssignments ?? [])];
   const results: RecommendationResult[] = [];
 
   for (const target of deterministicTargets(input.targets)) {
     // service에서 별도 조사자 planner를 한 번 더 실행하지 않는다. 책임 조사자 후보와
-    // 날짜를 함께 결정하고 기존 건수·경로는 동률 후보의 soft preference로만 사용한다.
+    // 날짜·용량·경로를 이 planner의 같은 virtual assignment에서 함께 결정한다.
     const responsibleCandidates = (input.surveyors?.length ? input.surveyors : [target.responsible])
       .filter((user) => user.active !== false)
       .sort((left, right) => left.id - right.id);
@@ -238,15 +386,25 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
     ) => {
       if (target.kind === "existing" && capacityPass === 2) return null;
 
-      // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 책임자 기준 하루 3건까지만 허용한다.
       if (target.kind === "existing" &&
           !fitsExistingPhoneResponsibleLimit(virtual, planningTarget.responsible.id, candidate.date)) return null;
+      if (target.kind === "existing") {
+        if (newFieldCount(virtual, planningTarget.responsible.id, candidate.date) > 0) return null;
+      } else {
+        const dailyFieldVisits = fieldVisitCount(virtual, planningTarget.responsible.id, candidate.date);
+        if (dailyFieldVisits >= capacityPass || dailyFieldVisits >= 2) return null;
+      }
+
+      // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 책임자 기준 하루 3건까지만 허용한다.
       const requiresReviewer = target.kind === "new" && !planningTarget.responsible.experienced;
       const prefersReviewer = target.kind === "existing" && !planningTarget.responsible.experienced;
       const reviewerChoice = requiresReviewer || prefersReviewer
         ? await chooseReviewer(planningTarget, candidate.date, input.experiencedUsers, virtual, input.availability, input.routes, capacityPass)
         : null;
-      if (requiresReviewer && !reviewerChoice) {
+      if (requiresReviewer && (!reviewerChoice || reviewerChoice.hardConflict)) {
+        if (reviewerChoice?.route && reviewerChoice.route.evidence.routeDecision !== "same_day_allowed") {
+          rejectedSameDayRoutes.push(reviewerChoice.route.evidence);
+        }
         return null;
       }
 
@@ -264,14 +422,15 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
             rejectedSameDayRoutes.push(evaluated.evidence);
             sameDayRoute = evaluated.evidence;
             route = null;
-            continue;
+            break;
           }
           if (!sameDayRoute || (evaluated.evidence.selectedRouteMinutes ?? 0) > (sameDayRoute.selectedRouteMinutes ?? 0)) {
             sameDayRoute = evaluated.evidence;
             route = evaluated.selectedRoute;
           }
         }
-        void requiresRoute;
+        if (requiresRoute && sameDayRoute?.routeDecision !== "same_day_allowed") return null;
+        if (participants.some((userId) => fieldVisitCount(virtual, userId, candidate.date) >= capacityPass)) return null;
       }
 
       const reviewer = reviewerChoice && !reviewerChoice.hardConflict ? reviewerChoice.user : null;
@@ -330,8 +489,10 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
           Number(!responsibleRolePreference(target, right.responsible.id).participantMatch) ||
         Number(!responsibleRolePreference(target, left.responsible.id).reportWriterMatch) -
           Number(!responsibleRolePreference(target, right.responsible.id).reportWriterMatch) ||
-        responsibleRolePreference(target, right.responsible.id).linkageCount -
-          responsibleRolePreference(target, left.responsible.id).linkageCount ||
+        sameAddressCommonParticipantCount(target, input.targets, right.responsible.id) -
+          sameAddressCommonParticipantCount(target, input.targets, left.responsible.id) ||
+        sameAddressSelectedCount(virtual, target, right.responsible.id, candidate.date) -
+          sameAddressSelectedCount(virtual, target, left.responsible.id, candidate.date) ||
         responsibleDailyCount(virtual, left.responsible.id, candidate.date) -
           responsibleDailyCount(virtual, right.responsible.id, candidate.date) ||
         responsibleTotalCount(virtual, left.responsible.id) - responsibleTotalCount(virtual, right.responsible.id) ||
@@ -434,7 +595,6 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
 
     if (selected) virtual.push(asAssignment(target, selected));
 
-    const documentSurveyorMissing = dates.length > 0;
     results.push(selected ?? {
       targetId: target.id,
       status: "manual_required",
@@ -456,17 +616,20 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         sameRouteThresholdMinutes: SAME_ROUTE_THRESHOLD_MINUTES,
         hardMaximumMinutes: HARD_MAXIMUM_MINUTES,
         selectionMode: null,
-        selectionReason: documentSurveyorMissing ? "document_integrity_unresolved" : "no_available_date",
+        selectionReason: rejectedSameDayRoutes.some((route) => route.routeDecision === "both_directions_over_60")
+          ? "over_60_rejected"
+          : rejectedSameDayRoutes.length ? "route_unverified_rejected" : "no_available_date",
         crossTypeOverlap: false,
         crossTypeOverlapAvoided: false,
         crossTypeOverlapReason: null,
-        warnings: [documentSurveyorMissing ? "DOCUMENT_SURVEYOR_ASSIGNMENT_REQUIRED" : "NO_POLICY_DATE_AVAILABLE"],
+        warnings: ["NO_AVAILABLE_DATE_THROUGH_MINUS_3"],
       },
-      reason: documentSurveyorMissing
-        ? "유효한 예비조사자 또는 신규 서류에 필요한 경력 조사자를 배정할 수 없습니다."
-        : "업체 유형별 영업일 범위에서 예비조사 기준일을 계산할 수 없습니다.",
+      reason: "-3 워킹데이까지 추천 가능한 날짜가 없습니다.",
     });
   }
-  // 기존업체는 서류 분류 정책상 유선을 유지한다. 일정·경로는 방식을 자동 변경하지 않는다.
+  // 기존업체 경력자는 검토자이며 현장/유선 수행 용량을 소비하지 않으므로 날짜를 옮겨 중복을 피하지 않는다.
+  // 필수 신규 방문을 먼저 고정한 뒤에만 기존업체를 같은 날 보조 방문으로 승격한다.
+  // 조건이 맞지 않으면 기존업체는 유선 기본을 유지해 별도 방문일을 만들지 않는다.
+  await optimizeExistingFieldVisits(input, results);
   return results;
 }

@@ -209,8 +209,8 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   // apply는 draft를 새로 저장하지 않지만, stale 방지를 위해 서버에서 동일 추천을 재계산한다.
   assert.match(api.slice(applyStart, applyEnd), /calculateV2Recommendations/);
   assert.match(api.slice(applyStart, applyEnd), /canonicalFingerprint/);
-  assert.doesNotMatch(api.slice(applyStart, applyEnd), /loadActualMeasurementBlockedKeys/);
-  assert.match(api.slice(applyStart, applyEnd), /preliminaryScheduleBlockedKeys/);
+  assert.match(api.slice(applyStart, applyEnd), /loadActualMeasurementBlockedKeys/);
+  assert.match(api.slice(applyStart, applyEnd), /blockedKeys\.has/);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
   assert.match(ui, /flex flex-wrap items-end gap-2 xl:flex-nowrap/);
@@ -373,8 +373,8 @@ test("E: apply는 추천 후 추가된 직원 불가 일정을 stale draft로 �
   const applyEnd = workbench.indexOf("export async function GET", applyStart);
   const apply = workbench.slice(applyStart, applyEnd);
   assert.match(apply, /loadScheduleBlockKeys/);
-  assert.match(apply, /preliminaryScheduleBlockedKeys\.has/);
-  assert.match(apply, /USER_UNAVAILABLE_ON_SURVEY_DATE/);
+  assert.match(apply, /blockedKeys\.has/);
+  assert.match(apply, /조사자 제외 일정 또는 측정 업무가 추가/);
   assert.match(apply, /DRAFT_REVIEW_REQUIRED/);
   assert.match(apply, /status: 409/);
 });
@@ -397,29 +397,29 @@ const storedPlanState = (overrides: Partial<Parameters<typeof storedPlanWorkbenc
     ...overrides,
   });
 
-test("manual/provisional plan의 예비조사자가 blocked면 재추천 필요한 review_required다", () => {
+test("manual/provisional plan의 예비조사자가 blocked면 재검토 필요한 review_required다", () => {
   const result = storedPlanState({ preliminaryScheduleBlocked: true });
   assert.equal(result.status, "review_required");
-  assert.match(result.conflict ?? "", /예비조사자 직원 불가 일정.*재추천 필요/);
+  assert.match(result.conflict ?? "", /직원 제외 일정 추가.*재검토 필요/);
 });
 
 test("예비조사자 blocked가 없는 manual plan은 기존 provisional 상태를 유지한다", () => {
   assert.deepEqual(storedPlanState(), { status: "provisional", conflict: null });
 });
 
-test("true-confirmed plan의 예비조사자가 blocked여도 확정 상태와 충돌 표시를 유지한다", () => {
+test("true-confirmed plan의 예비조사자가 blocked여도 확정 상태와 일정 충돌 표시를 유지한다", () => {
   const result = storedPlanState({ trueConfirmed: true, preliminaryScheduleBlocked: true });
   assert.equal(result.status, "true_confirmed");
-  assert.match(result.conflict ?? "", /예비조사자 직원 불가 일정 충돌/);
+  assert.match(result.conflict ?? "", /직원 제외 일정 충돌/);
 });
 
-test("공시료·측정 역할 schedule conflict만으로 예비조사 plan을 review_required로 승격하지 않는다", () => {
+test("공시료·측정 역할 schedule conflict도 기존 운영지침대로 review_required로 표시한다", () => {
   for (const conflict of [
     { measurementScheduleBlocked: true },
     { measurementRoleScheduleBlocked: true },
   ]) {
     const result = storedPlanState(conflict);
-    assert.equal(result.status, "provisional");
-    assert.equal(result.conflict, "직원 제외 일정 참고");
+    assert.equal(result.status, "review_required");
+    assert.match(result.conflict ?? "", /직원 제외 일정 추가.*재검토 필요/);
   }
 });

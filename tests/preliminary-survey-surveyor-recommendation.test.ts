@@ -23,14 +23,14 @@ test("유선 책임자 3건 한도에 도달하면 같은 날짜의 다른 조�
   assert.deepEqual(result[0].participants.map((user) => user.id), [10]);
 });
 
-test("직원 일정은 해당 사용자만 제외하고 방문 개인 용량은 후보 날짜를 제외하지 않는다", () => {
+test("후보 날짜×조합에서 직원 불가 일정과 방문 개인 용량을 함께 적용한다", () => {
   const result = recommendSurveyors({
     targets: [{ id: 1, kind: "new", businessType: "first_measurement", measurementDate: "2026-07-14", createdAt: null, candidateDates: ["2026-06-01", "2026-06-02"] }],
     users: [experienced(1), novice(2)],
     assignments: [assignment(10, "new", 1, "2026-06-01"), assignment(11, "new", 1, "2026-06-01")],
     availability: available(new Set(["2:2026-06-01"])),
   });
-  assert.equal(result[0].date, "2026-06-01");
+  assert.equal(result[0].date, "2026-06-02");
   assert.equal(result[0].responsible?.id, 1);
   assert.deepEqual(result[0].participants.map((user) => user.id), [1]);
 });
