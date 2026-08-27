@@ -19,6 +19,7 @@ CREATE OR REPLACE FUNCTION public.repair_true_confirmed_preliminary_survey_v2_mi
   p_target_id bigint,
   p_expected_plan_id uuid,
   p_expected_measurement_date date,
+  p_expected_source_measurer_id integer,
   p_recommended_date date,
   p_responsible_user_id integer,
   p_experienced_reviewer_id integer,
@@ -38,11 +39,16 @@ DECLARE
   before_json jsonb;
   participant_count integer;
   matched_user_count integer;
+  effective_date date;
+  effective_participant_user_ids jsonb;
+  effective_responsible_user_id integer;
+  effective_reviewer_user_id integer;
   filled jsonb := '[]'::jsonb;
 BEGIN
   SELECT * INTO target_row FROM public.measurement_target_business WHERE id = p_target_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'TARGET_NOT_FOUND'; END IF;
-  IF target_row.measurement_date::date IS DISTINCT FROM p_expected_measurement_date THEN
+  IF target_row.measurement_date::date IS DISTINCT FROM p_expected_measurement_date
+     OR target_row.measurer_id IS DISTINCT FROM p_expected_source_measurer_id THEN
     RAISE EXCEPTION 'REPAIR_SOURCE_CHANGED';
   END IF;
   IF NOT EXISTS (
@@ -65,6 +71,9 @@ BEGIN
   END IF;
   IF plan_row.id IS NULL AND NOT (p_fill_date AND p_fill_surveyors) THEN
     RAISE EXCEPTION 'REPAIR_SOURCE_CHANGED';
+  END IF;
+  IF plan_row.id IS NULL AND target_row.measurer_id IS NULL THEN
+    RAISE EXCEPTION 'REPAIR_SOURCE_MEASURER_REQUIRED';
   END IF;
   IF plan_row.id IS NOT NULL THEN
     IF p_fill_date AND plan_row.recommended_date IS NOT NULL THEN RAISE EXCEPTION 'NON_NULL_OVERWRITE_FORBIDDEN'; END IF;
@@ -98,12 +107,27 @@ BEGIN
     IF p_experienced_reviewer_id IS NOT NULL AND NOT (p_participant_user_ids @> to_jsonb(ARRAY[p_experienced_reviewer_id])) THEN
       RAISE EXCEPTION 'REVIEWER_NOT_IN_PARTICIPANTS';
     END IF;
-    IF EXISTS (
-      SELECT 1 FROM public.user_schedule_blocks block
-      JOIN jsonb_array_elements_text(p_participant_user_ids) ids ON ids.value::integer = block.user_id
-      WHERE p_recommended_date BETWEEN block.start_date AND block.end_date
-    ) THEN RAISE EXCEPTION 'USER_UNAVAILABLE_ON_SURVEY_DATE'; END IF;
   END IF;
+
+  effective_date := CASE WHEN p_fill_date THEN p_recommended_date ELSE plan_row.recommended_date END;
+  effective_participant_user_ids := CASE WHEN p_fill_surveyors THEN p_participant_user_ids ELSE plan_row.participant_user_ids END;
+  effective_responsible_user_id := CASE WHEN p_fill_surveyors THEN p_responsible_user_id ELSE plan_row.responsible_user_id END;
+  effective_reviewer_user_id := CASE WHEN p_fill_surveyors THEN p_experienced_reviewer_id ELSE plan_row.experienced_reviewer_id END;
+  IF effective_date IS NULL OR jsonb_typeof(effective_participant_user_ids) <> 'array' THEN
+    RAISE EXCEPTION 'REPAIR_SOURCE_CHANGED';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.user_schedule_blocks block
+    WHERE effective_date BETWEEN block.start_date AND block.end_date
+      AND (
+        block.user_id = effective_responsible_user_id
+        OR block.user_id = effective_reviewer_user_id
+        OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(effective_participant_user_ids) ids
+          WHERE ids.value::integer = block.user_id
+        )
+      )
+  ) THEN RAISE EXCEPTION 'USER_UNAVAILABLE_ON_SURVEY_DATE'; END IF;
 
   before_json := CASE WHEN plan_row.id IS NULL THEN NULL ELSE to_jsonb(plan_row) END;
   PERFORM set_config('app.preliminary_survey_admin_repair', 'on', true);
@@ -115,7 +139,7 @@ BEGIN
     ) VALUES (
       p_target_id, p_recommended_date, p_responsible_user_id, p_experienced_reviewer_id,
       p_participant_user_ids, p_participant_names, 'recommended', 'manual', target_row.measurement_date::date,
-      p_responsible_user_id, p_source_rule_type, p_survey_method,
+      target_row.measurer_id, p_source_rule_type, p_survey_method,
       jsonb_build_object('reason', '찐확정 누락정보 보정', 'provenance', 'true_confirmed_missing_documentary_info_repair'),
       '{}'::jsonb, '[]'::jsonb
     ) RETURNING * INTO repaired;
@@ -144,10 +168,10 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.repair_true_confirmed_preliminary_survey_v2_missing_info(
-  bigint, uuid, date, date, integer, integer, jsonb, jsonb, text, text, boolean, boolean, integer
+  bigint, uuid, date, integer, date, integer, integer, jsonb, jsonb, text, text, boolean, boolean, integer
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.repair_true_confirmed_preliminary_survey_v2_missing_info(
-  bigint, uuid, date, date, integer, integer, jsonb, jsonb, text, text, boolean, boolean, integer
+  bigint, uuid, date, integer, date, integer, integer, jsonb, jsonb, text, text, boolean, boolean, integer
 ) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.repair_true_confirmed_preliminary_v2_missing_batch(
@@ -173,6 +197,7 @@ BEGIN
       (repair_item->>'targetId')::bigint,
       NULLIF(repair_item->>'existingPlanId', '')::uuid,
       (repair_item->>'sourceMeasurementDate')::date,
+      NULLIF(repair_item->>'sourceMeasurerId', '')::integer,
       (repair_item->>'recommendedDate')::date,
       (repair_item->>'responsibleUserId')::integer,
       NULLIF(repair_item->>'experiencedReviewerUserId', '')::integer,

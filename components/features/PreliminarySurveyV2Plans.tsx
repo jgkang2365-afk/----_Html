@@ -37,6 +37,7 @@ interface ConfirmedRepairDraft {
   participantNames: string[];
   surveyMethod: "field" | "phone" | null;
   sourceMeasurementDate: string;
+  sourceMeasurerId: number | null;
   sourceRuleType: "new" | "existing" | null;
   reason: string;
   existingPlanId: string | null;

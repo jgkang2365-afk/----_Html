@@ -21,6 +21,7 @@ export interface ConfirmedDocumentRepairDraft {
   participantNames: string[];
   surveyMethod: "field" | "phone" | null;
   sourceMeasurementDate: string;
+  sourceMeasurerId: number | null;
   sourceRuleType: "new" | "existing" | null;
   reason: string;
   existingPlanId: string | null;
@@ -50,7 +51,7 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
   if (!targetIds.length) return { drafts: [] as ConfirmedDocumentRepairDraft[], unchangedCount: 0, manualReviewCount: 0 };
   const canonicalTargetIds = [...targetIds].sort((left, right) => left - right);
   const { data: targets, error: targetError } = await supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, measurement_date",
+    "id, code, year, period, business_name, measurement_date, measurer_id",
   ).in("id", canonicalTargetIds);
   if (targetError) throw targetError;
   const ids = (targets ?? []).map((target: any) => Number(target.id));
@@ -92,7 +93,9 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       protected: protectedSource,
     };
   }).filter((entry: any) => entry.fillDate || entry.fillSurveyors);
-  const repairableIds = missingTargets.filter((entry: any) => !entry.protected).map((entry: any) => Number(entry.target.id));
+  const repairableIds = missingTargets.filter((entry: any) =>
+    !entry.protected && (entry.plan || entry.target.measurer_id != null),
+  ).map((entry: any) => Number(entry.target.id));
   const calculation = repairableIds.length ? await calculateV2Recommendations(supabase, { targetIds: repairableIds }) : null;
   const resultByTarget = new Map((calculation?.results ?? []).map((result) => [result.targetId, result]));
   const targetById = new Map((calculation?.targets ?? []).map((target) => [target.id, target]));
@@ -105,15 +108,23 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       classification: "PROTECTED_MANUAL", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
       recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
       participantUserIds: [], participantNames: [], surveyMethod: null,
-      sourceMeasurementDate: entry.target.measurement_date, sourceRuleType: null,
+      sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: null,
       reason: "역사 복원/수동 보정 보호 대상 · 원천 확인 필요", existingPlanId: entry.plan?.id ?? null,
+    };
+    if (!entry.plan && entry.target.measurer_id == null) return {
+      targetId, code: entry.target.code, businessName: entry.target.business_name,
+      classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
+      recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
+      participantUserIds: [], participantNames: [], surveyMethod: null,
+      sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: null, sourceRuleType: null,
+      reason: "보고서 담당자 원천이 없어 신규 V2 plan의 source snapshot을 구성할 수 없습니다.", existingPlanId: null,
     };
     if (!result || result.status !== "recommended" || !result.date) return {
       targetId, code: entry.target.code, businessName: entry.target.business_name,
       classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
       recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
       participantUserIds: [], participantNames: [], surveyMethod: null,
-      sourceMeasurementDate: entry.target.measurement_date, sourceRuleType: calculatedTarget?.kind ?? null,
+      sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
       reason: result?.reason ?? "정책에 맞는 누락정보 보정안을 구성할 수 없습니다.", existingPlanId: entry.plan?.id ?? null,
     };
     const repairDate = entry.fillDate ? result.date : entry.plan.recommended_date;
@@ -144,7 +155,7 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
         recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
         participantUserIds: [], participantNames: [], surveyMethod: null,
-        sourceMeasurementDate: entry.target.measurement_date, sourceRuleType: calculatedTarget?.kind ?? null,
+        sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
         reason: legacyNames.length ? "legacy 예비조사자 원천의 사용자 매핑을 확인해야 합니다." : "기존 예비조사자 원천의 사용자 매핑을 확인해야 합니다.",
         existingPlanId: entry.plan?.id ?? null,
       };
@@ -170,7 +181,7 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
         recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
         participantUserIds: [], participantNames: [], surveyMethod: null,
-        sourceMeasurementDate: entry.target.measurement_date, sourceRuleType: calculatedTarget?.kind ?? null,
+        sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
         reason: `보존할 조사자 원천이 보정 날짜의 hard rule을 충족하지 않습니다: ${validation.errors.join(" · ") || "직원 불가 일정"}`,
         existingPlanId: entry.plan?.id ?? null,
       };
@@ -189,6 +200,7 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       participantNames,
       surveyMethod,
       sourceMeasurementDate: entry.target.measurement_date,
+      sourceMeasurerId: entry.target.measurer_id ?? null,
       sourceRuleType: calculatedTarget?.kind ?? (entry.plan?.source_rule_type ?? null),
       reason: "찐확정 누락정보 보정", existingPlanId: entry.plan?.id ?? null,
     };

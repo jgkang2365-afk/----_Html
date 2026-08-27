@@ -3,10 +3,10 @@ import { describe, it } from "node:test";
 import { compareCanonicalTargetBusinesses } from "../lib/business/target-business-sort";
 
 const fixture = [
-  { code: "D", isRegisteredText: "실시", measurementMonth: 1 },
+  { code: "D", isRegisteredText: "완료", measurementMonth: 1 },
   { code: "C", isRegisteredText: "미실시", measurementMonth: 2 },
   { code: "E", isRegisteredText: "거래종료", measurementMonth: 1 },
-  { code: "B", isRegisteredText: "미실시", measurementMonth: 1 },
+  { code: "B", isRegisteredText: " 대기 ", measurementMonth: 1 },
   { code: "A", isRegisteredText: "미실시", measurementMonth: 1 },
 ];
 

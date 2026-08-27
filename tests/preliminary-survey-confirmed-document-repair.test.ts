@@ -33,6 +33,11 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(sql, /NON_NULL_OVERWRITE_FORBIDDEN/);
     assert.match(sql, /true_confirmed_missing_documentary_info_repair/);
     assert.match(sql, /repair_true_confirmed_preliminary_v2_missing_batch/);
+    assert.match(sql, /target_row\.measurer_id IS DISTINCT FROM p_expected_source_measurer_id/);
+    assert.match(sql, /target_row\.measurer_id, p_source_rule_type, p_survey_method/);
+    assert.match(sql, /effective_date := CASE WHEN p_fill_date/);
+    assert.match(sql, /effective_participant_user_ids := CASE WHEN p_fill_surveyors/);
+    assert.match(sql, /effective_date BETWEEN block\.start_date AND block\.end_date/);
     const existingPlanUpdate = sql.match(/UPDATE public\.preliminary_survey_v2_plans SET([\s\S]*?)WHERE id = plan_row\.id/)?.[1] ?? "";
     assert.doesNotMatch(existingPlanUpdate, /recommendation_reason|updated_at/);
     assert.doesNotMatch(sql, /UPDATE\s+public\.measurement_target_business/i);

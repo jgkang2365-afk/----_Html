@@ -5,9 +5,10 @@ export interface CanonicalTargetBusinessSortValue {
 }
 
 export function targetBusinessStatusPriority(status: string | null | undefined): number {
-  if (status === "미실시" || status === "미확정" || !status) return 1;
-  if (status === "실시" || status === "확정") return 2;
-  if (status === "거래종료" || status === "종료" || status === "거래 종료") return 3;
+  const normalized = String(status ?? "").trim().replace(/\s+/g, " ");
+  if (normalized === "미실시" || normalized === "미확정" || normalized === "대기" || !normalized) return 1;
+  if (normalized === "실시" || normalized === "확정" || normalized === "완료") return 2;
+  if (normalized === "거래종료" || normalized === "종료" || normalized === "거래 종료") return 3;
   return 4;
 }
 

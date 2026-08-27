@@ -6,11 +6,11 @@ export function reportWriterParticipationWarning(input: {
   source: MeasurementDaySource;
   userIdByName: ReadonlyMap<string, number>;
 }): string | null {
+  const reportWriterUserId = input.source.measurerId;
+  if (reportWriterUserId == null) return null;
   const days = measurementDayFormsFrom(input.source);
-  const daysWithReportWriter = days.filter((day) => day.measurerId != null);
-  if (daysWithReportWriter.length === 0) return null;
-  return daysWithReportWriter.some((day) => day.collaborators.some((name) =>
-    input.userIdByName.get(name.trim()) === day.measurerId,
+  return days.some((day) => day.collaborators.some((name) =>
+    input.userIdByName.get(name.trim()) === reportWriterUserId,
   ))
     ? null
     : REPORT_WRITER_PARTICIPATION_WARNING;
