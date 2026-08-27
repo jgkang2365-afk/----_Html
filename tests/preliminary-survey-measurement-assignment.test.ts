@@ -229,7 +229,7 @@ test("Apply canonical E2E: 원천이 같으면 검토 draft를 그대로 적용�
     "실제 역할 원천이 바뀌면 기존 stale draft 재검토 안전장치가 유지되어야 한다");
 });
 
-test("8개 업체는 2/2/1/1/1/1이고 세 번째 배정은 승인 필요다", () => {
+test("8개 업체는 2/2/1/1/1/1로 자동 배정하고 별도 3건째는 승인을 요구한다", () => {
   const result = assignMeasurementAssignees({ targets: Array.from({ length: 8 }, (_, index) => target(index + 1)), users });
   const counts = users.map((user) => result.filter((item) => item.userId === user.id).length).sort((a, b) => b - a);
   assert.deepEqual(counts, [2, 2, 1, 1, 1, 1]);
