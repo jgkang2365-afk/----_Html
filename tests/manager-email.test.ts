@@ -17,6 +17,10 @@ const componentSource = readFileSync(
   path.join(root, "components", "features", "MeasurementTargetBusinessManagement.tsx"),
   "utf8",
 );
+const formSource = readFileSync(
+  path.join(root, "components", "features", "MeasurementTargetBusinessFormSections.tsx"),
+  "utf8",
+);
 const registrationContextSource = readFileSync(
   path.join(root, "app", "api", "business-info", "registration-context", "route.ts"),
   "utf8",
@@ -45,11 +49,12 @@ test("POST와 PATCH는 같은 manager_email 컬럼을 정리해 저장한다", (
 
 test("신규등록과 수정 모달은 동일한 manager_email 속성을 사용하고 초기화한다", () => {
   assert.match(componentSource, /manager_email\?: string \| null/);
-  assert.match(componentSource, /value=\{editForm\.manager_email \|\| ""\}/);
-  assert.match(componentSource, /value=\{addForm\.manager_email \|\| ""\}/);
+  assert.match(componentSource, /mode="edit"[\s\S]*value=\{editForm\}/);
+  assert.match(componentSource, /mode="create"[\s\S]*value=\{addForm\}/);
+  assert.match(formSource, /value=\{value\.manager_email \|\| ""\}/);
   assert.match(componentSource, /manager_email: ""/);
   assert.match(componentSource, /담당자 메일 형식을 확인해 주세요\./);
-  assert.equal((componentSource.match(/type="email"/g) || []).length >= 2, true);
+  assert.match(formSource, /type="email"/);
   assert.equal((componentSource.match(/담당자 메일 형식을 확인해 주세요\./g) || []).length >= 2, true);
   assert.match(componentSource, /prev\.code && prev\.code !== business\.code \? "" : prev\.manager_email/);
   assert.doesNotMatch(componentSource, /invoice_email[^\n]*manager_email|manager_email[^\n]*invoice_email/);
@@ -103,11 +108,11 @@ test("수정 모달 연락 및 정산 정보는 지정된 원본을 읽기 전�
   assert.match(routeSource, /phone: basicInfo\?\.phone \|\| null/);
   assert.match(routeSource, /fax: basicInfo\?\.fax \|\| null/);
   assert.match(routeSource, /invoice_email: basicInfo\?\.invoice_email \|\| null/);
-  assert.match(componentSource, />연락 및 정산 정보</);
-  assert.match(componentSource, /value=\{editForm\.phone \|\| ""\} readOnly/);
-  assert.match(componentSource, /value=\{editForm\.fax \|\| ""\} readOnly/);
-  assert.match(componentSource, /value=\{editForm\.total_employees \?\? ""\} readOnly/);
-  assert.match(componentSource, /value=\{editForm\.invoice_email \|\| ""\} readOnly/);
+  assert.match(formSource, />연락 및 사업장 정보</);
+  assert.match(formSource, /readOnly=\{!isCreate\}[\s\S]{0,140}value=\{value\.phone \|\| ""\}/);
+  assert.match(formSource, /readOnly=\{!isCreate\}[\s\S]{0,140}value=\{value\.fax \|\| ""\}/);
+  assert.match(formSource, /readOnly=\{!isCreate\}[\s\S]{0,180}value=\{value\.total_employees \?\? ""\}/);
+  assert.match(formSource, /readOnly=\{!isCreate\}[\s\S]{0,140}value=\{value\.invoice_email \|\| ""\}/);
 });
 
 test("건강디딤돌 담당자는 사용자 입력을 우선하고 MES는 빈칸만 보완한다 (담당자 메일은 제외)", () => {
@@ -115,9 +120,9 @@ test("건강디딤돌 담당자는 사용자 입력을 우선하고 MES는 빈�
   assert.match(routeSource, /item\.manager_mobile \|\| exactInfo\?\.manager_mobile/);
   assert.match(routeSource, /const managerEmail = item\.manager_email \?\? null/);
   assert.doesNotMatch(routeSource, /item\.manager_email\s*\|\|\s*exactInfo\?\.manager_email/);
-  assert.match(componentSource, /manager_name: e\.target\.value/);
-  assert.match(componentSource, /manager_mobile: e\.target\.value/);
-  assert.match(componentSource, /manager_email: e\.target\.value/);
+  assert.match(formSource, /manager_name: event\.target\.value/);
+  assert.match(formSource, /manager_mobile: event\.target\.value/);
+  assert.match(formSource, /manager_email: event\.target\.value/);
   assert.match(componentSource, /\["manager_name", "manager_mobile", "manager_email"\] as const/);
   assert.match(componentSource, /delete updatesToSave\[field\]/);
   assert.match(excelSyncSource, /hasUserValue\(existing\.manager_name\)/);

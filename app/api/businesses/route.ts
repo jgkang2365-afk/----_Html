@@ -40,11 +40,48 @@ import {
   isNullableProcessChanged,
   resolveTargetBusinessCategory,
 } from "@/lib/business/target-classification";
-import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
+import {
+  MeasurementDayForm,
+  measurementDayFormsFrom,
+  serializeMeasurementDayForms,
+  validateMeasurementDayForms,
+} from "@/lib/business/measurement-day-form";
+import {
+  isTargetBusinessTerminated,
+  normalizeTargetBusinessStatus,
+  resolveTargetBusinessStatusForCreate,
+  resolveOfficeJurisdiction,
+  serializeTargetBusinessFormValues,
+} from "@/lib/business/target-business-form";
 import {
   buildMeasurementScheduleBlockKeys,
   validateMeasurementDayAvailability,
 } from "@/lib/business/measurement-day-availability";
+
+async function validateMeasurementAssignmentsForSave(supabase: any, days: MeasurementDayForm[]) {
+  const validation = validateMeasurementDayForms(days);
+  if (!validation.valid) return validation;
+
+  const assignmentDates = days.map((day) => day.date).filter(Boolean).sort();
+  if (assignmentDates.length === 0) return { valid: true } as const;
+
+  const [{ data: users, error: userError }, { data: blocks, error: blockError }] = await Promise.all([
+    supabase.from("users").select("id, name").eq("job", "측정").neq("is_active", false),
+    supabase
+      .from("user_schedule_blocks")
+      .select("user_id, start_date, end_date")
+      .lte("start_date", assignmentDates.at(-1)!)
+      .gte("end_date", assignmentDates[0]),
+  ]);
+  if (userError) throw userError;
+  if (blockError) throw blockError;
+
+  return validateMeasurementDayAvailability({
+    days,
+    users: (users || []).map((user: any) => ({ id: Number(user.id), name: String(user.name) })),
+    blockedKeys: buildMeasurementScheduleBlockKeys(blocks || []),
+  });
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -578,32 +615,17 @@ export async function PATCH(request: NextRequest) {
         measurerId: Object.prototype.hasOwnProperty.call(updates, "measurer_id") ? updates.measurer_id : existingMeasurerId,
         collaborators: Object.prototype.hasOwnProperty.call(updates, "collaborators") ? updates.collaborators : existingCollaborators,
       });
-      const assignmentDates = finalDays.map((day) => day.date).filter(Boolean).sort();
-      if (assignmentDates.length > 0) {
-        const [{ data: users, error: userError }, { data: blocks, error: blockError }] = await Promise.all([
-          supabase.from("users").select("id, name").eq("job", "측정").neq("is_active", false),
-          supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
-            .lte("start_date", assignmentDates.at(-1)!).gte("end_date", assignmentDates[0]),
-        ]);
-        if (userError) throw userError;
-        if (blockError) throw blockError;
-        const availability = validateMeasurementDayAvailability({
-          days: finalDays,
-          users: (users || []).map((user) => ({ id: Number(user.id), name: String(user.name) })),
-          blockedKeys: buildMeasurementScheduleBlockKeys(blocks || []),
-        });
-        if (!availability.valid) {
-          return NextResponse.json({ error: availability.message }, { status: 400 });
-        }
+      const availability = await validateMeasurementAssignmentsForSave(supabase, finalDays);
+      if (!availability.valid) {
+        return NextResponse.json({ error: availability.message }, { status: 400 });
       }
     }
 
     // [New Feature] Auto-calculate office_jurisdiction if address is being updated
     if (updates.hasOwnProperty('address')) {
       const office = findOfficeByAddress(updates.address);
-      if (office) {
-        updatePayload.office_jurisdiction = office;
-      }
+      const resolvedOffice = resolveOfficeJurisdiction(updatePayload.office_jurisdiction, office);
+      if (resolvedOffice) updatePayload.office_jurisdiction = resolvedOffice;
 
       // 주소 변경 시 좌표 무효화 (동일 주소가 아니고 수동 고정 상태가 아닌 경우에만 STALE 처리)
       const normalizedOld = normalizeAddressForGeocoding(existingAddress);
@@ -1020,20 +1042,176 @@ export async function PATCH(request: NextRequest) {
     }, { status: 500 });
   }
 }
+async function syncCreatedTargetMeasurementSchedule(
+  supabase: any,
+  params: {
+    code: string;
+    year: number;
+    period: string;
+    businessName: string;
+    targetId: number;
+    targetStatus: string | null;
+    days: MeasurementDayForm[];
+  }
+) {
+  const days = params.days.filter((day) => Boolean(day.date));
+  if (days.length === 0) return;
+
+  const sortedDates = days.map((day) => day.date).sort();
+  const incomingDates = new Set(sortedDates);
+  const { data: existingSurveys, error: existingSurveysError } = await supabase
+    .from("preliminary_survey")
+    .select("id, measurement_date, google_event_id")
+    .eq("code", params.code)
+    .eq("year", params.year)
+    .eq("period", params.period);
+  if (existingSurveysError) throw existingSurveysError;
+
+  const surveysToDelete = (existingSurveys || []).filter(
+    (survey: any) => !incomingDates.has(survey.measurement_date)
+  );
+  if (surveysToDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("preliminary_survey")
+      .delete()
+      .eq("code", params.code)
+      .eq("year", params.year)
+      .eq("period", params.period)
+      .in(
+        "measurement_date",
+        surveysToDelete.map((survey: any) => survey.measurement_date)
+      );
+    if (deleteError) throw deleteError;
+    for (const survey of surveysToDelete) {
+      if (!survey.google_event_id) continue;
+      try {
+        await deleteSurveyEvent(survey.google_event_id);
+      } catch (calendarDeleteError) {
+        console.error(
+          `[Integrated Sync] Failed to delete calendar event ${survey.google_event_id}:`,
+          calendarDeleteError
+        );
+      }
+    }
+  }
+
+  const reportWriterIds = Array.from(
+    new Set(days.map((day) => day.measurerId).filter((id): id is number => id != null))
+  );
+  const reportWriterNames = new Map<number, string>();
+  if (reportWriterIds.length > 0) {
+    const { data: users, error: usersError } = await supabase
+      .from("users")
+      .select("id, name")
+      .in("id", reportWriterIds);
+    if (usersError) throw usersError;
+    for (const user of users || []) {
+      reportWriterNames.set(Number(user.id), String(user.name));
+    }
+  }
+
+  for (const day of days) {
+    const reportWriter =
+      day.measurerId == null ? null : reportWriterNames.get(day.measurerId) || null;
+    const actualMeasurer = day.collaborators.join(", ");
+    const existing = (existingSurveys || []).find(
+      (survey: any) => survey.measurement_date === day.date
+    );
+
+    if (existing) {
+      const { error: updateError } = await supabase
+        .from("preliminary_survey")
+        .update({
+          end_date: day.date,
+          report_writer: reportWriter,
+          actual_measurer: actualMeasurer,
+          business_name: params.businessName,
+        })
+        .eq("id", existing.id);
+      if (updateError) throw updateError;
+      continue;
+    }
+
+    const { data: maxSequence } = await supabase
+      .from("preliminary_survey")
+      .select("sequence_number")
+      .order("sequence_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const surveyPayload = {
+      code: params.code,
+      year: params.year,
+      period: params.period,
+      measurement_date: day.date,
+      end_date: day.date,
+      report_writer: reportWriter,
+      actual_measurer: actualMeasurer,
+      business_name: params.businessName,
+      sequence_number: (maxSequence?.sequence_number || 0) + 1,
+    };
+    const { error: insertError } = await supabase.from("preliminary_survey").upsert(surveyPayload, {
+      onConflict: "code,year,period,measurement_date",
+      ignoreDuplicates: false,
+    });
+    if (insertError && !isLegacySurveyUniqueConflict(insertError)) throw insertError;
+    if (insertError) {
+      const { data: racedRow } = await supabase
+        .from("preliminary_survey")
+        .select("id")
+        .eq("code", params.code)
+        .eq("year", params.year)
+        .eq("period", params.period)
+        .eq("measurement_date", day.date)
+        .maybeSingle();
+      if (!racedRow) throw insertError;
+      const { error: racedUpdateError } = await supabase
+        .from("preliminary_survey")
+        .update({
+          end_date: day.date,
+          report_writer: reportWriter,
+          actual_measurer: actualMeasurer,
+          business_name: params.businessName,
+        })
+        .eq("id", racedRow.id);
+      if (racedUpdateError) throw racedUpdateError;
+    }
+  }
+
+  const collaborators = Array.from(new Set(days.flatMap((day) => day.collaborators)))
+    .filter(Boolean)
+    .sort()
+    .join(", ");
+  const summaryUpdates: Record<string, unknown> = {
+    measurement_date: sortedDates[0],
+    measurement_end_date: sortedDates.at(-1),
+    collaborators: collaborators || null,
+  };
+  if (!isTargetBusinessTerminated(params.targetStatus)) {
+    summaryUpdates.is_registered = "실시";
+  }
+  const { error: summaryError } = await supabase
+    .from("measurement_target_business")
+    .update(summaryUpdates)
+    .eq("id", params.targetId);
+  if (summaryError) throw summaryError;
+
+  await syncBusinessToCalendar(supabase, params.code, params.year, params.period);
+}
+
 export async function POST(request: NextRequest) {
   try {
     await checkPermission("journal:write");
 
     const body = await request.json();
-    const { 
-      code, 
-      year, 
-      period, 
-      business_name, 
-      address, 
-      plan_manager, 
-      sanjae,
-      commencement,
+    const formValues = serializeTargetBusinessFormValues(body);
+    const { code, year } = body;
+    const {
+      period,
+      business_name,
+      address,
+      plan_manager,
+      industrial_accident_number,
+      commencement_number,
       representative_name,
       business_number,
       business_category,
@@ -1048,7 +1226,17 @@ export async function POST(request: NextRequest) {
       office_jurisdiction,
       business_type,
       process_changed,
-    } = body;
+      is_registered,
+      management_status,
+      notes,
+      measurement_date,
+      measurer_id,
+      link_measurer_id,
+      collaborators,
+      daily_staff,
+      future_measurement_period,
+      future_measurement_date,
+    } = formValues;
 
     // Validation
     if (!code || !year || !period || !business_name) {
@@ -1058,14 +1246,25 @@ export async function POST(request: NextRequest) {
       );
     }
     if (!isValidOptionalManagerEmail(manager_email)) {
-      return NextResponse.json(
-        { error: "담당자 메일 형식을 확인해 주세요." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "담당자 메일 형식을 확인해 주세요." }, { status: 400 });
     }
 
     const normalizedManagerEmail = normalizeOptionalManagerEmail(manager_email);
     const supabase = await createClient();
+    const measurementDays = measurementDayFormsFrom({
+      dailyStaff: daily_staff,
+      measurementDate: measurement_date,
+      measurerId: measurer_id,
+      collaborators,
+    });
+    const assignmentValidation = await validateMeasurementAssignmentsForSave(
+      supabase,
+      measurementDays
+    );
+    if (!assignmentValidation.valid) {
+      return NextResponse.json({ error: assignmentValidation.message }, { status: 400 });
+    }
+    const measurementSchedule = serializeMeasurementDayForms(measurementDays);
 
     // 1. 코드 + 연도 + 주기 중복 등록 방지
     const { data: existing } = await supabase
@@ -1086,14 +1285,25 @@ export async function POST(request: NextRequest) {
 
     // Auto-calculate office_jurisdiction based on address
     const calculatedOfficeJurisdiction = address ? findOfficeByAddress(address) : null;
-    const industrialAccidentNumber = String(sanjae || "").replace(/\D/g, "").slice(0, 11) || null;
-    const commencementNumber = String(commencement || "").replace(/\D/g, "").slice(0, 11) || null;
-    const parsedTotalEmployees = total_employees === "" || total_employees === null || total_employees === undefined
-      ? null
-      : Number(total_employees);
-    const normalizedTotalEmployees = parsedTotalEmployees !== null && Number.isFinite(parsedTotalEmployees)
-      ? parsedTotalEmployees
-      : null;
+    const industrialAccidentNumber =
+      String(industrial_accident_number || "")
+        .replace(/\D/g, "")
+        .slice(0, 11) || null;
+    const commencementNumber =
+      String(commencement_number || "")
+        .replace(/\D/g, "")
+        .slice(0, 11) || null;
+    const totalEmployeesValue: unknown = total_employees;
+    const parsedTotalEmployees =
+      totalEmployeesValue === "" ||
+      totalEmployeesValue === null ||
+      totalEmployeesValue === undefined
+        ? null
+        : Number(totalEmployeesValue);
+    const normalizedTotalEmployees =
+      parsedTotalEmployees !== null && Number.isFinite(parsedTotalEmployees)
+        ? parsedTotalEmployees
+        : null;
     const initialSupportState = getInitialNationalSupportState({
       period,
       industrial_accident_number: industrialAccidentNumber,
@@ -1103,10 +1313,7 @@ export async function POST(request: NextRequest) {
       manager_mobile,
     });
     if (!isNullableBusinessType(business_type ?? null)) {
-      return NextResponse.json(
-        { error: "business_type 값이 올바르지 않습니다." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "business_type 값이 올바르지 않습니다." }, { status: 400 });
     }
     if (
       Object.prototype.hasOwnProperty.call(body, "process_changed") &&
@@ -1114,13 +1321,18 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "process_changed 값은 boolean 또는 null이어야 합니다." },
-        { status: 400 },
+        { status: 400 }
       );
     }
     const initialProcessChanged = getInitialProcessChanged(
       process_changed,
-      Object.prototype.hasOwnProperty.call(body, "process_changed"),
-      business_category,
+      Object.prototype.hasOwnProperty.call(formValues, "process_changed"),
+      business_category
+    );
+    const requestedStatus = normalizeTargetBusinessStatus(is_registered);
+    const initialRegistrationStatus = resolveTargetBusinessStatusForCreate(
+      requestedStatus,
+      Boolean(measurementSchedule.measurement_date)
     );
 
     // 2. Insert into measurement_target_business
@@ -1133,7 +1345,10 @@ export async function POST(request: NextRequest) {
         business_name,
         business_number: String(business_number || "").replace(/\D/g, "") || null,
         address: address || null,
-        office_jurisdiction: office_jurisdiction || calculatedOfficeJurisdiction,
+        office_jurisdiction: resolveOfficeJurisdiction(
+          office_jurisdiction,
+          calculatedOfficeJurisdiction
+        ),
         business_category: business_category || null,
         business_type: business_type ?? null,
         process_changed: initialProcessChanged,
@@ -1146,15 +1361,25 @@ export async function POST(request: NextRequest) {
         total_employees: normalizedTotalEmployees,
         manager_email: normalizedManagerEmail,
         plan_manager: plan_manager || null,
+        management_status: management_status || null,
+        notes: notes || null,
         national_support_status: initialSupportState.nationalSupportStatus,
         sync_status: initialSupportState.syncStatus,
         sync_error_message: null,
         industrial_accident_number: industrialAccidentNumber,
         commencement_number: commencementNumber,
         representative_name: representative_name || null,
+        measurement_date: measurementSchedule.measurement_date,
+        measurement_end_date: measurementSchedule.measurement_end_date,
+        daily_staff: measurementSchedule.daily_staff,
+        measurer_id: measurementSchedule.measurer_id,
+        link_measurer_id: link_measurer_id ?? null,
+        collaborators: measurementSchedule.collaborators,
+        future_measurement_period: future_measurement_period ?? null,
+        future_measurement_date: future_measurement_date || null,
         document_generation_enabled: true,
-        is_registered: "미실시", // Default
-        created_at: new Date().toISOString()
+        is_registered: initialRegistrationStatus,
+        created_at: new Date().toISOString(),
       })
       .select()
       .single();
@@ -1163,10 +1388,25 @@ export async function POST(request: NextRequest) {
       if (insertError.code === "23505") {
         return NextResponse.json(
           { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
-          { status: 409 },
+          { status: 409 }
         );
       }
       throw new Error(`Target Insert Error: ${insertError.message}`);
+    }
+
+    try {
+      await syncCreatedTargetMeasurementSchedule(supabase, {
+        code,
+        year: Number(year),
+        period: String(period),
+        businessName: String(business_name),
+        targetId: Number(newTarget.id),
+        targetStatus: initialRegistrationStatus,
+        days: measurementDays,
+      });
+    } catch (scheduleSyncError) {
+      // PATCH와 동일하게 target 저장은 유지하고 legacy 일정/Calendar 후속 처리 실패만 기록한다.
+      console.error("[Integrated Sync] 신규 사업장 일정 후속 처리 실패:", scheduleSyncError);
     }
 
     let geocodeResult = null;
@@ -1177,7 +1417,10 @@ export async function POST(request: NextRequest) {
         fallbackAddress: address,
       });
     } catch (coordinateError) {
-      console.error("[BusinessCoordinates] 신규 등록 후 좌표 처리 실패:", coordinateError instanceof Error ? coordinateError.message : "unknown");
+      console.error(
+        "[BusinessCoordinates] 신규 등록 후 좌표 처리 실패:",
+        coordinateError instanceof Error ? coordinateError.message : "unknown"
+      );
     }
 
     return NextResponse.json({
@@ -1196,13 +1439,15 @@ export async function POST(request: NextRequest) {
         status: initialSupportState.syncStatus,
       },
     });
-
   } catch (error: any) {
     console.error("POST API Critical Error:", error);
-    return NextResponse.json({
-      error: "Internal Server Error",
-      details: error?.message || String(error)
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Internal Server Error",
+        details: error?.message || String(error),
+      },
+      { status: 500 }
+    );
   }
 }
 

@@ -16,6 +16,8 @@ import {
 
 const businessApi = readFileSync("app/api/businesses/route.ts", "utf8");
 const businessUi = readFileSync("components/features/MeasurementTargetBusinessManagement.tsx", "utf8");
+const businessFormUi = readFileSync("components/features/MeasurementTargetBusinessFormSections.tsx", "utf8");
+const measurementDayForm = readFileSync("lib/business/measurement-day-form.ts", "utf8");
 const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
 const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
 const policy = readFileSync("docs/business-rules/preliminary-survey.md", "utf8");
@@ -32,13 +34,13 @@ test("보고서 담당·측정 참여자·예비조사자·측정자 공시료�
 });
 
 test("사업장 상세는 측정 참여자 용어와 해제 가능한 보고서 담당 기본 체크를 사용한다", () => {
-  assert.match(businessUi, /측정 참여자 \(복수 선택\)/);
-  assert.doesNotMatch(businessUi, /조력자 \(복수 선택\)/);
+  assert.match(businessFormUi, /측정 참여자 \(복수 선택\)/);
+  assert.doesNotMatch(businessFormUi, /조력자 \(복수 선택\)/);
   assert.match(businessUi, /defaultEmptyParticipantsToReportWriter/);
-  assert.match(businessUi, /changeMeasurementDayReportWriter/);
-  assert.doesNotMatch(businessUi, /disabled=\{isLink\}/);
-  assert.doesNotMatch(businessUi, /checked=\{isChecked \|\| isLink\}/);
-  assert.match(businessUi, /isMeasurementStaffUnavailable/);
+  assert.match(businessFormUi, /changeMeasurementDayReportWriter/);
+  assert.doesNotMatch(businessFormUi, /disabled=\{isLink\}/);
+  assert.doesNotMatch(businessFormUi, /checked=\{isChecked \|\| isLink\}/);
+  assert.match(businessFormUi, /isMeasurementStaffUnavailable/);
   assert.match(businessApi, /measurementDayFormsFrom/);
   assert.match(businessUi, /validateMeasurementDayAvailability/);
   assert.match(businessApi, /validateMeasurementDayAvailability/);
@@ -166,9 +168,9 @@ test("다일 측정의 시작일·종료일은 정렬된 유효 날짜로 재계
 });
 
 test("일자 추가 시 기존 1일 일정을 첫 daily_staff entry로 보존해 UI 의미를 통일한다", () => {
-  assert.match(businessUi, /date: prev\.measurement_date \|\| ""/);
-  assert.match(businessUi, /measurer_id: prev\.measurer_id \|\| null/);
-  assert.match(businessUi, /daily_staff:/);
+  assert.match(businessFormUi, /\.\.\.measurementDays,/);
+  assert.match(businessFormUi, /createEmptyMeasurementDayForm\(\)/);
+  assert.match(measurementDayForm, /daily_staff:/);
 });
 
 test("legacy daily_staff measurer/collaborators에서 main/helper 역할을 추론하지 않는다", () => {
