@@ -14,12 +14,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { classifyDesignatedOffice, shortNameToFullName } from "@/lib/utils/jurisdiction-matcher";
 import {
   loadLaborOfficeDirectory,
   resolveLaborOfficeAddressFromDirectory,
 } from "@/lib/labor-offices/address-resolver";
-import { normalizeAddress, validateDesignatedOffice, normalizeString } from "@/lib/utils/data-utils";
+import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
 import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 
 export async function POST(request: NextRequest) {
@@ -165,7 +164,6 @@ export async function POST(request: NextRequest) {
           const address = normalizeAddress(prevYearJournal.address);
           const previousOfficeJurisdiction = normalizeString(prevYearJournal.office_jurisdiction);
           let officeJurisdiction: string | null = null;
-          let designatedOffice: string | null = null;
 
           if (address) {
             try {
@@ -175,10 +173,9 @@ export async function POST(request: NextRequest) {
               );
               if (addressBased.status === "matched") {
                 officeJurisdiction = addressBased.officeJurisdictionPersistence;
-                designatedOffice = validateDesignatedOffice(addressBased.designatedOffice);
               }
             } catch (error) {
-              console.error(`[지정지청] 코드 ${code}: 주소 기반 계산 오류:`, error);
+              console.error(`[소재지지청] 코드 ${code}: 주소 기반 계산 오류:`, error);
             }
           }
 
@@ -186,14 +183,6 @@ export async function POST(request: NextRequest) {
           // master에서 미판정된 경우에는 과거 snapshot을 새 target에 되살리지 않는다.
           if (!address && previousOfficeJurisdiction) {
             officeJurisdiction = previousOfficeJurisdiction;
-            try {
-              const officeFullName =
-                shortNameToFullName(previousOfficeJurisdiction) || previousOfficeJurisdiction;
-              const officeBased = classifyDesignatedOffice(officeFullName);
-              designatedOffice = validateDesignatedOffice(officeBased);
-            } catch (error) {
-              console.error(`[지정지청] 코드 ${code}: 관할청 기반 계산 오류:`, error);
-            }
           }
 
           plans.push({
@@ -205,7 +194,6 @@ export async function POST(request: NextRequest) {
             total_employees: prevYearJournal.total_employees || null,
             address: address,
             office_jurisdiction: officeJurisdiction,
-            designated_office: designatedOffice,
             plan_manager: planManager, // Renamed from measurer and using new source
             measurement_start_date: null,
             measurement_end_date: null,

@@ -4,6 +4,7 @@ import {
   LaborOfficeAliasRow,
   LaborOfficeDirectory,
   LaborOfficeMasterRow,
+  normalizeJurisdictionReferenceToken,
   resolveLaborOfficeAddressFromDirectory,
   resolveLaborOfficeByStoredJurisdiction,
 } from "../lib/labor-offices/address-resolver";
@@ -19,14 +20,18 @@ const offices: LaborOfficeMasterRow[] = [
   ["ULSAN", "부산지방고용노동청 울산지청", "울산지청", "울산광역시 남구, 울주군"],
   ["ULSAN_DONGBU", "부산지방고용노동청 울산동부지청", "울산동부지청", "울산광역시 동구, 중구, 북구"],
   ["SEOSAN", "대전지방고용노동청 서산지청", "서산지청", "서산시, 태안군"],
-  ["DAEJEON", "대전지방고용노동청", "대전지방고용노동청", "대전광역시, 세종시, 충청남도 금산시, 공주시, 논산시, 계룡시"],
+  ["DAEJEON", "대전지방고용노동청", "대전지방고용노동청", "대전광역시, 세종시, 충청남도 금산군, 공주시, 논산시, 계룡시"],
   ["GYEONGGI", "경기지방고용노동청", "경기지방고용노동청", "수원시, 용인시, 화성시"],
   ["SEONGNAM", "경기지방고용노동청 성남지청", "성남지청", "성남시, 하남시, 경기 광주시, 이천시, 여주시, 양평군"],
-  ["BUSAN", "부산지방고용노동청", "부산지방고용노동청", "부산시 진구, 연제구, 중구, 서구, 영도구, 사하구, 동구, 남구"],
+  ["BUSAN", "부산지방고용노동청", "부산지방고용노동청", "부산시 부산진구, 연제구, 중구, 서구, 영도구, 사하구, 동구, 남구"],
   ["BUSAN_BUKBU", "부산지방고용노동청 부산북부지청", "부산북부지청", "부산시 강서구, 사상구, 북구"],
   ["BUSAN_DONGBU", "부산지방고용노동청 부산동부지청", "부산동부지청", "부산시 동래구, 금정구, 해운대구, 수영구, 기장군"],
   ["GANGNEUNG", "중부지방고용노동청 강릉지청", "강릉지청", "강릉시, 동해시, 속초시, 양양군, 고성군"],
   ["TONGYEONG", "부산지방고용노동청 통영지청", "통영지청", "통영시, 거제시, 고성군"],
+  ["GANGWON", "중부지방고용노동청 강원지청", "강원지청", "강원도 춘천시, 화천군, 양구군, 홍천군, 인제군, 경기도 가평군"],
+  ["YANGSAN", "부산지방고용노동청 양산지청", "양산지청", "경상남도 양산시, 밀양시, 김해시"],
+  ["MOKPO", "광주지방고용노동청 목포지청", "목포지청", "목포시, 강진, 장흥, 신안, 해남, 완도, 영암, 무안군"],
+  ["UIJEONGBU", "경기지방고용노동청 의정부지청", "의정부지청", "의정부, 구리, 남양주, 동두천, 양주, 포천, 연천, 철원"],
 ].map(([office_code, current_official_name, current_short_name, jurisdiction_reference]) => ({
   office_code,
   current_official_name,
@@ -54,6 +59,10 @@ const persistenceByCode: Record<string, string> = {
   BUSAN_DONGBU: "부산지방고용노동청 부산동부지청",
   GANGNEUNG: "중부지방고용노동청 강릉지청",
   TONGYEONG: "부산지방고용노동청 통영지청",
+  GANGWON: "중부지방고용노동청 강원지청",
+  YANGSAN: "부산지방고용노동청 양산지청",
+  MOKPO: "광주지방고용노동청 목포지청",
+  UIJEONGBU: "중부지방고용노동청 의정부지청",
 };
 
 const aliases: LaborOfficeAliasRow[] = Object.entries(persistenceByCode).map(
@@ -108,19 +117,38 @@ test("경기도 광주시를 광주광역시로 오인하지 않는다", () => {
   assert.equal(result.officeCode, "SEONGNAM");
 });
 
-test("상위 시도만 같은 오탈자·중복 관할은 임의 첫 관서를 선택하지 않는다", () => {
+test("master 축약 관할명은 실제 주소의 시군 접미사와 안전하게 비교한다", () => {
+  assert.equal(normalizeJurisdictionReferenceToken("강진"), "강진");
+  assert.equal(normalizeJurisdictionReferenceToken("강진군"), "강진");
+  assert.equal(normalizeJurisdictionReferenceToken("광주광역시"), null);
+
+  const cases = [
+    ["전라남도 강진군", "MOKPO"],
+    ["전라남도 해남군", "MOKPO"],
+    ["경기도 의정부시", "UIJEONGBU"],
+    ["경기도 구리시", "UIJEONGBU"],
+    ["경기도 남양주시", "UIJEONGBU"],
+    ["강원특별자치도 철원군", "UIJEONGBU"],
+    ["충청남도 금산군", "DAEJEON"],
+    ["부산광역시 부산진구", "BUSAN"],
+  ] as const;
+  for (const [address, officeCode] of cases) {
+    const result = resolveLaborOfficeAddressFromDirectory(address, directory);
+    assert.equal(result.status, "matched", address);
+    assert.equal(result.officeCode, officeCode, address);
+  }
+});
+
+test("동일 고성군은 master 전체 광역권 context로 구분하고 시도 없이는 거부한다", () => {
   assert.equal(
-    resolveLaborOfficeAddressFromDirectory("부산광역시 부산진구", directory).status,
-    "unmatched"
+    resolveLaborOfficeAddressFromDirectory("강원특별자치도 고성군", directory).officeCode,
+    "GANGNEUNG"
   );
   assert.equal(
-    resolveLaborOfficeAddressFromDirectory("충청남도 금산군", directory).status,
-    "unmatched"
+    resolveLaborOfficeAddressFromDirectory("경상남도 고성군", directory).officeCode,
+    "TONGYEONG"
   );
-  assert.equal(
-    resolveLaborOfficeAddressFromDirectory("강원특별자치도 고성군", directory).status,
-    "ambiguous"
-  );
+  assert.equal(resolveLaborOfficeAddressFromDirectory("고성군", directory).status, "ambiguous");
   assert.equal(
     resolveLaborOfficeAddressFromDirectory("대전광역시 유성구", directory).officeCode,
     "DAEJEON"

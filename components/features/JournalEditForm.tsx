@@ -33,6 +33,9 @@ interface JournalEntry {
   measurement_days: number | null;
   measurer: string | null;
   business_category?: string | null;
+  office_code?: string | null;
+  office_jurisdiction?: string | null;
+  office_jurisdiction_display?: string | null;
   target_business_type?: "existing" | "first_measurement" | "external_new" | null;
   target_process_changed?: boolean | null;
   invoice_email_2?: string;
@@ -49,6 +52,13 @@ interface JournalEditFormProps {
   onSuccess: (savedJournalId?: number | null) => void;
   setIsSubmitting?: (isSubmitting: boolean) => void;
   mode?: 'journal' | 'sales';
+}
+
+function getOfficeJurisdictionDisplay(
+  display: JournalEntry["office_jurisdiction_display"],
+  persistence: JournalEntry["office_jurisdiction"]
+): string {
+  return display ?? toShortName(persistence || "");
 }
 
 export const JournalEditForm: React.FC<JournalEditFormProps> = ({
@@ -68,7 +78,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [originalPeriod, setOriginalPeriod] = useState(entry.measurement_period);
   const [autoFilling, setAutoFilling] = useState(false);
   const [officeJurisdictionDisplay, setOfficeJurisdictionDisplay] = useState(
-    toShortName(entry.office_jurisdiction || "")
+    getOfficeJurisdictionDisplay(entry.office_jurisdiction_display, entry.office_jurisdiction)
   );
   const addressAutoFillSequence = useRef(0);
   const [mounted, setMounted] = useState(false);
@@ -112,8 +122,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   }, []);
 
   useEffect(() => {
-    setOfficeJurisdictionDisplay(toShortName(entry.office_jurisdiction || ""));
-  }, [entry.id, entry.office_jurisdiction]);
+    setOfficeJurisdictionDisplay(
+      getOfficeJurisdictionDisplay(entry.office_jurisdiction_display, entry.office_jurisdiction)
+    );
+  }, [entry.id, entry.office_jurisdiction, entry.office_jurisdiction_display]);
 
   const [formData, setFormData] = useState({
     // 기본 정보

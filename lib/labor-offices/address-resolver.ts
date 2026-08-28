@@ -38,6 +38,7 @@ const CURRENT_MASTER_ALIAS_NOTE = "현재 관서 마스터에 직접 연결";
 const ADMIN_SUFFIX_PATTERN = /[가-힣0-9]+(?:시|군|구|읍|면|동|리)/g;
 const DETAIL_SUFFIX_PATTERN = /(?:읍|면|동|리)$/;
 const SIGUNGU_SUFFIX_PATTERN = /(?:시|군|구)$/;
+const ADMINISTRATIVE_UNIT_SUFFIX_PATTERN = /(?:시|군|구)$/;
 const GENERIC_DISTRICTS = new Set(["중구", "서구", "남구", "동구", "북구"]);
 const SIDO_NAMES = [
   "서울",
@@ -118,6 +119,38 @@ function extractAdminTokens(value: unknown): string[] {
   );
 }
 
+function stripAdministrativeUnitSuffix(value: string): string {
+  return value.replace(ADMINISTRATIVE_UNIT_SUFFIX_PATTERN, "");
+}
+
+/**
+ * master 관할 segment의 시·군·구 표기와 접미사가 생략된 행정구역명을
+ * 동일한 비교 단위로 만든다. `광주` 같은 시·도명은 축약 시군구로 취급하지
+ * 않아 광주광역시와 경기도 광주시가 합쳐지지 않게 한다.
+ */
+export function normalizeJurisdictionReferenceToken(value: unknown): string | null {
+  const normalized = normalizeAdministrativeText(value);
+  if (!normalized) return null;
+
+  const sigunguTokens = extractAdminTokens(normalized).filter((token) =>
+    SIGUNGU_SUFFIX_PATTERN.test(token)
+  );
+  if (sigunguTokens.length === 1) {
+    return stripAdministrativeUnitSuffix(sigunguTokens[0]);
+  }
+  if (sigunguTokens.length > 1) return null;
+
+  const bareCandidates = normalized
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(
+      (part) =>
+        /^[가-힣0-9]{2,}$/.test(part) &&
+        !SIDO_NAMES.includes(part as (typeof SIDO_NAMES)[number])
+    );
+  return bareCandidates.length === 1 ? bareCandidates[0] : null;
+}
+
 function stripExclusions(reference: string): string {
   return reference.replace(/\([^)]*제외[^)]*\)/g, " ");
 }
@@ -168,12 +201,29 @@ function scoreOfficeForAddress(address: string, office: LaborOfficeMasterRow): n
 
   for (const segment of segments) {
     const segmentTokens = extractAdminTokens(segment);
-    const sigunguMatches = segmentTokens.filter(
+    const explicitSigunguMatches = segmentTokens.filter(
       (token) => SIGUNGU_SUFFIX_PATTERN.test(token) && addressTokens.has(token)
     );
+    const normalizedReferenceToken = normalizeJurisdictionReferenceToken(segment);
+    const abbreviatedSigunguMatches =
+      explicitSigunguMatches.length === 0 &&
+      segmentTokens.every((token) => !SIGUNGU_SUFFIX_PATTERN.test(token)) &&
+      normalizedReferenceToken
+        ? addressSigunguTokens.filter(
+            (token) => stripAdministrativeUnitSuffix(token) === normalizedReferenceToken
+          )
+        : [];
+    const sigunguMatches = [...explicitSigunguMatches, ...abbreviatedSigunguMatches];
     if (sigunguMatches.length === 0) continue;
 
-    const segmentDetails = segmentTokens.filter((token) => DETAIL_SUFFIX_PATTERN.test(token));
+    const segmentDetails = segmentTokens.filter(
+      (token) =>
+        DETAIL_SUFFIX_PATTERN.test(token) &&
+        !(
+          abbreviatedSigunguMatches.length > 0 &&
+          normalizedReferenceToken === token
+        )
+    );
     if (
       segmentDetails.length > 0 &&
       !segmentDetails.every((detail) => addressTokens.has(detail))
@@ -209,6 +259,27 @@ function scoreOfficeForAddress(address: string, office: LaborOfficeMasterRow): n
   }
 
   return null;
+}
+
+function getLaborOfficeFamilyKey(office: LaborOfficeMasterRow): string | null {
+  const officialName = String(office.current_official_name ?? "").trim();
+  return officialName.match(/^(.+?지방고용노동청)/)?.[1] || null;
+}
+
+function getFamilySidoContexts(
+  offices: LaborOfficeMasterRow[]
+): Map<string, Set<(typeof SIDO_NAMES)[number]>> {
+  const contexts = new Map<string, Set<(typeof SIDO_NAMES)[number]>>();
+  for (const office of offices) {
+    const familyKey = getLaborOfficeFamilyKey(office);
+    if (!familyKey) continue;
+    const sidos = extractSidos(office.jurisdiction_reference);
+    if (sidos.length === 0) continue;
+    const context = contexts.get(familyKey) || new Set<(typeof SIDO_NAMES)[number]>();
+    sidos.forEach((sido) => context.add(sido));
+    contexts.set(familyKey, context);
+  }
+  return contexts;
 }
 
 function selectPersistenceAlias(
@@ -302,7 +373,32 @@ export function resolveLaborOfficeAddressFromDirectory(
 
   const highestScore = Math.max(...scored.map((candidate) => candidate.score));
   const bestCandidates = scored.filter((candidate) => candidate.score === highestScore);
-  if (bestCandidates.length !== 1) return emptyResolution("ambiguous");
+  if (bestCandidates.length !== 1) {
+    const addressSidos = extractSidos(normalizedAddress);
+    const familyContexts = getFamilySidoContexts(directory.offices);
+    const candidatesWithContexts = bestCandidates.map((candidate) => {
+      const familyKey = getLaborOfficeFamilyKey(candidate.office);
+      return {
+        ...candidate,
+        context: familyKey ? familyContexts.get(familyKey) : undefined,
+      };
+    });
+    // 같은 시군명이 여러 관서에 있을 때 모든 후보가 master 내부의 명시적
+    // 광역권 context를 가진 경우에만 시·도로 동률을 해소한다. context가
+    // 하나라도 없으면 추측하지 않고 ambiguous를 유지한다.
+    if (
+      addressSidos.length > 0 &&
+      candidatesWithContexts.every((candidate) => candidate.context?.size)
+    ) {
+      const contextualMatches = candidatesWithContexts.filter((candidate) =>
+        addressSidos.some((sido) => candidate.context?.has(sido))
+      );
+      if (contextualMatches.length === 1) {
+        return buildMatchedResolution(contextualMatches[0].office, directory.aliases);
+      }
+    }
+    return emptyResolution("ambiguous");
+  }
 
   return buildMatchedResolution(bestCandidates[0].office, directory.aliases);
 }

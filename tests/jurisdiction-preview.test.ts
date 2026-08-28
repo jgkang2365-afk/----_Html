@@ -90,6 +90,7 @@ test("계획 생성은 주소가 있으면 labor_offices persistence를 새 targ
     source,
     /office_jurisdiction:\s*previousOfficeJurisdiction/
   );
+  assert.doesNotMatch(source, /designated_office\s*:/);
 });
 
 test("측정일지 주소 자동판정은 pending·실패 시 과거 지청을 저장하지 않는다", () => {
