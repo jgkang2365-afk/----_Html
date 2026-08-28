@@ -23,6 +23,7 @@ import {
 import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
+import { compareCanonicalTargetBusinesses } from "@/lib/business/target-business-sort";
 import {
     MEASUREMENT_MAP_CHANNEL,
     MEASUREMENT_MAP_VIEWER_NAME,
@@ -1270,25 +1271,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 return 0;
             });
         } else {
-            // Custom Sort: 1. Status (Unconfirmed > Confirmed > Terminated), 2. Month (Asc)
-            result.sort((a, b) => {
-                const getStatusPriority = (status: string | null) => {
-                    if (status === '미실시' || status === '미확정' || !status) return 1;
-                    if (status === '실시' || status === '확정') return 2;
-                    if (status === '거래종료' || status === '종료' || status === '거래 종료') return 3;
-                    return 4;
-                };
-
-                const priorityA = getStatusPriority(a.is_registered_text);
-                const priorityB = getStatusPriority(b.is_registered_text);
-
-                if (priorityA !== priorityB) return priorityA - priorityB;
-
-                // Secondary: Month Ascending
-                const monthA = a.measurement_month ? parseInt(String(a.measurement_month)) : 99;
-                const monthB = b.measurement_month ? parseInt(String(b.measurement_month)) : 99;
-                return monthA - monthB;
-            });
+            result.sort((a, b) => compareCanonicalTargetBusinesses({
+                code: a.code,
+                isRegisteredText: a.is_registered_text,
+                measurementMonth: a.measurement_month,
+            }, {
+                code: b.code,
+                isRegisteredText: b.is_registered_text,
+                measurementMonth: b.measurement_month,
+            }));
         }
 
         setFilteredData(result);

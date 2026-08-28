@@ -3,6 +3,7 @@ import { evaluateSameDayRoute } from "./route-policy";
 import type {
   ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyMethod, SurveyTarget, SurveyUser,
 } from "./types";
+import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
 
 export interface ManualPlanValidationInput {
   target: SurveyTarget;
@@ -41,10 +42,13 @@ export async function validateManualPlanHardRules(
     ? recommendationDatesForBusinessType(input.target.measurementDate, input.target.businessType)
     : recommendationDates(input.target.measurementDate);
   if (!allowedDates.some((item) => item.date === input.recommendedDate)) {
-    errors.push("예비조사일은 측정일보다 3~30 워킹데이 이전이어야 합니다.");
+    errors.push("예비조사일은 측정일보다 앞선 업체 유형별 영업일 범위 안이어야 합니다.");
   }
   if (!participantIds.has(input.target.responsible.id)) {
     errors.push("페이퍼 작성자는 예비조사자에 반드시 포함되어야 합니다.");
+  }
+  if (input.participants.some((user) => user.active === false)) {
+    errors.push("비활성 사용자는 예비조사자로 배정할 수 없습니다.");
   }
   const experiencedCount = input.participants.filter((user) => user.experienced).length;
   if ((input.target.kind === "new" || surveyMethod === "field") && experiencedCount === 0) {
@@ -56,7 +60,7 @@ export async function validateManualPlanHardRules(
   const routeEvidence: SameDayRouteEvidence[] = [];
   if (input.target.kind === "new") {
     if (surveyMethod !== "field") errors.push("최초실시·타기관 신규는 방문 예비조사만 가능합니다.");
-    const otherNewByTarget = new Map<number, ExistingAssignment>();
+    const otherFieldByTarget = new Map<number, ExistingAssignment>();
     for (const participantId of participantIds) {
       const sameParticipantField = sameDate.filter((item) =>
         assignmentSurveyMethod(item) === "field" && item.targetId !== input.target.id && item.participants.includes(participantId),
@@ -64,9 +68,9 @@ export async function validateManualPlanHardRules(
       if (sameParticipantField.length >= 2) {
         errors.push(`참여자 ${participantId}의 하루 방문 배정은 최대 2건입니다.`);
       }
-      for (const assignment of sameParticipantField) otherNewByTarget.set(assignment.targetId, assignment);
+      for (const assignment of sameParticipantField) otherFieldByTarget.set(assignment.targetId, assignment);
     }
-    for (const other of otherNewByTarget.values()) {
+    for (const other of otherFieldByTarget.values()) {
       const evaluated = await evaluateSameDayRoute(other, input.target, input.routes);
       routeEvidence.push(evaluated.evidence);
       if (evaluated.evidence.routeDecision !== "same_day_allowed") {
@@ -74,11 +78,12 @@ export async function validateManualPlanHardRules(
       }
     }
   } else if (surveyMethod === "phone") {
-    for (const participantId of participantIds) {
-      const phoneCount = sameDate.filter((item) =>
-        item.kind === "existing" && item.targetId !== input.target.id && item.participants.includes(participantId),
-      ).length;
-      if (phoneCount >= 3) errors.push(`예비조사자 ${participantId}의 유선 배정은 하루 최대 3건입니다.`);
+    if (!fitsExistingPhoneResponsibleLimit(
+      input.existingAssignments.filter((item) => item.targetId !== input.target.id),
+      input.target.responsible.id,
+      input.recommendedDate,
+    )) {
+      errors.push("기존업체 유선 예비조사 책임자는 같은 날 최대 3건까지 배정할 수 있습니다.");
     }
   } else {
     const mandatoryVisits = sameDate.filter((item) =>

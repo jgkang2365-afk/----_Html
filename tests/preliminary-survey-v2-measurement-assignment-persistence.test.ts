@@ -22,8 +22,14 @@ const affectedGroupFixMigration = readFileSync(
   "supabase/migrations/20260823133000_fix_preliminary_survey_affected_assignment_groups.sql",
   "utf8",
 );
+const safeDeleteMigration = readFileSync(
+  "supabase/migrations/20260827041656_add_preliminary_survey_v2_safe_plan_delete.sql",
+  "utf8",
+);
 const migration = `${baseMigration}\n${forwardMigration}\n${remedialMigration}\n${persistenceFixMigration}\n${affectedGroupFixMigration}`;
 const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
+const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
+const plansUi = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
 const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
 
 test("날짜별 측정자·공시료 배정은 plan UUID와 날짜 단위의 별도 원천 테이블에 저장한다", () => {
@@ -177,4 +183,73 @@ test("추천과 Apply 재계산은 동일한 canonical target builder를 사용�
   assert.match(workbench, /submittedByTargetId[\s\S]*sourceResponsibleUserId/);
   assert.doesNotMatch(workbench, /const assignmentTargets:[\s\S]*businessCode: context\.target\.code, region: context\.target\.region/);
   assert.match(service, /loadV2ManualContext[\s\S]*measurementStaffByDate: measurementStaffByDateFromSource/);
+});
+
+test("안전 삭제 RPC는 plan만 지우고 귀속 assignment cascade와 원천 target 보존을 전제로 한다", () => {
+  assert.match(safeDeleteMigration, /delete_preliminary_survey_v2_plan_and_rebalance_assignments/);
+  assert.match(baseMigration, /plan_id uuid NOT NULL REFERENCES public\.preliminary_survey_v2_plans\(id\) ON DELETE CASCADE/);
+  assert.match(safeDeleteMigration, /DELETE FROM public\.preliminary_survey_v2_plans target_plan/);
+  assert.doesNotMatch(safeDeleteMigration, /DELETE FROM public\.measurement_target_business/);
+  assert.doesNotMatch(safeDeleteMigration, /DELETE FROM public\.measurement_journal/);
+  assert.match(safeDeleteMigration, /PLAN_NOT_FOUND/);
+});
+
+test("안전 삭제 RPC는 찐확정과 reconciliation·history plan을 transaction 안에서 재검증한다", () => {
+  assert.match(safeDeleteMigration, /FOR UPDATE/);
+  assert.match(safeDeleteMigration, /is_preliminary_survey_v2_true_confirmed\(p_target_id\)/);
+  assert.match(safeDeleteMigration, /TRUE_CONFIRMED_LOCKED/);
+  assert.match(safeDeleteMigration, /preliminary_survey_v2_legacy_reconciliation[\s\S]*applied_plan_id[\s\S]*applied_assignment_id/);
+  assert.match(safeDeleteMigration, /preliminary_survey_v2_history_recovery_audit[\s\S]*created_plan_id/);
+  assert.match(safeDeleteMigration, /PLAN_DELETE_PROTECTED_HISTORY/);
+  assert.match(safeDeleteMigration, /SECURITY DEFINER SET search_path = public/);
+  assert.match(safeDeleteMigration, /REVOKE ALL ON FUNCTION[\s\S]*FROM PUBLIC, anon, authenticated/);
+  assert.match(safeDeleteMigration, /GRANT EXECUTE ON FUNCTION[\s\S]*TO service_role/);
+});
+
+test("삭제는 기존 저장 wrapper와 같은 날짜 lock을 사용하고 3건 승인·4건 hard max를 원자 정규화한다", () => {
+  assert.match(safeDeleteMigration, /preliminary-measurement-assignment\|/);
+  assert.match(safeDeleteMigration, /ORDER BY lock_date/);
+  assert.match(safeDeleteMigration, /current_affected_dates IS DISTINCT FROM affected_dates/);
+  assert.match(safeDeleteMigration, /PLAN_DELETE_SOURCE_CHANGED/);
+  assert.match(safeDeleteMigration, /prior_approvals jsonb/);
+  assert.match(safeDeleteMigration, /assignment_count > 3/);
+  assert.match(safeDeleteMigration, /MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED/);
+  assert.match(safeDeleteMigration, /assignment_count = 3 AND NOT EXISTS/);
+  assert.match(safeDeleteMigration, /MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED/);
+  assert.match(safeDeleteMigration, /assignment_position = 3/);
+  assert.match(safeDeleteMigration, /WHEN ranked\.assignment_count <> 3 OR ranked\.assignment_position <> 3 THEN NULL/);
+  assert.match(safeDeleteMigration, /COALESCE\(ranked\.prior_approved_by_user_id, p_approved_by_user_id\)/);
+  assert.ok(safeDeleteMigration.indexOf("DELETE FROM public.preliminary_survey_v2_plans") < safeDeleteMigration.indexOf("MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED"));
+});
+
+test("DELETE API는 권한·원천·보호 reference를 사전 검사하고 RPC 업무 오류를 명확히 반환한다", () => {
+  assert.match(manualRoute, /export async function DELETE/);
+  assert.match(manualRoute, /if \(!session\)[\s\S]*status: 401/);
+  assert.match(manualRoute, /canManagePreliminarySurvey\(supabase, session\)[\s\S]*status: 403/);
+  assert.match(manualRoute, /from\("measurement_target_business"\)/);
+  assert.match(manualRoute, /from\("measurement_journal"\)/);
+  assert.match(manualRoute, /from\("preliminary_survey_v2_legacy_reconciliation"\)/);
+  assert.match(manualRoute, /from\("preliminary_survey_v2_history_recovery_audit"\)/);
+  assert.match(manualRoute, /delete_preliminary_survey_v2_plan_and_rebalance_assignments/);
+  for (const code of ["TRUE_CONFIRMED_LOCKED", "PLAN_DELETE_PROTECTED_HISTORY", "MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED", "MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED", "PLAN_NOT_FOUND", "PLAN_DELETE_SOURCE_CHANGED"]) {
+    assert.match(manualRoute, new RegExp(code));
+  }
+  assert.doesNotMatch(manualRoute, /\.from\("preliminary_survey_v2_plans"\)[\s\S]{0,200}\.delete\(/);
+});
+
+test("관리 열은 모든 행에 안전 삭제 상태를 노출하고 취소 전 write 없이 성공 시 모든 draft를 무효화한다", () => {
+  assert.match(workbench, /hasPersistedPlan: Boolean\(plan\)/);
+  assert.match(plansUi, /hasPersistedPlan\?: boolean/);
+  assert.match(plansUi, /if \(!row\.hasPersistedPlan \|\| row\.locked \|\| row\.deleteProtectionReason\) return/);
+  const confirmAt = plansUi.indexOf("const confirmed = window.confirm");
+  const fetchAt = plansUi.indexOf('method: "DELETE"', confirmAt);
+  assert.ok(confirmAt >= 0 && fetchAt > confirmAt);
+  assert.match(plansUi, /if \(!confirmed\) return/);
+  assert.match(plansUi, /!row\.hasPersistedPlan \|\| Boolean\(row\.locked\) \|\| Boolean\(row\.deleteProtectionReason\)/);
+  assert.match(plansUi, /"보고서담당", "관리", "충돌"/);
+  assert.match(plansUi, /variant="danger"[\s\S]*>삭제<\/Button>/);
+  assert.doesNotMatch(plansUi, />계획 삭제<\/Button>/);
+  assert.match(plansUi, /setDrafts\(new Map\(\)\)[\s\S]*setConfirmedRepairDrafts\(\[\]\)[\s\S]*setDraftScope\(null\)[\s\S]*setScopeSummary\(null\)[\s\S]*await loadRows\(\)/);
+  assert.match(plansUi, /측정대상 사업장 자체와 측정예정일은 삭제되지 않습니다/);
+  assert.match(plansUi, /승인하고 삭제하시겠습니까/);
 });

@@ -7,6 +7,7 @@ import { filterPreliminaryCandidateDates } from "../lib/preliminary-survey-v2/se
 import { measurementStaffForDate } from "../lib/preliminary-survey-v2/measurement-staff";
 import { actualMeasurementBlockedKeys } from "../lib/preliminary-survey-v2/measurement-conflicts";
 import { SURVEY_TAB_IDS, moveSurveyTab, restoreSurveyTabOrder } from "../lib/preliminary-survey-v2/tab-order";
+import { storedPlanWorkbenchState } from "../lib/preliminary-survey-v2/workbench-status";
 import type { SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
 
 const experienced: SurveyUser = { id: 1, name: "경력", experienced: true, active: true };
@@ -44,12 +45,10 @@ test("Phase B 유형별 날짜 후보는 측정예정일에서 역산한다", ()
   assert.deepEqual(rangeScope.map((item) => item.date), existingCandidates.slice(0, 3).map((item) => item.date));
 });
 
-test("실시간 후보는 KST 기준일 이전과 측정 당일을 자동추천하지 않는다", () => {
+test("서류 기준일 후보는 오늘 cutoff 없이 측정예정일에서만 역산한다", () => {
   const all = recommendationDatesForBusinessType("2026-09-10", "external_new");
-  const minimumDate = all[8].date;
-  const filtered = recommendationDatesForBusinessType("2026-09-10", "external_new", { minimumDate });
-  assert.ok(filtered.length > 0);
-  assert.ok(filtered.every((item) => item.date >= minimumDate && item.date < "2026-09-10"));
+  assert.equal(all.length, 23);
+  assert.ok(all.every((item) => item.date < "2026-09-10"));
 });
 
 test("목록 날짜 이동은 예비조사 캘린더의 주말·공휴일을 건너뛴다", () => {
@@ -59,15 +58,15 @@ test("목록 날짜 이동은 예비조사 캘린더의 주말·공휴일을 건
   assert.equal(adjacentWorkingDay("", 1), null);
 });
 
-test("정책 후보가 모두 기준일보다 과거면 강제 과거 배정 없이 수동조정한다", async () => {
+test("today=2026-08-26, measurement=2026-08-27이면 과거 영업일을 정상 추천한다", async () => {
   const [result] = await recommendBatch({
-    targets: [target(1, "external_new")], experiencedUsers: [experienced],
+    targets: [{ ...target(1, "external_new"), measurementDate: "2026-08-27" }], experiencedUsers: [experienced],
     availability: { isBlocked: () => false },
     routes: { between: async () => ({ source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: true }) },
-    planningDate: "2026-07-14",
   });
-  assert.equal(result.status, "manual_required");
-  assert.equal(result.date, null);
+  assert.equal(result.status, "recommended");
+  assert.ok(result.date && result.date < "2026-08-26");
+  assert.ok(result.date < "2026-08-27");
 });
 
 test("H0399 신규 future target은 사업장 코드 때문에 일반 추천에서 제외되지 않는다", async () => {
@@ -80,7 +79,6 @@ test("H0399 신규 future target은 사업장 코드 때문에 일반 추천에�
     targets: [futureTarget], surveyors: [experienced], experiencedUsers: [experienced],
     availability: { isBlocked: () => false },
     routes: { between: async () => ({ source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: true }) },
-    planningDate: "2026-08-26",
   });
   assert.equal(result.targetId, futureTarget.id);
   assert.equal(result.status, "recommended");
@@ -205,15 +203,14 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   assert.match(api, /recommended_date: draft\.preliminaryDate/);
   assert.match(api, /survey_method: draft\.surveyMethod/);
   assert.match(api, /participants\.find\(\(user\) => user\.id === draft\.sourceResponsibleUserId\)/);
-  assert.match(api, /user_schedule_blocks/);
-  assert.match(api, /blockedKeys\.has/);
-  assert.match(api, /loadActualMeasurementBlockedKeys/);
   assert.match(api, /DRAFT_REVIEW_REQUIRED/);
   const applyStart = api.indexOf("async function applySubmittedDrafts");
   const applyEnd = api.indexOf("export async function GET", applyStart);
   // apply는 draft를 새로 저장하지 않지만, stale 방지를 위해 서버에서 동일 추천을 재계산한다.
   assert.match(api.slice(applyStart, applyEnd), /calculateV2Recommendations/);
   assert.match(api.slice(applyStart, applyEnd), /canonicalFingerprint/);
+  assert.match(api.slice(applyStart, applyEnd), /loadActualMeasurementBlockedKeys/);
+  assert.match(api.slice(applyStart, applyEnd), /blockedKeys\.has/);
   assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
   assert.match(ui, /flex flex-wrap items-end gap-2 xl:flex-nowrap/);
@@ -237,7 +234,8 @@ test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합�
   assert.doesNotMatch(ui, /preliminaryDateFrom|preliminaryDateTo/);
   assert.match(ui, /bg-slate-200 text-slate-900/);
   assert.match(ui, /bg-slate-100 p-0 text-slate-700/);
-  assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 3);
+  assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 4);
+  assert.match(ui, /confirmed-document-repair/);
   assert.match(ui, /w-\[360px\] max-w-\[420px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
   assert.match(ui, /w-\[280px\] max-w-\[300px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
   assert.doesNotMatch(ui, /<textarea|resize-none/);
@@ -261,7 +259,7 @@ test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합�
   assert.match(service, /validateManualPlanHardRules/);
   assert.match(engine, /surveyors\?: SurveyUser\[\]/);
   assert.match(service, /filter\(\(candidate\) => isInPreliminaryDateScope\(candidate\.date, scope\)\)/);
-  assert.match(service, /!isInPreliminaryDateScope\(date, scope\) \|\| blockedKeys\.has/);
+  assert.match(service, /isBlocked: \(userId, date\) => !isInPreliminaryDateScope\(date, scope\) \|\| blockedKeys\.has\(`\$\{userId\}:\$\{date\}`\)/);
   assert.match(service, /manualRequiredOutsidePreliminaryScope/);
   const applyStart = api.indexOf("async function applySubmittedDrafts");
   const applyEnd = api.indexOf("export async function GET", applyStart);
@@ -303,7 +301,7 @@ test("계획 검색은 기준일 snapshot을 확정한 뒤 화면 결과와 같�
   assert.match(ui, /searchQuery: activeSearchQuery/);
   assert.match(ui, /disabled=\{working \|\| isPlanSearchDirty\}/);
   assert.match(ui, /검색어 변경 · 검색 필요/);
-  assert.match(ui, /추천 검토 결과: 추천 \$\{recommendedCount\}개 · 조정 필요\/불가 \$\{unavailableCount\}개/);
+  assert.match(ui, /일반 추천 \$\{recommendedCount\}건 · 찐확정 누락정보 보정 \$\{repairableDrafts\.length\}건/);
 });
 
 test("예비조사 탭·toolbar와 table header는 동적 sticky 계층과 단일 세로 스크롤을 사용한다", () => {
@@ -363,12 +361,78 @@ test("수동 수정과 draft apply는 선택한 조사 방식을 hard-rule 검�
   assert.match(workbenchApi, /validateManualPlanHardRules\(\{[\s\S]*?surveyMethod: draft\.surveyMethod,[\s\S]*?existingAssignments/);
 });
 
-test("수동 수정과 apply는 예비조사자 및 실제 측정 역할의 후발 직원 불가 일정을 저장 전에 차단한다", () => {
+test("Apply draftAssignments는 canonical 조사 방식과 사업장 주소를 보존한다", () => {
+  const workbenchApi = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
+  const applyStart = workbenchApi.indexOf("async function applySubmittedDrafts");
+  const applyEnd = workbenchApi.indexOf("const validations", applyStart);
+  const draftAssignments = workbenchApi.slice(
+    workbenchApi.indexOf("const draftAssignments", applyStart),
+    applyEnd,
+  );
+  assert.match(draftAssignments, /surveyMethod: draft\.surveyMethod/);
+  assert.match(draftAssignments, /address: context\.target\.address/);
+});
+
+test("F: 수동 수정은 blocked 조사자를 명확한 오류로 거부한다", () => {
   const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
-  const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   assert.match(manualRoute, /user_schedule_blocks/);
   assert.match(manualRoute, /USER_UNAVAILABLE_ON_SURVEY_DATE/);
-  assert.match(workbench, /measurementRoleKeysByTarget/);
-  assert.match(workbench, /보고서 담당자 또는 측정 참여자에게 직원 불가 일정/);
-  assert.match(workbench, /measurementRoleConflictTargetIds/);
+  assert.match(manualRoute, /status: 409/);
+});
+
+test("E: apply는 추천 후 추가된 직원 불가 일정을 stale draft로 거부한다", () => {
+  const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
+  const applyStart = workbench.indexOf("async function applySubmittedDrafts");
+  const applyEnd = workbench.indexOf("export async function GET", applyStart);
+  const apply = workbench.slice(applyStart, applyEnd);
+  assert.match(apply, /loadScheduleBlockKeys/);
+  assert.match(apply, /blockedKeys\.has/);
+  assert.match(apply, /조사자 제외 일정 또는 측정 업무가 추가/);
+  assert.match(apply, /DRAFT_REVIEW_REQUIRED/);
+  assert.match(apply, /status: 409/);
+});
+
+test("기존 가확정·수동 plan은 blocked 조사자가 있으면 보존하지 않고 재추천한다", () => {
+  const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
+  assert.match(service, /participants\.some\(\(user\) => user\.active === false \|\| blockedKeys\.has\(`\$\{user\.id\}:\$\{tentative\.date\}`\)\)/);
+  assert.match(service, /preservedAssignments/);
+});
+
+test("기존업체 유선 4건이 되는 가확정·수동 plan은 보존하지 않고 재추천한다", () => {
+  const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
+  assert.match(service, /fitsExistingPhoneResponsibleLimit\(otherAssignments, responsible\.id, tentative\.date\)/);
+});
+
+const storedPlanState = (overrides: Partial<Parameters<typeof storedPlanWorkbenchState>[0]> = {}) =>
+  storedPlanWorkbenchState({
+    trueConfirmed: false, stale: false, hasPlan: true, planOrigin: "manual", planStatus: "recommended",
+    preliminaryScheduleBlocked: false, measurementScheduleBlocked: false, measurementRoleScheduleBlocked: false,
+    ...overrides,
+  });
+
+test("manual/provisional plan의 예비조사자가 blocked면 재검토 필요한 review_required다", () => {
+  const result = storedPlanState({ preliminaryScheduleBlocked: true });
+  assert.equal(result.status, "review_required");
+  assert.match(result.conflict ?? "", /직원 제외 일정 추가.*재검토 필요/);
+});
+
+test("예비조사자 blocked가 없는 manual plan은 기존 provisional 상태를 유지한다", () => {
+  assert.deepEqual(storedPlanState(), { status: "provisional", conflict: null });
+});
+
+test("true-confirmed plan의 예비조사자가 blocked여도 확정 상태와 일정 충돌 표시를 유지한다", () => {
+  const result = storedPlanState({ trueConfirmed: true, preliminaryScheduleBlocked: true });
+  assert.equal(result.status, "true_confirmed");
+  assert.match(result.conflict ?? "", /직원 제외 일정 충돌/);
+});
+
+test("공시료·측정 역할 schedule conflict도 기존 운영지침대로 review_required로 표시한다", () => {
+  for (const conflict of [
+    { measurementScheduleBlocked: true },
+    { measurementRoleScheduleBlocked: true },
+  ]) {
+    const result = storedPlanState(conflict);
+    assert.equal(result.status, "review_required");
+    assert.match(result.conflict ?? "", /직원 제외 일정 추가.*재검토 필요/);
+  }
 });

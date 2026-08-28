@@ -1,4 +1,5 @@
 import { surveyMethodForKind, type Availability, type BusinessKind, type ExistingAssignment, type SurveyMethod, type SurveyUser } from "./types";
+import { fitsExistingPhoneResponsibleLimit, responsiblePhoneCount } from "./responsible-capacity";
 
 export interface SurveyorRecommendationTarget {
   id: number;
@@ -7,6 +8,12 @@ export interface SurveyorRecommendationTarget {
   measurementDate: string;
   createdAt: string | null;
   candidateDates: string[];
+  address?: string | null;
+  measurementStaffByDate?: Array<{
+    date: string;
+    reportWriterUserId: number | null;
+    measurementParticipantUserIds: number[];
+  }>;
 }
 
 export interface TentativeSurveyorAssignment extends ExistingAssignment {
@@ -69,12 +76,6 @@ function assignmentMethod(assignment: ExistingAssignment): SurveyMethod {
   return assignment.surveyMethod ?? surveyMethodForKind(assignment.kind);
 }
 
-function phoneCount(assignments: ExistingAssignment[], userId: number, date: string) {
-  return assignments.filter((assignment) =>
-    assignmentMethod(assignment) === "phone" && assignment.date === date && assignment.participants.includes(userId),
-  ).length;
-}
-
 function fieldCount(assignments: ExistingAssignment[], userId: number, date: string) {
   return assignments.filter((assignment) =>
     assignmentMethod(assignment) === "field" && assignment.date === date && assignment.participants.includes(userId),
@@ -82,7 +83,8 @@ function fieldCount(assignments: ExistingAssignment[], userId: number, date: str
 }
 
 function validParticipants(participants: SurveyUser[], date: string, availability: Availability) {
-  return participants.length > 0 && participants.every((user) => user.active !== false && !availability.isBlocked(user.id, date));
+  return participants.length > 0 && participants.every((user) =>
+    user.active !== false && !availability.isBlocked(user.id, date));
 }
 
 function fitsCapacity(
@@ -94,7 +96,7 @@ function fitsCapacity(
 ) {
   // 기존업체의 경력자는 표 검토자이므로 책임자의 유선 용량만 센다.
   return kind === "existing"
-    ? phoneCount(assignments, responsible.id, date) < 3
+    ? fitsExistingPhoneResponsibleLimit(assignments, responsible.id, date)
     : participants.every((user) => fieldCount(assignments, user.id, date) < 2);
 }
 
@@ -135,17 +137,45 @@ function candidateCombinations(target: SurveyorRecommendationTarget, users: Surv
   );
 }
 
+function normalizedAddress(value: string | null | undefined) {
+  return String(value ?? "").replace(/\s+/g, "").trim();
+}
+
 function compareCandidates(
   assignments: ExistingAssignment[],
   date: string,
   left: { responsible: SurveyUser; participants: SurveyUser[] },
   right: { responsible: SurveyUser; participants: SurveyUser[] },
   kind: BusinessKind,
+  target: SurveyorRecommendationTarget,
+  targets: SurveyorRecommendationTarget[],
 ) {
-  const load = (candidate: { participants: SurveyUser[] }) => candidate.participants.reduce(
-    (sum, user) => sum + (kind === "existing" ? phoneCount(assignments, user.id, date) : fieldCount(assignments, user.id, date)), 0,
-  );
-  return load(left) - load(right) ||
+  const rolePreference = (candidate: { responsible: SurveyUser }) => {
+    const roles = (target.measurementStaffByDate ?? []).filter((staff) => staff.date === target.measurementDate);
+    const participantMatch = roles.some((staff) => staff.measurementParticipantUserIds.includes(candidate.responsible.id));
+    const reportWriterMatch = roles.some((staff) => staff.reportWriterUserId === candidate.responsible.id);
+    return { participantMatch, reportWriterMatch };
+  };
+  const commonAddressParticipantCount = (candidate: { responsible: SurveyUser }) => {
+    const address = normalizedAddress(target.address);
+    if (!address || !rolePreference(candidate).participantMatch) return 0;
+    return targets.filter((other) => other.id !== target.id && other.measurementDate === target.measurementDate &&
+      normalizedAddress(other.address) === address &&
+      (other.measurementStaffByDate ?? []).some((staff) => staff.date === other.measurementDate &&
+        staff.measurementParticipantUserIds.includes(candidate.responsible.id))).length;
+  };
+  const selectedAddressCount = (candidate: { responsible: SurveyUser }) => assignments.filter((assignment) =>
+    normalizedAddress(target.address) && assignment.date === date &&
+    assignment.responsibleUserId === candidate.responsible.id &&
+    normalizedAddress(assignment.address) === normalizedAddress(target.address)).length;
+  const load = (candidate: { responsible: SurveyUser; participants: SurveyUser[] }) => kind === "existing"
+    ? responsiblePhoneCount(assignments, candidate.responsible.id, date)
+    : candidate.participants.reduce((sum, user) => sum + fieldCount(assignments, user.id, date), 0);
+  return Number(!rolePreference(left).participantMatch) - Number(!rolePreference(right).participantMatch) ||
+    Number(!rolePreference(left).reportWriterMatch) - Number(!rolePreference(right).reportWriterMatch) ||
+    commonAddressParticipantCount(right) - commonAddressParticipantCount(left) ||
+    selectedAddressCount(right) - selectedAddressCount(left) ||
+    load(left) - load(right) ||
     Number(kind === "existing" && !left.responsible.experienced && left.participants.length === 1) -
       Number(kind === "existing" && !right.responsible.experienced && right.participants.length === 1) ||
     left.responsible.id - right.responsible.id ||
@@ -155,7 +185,7 @@ function compareCandidates(
 /**
  * DB/경로 호출 없이 후보일 × 조사자 조합만 탐색한다.
  * 이미 유효한 가확정은 먼저 reserve하여 불필요한 재추천을 피하고, 나머지는 날짜 정책 순서와
- * 개인별 현재 용량, 사용자 ID 순으로 안정적으로 선택한다.
+ * 기존 배정 균형과 사용자 ID 순으로 안정적으로 선택한다.
  */
 export function recommendSurveyors(input: SurveyorRecommendationInput): SurveyorRecommendation[] {
   const users = active(input.users);
@@ -189,7 +219,7 @@ export function recommendSurveyors(input: SurveyorRecommendationInput): Surveyor
       const choices = candidateCombinations(target, users)
         .filter((choice) => validParticipants(choice.participants, date, input.availability))
         .filter((choice) => fitsCapacity(target.kind, choice.responsible, choice.participants, date, occupied))
-        .sort((left, right) => compareCandidates(occupied, date, left, right, target.kind));
+        .sort((left, right) => compareCandidates(occupied, date, left, right, target.kind, target, input.targets));
       const choice = choices[0];
       if (!choice) continue;
       selected = {
