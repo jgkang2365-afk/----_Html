@@ -2,8 +2,37 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { classifyDesignatedOffice, shortNameToFullName, findOfficeByAddress, getDesignatedOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
+import { classifyDesignatedOffice, shortNameToFullName } from "@/lib/utils/jurisdiction-matcher";
 import { toShortName } from "@/lib/constants/designated-offices";
+import {
+  LaborOfficeDirectory,
+  loadLaborOfficeDirectory,
+  resolveLaborOfficeAddressFromDirectory,
+  resolveLaborOfficeByStoredJurisdiction,
+} from "@/lib/labor-offices/address-resolver";
+
+function resolveJournalOfficePresentation(
+  address: unknown,
+  storedOfficeJurisdiction: unknown,
+  directory: LaborOfficeDirectory
+) {
+  const normalizedAddress = String(address ?? "").trim();
+  const stored = String(storedOfficeJurisdiction ?? "").trim();
+  const resolution = normalizedAddress
+    ? resolveLaborOfficeAddressFromDirectory(normalizedAddress, directory)
+    : resolveLaborOfficeByStoredJurisdiction(stored, directory);
+  const matched = resolution.status === "matched";
+
+  return {
+    officeCode: matched ? resolution.officeCode : null,
+    officeJurisdictionDisplay: matched
+      ? resolution.officeJurisdictionDisplay
+      : !normalizedAddress
+        ? toShortName(stored) || null
+        : null,
+    designatedOffice: matched ? resolution.designatedOffice : null,
+  };
+}
 
 /**
  * 측정일지 검색 API
@@ -78,6 +107,7 @@ export async function GET(request: NextRequest) {
         { status: 500 }
       );
     }
+    const laborOfficeDirectory = await loadLaborOfficeDirectory(supabase);
 
     // 0. measurementDate가 있으면 preliminary_survey에서 해당 날짜의 사업장 코드/년도/주기 조회
     let dateFilteredCodes: string[] | null = null;
@@ -507,6 +537,14 @@ export async function GET(request: NextRequest) {
 
         journal.manager_mobile = normalizePhoneLikeValue(journal.manager_mobile, journal.manager_name);
 
+        const journalOffice = resolveJournalOfficePresentation(
+          journal.address,
+          journal.office_jurisdiction,
+          laborOfficeDirectory
+        );
+        journal.office_code = journalOffice.officeCode;
+        journal.office_jurisdiction_display = journalOffice.officeJurisdictionDisplay;
+
         // designated_office 재검증 (주소 기반으로 다시 계산)
         // measurement_journal에 저장된 designated_office가 잘못되었을 수 있으므로
         // 주소 기반으로 다시 계산하여 검증
@@ -515,16 +553,13 @@ export async function GET(request: NextRequest) {
 
         // DB에 값이 없는 경우에만 자동 계산 시도
         if (!finalDesignatedOffice) {
-          // 1순위: 주소 기반
-          if (journal.address) {
-            const addressBasedOffice = getDesignatedOfficeByAddress(journal.address);
-            if (addressBasedOffice) {
-              finalDesignatedOffice = addressBasedOffice;
-            }
+          // 1순위: 현재 주소의 labor_offices 판정
+          if (journalOffice.designatedOffice) {
+            finalDesignatedOffice = journalOffice.designatedOffice;
           }
 
           // 2순위: 관할청 기반
-          if (!finalDesignatedOffice && journal.office_jurisdiction) {
+          if (!finalDesignatedOffice && !journal.address && journal.office_jurisdiction) {
             const officeJurisdictionFullName = shortNameToFullName(journal.office_jurisdiction) || journal.office_jurisdiction || "";
             const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
             if (officeBasedDesignatedOffice) {
@@ -533,8 +568,8 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        // 최종 설정 (없으면 기본값 '천안')
-        journal.designated_office = finalDesignatedOffice || "천안";
+        // 미판정 주소는 임의의 천안 값으로 보완하지 않는다.
+        journal.designated_office = finalDesignatedOffice;
 
         results.push(journal);
         processedKeys.add(key);
@@ -553,22 +588,17 @@ export async function GET(request: NextRequest) {
           ? [businessInfo.address1, businessInfo.address2].filter(Boolean).join(" ").trim()
           : "");
 
-        // designated_office 계산: 주소 기반 우선, 그 다음 office_jurisdiction 기반
-        let autoDesignatedOffice = "천안"; // 기본값
-        let officeJurisdictionFullName = business.office_jurisdiction || null;
-
-        // 1순위: 주소 기반으로 designated_office 계산
-        if (address) {
-          const addressBasedOffice = getDesignatedOfficeByAddress(address);
-          if (addressBasedOffice) {
-            autoDesignatedOffice = addressBasedOffice;
-          }
-        }
+        const businessOffice = resolveJournalOfficePresentation(
+          address,
+          business.office_jurisdiction,
+          laborOfficeDirectory
+        );
+        let autoDesignatedOffice = businessOffice.designatedOffice;
 
         // 2순위: office_jurisdiction 기반으로 designated_office 계산
-        if (autoDesignatedOffice === "천안" && business.office_jurisdiction) {
+        if (!autoDesignatedOffice && !address && business.office_jurisdiction) {
           const officeJurisdictionRaw = business.office_jurisdiction || "";
-          officeJurisdictionFullName = shortNameToFullName(officeJurisdictionRaw) || officeJurisdictionRaw || "";
+          const officeJurisdictionFullName = shortNameToFullName(officeJurisdictionRaw) || officeJurisdictionRaw || "";
           const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
           if (officeBasedDesignatedOffice) {
             autoDesignatedOffice = officeBasedDesignatedOffice;
@@ -585,6 +615,8 @@ export async function GET(request: NextRequest) {
           measurement_period: business.period,
           business_name: business.business_name,
           designated_office: autoDesignatedOffice, // 약칭으로 자동 계산
+          office_code: businessOffice.officeCode,
+          office_jurisdiction_display: businessOffice.officeJurisdictionDisplay,
           address: address,
           completion_status: business.completion_status || "미완료",
 
@@ -595,7 +627,7 @@ export async function GET(request: NextRequest) {
           measurer: isRegularPeriod ? null : (business.measurer || null),
           total_employees: isRegularPeriod ? null : business.total_employees,
 
-          office_jurisdiction: officeJurisdictionFullName || business.office_jurisdiction || null,
+          office_jurisdiction: business.office_jurisdiction || null,
           note: null,
           document_number: null,
           sequence_number: null,
@@ -658,22 +690,17 @@ export async function GET(request: NextRequest) {
           // 주소 가져오기
           const address = [businessInfo.address1, businessInfo.address2].filter(Boolean).join(" ").trim();
 
-          // designated_office 계산
-          let autoDesignatedOffice = "천안"; // 기본값
-          let officeJurisdictionFullName = businessInfo.office_jurisdiction || null;
-
-          // 1순위: 주소 기반
-          if (address) {
-            const addressBasedOffice = getDesignatedOfficeByAddress(address);
-            if (addressBasedOffice) {
-              autoDesignatedOffice = addressBasedOffice;
-            }
-          }
+          const businessInfoOffice = resolveJournalOfficePresentation(
+            address,
+            businessInfo.office_jurisdiction,
+            laborOfficeDirectory
+          );
+          let autoDesignatedOffice = businessInfoOffice.designatedOffice;
 
           // 2순위: 관할청 기반
-          if (autoDesignatedOffice === "천안" && businessInfo.office_jurisdiction) {
+          if (!autoDesignatedOffice && !address && businessInfo.office_jurisdiction) {
             const officeJurisdictionRaw = businessInfo.office_jurisdiction || "";
-            officeJurisdictionFullName = shortNameToFullName(officeJurisdictionRaw) || officeJurisdictionRaw || "";
+            const officeJurisdictionFullName = shortNameToFullName(officeJurisdictionRaw) || officeJurisdictionRaw || "";
             const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
             if (officeBasedDesignatedOffice) {
               autoDesignatedOffice = officeBasedDesignatedOffice;
@@ -687,6 +714,8 @@ export async function GET(request: NextRequest) {
             measurement_period: survey.period,
             business_name: businessInfo.business_name,
             designated_office: autoDesignatedOffice,
+            office_code: businessInfoOffice.officeCode,
+            office_jurisdiction_display: businessInfoOffice.officeJurisdictionDisplay,
             address: address,
             completion_status: "미완료", // 기본값
 
@@ -695,7 +724,7 @@ export async function GET(request: NextRequest) {
             measurer: survey.measurer || null,
             total_employees: null,
 
-            office_jurisdiction: officeJurisdictionFullName || businessInfo.office_jurisdiction || null,
+            office_jurisdiction: businessInfo.office_jurisdiction || null,
             note: survey.notes || null, // 예비조사 비고
             document_number: null,
             sequence_number: null,
@@ -759,7 +788,7 @@ export async function GET(request: NextRequest) {
           return entryOffice === normalizedOffice || entry.designated_office === designatedOffice;
         }
         // measurement_business에서 온 경우 - office_jurisdiction을 기반으로 designated_office 계산
-        if (entry.office_jurisdiction) {
+        if (!entry.address && entry.office_jurisdiction) {
           // office_jurisdiction이 약칭일 수 있으므로 전체명으로 변환 후 classifyDesignatedOffice 호출
           const officeJurisdictionFullName = shortNameToFullName(entry.office_jurisdiction) || entry.office_jurisdiction || "";
           const calculatedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);

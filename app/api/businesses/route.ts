@@ -15,7 +15,13 @@ import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
 import { normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
-import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
+import { classifyKnownDesignatedOffice } from "@/lib/utils/jurisdiction-matcher";
+import {
+  loadLaborOfficeDirectory,
+  resolveLaborOfficeAddressFromDirectory,
+  resolveLaborOfficeByAddress,
+  resolveLaborOfficeByStoredJurisdiction,
+} from "@/lib/labor-offices/address-resolver";
 import {
   ensureBusinessCoordinate,
   invalidateBusinessCoordinateForAddress,
@@ -40,11 +46,47 @@ import {
   isNullableProcessChanged,
   resolveTargetBusinessCategory,
 } from "@/lib/business/target-classification";
-import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
+import {
+  MeasurementDayForm,
+  measurementDayFormsFrom,
+  serializeMeasurementDayForms,
+  validateMeasurementDayForms,
+} from "@/lib/business/measurement-day-form";
+import {
+  isTargetBusinessTerminated,
+  normalizeTargetBusinessStatus,
+  resolveTargetBusinessStatusForCreate,
+  serializeTargetBusinessCreateValues,
+} from "@/lib/business/target-business-form";
 import {
   buildMeasurementScheduleBlockKeys,
   validateMeasurementDayAvailability,
 } from "@/lib/business/measurement-day-availability";
+
+async function validateMeasurementAssignmentsForSave(supabase: any, days: MeasurementDayForm[]) {
+  const validation = validateMeasurementDayForms(days);
+  if (!validation.valid) return validation;
+
+  const assignmentDates = days.map((day) => day.date).filter(Boolean).sort();
+  if (assignmentDates.length === 0) return { valid: true } as const;
+
+  const [{ data: users, error: userError }, { data: blocks, error: blockError }] = await Promise.all([
+    supabase.from("users").select("id, name").eq("job", "측정").neq("is_active", false),
+    supabase
+      .from("user_schedule_blocks")
+      .select("user_id, start_date, end_date")
+      .lte("start_date", assignmentDates.at(-1)!)
+      .gte("end_date", assignmentDates[0]),
+  ]);
+  if (userError) throw userError;
+  if (blockError) throw blockError;
+
+  return validateMeasurementDayAvailability({
+    days,
+    users: (users || []).map((user: any) => ({ id: Number(user.id), name: String(user.name) })),
+    blockedKeys: buildMeasurementScheduleBlockKeys(blocks || []),
+  });
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -108,23 +150,8 @@ export async function GET(request: NextRequest) {
       query = query.eq("measurement_date", confirmedDate);
     }
 
-    // 지정지청 (Exact 검색 or IN 검색) - office_jurisdiction 컬럼 사용? 
-    // TRD에는 office_jurisdiction(소재지 관할청)만 있고 designated_office 컬럼이 없음.
-    // 하지만 UI 요건상 "지정지청" 필터가 있음.
-    // 기존 로직은 주소 기반 계산 등을 수행했음.
-    // 새로 만든 테이블에는 'office_jurisdiction'이 있으므로 이를 필터링에 사용할 수 있음.
-    // 단, designated_office(지정기관)와 office_jurisdiction(관할청)은 다를 수 있음.
-    // 요구사항 분석: "지정지청" 필터는 보통 담당 지역을 의미함. 
-    // PRD에는 designated_office 컬럼이 없으므로, office_jurisdiction으로 매핑하거나, 
-    // 조회 후 JS 레벨에서 필터링해야 함. 일단 office_jurisdiction을 기준으로 필터링 시도.
-    if (designatedOffice && designatedOffice !== "전체") {
-      // 입력은 "대전, 천안" 등일 수 있음
-      const offices = designatedOffice.split(",").map(o => o.trim()).filter(Boolean);
-      // DB에는 약어("천안")로 저장될 것으로 예상됨 (TRD: 소재지 관할청 - 약어로 저장/표시)
-      if (offices.length > 0) {
-        query = query.in("office_jurisdiction", offices);
-      }
-    }
+    // target에는 소재지지청(office_jurisdiction)만 저장된다. 지정지청 필터는
+    // 조회 후 기존 4분류 함수를 적용해야 두 업무 개념이 섞이지 않는다.
 
     // 정렬: 코드순 (기본)
     query = query.order("code", { ascending: true });
@@ -303,6 +330,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 4. 데이터 병합
+    const laborOfficeDirectory = await loadLaborOfficeDirectory(supabase);
     const result = businesses.map((item: any) => {
       // Unpaid Logic Separation (Regular v.s. Ad-hoc)
       const rawUnpaidInfo = unpaidMap.get(item.code) || { businessCount: 0, nationalCount: 0, details: [] };
@@ -359,6 +387,16 @@ export async function GET(request: NextRequest) {
 
       const industrialAccidentNumber = bInfo?.industrial_accident_number || jInfo?.industrial_accident_number || item.industrial_accident_number;
       const commencementNumber = bInfo?.commencement_number || jInfo?.commencement_number || item.commencement_number;
+      const laborOffice = item.address
+        ? resolveLaborOfficeAddressFromDirectory(item.address, laborOfficeDirectory)
+        : resolveLaborOfficeByStoredJurisdiction(
+            item.office_jurisdiction,
+            laborOfficeDirectory
+          );
+      const officeJurisdictionDisplay =
+        laborOffice.officeJurisdictionDisplay ||
+        (!item.address ? toShortName(item.office_jurisdiction || "") : "") ||
+        null;
 
 
       return {
@@ -367,8 +405,11 @@ export async function GET(request: NextRequest) {
         national_unpaid_count: nationalCount, // 국고 미수 (Calculated)
         unpaid_details: filteredDetails, // Filtered details
         has_actual_measurement_journal: hasActualMeasurementJournal,
-        // UI 호환성을 위한 필드 매핑
-        designated_office: item.office_jurisdiction, // 임시 매핑
+        // 지정지청은 소재지지청을 기존 production 4분류 규칙으로 파생한다.
+        office_code: laborOffice.officeCode,
+        office_jurisdiction: officeJurisdictionDisplay,
+        designated_office:
+          laborOffice.designatedOffice || classifyKnownDesignatedOffice(officeJurisdictionDisplay),
         isRegistered: isRegisteredText === "실시", // Frontend 호환성
         is_registered_text: isRegisteredText, // 텍스트 값 전달
         future_measurement_period: futurePeriod, // 최신 값으로 덮어쓰기
@@ -401,7 +442,17 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    console.log(`[API] 조회된 사업장 수: ${result.length}, 요청 조건: year=${year}, period=${period}`);
+    const filteredResult = designatedOffice && designatedOffice !== "전체"
+      ? result.filter((item: any) =>
+          designatedOffice
+            .split(",")
+            .map((office) => office.trim())
+            .filter(Boolean)
+            .includes(item.designated_office)
+        )
+      : result;
+
+    console.log(`[API] 조회된 사업장 수: ${filteredResult.length}, 요청 조건: year=${year}, period=${period}`);
 
     // 예비조사 V2 자동추천 상위 정책 상태 (UI 중지 안내용)
     let preliminarySurveyV2AutomationEnabled = true;
@@ -413,8 +464,8 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      businesses: result,
-      count: result.length,
+      businesses: filteredResult,
+      count: filteredResult.length,
       preliminarySurveyV2AutomationEnabled,
     });
 
@@ -511,10 +562,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     const allowedUpdateColumns = new Set([
-      "business_name", "business_category", "address", "office_jurisdiction",
-      "business_number", "invoice_email", "fax",
+      "business_name", "business_category", "address",
       "is_registered", "plan_manager", "manager_name",
-      "manager_mobile", "manager_phone", "manager_email", "phone", "total_employees", "management_status", "notes", "measurement_date",
+      "manager_mobile", "manager_email", "management_status", "notes", "measurement_date",
       "measurement_end_date", "future_measurement_period", "future_measurement_date",
       "measurer_id", "link_measurer_id", "period", "collaborators", "daily_staff", "representative_name",
       "industrial_accident_number", "commencement_number",
@@ -578,32 +628,22 @@ export async function PATCH(request: NextRequest) {
         measurerId: Object.prototype.hasOwnProperty.call(updates, "measurer_id") ? updates.measurer_id : existingMeasurerId,
         collaborators: Object.prototype.hasOwnProperty.call(updates, "collaborators") ? updates.collaborators : existingCollaborators,
       });
-      const assignmentDates = finalDays.map((day) => day.date).filter(Boolean).sort();
-      if (assignmentDates.length > 0) {
-        const [{ data: users, error: userError }, { data: blocks, error: blockError }] = await Promise.all([
-          supabase.from("users").select("id, name").eq("job", "측정").neq("is_active", false),
-          supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
-            .lte("start_date", assignmentDates.at(-1)!).gte("end_date", assignmentDates[0]),
-        ]);
-        if (userError) throw userError;
-        if (blockError) throw blockError;
-        const availability = validateMeasurementDayAvailability({
-          days: finalDays,
-          users: (users || []).map((user) => ({ id: Number(user.id), name: String(user.name) })),
-          blockedKeys: buildMeasurementScheduleBlockKeys(blocks || []),
-        });
-        if (!availability.valid) {
-          return NextResponse.json({ error: availability.message }, { status: 400 });
-        }
+      const availability = await validateMeasurementAssignmentsForSave(supabase, finalDays);
+      if (!availability.valid) {
+        return NextResponse.json({ error: availability.message }, { status: 400 });
       }
     }
 
-    // [New Feature] Auto-calculate office_jurisdiction if address is being updated
+    let addressOfficeResolution: Awaited<
+      ReturnType<typeof resolveLaborOfficeByAddress>
+    > | null = null;
+    // 주소가 바뀌면 labor_offices master로 소재지지청을 서버에서 다시 판정한다.
     if (updates.hasOwnProperty('address')) {
-      const office = findOfficeByAddress(updates.address);
-      if (office) {
-        updatePayload.office_jurisdiction = office;
-      }
+      addressOfficeResolution = await resolveLaborOfficeByAddress(supabase, updates.address);
+      updatePayload.office_jurisdiction =
+        addressOfficeResolution.status === "matched"
+          ? addressOfficeResolution.officeJurisdictionPersistence
+          : null;
 
       // 주소 변경 시 좌표 무효화 (동일 주소가 아니고 수동 고정 상태가 아닌 경우에만 STALE 처리)
       const normalizedOld = normalizeAddressForGeocoding(existingAddress);
@@ -939,42 +979,6 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    if (
-      code &&
-      (
-        updates.hasOwnProperty('total_employees') ||
-        updates.hasOwnProperty('phone')
-      )
-    ) {
-      try {
-        const masterPayload: any = {
-          code,
-          year: Number(year || updatedData.year),
-          period: period || updatedData.period,
-          business_name: updatedData.business_name,
-          updated_at: new Date().toISOString(),
-        };
-
-        if (updates.hasOwnProperty('total_employees')) {
-          masterPayload.total_employees = updates.total_employees;
-        }
-        if (updates.hasOwnProperty('phone')) {
-          masterPayload.phone = updates.phone;
-        }
-
-        const { error: measurementBusinessSyncError } = await supabase
-          .from("measurement_business")
-          .upsert(masterPayload, { onConflict: "code,year,period" });
-
-        if (measurementBusinessSyncError) {
-          console.error("Measurement Business detail sync error:", measurementBusinessSyncError);
-        }
-
-      } catch (detailSyncError) {
-        console.error("Business detail sync exception:", detailSyncError);
-      }
-    }
-
     // === [마스터 테이블 최종 동기화 Logic] ===
     // 계획 진행 상태가 '실시' 또는 '확정'일 때만, 입력된 건강디딤돌 필수 정보를 마스터 DB에 최종 검증(확정) 저장합니다.
     const isConfirmedStatus = updatedData.is_registered === "실시" || updatedData.is_registered === "확정";
@@ -1006,9 +1010,30 @@ export async function PATCH(request: NextRequest) {
     // 예비조사 V2 계획의 자동 생성/재추천은 예비조사 영역에서 별도 수행한다.
     // (Phase A: 측정일/실측정자/link/사업장 유형 변경이 있어도 V2 plan을 자동 생성하거나 재추천하지 않는다.)
 
+    const responseAddress = String(updatedData.address ?? "").trim();
+    const responseOffice =
+      addressOfficeResolution ||
+      (responseAddress
+        ? await resolveLaborOfficeByAddress(supabase, responseAddress)
+        : resolveLaborOfficeByStoredJurisdiction(
+            updatedData.office_jurisdiction,
+            await loadLaborOfficeDirectory(supabase)
+          ));
     return NextResponse.json({
       success: true,
-      data: updatedData,
+      data: {
+        ...updatedData,
+        office_code: responseOffice.officeCode,
+        office_jurisdiction:
+          responseOffice.officeJurisdictionDisplay ||
+          (!responseAddress ? toShortName(updatedData.office_jurisdiction || "") : "") ||
+          null,
+        designated_office:
+          responseOffice.designatedOffice ||
+          (!responseAddress
+            ? classifyKnownDesignatedOffice(updatedData.office_jurisdiction)
+            : null),
+      },
       geocodeStatus: geocodeResult?.geocoding_status || null,
     });
 
@@ -1020,20 +1045,176 @@ export async function PATCH(request: NextRequest) {
     }, { status: 500 });
   }
 }
+async function syncCreatedTargetMeasurementSchedule(
+  supabase: any,
+  params: {
+    code: string;
+    year: number;
+    period: string;
+    businessName: string;
+    targetId: number;
+    targetStatus: string | null;
+    days: MeasurementDayForm[];
+  }
+) {
+  const days = params.days.filter((day) => Boolean(day.date));
+  if (days.length === 0) return;
+
+  const sortedDates = days.map((day) => day.date).sort();
+  const incomingDates = new Set(sortedDates);
+  const { data: existingSurveys, error: existingSurveysError } = await supabase
+    .from("preliminary_survey")
+    .select("id, measurement_date, google_event_id")
+    .eq("code", params.code)
+    .eq("year", params.year)
+    .eq("period", params.period);
+  if (existingSurveysError) throw existingSurveysError;
+
+  const surveysToDelete = (existingSurveys || []).filter(
+    (survey: any) => !incomingDates.has(survey.measurement_date)
+  );
+  if (surveysToDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("preliminary_survey")
+      .delete()
+      .eq("code", params.code)
+      .eq("year", params.year)
+      .eq("period", params.period)
+      .in(
+        "measurement_date",
+        surveysToDelete.map((survey: any) => survey.measurement_date)
+      );
+    if (deleteError) throw deleteError;
+    for (const survey of surveysToDelete) {
+      if (!survey.google_event_id) continue;
+      try {
+        await deleteSurveyEvent(survey.google_event_id);
+      } catch (calendarDeleteError) {
+        console.error(
+          `[Integrated Sync] Failed to delete calendar event ${survey.google_event_id}:`,
+          calendarDeleteError
+        );
+      }
+    }
+  }
+
+  const reportWriterIds = Array.from(
+    new Set(days.map((day) => day.measurerId).filter((id): id is number => id != null))
+  );
+  const reportWriterNames = new Map<number, string>();
+  if (reportWriterIds.length > 0) {
+    const { data: users, error: usersError } = await supabase
+      .from("users")
+      .select("id, name")
+      .in("id", reportWriterIds);
+    if (usersError) throw usersError;
+    for (const user of users || []) {
+      reportWriterNames.set(Number(user.id), String(user.name));
+    }
+  }
+
+  for (const day of days) {
+    const reportWriter =
+      day.measurerId == null ? null : reportWriterNames.get(day.measurerId) || null;
+    const actualMeasurer = day.collaborators.join(", ");
+    const existing = (existingSurveys || []).find(
+      (survey: any) => survey.measurement_date === day.date
+    );
+
+    if (existing) {
+      const { error: updateError } = await supabase
+        .from("preliminary_survey")
+        .update({
+          end_date: day.date,
+          report_writer: reportWriter,
+          actual_measurer: actualMeasurer,
+          business_name: params.businessName,
+        })
+        .eq("id", existing.id);
+      if (updateError) throw updateError;
+      continue;
+    }
+
+    const { data: maxSequence } = await supabase
+      .from("preliminary_survey")
+      .select("sequence_number")
+      .order("sequence_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const surveyPayload = {
+      code: params.code,
+      year: params.year,
+      period: params.period,
+      measurement_date: day.date,
+      end_date: day.date,
+      report_writer: reportWriter,
+      actual_measurer: actualMeasurer,
+      business_name: params.businessName,
+      sequence_number: (maxSequence?.sequence_number || 0) + 1,
+    };
+    const { error: insertError } = await supabase.from("preliminary_survey").upsert(surveyPayload, {
+      onConflict: "code,year,period,measurement_date",
+      ignoreDuplicates: false,
+    });
+    if (insertError && !isLegacySurveyUniqueConflict(insertError)) throw insertError;
+    if (insertError) {
+      const { data: racedRow } = await supabase
+        .from("preliminary_survey")
+        .select("id")
+        .eq("code", params.code)
+        .eq("year", params.year)
+        .eq("period", params.period)
+        .eq("measurement_date", day.date)
+        .maybeSingle();
+      if (!racedRow) throw insertError;
+      const { error: racedUpdateError } = await supabase
+        .from("preliminary_survey")
+        .update({
+          end_date: day.date,
+          report_writer: reportWriter,
+          actual_measurer: actualMeasurer,
+          business_name: params.businessName,
+        })
+        .eq("id", racedRow.id);
+      if (racedUpdateError) throw racedUpdateError;
+    }
+  }
+
+  const collaborators = Array.from(new Set(days.flatMap((day) => day.collaborators)))
+    .filter(Boolean)
+    .sort()
+    .join(", ");
+  const summaryUpdates: Record<string, unknown> = {
+    measurement_date: sortedDates[0],
+    measurement_end_date: sortedDates.at(-1),
+    collaborators: collaborators || null,
+  };
+  if (!isTargetBusinessTerminated(params.targetStatus)) {
+    summaryUpdates.is_registered = "실시";
+  }
+  const { error: summaryError } = await supabase
+    .from("measurement_target_business")
+    .update(summaryUpdates)
+    .eq("id", params.targetId);
+  if (summaryError) throw summaryError;
+
+  await syncBusinessToCalendar(supabase, params.code, params.year, params.period);
+}
+
 export async function POST(request: NextRequest) {
   try {
     await checkPermission("journal:write");
 
     const body = await request.json();
-    const { 
-      code, 
-      year, 
-      period, 
-      business_name, 
-      address, 
-      plan_manager, 
-      sanjae,
-      commencement,
+    const formValues = serializeTargetBusinessCreateValues(body);
+    const { code, year } = body;
+    const {
+      period,
+      business_name,
+      address,
+      plan_manager,
+      industrial_accident_number,
+      commencement_number,
       representative_name,
       business_number,
       business_category,
@@ -1045,10 +1226,19 @@ export async function POST(request: NextRequest) {
       manager_phone,
       manager_email,
       total_employees,
-      office_jurisdiction,
       business_type,
       process_changed,
-    } = body;
+      is_registered,
+      management_status,
+      notes,
+      measurement_date,
+      measurer_id,
+      link_measurer_id,
+      collaborators,
+      daily_staff,
+      future_measurement_period,
+      future_measurement_date,
+    } = formValues;
 
     // Validation
     if (!code || !year || !period || !business_name) {
@@ -1058,14 +1248,25 @@ export async function POST(request: NextRequest) {
       );
     }
     if (!isValidOptionalManagerEmail(manager_email)) {
-      return NextResponse.json(
-        { error: "담당자 메일 형식을 확인해 주세요." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "담당자 메일 형식을 확인해 주세요." }, { status: 400 });
     }
 
     const normalizedManagerEmail = normalizeOptionalManagerEmail(manager_email);
     const supabase = await createClient();
+    const measurementDays = measurementDayFormsFrom({
+      dailyStaff: daily_staff,
+      measurementDate: measurement_date,
+      measurerId: measurer_id,
+      collaborators,
+    });
+    const assignmentValidation = await validateMeasurementAssignmentsForSave(
+      supabase,
+      measurementDays
+    );
+    if (!assignmentValidation.valid) {
+      return NextResponse.json({ error: assignmentValidation.message }, { status: 400 });
+    }
+    const measurementSchedule = serializeMeasurementDayForms(measurementDays);
 
     // 1. 코드 + 연도 + 주기 중복 등록 방지
     const { data: existing } = await supabase
@@ -1084,16 +1285,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Auto-calculate office_jurisdiction based on address
-    const calculatedOfficeJurisdiction = address ? findOfficeByAddress(address) : null;
-    const industrialAccidentNumber = String(sanjae || "").replace(/\D/g, "").slice(0, 11) || null;
-    const commencementNumber = String(commencement || "").replace(/\D/g, "").slice(0, 11) || null;
-    const parsedTotalEmployees = total_employees === "" || total_employees === null || total_employees === undefined
-      ? null
-      : Number(total_employees);
-    const normalizedTotalEmployees = parsedTotalEmployees !== null && Number.isFinite(parsedTotalEmployees)
-      ? parsedTotalEmployees
-      : null;
+    // Preview 값을 신뢰하지 않고 등록 시점의 주소를 labor_offices master로 재검증한다.
+    const addressOfficeResolution = await resolveLaborOfficeByAddress(supabase, address);
+    const industrialAccidentNumber =
+      String(industrial_accident_number || "")
+        .replace(/\D/g, "")
+        .slice(0, 11) || null;
+    const commencementNumber =
+      String(commencement_number || "")
+        .replace(/\D/g, "")
+        .slice(0, 11) || null;
+    const totalEmployeesValue: unknown = total_employees;
+    const parsedTotalEmployees =
+      totalEmployeesValue === "" ||
+      totalEmployeesValue === null ||
+      totalEmployeesValue === undefined
+        ? null
+        : Number(totalEmployeesValue);
+    const normalizedTotalEmployees =
+      parsedTotalEmployees !== null && Number.isFinite(parsedTotalEmployees)
+        ? parsedTotalEmployees
+        : null;
     const initialSupportState = getInitialNationalSupportState({
       period,
       industrial_accident_number: industrialAccidentNumber,
@@ -1103,10 +1315,7 @@ export async function POST(request: NextRequest) {
       manager_mobile,
     });
     if (!isNullableBusinessType(business_type ?? null)) {
-      return NextResponse.json(
-        { error: "business_type 값이 올바르지 않습니다." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "business_type 값이 올바르지 않습니다." }, { status: 400 });
     }
     if (
       Object.prototype.hasOwnProperty.call(body, "process_changed") &&
@@ -1114,13 +1323,18 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "process_changed 값은 boolean 또는 null이어야 합니다." },
-        { status: 400 },
+        { status: 400 }
       );
     }
     const initialProcessChanged = getInitialProcessChanged(
       process_changed,
-      Object.prototype.hasOwnProperty.call(body, "process_changed"),
-      business_category,
+      Object.prototype.hasOwnProperty.call(formValues, "process_changed"),
+      business_category
+    );
+    const requestedStatus = normalizeTargetBusinessStatus(is_registered);
+    const initialRegistrationStatus = resolveTargetBusinessStatusForCreate(
+      requestedStatus,
+      Boolean(measurementSchedule.measurement_date)
     );
 
     // 2. Insert into measurement_target_business
@@ -1133,7 +1347,10 @@ export async function POST(request: NextRequest) {
         business_name,
         business_number: String(business_number || "").replace(/\D/g, "") || null,
         address: address || null,
-        office_jurisdiction: office_jurisdiction || calculatedOfficeJurisdiction,
+        office_jurisdiction:
+          addressOfficeResolution.status === "matched"
+            ? addressOfficeResolution.officeJurisdictionPersistence
+            : null,
         business_category: business_category || null,
         business_type: business_type ?? null,
         process_changed: initialProcessChanged,
@@ -1146,15 +1363,25 @@ export async function POST(request: NextRequest) {
         total_employees: normalizedTotalEmployees,
         manager_email: normalizedManagerEmail,
         plan_manager: plan_manager || null,
+        management_status: management_status || null,
+        notes: notes || null,
         national_support_status: initialSupportState.nationalSupportStatus,
         sync_status: initialSupportState.syncStatus,
         sync_error_message: null,
         industrial_accident_number: industrialAccidentNumber,
         commencement_number: commencementNumber,
         representative_name: representative_name || null,
+        measurement_date: measurementSchedule.measurement_date,
+        measurement_end_date: measurementSchedule.measurement_end_date,
+        daily_staff: measurementSchedule.daily_staff,
+        measurer_id: measurementSchedule.measurer_id,
+        link_measurer_id: link_measurer_id ?? null,
+        collaborators: measurementSchedule.collaborators,
+        future_measurement_period: future_measurement_period ?? null,
+        future_measurement_date: future_measurement_date || null,
         document_generation_enabled: true,
-        is_registered: "미실시", // Default
-        created_at: new Date().toISOString()
+        is_registered: initialRegistrationStatus,
+        created_at: new Date().toISOString(),
       })
       .select()
       .single();
@@ -1163,10 +1390,25 @@ export async function POST(request: NextRequest) {
       if (insertError.code === "23505") {
         return NextResponse.json(
           { error: "이미 등록된 사업장입니다 (코드/년도/주기 중복)." },
-          { status: 409 },
+          { status: 409 }
         );
       }
       throw new Error(`Target Insert Error: ${insertError.message}`);
+    }
+
+    try {
+      await syncCreatedTargetMeasurementSchedule(supabase, {
+        code,
+        year: Number(year),
+        period: String(period),
+        businessName: String(business_name),
+        targetId: Number(newTarget.id),
+        targetStatus: initialRegistrationStatus,
+        days: measurementDays,
+      });
+    } catch (scheduleSyncError) {
+      // PATCH와 동일하게 target 저장은 유지하고 legacy 일정/Calendar 후속 처리 실패만 기록한다.
+      console.error("[Integrated Sync] 신규 사업장 일정 후속 처리 실패:", scheduleSyncError);
     }
 
     let geocodeResult = null;
@@ -1177,13 +1419,21 @@ export async function POST(request: NextRequest) {
         fallbackAddress: address,
       });
     } catch (coordinateError) {
-      console.error("[BusinessCoordinates] 신규 등록 후 좌표 처리 실패:", coordinateError instanceof Error ? coordinateError.message : "unknown");
+      console.error(
+        "[BusinessCoordinates] 신규 등록 후 좌표 처리 실패:",
+        coordinateError instanceof Error ? coordinateError.message : "unknown"
+      );
     }
 
     return NextResponse.json({
       success: true,
       businessCreated: true,
-      data: newTarget,
+      data: {
+        ...newTarget,
+        office_code: addressOfficeResolution.officeCode,
+        office_jurisdiction: addressOfficeResolution.officeJurisdictionDisplay,
+        designated_office: addressOfficeResolution.designatedOffice,
+      },
       geocodeStatus: geocodeResult?.geocoding_status?.toLowerCase() || "failed",
       latitude: geocodeResult?.latitude ?? null,
       longitude: geocodeResult?.longitude ?? null,
@@ -1196,13 +1446,15 @@ export async function POST(request: NextRequest) {
         status: initialSupportState.syncStatus,
       },
     });
-
   } catch (error: any) {
     console.error("POST API Critical Error:", error);
-    return NextResponse.json({
-      error: "Internal Server Error",
-      details: error?.message || String(error)
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Internal Server Error",
+        details: error?.message || String(error),
+      },
+      { status: 500 }
+    );
   }
 }
 

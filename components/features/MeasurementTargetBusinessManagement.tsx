@@ -11,6 +11,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
 import { NewBusinessDocumentGeneration } from "@/components/features/NewBusinessDocumentGeneration";
 import { BusinessMapModal } from "@/components/features/BusinessMapModal";
+import { MeasurementTargetBusinessFormSections } from "@/components/features/MeasurementTargetBusinessFormSections";
 import {
     Table,
     TableHeader,
@@ -45,14 +46,23 @@ import {
 } from "@/lib/business-info/registration-context";
 import {
     MeasurementDayForm,
-    changeMeasurementDayReportWriter,
+    MeasurementDayFormWithUiKey,
+    createEmptyMeasurementDayForm,
     defaultEmptyParticipantsToReportWriter,
     measurementDayFormsFrom,
-    serializeMeasurementDayForms,
-    serializeMeasurementDayFormsForEditing,
-    swapMeasurerForMeasurementDateTransition,
+    withMeasurementDayUiKeys,
     validateMeasurementDayForms,
 } from "@/lib/business/measurement-day-form";
+import {
+    buildInlineMeasurementDateUpdates,
+    buildTargetBusinessEditPatch,
+    buildTargetBusinessSaveValues,
+    getTargetBusinessTypeLabel,
+    isProcessChangedDefaultCategory,
+    serializeTargetBusinessEditValues,
+    statusForMeasurementDays,
+    TargetBusinessFormValues,
+} from "@/lib/business/target-business-form";
 import {
     buildMeasurementScheduleBlockKeys,
     isMeasurementStaffUnavailable,
@@ -133,21 +143,6 @@ interface BusinessEntry {
     } | null;
 }
 
-const BUSINESS_TYPE_OPTIONS = [
-    { value: "existing", label: "기존업체" },
-    { value: "first_measurement", label: "최초실시" },
-    { value: "external_new", label: "타기관 신규" },
-] as const;
-
-const getBusinessTypeLabel = (businessType: BusinessEntry["business_type"]) => {
-    return BUSINESS_TYPE_OPTIONS.find((option) => option.value === businessType)?.label || "-";
-};
-
-const isProcessChangedDefaultCategory = (businessCategory: string | null | undefined) => {
-    const normalized = businessCategory?.trim();
-    return normalized === "공업사" || normalized === "건설";
-};
-
 interface BusinessInfoSearchResult {
     code: string;
     business_name: string;
@@ -161,6 +156,7 @@ interface BusinessInfoSearchResult {
     industrial_accident_number: string;
     commencement_number: string;
     office_jurisdiction: string;
+    designated_office?: string;
     invoice_contact_candidate: {
         name: string;
         position: string;
@@ -174,103 +170,6 @@ interface User {
     job?: string;
     is_preliminary_survey_experienced?: boolean;
 }
-
-interface MeasurementDayAssignmentCardProps {
-    day: MeasurementDayForm;
-    index: number;
-    measurers: User[];
-    fallbackDate: string | null | undefined;
-    blockedKeys: Set<string>;
-    canRemove: boolean;
-    onDateChange: (date: string) => void;
-    onMeasurerChange: (measurerId: number | null) => void;
-    onCollaboratorChange: (name: string, checked: boolean) => void;
-    onRemove: () => void;
-}
-
-const availableMeasurersForDate = (measurers: User[], date: string | null | undefined) => {
-    const isAfterTransition = !date || date >= "2026-06-09";
-    return measurers.filter((member) => isAfterTransition ? member.name !== "배윤민" : member.name !== "김민영");
-};
-
-const MeasurementDayAssignmentCard: React.FC<MeasurementDayAssignmentCardProps> = ({
-    day,
-    index,
-    measurers,
-    fallbackDate,
-    blockedKeys,
-    canRemove,
-    onDateChange,
-    onMeasurerChange,
-    onCollaboratorChange,
-    onRemove,
-}) => {
-    const assignmentDate = day.date || fallbackDate;
-    const allDayMeasurers = availableMeasurersForDate(measurers, assignmentDate);
-    const dayMeasurers = allDayMeasurers.filter((member) =>
-        !isMeasurementStaffUnavailable(member.id, assignmentDate, blockedKeys),
-    );
-    const unavailableMeasurers = allDayMeasurers.filter((member) =>
-        isMeasurementStaffUnavailable(member.id, assignmentDate, blockedKeys),
-    );
-
-    return (
-        <Card className="p-3 bg-white border-slate-200 relative group">
-            {canRemove && (
-                <button
-                    type="button"
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                    onClick={onRemove}
-                    aria-label={`측정일 ${index + 1} 삭제`}
-                >
-                    ×
-                </button>
-            )}
-            <div className="grid grid-cols-2 gap-3">
-                <div>
-                    <label className="block text-xs font-semibold text-slate-500 mb-1">측정일 {index + 1}</label>
-                    <Input type="date" value={day.date} onChange={(event) => onDateChange(event.target.value)} />
-                </div>
-                <div>
-                    <label className="block text-xs font-semibold text-slate-500 mb-1">보고서 담당자</label>
-                    <Select
-                        options={[
-                            { value: "", label: "선택" },
-                            ...dayMeasurers.map((member) => ({ value: member.id.toString(), label: member.name })),
-                            ...unavailableMeasurers
-                                .filter((member) => member.id === day.measurerId)
-                                .map((member) => ({ value: member.id.toString(), label: `${member.name} (불가 일정)` })),
-                        ]}
-                        value={day.measurerId?.toString() || ""}
-                        onChange={(event) => onMeasurerChange(event.target.value ? Number(event.target.value) : null)}
-                    />
-                </div>
-                <div className="col-span-2">
-                    <label className="block text-xs font-semibold text-slate-500 mb-1">측정 참여자 (복수 선택)</label>
-                    <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
-                        {[...dayMeasurers, ...unavailableMeasurers.filter((member) => day.collaborators.includes(member.name))].map((member) => (
-                            (() => {
-                                const unavailable = isMeasurementStaffUnavailable(member.id, assignmentDate, blockedKeys);
-                                return (
-                            <label key={member.id} className="flex items-center gap-1.5 cursor-pointer p-0.5 rounded hover:bg-slate-50">
-                                <input
-                                    type="checkbox"
-                                    checked={day.collaborators.includes(member.name)}
-                                    disabled={unavailable && !day.collaborators.includes(member.name)}
-                                    onChange={(event) => onCollaboratorChange(member.name, event.target.checked)}
-                                    className="w-3.5 h-3.5 rounded"
-                                />
-                                <span className="text-xs text-slate-600">{member.name}{unavailable ? " (불가 일정)" : ""}</span>
-                            </label>
-                                );
-                            })()
-                        ))}
-                    </div>
-                </div>
-            </div>
-        </Card>
-    );
-};
 
 // State for Persistence
 const STORAGE_KEY = "measurement_target_filters_v1";
@@ -900,11 +799,22 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const [editingItem, setEditingItem] = useState<BusinessEntry | null>(null);
     const [editForm, setEditForm] = useState<Partial<BusinessEntry>>({});
+    const [editMeasurementDays, setEditMeasurementDays] = useState<MeasurementDayFormWithUiKey[]>(
+        () => [createEmptyMeasurementDayForm()],
+    );
+    const editInitialStateRef = useRef<{
+        form: TargetBusinessFormValues;
+        days: MeasurementDayForm[];
+    } | null>(null);
     const [addForm, setAddForm] = useState<Partial<BusinessEntry>>({
         year: new Date().getFullYear(),
         period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
         manager_email: "",
+        is_registered_text: "미실시",
     });
+    const [addMeasurementDays, setAddMeasurementDays] = useState<MeasurementDayFormWithUiKey[]>(
+        () => [createEmptyMeasurementDayForm()],
+    );
     const [addProcessChangedTouched, setAddProcessChangedTouched] = useState(false);
     const [businessInfoQuery, setBusinessInfoQuery] = useState("");
     const [businessInfoResults, setBusinessInfoResults] = useState<BusinessInfoSearchResult[]>([]);
@@ -962,7 +872,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     ...target,
                     isRegistered: target.is_registered === "실시",
                     is_registered_text: target.is_registered || "미실시",
-                    designated_office: target.office_jurisdiction || "",
+                    designated_office: target.designated_office || "",
                     sanjae: target.industrial_accident_number || "",
                     commencement: target.commencement_number || "",
                     unpaid_count: 0,
@@ -1007,7 +917,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             manager_name: "",
             manager_mobile: "",
             manager_email: "",
+            designated_office: "",
+            office_jurisdiction: "",
+            is_registered_text: "미실시",
+            notes: "",
         });
+        setAddMeasurementDays([createEmptyMeasurementDayForm()]);
         setBusinessInfoQuery("");
         setBusinessInfoResults([]);
         setSelectedBusinessInfo(null);
@@ -1061,6 +976,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             business_number: business.business_number || prev.business_number,
             invoice_email: business.invoice_email || prev.invoice_email,
             office_jurisdiction: business.office_jurisdiction || prev.office_jurisdiction,
+            designated_office: business.designated_office || prev.designated_office,
         }));
         applyRegistrationAutoValues(buildRegistrationAutoFillValues(business, null));
         void loadExactMeasurementBusiness(
@@ -1076,11 +992,32 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
+        const measurementDayValidation = validateMeasurementDayForms(addMeasurementDays);
+        if (!measurementDayValidation.valid) {
+            alert(measurementDayValidation.message);
+            return;
+        }
+        const availabilityValidation = validateMeasurementDayAvailability({
+            days: addMeasurementDays,
+            users: measurers,
+            blockedKeys: measurementScheduleBlockedKeys,
+        });
+        if (!availabilityValidation.valid) {
+            alert(availabilityValidation.message);
+            return;
+        }
+
+        const createPayload = {
+            code: addForm.code,
+            year: addForm.year,
+            ...buildTargetBusinessSaveValues(addForm, addMeasurementDays),
+        };
+
         try {
             const response = await fetch("/api/businesses", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(addForm)
+                body: JSON.stringify(createPayload)
             });
 
             const createResult = await response.json();
@@ -1128,7 +1065,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     ...created,
                     isRegistered: created.is_registered === "실시",
                     is_registered_text: created.is_registered || "미실시",
-                    designated_office: created.office_jurisdiction || "",
+                    designated_office: created.designated_office || "",
                     sanjae: created.industrial_accident_number || "",
                     commencement: created.commencement_number || "",
                     unpaid_count: 0,
@@ -1193,10 +1130,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         let result = data;
 
         if (filters.designatedOffice) {
-            result = result.filter(item => {
-                const office = toShortName(item.office_jurisdiction || "") || item.designated_office || "";
-                return office.includes(filters.designatedOffice);
-            });
+            result = result.filter(item =>
+                (item.designated_office || "").includes(filters.designatedOffice)
+            );
         }
 
         if (filters.businessCategory) {
@@ -1433,23 +1369,35 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             ...item,
             sanjae: item.industrial_accident_number || item.sanjae || "",
             commencement: item.commencement_number || item.commencement || "",
-            ...serializeMeasurementDayFormsForEditing(initialDays),
         };
 
         setEditForm(initialForm);
+        editInitialStateRef.current = { form: initialForm, days: initialDays };
+        setEditMeasurementDays(withMeasurementDayUiKeys(initialDays));
         setIsEditModalOpen(true);
     };
 
     const updateMeasurementDays = (
-        days: MeasurementDayForm[],
+        days: MeasurementDayFormWithUiKey[],
         linkMeasurerId?: number | null,
     ) => {
-        const serialized = serializeMeasurementDayFormsForEditing(days);
+        setEditMeasurementDays(days);
         setEditForm((previous) => ({
             ...previous,
-            ...serialized,
             ...(linkMeasurerId === undefined ? {} : { link_measurer_id: linkMeasurerId }),
-            is_registered_text: serialized.measurement_date ? "실시" : "미실시",
+            is_registered_text: statusForMeasurementDays(previous.is_registered_text, days),
+        }));
+    };
+
+    const updateAddMeasurementDays = (
+        days: MeasurementDayFormWithUiKey[],
+        linkMeasurerId?: number | null,
+    ) => {
+        setAddMeasurementDays(days);
+        setAddForm((previous) => ({
+            ...previous,
+            ...(linkMeasurerId === undefined ? {} : { link_measurer_id: linkMeasurerId }),
+            is_registered_text: statusForMeasurementDays(previous.is_registered_text, days),
         }));
     };
 
@@ -1472,13 +1420,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
-
-        const measurementDays = measurementDayFormsFrom({
-            dailyStaff: editForm.daily_staff,
-            measurementDate: editForm.measurement_date,
-            measurerId: editForm.measurer_id,
-            collaborators: editForm.collaborators,
-        });
+        const measurementDays = editMeasurementDays;
         const measurementDayValidation = validateMeasurementDayForms(measurementDays);
         if (!measurementDayValidation.valid) {
             alert(measurementDayValidation.message);
@@ -1495,14 +1437,29 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
 
         try {
+            const initialState = editInitialStateRef.current;
+            const updatesToSave = buildTargetBusinessEditPatch(
+                initialState?.form || editingItem,
+                editForm,
+                initialState?.days || measurementDayFormsFrom({
+                    dailyStaff: editingItem.daily_staff,
+                    measurementDate: editingItem.measurement_date,
+                    measurerId: editingItem.measurer_id,
+                    collaborators: editingItem.collaborators,
+                }),
+                measurementDays,
+            );
+            if (Object.keys(updatesToSave).length === 0) {
+                setIsEditModalOpen(false);
+                return;
+            }
+
             // 저장이 성공(Resolve)한 후에만 모달을 닫음
-            const updatesToSave = { ...editForm, ...serializeMeasurementDayForms(measurementDays) };
-            (["manager_name", "manager_mobile", "manager_email"] as const).forEach(field => {
-                if (String(editForm[field] ?? "") === String(editingItem[field] ?? "")) {
-                    delete updatesToSave[field];
-                }
-            });
-            await saveChanges(editingItem.code, updatesToSave, editingItem);
+            await saveChanges(
+                editingItem.code,
+                updatesToSave as Partial<BusinessEntry>,
+                editingItem,
+            );
             setIsEditModalOpen(false);
 
             // 저장 단계에서는 조회하지 않습니다. 목록의 파란 새로고침 버튼을 눌렀을 때만
@@ -1592,47 +1549,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         const previousData = [...data]; // For rollback
 
         try {
-            // DB 컬럼 매핑 및 클렌징
-            const sanitizeUpdates = (raw: Partial<BusinessEntry>) => {
-                const validColumns = [
-                    'business_name', 'business_number', 'business_category', 'address',
-                    'office_jurisdiction', 'is_registered', 'plan_manager',
-                    'manager_name', 'manager_mobile', 'manager_email',
-                    'management_status', 'notes', 'measurement_date', 'measurement_end_date', 'future_measurement_period',
-                    'future_measurement_date', 'measurer_id', 'link_measurer_id', 'period', 'collaborators', 'daily_staff',
-                    'representative_name', 'industrial_accident_number', 'commencement_number',
-                    'business_type', 'process_changed'
-                ];
-
-                const sanitized: any = {};
-
-                // UI '실시' -> DB '실시'
-                if (raw.is_registered_text !== undefined) {
-                    sanitized.is_registered = (raw.is_registered_text === '확정' || raw.is_registered_text === '실시') ? '실시' : 
-                                             (raw.is_registered_text === '미확정' || raw.is_registered_text === '미실시') ? '미실시' :
-                                             (raw.is_registered_text === '종료' || raw.is_registered_text === '거래종료' || raw.is_registered_text === '거래 종료') ? '거래종료' :
-                                             raw.is_registered_text;
-                }
-
-                if (raw.designated_office !== undefined) sanitized.office_jurisdiction = raw.designated_office;
-
-                if (raw.sanjae !== undefined) sanitized.industrial_accident_number = raw.sanjae;
-                if (raw.commencement !== undefined) sanitized.commencement_number = raw.commencement;
-                if (raw.representative_name !== undefined) sanitized.representative_name = raw.representative_name;
-
-                if (raw.measurement_date === "") sanitized.measurement_date = null;
-                if (raw.future_measurement_date === "") sanitized.future_measurement_date = null;
-
-                Object.keys(raw).forEach(key => {
-                    if (validColumns.includes(key) && sanitized[key] === undefined) {
-                        sanitized[key] = (raw as any)[key];
-                    }
-                });
-
-                return sanitized;
-            };
-
-            const cleanUpdates = sanitizeUpdates(updates);
+            const cleanUpdates = serializeTargetBusinessEditValues(updates);
 
             // 1. Optimistic Update (UI 먼저 반영)
             const optimisticUpdates = { ...updates };
@@ -1640,16 +1557,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 optimisticUpdates.is_registered = cleanUpdates.is_registered;
                 optimisticUpdates.is_registered_text = cleanUpdates.is_registered;
             }
-            if (cleanUpdates.office_jurisdiction) {
-                optimisticUpdates.office_jurisdiction = cleanUpdates.office_jurisdiction;
-                optimisticUpdates.designated_office = cleanUpdates.office_jurisdiction;
-            }
             if (cleanUpdates.industrial_accident_number !== undefined) {
-                optimisticUpdates.sanjae = cleanUpdates.industrial_accident_number;
+                optimisticUpdates.sanjae = cleanUpdates.industrial_accident_number || "";
                 optimisticUpdates.industrial_accident_number = cleanUpdates.industrial_accident_number;
             }
             if (cleanUpdates.commencement_number !== undefined) {
-                optimisticUpdates.commencement = cleanUpdates.commencement_number;
+                optimisticUpdates.commencement = cleanUpdates.commencement_number || "";
                 optimisticUpdates.commencement_number = cleanUpdates.commencement_number;
             }
             if (cleanUpdates.representative_name !== undefined) {
@@ -1676,6 +1589,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 throw new Error(errData.details || errData.error || "Failed to update");
             }
 
+            const result = await response.json();
+            if (result.data) {
+                setData(prev => prev.map(item =>
+                    item.code === code && item.year === targetYear && item.period === targetPeriod
+                        ? { ...item, ...result.data }
+                        : item
+                ));
+            }
+
         } catch (error) {
             console.error("Update error:", error);
             alert(`수정 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
@@ -1690,12 +1612,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
-        const updates: Partial<BusinessEntry> = { measurement_date: newDate || null };
-        if (newDate) {
-            updates.is_registered = "실시";
-            updates.is_registered_text = "실시";
-        }
-        saveChanges(item.code, updates);
+        const updates = buildInlineMeasurementDateUpdates(item.is_registered_text, newDate);
+        saveChanges(item.code, updates as Partial<BusinessEntry>, item);
     };
 
     const handleNotesChange = (item: BusinessEntry, newNotes: string) => {
@@ -1710,7 +1628,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             "No": idx + 1,
             "년도": item.year,
             "주기": item.period,
-            "지정지청": item.designated_office || toShortName(item.office_jurisdiction || ""),
+            "지정지청": item.designated_office || "",
+            "소재지지청": toShortName(item.office_jurisdiction || ""),
             "코드": item.code,
             "사업자등록번호": item.business_number || "",
             "산재관리번호": item.industrial_accident_number || item.sanjae || "",
@@ -2053,7 +1972,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             소재지 {renderSortIcon("address")}
                         </div>
                         <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("office_jurisdiction")}>
-                            관할 {renderSortIcon("office_jurisdiction")}
+                            소재지지청 {renderSortIcon("office_jurisdiction")}
                         </div>
                         <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("unpaid_count")}>
                             미수 {renderSortIcon("unpaid_count")}
@@ -2189,7 +2108,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                     {item.business_type ? (
                                         <div className="space-y-1">
                                             <span className="inline-flex rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">
-                                                {getBusinessTypeLabel(item.business_type)}
+                                                {getTargetBusinessTypeLabel(item.business_type)}
                                             </span>
                                             {item.process_changed === true && (
                                                 <span className="block text-[10px] font-semibold text-amber-700">공정변경</span>
@@ -2264,18 +2183,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         <input
                                             type="date"
                                             className="w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 bg-transparent text-center"
-                                            defaultValue={item.measurement_date || ""}
-                                            onBlur={(e) => {
-                                                const newVal = e.target.value;
-                                                if (newVal !== (item.measurement_date || "")) {
-                                                    const newStatus = newVal ? '실시' : '미실시';
-                                                    saveChanges(item.code, {
-                                                        measurement_date: newVal || null,
-                                                        measurement_end_date: newVal || null,
-                                                        is_registered_text: newStatus
-                                                    });
-                                                }
-                                            }}
+                                            value={item.measurement_date || ""}
+                                            onChange={(e) => handleConfirmedDateChange(item, e.target.value)}
                                         />
                                         {/* [The Joo Rule] Guard Logic: 시작일이 없으면 종료일 섹션 자체를 렌더링하지 않음 (찌꺼기 방지) */}
                                         {(item.measurement_date && item.measurement_end_date && item.measurement_end_date !== item.measurement_date) && (
@@ -2344,352 +2253,23 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 }
             >
                 <div className="p-6">
-                    {/* 섹션 1: 기본 정보 */}
-                    <div className="mb-6">
-                        <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">기본 정보</h4>
-                        <div className="grid grid-cols-6 gap-4">
-                            <div className="col-span-2">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">코드</label>
-                                <Input value={editForm.code || ""} disabled className="bg-slate-100 text-slate-500" />
-                            </div>
-                            <div className="col-span-2">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">측정년도</label>
-                                <Input value={editForm.year || ""} disabled className="bg-slate-100 text-slate-500" />
-                            </div>
-                            <div className="col-span-2">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">측정주기</label>
-                                <Select
-                                    options={[
-                                        { value: "상반기", label: "상반기" },
-                                        { value: "상반기(수시)", label: "상반기(수시)" },
-                                        { value: "하반기", label: "하반기" },
-                                        { value: "하반기(수시)", label: "하반기(수시)" }
-                                    ]}
-                                    value={editForm.period || ""}
-                                    onChange={(e) => setEditForm(prev => ({ ...prev, period: e.target.value }))}
-                                    className={`w-full ${editForm.period?.includes("(수시)") ? "text-red-500 font-bold" : ""}`}
-                                />
-                            </div>
-                            <div className="col-span-3">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">사업장명</label>
-                                <Input value={editForm.business_name || ""} onChange={(e) => setEditForm(prev => ({ ...prev, business_name: e.target.value }))} />
-                            </div>
-                            <div className="col-span-3">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">사업자등록번호</label>
-                                <Input
-                                    value={formatBusinessNumber(editForm.business_number)}
-                                    disabled
-                                    className="bg-slate-100 text-slate-500 cursor-not-allowed"
-                                    title="사업자등록번호는 사업장정보/측정사업장 엑셀 동기화 기준으로 반영됩니다."
-                                />
-                                <p className="mt-1 text-[11px] text-slate-400">
-                                    사업장정보/측정사업장 엑셀 동기화 기준으로 자동 반영됩니다.
-                                </p>
-                            </div>
-                            <div className="col-span-6">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">소재지</label>
-                                <Input value={editForm.address || ""} onChange={(e) => setEditForm(prev => ({ ...prev, address: e.target.value }))} />
-                            </div>
-                            <div className="col-span-6">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">업종분류</label>
-                                <Select
-                                    options={businessCategories.map(c => c.value === "" ? { ...c, label: "선택" } : c)}
-                                    value={editForm.business_category || ""}
-                                    onChange={(e) => setEditForm(prev => ({ ...prev, business_category: e.target.value }))}
-                                />
-                            </div>
-                            <div className="col-span-6 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                <p className="mb-2 text-sm font-medium text-slate-700">기본유형</p>
-                                <div className="flex flex-wrap gap-x-5 gap-y-2">
-                                    {BUSINESS_TYPE_OPTIONS.map((option) => (
-                                        <label key={option.value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                                            <input
-                                                type="checkbox"
-                                                checked={editForm.business_type === option.value}
-                                                onChange={(e) => setEditForm(prev => ({ ...prev, business_type: e.target.checked ? option.value : null }))}
-                                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                            />
-                                            {option.label}
-                                        </label>
-                                    ))}
-                                    <label key="process_changed" className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                                        <input
-                                            type="checkbox"
-                                            checked={editForm.process_changed === true}
-                                            onChange={(e) => setEditForm(prev => ({ ...prev, process_changed: e.target.checked }))}
-                                            className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-                                        />
-                                        공정변경
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 섹션 2: 연락 및 정산 정보 */}
-                    <div className="mb-6">
-                        <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">연락 및 정산 정보</h4>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">전화번호</label>
-                                <Input value={editForm.phone || ""} readOnly className="bg-slate-50 text-slate-700" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">팩스</label>
-                                <Input value={editForm.fax || ""} readOnly className="bg-slate-50 text-slate-700" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">근로자 수</label>
-                                <Input value={editForm.total_employees ?? ""} readOnly className="bg-slate-50 text-slate-700" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">계산서 메일</label>
-                                <Input value={editForm.invoice_email || ""} readOnly className="bg-slate-50 text-slate-700" />
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 섹션 3: 관리 정보 */}
-                    <div className="mb-6">
-                        <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">관리 정보</h4>
-                        <div className="grid grid-cols-3 gap-4 mb-4">
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">계획담당</label>
-                                <Select options={PLAN_MANAGER_EDIT_OPTIONS} value={editForm.plan_manager || ""} onChange={(e) => setEditForm(prev => ({ ...prev, plan_manager: e.target.value }))} />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">지정지청</label>
-                                <Select options={OFFICE_OPTIONS} value={editForm.designated_office || ""} onChange={(e) => setEditForm(prev => ({ ...prev, designated_office: e.target.value }))} />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1 text-slate-700">국고지원여부</label>
-                                <div className="h-10 rounded-md border border-slate-200 bg-slate-50 px-3 flex items-center text-sm font-medium text-slate-700">
-                                    {getNationalSupportDisplayStatus({
-                                        ...editForm,
-                                        industrial_accident_number: editForm.sanjae || editForm.industrial_accident_number,
-                                        commencement_number: editForm.commencement || editForm.commencement_number,
-                                    })}
-                                </div>
-                                {editForm.period?.includes("(수시)") && (
-                                    <p className="text-[11px] text-red-600 font-semibold mt-1">
-                                        수시 주기는 건강디딤돌 비대상으로 처리됩니다.
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="bg-blue-50/40 border border-blue-100 p-4 rounded-lg space-y-3 mt-3">
-                                <div className="border-b border-blue-200 pb-2 mb-2">
-                                    <h4 className="text-sm font-bold text-blue-800">건강디딤돌 정보 보완 (선택)</h4>
-                                    <p className="text-[11px] text-slate-500 mt-1">일부 정보만 입력해도 저장할 수 있으며, 조회에는 산재·개시번호 11자리와 대표자명이 필요합니다.</p>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                            산재관리번호
-                                        </label>
-                                        <Input
-                                            value={editForm.sanjae || ""}
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 11);
-                                                setEditForm(prev => ({ ...prev, sanjae: val }));
-                                            }}
-                                            placeholder="예: 12345678901"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                            사업개시번호
-                                        </label>
-                                        <Input
-                                            value={editForm.commencement || ""}
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 11);
-                                                setEditForm(prev => ({ ...prev, commencement: val }));
-                                            }}
-                                            placeholder="예: 00000000000"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                            대표자명
-                                        </label>
-                                        <Input
-                                            value={editForm.representative_name || ""}
-                                            onChange={(e) => {
-                                                setEditForm(prev => ({ ...prev, representative_name: e.target.value }));
-                                            }}
-                                            placeholder="예: 홍길동"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">측정업무 담당자명 (신청용)</label>
-                                        <Input
-                                            value={editForm.manager_name || ""}
-                                            onChange={(e) => setEditForm(prev => ({ ...prev, manager_name: e.target.value }))}
-                                            placeholder="예: 홍길동"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 휴대전화</label>
-                                        <Input
-                                            value={editForm.manager_mobile || ""}
-                                            onChange={(e) => setEditForm(prev => ({ ...prev, manager_mobile: e.target.value }))}
-                                            placeholder="010-0000-0000"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 메일</label>
-                                        <Input
-                                            type="email"
-                                            value={editForm.manager_email || ""}
-                                            onChange={(e) => setEditForm(prev => ({ ...prev, manager_email: e.target.value }))}
-                                            placeholder="name@example.com"
-                                        />
-                                    </div>
-                                </div>
-                                {editForm.sync_status && (
-                                    <div className="text-xs mt-2 text-slate-600">
-                                        현재 조회 상태: <span className="font-bold">{getNationalSupportDisplayStatus({
-                                            ...editForm,
-                                            industrial_accident_number: editForm.sanjae || editForm.industrial_accident_number,
-                                            commencement_number: editForm.commencement || editForm.commencement_number,
-                                        })}</span>
-                                        {editForm.sync_status === "실패" && editForm.sync_error_message && (
-                                            <p className="text-red-600 font-semibold mt-1">사유: {editForm.sync_error_message}</p>
-                                        )}
-                                    </div>
-                                )}
-                        </div>
-                    </div>
-
-                    {/* 섹션 4: 측정 정보 */}
-                    <div className="mb-6 bg-slate-50 p-4 rounded-lg">
-                        <h4 className="text-md font-bold text-slate-800 pb-2 mb-3">측정 정보</h4>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="col-span-2">
-                                <label className="block text-sm font-medium mb-1 text-slate-700">계획진행</label>
-                                <div className="flex items-center gap-2">
-                                    <select
-                                        className={`block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm h-10 px-3
-                                            ${(editForm.is_registered_text === '확정' || editForm.is_registered_text === '실시') ? 'bg-green-100 text-green-700' :
-                                                (editForm.is_registered_text === '미확정' || editForm.is_registered_text === '미실시') ? 'bg-yellow-100 text-yellow-800' :
-                                                    (editForm.is_registered_text === '종료' || editForm.is_registered_text === '거래종료') ? 'bg-red-50 text-red-500' : 'bg-white'}`}
-                                        value={
-                                            (editForm.is_registered_text === '확정' || editForm.is_registered_text === '실시') ? '실시' :
-                                                (editForm.is_registered_text === '미확정' || editForm.is_registered_text === '미실시' || !editForm.is_registered_text) ? '미실시' :
-                                                    (editForm.is_registered_text === '종료' || editForm.is_registered_text === '거래종료' || editForm.is_registered_text === '거래 종료') ? '거래종료' :
-                                                        '미실시'
-                                        }
-                                        onChange={(e) => setEditForm(prev => ({ ...prev, is_registered_text: e.target.value }))}
-                                    >
-                                        <option value="미실시" className="bg-white text-black">미실시</option>
-                                        <option value="실시" className="bg-white text-black">실시</option>
-                                        <option value="거래종료" className="bg-white text-black">거래종료</option>
-                                    </select>
-                                </div>
-                                <p className="text-xs text-slate-500 mt-1">* &apos;거래종료&apos; 선택 시 자동 계산보다 우선 적용됩니다.</p>
-                            </div>
-
-                            {/* 날짜별 인력 배정 */}
-                            <div className="col-span-2 space-y-4">
-                                <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-2">
-                                    <label className="text-sm font-bold text-slate-800">측정 일정 및 인력 배정</label>
-                                    <Button
-                                        type="button"
-                                        variant="secondary" 
-                                        className="h-7 text-xs px-2"
-                                        onClick={() => {
-                                            setEditForm((prev) => {
-                                                const days = measurementDayFormsFrom({
-                                                    dailyStaff: Array.isArray(prev.daily_staff) && prev.daily_staff.length > 0
-                                                        ? prev.daily_staff
-                                                        : [{
-                                                            date: prev.measurement_date || "",
-                                                            measurer_id: prev.measurer_id || null,
-                                                            collaborators: prev.collaborators,
-                                                        }],
-                                                });
-                                                const serialized = serializeMeasurementDayFormsForEditing([
-                                                    ...days,
-                                                    { date: "", measurerId: null, collaborators: [] },
-                                                ]);
-                                                return {
-                                                    ...prev,
-                                                    ...serialized,
-                                                    is_registered_text: serialized.measurement_date ? "실시" : "미실시",
-                                                };
-                                            });
-                                        }}
-                                    >
-                                        + 일자 추가
-                                    </Button>
-                                </div>
-                                <div className="space-y-4">
-                                    {measurementDayFormsFrom({
-                                        dailyStaff: editForm.daily_staff,
-                                        measurementDate: editForm.measurement_date,
-                                        measurerId: editForm.measurer_id,
-                                        collaborators: editForm.collaborators,
-                                    }).map((day, index, days) => (
-                                        <MeasurementDayAssignmentCard
-                                            key={`${index}-${day.date}`}
-                                            day={day}
-                                            index={index}
-                                            measurers={measurers}
-                                            fallbackDate={editForm.future_measurement_date}
-                                            blockedKeys={measurementScheduleBlockedKeys}
-                                            canRemove={days.length > 1}
-                                            onDateChange={(date) => {
-                                                const transition = swapMeasurerForMeasurementDateTransition(
-                                                    day,
-                                                    day.date || editForm.future_measurement_date,
-                                                    date || editForm.future_measurement_date,
-                                                    editForm.link_measurer_id,
-                                                );
-                                                const nextDays = [...days];
-                                                nextDays[index] = { ...transition.day, date };
-                                                updateMeasurementDays(nextDays, transition.linkMeasurerId);
-                                            }}
-                                            onMeasurerChange={(measurerId) => {
-                                                const available = availableMeasurersForDate(measurers, day.date || editForm.future_measurement_date);
-                                                const reportWriter = available.find((member) => member.id === measurerId);
-                                                const nextDays = [...days];
-                                                nextDays[index] = changeMeasurementDayReportWriter(day, measurerId, reportWriter?.name);
-                                                updateMeasurementDays(nextDays);
-                                            }}
-                                            onCollaboratorChange={(name, checked) => {
-                                                const collaborators = checked
-                                                    ? [...day.collaborators, name]
-                                                    : day.collaborators.filter((collaborator) => collaborator !== name);
-                                                const nextDays = [...days];
-                                                nextDays[index] = { ...day, collaborators };
-                                                updateMeasurementDays(nextDays);
-                                            }}
-                                            onRemove={() => updateMeasurementDays(days.filter((_, dayIndex) => dayIndex !== index))}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 비고 */}
-                    <div>
-                        <label className="block text-sm font-medium mb-1 text-slate-700">비고</label>
-                        <textarea
-                            className="w-full rounded-md border border-slate-300 p-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                            rows={3}
-                            value={editForm.notes || ""}
-                            onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
-                        />
-                    </div>
-
+                    <MeasurementTargetBusinessFormSections
+                        mode="edit"
+                        value={editForm}
+                        onChange={(patch) => setEditForm(previous => ({ ...previous, ...patch }) as Partial<BusinessEntry>)}
+                        businessCategories={businessCategories}
+                        planManagerOptions={PLAN_MANAGER_EDIT_OPTIONS}
+                        measurers={measurers}
+                        measurementDays={editMeasurementDays}
+                        blockedKeys={measurementScheduleBlockedKeys}
+                        onMeasurementDaysChange={updateMeasurementDays}
+                        onBusinessCategoryChange={(businessCategory) => setEditForm(previous => ({
+                            ...previous,
+                            business_category: businessCategory,
+                        }))}
+                    />
                     <div className="flex justify-between items-center mt-8 pt-4 border-t border-slate-200">
-                        <Button
-                            className="bg-red-600 hover:bg-red-700 text-white"
-                            onClick={handleDelete}
-                        >
+                        <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleDelete}>
                             삭제
                         </Button>
                         <div className="flex gap-2">
@@ -2781,250 +2361,56 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                 </div>
                             )}
                         </div>
-                        {/* 1. Essential Info */}
-                        <div>
-                            <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">필수 정보</h4>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">
-                                        측정 년도 <span className="text-red-500">*</span>
-                                    </label>
-                                    <Input
-                                        type="number"
-                                        value={addForm.year || currentYear}
-                                        onChange={(e) => {
-                                            const year = parseInt(e.target.value);
-                                            setAddForm(prev => ({ ...prev, year }));
-                                            if (selectedBusinessInfo && Number.isInteger(year)) {
-                                                void loadExactMeasurementBusiness(
-                                                    selectedBusinessInfo,
-                                                    year,
-                                                    String(addForm.period || initialPeriod),
-                                                );
-                                            }
-                                        }}
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">
-                                        측정 주기 <span className="text-red-500">*</span>
-                                    </label>
-                                    <Select
-                                        options={[
-                                            { value: "상반기", label: "상반기" },
-                                            { value: "상반기(수시)", label: "상반기(수시)" },
-                                            { value: "하반기", label: "하반기" },
-                                            { value: "하반기(수시)", label: "하반기(수시)" }
-                                        ]}
-                                        value={addForm.period || initialPeriod}
-                                        onChange={(e) => {
-                                            const period = e.target.value;
-                                            setAddForm(prev => ({ ...prev, period }));
-                                            if (selectedBusinessInfo) {
-                                                void loadExactMeasurementBusiness(
-                                                    selectedBusinessInfo,
-                                                    Number(addForm.year || currentYear),
-                                                    period,
-                                                );
-                                            }
-                                        }}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">
-                                        사업장 코드 <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="flex items-center">
-                                        <span className="inline-flex items-center px-3 py-2 rounded-l-md border border-r-0 border-slate-300 bg-slate-100 text-slate-700 font-bold text-sm select-none">
-                                            H
-                                        </span>
-                                        <Input
-                                            value={(addForm.code || "").replace(/^H/, "")}
-                                            onChange={(e) => {
-                                                const nums = e.target.value.replace(/[^0-9]/g, "").slice(0, 4);
-                                                const code = nums ? `H${nums}` : "";
-                                                setAddForm(prev => ({ ...prev, code }));
-                                                if (selectedBusinessInfo && code !== selectedBusinessInfo.code) {
-                                                    setSelectedBusinessInfo(null);
-                                                    setRegistrationContextStatus("idle");
-                                                    registrationAutoValuesRef.current = {};
-                                                    registrationContextRequestRef.current += 1;
-                                                }
-                                            }}
-                                            className="rounded-l-none"
-                                            placeholder="0001 (숫자 4자리)"
-                                            maxLength={4}
-                                            required
-                                        />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">
-                                        사업장명 <span className="text-red-500">*</span>
-                                    </label>
-                                    <Input
-                                        value={addForm.business_name || ""}
-                                        onChange={(e) => setAddForm(prev => ({ ...prev, business_name: e.target.value }))}
-                                        placeholder="사업장명 입력"
-                                        required
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 2. Optional Info */}
-                        <div>
-                            <h4 className="text-md font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">추가 정보 (선택)</h4>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="col-span-2">
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">소재지</label>
-                                    <Input
-                                        value={addForm.address || ""}
-                                        onChange={(e) => setAddForm(prev => ({ ...prev, address: e.target.value }))}
-                                        placeholder="주소 입력"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">사업자등록번호</label>
-                                    <Input value={addForm.business_number || ""} onChange={(e) => setAddForm(prev => ({ ...prev, business_number: e.target.value.replace(/\D/g, "").slice(0, 10) }))} />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">업종</label>
-                                    <Select
-                                        options={businessCategories.map(c => c.value === "" ? { ...c, label: "선택" } : c)}
-                                        value={addForm.business_category || ""}
-                                        onChange={(e) => {
-                                            const businessCategory = e.target.value;
-                                            setAddForm(prev => ({
-                                                ...prev,
-                                                business_category: businessCategory,
-                                                ...(addProcessChangedTouched
-                                                    ? {}
-                                                    : { process_changed: isProcessChangedDefaultCategory(businessCategory) ? true : null }),
-                                            }));
-                                        }}
-                                    />
-                                </div>
-                                <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                    <p className="mb-2 text-sm font-medium text-slate-700">기본유형</p>
-                                    <div className="flex flex-wrap gap-x-5 gap-y-2">
-                                        {BUSINESS_TYPE_OPTIONS.map((option) => (
-                                            <label key={option.value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={addForm.business_type === option.value}
-                                                    onChange={(e) => setAddForm(prev => ({ ...prev, business_type: e.target.checked ? option.value : null }))}
-                                                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                                />
-                                                {option.label}
-                                            </label>
-                                        ))}
-                                        <label key="process_changed" className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                                            <input
-                                                type="checkbox"
-                                                checked={addForm.process_changed === true}
-                                                onChange={(e) => {
-                                                    setAddProcessChangedTouched(true);
-                                                    setAddForm(prev => ({ ...prev, process_changed: e.target.checked }));
-                                                }}
-                                                className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-                                            />
-                                            공정변경
-                                        </label>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">전화번호</label>
-                                    <Input value={addForm.phone || ""} onChange={(e) => setAddForm(prev => ({ ...prev, phone: e.target.value }))} />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">팩스번호</label>
-                                    <Input value={addForm.fax || ""} onChange={(e) => setAddForm(prev => ({ ...prev, fax: e.target.value }))} />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">근로자수</label>
-                                    <Input
-                                        type="number"
-                                        min="0"
-                                        value={addForm.total_employees ?? ""}
-                                        onChange={(e) => setAddForm(prev => ({
-                                            ...prev,
-                                            total_employees: e.target.value === "" ? null : Number(e.target.value),
-                                        }))}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">계산서 이메일</label>
-                                    <Input type="text" value={addForm.invoice_email || ""} onChange={(e) => setAddForm(prev => ({ ...prev, invoice_email: e.target.value }))} />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1 text-slate-700">계획담당</label>
-                                    <Select
-                                        options={PLAN_MANAGER_EDIT_OPTIONS}
-                                        value={addForm.plan_manager || ""}
-                                        onChange={(e) => setAddForm(prev => ({ ...prev, plan_manager: e.target.value }))}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-blue-50/40 border border-blue-100 p-4 rounded-lg space-y-3">
-                            <div className="flex items-start justify-between gap-4 border-b border-blue-200 pb-2">
-                                <div>
-                                    <h4 className="text-sm font-bold text-blue-800">건강디딤돌 정보 보완 (선택)</h4>
-                                    <p className="text-[11px] text-slate-500 mt-1">정보가 없어도 사업장은 등록됩니다. 정기 측정이며 조회 정보가 완성된 경우에만 결과조회를 시작합니다.</p>
-                                </div>
-                                <span className="shrink-0 rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800">
-                                    {addForm.period?.includes("(수시)")
-                                        ? "비대상"
-                                        : hasNationalSupportApplicationInformation({
-                                            industrial_accident_number: addForm.sanjae,
-                                            commencement_number: addForm.commencement,
-                                            representative_name: addForm.representative_name,
-                                            manager_name: addForm.manager_name,
-                                            manager_mobile: addForm.manager_mobile,
-                                        }) ? "자동 신청"
-                                        : hasNationalSupportLookupInformation({
-                                            industrial_accident_number: addForm.sanjae,
-                                            commencement_number: addForm.commencement,
-                                            representative_name: addForm.representative_name,
-                                        }) ? "조회 대기" : "정보 부족"}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 mb-1">산재관리번호</label>
-                                    <Input value={addForm.sanjae || ""} onChange={(e) => setAddForm(prev => ({ ...prev, sanjae: e.target.value.replace(/\D/g, "").slice(0, 11) }))} placeholder="11자리 숫자" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 mb-1">사업개시번호</label>
-                                    <Input value={addForm.commencement || ""} onChange={(e) => setAddForm(prev => ({ ...prev, commencement: e.target.value.replace(/\D/g, "").slice(0, 11) }))} placeholder="11자리 숫자" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 mb-1">대표자명</label>
-                                    <Input value={addForm.representative_name || ""} onChange={(e) => setAddForm(prev => ({ ...prev, representative_name: e.target.value }))} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 mb-1">측정업무 담당자명</label>
-                                    <Input value={addForm.manager_name || ""} onChange={(e) => setAddForm(prev => ({ ...prev, manager_name: e.target.value }))} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 휴대전화</label>
-                                    <Input value={addForm.manager_mobile || ""} onChange={(e) => setAddForm(prev => ({ ...prev, manager_mobile: e.target.value }))} placeholder="010-0000-0000" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 mb-1">담당자 메일</label>
-                                    <Input
-                                        type="email"
-                                        value={addForm.manager_email || ""}
-                                        onChange={(e) => setAddForm(prev => ({ ...prev, manager_email: e.target.value }))}
-                                        placeholder="name@example.com"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
+                        <MeasurementTargetBusinessFormSections
+                            mode="create"
+                            value={addForm}
+                            onChange={(patch) => setAddForm(previous => ({ ...previous, ...patch }) as Partial<BusinessEntry>)}
+                            businessCategories={businessCategories}
+                            planManagerOptions={PLAN_MANAGER_EDIT_OPTIONS}
+                            measurers={measurers}
+                            measurementDays={addMeasurementDays}
+                            blockedKeys={measurementScheduleBlockedKeys}
+                            onMeasurementDaysChange={updateAddMeasurementDays}
+                            onYearChange={(year) => {
+                                setAddForm(previous => ({ ...previous, year }));
+                                if (selectedBusinessInfo && Number.isInteger(year)) {
+                                    void loadExactMeasurementBusiness(
+                                        selectedBusinessInfo,
+                                        year,
+                                        String(addForm.period || initialPeriod),
+                                    );
+                                }
+                            }}
+                            onPeriodChange={(period) => {
+                                setAddForm(previous => ({ ...previous, period }));
+                                if (selectedBusinessInfo) {
+                                    void loadExactMeasurementBusiness(
+                                        selectedBusinessInfo,
+                                        Number(addForm.year || currentYear),
+                                        period,
+                                    );
+                                }
+                            }}
+                            onCodeChange={(code) => {
+                                setAddForm(previous => ({ ...previous, code }));
+                                if (selectedBusinessInfo && code !== selectedBusinessInfo.code) {
+                                    setSelectedBusinessInfo(null);
+                                    setRegistrationContextStatus("idle");
+                                    registrationAutoValuesRef.current = {};
+                                    registrationContextRequestRef.current += 1;
+                                }
+                            }}
+                            onBusinessCategoryChange={(businessCategory) => {
+                                setAddForm(previous => ({
+                                    ...previous,
+                                    business_category: businessCategory,
+                                    ...(addProcessChangedTouched ? {} : {
+                                        process_changed: isProcessChangedDefaultCategory(businessCategory) ? true : null,
+                                    }),
+                                }));
+                            }}
+                            onProcessChangedTouched={() => setAddProcessChangedTouched(true)}
+                        />
                         <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
                             <Button variant="secondary" onClick={closeAddModal} type="button">취소</Button>
                             <Button variant="primary" type="submit">등록</Button>

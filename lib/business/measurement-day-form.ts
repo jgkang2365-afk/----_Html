@@ -4,6 +4,37 @@ export interface MeasurementDayForm {
   collaborators: string[];
 }
 
+export interface MeasurementDayFormWithUiKey extends MeasurementDayForm {
+  uiKey: string;
+}
+
+let measurementDayUiKeySequence = 0;
+
+export function createMeasurementDayUiKey(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  measurementDayUiKeySequence += 1;
+  return `measurement-day-${measurementDayUiKeySequence}`;
+}
+
+/** 날짜와 무관한 client-only key를 붙인다. serializer는 uiKey를 저장하지 않는다. */
+export function withMeasurementDayUiKeys(
+  days: Array<MeasurementDayForm | MeasurementDayFormWithUiKey>,
+  createKey: () => string = createMeasurementDayUiKey,
+): MeasurementDayFormWithUiKey[] {
+  return days.map((day) => ({
+    ...day,
+    uiKey: "uiKey" in day && day.uiKey ? day.uiKey : createKey(),
+  }));
+}
+
+export function createEmptyMeasurementDayForm(
+  createKey: () => string = createMeasurementDayUiKey,
+): MeasurementDayFormWithUiKey {
+  return { uiKey: createKey(), date: "", measurerId: null, collaborators: [] };
+}
+
 interface LegacyMeasurementDay {
   date?: unknown;
   measurer_id?: unknown;

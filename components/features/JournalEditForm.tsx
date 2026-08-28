@@ -33,6 +33,9 @@ interface JournalEntry {
   measurement_days: number | null;
   measurer: string | null;
   business_category?: string | null;
+  office_code?: string | null;
+  office_jurisdiction?: string | null;
+  office_jurisdiction_display?: string | null;
   target_business_type?: "existing" | "first_measurement" | "external_new" | null;
   target_process_changed?: boolean | null;
   invoice_email_2?: string;
@@ -51,6 +54,13 @@ interface JournalEditFormProps {
   mode?: 'journal' | 'sales';
 }
 
+function getOfficeJurisdictionDisplay(
+  display: JournalEntry["office_jurisdiction_display"],
+  persistence: JournalEntry["office_jurisdiction"]
+): string {
+  return display ?? toShortName(persistence || "");
+}
+
 export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   entry,
   onClose,
@@ -67,6 +77,10 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [originalYear, setOriginalYear] = useState(entry.measurement_year);
   const [originalPeriod, setOriginalPeriod] = useState(entry.measurement_period);
   const [autoFilling, setAutoFilling] = useState(false);
+  const [officeJurisdictionDisplay, setOfficeJurisdictionDisplay] = useState(
+    getOfficeJurisdictionDisplay(entry.office_jurisdiction_display, entry.office_jurisdiction)
+  );
+  const addressAutoFillSequence = useRef(0);
   const [mounted, setMounted] = useState(false);
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
@@ -106,6 +120,12 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    setOfficeJurisdictionDisplay(
+      getOfficeJurisdictionDisplay(entry.office_jurisdiction_display, entry.office_jurisdiction)
+    );
+  }, [entry.id, entry.office_jurisdiction, entry.office_jurisdiction_display]);
 
   const [formData, setFormData] = useState({
     // 기본 정보
@@ -1012,13 +1032,28 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
   // 주소 변경 시 자동으로 소재지 관할청과 지정한계_관할지청 업데이트
   const handleAddressChange = async (newAddress: string) => {
-    setFormData({ ...formData, address: newAddress });
+    const requestSequence = ++addressAutoFillSequence.current;
+    setFormData((previous) => ({ ...previous, address: newAddress }));
 
     if (!newAddress || newAddress.trim().length < 3) {
+      setAutoFilling(false);
+      setOfficeJurisdictionDisplay("");
+      setFormData((previous) => ({
+        ...previous,
+        office_jurisdiction: "",
+        designated_office: "",
+      }));
       return; // 주소가 너무 짧으면 자동 입력하지 않음
     }
 
     setAutoFilling(true);
+    // 새 주소 판정이 끝나기 전에 과거 주소의 관할 snapshot이 저장되지 않게 한다.
+    setOfficeJurisdictionDisplay("");
+    setFormData((previous) => ({
+      ...previous,
+      office_jurisdiction: "",
+      designated_office: "",
+    }));
     try {
       const response = await fetch("/api/journal/auto-fill", {
         method: "POST",
@@ -1028,19 +1063,32 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         body: JSON.stringify({ address: newAddress }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setFormData((prev) => ({
-          ...prev,
-          office_jurisdiction: data.office_jurisdiction || prev.office_jurisdiction,
-          designated_office: data.designated_office || prev.designated_office,
-        }));
-      }
+      if (!response.ok) throw new Error(`주소 자동판정 실패 (${response.status})`);
+
+      const data = await response.json();
+      if (requestSequence !== addressAutoFillSequence.current) return;
+      setOfficeJurisdictionDisplay(
+        data.status === "matched" ? data.office_jurisdiction_display || "" : "판정 필요"
+      );
+      setFormData((prev) => ({
+        ...prev,
+        office_jurisdiction: data.status === "matched" ? data.office_jurisdiction || "" : "",
+        designated_office: data.status === "matched" ? data.designated_office || "" : "",
+      }));
     } catch (err) {
       console.error("자동 입력 오류:", err);
-      // 자동 입력 실패해도 계속 진행
+      if (requestSequence === addressAutoFillSequence.current) {
+        setOfficeJurisdictionDisplay("판정 실패");
+        setFormData((previous) => ({
+          ...previous,
+          office_jurisdiction: "",
+          designated_office: "",
+        }));
+      }
     } finally {
-      setAutoFilling(false);
+      if (requestSequence === addressAutoFillSequence.current) {
+        setAutoFilling(false);
+      }
     }
   };
 
@@ -1107,6 +1155,20 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     setLoading(true);
     if (setIsSubmitting) setIsSubmitting(true);
     setError(null);
+
+    if (autoFilling) {
+      setError("주소의 노동관서 판정이 끝난 뒤 다시 저장해 주세요.");
+      setLoading(false);
+      if (setIsSubmitting) setIsSubmitting(false);
+      return;
+    }
+
+    if (formData.address?.trim() && !formData.designated_office) {
+      setError("주소를 판정할 수 없습니다. 지정지청을 확인하여 선택해 주세요.");
+      setLoading(false);
+      if (setIsSubmitting) setIsSubmitting(false);
+      return;
+    }
 
     // 총인원 검증 (5인 이상 연번과 연관이 있으므로 필수)
     const totalEmployees = formData.total_employees ? parseInt(String(formData.total_employees)) : null;
@@ -1376,7 +1438,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         />
         <Input
           label="소재지 관할청"
-          value={toShortName(formData.office_jurisdiction || "")}
+          value={autoFilling ? "판정 중..." : officeJurisdictionDisplay}
           disabled
           className="bg-surface-50"
           placeholder="주소 입력 시 자동 입력됩니다"

@@ -10,6 +10,7 @@ const createRoute = read("app/api/businesses/create/route.ts");
 const service = read("lib/preliminary-survey-v2/service.ts");
 const policy = read("lib/preliminary-survey-v2/policy.ts");
 const uiSource = read("components/features/MeasurementTargetBusinessManagement.tsx");
+const targetFormSource = read("components/features/MeasurementTargetBusinessFormSections.tsx");
 const adminRepairRoute = read("app/api/preliminary-survey-v2/admin-repair/route.ts");
 const legacyUpsertMigration = read("supabase/migrations/20260819_preliminary_survey_unique.sql");
 const excelSync = read("lib/sync/excel-sync.ts");
@@ -115,11 +116,11 @@ test("admin-repair API/service/audit/legacy sync는 보존된다 (예비조사 �
 });
 
 test("수정 모달의 측정 정보 입력 UI는 공통 일자 카드로 유지된다", () => {
-  assert.match(uiSource, /실시일/);
-  assert.match(uiSource, /보고서 담당자/);
-  assert.match(uiSource, /측정 참여자/);
-  assert.match(uiSource, /MeasurementDayAssignmentCard/);
-  assert.match(uiSource, /일자 추가/);
+  assert.match(targetFormSource, /측정일/);
+  assert.match(targetFormSource, /보고서 담당자/);
+  assert.match(targetFormSource, /측정 참여자/);
+  assert.match(targetFormSource, /MeasurementDayAssignmentCard/);
+  assert.match(targetFormSource, /일자 추가/);
 });
 
 // ===== legacy Integrated Sync 유지 =====
