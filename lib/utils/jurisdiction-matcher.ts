@@ -301,6 +301,17 @@ export function classifyDesignatedOffice(
 }
 
 /**
+ * 소재지지청이 확인된 target 표시/필터 경계에서만 지정지청을 파생한다.
+ * legacy 호환을 위한 classifyDesignatedOffice(null) === "천안" 규칙은 변경하지 않는다.
+ */
+export function classifyKnownDesignatedOffice(
+  officeJurisdiction: string | null | undefined
+): string | null {
+  const normalized = officeJurisdiction?.trim();
+  return normalized ? classifyDesignatedOffice(normalized) : null;
+}
+
+/**
  * 약칭을 전체명으로 변환합니다.
  * CSV 파일에서 약칭 → 전체명 매핑 정보를 읽어옵니다.
  * @param shortName 약칭 (예: "천안", "대전", "서산", "청주" 등)

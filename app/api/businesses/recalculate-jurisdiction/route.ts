@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { findOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
+import {
+  loadLaborOfficeDirectory,
+  resolveLaborOfficeAddressFromDirectory,
+} from "@/lib/labor-offices/address-resolver";
 
 /**
  * 기존 사업장 데이터의 office_jurisdiction을 주소 기반으로 일괄 재계산하는 API
@@ -13,6 +16,7 @@ export async function POST(request: NextRequest) {
     await checkPermission("system:settings");
 
     const supabase = await createClient();
+    const laborOfficeDirectory = await loadLaborOfficeDirectory(supabase);
 
     let updatedCount = 0;
     let skippedCount = 0;
@@ -32,7 +36,12 @@ export async function POST(request: NextRequest) {
 
     for (const biz of (targetBusinesses || [])) {
       try {
-        const newOffice = findOfficeByAddress(biz.address);
+        const resolution = resolveLaborOfficeAddressFromDirectory(
+          biz.address,
+          laborOfficeDirectory
+        );
+        const newOffice =
+          resolution.status === "matched" ? resolution.officeJurisdictionPersistence : null;
         if (newOffice && biz.office_jurisdiction !== newOffice) {
           const { error: updateError } = await supabase.from("measurement_target_business").update({ office_jurisdiction: newOffice }).eq("id", biz.id);
           if (updateError) throw updateError;
@@ -68,7 +77,12 @@ export async function POST(request: NextRequest) {
 
     for (const journal of (journals || [])) {
       try {
-        const newOffice = findOfficeByAddress(journal.address);
+        const resolution = resolveLaborOfficeAddressFromDirectory(
+          journal.address,
+          laborOfficeDirectory
+        );
+        const newOffice =
+          resolution.status === "matched" ? resolution.officeJurisdictionPersistence : null;
         if (newOffice && journal.office_jurisdiction !== newOffice) {
           const { error: updateError } = await supabase.from("measurement_journal").update({ office_jurisdiction: newOffice }).eq("id", journal.id);
           if (updateError) throw updateError;

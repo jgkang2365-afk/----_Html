@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { mapBusinessInfoToRegistrationSearchResult } from "@/lib/business-info/registration-search";
+import {
+  mapBusinessInfoToRegistrationSearchResult,
+  matchesDesignatedOffice,
+} from "@/lib/business-info/registration-search";
 
 const BUSINESS_INFO_SELECT = [
   "code",
@@ -161,6 +164,15 @@ export async function GET(request: NextRequest) {
           filteredList = filteredList.filter((b: any) => filteredByOffice.includes(b.code));
         }
 
+        if (designatedOffice) {
+          filteredList = filteredList.filter((business: any) =>
+            matchesDesignatedOffice(
+              officeJurisdictionMap.get(business.code) || "",
+              designatedOffice,
+            )
+          );
+        }
+
         // 각 사업장명별 미수금 횟수 계산
         const businessNames = filteredList.map((b: any) => b.business_name);
 
@@ -220,7 +232,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ businesses: [] });
     }
 
-    // measurement_business에서 지정한계_관할지청(office_jurisdiction) 정보 가져오기 (참고용)
+    // measurement_business에서 소재지지청(office_jurisdiction) 정보 가져오기 (참고용)
     const codes = businessInfoList.map((b: any) => b.code);
     const measurementBusinessList = searchQuery || codes.length === 0
       ? []
@@ -231,15 +243,6 @@ export async function GET(request: NextRequest) {
           .order("year", { ascending: false })
           .order("period", { ascending: false })).data || [];
 
-    // 지정한계_관할지청으로 필터링 (필요한 경우)
-    let filteredBusinessInfo = businessInfoList;
-    if (designatedOffice && measurementBusinessList) {
-      const filteredByOffice = measurementBusinessList
-        .filter((mb: any) => mb.office_jurisdiction && mb.office_jurisdiction.includes(designatedOffice))
-        .map((mb: any) => mb.code);
-      filteredBusinessInfo = filteredBusinessInfo.filter((b: any) => filteredByOffice.includes(b.code));
-    }
-
     // 코드별로 최신 measurement_business 정보 매핑 (참고용)
     const officeJurisdictionMap = new Map<string, string>();
     if (measurementBusinessList) {
@@ -248,6 +251,17 @@ export async function GET(request: NextRequest) {
           officeJurisdictionMap.set(mb.code, mb.office_jurisdiction || "");
         }
       });
+    }
+
+    // 지정지청은 소재지지청 원문과 비교하지 않고 기존 4분류 규칙으로 파생한다.
+    let filteredBusinessInfo = businessInfoList;
+    if (designatedOffice) {
+      filteredBusinessInfo = filteredBusinessInfo.filter((business: any) =>
+        matchesDesignatedOffice(
+          business.office_jurisdiction || officeJurisdictionMap.get(business.code) || "",
+          designatedOffice,
+        )
+      );
     }
 
     // 주소 병합 및 결과 구성
