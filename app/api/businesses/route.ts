@@ -16,7 +16,7 @@ import { normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import {
-  classifyDesignatedOffice,
+  classifyKnownDesignatedOffice,
   findOfficeByAddress,
 } from "@/lib/utils/jurisdiction-matcher";
 import {
@@ -52,6 +52,7 @@ import {
 import {
   isTargetBusinessTerminated,
   normalizeTargetBusinessStatus,
+  resolveCreateOfficeJurisdiction,
   resolveTargetBusinessStatusForCreate,
   serializeTargetBusinessCreateValues,
 } from "@/lib/business/target-business-form";
@@ -392,7 +393,7 @@ export async function GET(request: NextRequest) {
         unpaid_details: filteredDetails, // Filtered details
         has_actual_measurement_journal: hasActualMeasurementJournal,
         // 지정지청은 소재지지청을 기존 production 4분류 규칙으로 파생한다.
-        designated_office: classifyDesignatedOffice(item.office_jurisdiction),
+        designated_office: classifyKnownDesignatedOffice(item.office_jurisdiction),
         isRegistered: isRegisteredText === "실시", // Frontend 호환성
         is_registered_text: isRegisteredText, // 텍스트 값 전달
         future_measurement_period: futurePeriod, // 최신 값으로 덮어쓰기
@@ -991,7 +992,7 @@ export async function PATCH(request: NextRequest) {
       success: true,
       data: {
         ...updatedData,
-        designated_office: classifyDesignatedOffice(updatedData.office_jurisdiction),
+        designated_office: classifyKnownDesignatedOffice(updatedData.office_jurisdiction),
       },
       geocodeStatus: geocodeResult?.geocoding_status || null,
     });
@@ -1307,7 +1308,10 @@ export async function POST(request: NextRequest) {
         business_name,
         business_number: String(business_number || "").replace(/\D/g, "") || null,
         address: address || null,
-        office_jurisdiction: office_jurisdiction || calculatedOfficeJurisdiction,
+        office_jurisdiction: resolveCreateOfficeJurisdiction(
+          office_jurisdiction,
+          calculatedOfficeJurisdiction
+        ),
         business_category: business_category || null,
         business_type: business_type ?? null,
         process_changed: initialProcessChanged,
@@ -1387,7 +1391,7 @@ export async function POST(request: NextRequest) {
       businessCreated: true,
       data: {
         ...newTarget,
-        designated_office: classifyDesignatedOffice(newTarget.office_jurisdiction),
+        designated_office: classifyKnownDesignatedOffice(newTarget.office_jurisdiction),
       },
       geocodeStatus: geocodeResult?.geocoding_status?.toLowerCase() || "failed",
       latitude: geocodeResult?.latitude ?? null,

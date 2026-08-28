@@ -8,6 +8,7 @@ import {
   buildTargetBusinessEditPatch,
   buildTargetBusinessSaveValues,
   resolveTargetBusinessStatusForCreate,
+  resolveCreateOfficeJurisdiction,
   serializeTargetBusinessCreateValues,
   serializeTargetBusinessEditValues,
 } from "../lib/business/target-business-form";
@@ -75,6 +76,12 @@ test("신규/상세수정의 공통 업무 필드는 같은 canonical column으�
   });
 
   assert.deepEqual(createValues, editValues);
+});
+
+test("신규 주소가 유효하게 판정되면 autofill 과거 소재지지청보다 새 판정값을 우선한다", () => {
+  assert.equal(resolveCreateOfficeJurisdiction("천안", "보령"), "보령");
+  assert.equal(resolveCreateOfficeJurisdiction("천안", null), "천안");
+  assert.equal(resolveCreateOfficeJurisdiction("", null), null);
 });
 
 test("상세수정에서 비고만 바꾸면 source-owned 값과 소재지지청은 PATCH payload에서 제외된다", () => {
@@ -220,7 +227,11 @@ test("지정지청과 소재지지청은 화면·serializer·API에서 alias로 
   assert.match(commonForm, />소재지지청</);
   assert.doesNotMatch(commonForm, /onChange=\{\(event\) => onChange\(\{ designated_office:/);
   assert.match(commonForm, /address: event\.target\.value,[\s\S]{0,120}office_jurisdiction: "",[\s\S]{0,80}designated_office: ""/);
-  assert.match(route, /designated_office: classifyDesignatedOffice\(item\.office_jurisdiction\)/);
+  assert.match(route, /designated_office: classifyKnownDesignatedOffice\(item\.office_jurisdiction\)/);
+  assert.match(
+    route,
+    /office_jurisdiction: resolveCreateOfficeJurisdiction\([\s\S]{0,120}office_jurisdiction,[\s\S]{0,80}calculatedOfficeJurisdiction/
+  );
   assert.match(route, /const office = findOfficeByAddress\(updates\.address\);[\s\S]{0,120}updatePayload\.office_jurisdiction = office/);
   assert.doesNotMatch(route, /if \(office\) \{[\s\S]{0,80}updatePayload\.office_jurisdiction = office/);
   assert.match(

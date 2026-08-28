@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { getDocumentNumberPrefix } from "../lib/constants/designated-offices";
 import {
+  classifyKnownDesignatedOffice,
   classifyDesignatedOffice,
   findOfficeByAddress,
 } from "../lib/utils/jurisdiction-matcher";
@@ -23,6 +24,13 @@ test("주소는 CSV 기반 소재지지청과 기존 4분류 지정지청으로 
     assert.equal(jurisdiction, expected.jurisdiction);
     assert.equal(classifyDesignatedOffice(jurisdiction), expected.designated);
   }
+});
+
+test("target 표시 경계에서 소재지지청 미판정은 지정지청 천안으로 파생하지 않는다", () => {
+  assert.equal(classifyKnownDesignatedOffice(null), null);
+  assert.equal(classifyKnownDesignatedOffice("  "), null);
+  assert.equal(classifyKnownDesignatedOffice("보령"), "천안");
+  assert.equal(classifyDesignatedOffice(null), "천안");
 });
 
 test("지정지청 4개 연번 prefix는 기존 값과 동일하다", () => {

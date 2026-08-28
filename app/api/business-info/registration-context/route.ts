@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { createClient } from "@/lib/supabase/server";
-import { classifyDesignatedOffice } from "@/lib/utils/jurisdiction-matcher";
+import { classifyKnownDesignatedOffice } from "@/lib/utils/jurisdiction-matcher";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         existingTarget: {
           ...existingTarget,
-          designated_office: classifyDesignatedOffice(existingTarget.office_jurisdiction),
+          designated_office: classifyKnownDesignatedOffice(existingTarget.office_jurisdiction),
         },
         measurementBusiness: null,
         hasSupplementaryData: false,

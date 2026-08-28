@@ -44,6 +44,18 @@ test("지정지청 검색은 소재지지청 원문이 아니라 기존 4분류 
   assert.equal(matchesDesignatedOffice("대전", "대전"), true);
   assert.equal(matchesDesignatedOffice("평택", "평택"), true);
   assert.equal(matchesDesignatedOffice("경기", "경기"), true);
+  assert.equal(matchesDesignatedOffice(null, "천안"), false);
+  assert.equal(matchesDesignatedOffice(" ", "천안"), false);
+});
+
+test("소재지지청 미판정 검색 결과는 지정지청을 천안으로 오표시하지 않는다", () => {
+  const result = mapBusinessInfoToRegistrationSearchResult({
+    code: "H0000",
+    business_name: "미판정 사업장",
+  }, "");
+
+  assert.equal(result.office_jurisdiction, "");
+  assert.equal(result.designated_office, null);
 });
 
 test("동일 연도·주기 measurement_business 보완값을 우선 적용한다", () => {
