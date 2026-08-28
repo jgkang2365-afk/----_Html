@@ -48,6 +48,14 @@ interface MeasurementTargetBusinessFormSectionsProps {
   onProcessChangedTouched?: () => void;
 }
 
+type JurisdictionPreviewStatus =
+  | "idle"
+  | "checking"
+  | "matched"
+  | "unmatched"
+  | "ambiguous"
+  | "error";
+
 const PERIOD_OPTIONS = [
   { value: "상반기", label: "상반기" },
   { value: "상반기(수시)", label: "상반기(수시)" },
@@ -209,6 +217,77 @@ export const MeasurementTargetBusinessFormSections: React.FC<
   onProcessChangedTouched,
 }) => {
   const isCreate = mode === "create";
+  const [jurisdictionPreviewStatus, setJurisdictionPreviewStatus] =
+    React.useState<JurisdictionPreviewStatus>("idle");
+  const previewRequestSequence = React.useRef(0);
+  const onChangeRef = React.useRef(onChange);
+  onChangeRef.current = onChange;
+
+  React.useEffect(() => {
+    const address = String(value.address || "").trim();
+    const requestSequence = ++previewRequestSequence.current;
+    if (!address) {
+      setJurisdictionPreviewStatus("idle");
+      onChangeRef.current({ office_jurisdiction: "", designated_office: "" });
+      return;
+    }
+
+    setJurisdictionPreviewStatus("checking");
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/businesses/jurisdiction-preview?address=${encodeURIComponent(address)}`,
+          { signal: controller.signal, cache: "no-store" }
+        );
+        if (!response.ok) throw new Error(`jurisdiction preview failed: ${response.status}`);
+        const result = await response.json();
+        if (requestSequence !== previewRequestSequence.current) return;
+
+        if (result.status === "matched") {
+          setJurisdictionPreviewStatus("matched");
+          onChangeRef.current({
+            office_jurisdiction: result.office_jurisdiction || "",
+            designated_office: result.designated_office || "",
+          });
+          return;
+        }
+
+        const status = result.status === "ambiguous" ? "ambiguous" : "unmatched";
+        setJurisdictionPreviewStatus(status);
+        onChangeRef.current({ office_jurisdiction: "", designated_office: "" });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.error("노동관서 preview 오류:", error);
+        if (requestSequence === previewRequestSequence.current) {
+          setJurisdictionPreviewStatus("error");
+        }
+      }
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [value.address]);
+
+  const officePreviewValue =
+    jurisdictionPreviewStatus === "checking"
+      ? "판정 중..."
+      : jurisdictionPreviewStatus === "unmatched"
+        ? "판정 필요"
+        : jurisdictionPreviewStatus === "ambiguous"
+          ? "확인 필요"
+          : jurisdictionPreviewStatus === "error"
+            ? "판정 실패"
+            : value.office_jurisdiction || "";
+  const designatedPreviewValue =
+    jurisdictionPreviewStatus === "checking" ||
+    jurisdictionPreviewStatus === "unmatched" ||
+    jurisdictionPreviewStatus === "ambiguous" ||
+    jurisdictionPreviewStatus === "error"
+      ? "-"
+      : value.designated_office || "";
   const contactReadOnlyClass = isCreate ? "" : "bg-slate-50 text-slate-700";
   const displayedStatus = value.is_registered_text || value.is_registered || "미실시";
 
@@ -325,13 +404,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
             <label className="mb-1 block text-sm font-medium text-slate-700">소재지</label>
             <Input
               value={value.address || ""}
-              onChange={(event) =>
-                onChange({
-                  address: event.target.value,
-                  office_jurisdiction: "",
-                  designated_office: "",
-                })
-              }
+              onChange={(event) => onChange({ address: event.target.value })}
             />
           </div>
           <div className="col-span-6">
@@ -447,7 +520,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
             <Input
               readOnly
               className="bg-slate-50 text-slate-700"
-              value={value.designated_office || ""}
+              value={designatedPreviewValue}
               placeholder="주소 기준 자동 판정"
             />
             <p className="mt-1 text-[11px] text-slate-400">연번용 4분류 값</p>
@@ -457,10 +530,16 @@ export const MeasurementTargetBusinessFormSections: React.FC<
             <Input
               readOnly
               className="bg-slate-50 text-slate-700"
-              value={value.office_jurisdiction || ""}
-              placeholder="저장 시 주소 기준 자동 판정"
+              value={officePreviewValue}
+              placeholder="주소 입력 시 자동 판정"
             />
-            <p className="mt-1 text-[11px] text-slate-400">결과보고 신고 관할청</p>
+            <p className="mt-1 text-[11px] text-slate-400" aria-live="polite">
+              {jurisdictionPreviewStatus === "ambiguous"
+                ? "복수 후보로 판정되어 저장하지 않습니다."
+                : jurisdictionPreviewStatus === "unmatched"
+                  ? "주소를 확인해 주세요. 임의 관서는 저장하지 않습니다."
+                  : "결과보고 신고 관할청"}
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">국고지원여부</label>

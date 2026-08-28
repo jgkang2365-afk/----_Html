@@ -286,17 +286,6 @@ export function resolveTargetBusinessStatusForCreate(
   return hasMeasurementDate ? "실시" : "미실시";
 }
 
-/** 신규 target은 현재 주소에서 유효하게 판정된 소재지지청을 우선한다. */
-export function resolveCreateOfficeJurisdiction(
-  providedOffice: unknown,
-  calculatedOffice: unknown
-): string | null {
-  const calculated = String(calculatedOffice ?? "").trim();
-  if (calculated) return calculated;
-  const provided = String(providedOffice ?? "").trim();
-  return provided || null;
-}
-
 export function buildInlineMeasurementDateUpdates(
   currentStatus: unknown,
   value: string

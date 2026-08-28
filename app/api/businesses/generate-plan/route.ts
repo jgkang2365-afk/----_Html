@@ -14,7 +14,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { classifyDesignatedOffice, shortNameToFullName, findOfficeByAddress, getDesignatedOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
+import { classifyDesignatedOffice, shortNameToFullName } from "@/lib/utils/jurisdiction-matcher";
+import {
+  loadLaborOfficeDirectory,
+  resolveLaborOfficeAddressFromDirectory,
+} from "@/lib/labor-offices/address-resolver";
 import { normalizeAddress, validateDesignatedOffice, normalizeString } from "@/lib/utils/data-utils";
 import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 
@@ -33,6 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const laborOfficeDirectory = await loadLaborOfficeDirectory(supabase);
     const targetYear = parseInt(year, 10);
     const prevYear = targetYear - 1;
 
@@ -158,23 +163,34 @@ export async function POST(request: NextRequest) {
         if (nextYear === targetYear && nextPeriod === period) {
           // 지정지청 계산
           const address = normalizeAddress(prevYearJournal.address);
-          const officeJurisdiction = normalizeString(prevYearJournal.office_jurisdiction);
-          let designatedOffice = "천안";
+          const previousOfficeJurisdiction = normalizeString(prevYearJournal.office_jurisdiction);
+          let officeJurisdiction: string | null = null;
+          let designatedOffice: string | null = null;
 
           if (address) {
             try {
-              const addressBased = getDesignatedOfficeByAddress(address);
-              designatedOffice = validateDesignatedOffice(addressBased) || "천안";
+              const addressBased = resolveLaborOfficeAddressFromDirectory(
+                address,
+                laborOfficeDirectory
+              );
+              if (addressBased.status === "matched") {
+                officeJurisdiction = addressBased.officeJurisdictionPersistence;
+                designatedOffice = validateDesignatedOffice(addressBased.designatedOffice);
+              }
             } catch (error) {
               console.error(`[지정지청] 코드 ${code}: 주소 기반 계산 오류:`, error);
             }
           }
 
-          if (designatedOffice === "천안" && officeJurisdiction) {
+          // 주소가 없는 legacy 일지만 기존 저장 관할을 사용한다. 주소가 있는데
+          // master에서 미판정된 경우에는 과거 snapshot을 새 target에 되살리지 않는다.
+          if (!address && previousOfficeJurisdiction) {
+            officeJurisdiction = previousOfficeJurisdiction;
             try {
-              const officeFullName = shortNameToFullName(officeJurisdiction) || officeJurisdiction;
+              const officeFullName =
+                shortNameToFullName(previousOfficeJurisdiction) || previousOfficeJurisdiction;
               const officeBased = classifyDesignatedOffice(officeFullName);
-              designatedOffice = validateDesignatedOffice(officeBased) || "천안";
+              designatedOffice = validateDesignatedOffice(officeBased);
             } catch (error) {
               console.error(`[지정지청] 코드 ${code}: 관할청 기반 계산 오류:`, error);
             }

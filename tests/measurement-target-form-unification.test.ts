@@ -8,7 +8,6 @@ import {
   buildTargetBusinessEditPatch,
   buildTargetBusinessSaveValues,
   resolveTargetBusinessStatusForCreate,
-  resolveCreateOfficeJurisdiction,
   serializeTargetBusinessCreateValues,
   serializeTargetBusinessEditValues,
 } from "../lib/business/target-business-form";
@@ -76,12 +75,6 @@ test("신규/상세수정의 공통 업무 필드는 같은 canonical column으�
   });
 
   assert.deepEqual(createValues, editValues);
-});
-
-test("신규 주소가 유효하게 판정되면 autofill 과거 소재지지청보다 새 판정값을 우선한다", () => {
-  assert.equal(resolveCreateOfficeJurisdiction("천안", "보령"), "보령");
-  assert.equal(resolveCreateOfficeJurisdiction("천안", null), "천안");
-  assert.equal(resolveCreateOfficeJurisdiction("", null), null);
 });
 
 test("상세수정에서 비고만 바꾸면 source-owned 값과 소재지지청은 PATCH payload에서 제외된다", () => {
@@ -190,7 +183,10 @@ test("모달 날짜는 local callback과 stable key만 사용하고 inline 날�
   assert.match(commonForm, /key=\{day\.uiKey\}/);
   assert.match(commonForm, /type="date"[\s\S]{0,180}onChange=\{\(event\) => onDateChange/);
   assert.doesNotMatch(commonForm, /type="date"[\s\S]{0,240}onBlur=/);
-  assert.doesNotMatch(commonForm, /fetch\(/);
+  assert.doesNotMatch(
+    commonForm.match(/type="date"[\s\S]{0,240}onChange=\{\(event\) => onDateChange/)?.[0] || "",
+    /fetch\(/
+  );
 
   assert.match(
     management,
@@ -226,14 +222,15 @@ test("지정지청과 소재지지청은 화면·serializer·API에서 alias로 
   assert.match(commonForm, />지정지청</);
   assert.match(commonForm, />소재지지청</);
   assert.doesNotMatch(commonForm, /onChange=\{\(event\) => onChange\(\{ designated_office:/);
-  assert.match(commonForm, /address: event\.target\.value,[\s\S]{0,120}office_jurisdiction: "",[\s\S]{0,80}designated_office: ""/);
-  assert.match(route, /designated_office: classifyKnownDesignatedOffice\(item\.office_jurisdiction\)/);
+  assert.match(commonForm, /onChange=\{\(event\) => onChange\(\{ address: event\.target\.value \}\)\}/);
+  assert.match(commonForm, /jurisdiction-preview\?address=/);
+  assert.match(route, /resolveLaborOfficeByStoredJurisdiction\([\s\S]{0,100}item\.office_jurisdiction/);
   assert.match(
     route,
-    /office_jurisdiction: resolveCreateOfficeJurisdiction\([\s\S]{0,120}office_jurisdiction,[\s\S]{0,80}calculatedOfficeJurisdiction/
+    /addressOfficeResolution\.status === "matched"[\s\S]{0,100}addressOfficeResolution\.officeJurisdictionPersistence/
   );
-  assert.match(route, /const office = findOfficeByAddress\(updates\.address\);[\s\S]{0,120}updatePayload\.office_jurisdiction = office/);
-  assert.doesNotMatch(route, /if \(office\) \{[\s\S]{0,80}updatePayload\.office_jurisdiction = office/);
+  assert.match(route, /addressOfficeResolution = await resolveLaborOfficeByAddress\(supabase, updates\.address\)/);
+  assert.doesNotMatch(route, /findOfficeByAddress|resolveCreateOfficeJurisdiction/);
   assert.match(
     management,
     /const result = await response\.json\(\);[\s\S]{0,260}\{ \.\.\.item, \.\.\.result\.data \}/

@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { classifyDesignatedOffice, shortNameToFullName, findOfficeByAddress, getDesignatedOfficeByAddress } from "@/lib/utils/jurisdiction-matcher";
+import { classifyDesignatedOffice, shortNameToFullName } from "@/lib/utils/jurisdiction-matcher";
 import { toShortName } from "@/lib/constants/designated-offices";
+import {
+  loadLaborOfficeDirectory,
+  resolveLaborOfficeAddressFromDirectory,
+} from "@/lib/labor-offices/address-resolver";
 
 /**
  * 측정일지 검색 API
@@ -78,6 +82,7 @@ export async function GET(request: NextRequest) {
         { status: 500 }
       );
     }
+    const laborOfficeDirectory = await loadLaborOfficeDirectory(supabase);
 
     // 0. measurementDate가 있으면 preliminary_survey에서 해당 날짜의 사업장 코드/년도/주기 조회
     let dateFilteredCodes: string[] | null = null;
@@ -517,7 +522,10 @@ export async function GET(request: NextRequest) {
         if (!finalDesignatedOffice) {
           // 1순위: 주소 기반
           if (journal.address) {
-            const addressBasedOffice = getDesignatedOfficeByAddress(journal.address);
+            const addressBasedOffice = resolveLaborOfficeAddressFromDirectory(
+              journal.address,
+              laborOfficeDirectory
+            ).designatedOffice;
             if (addressBasedOffice) {
               finalDesignatedOffice = addressBasedOffice;
             }
@@ -533,8 +541,8 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        // 최종 설정 (없으면 기본값 '천안')
-        journal.designated_office = finalDesignatedOffice || "천안";
+        // 미판정 주소는 임의의 천안 값으로 보완하지 않는다.
+        journal.designated_office = finalDesignatedOffice;
 
         results.push(journal);
         processedKeys.add(key);
@@ -554,19 +562,22 @@ export async function GET(request: NextRequest) {
           : "");
 
         // designated_office 계산: 주소 기반 우선, 그 다음 office_jurisdiction 기반
-        let autoDesignatedOffice = "천안"; // 기본값
+        let autoDesignatedOffice: string | null = null;
         let officeJurisdictionFullName = business.office_jurisdiction || null;
 
         // 1순위: 주소 기반으로 designated_office 계산
         if (address) {
-          const addressBasedOffice = getDesignatedOfficeByAddress(address);
+          const addressBasedOffice = resolveLaborOfficeAddressFromDirectory(
+            address,
+            laborOfficeDirectory
+          ).designatedOffice;
           if (addressBasedOffice) {
             autoDesignatedOffice = addressBasedOffice;
           }
         }
 
         // 2순위: office_jurisdiction 기반으로 designated_office 계산
-        if (autoDesignatedOffice === "천안" && business.office_jurisdiction) {
+        if (!autoDesignatedOffice && business.office_jurisdiction) {
           const officeJurisdictionRaw = business.office_jurisdiction || "";
           officeJurisdictionFullName = shortNameToFullName(officeJurisdictionRaw) || officeJurisdictionRaw || "";
           const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
@@ -659,19 +670,22 @@ export async function GET(request: NextRequest) {
           const address = [businessInfo.address1, businessInfo.address2].filter(Boolean).join(" ").trim();
 
           // designated_office 계산
-          let autoDesignatedOffice = "천안"; // 기본값
+          let autoDesignatedOffice: string | null = null;
           let officeJurisdictionFullName = businessInfo.office_jurisdiction || null;
 
           // 1순위: 주소 기반
           if (address) {
-            const addressBasedOffice = getDesignatedOfficeByAddress(address);
+            const addressBasedOffice = resolveLaborOfficeAddressFromDirectory(
+              address,
+              laborOfficeDirectory
+            ).designatedOffice;
             if (addressBasedOffice) {
               autoDesignatedOffice = addressBasedOffice;
             }
           }
 
           // 2순위: 관할청 기반
-          if (autoDesignatedOffice === "천안" && businessInfo.office_jurisdiction) {
+          if (!autoDesignatedOffice && businessInfo.office_jurisdiction) {
             const officeJurisdictionRaw = businessInfo.office_jurisdiction || "";
             officeJurisdictionFullName = shortNameToFullName(officeJurisdictionRaw) || officeJurisdictionRaw || "";
             const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);

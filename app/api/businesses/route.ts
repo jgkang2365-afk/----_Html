@@ -15,10 +15,13 @@ import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
 import { normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
+import { classifyKnownDesignatedOffice } from "@/lib/utils/jurisdiction-matcher";
 import {
-  classifyKnownDesignatedOffice,
-  findOfficeByAddress,
-} from "@/lib/utils/jurisdiction-matcher";
+  loadLaborOfficeDirectory,
+  resolveLaborOfficeAddressFromDirectory,
+  resolveLaborOfficeByAddress,
+  resolveLaborOfficeByStoredJurisdiction,
+} from "@/lib/labor-offices/address-resolver";
 import {
   ensureBusinessCoordinate,
   invalidateBusinessCoordinateForAddress,
@@ -52,7 +55,6 @@ import {
 import {
   isTargetBusinessTerminated,
   normalizeTargetBusinessStatus,
-  resolveCreateOfficeJurisdiction,
   resolveTargetBusinessStatusForCreate,
   serializeTargetBusinessCreateValues,
 } from "@/lib/business/target-business-form";
@@ -328,6 +330,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 4. 데이터 병합
+    const laborOfficeDirectory = await loadLaborOfficeDirectory(supabase);
     const result = businesses.map((item: any) => {
       // Unpaid Logic Separation (Regular v.s. Ad-hoc)
       const rawUnpaidInfo = unpaidMap.get(item.code) || { businessCount: 0, nationalCount: 0, details: [] };
@@ -384,6 +387,16 @@ export async function GET(request: NextRequest) {
 
       const industrialAccidentNumber = bInfo?.industrial_accident_number || jInfo?.industrial_accident_number || item.industrial_accident_number;
       const commencementNumber = bInfo?.commencement_number || jInfo?.commencement_number || item.commencement_number;
+      const laborOffice = item.address
+        ? resolveLaborOfficeAddressFromDirectory(item.address, laborOfficeDirectory)
+        : resolveLaborOfficeByStoredJurisdiction(
+            item.office_jurisdiction,
+            laborOfficeDirectory
+          );
+      const officeJurisdictionDisplay =
+        laborOffice.officeJurisdictionDisplay ||
+        (!item.address ? toShortName(item.office_jurisdiction || "") : "") ||
+        null;
 
 
       return {
@@ -393,7 +406,10 @@ export async function GET(request: NextRequest) {
         unpaid_details: filteredDetails, // Filtered details
         has_actual_measurement_journal: hasActualMeasurementJournal,
         // 지정지청은 소재지지청을 기존 production 4분류 규칙으로 파생한다.
-        designated_office: classifyKnownDesignatedOffice(item.office_jurisdiction),
+        office_code: laborOffice.officeCode,
+        office_jurisdiction: officeJurisdictionDisplay,
+        designated_office:
+          laborOffice.designatedOffice || classifyKnownDesignatedOffice(officeJurisdictionDisplay),
         isRegistered: isRegisteredText === "실시", // Frontend 호환성
         is_registered_text: isRegisteredText, // 텍스트 값 전달
         future_measurement_period: futurePeriod, // 최신 값으로 덮어쓰기
@@ -618,10 +634,16 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    // [New Feature] Auto-calculate office_jurisdiction if address is being updated
+    let addressOfficeResolution: Awaited<
+      ReturnType<typeof resolveLaborOfficeByAddress>
+    > | null = null;
+    // 주소가 바뀌면 labor_offices master로 소재지지청을 서버에서 다시 판정한다.
     if (updates.hasOwnProperty('address')) {
-      const office = findOfficeByAddress(updates.address);
-      updatePayload.office_jurisdiction = office;
+      addressOfficeResolution = await resolveLaborOfficeByAddress(supabase, updates.address);
+      updatePayload.office_jurisdiction =
+        addressOfficeResolution.status === "matched"
+          ? addressOfficeResolution.officeJurisdictionPersistence
+          : null;
 
       // 주소 변경 시 좌표 무효화 (동일 주소가 아니고 수동 고정 상태가 아닌 경우에만 STALE 처리)
       const normalizedOld = normalizeAddressForGeocoding(existingAddress);
@@ -988,11 +1010,29 @@ export async function PATCH(request: NextRequest) {
     // 예비조사 V2 계획의 자동 생성/재추천은 예비조사 영역에서 별도 수행한다.
     // (Phase A: 측정일/실측정자/link/사업장 유형 변경이 있어도 V2 plan을 자동 생성하거나 재추천하지 않는다.)
 
+    const responseAddress = String(updatedData.address ?? "").trim();
+    const responseOffice =
+      addressOfficeResolution ||
+      (responseAddress
+        ? await resolveLaborOfficeByAddress(supabase, responseAddress)
+        : resolveLaborOfficeByStoredJurisdiction(
+            updatedData.office_jurisdiction,
+            await loadLaborOfficeDirectory(supabase)
+          ));
     return NextResponse.json({
       success: true,
       data: {
         ...updatedData,
-        designated_office: classifyKnownDesignatedOffice(updatedData.office_jurisdiction),
+        office_code: responseOffice.officeCode,
+        office_jurisdiction:
+          responseOffice.officeJurisdictionDisplay ||
+          (!responseAddress ? toShortName(updatedData.office_jurisdiction || "") : "") ||
+          null,
+        designated_office:
+          responseOffice.designatedOffice ||
+          (!responseAddress
+            ? classifyKnownDesignatedOffice(updatedData.office_jurisdiction)
+            : null),
       },
       geocodeStatus: geocodeResult?.geocoding_status || null,
     });
@@ -1186,7 +1226,6 @@ export async function POST(request: NextRequest) {
       manager_phone,
       manager_email,
       total_employees,
-      office_jurisdiction,
       business_type,
       process_changed,
       is_registered,
@@ -1246,8 +1285,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Auto-calculate office_jurisdiction based on address
-    const calculatedOfficeJurisdiction = address ? findOfficeByAddress(address) : null;
+    // Preview 값을 신뢰하지 않고 등록 시점의 주소를 labor_offices master로 재검증한다.
+    const addressOfficeResolution = await resolveLaborOfficeByAddress(supabase, address);
     const industrialAccidentNumber =
       String(industrial_accident_number || "")
         .replace(/\D/g, "")
@@ -1308,10 +1347,10 @@ export async function POST(request: NextRequest) {
         business_name,
         business_number: String(business_number || "").replace(/\D/g, "") || null,
         address: address || null,
-        office_jurisdiction: resolveCreateOfficeJurisdiction(
-          office_jurisdiction,
-          calculatedOfficeJurisdiction
-        ),
+        office_jurisdiction:
+          addressOfficeResolution.status === "matched"
+            ? addressOfficeResolution.officeJurisdictionPersistence
+            : null,
         business_category: business_category || null,
         business_type: business_type ?? null,
         process_changed: initialProcessChanged,
@@ -1391,7 +1430,9 @@ export async function POST(request: NextRequest) {
       businessCreated: true,
       data: {
         ...newTarget,
-        designated_office: classifyKnownDesignatedOffice(newTarget.office_jurisdiction),
+        office_code: addressOfficeResolution.officeCode,
+        office_jurisdiction: addressOfficeResolution.officeJurisdictionDisplay,
+        designated_office: addressOfficeResolution.designatedOffice,
       },
       geocodeStatus: geocodeResult?.geocoding_status?.toLowerCase() || "failed",
       latitude: geocodeResult?.latitude ?? null,

@@ -128,6 +128,51 @@ test("활성 master의 관서 코드가 중복되면 모든 노동관서 값을 
   );
 });
 
+test("광주 본청과 제주 업무단위는 같은 UI 약칭이어도 저장 alias로 연락처 identity를 보존한다", () => {
+  const identityOffices = [
+    {
+      office_code: "GWANGJU",
+      current_official_name: "광주지방고용노동청",
+      current_short_name: "광주지방고용노동청",
+      phone: "062-000-0000",
+      fax: "062-000-0001",
+    },
+    {
+      office_code: "GWANGJU_JEJU",
+      current_official_name: "광주지방고용노동청 제주산재예방감독팀",
+      current_short_name: "광주지방고용노동청",
+      phone: "064-000-0000",
+      fax: "064-000-0001",
+    },
+  ];
+  const identityAliases = [
+    {
+      business_office_name: "광주지방고용노동청",
+      office_code: "GWANGJU",
+      document_office_name: "광주지방고용노동청",
+    },
+    {
+      business_office_name: "광주지방고용노동청 제주지청",
+      office_code: "GWANGJU_JEJU",
+      document_office_name: "광주지방고용노동청 제주지청",
+    },
+  ];
+
+  assert.equal(
+    resolveLaborOfficeSnapshot("광주지방고용노동청", identityAliases, identityOffices)
+      .labor_office_phone,
+    "062-000-0000"
+  );
+  assert.equal(
+    resolveLaborOfficeSnapshot(
+      "광주지방고용노동청 제주지청",
+      identityAliases,
+      identityOffices
+    ).labor_office_phone,
+    "064-000-0000"
+  );
+});
+
 test("노동관서 snapshot 필드는 allowlist와 HWPX 누름틀 매핑에 포함된다", () => {
   for (const field of ["labor_office_name", "labor_office_phone", "labor_office_fax"]) {
     assert.ok(DOCUMENT_SOURCE_FIELDS.some((source) => source.value === field));

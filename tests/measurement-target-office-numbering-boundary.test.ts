@@ -6,23 +6,20 @@ import { getDocumentNumberPrefix } from "../lib/constants/designated-offices";
 import {
   classifyKnownDesignatedOffice,
   classifyDesignatedOffice,
-  findOfficeByAddress,
 } from "../lib/utils/jurisdiction-matcher";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
-test("주소는 CSV 기반 소재지지청과 기존 4분류 지정지청으로 각각 판정된다", () => {
+test("labor_offices 소재지 표시값은 기존 4분류 지정지청 규칙을 그대로 사용한다", () => {
   const cases = [
-    { address: "충청남도 보령시 희망로 1", jurisdiction: "보령", designated: "천안" },
-    { address: "대전광역시 서구 둔산로 1", jurisdiction: "대전", designated: "대전" },
-    { address: "경기도 평택시 중앙로 1", jurisdiction: "평택", designated: "평택" },
-    { address: "경기도 수원시 팔달구 효원로 1", jurisdiction: "경기", designated: "경기" },
+    { jurisdiction: "보령", designated: "천안" },
+    { jurisdiction: "대전", designated: "대전" },
+    { jurisdiction: "평택", designated: "평택" },
+    { jurisdiction: "경기", designated: "경기" },
   ];
 
   for (const expected of cases) {
-    const jurisdiction = findOfficeByAddress(expected.address);
-    assert.equal(jurisdiction, expected.jurisdiction);
-    assert.equal(classifyDesignatedOffice(jurisdiction), expected.designated);
+    assert.equal(classifyDesignatedOffice(expected.jurisdiction), expected.designated);
   }
 });
 
