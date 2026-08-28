@@ -1,4 +1,5 @@
 import { createBrowserClient } from "@supabase/ssr";
+import { assertPublicSupabaseEnvironment } from "./environment-guard";
 
 /**
  * 클라이언트 사이드에서 사용할 Supabase 클라이언트 생성
@@ -16,6 +17,12 @@ export function createClient() {
       "환경 변수를 변경했다면 개발 서버를 재시작하세요."
     );
   }
+
+  assertPublicSupabaseEnvironment({
+    NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
+  });
 
   return createBrowserClient(supabaseUrl, supabaseAnonKey);
 }

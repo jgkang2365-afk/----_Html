@@ -230,6 +230,7 @@ test("DELETE API는 권한·원천·보호 reference를 사전 검사하고 RPC 
   assert.match(manualRoute, /from\("measurement_journal"\)/);
   assert.match(manualRoute, /from\("preliminary_survey_v2_legacy_reconciliation"\)/);
   assert.match(manualRoute, /from\("preliminary_survey_v2_history_recovery_audit"\)/);
+  assert.match(manualRoute, /select\("created_plan_id"\)\.eq\("created_plan_id", plan\.id\)/);
   assert.match(manualRoute, /delete_preliminary_survey_v2_plan_and_rebalance_assignments/);
   for (const code of ["TRUE_CONFIRMED_LOCKED", "PLAN_DELETE_PROTECTED_HISTORY", "MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED", "MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED", "PLAN_NOT_FOUND", "PLAN_DELETE_SOURCE_CHANGED"]) {
     assert.match(manualRoute, new RegExp(code));

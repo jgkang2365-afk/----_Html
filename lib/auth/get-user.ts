@@ -1,11 +1,5 @@
 import { getSession } from "./session";
-import { createClient } from "@supabase/supabase-js";
-
-function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key);
-}
+import { createClient } from "@/lib/supabase/server";
 
 /**
  * 현재 로그인한 사용자 정보 조회 (서버 사이드)
@@ -19,7 +13,7 @@ export async function getUser() {
       return null;
     }
 
-    const supabase = getSupabase();
+    const supabase = await createClient();
 
     let userData;
     

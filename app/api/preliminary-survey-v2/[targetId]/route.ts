@@ -90,7 +90,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { targe
       assignmentIds.length > 0
         ? supabase.from("preliminary_survey_v2_legacy_reconciliation").select("id").in("applied_assignment_id", assignmentIds).limit(1)
         : Promise.resolve({ data: [], error: null }),
-      supabase.from("preliminary_survey_v2_history_recovery_audit").select("id").eq("created_plan_id", plan.id).limit(1),
+      supabase.from("preliminary_survey_v2_history_recovery_audit").select("created_plan_id").eq("created_plan_id", plan.id).limit(1),
     ]);
     const protectionError = planReconciliation.error || assignmentReconciliation.error || recoveryAudit.error;
     if (protectionError) throw protectionError;

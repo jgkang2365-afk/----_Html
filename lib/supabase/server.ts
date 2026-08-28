@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { assertConfiguredSupabaseUrls } from "./environment-guard";
 
 /**
  * 서버 사이드에서 사용할 Supabase 클라이언트 생성
@@ -16,6 +17,8 @@ export async function createClient() {
       "환경 변수를 변경했다면 개발 서버를 재시작하세요."
     );
   }
+
+  assertConfiguredSupabaseUrls();
 
   return createSupabaseClient(supabaseUrl, supabaseServiceKey);
 }

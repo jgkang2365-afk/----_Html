@@ -1,4 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  assertPublicSupabaseEnvironment,
+  assertConfiguredSupabaseUrls,
+} from "@/lib/supabase/environment-guard";
 
 // 클라이언트 사이드용 Supabase 클라이언트 (공개 키 사용)
 export function createBrowserClient() {
@@ -10,6 +14,12 @@ export function createBrowserClient() {
       "Missing Supabase environment variables. Please check your .env.local file."
     );
   }
+
+  assertPublicSupabaseEnvironment({
+    NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
+  });
 
   return createClient(supabaseUrl, supabaseAnonKey);
 }
@@ -24,6 +34,8 @@ export function createServerClient() {
       "Missing Supabase server environment variables. Please check your .env.local file."
     );
   }
+
+  assertConfiguredSupabaseUrls();
 
   return createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
