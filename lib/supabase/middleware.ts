@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionFromRequest } from "@/lib/auth/session";
+import { isQaAutoLoginEnabled } from "@/lib/auth/qa-auto-login";
 
 /**
  * 미들웨어에서 세션 확인 및 보호된 라우트 처리
@@ -17,6 +18,18 @@ export async function updateSession(request: NextRequest) {
 
   // 보호된 경로에 인증되지 않은 사용자가 접근하려고 하면 로그인 페이지로 리다이렉트
   if (isProtectedPath && !session && !isApiPath) {
+    if (
+      request.nextUrl.pathname.startsWith("/survey") &&
+      isQaAutoLoginEnabled(process.env)
+    ) {
+      const url = request.nextUrl.clone();
+      const destination = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+      url.pathname = "/api/auth/qa-auto-login";
+      url.search = "";
+      url.searchParams.set("redirect", destination);
+      return NextResponse.redirect(url);
+    }
+
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", request.nextUrl.pathname);
