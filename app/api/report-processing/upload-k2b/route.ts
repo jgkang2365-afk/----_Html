@@ -9,6 +9,7 @@ import { getKSTDateString } from '@/lib/utils/date-utils';
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import {
     collectReportProcessingJournalIdentities,
+    executeWithRegisteredMeasurementJournals,
     findMissingRegisteredMeasurementJournals,
     REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
     REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
@@ -80,8 +81,16 @@ export async function POST(req: NextRequest) {
                 });
 
                 // 2. K2B 업로드 실행 (데이터 파일, 도면, 도면 폴더 경로 전달)
-                const missingImmediatelyBeforeUpload = await findMissingRegisteredMeasurementJournals(supabase, targetIdentities);
-                if (missingImmediatelyBeforeUpload.length > 0) {
+                const uploadAttempt = await executeWithRegisteredMeasurementJournals(
+                    supabase,
+                    targetIdentities,
+                    () => k2b.uploadReport(target.business_name, {
+                        dataFile: files.dataFile,
+                        drawings: files.drawings,
+                        drawingFolderPath: files.drawingFolderPath
+                    })
+                );
+                if (!uploadAttempt.executed) {
                     results.push({
                         code: target.code,
                         success: false,
@@ -89,11 +98,7 @@ export async function POST(req: NextRequest) {
                     });
                     continue;
                 }
-                const uploadRes = await k2b.uploadReport(target.business_name, {
-                    dataFile: files.dataFile,
-                    drawings: files.drawings,
-                    drawingFolderPath: files.drawingFolderPath
-                });
+                const uploadRes = uploadAttempt.value;
 
                 // 3. DB 업데이트 (K2B 전송일자 및 상태)
                 const now = getKSTDateString();

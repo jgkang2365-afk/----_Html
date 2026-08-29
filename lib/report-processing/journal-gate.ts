@@ -93,3 +93,16 @@ export async function findMissingRegisteredMeasurementJournals(
     (identity) => !hasRegisteredMeasurementJournal(journals, identity),
   );
 }
+
+export async function executeWithRegisteredMeasurementJournals<T>(
+  supabase: any,
+  identities: ReportProcessingJournalIdentity[],
+  sideEffect: () => Promise<T>,
+): Promise<
+  | { executed: true; value: T }
+  | { executed: false; missing: ReportProcessingJournalIdentity[] }
+> {
+  const missing = await findMissingRegisteredMeasurementJournals(supabase, identities);
+  if (missing.length > 0) return { executed: false, missing };
+  return { executed: true, value: await sideEffect() };
+}

@@ -8,6 +8,7 @@ import { processNationalSupportJob } from "./national-support-worker";
 import { enqueueNationalSupportJob } from "../national-support/job-queue";
 import {
     collectReportProcessingJournalIdentities,
+    executeWithRegisteredMeasurementJournals,
     findMissingRegisteredMeasurementJournals,
     reportProcessingJournalIdentityKey,
     REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
@@ -332,8 +333,17 @@ export class WorkerDaemon {
 
                     // 2. 이메일 실제 전송
                     const processedIdentities = collectReportProcessingJournalIdentities('email', [{ reports: processedReports }]);
-                    const missingBeforeSend = await findMissingRegisteredMeasurementJournals(supabase, processedIdentities);
-                    if (missingBeforeSend.length > 0) {
+                    const sendAttempt = await executeWithRegisteredMeasurementJournals(
+                        supabase,
+                        processedIdentities,
+                        () => emailService.sendReportEmail({
+                            to: manager_email,
+                            companyName: business_name,
+                            reports: processedReports.map(r => ({ year: String(r.year), period: r.period })),
+                            attachments: allAttachments
+                        })
+                    );
+                    if (!sendAttempt.executed) {
                         results.push({
                             companyName: business_name,
                             success: false,
@@ -343,12 +353,6 @@ export class WorkerDaemon {
                         failCount++;
                         continue;
                     }
-                    await emailService.sendReportEmail({
-                        to: manager_email,
-                        companyName: business_name,
-                        reports: processedReports.map(r => ({ year: String(r.year), period: r.period })),
-                        attachments: allAttachments
-                    });
 
                     // 3. 비즈니스 테이블 DB 상태 업데이트 (이메일 발송 완료 처리)
                     const nowISO = getKSTISOString();
@@ -539,8 +543,16 @@ export class WorkerDaemon {
                     );
 
                     // 2. K2B 업로드 동작 수행
-                    const missingImmediatelyBeforeUpload = await findMissingRegisteredMeasurementJournals(supabase, targetIdentities);
-                    if (missingImmediatelyBeforeUpload.length > 0) {
+                    const uploadAttempt = await executeWithRegisteredMeasurementJournals(
+                        supabase,
+                        targetIdentities,
+                        () => k2b.uploadReport(target.business_name, {
+                            dataFile: files.dataFile,
+                            drawings: files.drawings,
+                            drawingFolderPath: files.drawingFolderPath
+                        }, businessCode)
+                    );
+                    if (!uploadAttempt.executed) {
                         results.push({
                             code: target.code,
                             companyName: target.business_name,
@@ -551,11 +563,7 @@ export class WorkerDaemon {
                         await this.notifyAllManagers('error', `[K2B 업로드 제외] ${target.business_name}: ${REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE}`);
                         continue;
                     }
-                    const uploadRes = await k2b.uploadReport(target.business_name, {
-                        dataFile: files.dataFile,
-                        drawings: files.drawings,
-                        drawingFolderPath: files.drawingFolderPath
-                    }, businessCode);
+                    const uploadRes = uploadAttempt.value;
 
                     console.log(
                         `[WorkerDaemon][K2B][${businessCode}] 첨부 결과: ${uploadRes.success ? '성공' : '실패'} / 상태=${uploadRes.status}`

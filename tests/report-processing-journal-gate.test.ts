@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   collectReportProcessingJournalIdentities,
+  executeWithRegisteredMeasurementJournals,
   findMissingRegisteredMeasurementJournals,
   hasRegisteredMeasurementJournal,
   REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
@@ -78,7 +79,7 @@ test("정규 journal은 같은 code/year의 수시 identity를 충족하지 않�
   );
 });
 
-test("queue 확인 뒤 journal이 삭제되면 worker 재확인에서 누락을 탐지한다", async () => {
+test("queue 확인 뒤 journal이 삭제되면 외부 side effect stub을 실행하지 않는다", async () => {
   let journals: JournalRow[] = [
     { code: "SYN004", measurement_year: 2026, measurement_period: "하반기" },
   ];
@@ -91,10 +92,31 @@ test("queue 확인 뒤 journal이 삭제되면 worker 재확인에서 누락을 
   );
 
   journals = [];
-  assert.deepEqual(
-    await findMissingRegisteredMeasurementJournals(client, identities),
+  let sideEffectCalls = 0;
+  const blocked = await executeWithRegisteredMeasurementJournals(
+    client,
     identities,
+    async () => {
+      sideEffectCalls += 1;
+      return "sent";
+    },
   );
+  assert.deepEqual(blocked, { executed: false, missing: identities });
+  assert.equal(sideEffectCalls, 0);
+
+  journals = [
+    { code: "SYN004", measurement_year: 2026, measurement_period: "하반기" },
+  ];
+  const allowed = await executeWithRegisteredMeasurementJournals(
+    client,
+    identities,
+    async () => {
+      sideEffectCalls += 1;
+      return "sent";
+    },
+  );
+  assert.deepEqual(allowed, { executed: true, value: "sent" });
+  assert.equal(sideEffectCalls, 1);
 });
 
 test("목록·queue·worker·직접 전송 경로가 같은 journal gate를 사용한다", () => {
@@ -111,20 +133,12 @@ test("목록·queue·worker·직접 전송 경로가 같은 journal gate를 사�
   );
   assert.match(queueRoute, new RegExp(REPORT_PROCESSING_JOURNAL_REQUIRED_CODE));
 
-  const emailSend = worker.indexOf("await emailService.sendReportEmail");
-  const emailPreflight = worker.lastIndexOf("findMissingRegisteredMeasurementJournals", emailSend);
-  assert.ok(emailPreflight > 0 && emailPreflight < emailSend);
+  assert.match(worker, /executeWithRegisteredMeasurementJournals[\s\S]+emailService\.sendReportEmail/);
 
-  const k2bUpload = worker.indexOf("const uploadRes = await k2b.uploadReport");
-  const k2bPreflight = worker.lastIndexOf("findMissingRegisteredMeasurementJournals", k2bUpload);
-  assert.ok(k2bPreflight > 0 && k2bPreflight < k2bUpload);
+  assert.match(worker, /executeWithRegisteredMeasurementJournals[\s\S]+k2b\.uploadReport/);
 
-  assert.ok(
-    directEmail.lastIndexOf("findMissingRegisteredMeasurementJournals", directEmail.indexOf("await emailService.sendReportEmail")) > 0,
-  );
-  assert.ok(
-    directK2B.lastIndexOf("findMissingRegisteredMeasurementJournals", directK2B.indexOf("const uploadRes = await k2b.uploadReport")) > 0,
-  );
+  assert.match(directEmail, /executeWithRegisteredMeasurementJournals[\s\S]+emailService\.sendReportEmail/);
+  assert.match(directK2B, /executeWithRegisteredMeasurementJournals[\s\S]+k2b\.uploadReport/);
 });
 
 test("ID-only PATCH는 기존 target identity로 현재 true-confirmed guard를 실행한다", () => {

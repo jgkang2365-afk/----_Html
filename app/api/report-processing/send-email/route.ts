@@ -6,6 +6,7 @@ import { findReportFiles } from '@/lib/utils/findReportFiles';
 import { getKSTISOString } from '@/lib/utils/date-utils';
 import {
     collectReportProcessingJournalIdentities,
+    executeWithRegisteredMeasurementJournals,
     findMissingRegisteredMeasurementJournals,
     REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
     REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
@@ -83,8 +84,17 @@ export async function POST(req: NextRequest) {
 
                 // 2. 메일 발송
                 const processedIdentities = collectReportProcessingJournalIdentities('email', [{ reports: processedReports }]);
-                const missingBeforeSend = await findMissingRegisteredMeasurementJournals(supabase, processedIdentities);
-                if (missingBeforeSend.length > 0) {
+                const sendAttempt = await executeWithRegisteredMeasurementJournals(
+                    supabase,
+                    processedIdentities,
+                    () => emailService.sendReportEmail({
+                        to: manager_email,
+                        companyName: business_name,
+                        reports: processedReports.map(r => ({ year: String(r.year), period: r.period })),
+                        attachments: allAttachments,
+                    })
+                );
+                if (!sendAttempt.executed) {
                     results.push({
                         companyName: business_name,
                         success: false,
@@ -93,13 +103,6 @@ export async function POST(req: NextRequest) {
                     });
                     continue;
                 }
-                await emailService.sendReportEmail({
-                    to: manager_email,
-                    companyName: business_name,
-                    reports: processedReports.map(r => ({ year: String(r.year), period: r.period })),
-                    attachments: allAttachments,
-                    // isAdditional 판별: 1개 초과이거나, (기능 확장성 위해 필요시 프론트에서 넘겨준 값 활용 가능)
-                });
 
                 // 3. DB 상태 업데이트 (모든 성공 항목에 대해)
                 for (const r of processedReports) {
