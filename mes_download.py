@@ -134,13 +134,28 @@ load_dotenv(dotenv_path=".env.local")
 load_dotenv(dotenv_path=".env")
 
 MES_EXE = os.getenv("MES_EXE", r"C:\HWS\MEA\hwsmes.exe")
-PASSWORD = os.getenv("MES_PASSWORD", "rkdwhdrn")  # MES 접속 비밀번호
+PASSWORD = os.getenv("MES_PASSWORD")  # MES 접속 비밀번호
 SAVE_PATH = os.getenv("MES_SAVE_PATH", r"Z:\data\측정팀\자동화 툴\MES 프로그램 DB") # 네트워크 백업 경로
 
 # 웹 대시보드 로그인 및 API 전송 정보
 WEB_API_URL = os.getenv("WEB_API_URL", "http://localhost:3000") # 업로드 대상 웹 서버 주소
-WEB_USERNAME = os.getenv("WEB_USERNAME", "강종구")
-WEB_PASSWORD = os.getenv("WEB_PASSWORD", "frn2314@")
+WEB_USERNAME = os.getenv("WEB_USERNAME")
+WEB_PASSWORD = os.getenv("WEB_PASSWORD")
+
+def require_runtime_credentials():
+    missing = [
+        name
+        for name, value in {
+            "MES_PASSWORD": PASSWORD,
+            "WEB_USERNAME": WEB_USERNAME,
+            "WEB_PASSWORD": WEB_PASSWORD,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            "필수 자격증명 환경변수가 없습니다: " + ", ".join(missing)
+        )
 
 # ==========================================
 # Windows API 구조체 및 전역 선언 (가상 키코드 시뮬레이터)
@@ -416,6 +431,8 @@ def convert_and_copy_excel_files(filenames):
 # MAIN AUTOMATION PROCESS
 # ==========================================
 def main():
+    require_runtime_credentials()
+
     # ESC 키 전역 감시 스레드 구동 (비상 종료 훅)
     threading.Thread(target=monitor_esc, daemon=True).start()
 
