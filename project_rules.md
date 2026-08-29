@@ -177,4 +177,17 @@
 - 작업 지시문에는 해당 작업에서 GitHub로 확인할 수 없는 로컬 검증이 실제로 필요한 경우에만 별도 보고 항목을 명시한다.
 - 사용자가 별도 파일을 공유하지 않아도 GitHub에서 확인 가능한 작업 결과는 GitHub 이력을 기준으로 검증한다.
 
+---
+
+## 14. Supabase 환경 및 migration 승격
+
+- 로컬 개발 서버는 Docker Local Supabase의 `localhost` 또는 `127.0.0.1` 주소만 사용한다.
+- Vercel Preview는 운영과 분리된 Cloud Staging Supabase만 사용한다. Preview에서 Production Supabase에 연결하는 것은 금지한다.
+- Vercel Production은 Production Supabase만 사용한다.
+- 브라우저·서버·관리자 DB client는 실행 환경과 Supabase project identity를 생성 전에 검증하고, 환경이 다르면 fail-fast한다.
+- Staging에는 schema/migration과 결정적인 합성 fixture만 적재한다. 운영 고객 데이터, 인증정보, PII, 운영 service role을 복제하지 않는다.
+- migration은 `Docker Local reset/replay 및 RPC E2E → Cloud Staging 적용 및 Preview 실제 CRUD → 사용자 승인 → Production 적용 및 사후 확인` 순서로 승격한다.
+- Local 또는 Staging 검증만으로 Production migration을 적용하지 않으며, Production 변경은 별도 승인 전 0건을 유지한다.
+- 환경별 service role은 서버 전용 환경변수로 분리하고 `NEXT_PUBLIC_` 변수, Git, PR, 로그에 노출하지 않는다.
+
 

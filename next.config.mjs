@@ -2,6 +2,11 @@ import path from 'path';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    env: {
+        // VERCEL_ENV is a platform-owned value. Expose only this non-secret identity
+        // so the browser Supabase client can cross-check Preview vs Production.
+        NEXT_PUBLIC_VERCEL_ENV: process.env.VERCEL_ENV || 'development',
+    },
     webpack: (config) => {
         // config.cache = false;
 

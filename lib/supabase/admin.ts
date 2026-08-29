@@ -4,6 +4,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { assertConfiguredSupabaseUrls } from "./environment-guard";
 
 export function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -14,6 +15,8 @@ export function createAdminClient() {
       "Missing Supabase admin environment variables. NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required."
     );
   }
+
+  assertConfiguredSupabaseUrls();
 
   return createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {

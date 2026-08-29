@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { EnvironmentBadge } from "@/components/layout/EnvironmentBadge";
 
 export const metadata: Metadata = {
   title: "측정일지 관리 시스템",
@@ -19,6 +20,7 @@ export default function RootLayout({
     <html lang="ko">
       <body>
         <MainLayout>{children}</MainLayout>
+        <EnvironmentBadge />
       </body>
     </html>
   );

@@ -5,15 +5,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { verifyPassword } from "@/lib/utils/password";
 import { setSessionCookie } from "@/lib/auth/session";
-
-function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createSupabaseClient(url, key);
-}
+import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,7 +23,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = getSupabase();
+    const supabase = await createClient();
 
     // 사용자 조회
     const { data: user, error: userError } = await supabase

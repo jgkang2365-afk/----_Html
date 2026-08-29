@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { assertConfiguredSupabaseUrls } from "@/lib/supabase/environment-guard";
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -8,6 +9,8 @@ export async function GET(request: Request) {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
         return NextResponse.json({ error: "Missing Env Vars" }, { status: 500 });
     }
+
+    assertConfiguredSupabaseUrls();
 
     const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
