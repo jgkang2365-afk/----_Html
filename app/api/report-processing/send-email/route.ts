@@ -4,6 +4,12 @@ import { createClient } from '@/lib/supabase/server';
 import { EmailService } from '@/lib/email/email-service';
 import { findReportFiles } from '@/lib/utils/findReportFiles';
 import { getKSTISOString } from '@/lib/utils/date-utils';
+import {
+    collectReportProcessingJournalIdentities,
+    findMissingRegisteredMeasurementJournals,
+    REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+    REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+} from '@/lib/report-processing/journal-gate';
 
 /**
  * 보고서 메일 일괄 발송 API
@@ -32,6 +38,18 @@ export async function POST(req: NextRequest) {
             }
 
             try {
+                const journalIdentities = collectReportProcessingJournalIdentities('email', [{ reports }]);
+                const missingBeforeFileLookup = await findMissingRegisteredMeasurementJournals(supabase, journalIdentities);
+                if (missingBeforeFileLookup.length > 0) {
+                    results.push({
+                        companyName: business_name,
+                        success: false,
+                        error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                        errorCode: REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+                    });
+                    continue;
+                }
+
                 const allAttachments: { filename: string; path: string }[] = [];
                 const processedReports: typeof reports = [];
 
@@ -64,6 +82,17 @@ export async function POST(req: NextRequest) {
                 }
 
                 // 2. 메일 발송
+                const processedIdentities = collectReportProcessingJournalIdentities('email', [{ reports: processedReports }]);
+                const missingBeforeSend = await findMissingRegisteredMeasurementJournals(supabase, processedIdentities);
+                if (missingBeforeSend.length > 0) {
+                    results.push({
+                        companyName: business_name,
+                        success: false,
+                        error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                        errorCode: REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+                    });
+                    continue;
+                }
                 await emailService.sendReportEmail({
                     to: manager_email,
                     companyName: business_name,

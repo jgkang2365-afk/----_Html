@@ -7,6 +7,12 @@ import { findReportFiles } from '@/lib/utils/findReportFiles';
 import { getSession } from '@/lib/auth/session';
 import { getKSTDateString } from '@/lib/utils/date-utils';
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
+import {
+    collectReportProcessingJournalIdentities,
+    findMissingRegisteredMeasurementJournals,
+    REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+    REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+} from '@/lib/report-processing/journal-gate';
 
 /**
  * K2B 보고서 업로드 API
@@ -20,12 +26,25 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: '대상 업체가 없습니다.' }, { status: 400 });
         }
 
-        const supabase = await createClient();
-
-        // 현재 세션의 사용자 ID로 K2B 계정 정보 조회
+        // 기존 인증 경계를 먼저 유지한 뒤 journal identity를 검증한다.
         const session = await getSession();
         if (!session) return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
 
+        const supabase = await createClient();
+
+        const requestedIdentities = collectReportProcessingJournalIdentities('k2b', targets);
+        const missingBeforeInitialization = await findMissingRegisteredMeasurementJournals(supabase, requestedIdentities);
+        if (missingBeforeInitialization.length > 0) {
+            return NextResponse.json(
+                {
+                    error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                    errorCode: REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+                },
+                { status: 409 }
+            );
+        }
+
+        // 현재 세션의 사용자 ID로 K2B 계정 정보 조회
         const { data: dbUser } = await supabase
             .from('users')
             .select('name, k2b_id, k2b_pw')
@@ -42,6 +61,17 @@ export async function POST(req: NextRequest) {
 
             // 업체별 반복 처리 (파이썬 for company_name in selections 루프 대응)
             for (const target of targets) {
+                const targetIdentities = collectReportProcessingJournalIdentities('k2b', [target]);
+                const missingBeforeUpload = await findMissingRegisteredMeasurementJournals(supabase, targetIdentities);
+                if (missingBeforeUpload.length > 0) {
+                    results.push({
+                        code: target.code,
+                        success: false,
+                        error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                    });
+                    continue;
+                }
+
                 // 1. 파일 찾기 (보고서, 데이터 파일, 도면 등)
                 const files = findReportFiles({
                     year: target.year.toString(),
@@ -50,6 +80,15 @@ export async function POST(req: NextRequest) {
                 });
 
                 // 2. K2B 업로드 실행 (데이터 파일, 도면, 도면 폴더 경로 전달)
+                const missingImmediatelyBeforeUpload = await findMissingRegisteredMeasurementJournals(supabase, targetIdentities);
+                if (missingImmediatelyBeforeUpload.length > 0) {
+                    results.push({
+                        code: target.code,
+                        success: false,
+                        error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                    });
+                    continue;
+                }
                 const uploadRes = await k2b.uploadReport(target.business_name, {
                     dataFile: files.dataFile,
                     drawings: files.drawings,

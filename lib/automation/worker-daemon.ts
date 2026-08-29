@@ -6,6 +6,13 @@ import { getKSTISOString, getKSTDateString } from '../utils/date-utils';
 import { requestK2BCalendarSync } from "./k2b-calendar-sync-client";
 import { processNationalSupportJob } from "./national-support-worker";
 import { enqueueNationalSupportJob } from "../national-support/job-queue";
+import {
+    collectReportProcessingJournalIdentities,
+    findMissingRegisteredMeasurementJournals,
+    reportProcessingJournalIdentityKey,
+    REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+    REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+} from "../report-processing/journal-gate";
 
 /**
  * 백그라운드 작업기 데몬 (Worker Daemon)
@@ -278,6 +285,19 @@ export class WorkerDaemon {
                 }
 
                 try {
+                    const journalIdentities = collectReportProcessingJournalIdentities('email', [{ reports }]);
+                    const missingBeforeFileLookup = await findMissingRegisteredMeasurementJournals(supabase, journalIdentities);
+                    if (missingBeforeFileLookup.length > 0) {
+                        results.push({
+                            companyName: business_name,
+                            success: false,
+                            error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                            errorCode: REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+                        });
+                        failCount++;
+                        continue;
+                    }
+
                     const allAttachments: { filename: string; path: string }[] = [];
                     const processedReports: any[] = [];
 
@@ -311,6 +331,18 @@ export class WorkerDaemon {
                     }
 
                     // 2. 이메일 실제 전송
+                    const processedIdentities = collectReportProcessingJournalIdentities('email', [{ reports: processedReports }]);
+                    const missingBeforeSend = await findMissingRegisteredMeasurementJournals(supabase, processedIdentities);
+                    if (missingBeforeSend.length > 0) {
+                        results.push({
+                            companyName: business_name,
+                            success: false,
+                            error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                            errorCode: REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+                        });
+                        failCount++;
+                        continue;
+                    }
                     await emailService.sendReportEmail({
                         to: manager_email,
                         companyName: business_name,
@@ -412,6 +444,20 @@ export class WorkerDaemon {
             return;
         }
 
+        let missingAtStartKeys: Set<string>;
+        try {
+            const requestedIdentities = collectReportProcessingJournalIdentities('k2b', targets);
+            const missingAtStart = await findMissingRegisteredMeasurementJournals(supabase, requestedIdentities);
+            missingAtStartKeys = new Set(missingAtStart.map(reportProcessingJournalIdentityKey));
+            if (missingAtStartKeys.size === requestedIdentities.length) {
+                await this.updateJobStatus(job.id, 'failed', REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE);
+                return;
+            }
+        } catch (error: any) {
+            await this.updateJobStatus(job.id, 'failed', error?.message || REPORT_PROCESSING_JOURNAL_REQUIRED_CODE);
+            return;
+        }
+
         // K2B 계정 정보 가져오기 (요청자 ID 기준)
         if (!requestUser || !requestUser.id) {
             await this.updateJobStatus(job.id, 'failed', 'K2B 업로드를 요청한 사용자 세션 정보가 누락되었습니다.');
@@ -453,6 +499,23 @@ export class WorkerDaemon {
                     return;
                 }
                 try {
+                    const targetIdentities = collectReportProcessingJournalIdentities('k2b', [target]);
+                    const targetIdentityKey = reportProcessingJournalIdentityKey(targetIdentities[0]);
+                    const missingBeforeUpload = missingAtStartKeys.has(targetIdentityKey)
+                        ? targetIdentities
+                        : await findMissingRegisteredMeasurementJournals(supabase, targetIdentities);
+                    if (missingBeforeUpload.length > 0) {
+                        results.push({
+                            code: target.code,
+                            companyName: target.business_name,
+                            success: false,
+                            error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                            errorCode: REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+                        });
+                        await this.notifyAllManagers('error', `[K2B 업로드 제외] ${target.business_name}: ${REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE}`);
+                        continue;
+                    }
+
                     // 1. Z드라이브 파일 찾기
                     const files = findReportFiles({
                         year: target.year.toString(),
@@ -476,6 +539,18 @@ export class WorkerDaemon {
                     );
 
                     // 2. K2B 업로드 동작 수행
+                    const missingImmediatelyBeforeUpload = await findMissingRegisteredMeasurementJournals(supabase, targetIdentities);
+                    if (missingImmediatelyBeforeUpload.length > 0) {
+                        results.push({
+                            code: target.code,
+                            companyName: target.business_name,
+                            success: false,
+                            error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                            errorCode: REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+                        });
+                        await this.notifyAllManagers('error', `[K2B 업로드 제외] ${target.business_name}: ${REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE}`);
+                        continue;
+                    }
                     const uploadRes = await k2b.uploadReport(target.business_name, {
                         dataFile: files.dataFile,
                         drawings: files.drawings,

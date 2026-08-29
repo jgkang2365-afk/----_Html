@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { createClient } from '@/lib/supabase/server';
 import { unstable_noStore as noStore } from 'next/cache';
+import { reportProcessingJournalIdentityKey } from '@/lib/report-processing/journal-gate';
 
 /**
  * 보고서 처리용 목록 조회 API
@@ -71,18 +72,36 @@ export async function GET(req: NextRequest) {
 
         const { data: journals, error: jError } = await journalQuery;
 
+        if (jError) {
+            console.error('[API Error] 측정일지 조회 실패:', jError);
+            return NextResponse.json({ error: '측정일지 조회 중 오류가 발생했습니다.' }, { status: 500 });
+        }
+
         // 5. 데이터 병합
-        const mergedData = data.map(record => {
-            const journal = journals?.find(j => 
-                j.code === record.code && 
-                j.measurement_year === record.year && 
-                j.measurement_period === record.period
+        const journalByIdentity = new Map(
+            (journals || []).map(journal => [
+                reportProcessingJournalIdentityKey({
+                    code: journal.code,
+                    year: Number(journal.measurement_year),
+                    period: journal.measurement_period,
+                }),
+                journal,
+            ])
+        );
+        const mergedData = data.flatMap(record => {
+            const journal = journalByIdentity.get(
+                reportProcessingJournalIdentityKey({
+                    code: record.code,
+                    year: Number(record.year),
+                    period: record.period,
+                })
             );
-            return {
+            if (!journal) return [];
+            return [{
                 ...record,
                 k2b_send_date: journal?.k2b_send_date || null,
                 k2b_status: journal?.k2b_status || null
-            };
+            }];
         });
 
         const response = NextResponse.json({ records: mergedData });

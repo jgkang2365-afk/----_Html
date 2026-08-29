@@ -499,13 +499,14 @@ export async function PATCH(request: NextRequest) {
     let existingCollaborators: string | null = null;
     let existingDailyStaff: any = null;
     let existingTargetId: number | null = null;
+    let existingCode: string | null = null;
     let existingBusinessType: string | null = null;
     let existingProcessChanged: boolean | null = null;
     let existingPeriod: string | null = null;
     let existingYear: number | null = null;
 
     if (id || (code && year && period)) {
-      let bQuery = supabase.from("measurement_target_business").select("id, measurement_date, business_name, address, coordinate_locked, measurer_id, link_measurer_id, collaborators, daily_staff, business_type, process_changed, period, year");
+      let bQuery = supabase.from("measurement_target_business").select("id, code, measurement_date, business_name, address, coordinate_locked, measurer_id, link_measurer_id, collaborators, daily_staff, business_type, process_changed, period, year");
       if (id) {
         bQuery = bQuery.eq("id", id);
       } else if (code && year && period) {
@@ -522,6 +523,7 @@ export async function PATCH(request: NextRequest) {
         existingCollaborators = oldData.collaborators;
         existingDailyStaff = oldData.daily_staff;
         existingTargetId = oldData.id;
+        existingCode = oldData.code ?? null;
         existingBusinessType = oldData.business_type ?? null;
         existingProcessChanged = oldData.process_changed ?? null;
         existingPeriod = oldData.period ?? null;
@@ -543,13 +545,21 @@ export async function PATCH(request: NextRequest) {
       (updates.hasOwnProperty('process_changed') && existingProcessChanged !== normEmpty(updates.process_changed)) ||
       (updates.hasOwnProperty('period') && String(existingPeriod ?? "") !== String(normEmpty(updates.period) ?? "")) ||
       (updates.hasOwnProperty('year') && Number(existingYear) !== Number(updates.year));
-    if (!isAdmin && planCriticalActuallyChanged && existingTargetId != null && code && year && period) {
-      const basePeriod = String(period).trim().replace("(수시)", "");
+    const confirmedIdentityCode = existingCode ?? code ?? null;
+    const confirmedIdentityYear = existingYear ?? (year != null ? Number(year) : null);
+    const confirmedIdentityPeriod = existingPeriod ?? period ?? null;
+    if (!isAdmin && planCriticalActuallyChanged &&
+      existingTargetId != null &&
+      confirmedIdentityCode &&
+      confirmedIdentityYear != null &&
+      confirmedIdentityPeriod
+    ) {
+      const basePeriod = String(confirmedIdentityPeriod).trim().replace("(수시)", "");
       const { data: confirmedJournal } = await supabase
         .from("measurement_journal")
         .select("id")
-        .eq("code", code)
-        .eq("measurement_year", Number(year))
+        .eq("code", confirmedIdentityCode)
+        .eq("measurement_year", Number(confirmedIdentityYear))
         .like("measurement_period", `${basePeriod}%`)
         .limit(1)
         .maybeSingle();
