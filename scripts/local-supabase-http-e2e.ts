@@ -135,6 +135,13 @@ async function main() {
     }),
   });
 
+  const workbench = await requestJson(
+    "/api/preliminary-survey-v2/workbench?year=2026&period=%ED%95%98%EB%B0%98%EA%B8%B0",
+  );
+  if (!Array.isArray(workbench.rows) || workbench.rows.length === 0) {
+    throw new Error("LOCAL_WORKBENCH_QUERY_EMPTY");
+  }
+
   const created = await requestJson("/api/businesses", {
     method: "POST",
     body: JSON.stringify({
@@ -234,6 +241,7 @@ async function main() {
 
   console.log(JSON.stringify({
     login: "PASS",
+    workbenchRows: workbench.rows.length,
     create: "PASS",
     patch: "PASS",
     recommendationDrafts: drafts.length,

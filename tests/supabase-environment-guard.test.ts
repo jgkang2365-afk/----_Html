@@ -320,4 +320,19 @@ describe("browser/server/admin client guard wiring", () => {
     assert.match(migration, /REVOKE ALL ON TABLE public\.preliminary_survey_v2_document_repair_audit FROM service_role;[\s\S]*GRANT SELECT, INSERT ON TABLE public\.preliminary_survey_v2_document_repair_audit TO service_role;/);
     assert.match(migration, /persist_preliminary_survey_v2_plan_and_measurement_assignments\([\s\S]*FROM service_role;/);
   });
+
+  it("fresh Local/Staging replay가 예비조사 Workbench의 measurement_month 계약을 포함한다", async () => {
+    const [migration, workbenchRoute] = await Promise.all([
+      readFile(
+        new URL("../supabase/migrations/20260829090000_restore_target_measurement_month.sql", import.meta.url),
+        "utf8",
+      ),
+      readFile(new URL("../app/api/preliminary-survey-v2/workbench/route.ts", import.meta.url), "utf8"),
+    ]);
+    assert.match(
+      migration,
+      /ALTER TABLE public\.measurement_target_business[\s\S]*ADD COLUMN IF NOT EXISTS measurement_month text/,
+    );
+    assert.match(workbenchRoute, /is_registered, measurement_month/);
+  });
 });
