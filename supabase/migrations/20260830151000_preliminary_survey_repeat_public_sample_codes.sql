@@ -9,6 +9,23 @@ ALTER TABLE public.preliminary_survey_v2_measurement_assignments
 COMMENT ON COLUMN public.preliminary_survey_v2_measurement_assignments.survey_code IS
   'users.survey_code의 반복 코드 snapshot. 1건 A, 2건 AA, 3건 AAA는 관리자 직접 예외만 허용한다.';
 
+-- 현재 assignment의 3건 승인 metadata는 재배정 때 NULL 정규화될 수 있으므로, 관리자 CCC 예외는
+-- 별도 append-only audit으로 영구 보존한다. event fingerprint는 승인 시각까지 포함해 같은 승인의 retry만 idempotent하게 만든다.
+CREATE TABLE IF NOT EXISTS public.preliminary_survey_v2_measurement_assignment_exception_audit (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_fingerprint text NOT NULL UNIQUE CHECK (event_fingerprint ~ '^[a-f0-9]{32}$'),
+  measurement_date date NOT NULL,
+  assignee_user_id integer NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT,
+  measurement_target_business_ids bigint[] NOT NULL CHECK (cardinality(measurement_target_business_ids) = 3),
+  before_survey_codes jsonb NOT NULL,
+  after_survey_codes jsonb NOT NULL,
+  approved_by_user_id integer NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT,
+  applied_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE public.preliminary_survey_v2_measurement_assignment_exception_audit ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.preliminary_survey_v2_measurement_assignment_exception_audit FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT ON TABLE public.preliminary_survey_v2_measurement_assignment_exception_audit TO service_role;
+
 CREATE OR REPLACE FUNCTION public.validate_preliminary_survey_v2_measurement_assignment()
 RETURNS trigger
 LANGUAGE plpgsql SET search_path = public AS $$
@@ -51,6 +68,7 @@ DECLARE
   assignment_item jsonb;
   configured_survey_code text;
   base_assignments jsonb;
+  before_assignment_codes jsonb;
 BEGIN
   -- 3번째는 자동추천·예비조사 담당자 승인이 아닌 관리자 직접 예외만 허용한다.
   IF p_approve_third_assignment IS TRUE AND NOT EXISTS (
@@ -75,9 +93,26 @@ BEGIN
   END LOOP;
 
   SELECT COALESCE(jsonb_agg(
-    assignment_item || jsonb_build_object('survey_code', left(upper(btrim(assignment_item->>'survey_code')), 1)
+    assignment_item || jsonb_build_object('survey_code', left(upper(btrim(assignment_item->>'survey_code')), 1))
   ), '[]'::jsonb) INTO base_assignments
   FROM jsonb_array_elements(COALESCE(p_assignments, '[]'::jsonb)) assignment_item;
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'targetId', target_plan.measurement_target_business_id,
+    'measurementDate', assignment.measurement_date,
+    'assigneeUserId', assignment.assignee_user_id,
+    'surveyCode', assignment.survey_code
+  ) ORDER BY target_plan.measurement_target_business_id), '[]'::jsonb)
+  INTO before_assignment_codes
+  FROM public.preliminary_survey_v2_measurement_assignments assignment
+  JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+  WHERE target_plan.measurement_target_business_id IN (
+    SELECT DISTINCT (plan_item->>'measurement_target_business_id')::bigint
+    FROM jsonb_array_elements(p_plans) plan_item
+  ) OR (assignment.measurement_date, assignment.assignee_user_id) IN (
+    SELECT DISTINCT (item->>'measurement_date')::date, (item->>'assignee_user_id')::integer
+    FROM jsonb_array_elements(p_assignments) item
+  );
 
   RETURN QUERY SELECT * FROM public.persist_preliminary_survey_v2_plan_and_assignment_groups_base(
     p_plans, base_assignments, p_assignment_baseline, p_approve_third_assignment, p_approved_by_user_id
@@ -108,6 +143,44 @@ BEGIN
     JOIN affected_targets ON affected_targets.target_id = ranked.target_id
     WHERE assignment.id = ranked.id
       AND assignment.survey_code IS DISTINCT FROM ranked.next_survey_code;
+
+  -- 현재 3건 승인 metadata가 이후 정규화되어도 이 audit row는 변경·삭제하지 않는다.
+  WITH affected_targets AS (
+    SELECT DISTINCT (plan_item->>'measurement_target_business_id')::bigint AS target_id
+    FROM jsonb_array_elements(p_plans) plan_item
+  ), final_groups AS (
+    SELECT assignment.measurement_date, assignment.assignee_user_id,
+      array_agg(target_plan.measurement_target_business_id ORDER BY target_plan.measurement_target_business_id) AS target_ids,
+      jsonb_agg(jsonb_build_object(
+        'targetId', target_plan.measurement_target_business_id,
+        'surveyCode', assignment.survey_code
+      ) ORDER BY target_plan.measurement_target_business_id) AS after_codes,
+      max(assignment.approved_at) AS approved_at
+    FROM public.preliminary_survey_v2_measurement_assignments assignment
+    JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
+    WHERE assignment.measurement_date IN (
+      SELECT DISTINCT (item->>'measurement_date')::date FROM jsonb_array_elements(p_assignments) item
+    )
+    GROUP BY assignment.measurement_date, assignment.assignee_user_id
+    HAVING count(*) = 3 AND bool_or(target_plan.measurement_target_business_id IN (SELECT target_id FROM affected_targets))
+  )
+  INSERT INTO public.preliminary_survey_v2_measurement_assignment_exception_audit(
+    event_fingerprint, measurement_date, assignee_user_id, measurement_target_business_ids,
+    before_survey_codes, after_survey_codes, approved_by_user_id
+  )
+  SELECT md5(final_groups.measurement_date::text || '|' || final_groups.assignee_user_id::text || '|' || array_to_string(final_groups.target_ids, ',') || '|' || final_groups.approved_at::text),
+    final_groups.measurement_date, final_groups.assignee_user_id, final_groups.target_ids,
+    (SELECT jsonb_agg(jsonb_build_object(
+      'targetId', affected_target.target_id,
+      'previousAssignments', COALESCE((SELECT jsonb_agg(previous ORDER BY (previous->>'measurementDate')::date, (previous->>'assigneeUserId')::integer)
+        FROM jsonb_array_elements(before_assignment_codes) previous
+        WHERE (previous->>'targetId')::bigint = affected_target.target_id), '[]'::jsonb)
+    ) ORDER BY affected_target.target_id)
+    FROM unnest(final_groups.target_ids) AS affected_target(target_id)),
+    final_groups.after_codes, p_approved_by_user_id
+  FROM final_groups
+  WHERE p_approve_third_assignment IS TRUE AND p_approved_by_user_id IS NOT NULL
+  ON CONFLICT (event_fingerprint) DO NOTHING;
 END;
 $$;
 

@@ -21,7 +21,8 @@ export interface MeasurementAssignmentTarget {
   /** 아래 역할은 배정 preference일 뿐이며 측정자 원천으로 저장·승격하지 않는다. */
   reportWriterUserId?: number | null;
   measurementParticipantUserIds?: number[];
-  preliminarySurveyorUserId?: number | null;
+  /** 해당 plan의 전체 예비조사자. 어느 한 명과의 일치도 공시료 soft preference다. */
+  preliminarySurveyorUserIds?: number[];
 }
 
 export interface ExistingMeasurementAssignment extends MeasurementAssignmentTarget {
@@ -33,7 +34,7 @@ export function buildMeasurementAssignmentTargets(input: {
   target: Pick<SurveyTarget,
     "id" | "code" | "address" | "coordinate" | "region" |
     "measurementAssignmentDates" | "measurementStaffByDate">;
-  preliminarySurveyorUserId: number | null;
+  preliminarySurveyorUserIds: number[];
 }): MeasurementAssignmentTarget[] {
   return (input.target.measurementAssignmentDates ?? []).map((measurementDate) => {
     const staff = input.target.measurementStaffByDate?.find((item) => item.date === measurementDate);
@@ -46,7 +47,9 @@ export function buildMeasurementAssignmentTargets(input: {
       region: input.target.region,
       reportWriterUserId: staff?.reportWriterUserId ?? null,
       measurementParticipantUserIds: [...(staff?.measurementParticipantUserIds ?? [])],
-      preliminarySurveyorUserId: input.preliminarySurveyorUserId,
+      preliminarySurveyorUserIds: [...new Set(input.preliminarySurveyorUserIds.filter((userId) =>
+        Number.isInteger(userId) && userId > 0,
+      ))],
     };
   });
 }
@@ -206,7 +209,7 @@ export function assignMeasurementAssignees(input: {
   // 공시료 정합성의 유일한 soft preference는 예비조사자와의 일치다.
   // 참여자·보고서 담당자는 별도 운영 원천이므로 공시료 배정 점수에 섞지 않는다.
   const preliminarySurveyorMatchScore = (target: MeasurementAssignmentTarget, userId: number) =>
-    Number(target.preliminarySurveyorUserId === userId);
+    Number(target.preliminarySurveyorUserIds?.includes(userId));
 
   // 같은 날짜의 첫 순환은 6명을 한 번씩 쓰는 조건을 먼저 고정한 뒤,
   // 개별 target greedy가 아니라 순환 전체의 예비조사자 일치 합계를 최대화한다.

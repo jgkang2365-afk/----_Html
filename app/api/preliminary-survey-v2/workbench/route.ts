@@ -221,6 +221,11 @@ function isMeasurementAssignmentSchemaMissing(error: any) {
     /preliminary_survey_v2_measurement_assignments|persist_preliminary_survey_v2_plan_and_assignment_groups/i.test(String(error?.message ?? ""));
 }
 
+function isMeasurementAssignmentExceptionAuditSchemaMissing(error: any) {
+  return ["42P01", "PGRST202", "PGRST205"].includes(String(error?.code ?? "")) ||
+    /preliminary_survey_v2_measurement_assignment_exception_audit/i.test(String(error?.message ?? ""));
+}
+
 function isLegacyReconciliationSchemaMissing(error: any) {
   return ["42P01", "PGRST202", "PGRST205", "42703"].includes(String(error?.code ?? "")) ||
     /preliminary_survey_v2_legacy_reconciliation/i.test(String(error?.message ?? ""));
@@ -306,6 +311,7 @@ async function recomputeCanonicalMeasurementAssignments(
   supabase: any,
   contexts: Awaited<ReturnType<typeof loadV2ManualContext>>[],
   submitted: SubmittedDraft[],
+  allowAdminThirdAssignment: boolean,
 ) {
   const [{ data: assigneeUsers, error: assigneeUserError }, { data: persisted, error: persistedError }] = await Promise.all([
     supabase.from("users").select("id, name, job, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
@@ -360,7 +366,7 @@ async function recomputeCanonicalMeasurementAssignments(
   const assignmentTargets: MeasurementAssignmentTarget[] = contexts.flatMap((context) =>
     buildMeasurementAssignmentTargets({
       target: context.target,
-      preliminarySurveyorUserId: submittedByTargetId.get(context.target.id)?.sourceResponsibleUserId ?? null,
+      preliminarySurveyorUserIds: submittedByTargetId.get(context.target.id)?.participantUserIds ?? [],
     }));
   const assigneeBlockKeys = await loadScheduleBlockKeys(
     supabase,
@@ -385,6 +391,7 @@ async function recomputeCanonicalMeasurementAssignments(
     existing,
     routeEvidence,
     availability: { isBlocked: (userId, date) => assigneeBlockKeys.has(`${userId}:${date}`) },
+    allowAdminThirdAssignment,
   });
   const proposedMeasurementDates = new Set(assignmentTargets.map((target) => target.measurementDate));
   const baseline = existing.filter((assignment) => proposedMeasurementDates.has(assignment.measurementDate)).map((assignment) => ({
@@ -430,8 +437,9 @@ async function recomputeCanonicalMeasurementAssignments(
 async function applySubmittedDrafts(
   supabase: any,
   rawDrafts: unknown[],
+  allowAdminThirdAssignment: boolean,
   approveThirdAssignment: boolean,
-  approvedByUserId: number,
+  session: { userId: number; role: string },
 ) {
   const drafts = rawDrafts.map(parseDraft);
   if (!drafts.length || drafts.some((draft) => !draft)) {
@@ -605,7 +613,18 @@ async function applySubmittedDrafts(
 
   // client가 보낸 assignee/code/3건 승인여부는 저장 근거가 아니다. 현 DB의 날짜별
   // assignment와 users.survey_code로 다시 계산해 draft와 완전히 같을 때만 적용한다.
-  const canonicalResult = await recomputeCanonicalMeasurementAssignments(supabase, contexts, submitted);
+  if (allowAdminThirdAssignment && session.role !== "관리자") {
+    return NextResponse.json({
+      error: "측정자 1인 3건 배정은 관리자 직접 예외만 허용됩니다.",
+      code: "MEASUREMENT_ASSIGNMENT_ADMIN_EXCEPTION_REQUIRED",
+    }, { status: 403 });
+  }
+  const canonicalResult = await recomputeCanonicalMeasurementAssignments(
+    supabase,
+    contexts,
+    submitted,
+    allowAdminThirdAssignment,
+  );
   if (canonicalResult.schemaMissing) {
     return NextResponse.json({
       error: "측정자·공시료 배정 스키마가 아직 적용되지 않았습니다. 마이그레이션 적용 후 새 추천안을 생성해 주세요.",
@@ -710,7 +729,7 @@ async function applySubmittedDrafts(
     p_assignments: assignmentPayload,
     p_assignment_baseline: canonicalResult.baseline,
     p_approve_third_assignment: approveThirdAssignment,
-    p_approved_by_user_id: approveThirdAssignment ? approvedByUserId : null,
+    p_approved_by_user_id: approveThirdAssignment ? session.userId : null,
   });
   if (error) {
     if (isMeasurementAssignmentSchemaMissing(error)) {
@@ -734,7 +753,7 @@ async function applySubmittedDrafts(
 
 export async function GET(request: NextRequest) {
   try {
-    await requireSurveyAccess();
+    const session = await requireSurveyAccess();
     const params = new URL(request.url).searchParams;
     const year = Number(params.get("year") || new Date().getFullYear());
     const period = params.get("period") || "";
@@ -778,10 +797,18 @@ export async function GET(request: NextRequest) {
     // fallback 저장을 허용하지 않고 새 원자 RPC를 요구한다.
     const { data: assignmentRows, error: assignmentError } = targetIds.length
       ? await supabase.from("preliminary_survey_v2_measurement_assignments").select(
-        "id, plan_id, measurement_date, assignee_user_id, survey_code, approval_required",
+        "id, plan_id, measurement_date, assignee_user_id, survey_code, approval_required, approved_by_user_id, approved_at",
       )
       : { data: [], error: null };
     if (assignmentError && !isMeasurementAssignmentSchemaMissing(assignmentError)) throw assignmentError;
+
+    const { data: exceptionAuditRows, error: exceptionAuditError } = targetIds.length
+      ? await supabase.from("preliminary_survey_v2_measurement_assignment_exception_audit")
+        .select("measurement_target_business_ids, approved_by_user_id, applied_at, after_survey_codes")
+        .overlaps("measurement_target_business_ids", targetIds)
+        .order("applied_at", { ascending: false })
+      : { data: [], error: null };
+    if (exceptionAuditError && !isMeasurementAssignmentExceptionAuditSchemaMissing(exceptionAuditError)) throw exceptionAuditError;
 
     // 배포와 migration의 순서를 분리하기 위해 신규 snapshot table이 아직 없으면 live fallback만 유지한다.
     const { data: reconciliationRows, error: reconciliationError } = targetIds.length
@@ -822,6 +849,15 @@ export async function GET(request: NextRequest) {
       const targetId = planTargetById.get(String(assignment.plan_id));
       if (targetId == null) continue;
       assignmentsByTarget.set(targetId, [...(assignmentsByTarget.get(targetId) ?? []), assignment]);
+    }
+    const exceptionAuditByTargetId = new Map<number, any>();
+    for (const audit of exceptionAuditRows ?? []) {
+      for (const targetId of Array.isArray(audit.measurement_target_business_ids) ? audit.measurement_target_business_ids : []) {
+        const normalizedTargetId = Number(targetId);
+        if (Number.isInteger(normalizedTargetId) && !exceptionAuditByTargetId.has(normalizedTargetId)) {
+          exceptionAuditByTargetId.set(normalizedTargetId, audit);
+        }
+      }
     }
     const confirmedKeys = new Set((journals ?? []).map((row: any) =>
       journalKey(row.code, row.measurement_year, row.measurement_period),
@@ -918,6 +954,7 @@ export async function GET(request: NextRequest) {
             ? "기존업체"
             : v2BusinessKindLabel(plan?.source_rule_type ?? target.preliminary_survey_rule_type ?? "existing", plan?.recommendation_reason ?? null);
       const persistedAssignment: any = assignmentByTargetDate.get(`${Number(target.id)}|${String(target.measurement_date)}`) ?? null;
+      const exceptionAudit = exceptionAuditByTargetId.get(Number(target.id)) ?? null;
       const legacyMeasurementPublicSample = legacyMeasurementPublicSampleForTarget({
         code: String(target.code ?? ""), year: Number(target.year), period: String(target.period ?? ""),
         measurementDate: String(target.measurement_date ?? ""),
@@ -950,6 +987,12 @@ export async function GET(request: NextRequest) {
         surveyMethod: plan?.survey_method ?? (kind === "기존업체" ? "phone" : "field"),
         mainMeasurer: measurementAssigneeDisplay.label,
         mainMeasurerSource: measurementAssigneeDisplay.source,
+        measurementAssignmentApprovalRequired: persistedAssignment?.approval_required === true,
+        measurementAssignmentApprovalAudit: exceptionAudit
+          ? `승인자 ID ${exceptionAudit.approved_by_user_id ?? "-"} · ${exceptionAudit.applied_at ?? "승인시각 없음"} · ${JSON.stringify(exceptionAudit.after_survey_codes ?? [])}`
+          : persistedAssignment?.approval_required === true
+            ? `승인자 ID ${persistedAssignment.approved_by_user_id ?? "-"} · ${persistedAssignment.approved_at ?? "승인시각 없음"}`
+            : null,
         measurementParticipants: staff.measurementParticipants,
         reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",
         status: presentationState.status,
@@ -969,7 +1012,13 @@ export async function GET(request: NextRequest) {
         ) ? "history" : null,
       };
     });
-    return NextResponse.json({ rows, users: operationalUsers, year, period });
+    return NextResponse.json({
+      rows,
+      users: operationalUsers,
+      year,
+      period,
+      canApproveThirdAssignment: session.role === "관리자",
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "WORKBENCH_QUERY_FAILED";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 500 });
@@ -988,12 +1037,19 @@ export async function POST(request: NextRequest) {
       return applySubmittedDrafts(
         supabase,
         Array.isArray(body.drafts) ? body.drafts : [],
+        body.allowAdminThirdAssignment === true,
         body.approveThirdAssignment === true,
-        session.userId,
+        session,
       );
     }
     if (body.action !== "recommend") {
       return NextResponse.json({ error: "지원하지 않는 작업입니다." }, { status: 400 });
+    }
+    if (body.allowAdminThirdAssignment === true && session.role !== "관리자") {
+      return NextResponse.json({
+        error: "측정자 1인 3건 배정은 관리자 직접 예외만 허용됩니다.",
+        code: "MEASUREMENT_ASSIGNMENT_ADMIN_EXCEPTION_REQUIRED",
+      }, { status: 403 });
     }
     if (!Array.isArray(body.targetIds) || body.targetIds.length === 0) {
       return NextResponse.json({ error: "추천할 사업장을 선택해 주세요." }, { status: 400 });
@@ -1276,7 +1332,7 @@ export async function POST(request: NextRequest) {
       const target = output.targets.find((item) => item.id === result.targetId)!;
       return buildMeasurementAssignmentTargets({
         target,
-        preliminarySurveyorUserId: result.responsible.id,
+        preliminarySurveyorUserIds: result.participants.map((user) => user.id),
       });
     });
     const assigneeBlockKeys = await loadScheduleBlockKeys(
@@ -1302,6 +1358,7 @@ export async function POST(request: NextRequest) {
       existing: existingMeasurementAssignments,
       routeEvidence: measurementRouteEvidence,
       availability: { isBlocked: (userId, date) => assigneeBlockKeys.has(`${userId}:${date}`) },
+      allowAdminThirdAssignment: body.allowAdminThirdAssignment === true,
     });
     const measurementAssignmentByTarget = new Map<number, typeof measurementAssignments>();
     for (const assignment of measurementAssignments) {

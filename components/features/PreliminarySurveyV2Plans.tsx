@@ -69,6 +69,7 @@ interface WorkbenchRow {
   measurementAssigneeName?: string;
   publicSampleCode?: string;
   measurementAssignmentApprovalRequired?: boolean;
+  measurementAssignmentApprovalAudit?: string | null;
   /** 서버 재추천 전체 snapshot hash. apply 시 임의 수정 draft를 거부한다. */
   canonicalFingerprint?: string;
   recommendationScope?: RecommendationScopeSnapshot;
@@ -91,6 +92,12 @@ interface SurveyUser {
   name: string;
   is_active: boolean;
   is_preliminary_survey_experienced: boolean;
+}
+
+interface MeasurementSourceRepairSnapshot {
+  measurementDate: string;
+  participantUserIds: number[];
+  reportWriterUserId: number | null;
 }
 
 interface ListSearchSnapshot {
@@ -237,6 +244,16 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [editDate, setEditDate] = useState("");
   const [editMethod, setEditMethod] = useState<"field" | "phone">("field");
   const [editParticipants, setEditParticipants] = useState<number[]>([]);
+  const [canApproveThirdAssignment, setCanApproveThirdAssignment] = useState(false);
+  const [requestThirdAssignmentException, setRequestThirdAssignmentException] = useState(false);
+  const [measurementSourceRepairOpen, setMeasurementSourceRepairOpen] = useState(false);
+  const [measurementSourceRepairSnapshots, setMeasurementSourceRepairSnapshots] = useState<MeasurementSourceRepairSnapshot[]>([]);
+  const [repairMeasurementDate, setRepairMeasurementDate] = useState("");
+  const [repairParticipants, setRepairParticipants] = useState(false);
+  const [repairParticipantUserIds, setRepairParticipantUserIds] = useState<number[]>([]);
+  const [repairReportWriter, setRepairReportWriter] = useState(false);
+  const [repairReportWriterUserId, setRepairReportWriterUserId] = useState<number | null>(null);
+  const [repairReason, setRepairReason] = useState("");
   const [filtersReady, setFiltersReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -317,6 +334,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       if (!response.ok) throw new Error(result.error || "예비조사 통합 현황 조회 실패");
       setRows(result.rows || []);
       setUsers(result.users || []);
+      setCanApproveThirdAssignment(result.canApproveThirdAssignment === true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "예비조사 통합 현황 조회 실패");
     } finally {
@@ -503,6 +521,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           explicitTargetSelection: Boolean(targetId) || selectedTargetIds.size > 0,
           measurementDateFrom: planSearchSnapshot.measurementDateFrom || undefined,
           measurementDateTo: planSearchSnapshot.measurementDateTo || undefined,
+          allowAdminThirdAssignment: requestThirdAssignmentException,
         }),
       });
       const result = await response.json();
@@ -568,7 +587,12 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       const send = (approveThirdAssignment: boolean) => fetch("/api/preliminary-survey-v2/workbench", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "apply", drafts: targetIds.map((id) => drafts.get(id)), approveThirdAssignment }),
+        body: JSON.stringify({
+          action: "apply",
+          drafts: targetIds.map((id) => drafts.get(id)),
+          allowAdminThirdAssignment: requestThirdAssignmentException,
+          approveThirdAssignment,
+        }),
       });
       let response = await send(false);
       let result = await response.json();
@@ -622,6 +646,14 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     setEditDate(row.preliminaryDate || "");
     setEditMethod(row.surveyMethod);
     setEditParticipants(users.filter((user) => row.surveyors.includes(user.name)).map((user) => user.id));
+    setMeasurementSourceRepairOpen(false);
+    setMeasurementSourceRepairSnapshots([]);
+    setRepairMeasurementDate("");
+    setRepairParticipants(false);
+    setRepairParticipantUserIds([]);
+    setRepairReportWriter(false);
+    setRepairReportWriterUserId(null);
+    setRepairReason("");
   };
 
   const saveManual = async () => {
@@ -710,6 +742,77 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       await loadRows();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "정책 repair 저장 실패");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const selectedMeasurementSource = measurementSourceRepairSnapshots
+    .find((item) => item.measurementDate === repairMeasurementDate) ?? null;
+
+  const openMeasurementSourceRepair = async () => {
+    if (!selected) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/preliminary-survey-v2/measurement-source-repair?targetId=${selected.targetId}`, { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "측정 원천 조회 실패");
+      const snapshots = Array.isArray(result.sources) ? result.sources as MeasurementSourceRepairSnapshot[] : [];
+      if (!snapshots.length) throw new Error("측정 원천 날짜가 없습니다.");
+      const first = snapshots[0];
+      setMeasurementSourceRepairSnapshots(snapshots);
+      setRepairMeasurementDate(first.measurementDate);
+      setRepairParticipantUserIds(first.participantUserIds);
+      setRepairReportWriterUserId(first.reportWriterUserId);
+      setMeasurementSourceRepairOpen(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "측정 원천 조회 실패");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const changeRepairMeasurementDate = (measurementDate: string) => {
+    const snapshot = measurementSourceRepairSnapshots.find((item) => item.measurementDate === measurementDate);
+    setRepairMeasurementDate(measurementDate);
+    setRepairParticipantUserIds(snapshot?.participantUserIds ?? []);
+    setRepairReportWriterUserId(snapshot?.reportWriterUserId ?? null);
+  };
+
+  const saveMeasurementSourceRepair = async () => {
+    if (!selected || !repairMeasurementDate || (!repairParticipants && !repairReportWriter)) return;
+    if (!repairReason.trim()) {
+      setError("측정 원천 repair 사유를 입력해 주세요.");
+      return;
+    }
+    const fields = [repairParticipants ? "측정 참여자" : null, repairReportWriter ? "보고서 담당자" : null]
+      .filter((field): field is string => Boolean(field));
+    if (!window.confirm(`${selected.businessName} ${repairMeasurementDate}의 ${fields.join("·")}만 보정하시겠습니까?\n예비조사자와 측정자(공시료), 측정일지는 변경하지 않습니다.`)) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/preliminary-survey-v2/measurement-source-repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetId: selected.targetId,
+          measurementDate: repairMeasurementDate,
+          repairParticipants,
+          participantUserIds: repairParticipantUserIds,
+          repairReportWriter,
+          reportWriterUserId: repairReportWriterUserId,
+          reason: repairReason.trim(),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || "측정 원천 repair 저장 실패");
+      setMeasurementSourceRepairOpen(false);
+      setSelected(null);
+      setNotice(`${(result.repairedFields || []).join("·")} 원천만 보정하고 감사기록을 남겼습니다.`);
+      await loadRows();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "측정 원천 repair 저장 실패");
     } finally {
       setWorking(false);
     }
@@ -808,6 +911,13 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               {isPlanSearchDirty && <span className="shrink-0 text-amber-700">검색어 변경 · 검색 필요</span>}
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 shrink-0 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
               <div className="ml-auto flex shrink-0 gap-2">
+                {canApproveThirdAssignment && <label className="flex h-9 items-center gap-1 whitespace-nowrap text-xs text-amber-800">
+                  <input type="checkbox" checked={requestThirdAssignmentException} onChange={(event) => {
+                    invalidateDrafts("관리자 3건 예외 검토 조건이 변경되어 새 추천이 필요합니다.");
+                    setRequestThirdAssignmentException(event.target.checked);
+                  }} />
+                  관리자 CCC 예외 검토
+                </label>}
                 <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => requestRecommendation()} disabled={working || isPlanSearchDirty}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
                 <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")} disabled={isPlanSearchDirty}>대안 보기</Button>
                 <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={applyDrafts} disabled={working || isPlanSearchDirty || applicableDraftCount === 0 || draftScope !== currentScope}>추천안 적용</Button>
@@ -876,12 +986,26 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <div>측정 참여자: <strong>{selected.measurementParticipants || "-"}</strong></div>
             <div>보고서 담당자: <strong>{selected.reportWriter || "-"}</strong></div>
           </div>
+          {selected.measurementAssignmentApprovalAudit && <Alert variant="warning">공시료 3건 관리자 예외 기록: {selected.measurementAssignmentApprovalAudit}</Alert>}
           {selected.alternatives && selected.alternatives.length > 0 && <div className="rounded-lg border border-surface-200 p-3 text-sm"><strong>대안 후보일</strong><div className="mt-1">{selected.alternatives.join(" · ")}</div></div>}
           <Input label="예비조사일" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} disabled={selected.locked} />
           <label className="block text-sm font-medium text-text-700">방식
             <select value={editMethod} onChange={(event) => setEditMethod(event.target.value as "field" | "phone")} disabled={selected.locked} className="mt-1 block h-10 w-full rounded-md border border-surface-300 bg-white px-3"><option value="field">방문</option><option value="phone">유선</option></select>
           </label>
           <fieldset disabled={selected.locked}><legend className="mb-2 text-sm font-medium text-text-700">예비조사자</legend><div className="grid grid-cols-2 gap-2">{users.filter((user) => user.is_active).map((user) => <label key={user.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editParticipants.includes(user.id)} onChange={() => setEditParticipants((current) => current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id])} />{user.name}{user.is_preliminary_survey_experienced ? " (경력)" : ""}</label>)}</div></fieldset>
+          <div className="rounded-lg border border-surface-200 p-3">
+            <div className="flex items-center justify-between gap-2"><div><strong className="text-sm">측정 원천 repair</strong><p className="text-xs text-text-500">측정 참여자와 보고서 담당자를 독립적으로 최소 보정합니다.</p></div><Button size="sm" variant="secondary" onClick={openMeasurementSourceRepair} disabled={working}>원천 보정</Button></div>
+            {measurementSourceRepairOpen && <div className="mt-3 space-y-3 border-t border-surface-100 pt-3">
+              <label className="block text-sm font-medium text-text-700">측정일<select value={repairMeasurementDate} onChange={(event) => changeRepairMeasurementDate(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">{measurementSourceRepairSnapshots.map((snapshot) => <option key={snapshot.measurementDate} value={snapshot.measurementDate}>{snapshot.measurementDate}</option>)}</select></label>
+              <label className="flex items-center gap-2 text-sm font-medium text-text-700"><input type="checkbox" checked={repairParticipants} onChange={(event) => setRepairParticipants(event.target.checked)} />측정 참여자 보정</label>
+              {repairParticipants && <div className="grid grid-cols-2 gap-2">{users.filter((user) => user.is_active).map((user) => <label key={user.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={repairParticipantUserIds.includes(user.id)} onChange={() => setRepairParticipantUserIds((current) => current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id])} />{user.name}</label>)}</div>}
+              <label className="flex items-center gap-2 text-sm font-medium text-text-700"><input type="checkbox" checked={repairReportWriter} onChange={(event) => setRepairReportWriter(event.target.checked)} />보고서 담당자 보정</label>
+              {repairReportWriter && <label className="block text-sm font-medium text-text-700">보고서 담당자<select value={repairReportWriterUserId ?? ""} onChange={(event) => setRepairReportWriterUserId(event.target.value ? Number(event.target.value) : null)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm"><option value="">선택</option>{users.filter((user) => user.is_active).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>}
+              <Input label="보정 사유" value={repairReason} onChange={(event) => setRepairReason(event.target.value)} placeholder="예: H0038 현재 측정 참여자 원천 정정" />
+              <div className="text-xs text-text-500">현재 선택: 참여자 {selectedMeasurementSource?.participantUserIds.length ?? 0}명 · 보고서 담당자 {selectedMeasurementSource?.reportWriterUserId ?? "-"}</div>
+              <div className="flex justify-end"><Button size="sm" onClick={saveMeasurementSourceRepair} disabled={working || (!repairParticipants && !repairReportWriter) || !repairReason.trim()}>원천 repair 저장</Button></div>
+            </div>}
+          </div>
           {selected.locked && <Alert variant="warning">유효한 측정일지가 있어 찐확정된 업체입니다. 일반 수정과 자동추천이 차단됩니다.</Alert>}
           <div className="flex justify-end gap-2">
             <div className="flex justify-end gap-2">

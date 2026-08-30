@@ -144,7 +144,7 @@ export async function runReplay(): Promise<{ comparable: ReplayComparableResult[
   const assignmentTargets = output.results.flatMap((result: any) => {
     const target: any = targetById.get(result.targetId);
     if (!target || result.status !== "recommended") return [];
-    return buildMeasurementAssignmentTargets({ target, preliminarySurveyorUserId: result.responsible.id });
+    return buildMeasurementAssignmentTargets({ target, preliminarySurveyorUserIds: result.participants.map((user) => user.id) });
   });
   const users = cleanInput.users.map((user: any) => ({
     id: Number(user.id), name: user.name, surveyCode: user.surveyCode, active: user.active,

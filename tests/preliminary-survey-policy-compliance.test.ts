@@ -75,3 +75,37 @@ test("공시료 반복 코드는 A/AA와 관리자 CCC 예외를 서버 persiste
   assert.match(migration, /MEASUREMENT_ASSIGNMENT_ADMIN_EXCEPTION_REQUIRED/);
   assert.match(migration, /target_plan\.measurement_target_business_id IN \(SELECT target_id FROM affected_targets\)/);
 });
+
+test("CCC 예외와 측정 원천 repair는 관리자 UI·서버 검증·최소 audit 경계를 함께 둔다", () => {
+  const workbench = read("app/api/preliminary-survey-v2/workbench/route.ts");
+  const plansUi = read("components/features/PreliminarySurveyV2Plans.tsx");
+  const sourceRepair = read("app/api/preliminary-survey-v2/measurement-source-repair/route.ts");
+  const sourceRepairMigration = read("supabase/migrations/20260830152000_add_preliminary_survey_measurement_source_repair.sql");
+  const preservationMigration = read("supabase/migrations/20260830153000_preserve_measurement_source_repair_plans.sql");
+  const publicSampleMigration = read("supabase/migrations/20260830151000_preliminary_survey_repeat_public_sample_codes.sql");
+
+  assert.match(plansUi, /관리자 CCC 예외 검토/);
+  assert.match(plansUi, /allowAdminThirdAssignment/);
+  assert.match(plansUi, /공시료 3건 관리자 예외 기록/);
+  assert.match(workbench, /allowAdminThirdAssignment && session\.role !== "관리자"/);
+  assert.match(workbench, /canApproveThirdAssignment: session\.role === "관리자"/);
+  assert.match(workbench, /approved_by_user_id, approved_at/);
+  assert.match(sourceRepair, /export async function GET/);
+  assert.match(sourceRepair, /repairParticipants/);
+  assert.match(sourceRepair, /repairReportWriter/);
+  assert.match(sourceRepairMigration, /p_repair_participants boolean/);
+  assert.match(sourceRepairMigration, /p_repair_report_writer boolean/);
+  assert.match(sourceRepairMigration, /preliminary_survey_v2_measurement_source_repair_audit/);
+  assert.match(sourceRepairMigration, /MEASUREMENT_SOURCE_REPAIR_PLAN_ASSIGNMENT_CHANGED/);
+  assert.match(sourceRepairMigration, /'plan_digest'/);
+  assert.match(sourceRepairMigration, /'assignment_digest'/);
+  assert.match(sourceRepairMigration, /to_jsonb\(plan\)::text/);
+  assert.match(sourceRepairMigration, /to_jsonb\(assignment\)::text/);
+  assert.match(preservationMigration, /app\.preliminary_survey_measurement_source_repair/);
+  assert.match(preservationMigration, /NEW\.measurement_date IS NOT DISTINCT FROM OLD\.measurement_date/);
+  assert.match(preservationMigration, /AFTER DELETE OR UPDATE OF measurement_date, assignee_user_id/);
+  assert.match(preservationMigration, /old_measurement_date/);
+  assert.match(publicSampleMigration, /max\(assignment\.approved_at\) AS approved_at/);
+  assert.match(publicSampleMigration, /previousAssignments/);
+  assert.match(publicSampleMigration, /final_groups\.approved_at::text/);
+});
