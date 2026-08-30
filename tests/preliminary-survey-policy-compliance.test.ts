@@ -83,7 +83,7 @@ test("CCC 예외와 측정 원천 repair는 관리자 UI·서버 검증·최소 
   const sourceRepair = read("app/api/preliminary-survey-v2/measurement-source-repair/route.ts");
   const sourceRepairMigration = read("supabase/migrations/20260830152000_add_preliminary_survey_measurement_source_repair.sql");
   const preservationMigration = read("supabase/migrations/20260830153000_preserve_measurement_source_repair_plans.sql");
-  const auditPermissionMigration = read("supabase/migrations/20260830124455_enforce_preliminary_survey_repair_audit_append_only.sql");
+  const auditPermissionMigration = read("supabase/migrations/20260830154000_enforce_preliminary_survey_repair_audit_append_only.sql");
   const publicSampleMigration = read("supabase/migrations/20260830151000_preliminary_survey_repeat_public_sample_codes.sql");
 
   assert.match(plansUi, /관리자 CCC 예외 검토/);
