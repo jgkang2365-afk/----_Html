@@ -185,7 +185,10 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const selectedUserIds = [...new Set([...participantUserIds, linkMeasurerId])];
+    const selectedUserIds = [...new Set<number>([
+      ...participantUserIds.map(Number),
+      Number(linkMeasurerId),
+    ])].filter(Number.isInteger);
     const { data: selectedUsers, error: selectedUserError } = await supabase
       .from("users")
       .select("id, job, is_active")
