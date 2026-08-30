@@ -229,17 +229,24 @@ test("Apply canonical E2E: 원천이 같으면 검토 draft를 그대로 적용�
     "실제 역할 원천이 바뀌면 기존 stale draft 재검토 안전장치가 유지되어야 한다");
 });
 
-test("8개 업체는 2/2/1/1/1/1로 자동 배정하고 별도 3건째는 승인을 요구한다", () => {
+test("8개 업체는 2/2/1/1/1/1로 자동 배정하고 3건째 자동 생성은 차단한다", () => {
   const result = assignMeasurementAssignees({ targets: Array.from({ length: 8 }, (_, index) => target(index + 1)), users });
   const counts = users.map((user) => result.filter((item) => item.userId === user.id).length).sort((a, b) => b - a);
   assert.deepEqual(counts, [2, 2, 1, 1, 1, 1]);
   assert.equal(result.some((item) => item.approvalRequired), false);
-  const overflow = assignMeasurementAssignees({ targets: [target(20)], users, existing: users.flatMap((user, index) => [
+  assert.throws(() => assignMeasurementAssignees({ targets: [target(20)], users, existing: users.flatMap((user, index) => [
     { ...target(100 + index), userId: user.id }, { ...target(200 + index), userId: user.id },
-  ]) });
-  assert.equal(overflow[0].dailyCount, 3);
-  assert.equal(overflow[0].approvalRequired, true);
-  assert.equal(overflow[0].reason, "3건 승인 필요");
+  ]) }), MeasurementAssignmentDailyLimitError);
+});
+
+test("관리자 명시 예외에서만 3번째 공시료 코드를 CCC로 부여한다", () => {
+  const [result] = assignMeasurementAssignees({
+    targets: [target(20)], users: [users[2]],
+    existing: [1, 2].map((id) => ({ ...target(100 + id), userId: users[2].id })),
+    allowAdminThirdAssignment: true,
+  });
+  assert.equal(result.publicSampleCode, "CCC");
+  assert.equal(result.approvalRequired, true);
 });
 
 test("같은 측정일 측정자 4건째는 승인 여부와 무관하게 planner에서 차단한다", () => {

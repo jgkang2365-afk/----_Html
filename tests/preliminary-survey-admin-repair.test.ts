@@ -19,14 +19,14 @@ const users = [
 ];
 
 // ===== 권한 =====
-test("관리자 예외 정비 API는 일반 사용자(POST)를 거부한다", () => {
-  assert.match(apiSource, /session\.role !== "관리자"/);
-  assert.match(apiSource, /관리자만 예비조사 예외 정비를 수행할 수 있습니다/);
+test("관리자 예외 정비 API는 일반 사용자를 거부하고 예비조사 담당자 권한을 서버에서 확인한다", () => {
+  assert.match(apiSource, /canManagePreliminarySurvey\(supabase, session\)/);
+  assert.match(apiSource, /예비조사 담당자 또는 관리자만 예비조사 예외 정비를 수행할 수 있습니다/);
 });
 
-test("관리자 예외 정비 API는 GET 비교 정보도 관리자 전용이다", () => {
+test("관리자 예외 정비 API는 GET 비교 정보도 예비조사 담당자 또는 관리자 전용이다", () => {
   assert.match(apiSource, /function adminGuard/);
-  assert.match(apiSource, /adminGuard\(session\)/);
+  assert.match(apiSource, /adminGuard\(supabase, session\)/);
 });
 
 test("UI: 수정 모달의 '연결 정비' 진입점은 제거됐다 (Phase A, 관리자 정비는 별도 모달/예비조사 영역)", () => {

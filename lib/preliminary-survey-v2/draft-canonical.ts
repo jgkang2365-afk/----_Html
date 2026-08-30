@@ -26,7 +26,7 @@ export interface CanonicalMeasurementAssignmentDraft {
   measurementDate: string;
   userId: number;
   userName: string;
-  surveyCode: "A" | "B" | "C" | "D" | "F" | "G";
+  surveyCode: "A" | "B" | "C" | "D" | "F" | "G" | "AA" | "BB" | "CC" | "DD" | "FF" | "GG" | "AAA" | "BBB" | "CCC" | "DDD" | "FFF" | "GGG";
   approvalRequired: boolean;
   reason: string;
 }

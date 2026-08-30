@@ -15,6 +15,7 @@ import {
 } from "@/lib/preliminary-survey-v2/recommendation-range";
 import {
   collectWorkbenchRecommendationTargetIds,
+  matchesAnyMeasurementDateRange,
   matchesMeasurementDateRange,
   matchesWorkbenchSearch,
 } from "@/lib/preliminary-survey-v2/workbench-search";
@@ -52,6 +53,7 @@ interface WorkbenchRow {
   address?: string | null;
   kind: string;
   measurementDate: string | null;
+  measurementDates?: string[];
   preliminaryDate: string | null;
   surveyors: string[];
   participantUserIds?: number[];
@@ -79,6 +81,8 @@ interface WorkbenchRow {
   alternatives?: string[];
   hasPersistedPlan?: boolean;
   locked?: boolean;
+  policyDateRepairRequired?: boolean;
+  policyDateIssues?: string[];
   deleteProtectionReason?: "history" | null;
 }
 
@@ -339,7 +343,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     (!activeStatusFilter || row.status === activeStatusFilter) &&
     (!activeKindFilter || row.kind === activeKindFilter) &&
     (!activePreliminaryDateFilter || row.preliminaryDate === activePreliminaryDateFilter) &&
-    matchesMeasurementDateRange(row.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo) &&
+    (matchesMeasurementDateRange(row.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo) ||
+      matchesAnyMeasurementDateRange(row.measurementDates ?? [], activeMeasurementDateFrom, activeMeasurementDateTo)) &&
     (!activeMethodFilter || row.surveyMethod === activeMethodFilter),
   ), [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, rows]);
 
@@ -675,6 +680,41 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     }
   };
 
+  const repairConfirmedPolicyDate = async () => {
+    if (!selected?.locked || !selected.policyDateRepairRequired) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const previewResponse = await fetch("/api/preliminary-survey-v2/policy-repair", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", targetId: selected.targetId }),
+      });
+      const preview = await previewResponse.json();
+      if (!previewResponse.ok) throw new Error(preview.error || "정책 repair 검토 실패");
+      const candidateDates = Array.isArray(preview.candidateDates) ? preview.candidateDates as string[] : [];
+      const recommendedDate = window.prompt(
+        `현재 예비조사일: ${preview.currentRecommendedDate || "-"}\n정책 후보: ${candidateDates.join(", ")}`,
+        candidateDates[0] || "",
+      );
+      if (recommendedDate == null) return;
+      const reason = window.prompt("정책 repair 사유를 입력해 주세요.", "예비조사일 운영지침 불일치 보정");
+      if (reason == null) return;
+      const applyResponse = await fetch("/api/preliminary-survey-v2/policy-repair", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "apply", targetId: selected.targetId, recommendedDate, reason }),
+      });
+      const applied = await applyResponse.json();
+      if (!applyResponse.ok) throw new Error(applied.error || "정책 repair 저장 실패");
+      setSelected(null);
+      setNotice("찐확정 예비조사일 정책 repair를 기록했습니다. 측정일지와 다른 역할 원천은 변경하지 않았습니다.");
+      await loadRows();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "정책 repair 저장 실패");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const deletePlan = async (row: WorkbenchRow) => {
     if (!row.hasPersistedPlan || row.locked || row.deleteProtectionReason) return;
     const confirmed = window.confirm(
@@ -846,6 +886,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           <div className="flex justify-end gap-2">
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => requestRecommendation(selected.targetId)} disabled={working || selected.locked}>이 업체 재추천</Button>
+              {selected.policyDateRepairRequired && <Button variant="secondary" onClick={repairConfirmedPolicyDate} disabled={working || !selected.locked}>날짜 repair</Button>}
               <Button onClick={saveManual} disabled={working || selected.locked || !editDate || editParticipants.length === 0}>수동 저장</Button>
             </div>
           </div>

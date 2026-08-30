@@ -1,12 +1,13 @@
 import type { Availability, Coordinate, ExistingAssignment, RouteMetrics, SurveyTarget } from "./types";
 
-export type SurveyCode = "A" | "B" | "C" | "D" | "F" | "G";
+export type BaseSurveyCode = "A" | "B" | "C" | "D" | "F" | "G";
+export type SurveyCode = BaseSurveyCode | "AA" | "BB" | "CC" | "DD" | "FF" | "GG" | "AAA" | "BBB" | "CCC" | "DDD" | "FFF" | "GGG";
 
 export interface MeasurementAssigneeUser {
   id: number;
   name: string;
   /** users.survey_code가 공시료 코드의 유일한 원천이다. */
-  surveyCode: SurveyCode | null;
+  surveyCode: BaseSurveyCode | null;
   active?: boolean;
 }
 
@@ -73,7 +74,7 @@ export interface MeasurementAssignmentResult {
   publicSampleCode: SurveyCode;
   dailyCount: number;
   approvalRequired: boolean;
-  reason: "측정자 균등배정" | "동일주소 묶음" | "근거리 묶음" | "2건 배정" | "3건 승인 필요";
+  reason: "측정자 균등배정" | "동일주소 묶음" | "근거리 묶음" | "2건 배정" | "관리자 3건 예외";
 }
 
 export const MEASUREMENT_ASSIGNMENT_CAPACITY_CODE = "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED";
@@ -96,7 +97,7 @@ function normalizedAddress(value: string | null) {
   return String(value ?? "").replace(/\s+/g, "").trim();
 }
 
-function isSurveyCode(value: string | null): value is SurveyCode {
+function isSurveyCode(value: string | null): value is BaseSurveyCode {
   return value === "A" || value === "B" || value === "C" || value === "D" || value === "F" || value === "G";
 }
 
@@ -185,9 +186,11 @@ export function assignMeasurementAssignees(input: {
   routeEvidence?: MeasurementVehicleRouteEvidence[];
   /** 직원 제외 일정은 측정자·공시료 배정에서도 예외 없는 hard constraint다. */
   availability?: Availability;
+  /** CCC는 자동 추천이 아니라 관리자가 직접 판단하는 예외 경로에서만 사용한다. */
+  allowAdminThirdAssignment?: boolean;
 }): MeasurementAssignmentResult[] {
   const users = input.users
-    .filter((user): user is MeasurementAssigneeUser & { surveyCode: SurveyCode } =>
+    .filter((user): user is MeasurementAssigneeUser & { surveyCode: BaseSurveyCode } =>
       user.active !== false && isSurveyCode(user.surveyCode),
     )
     .sort((left, right) => left.surveyCode.localeCompare(right.surveyCode) || left.id - right.id);
@@ -259,7 +262,7 @@ export function assignMeasurementAssignees(input: {
     const unassigned = availableUsers.filter((user) => count(user.id) === 0);
     let candidates = plannedFirstCycleUser ? [plannedFirstCycleUser]
       : unassigned.length ? unassigned : availableUsers.filter((user) => count(user.id) < 2);
-    if (!candidates.length) candidates = availableUsers.filter((user) => count(user.id) < 3);
+    if (!candidates.length && input.allowAdminThirdAssignment) candidates = availableUsers.filter((user) => count(user.id) < 3);
 
     const exactAddressUsers = new Set(sameDate
       .filter((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address))
@@ -281,6 +284,9 @@ export function assignMeasurementAssignees(input: {
       throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, 0);
     }
     const nextCount = count(selected.id) + 1;
+    if (nextCount > 2 && !input.allowAdminThirdAssignment) {
+      throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, selected.id);
+    }
     if (nextCount > 3) {
       throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, selected.id);
     }
@@ -288,7 +294,7 @@ export function assignMeasurementAssignees(input: {
     const hasVehicleRoute = Number.isFinite(shortestVehicleRoute(selected.id));
     const approvalRequired = nextCount >= 3;
     const reason: MeasurementAssignmentResult["reason"] = approvalRequired
-      ? "3건 승인 필요"
+      ? "관리자 3건 예외"
       : exactAddress ? "동일주소 묶음"
         : hasVehicleRoute && nextCount > 1 ? "근거리 묶음"
           : nextCount > 1 ? "2건 배정" : "측정자 균등배정";
@@ -298,7 +304,7 @@ export function assignMeasurementAssignees(input: {
       measurementDate: target.measurementDate,
       userId: selected.id,
       userName: selected.name,
-      publicSampleCode: selected.surveyCode,
+      publicSampleCode: selected.surveyCode.repeat(nextCount) as SurveyCode,
       dailyCount: nextCount,
       approvalRequired,
       reason,

@@ -20,6 +20,7 @@ import {
   MeasurementAssignmentDailyLimitError,
   type ExistingMeasurementAssignment,
   type MeasurementAssignmentTarget,
+  type BaseSurveyCode,
   type SurveyCode,
 } from "@/lib/preliminary-survey-v2/measurement-assignment";
 import {
@@ -50,6 +51,10 @@ import { compareCanonicalTargetBusinesses } from "@/lib/business/target-business
 import { operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
 import { HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES } from "@/lib/preliminary-survey-v2/historical-plan-recovery";
 import { isActivePreliminarySurveyTarget } from "@/lib/business/target-business-form";
+import {
+  checkPreliminarySurveyDatePolicy,
+  preliminarySurveyDatePolicyMessage,
+} from "@/lib/preliminary-survey-v2/policy-compliance";
 
 export const dynamic = "force-dynamic";
 
@@ -148,8 +153,12 @@ function parseRecommendationScope(value: any): RecommendationScopeSnapshot | nul
   return result;
 }
 
-function isSurveyCode(value: unknown): value is SurveyCode {
+function isBaseSurveyCode(value: unknown): value is BaseSurveyCode {
   return value === "A" || value === "B" || value === "C" || value === "D" || value === "F" || value === "G";
+}
+
+function isAssignmentSurveyCode(value: unknown): value is SurveyCode {
+  return typeof value === "string" && /^([ABCDFG])\1{0,2}$/.test(value);
 }
 
 function measurementAssigneeLabel(name: unknown, surveyCode: unknown) {
@@ -168,7 +177,7 @@ function parseDraft(value: any): SubmittedDraft | null {
       if (!Number.isInteger(Number(assignment?.targetId)) ||
           !/^\d{4}-\d{2}-\d{2}$/.test(String(assignment?.measurementDate ?? "")) ||
           !Number.isInteger(Number(assignment?.userId)) || !String(assignment?.userName ?? "").trim() ||
-          !isSurveyCode(assignment?.surveyCode) || !String(assignment?.reason ?? "").trim()) return [];
+          !isAssignmentSurveyCode(assignment?.surveyCode) || !String(assignment?.reason ?? "").trim()) return [];
       return [{
         targetId: Number(assignment.targetId), measurementDate: String(assignment.measurementDate),
         userId: Number(assignment.userId), userName: String(assignment.userName), surveyCode: assignment.surveyCode,
@@ -358,7 +367,7 @@ async function recomputeCanonicalMeasurementAssignments(
     assignmentTargets.map((target) => target.measurementDate),
     operationalAssigneeUsers.map((user: any) => Number(user.id)),
   );
-  const assigneeCapacity = operationalAssigneeUsers.filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
+  const assigneeCapacity = operationalAssigneeUsers.filter((user: any) => isBaseSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
   const routeNeededDates = new Set(assigneeCapacity > 0 ? [...new Set(assignmentTargets.map((target) => target.measurementDate))].filter((date) =>
     assignmentTargets.filter((target) => target.measurementDate === date).length +
       existing.filter((target) => target.measurementDate === date).length > assigneeCapacity,
@@ -389,7 +398,7 @@ async function recomputeCanonicalMeasurementAssignments(
   const canonical = assignments.flatMap((assignment) => {
     const user: any = userById.get(assignment.userId);
     const surveyCode = String(user?.survey_code ?? "").trim().toUpperCase();
-    if (!isSurveyCode(surveyCode)) {
+    if (!isBaseSurveyCode(surveyCode)) {
       invalidSurveyCodeUserIds.push(assignment.userId);
       return [];
     }
@@ -398,7 +407,7 @@ async function recomputeCanonicalMeasurementAssignments(
       measurementDate: assignment.measurementDate,
       userId: assignment.userId,
       userName: assignment.userName,
-      surveyCode,
+      surveyCode: assignment.publicSampleCode,
       approvalRequired: assignment.approvalRequired,
       reason: assignment.reason,
     } satisfies CanonicalMeasurementAssignment];
@@ -647,10 +656,16 @@ async function applySubmittedDrafts(
     .some((fingerprint) => !canonicalResult.approvedGroupFingerprints.has(fingerprint));
   if (needsThirdAssignmentApproval && !approveThirdAssignment) {
     return NextResponse.json({
-      error: "측정자 1인 3건 배정이 포함되어 예비조사 담당자 또는 관리자 승인이 필요합니다.",
+      error: "측정자 1인 3건 배정은 자동 적용할 수 없습니다. 관리자 직접 예외로만 처리할 수 있습니다.",
       code: "MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED",
       approvalRequired: true,
     }, { status: 409 });
+  }
+  if (needsThirdAssignmentApproval && session.role !== "관리자") {
+    return NextResponse.json({
+      error: "측정자 1인 3건 배정은 관리자 직접 예외만 허용됩니다.",
+      code: "MEASUREMENT_ASSIGNMENT_ADMIN_EXCEPTION_REQUIRED",
+    }, { status: 403 });
   }
 
   const payload = submitted.map((draft, index) => {
@@ -873,9 +888,18 @@ export async function GET(request: NextRequest) {
         measurementScheduleBlocked,
         measurementRoleScheduleBlocked,
       });
+      const datePolicy = trueConfirmed ? checkPreliminarySurveyDatePolicy({
+        measurementDate: target.measurement_date,
+        preliminaryDate: plan?.recommended_date,
+        businessType: target.business_type,
+      }) : null;
+      const datePolicyWarning = datePolicy && !datePolicy.compliant
+        ? `예비조사일 정책 불일치 · ${preliminarySurveyDatePolicyMessage(datePolicy)}`
+        : null;
       const warnings = combineWorkbenchWarnings(
         presentationState.conflict,
         businessTypePlanMismatch ? "business_type 원천과 기존 V2 방식 불일치 · 수동 확인 필요" : null,
+        datePolicyWarning,
         reportWriterParticipationWarning({
           source: {
             dailyStaff: target.daily_staff,
@@ -920,6 +944,7 @@ export async function GET(request: NextRequest) {
         period: target.period,
         kind,
         measurementDate: target.measurement_date,
+        measurementDates: explicitMeasurementDates(target),
         preliminaryDate: plan?.recommended_date ?? null,
         surveyors: Array.isArray(plan?.participant_names) ? plan.participant_names : [],
         surveyMethod: plan?.survey_method ?? (kind === "기존업체" ? "phone" : "field"),
@@ -936,6 +961,8 @@ export async function GET(request: NextRequest) {
         planOrigin: plan?.plan_origin ?? null,
         hasPersistedPlan: Boolean(plan),
         locked: trueConfirmed,
+        policyDateRepairRequired: Boolean(datePolicy && !datePolicy.compliant),
+        policyDateIssues: datePolicy?.issues ?? [],
         needsManualReview: businessTypePlanMismatch,
         deleteProtectionReason: plan && (
           HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES.has(String(target.code)) || protectedPlanIds.has(String(plan.id))
@@ -1257,7 +1284,7 @@ export async function POST(request: NextRequest) {
       measurementAssignmentTargets.map((target) => target.measurementDate),
       operationalAssigneeUsers.map((user: any) => Number(user.id)),
     );
-    const assigneeCapacity = operationalAssigneeUsers.filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
+    const assigneeCapacity = operationalAssigneeUsers.filter((user: any) => isBaseSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
     const routeNeededDates = new Set(assigneeCapacity > 0 ? [...new Set(measurementAssignmentTargets.map((target) => target.measurementDate))].filter((date) =>
       measurementAssignmentTargets.filter((target) => target.measurementDate === date).length +
         existingMeasurementAssignments.filter((target) => target.measurementDate === date).length > assigneeCapacity,
@@ -1325,7 +1352,7 @@ export async function POST(request: NextRequest) {
           : measurementRoleConflict ? "측정일의 보고서 담당자 또는 측정 참여자 불가 일정 충돌"
           : assignmentIncomplete ? "다일 측정 날짜별 인력 정보 또는 측정자 배정 필요"
             : result.evidence.warnings.includes("EXPERIENCED_REVIEWER_UNASSIGNED") ? "경력 검토자 미배정"
-            : targetAssignments.some((assignment) => assignment.approvalRequired) ? "3건 승인 필요" : null;
+            : targetAssignments.some((assignment) => assignment.approvalRequired) ? "관리자 3건 예외 필요" : null;
         const conflicts = combineWorkbenchWarnings(
           conflict,
           reportWriterParticipationWarning({

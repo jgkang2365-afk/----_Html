@@ -21,7 +21,7 @@ const target = (id: number, businessType: NonNullable<SurveyTarget["businessType
 test("Phase B 유형별 날짜 후보는 측정예정일에서 역산한다", () => {
   assert.deepEqual(
     recommendationDatesForBusinessType("2026-07-14", "first_measurement").map((item) => item.workingDaysBefore),
-    Array.from({ length: 28 }, (_, index) => index + 3),
+    Array.from({ length: 18 }, (_, index) => index + 3),
   );
   assert.deepEqual(
     recommendationDatesForBusinessType("2026-07-14", "external_new").map((item) => item.workingDaysBefore),
