@@ -140,9 +140,22 @@ BEGIN
   UPDATE public.preliminary_survey_v2_measurement_assignments assignment
     SET survey_code = ranked.next_survey_code
     FROM ranked
-    JOIN affected_targets ON affected_targets.target_id = ranked.target_id
     WHERE assignment.id = ranked.id
       AND assignment.survey_code IS DISTINCT FROM ranked.next_survey_code;
+
+  -- 153 AFTER trigger가 먼저 정규화한 뒤에도 wrapper가 한 행만 다시 바꾸지 않도록,
+  -- 이번 날짜의 같은 측정자 그룹 전체를 wrapper 순서로 확정한다.
+  IF EXISTS (
+    SELECT 1
+    FROM public.preliminary_survey_v2_measurement_assignments assignment
+    WHERE assignment.measurement_date IN (
+      SELECT DISTINCT (item->>'measurement_date')::date FROM jsonb_array_elements(p_assignments) item
+    )
+    GROUP BY assignment.measurement_date, assignment.assignee_user_id
+    HAVING count(*) <> count(DISTINCT assignment.survey_code)
+  ) THEN
+    RAISE EXCEPTION 'MEASUREMENT_ASSIGNMENT_SURVEY_CODE_DUPLICATE';
+  END IF;
 
   -- 현재 3건 승인 metadata가 이후 정규화되어도 이 audit row는 변경·삭제하지 않는다.
   WITH affected_targets AS (
