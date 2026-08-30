@@ -674,25 +674,6 @@ async function applySubmittedDrafts(
   const needsThirdAssignmentApproval = approvalGroupFingerprints
     .some((fingerprint) => !canonicalResult.approvedGroupFingerprints.has(fingerprint));
   if (needsThirdAssignmentApproval && !approveThirdAssignment) {
-    const thirdAssignmentReview = (() => {
-      const entries = drafts.flatMap((draft: any) => (draft.measurementAssignments ?? [])
-        .filter((assignment: any) => assignment.approvalRequired === true).map((assignment: any) => ({ draft, assignment })));
-      const groups = new Map<string, typeof entries>();
-      for (const entry of entries) {
-        const key = `${entry.assignment.measurementDate}:${entry.assignment.userId}`;
-        groups.set(key, [...(groups.get(key) ?? []), entry]);
-      }
-      return [...groups.values()].filter((group) => group.length === 3).map((group) => ({
-        measurementDate: group[0].assignment.measurementDate, assigneeUserId: group[0].assignment.userId,
-        assigneeName: group[0].assignment.userName,
-        sameAddress: group.every((entry) => Boolean(entry.draft.sourceAddress) && entry.draft.sourceAddress === group[0].draft.sourceAddress),
-        routeEvidenceAvailable: measurementRouteEvidence.some((evidence) => evidence.allowed === true &&
-          group.some((entry) => entry.assignment.targetId === evidence.fromTargetId || entry.assignment.targetId === evidence.toTargetId)),
-        targets: group.map((entry) => ({ targetId: entry.draft.targetId, code: entry.draft.code,
-          businessName: entry.draft.businessName, address: entry.draft.sourceAddress ?? null,
-          surveyCode: entry.assignment.surveyCode })).sort((left, right) => left.targetId - right.targetId),
-      }));
-    })();
     return NextResponse.json({
       error: "측정자 1인 3건 배정은 자동 적용할 수 없습니다. 관리자 직접 예외로만 처리할 수 있습니다.",
       code: "MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED",
@@ -1492,6 +1473,25 @@ export async function POST(request: NextRequest) {
           ).slice(0, 3),
         };
       });
+    const thirdAssignmentReview = (() => {
+      const entries = drafts.flatMap((draft: any) => (draft.measurementAssignments ?? [])
+        .filter((assignment: any) => assignment.approvalRequired === true).map((assignment: any) => ({ draft, assignment })));
+      const groups = new Map<string, typeof entries>();
+      for (const entry of entries) {
+        const key = `${entry.assignment.measurementDate}:${entry.assignment.userId}`;
+        groups.set(key, [...(groups.get(key) ?? []), entry]);
+      }
+      return [...groups.values()].filter((group) => group.length === 3).map((group) => ({
+        measurementDate: group[0].assignment.measurementDate, assigneeUserId: group[0].assignment.userId,
+        assigneeName: group[0].assignment.userName,
+        sameAddress: group.every((entry) => Boolean(entry.draft.sourceAddress) && entry.draft.sourceAddress === group[0].draft.sourceAddress),
+        routeEvidenceAvailable: measurementRouteEvidence.some((evidence) => evidence.allowed === true &&
+          group.some((entry) => entry.assignment.targetId === evidence.fromTargetId || entry.assignment.targetId === evidence.toTargetId)),
+        targets: group.map((entry) => ({ targetId: entry.draft.targetId, code: entry.draft.code,
+          businessName: entry.draft.businessName, address: entry.draft.sourceAddress ?? null,
+          surveyCode: entry.assignment.surveyCode })).sort((left, right) => left.targetId - right.targetId),
+      }));
+    })();
     return NextResponse.json({
       success: true,
       drafts: drafts.map((draft) => ({ ...draft, canonicalFingerprint: fingerprint })),

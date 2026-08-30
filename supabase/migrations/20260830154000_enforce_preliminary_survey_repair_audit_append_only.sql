@@ -95,6 +95,23 @@ BEGIN
       ON position(lower(participant_name.value) IN lower(COALESCE(legacy_survey.actual_measurer, ''))) > 0
     WHERE legacy_survey.measurement_date = p_recommended_date
   ) THEN RAISE EXCEPTION 'POLICY_DATE_REPAIR_ACTUAL_MEASUREMENT_CONFLICT'; END IF;
+  -- measurement_target_business가 authoritative인 현재/다일 실측 인력과도 exact-date 충돌을 차단한다.
+  IF EXISTS (
+    SELECT 1 FROM public.measurement_target_business measurement_target
+    JOIN jsonb_array_elements_text(plan_row.participant_user_ids) AS participant_id(value) ON true
+    JOIN public.users participant_user ON participant_user.id = participant_id.value::integer
+    WHERE measurement_target.id <> target_row.id AND (
+      (measurement_target.daily_staff IS NULL AND measurement_target.measurement_date = p_recommended_date::text
+        AND (measurement_target.measurer_id = participant_user.id
+          OR position(lower(participant_user.name) IN lower(COALESCE(measurement_target.collaborators, ''))) > 0))
+      OR (jsonb_typeof(measurement_target.daily_staff) = 'array' AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements(measurement_target.daily_staff) AS staff_day(value)
+        WHERE staff_day.value->>'date' = p_recommended_date::text
+          AND (NULLIF(staff_day.value->>'measurer_id', '')::integer = participant_user.id
+            OR position(lower(participant_user.name) IN lower(staff_day.value::text)) > 0)
+      ))
+    )
+  ) THEN RAISE EXCEPTION 'POLICY_DATE_REPAIR_MEASUREMENT_TARGET_CONFLICT'; END IF;
 
   PERFORM set_config('app.preliminary_survey_admin_repair', 'on', true);
   UPDATE public.preliminary_survey_v2_plans SET recommended_date = p_recommended_date
