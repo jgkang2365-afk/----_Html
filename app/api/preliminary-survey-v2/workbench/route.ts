@@ -1269,9 +1269,9 @@ export async function POST(request: NextRequest) {
       { data: persistedAssignments, error: persistedAssignmentError },
       { data: persistedPlans, error: persistedPlanError },
     ] = await Promise.all([
-      supabase.from("users").select("id, name, job, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
+      supabase.from("users").select("id, name, job, is_active, survey_code").not("survey_code", "is", null),
       supabase.from("users").select("id, name, job, is_active").eq("job", "측정"),
-      supabase.from("preliminary_survey_v2_measurement_assignments").select("plan_id, measurement_date, assignee_user_id"),
+      supabase.from("preliminary_survey_v2_measurement_assignments").select("plan_id, measurement_date, assignee_user_id, survey_code"),
       supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id"),
     ]);
     if (assigneeUserError || measurementRoleUserError || persistedPlanError ||
@@ -1300,11 +1300,11 @@ export async function POST(request: NextRequest) {
     // migration 전 POST 추천은 draft 생성만 허용하며, apply는 위의 schema 409 경계에서 차단한다.
     const assignmentRowsForRecommendation = persistedAssignmentError ? [] : (persistedAssignments ?? []);
     const persistedPlanById = new Map((persistedPlans ?? []).map((plan: any) => [String(plan.id), plan]));
-    const existingBusinessIds = [...new Set((persistedPlans ?? [])
+    const persistedBusinessIds = [...new Set((persistedPlans ?? [])
       .map((plan: any) => Number(plan.measurement_target_business_id))
-      .filter((id: number) => !eligibleTargetIds.includes(id)))];
-    const { data: existingTargetRows, error: existingTargetError } = existingBusinessIds.length
-      ? await supabase.from("measurement_target_business").select("id, code, address").in("id", existingBusinessIds)
+      .filter((id: number) => Number.isInteger(id) && id > 0))];
+    const { data: existingTargetRows, error: existingTargetError } = persistedBusinessIds.length
+      ? await supabase.from("measurement_target_business").select("id, code, business_name, address").in("id", persistedBusinessIds)
       : { data: [], error: null };
     if (existingTargetError) throw existingTargetError;
     const existingCodes = [...new Set((existingTargetRows ?? []).map((target: any) => target.code).filter(Boolean))];
@@ -1318,7 +1318,7 @@ export async function POST(request: NextRequest) {
       const plan: any = persistedPlanById.get(String(assignment.plan_id));
       const business: any = existingTargetById.get(Number(plan?.measurement_target_business_id));
       const info: any = existingInfoByCode.get(business?.code);
-      if (!plan || !business) return [];
+      if (!plan || !business || eligibleTargetIds.includes(Number(plan.measurement_target_business_id))) return [];
       return [{
         targetId: Number(plan.measurement_target_business_id), measurementDate: String(assignment.measurement_date),
         address: business.address ?? null,
@@ -1327,6 +1327,22 @@ export async function POST(request: NextRequest) {
         coordinate: Number.isFinite(Number(info?.latitude)) && Number.isFinite(Number(info?.longitude))
           ? { latitude: Number(info.latitude), longitude: Number(info.longitude) } : null,
         userId: Number(assignment.assignee_user_id),
+      }];
+    });
+    const assigneeNameById = new Map((assigneeUsers ?? []).map((user: any) => [Number(user.id), String(user.name ?? "").trim()]));
+    const persistedReviewAssignments = assignmentRowsForRecommendation.flatMap((assignment: any) => {
+      const plan: any = persistedPlanById.get(String(assignment.plan_id));
+      const business: any = existingTargetById.get(Number(plan?.measurement_target_business_id));
+      if (!plan || !business) return [];
+      return [{
+        targetId: Number(plan.measurement_target_business_id),
+        code: business.code ?? null,
+        businessName: business.business_name ?? null,
+        sourceAddress: business.address ?? null,
+        measurementDate: String(assignment.measurement_date),
+        userId: Number(assignment.assignee_user_id),
+        userName: assigneeNameById.get(Number(assignment.assignee_user_id)) || `사용자 ${assignment.assignee_user_id}`,
+        surveyCode: String(assignment.survey_code ?? "-").trim().toUpperCase() || "-",
       }];
     });
     const measurementAssignmentTargets = output.results.filter((result) => result.status === "recommended").flatMap((result) => {
@@ -1474,7 +1490,7 @@ export async function POST(request: NextRequest) {
           ).slice(0, 3),
         };
       });
-    const thirdAssignmentReview = buildThirdAssignmentReview(drafts, measurementRouteEvidence);
+    const thirdAssignmentReview = buildThirdAssignmentReview(drafts, persistedReviewAssignments, measurementRouteEvidence);
     return NextResponse.json({
       success: true,
       drafts: drafts.map((draft) => ({ ...draft, canonicalFingerprint: fingerprint })),

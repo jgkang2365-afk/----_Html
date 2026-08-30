@@ -136,7 +136,7 @@ test("CCC 검토 모델은 C/CC/CCC 전체를 보여 주고 명시 확인 전 �
     { targetId: 1, code: "H0001", businessName: "가", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 1, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "C", approvalRequired: false }] },
     { targetId: 2, code: "H0002", businessName: "나", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 2, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "CC", approvalRequired: false }] },
     { targetId: 3, code: "H0003", businessName: "다", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 3, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "CCC", approvalRequired: true }] },
-  ], []);
+  ], [], []);
 
   assert.equal(review.length, 1);
   assert.deepEqual(review[0].targets.map((target) => target.surveyCode), ["C", "CC", "CCC"]);
@@ -144,4 +144,19 @@ test("CCC 검토 모델은 C/CC/CCC 전체를 보여 주고 명시 확인 전 �
   assert.match(plansUi, /if \(thirdAssignmentReview\.length > 0 && !thirdAssignmentConfirmed\)/);
   assert.match(plansUi, /let response = await send\(thirdAssignmentConfirmed\)/);
   assert.match(plansUi, /approveThirdAssignment,/);
+});
+
+test("CCC 검토 모델은 확정 C/CC와 신규 CCC를 합쳐 표시하고 신규 draft가 같은 대상·날짜를 덮는다", () => {
+  const review = buildThirdAssignmentReview([
+    { targetId: 3, code: "H0003", businessName: "신규", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 3, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "CCC", approvalRequired: true }] },
+  ], [
+    { targetId: 1, code: "H0001", businessName: "기존1", sourceAddress: "서울 A", measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "C" },
+    { targetId: 2, code: "H0002", businessName: "기존2", sourceAddress: "서울 A", measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "CC" },
+    { targetId: 3, code: "H0003-과거", businessName: "과거값", sourceAddress: "서울 B", measurementDate: "2026-08-25", userId: 9, userName: "다른측정자", surveyCode: "A" },
+  ], []);
+
+  assert.equal(review.length, 1);
+  assert.deepEqual(review[0].targets.map((target) => [target.targetId, target.surveyCode, target.businessName]), [
+    [1, "C", "기존1"], [2, "CC", "기존2"], [3, "CCC", "신규"],
+  ]);
 });

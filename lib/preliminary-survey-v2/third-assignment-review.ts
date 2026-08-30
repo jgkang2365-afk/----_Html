@@ -19,6 +19,17 @@ type RouteEvidence = {
   toTargetId?: number;
 };
 
+export type PersistedThirdAssignmentReviewItem = {
+  targetId: number;
+  code?: string | null;
+  businessName?: string | null;
+  sourceAddress?: string | null;
+  measurementDate: string;
+  userId: number;
+  userName?: string | null;
+  surveyCode: string;
+};
+
 export type ThirdAssignmentReviewGroup = {
   measurementDate: string;
   assigneeUserId: number;
@@ -37,10 +48,32 @@ export type ThirdAssignmentReviewGroup = {
 /** 관리자 CCC 예외 검토에는 C/CC/CCC 세 건 전체를 같은 그룹으로 반환한다. */
 export function buildThirdAssignmentReview(
   drafts: readonly ReviewDraft[],
+  persistedAssignments: readonly PersistedThirdAssignmentReviewItem[],
   measurementRouteEvidence: readonly RouteEvidence[],
 ): ThirdAssignmentReviewGroup[] {
-  const entries = drafts.flatMap((draft) => (draft.measurementAssignments ?? [])
+  const proposedEntries = drafts.flatMap((draft) => (draft.measurementAssignments ?? [])
     .map((assignment) => ({ draft, assignment })));
+  const proposedTargetDates = new Set(proposedEntries.map((entry) =>
+    `${entry.assignment.targetId}:${entry.assignment.measurementDate}`));
+  const persistedEntries = persistedAssignments
+    .filter((assignment) => !proposedTargetDates.has(`${assignment.targetId}:${assignment.measurementDate}`))
+    .map((assignment) => ({
+      draft: {
+        targetId: assignment.targetId,
+        code: assignment.code ?? null,
+        businessName: assignment.businessName ?? null,
+        sourceAddress: assignment.sourceAddress ?? null,
+      },
+      assignment: {
+        targetId: assignment.targetId,
+        measurementDate: assignment.measurementDate,
+        userId: assignment.userId,
+        userName: assignment.userName ?? null,
+        surveyCode: assignment.surveyCode,
+        approvalRequired: false,
+      },
+    }));
+  const entries = [...persistedEntries, ...proposedEntries];
   const groups = new Map<string, typeof entries>();
   for (const entry of entries) {
     const key = `${entry.assignment.measurementDate}:${entry.assignment.userId}`;
