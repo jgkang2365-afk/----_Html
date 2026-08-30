@@ -1,7 +1,7 @@
 import { recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { evaluateSameDayRoute } from "./route-policy";
 import type {
-  ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyMethod, SurveyTarget, SurveyUser,
+  Availability, ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyMethod, SurveyTarget, SurveyUser,
 } from "./types";
 import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
 
@@ -15,7 +15,7 @@ export interface ManualPlanValidationInput {
   /** 자동추천·작업대와 같은 경력자 후보군. 없으면 기존 수동 입력 호환만 유지한다. */
   experiencedUsers?: SurveyUser[];
   /** 후보일의 직원 제외/실측 충돌 hard rule. */
-  availability?: { isBlocked(userId: number, date: string): boolean };
+  availability?: Availability;
 }
 
 export interface ManualPlanValidationResult {

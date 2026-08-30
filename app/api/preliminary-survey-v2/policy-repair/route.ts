@@ -69,11 +69,11 @@ async function loadRepairContext(supabase: any, targetId: number) {
  */
 async function validatePolicyRepairHardRules(supabase: any, targetId: number, plan: any, recommendedDate: string) {
   const context = await loadV2ManualContext(supabase, targetId, recommendedDate);
-  const participantIds: number[] = [...new Set(
+  const participantIds = [...new Set(
     Array.isArray(plan.participant_user_ids)
       ? plan.participant_user_ids.map(Number).filter((userId: number) => Number.isInteger(userId))
       : [],
-  )];
+  )] as number[];
   const participants = participantIds.map((id) => context.users.find((user) => user.id === id))
     .filter((user): user is SurveyUser => Boolean(user));
   const responsible = context.users.find((user) => user.id === Number(plan.responsible_user_id));

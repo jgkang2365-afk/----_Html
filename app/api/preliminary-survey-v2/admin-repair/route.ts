@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth/session";
+import { getSession, type SessionData } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import { operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  * 실제 측정자·보고서 담당자·legacy 값은 이 API에서 변경하지 않는다.
  */
 
-async function adminGuard(supabase: any, session: { role: "관리자" | "사용자"; userId: number } | null) {
+async function adminGuard(supabase: any, session: SessionData | null) {
   if (!session) return { error: "로그인이 필요합니다.", status: 401 };
   if (!await canManagePreliminarySurvey(supabase, session)) {
     return { error: "예비조사 담당자 또는 관리자만 예비조사 예외 정비를 수행할 수 있습니다.", status: 403 };

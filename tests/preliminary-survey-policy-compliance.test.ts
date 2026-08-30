@@ -83,6 +83,7 @@ test("CCC 예외와 측정 원천 repair는 관리자 UI·서버 검증·최소 
   const sourceRepair = read("app/api/preliminary-survey-v2/measurement-source-repair/route.ts");
   const sourceRepairMigration = read("supabase/migrations/20260830152000_add_preliminary_survey_measurement_source_repair.sql");
   const preservationMigration = read("supabase/migrations/20260830153000_preserve_measurement_source_repair_plans.sql");
+  const auditPermissionMigration = read("supabase/migrations/20260830124455_enforce_preliminary_survey_repair_audit_append_only.sql");
   const publicSampleMigration = read("supabase/migrations/20260830151000_preliminary_survey_repeat_public_sample_codes.sql");
 
   assert.match(plansUi, /관리자 CCC 예외 검토/);
@@ -102,6 +103,7 @@ test("CCC 예외와 측정 원천 repair는 관리자 UI·서버 검증·최소 
   assert.match(sourceRepairMigration, /'assignment_digest'/);
   assert.match(sourceRepairMigration, /to_jsonb\(plan\)::text/);
   assert.match(sourceRepairMigration, /to_jsonb\(assignment\)::text/);
+  assert.match(sourceRepairMigration, /AS participant_name\(value\)/);
   assert.match(preservationMigration, /app\.preliminary_survey_measurement_source_repair/);
   assert.match(preservationMigration, /NEW\.measurement_date IS NOT DISTINCT FROM OLD\.measurement_date/);
   assert.match(preservationMigration, /AFTER DELETE OR UPDATE OF measurement_date, assignee_user_id/);
@@ -109,4 +111,9 @@ test("CCC 예외와 측정 원천 repair는 관리자 UI·서버 검증·최소 
   assert.match(publicSampleMigration, /max\(assignment\.approved_at\) AS approved_at/);
   assert.match(publicSampleMigration, /previousAssignments/);
   assert.match(publicSampleMigration, /final_groups\.approved_at::text/);
+  assert.match(auditPermissionMigration, /REVOKE ALL ON TABLE public\.preliminary_survey_v2_policy_repair_audit FROM service_role/);
+  assert.match(auditPermissionMigration, /REVOKE ALL ON TABLE public\.preliminary_survey_v2_measurement_assignment_exception_audit FROM service_role/);
+  assert.match(auditPermissionMigration, /REVOKE ALL ON TABLE public\.preliminary_survey_v2_measurement_source_repair_audit FROM service_role/);
+  assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_OUTSIDE_CANDIDATE_RANGE/);
+  assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_USER_UNAVAILABLE/);
 });

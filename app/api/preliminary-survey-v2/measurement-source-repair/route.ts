@@ -7,6 +7,8 @@ import { measurementStaffForDate } from "@/lib/preliminary-survey-v2/measurement
 
 export const dynamic = "force-dynamic";
 
+type MeasurementUserRow = { id: number | string | null; name: string | null; job: string | null; is_active: boolean | null };
+
 async function requireRepairAccess() {
   const session = await getSession();
   if (!session) return { response: NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 }) };
@@ -31,7 +33,7 @@ export async function GET(request: NextRequest) {
     ]);
     if (targetError || !target) return NextResponse.json({ error: "TARGET_NOT_FOUND" }, { status: 404 });
     if (userError) throw userError;
-    const operationalUsers = operationalMeasurementUsers(users);
+    const operationalUsers = operationalMeasurementUsers((users ?? []) as MeasurementUserRow[]);
     const userNameById = new Map(operationalUsers.map((user: any) => [Number(user.id), String(user.name)]));
     const userIdByName = new Map(operationalUsers.map((user: any) => [String(user.name).trim(), Number(user.id)]));
     const dates = Array.isArray(target.daily_staff)
@@ -87,7 +89,8 @@ export async function POST(request: NextRequest) {
     ]);
     if (targetError || !target) return NextResponse.json({ error: "TARGET_NOT_FOUND" }, { status: 404 });
     if (userError) throw userError;
-    const usersById = new Map(operationalMeasurementUsers(users).map((user: any) => [Number(user.id), String(user.name)]));
+    const usersById = new Map(operationalMeasurementUsers((users ?? []) as MeasurementUserRow[])
+      .map((user) => [Number(user.id), String(user.name)] as const));
     if (!userIds.every((id) => usersById.has(id))) return NextResponse.json({ error: "INELIGIBLE_OPERATIONAL_USER" }, { status: 400 });
     const participantNames = participantUserIds.map((id) => usersById.get(id)!);
     const { error } = await access.supabase.rpc("repair_preliminary_survey_measurement_source", {

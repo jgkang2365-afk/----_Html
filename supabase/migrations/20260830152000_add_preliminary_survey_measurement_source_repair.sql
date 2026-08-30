@@ -38,8 +38,8 @@ BEGIN
      OR target_row.daily_staff IS DISTINCT FROM p_expected_daily_staff
      OR target_row.collaborators IS DISTINCT FROM p_expected_collaborators
      OR target_row.measurer_id IS DISTINCT FROM p_expected_measurer_id THEN RAISE EXCEPTION 'REPAIR_SOURCE_CHANGED'; END IF;
-  IF p_repair_participants IS TRUE AND (SELECT count(*) FROM unnest(COALESCE(p_participant_names, ARRAY[]::text[])) name
-        JOIN public.users u ON u.name = name AND u.job = '측정' AND u.is_active IS TRUE)
+  IF p_repair_participants IS TRUE AND (SELECT count(*) FROM unnest(COALESCE(p_participant_names, ARRAY[]::text[])) AS participant_name(value)
+        JOIN public.users u ON u.name = participant_name.value AND u.job = '측정' AND u.is_active IS TRUE)
      <> cardinality(COALESCE(p_participant_names, ARRAY[]::text[])) THEN RAISE EXCEPTION 'PARTICIPANT_MISMATCH'; END IF;
   IF p_repair_report_writer IS TRUE AND (p_report_writer_user_id IS NULL OR NOT EXISTS
     (SELECT 1 FROM public.users u WHERE u.id = p_report_writer_user_id AND u.job = '측정' AND u.is_active IS TRUE)) THEN
