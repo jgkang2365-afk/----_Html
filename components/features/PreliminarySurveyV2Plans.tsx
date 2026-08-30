@@ -109,7 +109,7 @@ interface ThirdAssignmentReviewGroup {
   assigneeName: string;
   sameAddress: boolean;
   routeEvidenceAvailable: boolean;
-  targets: Array<{ targetId: number; code: string; businessName: string; address: string | null; surveyCode: string }>;
+  targets: Array<{ targetId: number; code: string; businessName: string; address: string | null; surveyCode: string; previousSurveyCode?: string | null }>;
 }
 
 interface ListSearchSnapshot {
@@ -954,7 +954,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       {scopeSummary && <div className="text-xs text-text-600">{scopeSummary}</div>}
       {canApproveThirdAssignment && thirdAssignmentReview.length > 0 && <Card className="border-amber-300 bg-amber-50 p-3 text-sm">
         <strong>관리자 CCC 예외 확인</strong><p className="mt-1 text-xs text-text-600">아래 3개 업체의 날짜·측정자·코드와 주소/동선 근거를 확인한 뒤에만 적용합니다.</p>
-        <div className="mt-2 space-y-2">{thirdAssignmentReview.map((group) => <div key={`${group.measurementDate}:${group.assigneeUserId}`} className="rounded border border-amber-200 bg-white p-2"><div className="font-medium">{group.measurementDate} · {group.assigneeName} · 동일주소 {group.sameAddress ? "예" : "아니오"} · 차량동선 근거 {group.routeEvidenceAvailable ? "있음" : "없음"}</div>{group.targets.map((target) => <div key={target.targetId} className="text-xs">{target.surveyCode} · {target.code} {target.businessName} · {target.address || "주소 미확인"}</div>)}</div>)}</div>
+        <div className="mt-2 space-y-2">{thirdAssignmentReview.map((group) => <div key={`${group.measurementDate}:${group.assigneeUserId}`} className="rounded border border-amber-200 bg-white p-2"><div className="font-medium">{group.measurementDate} · {group.assigneeName} · 동일주소 {group.sameAddress ? "예" : "아니오"} · 차량동선 근거 {group.routeEvidenceAvailable ? "있음" : "없음"}</div>{group.targets.map((target) => <div key={target.targetId} className="text-xs">{target.surveyCode} · {target.code} {target.businessName} · {target.address || "주소 미확인"}{target.previousSurveyCode && target.previousSurveyCode !== target.surveyCode ? ` · 기존 ${target.previousSurveyCode}` : ""}</div>)}</div>)}</div>
         <label className="mt-2 flex items-center gap-2 text-xs font-medium"><input type="checkbox" checked={thirdAssignmentConfirmed} onChange={(event) => setThirdAssignmentConfirmed(event.target.checked)} />위 3건 예외와 C/CC/CCC 결과를 확인했습니다.</label>
       </Card>}
       <Card className="p-0">

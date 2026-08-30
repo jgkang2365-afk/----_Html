@@ -160,3 +160,23 @@ test("CCC 검토 모델은 확정 C/CC와 신규 CCC를 합쳐 표시하고 신�
     [1, "C", "기존1"], [2, "CC", "기존2"], [3, "CCC", "신규"],
   ]);
 });
+
+test("legacy 중복 C/C 또는 F/F도 DB wrapper 순서와 같은 C/CC/CCC, F/FF/FFF 검토 결과로 정규화한다", () => {
+  const cReview = buildThirdAssignmentReview([
+    { targetId: 30, code: "H0030", businessName: "신규", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 30, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "CCC", approvalRequired: true }] },
+  ], [
+    { targetId: 10, code: "H0010", businessName: "기존1", sourceAddress: "서울 A", measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "C", baseSurveyCode: "C", createdAt: "2026-08-01T00:00:00Z" },
+    { targetId: 20, code: "H0020", businessName: "기존2", sourceAddress: "서울 A", measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "C", baseSurveyCode: "C", createdAt: "2026-08-02T00:00:00Z" },
+  ], []);
+  assert.deepEqual(cReview[0].targets.map((target) => [target.targetId, target.surveyCode, target.previousSurveyCode]), [
+    [10, "C", "C"], [20, "CC", "C"], [30, "CCC", null],
+  ]);
+
+  const fReview = buildThirdAssignmentReview([
+    { targetId: 30, code: "H0030", businessName: "신규", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 30, measurementDate: "2026-08-25", userId: 8, userName: "측정자F", surveyCode: "FFF", approvalRequired: true }] },
+  ], [
+    { targetId: 10, code: "H0010", businessName: "기존1", sourceAddress: "서울 A", measurementDate: "2026-08-25", userId: 8, userName: "측정자F", surveyCode: "F", baseSurveyCode: "F", createdAt: "2026-08-01T00:00:00Z" },
+    { targetId: 20, code: "H0020", businessName: "기존2", sourceAddress: "서울 A", measurementDate: "2026-08-25", userId: 8, userName: "측정자F", surveyCode: "F", baseSurveyCode: "F", createdAt: "2026-08-02T00:00:00Z" },
+  ], []);
+  assert.deepEqual(fReview[0].targets.map((target) => target.surveyCode), ["F", "FF", "FFF"]);
+});

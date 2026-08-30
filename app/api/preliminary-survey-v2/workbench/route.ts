@@ -1271,7 +1271,7 @@ export async function POST(request: NextRequest) {
     ] = await Promise.all([
       supabase.from("users").select("id, name, job, is_active, survey_code").not("survey_code", "is", null),
       supabase.from("users").select("id, name, job, is_active").eq("job", "측정"),
-      supabase.from("preliminary_survey_v2_measurement_assignments").select("plan_id, measurement_date, assignee_user_id, survey_code"),
+      supabase.from("preliminary_survey_v2_measurement_assignments").select("plan_id, measurement_date, assignee_user_id, survey_code, created_at"),
       supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id"),
     ]);
     if (assigneeUserError || measurementRoleUserError || persistedPlanError ||
@@ -1329,7 +1329,7 @@ export async function POST(request: NextRequest) {
         userId: Number(assignment.assignee_user_id),
       }];
     });
-    const assigneeNameById = new Map((assigneeUsers ?? []).map((user: any) => [Number(user.id), String(user.name ?? "").trim()]));
+    const assigneeById = new Map((assigneeUsers ?? []).map((user: any) => [Number(user.id), user]));
     const persistedReviewAssignments = assignmentRowsForRecommendation.flatMap((assignment: any) => {
       const plan: any = persistedPlanById.get(String(assignment.plan_id));
       const business: any = existingTargetById.get(Number(plan?.measurement_target_business_id));
@@ -1341,8 +1341,10 @@ export async function POST(request: NextRequest) {
         sourceAddress: business.address ?? null,
         measurementDate: String(assignment.measurement_date),
         userId: Number(assignment.assignee_user_id),
-        userName: assigneeNameById.get(Number(assignment.assignee_user_id)) || `사용자 ${assignment.assignee_user_id}`,
+        userName: String(assigneeById.get(Number(assignment.assignee_user_id))?.name ?? "").trim() || `사용자 ${assignment.assignee_user_id}`,
         surveyCode: String(assignment.survey_code ?? "-").trim().toUpperCase() || "-",
+        baseSurveyCode: String(assigneeById.get(Number(assignment.assignee_user_id))?.survey_code ?? "").trim().toUpperCase() || null,
+        createdAt: assignment.created_at == null ? null : String(assignment.created_at),
       }];
     });
     const measurementAssignmentTargets = output.results.filter((result) => result.status === "recommended").flatMap((result) => {
