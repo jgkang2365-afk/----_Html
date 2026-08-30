@@ -68,6 +68,33 @@ BEGIN
       AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(plan_row.participant_user_ids) AS participant_id(value)
         WHERE participant_id.value::integer = schedule_block.user_id)
   ) THEN RAISE EXCEPTION 'POLICY_DATE_REPAIR_USER_UNAVAILABLE'; END IF;
+  -- 같은 날짜/책임자 repair 경쟁을 직렬화하고, route 서버와 동일한 기존업체 유선 3건 상한을 DB에서도 강제한다.
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    'preliminary-policy-repair|' || p_recommended_date::text || '|' || plan_row.responsible_user_id::text, 0
+  ));
+  IF plan_row.survey_method = 'phone' AND (
+    SELECT count(*) FROM public.preliminary_survey_v2_plans other_plan
+    WHERE other_plan.id <> plan_row.id
+      AND other_plan.recommended_date = p_recommended_date
+      AND other_plan.responsible_user_id = plan_row.responsible_user_id
+      AND other_plan.survey_method = 'phone'
+  ) >= 3 THEN RAISE EXCEPTION 'POLICY_DATE_REPAIR_PHONE_CAPACITY_EXCEEDED'; END IF;
+  -- 방문 2건의 주소/차량경로 증명은 DB에 없으므로, 같은 참여자가 있는 추가 방문은 fail-closed한다.
+  IF plan_row.survey_method = 'field' AND EXISTS (
+    SELECT 1 FROM public.preliminary_survey_v2_plans other_plan
+    WHERE other_plan.id <> plan_row.id AND other_plan.recommended_date = p_recommended_date
+      AND other_plan.survey_method = 'field'
+      AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(plan_row.participant_user_ids) AS current_participant(value)
+        JOIN jsonb_array_elements_text(other_plan.participant_user_ids) AS other_participant(value)
+          ON other_participant.value = current_participant.value)
+  ) THEN RAISE EXCEPTION 'POLICY_DATE_REPAIR_FIELD_ROUTE_MANUAL_REVIEW'; END IF;
+  -- legacy actual_measurer가 같은 날짜의 실측 참여를 명시하면 예비조사 참여자로 겹치지 않는다.
+  IF EXISTS (
+    SELECT 1 FROM public.preliminary_survey legacy_survey
+    JOIN jsonb_array_elements_text(plan_row.participant_names) AS participant_name(value)
+      ON position(lower(participant_name.value) IN lower(COALESCE(legacy_survey.actual_measurer, ''))) > 0
+    WHERE legacy_survey.measurement_date = p_recommended_date
+  ) THEN RAISE EXCEPTION 'POLICY_DATE_REPAIR_ACTUAL_MEASUREMENT_CONFLICT'; END IF;
 
   PERFORM set_config('app.preliminary_survey_admin_repair', 'on', true);
   UPDATE public.preliminary_survey_v2_plans SET recommended_date = p_recommended_date

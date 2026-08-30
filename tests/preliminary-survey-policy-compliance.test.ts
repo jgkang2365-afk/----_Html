@@ -119,4 +119,8 @@ test("CCC 예외와 측정 원천 repair는 관리자 UI·서버 검증·최소 
   assert.match(auditPermissionMigration, /REVOKE ALL ON TABLE public\.preliminary_survey_v2_measurement_source_repair_audit FROM service_role/);
   assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_OUTSIDE_CANDIDATE_RANGE/);
   assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_USER_UNAVAILABLE/);
+  assert.match(auditPermissionMigration, /pg_advisory_xact_lock/);
+  assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_PHONE_CAPACITY_EXCEEDED/);
+  assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_FIELD_ROUTE_MANUAL_REVIEW/);
+  assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_ACTUAL_MEASUREMENT_CONFLICT/);
 });

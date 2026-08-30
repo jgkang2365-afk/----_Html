@@ -98,6 +98,18 @@ interface MeasurementSourceRepairSnapshot {
   measurementDate: string;
   participantUserIds: number[];
   reportWriterUserId: number | null;
+  referenceParticipants?: string[] | null;
+  referenceReportWriter?: string | null;
+  referenceStatus?: "matched" | "mismatch" | "manual_review";
+}
+
+interface ThirdAssignmentReviewGroup {
+  measurementDate: string;
+  assigneeUserId: number;
+  assigneeName: string;
+  sameAddress: boolean;
+  routeEvidenceAvailable: boolean;
+  targets: Array<{ targetId: number; code: string; businessName: string; address: string | null; surveyCode: string }>;
 }
 
 interface ListSearchSnapshot {
@@ -246,6 +258,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [editParticipants, setEditParticipants] = useState<number[]>([]);
   const [canApproveThirdAssignment, setCanApproveThirdAssignment] = useState(false);
   const [requestThirdAssignmentException, setRequestThirdAssignmentException] = useState(false);
+  const [thirdAssignmentReview, setThirdAssignmentReview] = useState<ThirdAssignmentReviewGroup[]>([]);
+  const [thirdAssignmentConfirmed, setThirdAssignmentConfirmed] = useState(false);
   const [measurementSourceRepairOpen, setMeasurementSourceRepairOpen] = useState(false);
   const [measurementSourceRepairSnapshots, setMeasurementSourceRepairSnapshots] = useState<MeasurementSourceRepairSnapshot[]>([]);
   const [repairMeasurementDate, setRepairMeasurementDate] = useState("");
@@ -527,6 +541,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "추천 생성 실패");
       const generatedDrafts = result.drafts || [];
+      setThirdAssignmentReview((result.thirdAssignmentReview || []) as ThirdAssignmentReviewGroup[]);
+      setThirdAssignmentConfirmed(false);
       const recommendedCount = generatedDrafts.filter((draft: WorkbenchRow) => draft.status === "recommended").length;
       const unavailableCount = generatedDrafts.length - recommendedCount + (result.missing || []).length;
       const repairResponse = await fetch("/api/preliminary-survey-v2/confirmed-document-repair", {
@@ -581,6 +597,10 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     }
     const targetIds = [...drafts.keys()].filter((id) => drafts.get(id)?.status === "recommended");
     if (!targetIds.length) return;
+    if (thirdAssignmentReview.length > 0 && !thirdAssignmentConfirmed) {
+      setError("관리자 CCC 예외 검토 내용을 확인한 뒤 적용할 수 있습니다.");
+      return;
+    }
     setWorking(true);
     setError(null);
     try {
@@ -594,9 +614,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           approveThirdAssignment,
         }),
       });
-      let response = await send(false);
+      let response = await send(thirdAssignmentReview.length > 0);
       let result = await response.json();
-      if (response.status === 409 && result.approvalRequired && window.confirm(`${result.error}\n승인하여 적용하시겠습니까?`)) {
+      if (response.status === 409 && result.approvalRequired && thirdAssignmentConfirmed && window.confirm(`${result.error}\n승인하여 적용하시겠습니까?`)) {
         response = await send(true);
         result = await response.json();
       }
@@ -610,6 +630,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         throw new Error(result.error || "추천안 적용 실패");
       }
       setDrafts(new Map());
+      setThirdAssignmentReview([]);
+      setThirdAssignmentConfirmed(false);
       setConfirmedRepairDrafts([]);
       setDraftScope(null);
       setScopeSummary(null);
@@ -930,6 +952,11 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       {error && <Alert variant="error">{error}</Alert>}
       {notice && <Alert variant="success">{notice}</Alert>}
       {scopeSummary && <div className="text-xs text-text-600">{scopeSummary}</div>}
+      {canApproveThirdAssignment && thirdAssignmentReview.length > 0 && <Card className="border-amber-300 bg-amber-50 p-3 text-sm">
+        <strong>관리자 CCC 예외 확인</strong><p className="mt-1 text-xs text-text-600">아래 3개 업체의 날짜·측정자·코드와 주소/동선 근거를 확인한 뒤에만 적용합니다.</p>
+        <div className="mt-2 space-y-2">{thirdAssignmentReview.map((group) => <div key={`${group.measurementDate}:${group.assigneeUserId}`} className="rounded border border-amber-200 bg-white p-2"><div className="font-medium">{group.measurementDate} · {group.assigneeName} · 동일주소 {group.sameAddress ? "예" : "아니오"} · 차량동선 근거 {group.routeEvidenceAvailable ? "있음" : "없음"}</div>{group.targets.map((target) => <div key={target.targetId} className="text-xs">{target.surveyCode} · {target.code} {target.businessName} · {target.address || "주소 미확인"}</div>)}</div>)}</div>
+        <label className="mt-2 flex items-center gap-2 text-xs font-medium"><input type="checkbox" checked={thirdAssignmentConfirmed} onChange={(event) => setThirdAssignmentConfirmed(event.target.checked)} />위 3건 예외와 C/CC/CCC 결과를 확인했습니다.</label>
+      </Card>}
       <Card className="p-0">
         <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : "phase-b-list-table-scroll"} className="overflow-visible">
           <table className="w-full min-w-[1080px] table-fixed text-sm">
@@ -1002,7 +1029,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               <label className="flex items-center gap-2 text-sm font-medium text-text-700"><input type="checkbox" checked={repairReportWriter} onChange={(event) => setRepairReportWriter(event.target.checked)} />보고서 담당자 보정</label>
               {repairReportWriter && <label className="block text-sm font-medium text-text-700">보고서 담당자<select value={repairReportWriterUserId ?? ""} onChange={(event) => setRepairReportWriterUserId(event.target.value ? Number(event.target.value) : null)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm"><option value="">선택</option>{users.filter((user) => user.is_active).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>}
               <Input label="보정 사유" value={repairReason} onChange={(event) => setRepairReason(event.target.value)} placeholder="예: H0038 현재 측정 참여자 원천 정정" />
-              <div className="text-xs text-text-500">현재 선택: 참여자 {selectedMeasurementSource?.participantUserIds.length ?? 0}명 · 보고서 담당자 {selectedMeasurementSource?.reportWriterUserId ?? "-"}</div>
+              <div className="rounded bg-surface-50 p-2 text-xs text-text-600">현재 원천: 참여자 {(selectedMeasurementSource?.participantUserIds ?? []).map((id) => users.find((user) => user.id === id)?.name || `ID ${id}`).join(", ") || "-"} · 보고서 담당자 {users.find((user) => user.id === selectedMeasurementSource?.reportWriterUserId)?.name || "-"}<br />기준(legacy actual): 참여자 {selectedMeasurementSource?.referenceParticipants?.join(", ") || "수동 확인 필요"} · 보고서 담당자 {selectedMeasurementSource?.referenceReportWriter || "수동 확인 필요"}<br />판정: {selectedMeasurementSource?.referenceStatus === "manual_review" ? "기준이 모호하여 수동 확인" : "현재/기준 비교 후 선택한 필드만 보정"}</div>
               <div className="flex justify-end"><Button size="sm" onClick={saveMeasurementSourceRepair} disabled={working || (!repairParticipants && !repairReportWriter) || !repairReason.trim()}>원천 repair 저장</Button></div>
             </div>}
           </div>

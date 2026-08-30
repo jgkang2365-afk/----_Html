@@ -614,6 +614,28 @@ async function applySubmittedDrafts(
   // client가 보낸 assignee/code/3건 승인여부는 저장 근거가 아니다. 현 DB의 날짜별
   // assignment와 users.survey_code로 다시 계산해 draft와 완전히 같을 때만 적용한다.
   if (allowAdminThirdAssignment && session.role !== "관리자") {
+    const thirdAssignmentReview = (() => {
+      const entries = drafts.flatMap((draft: any) => (draft.measurementAssignments ?? [])
+        .filter((assignment: any) => assignment.approvalRequired === true)
+        .map((assignment: any) => ({ draft, assignment })));
+      const groups = new Map<string, typeof entries>();
+      for (const entry of entries) {
+        const key = `${entry.assignment.measurementDate}:${entry.assignment.userId}`;
+        groups.set(key, [...(groups.get(key) ?? []), entry]);
+      }
+      return [...groups.values()].filter((group) => group.length === 3).map((group) => ({
+        measurementDate: group[0].assignment.measurementDate,
+        assigneeUserId: group[0].assignment.userId,
+        assigneeName: group[0].assignment.userName,
+        sameAddress: group.every((entry) => Boolean(entry.draft.sourceAddress) && entry.draft.sourceAddress === group[0].draft.sourceAddress),
+        routeEvidenceAvailable: measurementRouteEvidence.some((evidence) => evidence.allowed === true &&
+          group.some((entry) => entry.assignment.targetId === evidence.fromTargetId || entry.assignment.targetId === evidence.toTargetId)),
+        targets: group.map((entry) => ({
+          targetId: entry.draft.targetId, code: entry.draft.code, businessName: entry.draft.businessName,
+          address: entry.draft.sourceAddress ?? null, surveyCode: entry.assignment.surveyCode,
+        })).sort((left, right) => left.targetId - right.targetId),
+      }));
+    })();
     return NextResponse.json({
       error: "측정자 1인 3건 배정은 관리자 직접 예외만 허용됩니다.",
       code: "MEASUREMENT_ASSIGNMENT_ADMIN_EXCEPTION_REQUIRED",
@@ -1476,6 +1498,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       drafts: drafts.map((draft) => ({ ...draft, canonicalFingerprint: fingerprint })),
+      thirdAssignmentReview,
       missing: output.missing,
       scope: requestedTargetIds.length === 1 ? "target_business" : "range",
       impactSummary: requestedTargetIds.length === 1

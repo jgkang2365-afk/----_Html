@@ -28,11 +28,16 @@ export async function GET(request: NextRequest) {
     if (!Number.isInteger(targetId) || targetId <= 0) return NextResponse.json({ error: "INVALID_TARGET_ID" }, { status: 400 });
     const [{ data: target, error: targetError }, { data: users, error: userError }] = await Promise.all([
       access.supabase.from("measurement_target_business")
-        .select("measurement_date, daily_staff, collaborators, measurer_id").eq("id", targetId).maybeSingle(),
+        .select("code, year, period, measurement_date, daily_staff, collaborators, measurer_id").eq("id", targetId).maybeSingle(),
       access.supabase.from("users").select("id, name, job, is_active").eq("job", "측정"),
     ]);
     if (targetError || !target) return NextResponse.json({ error: "TARGET_NOT_FOUND" }, { status: 404 });
     if (userError) throw userError;
+    const { data: legacyRows, error: legacyError } = await access.supabase.from("preliminary_survey")
+      .select("measurement_date, actual_measurer, report_writer, updated_at")
+      .eq("code", target.code).eq("year", target.year).eq("period", target.period)
+      .order("updated_at", { ascending: false });
+    if (legacyError) throw legacyError;
     const operationalUsers = operationalMeasurementUsers((users ?? []) as MeasurementUserRow[]);
     const userNameById = new Map(operationalUsers.map((user: any) => [Number(user.id), String(user.name)]));
     const userIdByName = new Map(operationalUsers.map((user: any) => [String(user.name).trim(), Number(user.id)]));
@@ -42,6 +47,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       targetId,
       sources: [...new Set(dates)].sort().map((measurementDate) => {
+        const legacy = (legacyRows ?? []).find((row: any) => String(row.measurement_date ?? "") === measurementDate) ?? null;
+        const referenceParticipants = legacy?.actual_measurer
+          ? String(legacy.actual_measurer).split(",").map((name) => name.trim()).filter(Boolean) : null;
+        const referenceReportWriter = legacy?.report_writer ? String(legacy.report_writer).trim() : null;
         const staff = measurementStaffForDate({
           dailyStaff: target.daily_staff,
           measurementDate,
@@ -55,6 +64,9 @@ export async function GET(request: NextRequest) {
           reportWriterUserId: Array.isArray(target.daily_staff)
             ? Number(target.daily_staff.find((day: any) => String(day?.date ?? "") === measurementDate)?.measurer_id) || null
             : Number(target.measurer_id) || null,
+          referenceParticipants,
+          referenceReportWriter,
+          referenceStatus: legacy ? "mismatch" : "manual_review",
         };
       }),
     });
