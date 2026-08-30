@@ -180,3 +180,19 @@ test("legacy 중복 C/C 또는 F/F도 DB wrapper 순서와 같은 C/CC/CCC, F/FF
   ], []);
   assert.deepEqual(fReview[0].targets.map((target) => target.surveyCode), ["F", "FF", "FFF"]);
 });
+
+test("기존 3건을 재추천해도 draft 내용은 덮고 저장된 created_at 순서로 CCC 결과를 표시한다", () => {
+  const review = buildThirdAssignmentReview([
+    { targetId: 10, code: "H0010", businessName: "draft-10", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 10, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "C", approvalRequired: false }] },
+    { targetId: 20, code: "H0020", businessName: "draft-20", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 20, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "CC", approvalRequired: false }] },
+    { targetId: 30, code: "H0030", businessName: "draft-30", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 30, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "CCC", approvalRequired: true }] },
+  ], [
+    { targetId: 10, code: "H0010", businessName: "stored-10", sourceAddress: "서울 A", measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "C", baseSurveyCode: "C", createdAt: "2026-08-03T00:00:00Z" },
+    { targetId: 20, code: "H0020", businessName: "stored-20", sourceAddress: "서울 A", measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "C", baseSurveyCode: "C", createdAt: "2026-08-01T00:00:00Z" },
+    { targetId: 30, code: "H0030", businessName: "stored-30", sourceAddress: "서울 A", measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "C", baseSurveyCode: "C", createdAt: "2026-08-02T00:00:00Z" },
+  ], []);
+
+  assert.deepEqual(review[0].targets.map((target) => [target.targetId, target.businessName, target.surveyCode]), [
+    [20, "draft-20", "C"], [30, "draft-30", "CC"], [10, "draft-10", "CCC"],
+  ]);
+});

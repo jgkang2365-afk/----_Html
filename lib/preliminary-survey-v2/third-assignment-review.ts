@@ -61,7 +61,7 @@ export function buildThirdAssignmentReview(
       draft,
       assignment,
       proposed: true,
-      createdAt: null,
+      createdAt: persistedByTargetDate.get(`${assignment.targetId}:${assignment.measurementDate}`)?.createdAt ?? null,
       previousSurveyCode: persistedByTargetDate.get(`${assignment.targetId}:${assignment.measurementDate}`)?.surveyCode ?? null,
       baseSurveyCode: assignment.surveyCode.slice(0, 1),
     })));
