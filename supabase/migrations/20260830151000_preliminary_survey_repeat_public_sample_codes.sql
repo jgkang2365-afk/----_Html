@@ -93,9 +93,9 @@ BEGIN
   END LOOP;
 
   SELECT COALESCE(jsonb_agg(
-    assignment_item || jsonb_build_object('survey_code', left(upper(btrim(assignment_item->>'survey_code')), 1))
+    assignment_row.value || jsonb_build_object('survey_code', left(upper(btrim(assignment_row.value->>'survey_code')), 1))
   ), '[]'::jsonb) INTO base_assignments
-  FROM jsonb_array_elements(COALESCE(p_assignments, '[]'::jsonb)) assignment_item;
+  FROM jsonb_array_elements(COALESCE(p_assignments, '[]'::jsonb)) AS assignment_row(value);
 
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
     'targetId', target_plan.measurement_target_business_id,
