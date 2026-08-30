@@ -73,8 +73,9 @@ export async function POST(request: NextRequest) {
     const measurementDate = String(body.measurementDate ?? "").trim();
     const repairParticipants = body.repairParticipants === true;
     const repairReportWriter = body.repairReportWriter === true;
-    const participantUserIds = repairParticipants && Array.isArray(body.participantUserIds)
-      ? [...new Set(body.participantUserIds.map(Number))] : [];
+    const rawParticipantUserIds: unknown[] = repairParticipants && Array.isArray(body.participantUserIds)
+      ? body.participantUserIds : [];
+    const participantUserIds: number[] = [...new Set<number>(rawParticipantUserIds.map((value) => Number(value)))];
     const reportWriterUserId = repairReportWriter ? (body.reportWriterUserId == null ? null : Number(body.reportWriterUserId)) : null;
     const reason = String(body.reason ?? "").trim();
     if (!Number.isInteger(targetId) || !/^\d{4}-\d{2}-\d{2}$/.test(measurementDate) || !reason || (!repairParticipants && !repairReportWriter) ||
