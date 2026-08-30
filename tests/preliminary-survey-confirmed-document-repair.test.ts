@@ -118,6 +118,10 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(source, /businessTypePlanMismatch: hasAuthoritativeBusinessTypePlanMismatch/);
     assert.match(source, /!entry\.businessTypePlanMismatch/);
     assert.match(source, /찐확정 non-null 값은 자동 변경할 수 없습니다/);
+    const workbench = fs.readFileSync(path.join(process.cwd(), "app/api/preliminary-survey-v2/workbench/route.ts"), "utf8");
+    assert.match(workbench, /const businessTypePlanMismatch/);
+    assert.match(workbench, /business_type 원천과 기존 V2 방식 불일치 · 수동 확인 필요/);
+    assert.match(workbench, /needsManualReview: businessTypePlanMismatch/);
   });
   it("일반 apply와 누락 보정 apply API가 분리되어 있다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");

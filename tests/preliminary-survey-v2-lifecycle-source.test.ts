@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { isActivePreliminarySurveyTarget } from "../lib/business/target-business-form";
 
 const migration = readFileSync("supabase/migrations/20260830140000_expand_preliminary_survey_v2_target_lifecycle_source.sql", "utf8");
 const aliasFix = readFileSync("supabase/migrations/20260830143000_fix_preliminary_survey_v2_lifecycle_helper_plan_alias.sql", "utf8");
@@ -25,4 +26,10 @@ test("applied helper의 plan_id shadowing은 forward migration에서 alias로 �
   assert.match(aliasFix, /WHERE assignment\.plan_id = v_plan_id/);
   assert.match(aliasFix, /WHERE reconciliation\.applied_plan_id = v_plan_id/);
   assert.doesNotMatch(aliasFix, /\bplan_id uuid/);
+});
+
+test("H0070처럼 거래종료 target은 제외되고 실시+유효 측정일이면 별도 등록 없이 재등장한다", () => {
+  assert.equal(isActivePreliminarySurveyTarget({ measurementDate: "2026-08-27", registrationStatus: "거래종료" }), false);
+  assert.equal(isActivePreliminarySurveyTarget({ measurementDate: "2026-08-27", registrationStatus: "실시" }), true);
+  assert.equal(isActivePreliminarySurveyTarget({ measurementDate: null, registrationStatus: "실시" }), false);
 });
