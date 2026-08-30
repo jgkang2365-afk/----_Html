@@ -74,6 +74,7 @@ test("공시료 반복 코드는 A/AA와 관리자 CCC 예외를 서버 persiste
   assert.match(migration, /persist_preliminary_survey_v2_plan_and_assignment_groups_base/);
   assert.match(migration, /MEASUREMENT_ASSIGNMENT_ADMIN_EXCEPTION_REQUIRED/);
   assert.match(migration, /MEASUREMENT_ASSIGNMENT_SURVEY_CODE_DUPLICATE/);
+  assert.match(migration, /\(assignment\.measurement_date, assignment\.assignee_user_id\) IN/);
   assert.doesNotMatch(migration, /FROM ranked\s+JOIN affected_targets ON affected_targets\.target_id = ranked\.target_id\s+WHERE assignment\.id = ranked\.id/);
   assert.match(migration, /AS assignment_row\(value\)/);
   assert.match(migration, /target_plan\.measurement_target_business_id IN \(SELECT target_id FROM affected_targets\)/);

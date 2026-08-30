@@ -133,8 +133,9 @@ BEGIN
     FROM public.preliminary_survey_v2_measurement_assignments assignment
     JOIN public.preliminary_survey_v2_plans target_plan ON target_plan.id = assignment.plan_id
     JOIN public.users user_row ON user_row.id = assignment.assignee_user_id
-    WHERE assignment.measurement_date IN (
-      SELECT DISTINCT (item->>'measurement_date')::date FROM jsonb_array_elements(p_assignments) item
+    WHERE (assignment.measurement_date, assignment.assignee_user_id) IN (
+      SELECT DISTINCT (item->>'measurement_date')::date, (item->>'assignee_user_id')::integer
+      FROM jsonb_array_elements(p_assignments) item
     )
   )
   UPDATE public.preliminary_survey_v2_measurement_assignments assignment
@@ -144,12 +145,13 @@ BEGIN
       AND assignment.survey_code IS DISTINCT FROM ranked.next_survey_code;
 
   -- 153 AFTER trigger가 먼저 정규화한 뒤에도 wrapper가 한 행만 다시 바꾸지 않도록,
-  -- 이번 날짜의 같은 측정자 그룹 전체를 wrapper 순서로 확정한다.
+  -- 제출된 (측정일, 측정자) 그룹 전체만 wrapper 순서로 확정한다.
   IF EXISTS (
     SELECT 1
     FROM public.preliminary_survey_v2_measurement_assignments assignment
-    WHERE assignment.measurement_date IN (
-      SELECT DISTINCT (item->>'measurement_date')::date FROM jsonb_array_elements(p_assignments) item
+    WHERE (assignment.measurement_date, assignment.assignee_user_id) IN (
+      SELECT DISTINCT (item->>'measurement_date')::date, (item->>'assignee_user_id')::integer
+      FROM jsonb_array_elements(p_assignments) item
     )
     GROUP BY assignment.measurement_date, assignment.assignee_user_id
     HAVING count(*) <> count(DISTINCT assignment.survey_code)
