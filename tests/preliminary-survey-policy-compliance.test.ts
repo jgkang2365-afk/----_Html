@@ -124,4 +124,7 @@ test("CCC 예외와 측정 원천 repair는 관리자 UI·서버 검증·최소 
   assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_FIELD_ROUTE_MANUAL_REVIEW/);
   assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_ACTUAL_MEASUREMENT_CONFLICT/);
   assert.match(auditPermissionMigration, /POLICY_DATE_REPAIR_MEASUREMENT_TARGET_CONFLICT/);
+  assert.match(auditPermissionMigration, /main_measurer_id/);
+  assert.match(auditPermissionMigration, /helper_ids/);
+  assert.doesNotMatch(auditPermissionMigration, /measurement_target\.measurer_id = participant_user\.id/);
 });
