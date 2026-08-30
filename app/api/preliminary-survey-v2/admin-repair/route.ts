@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
+import { operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
 
 export const dynamic = "force-dynamic";
 
@@ -134,7 +135,7 @@ export async function GET(request: NextRequest) {
           }
         : null,
       sequenceNumber: journalResult.data?.sequence_number ?? null,
-      users: (usersResult.data || []).map((user: any) => ({
+      users: operationalMeasurementUsers(usersResult.data).map((user: any) => ({
         id: Number(user.id),
         name: user.name,
         job: user.job,
@@ -184,6 +185,16 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+    const selectedUserIds = [...new Set([...participantUserIds, linkMeasurerId])];
+    const { data: selectedUsers, error: selectedUserError } = await supabase
+      .from("users")
+      .select("id, job, is_active")
+      .in("id", selectedUserIds);
+    if (selectedUserError) throw selectedUserError;
+    const operationalUserIds = new Set(operationalMeasurementUsers(selectedUsers).map((user) => Number(user.id)));
+    if (!selectedUserIds.every((id) => operationalUserIds.has(id))) {
+      return NextResponse.json({ error: "INELIGIBLE_OPERATIONAL_USER" }, { status: 400 });
+    }
     const { data, error } = await supabase.rpc("admin_repair_preliminary_survey_connection", {
       p_target_id: targetId,
       p_participant_user_ids: participantUserIds,

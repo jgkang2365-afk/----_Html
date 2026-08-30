@@ -47,6 +47,7 @@ import {
   reportWriterParticipationWarning,
 } from "@/lib/preliminary-survey-v2/report-writer-participation";
 import { compareCanonicalTargetBusinesses } from "@/lib/business/target-business-sort";
+import { operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
 import { HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES } from "@/lib/preliminary-survey-v2/historical-plan-recovery";
 
 export const dynamic = "force-dynamic";
@@ -297,13 +298,14 @@ async function recomputeCanonicalMeasurementAssignments(
   submitted: SubmittedDraft[],
 ) {
   const [{ data: assigneeUsers, error: assigneeUserError }, { data: persisted, error: persistedError }] = await Promise.all([
-    supabase.from("users").select("id, name, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
+    supabase.from("users").select("id, name, job, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
     supabase.from("preliminary_survey_v2_measurement_assignments").select(
       "plan_id, measurement_date, assignee_user_id, approval_required, approval_group_fingerprint",
     ),
   ]);
   if (persistedError && isMeasurementAssignmentSchemaMissing(persistedError)) return { schemaMissing: true as const };
   if (assigneeUserError || persistedError) throw assigneeUserError || persistedError;
+  const operationalAssigneeUsers = operationalMeasurementUsers(assigneeUsers);
 
   const persistedPlanIds = [...new Set((persisted ?? []).map((item: any) => String(item.plan_id)))];
   const { data: persistedPlans, error: persistedPlanError } = persistedPlanIds.length
@@ -353,9 +355,9 @@ async function recomputeCanonicalMeasurementAssignments(
   const assigneeBlockKeys = await loadScheduleBlockKeys(
     supabase,
     assignmentTargets.map((target) => target.measurementDate),
-    (assigneeUsers ?? []).map((user: any) => Number(user.id)),
+    operationalAssigneeUsers.map((user: any) => Number(user.id)),
   );
-  const assigneeCapacity = (assigneeUsers ?? []).filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
+  const assigneeCapacity = operationalAssigneeUsers.filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
   const routeNeededDates = new Set(assigneeCapacity > 0 ? [...new Set(assignmentTargets.map((target) => target.measurementDate))].filter((date) =>
     assignmentTargets.filter((target) => target.measurementDate === date).length +
       existing.filter((target) => target.measurementDate === date).length > assigneeCapacity,
@@ -367,7 +369,7 @@ async function recomputeCanonicalMeasurementAssignments(
   });
   const assignments = assignMeasurementAssignees({
     targets: assignmentTargets,
-    users: (assigneeUsers ?? []).map((user: any) => ({
+    users: operationalAssigneeUsers.map((user: any) => ({
       id: Number(user.id), name: user.name, active: user.is_active, surveyCode: user.survey_code,
     })),
     existing,
@@ -381,7 +383,7 @@ async function recomputeCanonicalMeasurementAssignments(
     userId: assignment.userId,
   })).sort((left, right) => left.targetId - right.targetId ||
     left.measurementDate.localeCompare(right.measurementDate) || left.userId - right.userId);
-  const userById = new Map((assigneeUsers ?? []).map((user: any) => [Number(user.id), user]));
+  const userById = new Map(operationalAssigneeUsers.map((user: any) => [Number(user.id), user]));
   const invalidSurveyCodeUserIds: number[] = [];
   const canonical = assignments.flatMap((assignment) => {
     const user: any = userById.get(assignment.userId);
@@ -738,6 +740,7 @@ export async function GET(request: NextRequest) {
     if (planError || journalError || userError || scheduleBlockError || legacySurveyError) {
       throw planError || journalError || userError || scheduleBlockError || legacySurveyError;
     }
+    const operationalUsers = operationalMeasurementUsers(users);
 
     // migration 전에는 기존 plan snapshot을 읽기 fallback으로만 사용한다. POST apply는
     // fallback 저장을 허용하지 않고 새 원자 RPC를 요구한다.
@@ -767,8 +770,8 @@ export async function GET(request: NextRequest) {
       ...(reconciliationRows ?? []).flatMap((row: any) => row.applied_plan_id == null ? [] : [String(row.applied_plan_id)]),
       ...(historyRows ?? []).flatMap((row: any) => row.created_plan_id == null ? [] : [String(row.created_plan_id)]),
     ]);
-    const userNameById = new Map((users ?? []).map((user: any) => [Number(user.id), user.name]));
-    const userIdByName = new Map((users ?? []).map((user: any) => [String(user.name ?? "").trim(), Number(user.id)]));
+    const userNameById = new Map(operationalUsers.map((user: any) => [Number(user.id), user.name]));
+    const userIdByName = new Map(operationalUsers.map((user: any) => [String(user.name ?? "").trim(), Number(user.id)]));
     const planTargetById = new Map((plans ?? []).map((plan: any) => [String(plan.id), Number(plan.measurement_target_business_id)]));
     const assignmentByTargetDate = new Map((assignmentRows ?? []).flatMap((assignment: any) => {
       const businessId = planTargetById.get(String(assignment.plan_id));
@@ -907,7 +910,7 @@ export async function GET(request: NextRequest) {
         ) ? "history" : null,
       };
     });
-    return NextResponse.json({ rows, users: users ?? [], year, period });
+    return NextResponse.json({ rows, users: operationalUsers, year, period });
   } catch (error) {
     const message = error instanceof Error ? error.message : "WORKBENCH_QUERY_FAILED";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 500 });
@@ -987,7 +990,7 @@ export async function POST(request: NextRequest) {
           .in("measurement_target_business_id", relationIds) : Promise.resolve({ data: [], error: null }),
         relationCodes.length ? supabase.from("measurement_journal")
           .select("code, measurement_year, measurement_period").in("code", relationCodes) : Promise.resolve({ data: [], error: null }),
-        supabase.from("users").select("id, name").eq("job", "측정"),
+        supabase.from("users").select("id, name, job, is_active").eq("job", "측정"),
       ]);
       if (relationPlanError || relationJournalError || relationUserError) {
         throw relationPlanError || relationJournalError || relationUserError;
@@ -1005,7 +1008,7 @@ export async function POST(request: NextRequest) {
           ...(assignmentsByPlan.get(String(assignment.plan_id)) ?? []), assignment,
         ]);
       }
-      const relationUserIdByName = new Map((relationUsers ?? [])
+      const relationUserIdByName = new Map(operationalMeasurementUsers(relationUsers)
         .map((user: any) => [String(user.name ?? "").trim(), Number(user.id)]));
       const relationScheduleDates = [
         ...(relationPlans ?? []).map((plan: any) => String(plan.recommended_date ?? "")),
@@ -1150,8 +1153,8 @@ export async function POST(request: NextRequest) {
       { data: persistedAssignments, error: persistedAssignmentError },
       { data: persistedPlans, error: persistedPlanError },
     ] = await Promise.all([
-      supabase.from("users").select("id, name, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
-      supabase.from("users").select("id, name").eq("job", "측정"),
+      supabase.from("users").select("id, name, job, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
+      supabase.from("users").select("id, name, job, is_active").eq("job", "측정"),
       supabase.from("preliminary_survey_v2_measurement_assignments").select("plan_id, measurement_date, assignee_user_id"),
       supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id"),
     ]);
@@ -1159,7 +1162,9 @@ export async function POST(request: NextRequest) {
         (persistedAssignmentError && !isMeasurementAssignmentSchemaMissing(persistedAssignmentError))) {
       throw assigneeUserError || measurementRoleUserError || persistedPlanError || persistedAssignmentError;
     }
-    const measurementRoleUserIdByName = new Map((measurementRoleUsers ?? [])
+    const operationalAssigneeUsers = operationalMeasurementUsers(assigneeUsers);
+    const operationalMeasurementRoleUsers = operationalMeasurementUsers(measurementRoleUsers);
+    const measurementRoleUserIdByName = new Map(operationalMeasurementRoleUsers
       .map((user: any) => [String(user.name ?? "").trim(), Number(user.id)]));
     const measurementRoleKeysByTarget = new Map(output.targets.map((target) => [target.id, measurementRoleKeys({
       daily_staff: target.sourceDailyStaffSnapshot,
@@ -1218,9 +1223,9 @@ export async function POST(request: NextRequest) {
     const assigneeBlockKeys = await loadScheduleBlockKeys(
       supabase,
       measurementAssignmentTargets.map((target) => target.measurementDate),
-      (assigneeUsers ?? []).map((user: any) => Number(user.id)),
+      operationalAssigneeUsers.map((user: any) => Number(user.id)),
     );
-    const assigneeCapacity = (assigneeUsers ?? []).filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
+    const assigneeCapacity = operationalAssigneeUsers.filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
     const routeNeededDates = new Set(assigneeCapacity > 0 ? [...new Set(measurementAssignmentTargets.map((target) => target.measurementDate))].filter((date) =>
       measurementAssignmentTargets.filter((target) => target.measurementDate === date).length +
         existingMeasurementAssignments.filter((target) => target.measurementDate === date).length > assigneeCapacity,
@@ -1232,7 +1237,7 @@ export async function POST(request: NextRequest) {
     });
     const measurementAssignments = assignMeasurementAssignees({
       targets: measurementAssignmentTargets,
-      users: (assigneeUsers ?? []).map((user: any) => ({
+      users: operationalAssigneeUsers.map((user: any) => ({
         id: Number(user.id), name: user.name, active: user.is_active, surveyCode: user.survey_code,
       })),
       existing: existingMeasurementAssignments,

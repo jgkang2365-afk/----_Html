@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
+import { operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
 import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
@@ -113,7 +114,7 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   if (userError) throw new Error(`V2_USER_QUERY_FAILED:${userError.message}`);
   if (infoError) throw new Error(`V2_COORDINATE_QUERY_FAILED:${infoError.message}`);
   if (journalError) throw new Error(`V2_JOURNAL_QUERY_FAILED:${journalError.message}`);
-  const users: SurveyUser[] = (userRows ?? []).map((user: any) => ({
+  const users: SurveyUser[] = operationalMeasurementUsers(userRows).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
   const userNameById = new Map(users.map((user) => [user.id, user.name]));
@@ -363,10 +364,10 @@ export async function calculateV2Recommendations(
     "id, name, job, is_active, is_preliminary_survey_experienced",
   ).eq("job", "측정");
   if (userError) throw new Error(`V2_USER_QUERY_FAILED:${userError.message}`);
-  const users: SurveyUser[] = (rawUsers ?? []).map((user: any) => ({
+  const users: SurveyUser[] = operationalMeasurementUsers(rawUsers).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
-  const activeUsers = users.filter((user) => user.active !== false).sort((left, right) => left.id - right.id);
+  const activeUsers = users.sort((left, right) => left.id - right.id);
   const userNameById = new Map(users.map((user) => [user.id, user.name]));
   const userIdByName = new Map(users.map((user) => [user.name.trim(), user.id]));
   const codes = [...new Set((rawTargets ?? []).map((target: any) => target.code))];
@@ -835,7 +836,7 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
   if (userError || journalError || blockError) {
     return { action: "blocked", reason: "V2_LOAD_FAILED" };
   }
-  const userRows: SurveyUser[] = (users ?? []).map((user: any) => ({
+  const userRows: SurveyUser[] = operationalMeasurementUsers(users).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced),
     active: user.is_active,
   }));
@@ -979,7 +980,7 @@ export async function loadGroupRecommendationTargets(
 
   const codes = [...new Set((targets ?? []).map((target: any) => target.code))];
   const [{ data: users, error: userError }, { data: infoRows, error: infoError }, { data: journalRows, error: journalError }, { data: confirmedRows, error: confirmedError }, { data: planRows, error: planError }] = await Promise.all([
-    supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
+    supabase.from("users").select("id, name, job, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
     codes.length ? supabase.from("business_info").select("code, latitude, longitude, geocoding_status").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
     codes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", codes)
@@ -1005,7 +1006,7 @@ export async function loadGroupRecommendationTargets(
     latitude: Number(row.latitude),
     longitude: Number(row.longitude),
   }]));
-  const userRows: SurveyUser[] = (users ?? []).map((user: any) => ({
+  const userRows: SurveyUser[] = operationalMeasurementUsers(users).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced),
     active: user.is_active,
   }));
@@ -1118,7 +1119,7 @@ export async function confirmGroupRecommendation(
 
   const targetCodes = [...new Set((targets ?? []).map((target: any) => target.code))];
   const [{ data: users, error: userError }, { data: journalRows, error: journalError }, { data: confirmedRows, error: confirmedError }, { data: planRows, error: planError }] = await Promise.all([
-    supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
+    supabase.from("users").select("id, name, job, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
     targetCodes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", targetCodes)
       : Promise.resolve({ data: [], error: null }),
     targetCodes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", targetCodes)
@@ -1129,7 +1130,7 @@ export async function confirmGroupRecommendation(
     throw new Error("CONFIRM_LOAD_FAILED");
   }
 
-  const userRows: SurveyUser[] = (users ?? []).map((user: any) => ({
+  const userRows: SurveyUser[] = operationalMeasurementUsers(users).map((user: any) => ({
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced),
     active: user.is_active,
   }));

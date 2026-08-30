@@ -37,12 +37,12 @@ test("제외 일정 API는 권한·활성 측정직원 검증과 GET/POST/PATCH/
   assert.match(route, /checkPermission\("survey:write"\)/);
   assert.match(route, /session\.role === "관리자"/);
   assert.match(route, /session\.userId !== userId/);
-  assert.match(route, /user\.job === "측정" && user\.is_active !== false/);
+  assert.match(route, /isOperationalMeasurementUser|operationalMeasurementUsers/);
   assert.match(route, /\.insert\(userIds\.map/);
 });
 
 test("V2 계산 서비스는 DB 제외일을 HARD BLOCK availability에 연결", () => {
   assert.match(service, /from\("user_schedule_blocks"\)/);
   assert.match(service, /buildScheduleBlockKeys\(blocks \?\? \[\]\)/);
-  assert.match(service, /availability: \{ isBlocked: \(userId, date\) => blockedKeys\.has/);
+  assert.match(service, /availability:\s*\{\s*isBlocked: \(userId, date\) => blockedKeys\.has/);
 });
