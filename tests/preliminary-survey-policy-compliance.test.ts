@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { checkPreliminarySurveyDatePolicy } from "../lib/preliminary-survey-v2/policy-compliance";
+import { buildThirdAssignmentReview } from "../lib/preliminary-survey-v2/third-assignment-review";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
@@ -127,4 +128,20 @@ test("CCC 예외와 측정 원천 repair는 관리자 UI·서버 검증·최소 
   assert.match(auditPermissionMigration, /main_measurer_id/);
   assert.match(auditPermissionMigration, /helper_ids/);
   assert.doesNotMatch(auditPermissionMigration, /measurement_target\.measurer_id = participant_user\.id/);
+});
+
+test("CCC 검토 모델은 C/CC/CCC 전체를 보여 주고 명시 확인 전 승인 적용을 막는다", () => {
+  const plansUi = read("components/features/PreliminarySurveyV2Plans.tsx");
+  const review = buildThirdAssignmentReview([
+    { targetId: 1, code: "H0001", businessName: "가", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 1, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "C", approvalRequired: false }] },
+    { targetId: 2, code: "H0002", businessName: "나", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 2, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "CC", approvalRequired: false }] },
+    { targetId: 3, code: "H0003", businessName: "다", sourceAddress: "서울 A", measurementAssignments: [{ targetId: 3, measurementDate: "2026-08-25", userId: 7, userName: "측정자", surveyCode: "CCC", approvalRequired: true }] },
+  ], []);
+
+  assert.equal(review.length, 1);
+  assert.deepEqual(review[0].targets.map((target) => target.surveyCode), ["C", "CC", "CCC"]);
+  assert.deepEqual(review[0].targets.map((target) => target.targetId), [1, 2, 3]);
+  assert.match(plansUi, /if \(thirdAssignmentReview\.length > 0 && !thirdAssignmentConfirmed\)/);
+  assert.match(plansUi, /let response = await send\(thirdAssignmentConfirmed\)/);
+  assert.match(plansUi, /approveThirdAssignment,/);
 });

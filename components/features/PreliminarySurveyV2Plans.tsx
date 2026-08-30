@@ -614,7 +614,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           approveThirdAssignment,
         }),
       });
-      let response = await send(thirdAssignmentReview.length > 0);
+      let response = await send(thirdAssignmentConfirmed);
       let result = await response.json();
       if (response.status === 409 && result.approvalRequired && thirdAssignmentConfirmed && window.confirm(`${result.error}\n승인하여 적용하시겠습니까?`)) {
         response = await send(true);
