@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
-import { classifyConfirmedDocumentState } from "../lib/preliminary-survey-v2/confirmed-document-repair";
+import { classifyConfirmedDocumentState, firstValidConfirmedRepairDate } from "../lib/preliminary-survey-v2/confirmed-document-repair";
 
 describe("찐확정 누락정보 보정 경계", () => {
   it("date와 surveyor가 모두 있으면 COMPLETE이고 변화가 없다", () => {
@@ -40,6 +40,32 @@ describe("찐확정 누락정보 보정 경계", () => {
   });
   it("역사 보호도 NULL 자체를 영구 잠그지 않으며 non-null 보호는 RPC가 맡는다", () => {
     assert.equal(classifyConfirmedDocumentState(null, false).classification, "MISSING_DOCUMENTARY_INFO");
+  });
+
+  it("H0288 exact 조사자는 첫 후보의 실제 측정 충돌을 건너뛰고 다음 hard-rule 통과 후보를 쓴다", async () => {
+    const selected = await firstValidConfirmedRepairDate({
+      candidateDates: ["2026-08-05", "2026-08-06", "2026-08-07"],
+      participants: [
+        { id: 13, name: "H0288-조사자1", experienced: true, active: true },
+        { id: 16, name: "H0288-조사자2", experienced: true, active: true },
+      ],
+      blockedKeys: new Set(["13:2026-08-05", "16:2026-08-05"]),
+      validate: async (date) => ({ valid: date === "2026-08-06", errors: ["capacity"], experiencedReviewer: null }),
+    });
+    assert.equal(selected.date, "2026-08-06");
+  });
+
+  it("H0524와 기존 non-null 문서값은 각각 첫 통과 후보와 COMPLETE 보호를 유지한다", async () => {
+    const selected = await firstValidConfirmedRepairDate({
+      candidateDates: ["2026-08-05", "2026-08-06"],
+      participants: [{ id: 2, name: "H0524-조사자", experienced: true, active: true }],
+      blockedKeys: new Set(),
+      validate: async () => ({ valid: true, errors: [], experiencedReviewer: null }),
+    });
+    assert.equal(selected.date, "2026-08-05");
+    assert.deepEqual(classifyConfirmedDocumentState({ recommended_date: "2026-08-05", participant_user_ids: [2] }, false, true), {
+      fillDate: false, fillSurveyors: false, fillMeasurementAssignment: false, classification: "COMPLETE",
+    });
   });
   it("SQL은 non-null overwrite를 차단하고 감사 provenance를 남기며 업무 원천을 갱신하지 않는다", () => {
     const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260830113000_fix_true_confirmed_document_repair_assignments.sql"), "utf8");

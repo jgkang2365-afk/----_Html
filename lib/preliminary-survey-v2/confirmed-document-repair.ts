@@ -2,6 +2,9 @@ import { calculateV2Recommendations, loadV2ManualContext } from "./service";
 import { splitNames } from "../business/link-measurer";
 import { validateManualPlanHardRules } from "./manual-validation";
 import { createRouteMetrics } from "./route-metrics";
+import { recommendationDatesForBusinessType } from "./calendar";
+import { buildScheduleBlockKeys } from "./availability";
+import { loadActualMeasurementBlockedKeys } from "./measurement-conflicts";
 import type { SurveyUser } from "./types";
 
 export type ConfirmedRepairClassification = "COMPLETE" | "MISSING_DOCUMENTARY_INFO" | "PROTECTED_MANUAL" | "NEEDS_MANUAL_REVIEW";
@@ -44,6 +47,26 @@ export function classifyConfirmedDocumentState(plan: {
       ? "COMPLETE" as const
       : protectedSource ? "PROTECTED_MANUAL" as const : "MISSING_DOCUMENTARY_INFO" as const,
   };
+}
+
+/** exact legacy 조사자를 보존해야 할 때만, 기존 날짜 정책 후보 안에서 hard rule을 모두 만족하는 첫 날짜를 찾는다. */
+export async function firstValidConfirmedRepairDate(input: {
+  candidateDates: string[];
+  participants: SurveyUser[];
+  blockedKeys: Set<string>;
+  validate: (date: string) => Promise<{ valid: boolean; errors: string[]; experiencedReviewer: SurveyUser | null }>;
+}) {
+  const errors: string[] = [];
+  for (const date of input.candidateDates) {
+    if (input.participants.some((user) => user.active === false || input.blockedKeys.has(`${user.id}:${date}`))) {
+      errors.push(`${date}: 조사자 불가 일정 또는 실제 측정 충돌`);
+      continue;
+    }
+    const validation = await input.validate(date);
+    if (validation.valid) return { date, validation, errors };
+    errors.push(`${date}: ${validation.errors.join(" · ")}`);
+  }
+  return { date: null, validation: null, errors };
 }
 
 function journalKey(row: { code: unknown; year: unknown; period: unknown }) {
@@ -118,32 +141,23 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       reason: "보고서 담당자 원천이 없어 신규 V2 plan의 source snapshot을 구성할 수 없습니다.", existingPlanId: null,
       reconciliationId: null, measurementAssignments: [],
     };
-    if ((entry.fillDate || !entry.plan) && (!result || result.status !== "recommended" || !result.date)) return {
-      targetId, code: entry.target.code, businessName: entry.target.business_name,
-      classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors, fillMeasurementAssignment: entry.fillMeasurementAssignment,
-      recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
-      participantUserIds: [], participantNames: [], surveyMethod: null,
-      sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
-      reason: result?.reason ?? "정책에 맞는 누락정보 보정안을 구성할 수 없습니다.", existingPlanId: entry.plan?.id ?? null,
-      reconciliationId: null, measurementAssignments: [],
-    };
-    const repairDate = entry.fillDate ? result!.date : entry.plan.recommended_date;
-    const surveyMethod = entry.plan?.survey_method ?? result?.surveyMethod;
-    let participantUserIds = entry.fillSurveyors ? (result?.participants ?? []).map((user: any) => user.id) : entry.plan.participant_user_ids.map(Number);
-    let participantNames = entry.fillSurveyors ? (result?.participants ?? []).map((user: any) => user.name) : entry.plan.participant_names.map(String);
-    let responsibleUserId = entry.plan ? Number(entry.plan.responsible_user_id) : result!.responsible.id;
-    let experiencedReviewerUserId = entry.plan?.experienced_reviewer_id ?? result?.experiencedReviewer?.id ?? null;
     const legacy: any = legacyByTargetKey.get(
       `${String(entry.target.code)}|${Number(entry.target.year)}|${String(entry.target.period ?? "").trim().replace("(수시)", "")}|${String(entry.target.measurement_date)}`,
     );
+    const reconciledIds = Array.isArray(reconciliationRow?.matched_responsible_user_ids)
+      ? reconciliationRow.matched_responsible_user_ids.map(Number) : [];
     const legacyNames = entry.fillSurveyors ? splitNames(legacy?.preliminary_surveyor) : [];
-    if (entry.plan || legacyNames.length) {
-      const context = await loadV2ManualContext(supabase, targetId, repairDate);
+    let repairDate = entry.fillDate ? (result?.date ?? null) : entry.plan.recommended_date;
+    const surveyMethod = entry.plan?.survey_method ?? result?.surveyMethod ?? null;
+    let participantUserIds = entry.fillSurveyors ? (result?.participants ?? []).map((user: any) => user.id) : entry.plan.participant_user_ids.map(Number);
+    let participantNames = entry.fillSurveyors ? (result?.participants ?? []).map((user: any) => user.name) : entry.plan.participant_names.map(String);
+    let responsibleUserId = entry.plan ? Number(entry.plan.responsible_user_id) : (result?.responsible?.id ?? null);
+    let experiencedReviewerUserId = entry.plan?.experienced_reviewer_id ?? result?.experiencedReviewer?.id ?? null;
+    if (entry.plan || legacyNames.length || reconciledIds.length) {
+      const context = await loadV2ManualContext(supabase, targetId, repairDate ?? entry.target.measurement_date);
       const usersById = new Map<number, SurveyUser>(context.users.map((user: SurveyUser) => [user.id, user]));
       const usersByName = new Map<string, SurveyUser>(context.users.map((user: SurveyUser) => [user.name, user]));
       let participants: Array<SurveyUser | undefined | null> = participantUserIds.map((userId: number) => usersById.get(userId));
-      const reconciledIds = Array.isArray(reconciliationRow?.matched_responsible_user_ids)
-        ? reconciliationRow.matched_responsible_user_ids.map(Number) : [];
       if (entry.fillSurveyors && reconciledIds.length) participants = reconciledIds.map((id: number) => usersById.get(id));
       else if (entry.fillSurveyors && legacyNames.length) participants = legacyNames.map((name) => usersByName.get(name));
       if (entry.plan && entry.fillSurveyors && !legacyNames.length) {
@@ -168,33 +182,58 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         .map((user) => [user.id, user])).values()];
       const responsible = entry.plan ? usersById.get(Number(entry.plan.responsible_user_id)) : validParticipants[0];
       if (!responsible) throw new Error("REPAIR_RESPONSIBLE_MAPPING_FAILED");
-      const { data: blocks, error: blockError } = await supabase.from("user_schedule_blocks")
-        .select("user_id").in("user_id", validParticipants.map((user) => user.id))
-        .lte("start_date", repairDate).gte("end_date", repairDate);
+      const candidateDates = entry.fillDate
+        ? recommendationDatesForBusinessType(
+          entry.target.measurement_date,
+          context.target.businessType ?? (context.target.kind === "existing" ? "existing" : "first_measurement"),
+        ).map((candidate) => candidate.date)
+        : [String(repairDate)];
+      const candidateRange = [...candidateDates].sort();
+      const { data: blocks, error: blockError } = candidateDates.length
+        ? await supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
+          .in("user_id", validParticipants.map((user) => user.id))
+          .lte("start_date", candidateRange.at(-1)).gte("end_date", candidateRange[0])
+        : { data: [], error: null };
       if (blockError) throw blockError;
-      const validation = await validateManualPlanHardRules({
-        target: { ...context.target, responsible },
-        recommendedDate: repairDate,
+      const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
+      for (const key of await loadActualMeasurementBlockedKeys(supabase, candidateDates, context.users)) blockedKeys.add(key);
+      const selectedDate = await firstValidConfirmedRepairDate({
+        candidateDates,
         participants: validParticipants,
-        surveyMethod,
-        existingAssignments: context.assignments,
-        routes: createRouteMetrics(),
+        blockedKeys,
+        validate: (date) => validateManualPlanHardRules({
+          target: { ...context.target, responsible },
+          recommendedDate: date,
+          participants: validParticipants,
+          surveyMethod: surveyMethod ?? (context.target.kind === "new" ? "field" : "phone"),
+          existingAssignments: context.assignments,
+          routes: createRouteMetrics(),
+        }),
       });
-      if ((blocks ?? []).length || !validation.valid) return {
+      if (!selectedDate.date || !selectedDate.validation) return {
         targetId, code: entry.target.code, businessName: entry.target.business_name,
         classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors, fillMeasurementAssignment: entry.fillMeasurementAssignment,
         recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
         participantUserIds: [], participantNames: [], surveyMethod: null,
         sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
-        reason: `보존할 조사자 원천이 보정 날짜의 hard rule을 충족하지 않습니다: ${validation.errors.join(" · ") || "직원 불가 일정"}`,
+        reason: `보존할 조사자 원천이 정책 후보일의 hard rule을 충족하지 않습니다: ${selectedDate.errors.join(" / ") || "직원 불가 일정"}`,
         existingPlanId: entry.plan?.id ?? null,
         reconciliationId: null, measurementAssignments: [],
       };
+      repairDate = selectedDate.date;
       participantUserIds = validParticipants.map((user) => user.id);
       participantNames = validParticipants.map((user) => user.name);
       responsibleUserId = responsible.id;
-      experiencedReviewerUserId = entry.plan?.experienced_reviewer_id ?? validation.experiencedReviewer?.id ?? null;
-    }
+      experiencedReviewerUserId = entry.plan?.experienced_reviewer_id ?? selectedDate.validation.experiencedReviewer?.id ?? null;
+    } else if ((entry.fillDate || !entry.plan) && (!result || result.status !== "recommended" || !result.date)) return {
+      targetId, code: entry.target.code, businessName: entry.target.business_name,
+      classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors, fillMeasurementAssignment: entry.fillMeasurementAssignment,
+      recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
+      participantUserIds: [], participantNames: [], surveyMethod: null,
+      sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
+      reason: result?.reason ?? "정책에 맞는 누락정보 보정안을 구성할 수 없습니다.", existingPlanId: entry.plan?.id ?? null,
+      reconciliationId: null, measurementAssignments: [],
+    };
     const publicSampleUserId = Number(reconciliationRow?.matched_public_sample_user_id);
     const publicSampleCode = String(reconciliationRow?.normalized_current_survey_code ?? "").trim().toUpperCase();
     if (entry.fillMeasurementAssignment && (!reconciliationRow || !Number.isInteger(publicSampleUserId) || !["A", "B", "C", "D", "F", "G"].includes(publicSampleCode))) return {
