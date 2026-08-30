@@ -82,6 +82,14 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(sql, /INSERT INTO public\.preliminary_survey_v2_measurement_assignments/);
     assert.match(sql, /preliminary_survey_v2_document_repair_audit/);
   });
+  it("forward RPC guard는 assignment-only payload의 기존 조사자 snapshot을 alias로 정확히 보존한다", () => {
+    const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260830130000_guard_true_confirmed_repair_non_null_snapshots.sql"), "utf8");
+    assert.match(sql, /NOT COALESCE\(\(item->>'fillSurveyors'\)::boolean, false\)[\s\S]*incoming_participant_ids IS DISTINCT FROM plan_row\.participant_user_ids[\s\S]*incoming_participant_names IS DISTINCT FROM plan_row\.participant_names[\s\S]*responsibleUserId[\s\S]*experiencedReviewerUserId/);
+    assert.match(sql, /UPDATE public\.preliminary_survey_v2_plans AS current_plan SET/);
+    assert.match(sql, /ELSE current_plan\.participant_user_ids END/);
+    assert.match(sql, /ELSE current_plan\.participant_names END/);
+    assert.doesNotMatch(sql, /ELSE participant_names END/);
+  });
   it("일반 apply와 누락 보정 apply API가 분리되어 있다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");
     const api = fs.readFileSync(path.join(process.cwd(), "app/api/preliminary-survey-v2/confirmed-document-repair/route.ts"), "utf8");
