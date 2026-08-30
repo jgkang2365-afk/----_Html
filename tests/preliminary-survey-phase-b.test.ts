@@ -195,7 +195,7 @@ test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   assert.match(page, /<PreliminarySurveyV2Plans mode="list"/);
   assert.match(ui, /<table/);
-  for (const column of ["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자\\(공시료\\)", "측정 참여자", "보고서담당", "충돌"]) assert.match(ui, new RegExp(column));
+  for (const column of ["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자\\(공시료\\)", "측정 참여자", "보고서 담당", "충돌"]) assert.match(ui, new RegExp(column));
   assert.match(ui, /이 업체 재추천/);
   assert.match(ui, /action: "apply", drafts: targetIds\.map/);
   assert.match(api, /applySubmittedDrafts/);

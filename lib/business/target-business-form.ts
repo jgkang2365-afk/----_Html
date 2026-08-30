@@ -159,6 +159,19 @@ export function isTargetBusinessTerminated(value: unknown): boolean {
   return normalizeTargetBusinessStatus(value) === "거래종료";
 }
 
+/**
+ * 예비조사 활성 대상의 단일 판정 원천.
+ * measurement_target_business의 현재 측정계획만 사용하며 legacy 예비조사 행은
+ * 활성 여부를 되살리거나 유지하는 근거가 될 수 없다.
+ */
+export function isActivePreliminarySurveyTarget(input: {
+  measurementDate?: unknown;
+  registrationStatus?: unknown;
+}): boolean {
+  const date = typeof input.measurementDate === "string" ? input.measurementDate.trim() : "";
+  return Boolean(date) && normalizeTargetBusinessStatus(input.registrationStatus) === "실시";
+}
+
 function normalizeTargetBusinessAliases(
   raw: TargetBusinessFormValues
 ): Record<string, unknown> {

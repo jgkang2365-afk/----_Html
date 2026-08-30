@@ -49,6 +49,7 @@ import {
 import { compareCanonicalTargetBusinesses } from "@/lib/business/target-business-sort";
 import { operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
 import { HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES } from "@/lib/preliminary-survey-v2/historical-plan-recovery";
+import { isActivePreliminarySurveyTarget } from "@/lib/business/target-business-form";
 
 export const dynamic = "force-dynamic";
 
@@ -720,8 +721,13 @@ export async function GET(request: NextRequest) {
     const { data: targets, error: targetError } = await targetQuery;
     if (targetError) throw targetError;
 
-    const targetIds = (targets ?? []).map((target: any) => Number(target.id));
-    const codes = [...new Set((targets ?? []).map((target: any) => target.code))];
+    // 예비조사는 독립 원장이 아니다. 활성 목록은 target의 현재 유효 측정계획만 따른다.
+    const activeTargets = (targets ?? []).filter((target: any) => isActivePreliminarySurveyTarget({
+      measurementDate: target.measurement_date,
+      registrationStatus: target.is_registered,
+    }));
+    const targetIds = activeTargets.map((target: any) => Number(target.id));
+    const codes = [...new Set(activeTargets.map((target: any) => target.code))];
     const [{ data: plans, error: planError }, { data: journals, error: journalError }, { data: users, error: userError }, { data: scheduleBlocks, error: scheduleBlockError }, { data: legacySurveys, error: legacySurveyError }] = await Promise.all([
       targetIds.length
         ? supabase.from("preliminary_survey_v2_plans").select("*").in("measurement_target_business_id", targetIds)
@@ -804,7 +810,7 @@ export async function GET(request: NextRequest) {
     );
     const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
 
-    const rows = [...(targets ?? [])].sort((left: any, right: any) => compareCanonicalTargetBusinesses({
+    const rows = [...activeTargets].sort((left: any, right: any) => compareCanonicalTargetBusinesses({
       code: left.code, isRegisteredText: left.is_registered, measurementMonth: left.measurement_month,
     }, {
       code: right.code, isRegisteredText: right.is_registered, measurementMonth: right.measurement_month,

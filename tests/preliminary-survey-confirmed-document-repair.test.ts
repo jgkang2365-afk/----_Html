@@ -6,43 +6,55 @@ import { classifyConfirmedDocumentState } from "../lib/preliminary-survey-v2/con
 
 describe("찐확정 누락정보 보정 경계", () => {
   it("date와 surveyor가 모두 있으면 COMPLETE이고 변화가 없다", () => {
-    assert.deepEqual(classifyConfirmedDocumentState({ recommended_date: "2026-07-30", participant_user_ids: [1] }, false), {
-      fillDate: false, fillSurveyors: false, classification: "COMPLETE",
+    assert.deepEqual(classifyConfirmedDocumentState({ recommended_date: "2026-07-30", participant_user_ids: [1] }, false, true), {
+      fillDate: false, fillSurveyors: false, fillMeasurementAssignment: false, classification: "COMPLETE",
     });
   });
   it("date만 NULL이면 date만 보정 대상으로 분류한다", () => {
     assert.deepEqual(classifyConfirmedDocumentState({ recommended_date: null, participant_user_ids: [1] }, false), {
-      fillDate: true, fillSurveyors: false, classification: "MISSING_DOCUMENTARY_INFO",
+      fillDate: true, fillSurveyors: false, fillMeasurementAssignment: true, classification: "MISSING_DOCUMENTARY_INFO",
     });
   });
   it("surveyor만 비어 있으면 surveyor만 보정 대상으로 분류한다", () => {
     assert.deepEqual(classifyConfirmedDocumentState({ recommended_date: "2026-07-30", participant_user_ids: [] }, false), {
-      fillDate: false, fillSurveyors: true, classification: "MISSING_DOCUMENTARY_INFO",
+      fillDate: false, fillSurveyors: true, fillMeasurementAssignment: true, classification: "MISSING_DOCUMENTARY_INFO",
+    });
+  });
+  it("assignment만 비어 있으면 기존 date·surveyor를 보존하고 assignment만 보정한다", () => {
+    assert.deepEqual(classifyConfirmedDocumentState({ recommended_date: "2026-07-30", participant_user_ids: [1] }, false, false), {
+      fillDate: false, fillSurveyors: false, fillMeasurementAssignment: true, classification: "MISSING_DOCUMENTARY_INFO",
+    });
+  });
+  it("date-only와 surveyor-only도 기존 assignment가 있으면 각각의 NULL만 보정한다", () => {
+    assert.deepEqual(classifyConfirmedDocumentState({ recommended_date: null, participant_user_ids: [1] }, false, true), {
+      fillDate: true, fillSurveyors: false, fillMeasurementAssignment: false, classification: "MISSING_DOCUMENTARY_INFO",
+    });
+    assert.deepEqual(classifyConfirmedDocumentState({ recommended_date: "2026-07-30", participant_user_ids: [] }, false, true), {
+      fillDate: false, fillSurveyors: true, fillMeasurementAssignment: false, classification: "MISSING_DOCUMENTARY_INFO",
     });
   });
   it("plan이 없으면 date와 surveyor 모두 보정 대상으로 분류한다", () => {
     assert.deepEqual(classifyConfirmedDocumentState(null, false), {
-      fillDate: true, fillSurveyors: true, classification: "MISSING_DOCUMENTARY_INFO",
+      fillDate: true, fillSurveyors: true, fillMeasurementAssignment: true, classification: "MISSING_DOCUMENTARY_INFO",
     });
   });
-  it("역사/수동 보호 대상은 자동 보정하지 않는다", () => {
-    assert.equal(classifyConfirmedDocumentState(null, true).classification, "PROTECTED_MANUAL");
+  it("역사 보호도 NULL 자체를 영구 잠그지 않으며 non-null 보호는 RPC가 맡는다", () => {
+    assert.equal(classifyConfirmedDocumentState(null, false).classification, "MISSING_DOCUMENTARY_INFO");
   });
   it("SQL은 non-null overwrite를 차단하고 감사 provenance를 남기며 업무 원천을 갱신하지 않는다", () => {
-    const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260827143000_add_true_confirmed_missing_documentary_repair.sql"), "utf8");
+    const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260830113000_fix_true_confirmed_document_repair_assignments.sql"), "utf8");
     assert.match(sql, /NON_NULL_OVERWRITE_FORBIDDEN/);
     assert.match(sql, /true_confirmed_missing_documentary_info_repair/);
     assert.match(sql, /repair_true_confirmed_preliminary_v2_missing_batch/);
-    assert.match(sql, /target_row\.measurer_id IS DISTINCT FROM p_expected_source_measurer_id/);
-    assert.match(sql, /target_row\.measurer_id, p_source_rule_type, p_survey_method/);
-    assert.match(sql, /effective_date := CASE WHEN p_fill_date/);
-    assert.match(sql, /effective_participant_user_ids := CASE WHEN p_fill_surveyors/);
-    assert.match(sql, /effective_date BETWEEN block\.start_date AND block\.end_date/);
+    assert.match(sql, /REPAIR_EXACT_SURVEYOR_SOURCE_REQUIRED/);
+    assert.match(sql, /REPAIR_EXACT_PUBLIC_SAMPLE_SOURCE_REQUIRED/);
+    assert.match(sql, /measurementAssignments/);
     const existingPlanUpdate = sql.match(/UPDATE public\.preliminary_survey_v2_plans SET([\s\S]*?)WHERE id = plan_row\.id/)?.[1] ?? "";
     assert.doesNotMatch(existingPlanUpdate, /recommendation_reason|updated_at/);
     assert.doesNotMatch(sql, /UPDATE\s+public\.measurement_target_business/i);
     assert.doesNotMatch(sql, /UPDATE\s+public\.measurement_journal/i);
-    assert.doesNotMatch(sql, /preliminary_survey_v2_measurement_assignments\s+SET/i);
+    assert.match(sql, /INSERT INTO public\.preliminary_survey_v2_measurement_assignments/);
+    assert.match(sql, /preliminary_survey_v2_document_repair_audit/);
   });
   it("일반 apply와 누락 보정 apply API가 분리되어 있다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");
@@ -53,12 +65,13 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(api, /repair_true_confirmed_preliminary_v2_missing_batch/);
     assert.doesNotMatch(api, /for \(const draft of canonical\)/);
   });
-  it("관리 열은 모든 행에 삭제 버튼을 렌더링하고 상세 모달의 중복 진입점은 없다", () => {
+  it("관리 열은 persisted plan에만 계획 삭제를 노출하고 상세 모달의 중복 진입점은 없다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");
-    assert.match(ui, /"보고서담당", "관리", "충돌"/);
+    assert.match(ui, /"보고서 담당", "관리", "충돌"/);
     assert.match(ui, /저장된 예비조사 계획이 없습니다\./);
     assert.match(ui, /찐확정 계획은 삭제할 수 없습니다\./);
     assert.match(ui, /역사 복원 보호 계획입니다\./);
-    assert.equal((ui.match(/>계획 삭제<\/Button>/g) ?? []).length, 0);
+    assert.match(ui, /row\.hasPersistedPlan \? <Button/);
+    assert.match(ui, />계획 삭제<\/Button>/);
   });
 });
