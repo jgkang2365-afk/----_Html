@@ -48,8 +48,9 @@ BEGIN
     RAISE EXCEPTION 'INVALID_RECOMMENDED_DATE';
   END IF;
 
-  -- 후보일 정책(한국 공휴일 포함)은 서버 route가 authoritative planner와 동일하게 검증한다.
-  -- DB는 stale source·찐확정·최소 field 변경·감사로그를 transaction으로 보장한다.
+  -- 서버 route는 shared manual hard-rule validator로 후보일·기존 예비조사자·방식의
+  -- 불가 일정·실제 측정 충돌·용량·동선을 확인한다. DB는 stale source·찐확정·최소 field
+  -- 변경·감사로그를 transaction으로 보장한다.
   PERFORM set_config('app.preliminary_survey_admin_repair', 'on', true);
   UPDATE public.preliminary_survey_v2_plans SET recommended_date = p_recommended_date
     WHERE id = plan_row.id RETURNING * INTO repaired_plan;

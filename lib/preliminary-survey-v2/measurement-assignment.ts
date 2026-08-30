@@ -176,8 +176,9 @@ export async function collectMeasurementVehicleRouteEvidence(input: {
 }
 
 /**
- * 역할 원천은 독립적으로 유지하면서, 첫 순환 균등 조건 안에서 역할 일치를 preference로 사용한다.
- * 추가 배정은 현재 배정수 > 역할 일치 > 동일주소 > 실제 차량경로 > ID 순이다.
+ * 역할 원천은 독립적으로 유지하면서, 첫 순환 균등 조건 안에서
+ * 예비조사자↔측정자(공시료) 일치만 preference로 사용한다.
+ * 추가 배정은 현재 배정수 > 예비조사자 일치 > 동일주소 > 실제 차량경로 > ID 순이다.
  */
 export function assignMeasurementAssignees(input: {
   targets: MeasurementAssignmentTarget[];
@@ -202,13 +203,13 @@ export function assignMeasurementAssignees(input: {
   const targets = [...input.targets].sort((left, right) =>
     left.measurementDate.localeCompare(right.measurementDate) || left.targetId - right.targetId,
   );
-  const roleMatchScore = (target: MeasurementAssignmentTarget, userId: number) =>
-    Number(target.measurementParticipantUserIds?.includes(userId)) +
-    Number(target.reportWriterUserId === userId) +
+  // 공시료 정합성의 유일한 soft preference는 예비조사자와의 일치다.
+  // 참여자·보고서 담당자는 별도 운영 원천이므로 공시료 배정 점수에 섞지 않는다.
+  const preliminarySurveyorMatchScore = (target: MeasurementAssignmentTarget, userId: number) =>
     Number(target.preliminarySurveyorUserId === userId);
 
   // 같은 날짜의 첫 순환은 6명을 한 번씩 쓰는 조건을 먼저 고정한 뒤,
-  // 개별 target greedy가 아니라 순환 전체의 역할 일치 합계를 최대화한다.
+  // 개별 target greedy가 아니라 순환 전체의 예비조사자 일치 합계를 최대화한다.
   const firstCycleUserByTarget = new Map<string, number>();
   for (const measurementDate of [...new Set(targets.map((target) => target.measurementDate))]) {
     const dateTargets = targets.filter((target) => target.measurementDate === measurementDate);
@@ -236,7 +237,7 @@ export function assignMeasurementAssignees(input: {
         if (usedUserIds.has(user.id) || input.availability?.isBlocked(user.id, measurementDate)) continue;
         usedUserIds.add(user.id);
         selectedUserIds.push(user.id);
-        visit(targetIndex + 1, usedUserIds, selectedUserIds, score + roleMatchScore(target, user.id));
+        visit(targetIndex + 1, usedUserIds, selectedUserIds, score + preliminarySurveyorMatchScore(target, user.id));
         selectedUserIds.pop();
         usedUserIds.delete(user.id);
       }
@@ -273,7 +274,7 @@ export function assignMeasurementAssignees(input: {
     );
     candidates.sort((left, right) =>
       count(left.id) - count(right.id) ||
-      roleMatchScore(target, right.id) - roleMatchScore(target, left.id) ||
+      preliminarySurveyorMatchScore(target, right.id) - preliminarySurveyorMatchScore(target, left.id) ||
       Number(!exactAddressUsers.has(left.id)) - Number(!exactAddressUsers.has(right.id)) ||
       shortestVehicleRoute(left.id) - shortestVehicleRoute(right.id) ||
       left.id - right.id,

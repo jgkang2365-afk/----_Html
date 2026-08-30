@@ -40,12 +40,24 @@ test("기존업체 fallback은 범위 오류가 아니라 당시 제약 확인�
 test("찐확정 날짜 repair와 참여자 원천 repair는 각각 최소 field와 audit을 사용한다", () => {
   const dateRepair = read("supabase/migrations/20260830150000_add_preliminary_survey_uat_policy_repairs.sql");
   const sourceRepair = read("supabase/migrations/20260830152000_add_preliminary_survey_measurement_source_repair.sql");
+  const policyRepairRoute = read("app/api/preliminary-survey-v2/policy-repair/route.ts");
   assert.match(dateRepair, /repair_true_confirmed_preliminary_v2_policy_date/);
   assert.match(dateRepair, /repaired_fields = '\["recommended_date"\]'::jsonb/);
   assert.match(dateRepair, /preliminary_survey_v2_policy_repair_audit/);
   assert.match(sourceRepair, /repair_preliminary_survey_measurement_source/);
   assert.match(sourceRepair, /preliminary_survey_v2_measurement_source_repair_audit/);
   assert.doesNotMatch(sourceRepair, /DELETE\s+FROM\s+public\.measurement_journal/i);
+  assert.match(policyRepairRoute, /validatePolicyRepairHardRules/);
+    assert.match(policyRepairRoute, /validateManualPlanHardRules/);
+    assert.match(policyRepairRoute, /loadActualMeasurementBlockedKeys/);
+    assert.match(policyRepairRoute, /buildScheduleBlockKeys/);
+    assert.match(policyRepairRoute, /routes: createRouteMetrics\(\)/);
+    assert.match(policyRepairRoute, /POLICY_DATE_REPAIR_MANUAL_REVIEW/);
+    assert.ok(
+      policyRepairRoute.indexOf("await validatePolicyRepairHardRules") <
+        policyRepairRoute.indexOf('rpc("repair_true_confirmed_preliminary_v2_policy_date"'),
+      "hard-rule validation must complete before the repair RPC is invoked",
+    );
 });
 
 test("측정일지 날짜 필터는 legacy 예비조사 대신 target의 다일 실제 날짜와 lifecycle을 사용한다", () => {

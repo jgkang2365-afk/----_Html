@@ -3,6 +3,12 @@ import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { recommendationDatesForBusinessType } from "@/lib/preliminary-survey-v2/calendar";
+import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
+import { validateManualPlanHardRules } from "@/lib/preliminary-survey-v2/manual-validation";
+import { loadActualMeasurementBlockedKeys } from "@/lib/preliminary-survey-v2/measurement-conflicts";
+import { createRouteMetrics } from "@/lib/preliminary-survey-v2/route-metrics";
+import { loadV2ManualContext } from "@/lib/preliminary-survey-v2/service";
+import type { SurveyUser } from "@/lib/preliminary-survey-v2/types";
 import {
   checkPreliminarySurveyDatePolicy,
   preliminarySurveyDatePolicyMessage,
@@ -31,7 +37,9 @@ async function loadRepairContext(supabase: any, targetId: number) {
   ).eq("id", targetId).maybeSingle();
   if (targetError || !target) throw new Error("TARGET_NOT_FOUND");
   const [{ data: plan, error: planError }, { data: journals, error: journalError }] = await Promise.all([
-    supabase.from("preliminary_survey_v2_plans").select("id, recommended_date").eq("measurement_target_business_id", targetId).maybeSingle(),
+    supabase.from("preliminary_survey_v2_plans").select(
+      "id, recommended_date, participant_user_ids, responsible_user_id, survey_method",
+    ).eq("measurement_target_business_id", targetId).maybeSingle(),
     supabase.from("measurement_journal").select("id, measurement_period").eq("code", target.code)
       .eq("measurement_year", target.year),
   ]);
@@ -53,6 +61,45 @@ async function loadRepairContext(supabase: any, targetId: number) {
     datePolicy,
     candidateDates: recommendationDatesForBusinessType(target.measurement_date, target.business_type).map((item) => item.date),
   };
+}
+
+/**
+ * 날짜 후보만 맞는 찐확정 repair는 허용하지 않는다. 현재 원천의 기존 예비조사자·방식으로
+ * manual 저장과 같은 hard rule(불가 일정, 실제 측정 충돌, 용량, 방문 동선)을 통과해야 한다.
+ */
+async function validatePolicyRepairHardRules(supabase: any, targetId: number, plan: any, recommendedDate: string) {
+  const context = await loadV2ManualContext(supabase, targetId, recommendedDate);
+  const participantIds: number[] = [...new Set(
+    Array.isArray(plan.participant_user_ids)
+      ? plan.participant_user_ids.map(Number).filter((userId: number) => Number.isInteger(userId))
+      : [],
+  )];
+  const participants = participantIds.map((id) => context.users.find((user) => user.id === id))
+    .filter((user): user is SurveyUser => Boolean(user));
+  const responsible = context.users.find((user) => user.id === Number(plan.responsible_user_id));
+  if (!responsible || participants.length !== participantIds.length || !participants.some((user) => user.id === responsible.id)) {
+    throw new Error("POLICY_DATE_REPAIR_MANUAL_REVIEW:PLAN_PARTICIPANT_CONTEXT_INVALID");
+  }
+  const [{ data: scheduleBlocks, error: scheduleBlockError }, measurementBlockedKeys] = await Promise.all([
+    supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
+      .lte("start_date", recommendedDate).gte("end_date", recommendedDate),
+    loadActualMeasurementBlockedKeys(supabase, [recommendedDate], context.users),
+  ]);
+  if (scheduleBlockError) throw new Error(`POLICY_DATE_REPAIR_SCHEDULE_QUERY_FAILED:${scheduleBlockError.message}`);
+  const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
+  const validation = await validateManualPlanHardRules({
+    target: { ...context.target, responsible },
+    recommendedDate,
+    participants,
+    surveyMethod: plan.survey_method === "field" ? "field" : "phone",
+    existingAssignments: context.assignments,
+    routes: createRouteMetrics(),
+    experiencedUsers: context.users.filter((user) => user.experienced),
+    availability: {
+      isBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`) || measurementBlockedKeys.has(`${userId}:${date}`),
+    },
+  });
+  if (!validation.valid) throw new Error(`POLICY_DATE_REPAIR_MANUAL_REVIEW:${validation.errors.join(" | ")}`);
 }
 
 export async function POST(request: NextRequest) {
@@ -80,6 +127,7 @@ export async function POST(request: NextRequest) {
     if (body.action !== "apply" || !context.plan?.id || !context.candidateDates.includes(recommendedDate) || !reason) {
       return NextResponse.json({ error: "INVALID_POLICY_DATE_REPAIR" }, { status: 400 });
     }
+    await validatePolicyRepairHardRules(access.supabase, targetId, context.plan, recommendedDate);
     const { error } = await access.supabase.rpc("repair_true_confirmed_preliminary_v2_policy_date", {
       p_target_id: targetId,
       p_expected_plan_id: context.plan.id,
@@ -93,6 +141,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, repairedFields: ["recommended_date"] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "POLICY_DATE_REPAIR_FAILED";
-    return NextResponse.json({ error: message }, { status: message === "TRUE_CONFIRMED_REQUIRED" ? 409 : 500 });
+    return NextResponse.json(
+      { error: message },
+      { status: message === "TRUE_CONFIRMED_REQUIRED" || message.startsWith("POLICY_DATE_REPAIR_MANUAL_REVIEW:") ? 409 : 500 },
+    );
   }
 }

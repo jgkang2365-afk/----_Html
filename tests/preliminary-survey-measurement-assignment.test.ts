@@ -119,16 +119,15 @@ test("추천과 Apply는 공통 builder로 역할 필드가 같은 canonical tar
   });
 });
 
-test("공시료 후보는 첫 순환 균등을 지킨 뒤 예비조사 책임자 일치를 선호한다", () => {
+test("공시료 후보는 첫 순환 균등 뒤 예비조사자 일치만 우선하고 참여자·보고서 담당자는 점수에 섞지 않는다", () => {
   const [result] = assignMeasurementAssignees({
     targets: [{
       ...target(1), preliminarySurveyorUserId: 2,
       measurementParticipantUserIds: [1], reportWriterUserId: 1,
     }],
     users: users.slice(0, 2),
-    existing: [{ ...target(100), userId: 2 }],
   });
-  assert.equal(result.userId, 1);
+  assert.equal(result.userId, 2);
   assert.equal(result.dailyCount, 1);
   assert.equal(result.approvalRequired, false);
 });
