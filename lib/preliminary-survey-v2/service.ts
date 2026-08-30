@@ -487,11 +487,19 @@ export async function calculateV2Recommendations(
       .lte("start_date", latestCandidateDate).gte("end_date", earliestCandidateDate)
     : { data: [], error: null };
   if (scheduleBlockError) throw new Error(`V2_BLOCK_QUERY_FAILED:${scheduleBlockError.message}`);
-  const blockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
+  const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
+  const blockedKeys = new Set(scheduleBlockedKeys);
   const measurementBlockedKeys = options.ignoreLegacyAssignmentInputs
     ? new Set<string>()
     : await loadActualMeasurementBlockedKeys(supabase, candidateDates, users);
   for (const key of measurementBlockedKeys) blockedKeys.add(key);
+  const blockedReason = (userId: number, date: string) => {
+    const key = `${userId}:${date}`;
+    return [
+      scheduleBlockedKeys.has(key) ? "USER_SCHEDULE_BLOCK" : null,
+      measurementBlockedKeys.has(key) ? "ACTUAL_MEASUREMENT_CONFLICT" : null,
+    ].filter((reason): reason is string => Boolean(reason));
+  };
 
   const { data: queriedPlanRows, error: planError } = options.ignoreLegacyAssignmentInputs
     ? { data: [], error: null }
@@ -571,6 +579,11 @@ export async function calculateV2Recommendations(
       surveyMethod: tentative.surveyMethod,
       existingAssignments: otherAssignments,
       routes,
+      experiencedUsers: activeSurveyors.filter((user) => user.experienced),
+      availability: {
+        isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+        blockedReason,
+      },
     });
     if (!validation.valid) return null;
     const candidate = (target.businessType
@@ -602,6 +615,10 @@ export async function calculateV2Recommendations(
     existingAssignments: [...existingAssignments, ...preservedAssignments],
     availability: {
       isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`),
+      blockedReason: (userId, date) => [
+        !isInPreliminaryDateScope(date, scope) ? "PRELIMINARY_DATE_SCOPE_BLOCK" : null,
+        ...blockedReason(userId, date),
+      ].filter((reason): reason is string => Boolean(reason)),
     },
     routes,
   });
@@ -717,6 +734,7 @@ export async function reconcileV2AfterTargetChange(
       target: context.target, recommendedDate: plan.recommended_date, participants,
       surveyMethod: plan.survey_method === "field" ? "field" : "phone",
       existingAssignments: context.assignments, routes: createRouteMetrics(),
+      experiencedUsers: context.users.filter((user) => user.experienced),
     });
     if (!validation.valid || plan.source_rule_type !== context.target.kind) {
       const result = await recommendAndPersistV2(supabase, [targetId]);
@@ -840,7 +858,9 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced),
     active: user.is_active,
   }));
-  const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
+  const scheduleBlockedKeys = buildScheduleBlockKeys(blocks ?? []);
+  const actualMeasurementBlockedKeys = await loadActualMeasurementBlockedKeys(supabase, candidateDates, userRows);
+  const blockedKeys = new Set([...scheduleBlockedKeys, ...actualMeasurementBlockedKeys]);
   const userById = new Map(userRows.map((user) => [user.id, user]));
 
   // responsible(lead) 결정: 예·측(link)이 있으면 그것, 없으면 실제 측정자 중 첫 유효 인원.
@@ -878,6 +898,13 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     existingAssignments: [],
     availability: {
       isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+      blockedReason: (userId, date) => {
+        const key = `${userId}:${date}`;
+        return [
+          scheduleBlockedKeys.has(key) ? "USER_SCHEDULE_BLOCK" : null,
+          actualMeasurementBlockedKeys.has(key) ? "ACTUAL_MEASUREMENT_CONFLICT" : null,
+        ].filter((reason): reason is string => Boolean(reason));
+      },
     },
     routes: createRouteMetrics(),
   });

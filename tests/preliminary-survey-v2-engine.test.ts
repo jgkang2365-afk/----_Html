@@ -932,6 +932,26 @@ test("수동 기존업체 유선은 비경력자 단독도 현재 hard constrain
   assert.equal(result.valid, true);
 });
 
+test("기존업체 비경력 책임자의 수동 저장은 가능한 경력 검토자를 요구하고 전원 차단이면 warning만 남긴다", async () => {
+  const responsible = novice(1);
+  const reviewer = experienced(2);
+  const current = target(4, "existing", responsible);
+  const date = recommendationDates(current.measurementDate)[0].date;
+  const missingReviewer = await validateManualPlanHardRules({
+    target: current, recommendedDate: date, participants: [responsible], surveyMethod: "phone",
+    existingAssignments: [], routes: route(), experiencedUsers: [reviewer], availability: available(),
+  });
+  assert.equal(missingReviewer.valid, false);
+  assert.match(missingReviewer.errors.join(" "), /경력 검토자/);
+  const allBlocked = await validateManualPlanHardRules({
+    target: current, recommendedDate: date, participants: [responsible], surveyMethod: "phone",
+    existingAssignments: [], routes: route(), experiencedUsers: [reviewer],
+    availability: available(new Set([`${reviewer.id}:${date}`])),
+  });
+  assert.equal(allBlocked.valid, true);
+  assert.ok(allBlocked.warnings.includes("EXPERIENCED_REVIEWER_ALL_HARD_BLOCKED"));
+});
+
 test("수동 기존업체 방문은 같은 날 참여자가 겹치는 필수 신규의 동일주소 또는 허용 route가 필요하다", async () => {
   const responsible = experienced(1);
   const current = { ...target(4, "existing", responsible), address: "충남 천안시 동일로 1" };
@@ -1123,12 +1143,19 @@ test("기존업체의 blocked 경력 검토자는 배정하지 않는다", async
   const reviewer = experienced(10);
   const [result] = await recommendBatch({
     targets: [target(1, "existing", responsible)], experiencedUsers: [reviewer],
-    availability: { isBlocked: (userId) => userId === reviewer.id }, routes: route(),
+    availability: {
+      isBlocked: (userId) => userId === reviewer.id,
+      blockedReason: () => ["USER_SCHEDULE_BLOCK", "ACTUAL_MEASUREMENT_CONFLICT"],
+    }, routes: route(),
   });
   assert.equal(result.status, "recommended");
   assert.equal(result.experiencedReviewer, null);
   assert.deepEqual(result.participants.map((user) => user.id), [responsible.id]);
-  assert.ok(result.evidence.warnings.includes("EXPERIENCED_REVIEWER_UNASSIGNED"));
+  assert.ok(result.evidence.warnings.includes("EXPERIENCED_REVIEWER_ALL_HARD_BLOCKED"));
+  assert.deepEqual(result.evidence.experiencedReviewerCandidates, [{
+    userId: reviewer.id,
+    hardBlockReasons: ["USER_SCHEDULE_BLOCK", "ACTUAL_MEASUREMENT_CONFLICT"],
+  }]);
 });
 
 test("M/N: 보고서 담당자 변경은 자동/수동 계획 구분 없이 재추천", () => {

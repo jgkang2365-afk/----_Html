@@ -784,7 +784,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : "phase-b-list-table-scroll"} className="overflow-visible">
           <table className="w-full min-w-[1080px] table-fixed text-sm">
             <thead className="sticky z-20 bg-surface-50 text-left text-text-700 shadow-sm" style={{ top: tableHeaderTop }}>
-              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자(공시료)", "측정 참여자", "보고서담당", "관리", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
+              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "방식", "측정예정일", "예비조사자", "측정자(공시료)", "측정 참여자", "보고서 담당", "관리", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-surface-200">
               {displayRows.map((row) => (
@@ -795,24 +795,22 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   <td className="px-2 py-2 font-medium">{row.code}</td>
                   <td className="truncate px-2 py-2" title={row.businessName}>{row.businessName}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.kind}</td>
+                  <td className="px-2 py-2">{row.surveyMethod === "field" ? "방문" : "유선"}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.measurementDate || "-"}</td>
                   <td className="truncate px-2 py-2" title={row.surveyors.join(", ")}>{row.surveyors.join(", ") || "-"}</td>
-                  <td className="px-2 py-2">{row.surveyMethod === "field" ? "방문" : "유선"}</td>
                   <td className="truncate px-2 py-2">{row.mainMeasurer || "-"}</td>
                   <td className="truncate px-2 py-2" title={row.measurementParticipants || ""}>{row.measurementParticipants || "-"}</td>
                   <td className="truncate px-2 py-2">{row.reportWriter || "-"}</td>
                   <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
-                    <Button
+                    {row.hasPersistedPlan ? <Button
                       size="sm"
                       variant="danger"
-                      disabled={working || !row.hasPersistedPlan || Boolean(row.locked) || Boolean(row.deleteProtectionReason)}
-                      title={!row.hasPersistedPlan
-                        ? "저장된 예비조사 계획이 없습니다."
-                        : row.locked ? "찐확정 계획은 삭제할 수 없습니다."
+                      disabled={working || Boolean(row.locked) || Boolean(row.deleteProtectionReason)}
+                      title={row.locked ? "찐확정 계획은 삭제할 수 없습니다."
                           : row.deleteProtectionReason ? "역사 복원 보호 계획입니다."
                             : "예비조사 계획 삭제"}
                       onClick={() => deletePlan(row)}
-                    >삭제</Button>
+                    >계획 삭제</Button> : <span className="text-xs text-text-400" title="저장된 예비조사 계획이 없습니다.">-</span>}
                   </td>
                   <td className="px-2 py-2 text-amber-700" title={(row.conflicts ?? []).join("\n") || row.conflict || ""}>{row.conflicts?.length
                     ? row.conflicts.map((warning) => <div key={warning}>{warning}</div>)

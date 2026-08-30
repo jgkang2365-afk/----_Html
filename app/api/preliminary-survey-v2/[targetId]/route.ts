@@ -7,6 +7,7 @@ import { loadV2ManualContext } from "@/lib/preliminary-survey-v2/service";
 import { surveyMethodForKind, type SurveyUser } from "@/lib/preliminary-survey-v2/types";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
+import { loadActualMeasurementBlockedKeys } from "@/lib/preliminary-survey-v2/measurement-conflicts";
 
 function deleteErrorResponse(message: string) {
   if (message.includes("TRUE_CONFIRMED_LOCKED")) {
@@ -137,22 +138,36 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
     const surveyMethod = body.surveyMethod === "field" || body.surveyMethod === "phone"
       ? body.surveyMethod
       : surveyMethodForKind(target.kind);
-    const validationTarget = { ...target, responsible };
-    const validation = await validateManualPlanHardRules({
-      target: validationTarget, recommendedDate: body.recommendedDate, participants,
-      surveyMethod,
-      existingAssignments: assignments, routes: createRouteMetrics(),
-    });
-    if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
+    const candidateUserIds = contextUsersIds(users);
     const { data: scheduleBlocks, error: scheduleBlockError } = await supabase
       .from("user_schedule_blocks")
       .select("user_id, start_date, end_date")
       .lte("start_date", body.recommendedDate)
       .gte("end_date", body.recommendedDate)
-      .in("user_id", participantIds);
+      .in("user_id", candidateUserIds);
     if (scheduleBlockError) throw scheduleBlockError;
     const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
-    if (participantIds.some((userId) => scheduleBlockedKeys.has(`${userId}:${body.recommendedDate}`))) {
+    const actualMeasurementBlockedKeys = await loadActualMeasurementBlockedKeys(supabase, [body.recommendedDate], users);
+    const blockedKeys = new Set([...scheduleBlockedKeys, ...actualMeasurementBlockedKeys]);
+    const validationTarget = { ...target, responsible };
+    const validation = await validateManualPlanHardRules({
+      target: validationTarget, recommendedDate: body.recommendedDate, participants,
+      surveyMethod,
+      existingAssignments: assignments, routes: createRouteMetrics(),
+      experiencedUsers: users.filter((user) => user.experienced),
+      availability: {
+        isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+        blockedReason: (userId, date) => {
+          const key = `${userId}:${date}`;
+          return [
+            scheduleBlockedKeys.has(key) ? "USER_SCHEDULE_BLOCK" : null,
+            actualMeasurementBlockedKeys.has(key) ? "ACTUAL_MEASUREMENT_CONFLICT" : null,
+          ].filter((reason): reason is string => Boolean(reason));
+        },
+      },
+    });
+    if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
+    if (participantIds.some((userId) => blockedKeys.has(`${userId}:${body.recommendedDate}`))) {
       return NextResponse.json({
         error: "직원 불가 일정에 등록된 예비조사자 또는 경력 검토자는 저장할 수 없습니다.",
         code: "USER_UNAVAILABLE_ON_SURVEY_DATE",
@@ -192,7 +207,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
         reason: "관리자 수동 수정", classificationSource: target.classificationSource, surveyMethod,
       },
       p_route_evidence: { sameDayRoutes: validation.routeEvidence },
-      p_warnings: [],
+      p_warnings: validation.warnings,
     });
     if (error) throw new Error(error.message);
     return NextResponse.json({
@@ -203,4 +218,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "MANUAL_UPDATE_FAILED" }, { status: 500 });
   }
+}
+
+function contextUsersIds(users: SurveyUser[]) {
+  return [...new Set(users.map((user) => user.id).filter((id) => Number.isInteger(id) && id > 0))];
 }

@@ -14,6 +14,7 @@ import { formatBusinessNumber, parseBusinessNumber, isValidDigitCount } from "@/
 import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
 import { splitEmails, getDynamicEmailFontSize } from "@/lib/utils/email-utils";
+import { formatMeasurementPublicSampleAssignee, type PreliminarySurveyDisplayModel } from "@/lib/preliminary-survey-v2/display-model";
 import {
   normalizeJournalManagerEmailForSave,
   resolveJournalManagerContact,
@@ -87,6 +88,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
   // 예비조사 정보를 별도로 보여주기 위한 상태
   const [surveyInfo, setSurveyInfo] = useState<any>(null);
+  const [preliminaryDisplay, setPreliminaryDisplay] = useState<PreliminarySurveyDisplayModel | null>(null);
   // 전회 측정비 정보 (참고용)
   const [previousMeasurementFee, setPreviousMeasurementFee] = useState<{
     business: number | null;
@@ -590,6 +592,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 const surveys = data.surveys;
                 // surveys 배열을 surveyInfo 상태에 저장 (상세 표시용)
                 setSurveyInfo(surveys);
+                setPreliminaryDisplay(data.preliminaryDisplay || null);
                 
                 console.log('[JournalEditForm] 다중 예비조사 정보 확인:', {
                   count: surveys.length,
@@ -647,7 +650,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
               } else if (data.surveyInfo) {
                 // 구형 로직 지원 (surveys가 없는 경우)
                 setSurveyInfo(data.surveyInfo);
+                setPreliminaryDisplay(data.preliminaryDisplay || null);
                 // ... 생략 (surveys 로직으로 대체됨)
+              } else if (data.preliminaryDisplay) {
+                setSurveyInfo([]);
+                setPreliminaryDisplay(data.preliminaryDisplay);
               }
 
               // K2B 전송자 fallback: 예비조사 정보가 없을 때만 직전 측정일지나 요약 정보 사용
@@ -2362,7 +2369,28 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   );
 
   const renderSurveyInfo = () => {
-    if (!surveyInfo) return null;
+    if (!surveyInfo && !preliminaryDisplay) return null;
+
+    if (preliminaryDisplay) {
+      const fields = [
+        ["예비조사일", preliminaryDisplay.preliminarySurveyDate || "-"],
+        ["예비조사자", preliminaryDisplay.preliminarySurveyors],
+        ["측정자(공시료)", formatMeasurementPublicSampleAssignee(preliminaryDisplay)],
+        ["측정 참여자", preliminaryDisplay.measurementParticipants],
+        ["보고서 담당", preliminaryDisplay.reportWriter],
+      ];
+      return <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
+        <div className="flex items-center justify-between mb-4 pb-2 border-b border-blue-100">
+          <h3 className="text-lg font-bold text-blue-900">예비조사 정보 (참고용)</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          {fields.map(([label, value]) => <div key={label}>
+            <label className="block text-sm font-medium text-blue-700 mb-1">{label}</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">{value}</div>
+          </div>)}
+        </div>
+      </div>;
+    }
 
     // surveyInfo가 배열인 경우(신규 로직)와 단일 객체인 경우(기존 로직) 모두 대응
     const surveys = Array.isArray(surveyInfo) ? surveyInfo : [surveyInfo];
@@ -2370,6 +2398,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
     // 통합 데이터 계산
     const surveyors = new Set<string>();
+    const measurementPublicSampleAssignees = new Set<string>();
     const actualMeasurers = new Set<string>();
     const reportWriters = new Set<string>();
     
@@ -2389,6 +2418,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
     surveys.forEach(s => {
       if (s.preliminary_surveyor) s.preliminary_surveyor.split(',').forEach((name: string) => surveyors.add(name.trim()));
+      if (s.measurer) s.measurer.split(',').forEach((name: string) => measurementPublicSampleAssignees.add(name.trim()));
       if (s.actual_measurer) s.actual_measurer.split(',').forEach((name: string) => actualMeasurers.add(name.trim()));
       if (s.report_writer) s.report_writer.split(',').forEach((name: string) => reportWriters.add(name.trim()));
     });
@@ -2405,7 +2435,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             </span>
           )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-blue-700 mb-1">예비조사일</label>
+            <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">-</div>
+          </div>
           <div>
             <label className="block text-sm font-medium text-blue-700 mb-1">예비조사자</label>
             <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
@@ -2413,13 +2447,13 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-blue-700 mb-1">공시료 코드</label>
+            <label className="block text-sm font-medium text-blue-700 mb-1">측정자(공시료)</label>
             <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-bold h-9 flex items-center shadow-sm">
-              {codeByDate || surveys[0]?.survey_code || "-"}
+              {Array.from(measurementPublicSampleAssignees).join(', ') || "-"}{codeByDate ? `(${codeByDate})` : ""}
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-blue-700 mb-1">실측정자</label>
+            <label className="block text-sm font-medium text-blue-700 mb-1">측정 참여자</label>
             <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium h-9 flex items-center shadow-sm">
               {Array.from(actualMeasurers).join(', ') || "-"}
             </div>

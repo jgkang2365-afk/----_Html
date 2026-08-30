@@ -144,13 +144,21 @@ async function chooseReviewer(
       const route = target.kind === "new" && capacityPass === 2
         ? await routeAgainstSameDayField(target, user.id, date, assignments, routes)
         : null;
+      const hardBlockReasons = [
+        ...(availability.isBlocked(user.id, date)
+          ? availability.blockedReason?.(user.id, date) ?? ["SCHEDULE_OR_ACTUAL_MEASUREMENT_BLOCK"]
+          : []),
+        target.kind === "new" && sameDayFieldCount >= capacityPass
+          ? "FIELD_CAPACITY_EXCEEDED"
+          : null,
+        target.kind === "new" && sameDayFieldCount > 0 && route?.evidence.routeDecision !== "same_day_allowed"
+          ? "SAME_DAY_ROUTE_BLOCKED"
+          : null,
+      ].filter((value): value is string => Boolean(value));
       return {
         user,
-        hardConflict: availability.isBlocked(user.id, date) ||
-          (target.kind === "new" && (
-            sameDayFieldCount >= capacityPass ||
-            (sameDayFieldCount > 0 && route?.evidence.routeDecision !== "same_day_allowed")
-          )),
+        hardConflict: hardBlockReasons.length > 0,
+        hardBlockReasons,
         route,
         // 기존업체 검토는 현장 동행·유선 수행이 아니므로 신규 방문과의 용량 중복으로 보지 않는다.
         crossTypeOverlap: false,
@@ -173,6 +181,7 @@ async function chooseReviewer(
   const selected = choices[0] ?? null;
   return selected ? {
     ...selected,
+    choices,
     crossTypeOverlapAvoided: !selected.crossTypeOverlap && choices.some((choice) => !choice.hardConflict && choice.crossTypeOverlap),
   } : null;
 }
@@ -383,6 +392,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       planningTarget: SurveyTarget,
       candidate: (typeof dates)[number],
       capacityPass: 1 | 2,
+      allowMissingExistingReviewer = false,
     ) => {
       if (target.kind === "existing" && capacityPass === 2) return null;
 
@@ -405,6 +415,11 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         if (reviewerChoice?.route && reviewerChoice.route.evidence.routeDecision !== "same_day_allowed") {
           rejectedSameDayRoutes.push(reviewerChoice.route.evidence);
         }
+        return null;
+      }
+      // 기존업체의 비경력 책임자는 가능한 경력 검토자를 우선 필수로 한다. 전체 후보일에서
+      // 모두 hard-block인 경우에만 2차 탐색에서 reviewer 없는 보정안을 허용한다.
+      if (prefersReviewer && (!reviewerChoice || reviewerChoice.hardConflict) && !allowMissingExistingReviewer) {
         return null;
       }
 
@@ -459,9 +474,17 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         crossTypeOverlap,
         crossTypeOverlapAvoided: Boolean(reviewerChoice?.crossTypeOverlapAvoided),
         crossTypeOverlapReason: crossTypeOverlap ? "unavoidable_cross_type_overlap" : null,
+        experiencedReviewerCandidates: reviewerMissing
+          ? (reviewerChoice?.choices ?? []).map((choice: any) => ({
+            userId: choice.user.id,
+            hardBlockReasons: choice.hardBlockReasons,
+          }))
+          : undefined,
         warnings: [
           holidayCoverageWarning(target.measurementDate),
-          reviewerMissing ? "EXPERIENCED_REVIEWER_UNASSIGNED" : null,
+          reviewerMissing
+            ? (prefersReviewer ? "EXPERIENCED_REVIEWER_ALL_HARD_BLOCKED" : "EXPERIENCED_REVIEWER_UNASSIGNED")
+            : null,
         ].filter((value): value is string => Boolean(value)),
       };
       return {
@@ -477,11 +500,17 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       };
     };
 
-    const evaluateForResponsible = async (candidate: (typeof dates)[number], capacityPass: 1 | 2) => {
+    const evaluateForResponsible = async (
+      candidate: (typeof dates)[number],
+      capacityPass: 1 | 2,
+      allowMissingExistingReviewer = false,
+    ) => {
       const feasible: RecommendationResult[] = [];
       for (const responsible of responsibleCandidates) {
         if (input.availability.isBlocked(responsible.id, candidate.date)) continue;
-        const result = await evaluateCandidate({ ...target, responsible }, candidate, capacityPass);
+        const result = await evaluateCandidate(
+          { ...target, responsible }, candidate, capacityPass, allowMissingExistingReviewer,
+        );
         if (result) feasible.push(result);
       }
       feasible.sort((left, right) =>
@@ -535,6 +564,16 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         result.evidence.crossTypeOverlapAvoided ||= Boolean(overlapFallback);
         selected = finalize(result, "single", "single_available", true, null);
         break;
+      }
+      // 경력 검토자가 가능한 날짜가 하나도 없을 때만, 기존업체 비경력 책임자의 reviewer를
+      // null로 남기고 명시 warning을 기록한다. 이 분기는 신규 방문에는 적용하지 않는다.
+      if (!selected && !overlapFallback && responsibleCandidates.some((user) => !user.experienced)) {
+        for (const candidate of dates) {
+          const result = await evaluateForResponsible(candidate, 1, true);
+          if (!result) continue;
+          selected = finalize(result, "single", "single_available", true, null);
+          break;
+        }
       }
       if (!selected && overlapFallback) {
         selected = finalize(overlapFallback, "single", "single_available", true, null);
