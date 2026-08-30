@@ -35,9 +35,20 @@ export interface ConfirmedDocumentRepairDraft {
 export function classifyConfirmedDocumentState(plan: {
   recommended_date?: string | null;
   participant_user_ids?: unknown;
+  participant_names?: unknown;
+  responsible_user_id?: number | null;
+  experienced_reviewer_id?: number | null;
 } | null, protectedSource: boolean, hasMeasurementAssignment = false) {
   const fillDate = !plan?.recommended_date;
-  const fillSurveyors = !Array.isArray(plan?.participant_user_ids) || plan.participant_user_ids.length === 0;
+  // RPC는 조사자 snapshot의 어느 한 필드라도 존재하면 overwrite를 금지한다.
+  // Preview도 같은 경우를 fill 대상으로 내보내지 않아야 한다.
+  const hasSurveyorSnapshot = Boolean(
+    (Array.isArray(plan?.participant_user_ids) && plan.participant_user_ids.length > 0)
+    || (Array.isArray(plan?.participant_names) && plan.participant_names.length > 0)
+    || plan?.responsible_user_id != null
+    || plan?.experienced_reviewer_id != null,
+  );
+  const fillSurveyors = !hasSurveyorSnapshot;
   const fillMeasurementAssignment = !hasMeasurementAssignment;
   return {
     fillDate,
@@ -160,7 +171,7 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       let participants: Array<SurveyUser | undefined | null> = participantUserIds.map((userId: number) => usersById.get(userId));
       if (entry.fillSurveyors && reconciledIds.length) participants = reconciledIds.map((id: number) => usersById.get(id));
       else if (entry.fillSurveyors && legacyNames.length) participants = legacyNames.map((name) => usersByName.get(name));
-      if (entry.plan && entry.fillSurveyors && !legacyNames.length) {
+      if (entry.plan && entry.fillSurveyors && !reconciledIds.length && !legacyNames.length) {
         const preservedResponsible = usersById.get(Number(entry.plan.responsible_user_id));
         const preservedReviewer = entry.plan.experienced_reviewer_id == null
           ? null : usersById.get(Number(entry.plan.experienced_reviewer_id));

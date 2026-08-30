@@ -20,6 +20,15 @@ describe("찐확정 누락정보 보정 경계", () => {
       fillDate: false, fillSurveyors: true, fillMeasurementAssignment: true, classification: "MISSING_DOCUMENTARY_INFO",
     });
   });
+  it("조사자 snapshot의 이름·책임자·검토자 중 하나라도 있으면 preview는 overwrite fill을 만들지 않는다", () => {
+    for (const plan of [
+      { recommended_date: "2026-07-30", participant_user_ids: [], participant_names: ["기존 조사자"] },
+      { recommended_date: "2026-07-30", participant_user_ids: [], responsible_user_id: 13 },
+      { recommended_date: "2026-07-30", participant_user_ids: [], experienced_reviewer_id: 16 },
+    ]) {
+      assert.equal(classifyConfirmedDocumentState(plan, false, true).fillSurveyors, false);
+    }
+  });
   it("assignment만 비어 있으면 기존 date·surveyor를 보존하고 assignment만 보정한다", () => {
     assert.deepEqual(classifyConfirmedDocumentState({ recommended_date: "2026-07-30", participant_user_ids: [1] }, false, false), {
       fillDate: false, fillSurveyors: false, fillMeasurementAssignment: true, classification: "MISSING_DOCUMENTARY_INFO",
@@ -89,6 +98,11 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(sql, /ELSE current_plan\.participant_user_ids END/);
     assert.match(sql, /ELSE current_plan\.participant_names END/);
     assert.doesNotMatch(sql, /ELSE participant_names END/);
+  });
+  it("exact reconciliation 조사자 우선순위는 기존 plan snapshot fallback보다 앞선다", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "lib/preliminary-survey-v2/confirmed-document-repair.ts"), "utf8");
+    assert.match(source, /if \(entry\.fillSurveyors && reconciledIds\.length\) participants = reconciledIds/);
+    assert.match(source, /entry\.plan && entry\.fillSurveyors && !reconciledIds\.length && !legacyNames\.length/);
   });
   it("일반 apply와 누락 보정 apply API가 분리되어 있다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");
