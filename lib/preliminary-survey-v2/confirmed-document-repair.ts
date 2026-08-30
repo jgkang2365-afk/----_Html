@@ -84,12 +84,20 @@ function journalKey(row: { code: unknown; year: unknown; period: unknown }) {
   return `${String(row.code)}|${Number(row.year)}|${String(row.period ?? "").trim().replace("(수시)", "")}`;
 }
 
+export function hasAuthoritativeBusinessTypePlanMismatch(targetBusinessType: unknown, plan: any) {
+  if (!plan || !["existing", "first_measurement", "external_new"].includes(String(targetBusinessType))) return false;
+  const expectedRuleType = String(targetBusinessType) === "existing" ? "existing" : "new";
+  const expectedSurveyMethod = expectedRuleType === "existing" ? "phone" : "field";
+  return (plan.source_rule_type != null && plan.source_rule_type !== expectedRuleType) ||
+    (plan.survey_method != null && plan.survey_method !== expectedSurveyMethod);
+}
+
 /** 읽기 전용 preview. 일반 추천/apply에 섞지 않는다. */
 export async function buildConfirmedDocumentRepairPreview(supabase: any, targetIds: number[]) {
   if (!targetIds.length) return { drafts: [] as ConfirmedDocumentRepairDraft[], unchangedCount: 0, manualReviewCount: 0 };
   const canonicalTargetIds = [...targetIds].sort((left, right) => left - right);
   const { data: targets, error: targetError } = await supabase.from("measurement_target_business").select(
-    "id, code, year, period, business_name, measurement_date, measurer_id",
+    "id, code, year, period, business_name, measurement_date, measurer_id, business_type",
   ).in("id", canonicalTargetIds);
   if (targetError) throw targetError;
   const ids = (targets ?? []).map((target: any) => Number(target.id));
@@ -128,10 +136,12 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       fillSurveyors: state.fillSurveyors,
       fillMeasurementAssignment: state.fillMeasurementAssignment,
       protected: false,
+      invalidAuthoritativeBusinessType: target.business_type != null && !["existing", "first_measurement", "external_new"].includes(String(target.business_type)),
+      businessTypePlanMismatch: hasAuthoritativeBusinessTypePlanMismatch(target.business_type, plan),
     };
-  }).filter((entry: any) => entry.fillDate || entry.fillSurveyors || entry.fillMeasurementAssignment);
+  }).filter((entry: any) => entry.fillDate || entry.fillSurveyors || entry.fillMeasurementAssignment || entry.businessTypePlanMismatch);
   const repairableIds = missingTargets.filter((entry: any) =>
-    !entry.protected && (entry.plan || entry.target.measurer_id != null),
+    !entry.protected && !entry.invalidAuthoritativeBusinessType && !entry.businessTypePlanMismatch && (entry.plan || entry.target.measurer_id != null),
   ).map((entry: any) => Number(entry.target.id));
   const calculation = repairableIds.length ? await calculateV2Recommendations(supabase, { targetIds: repairableIds }) : null;
   const resultByTarget = new Map((calculation?.results ?? []).map((result) => [result.targetId, result]));
@@ -143,6 +153,24 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
     const reconciliationRow: any = (reconciliation ?? []).find((row: any) =>
       Number(row.measurement_target_business_id) === targetId && String(row.measurement_date) === String(entry.target.measurement_date),
     );
+    if (entry.invalidAuthoritativeBusinessType) return {
+      targetId, code: entry.target.code, businessName: entry.target.business_name,
+      classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors, fillMeasurementAssignment: entry.fillMeasurementAssignment,
+      recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
+      participantUserIds: [], participantNames: [], surveyMethod: null,
+      sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: null,
+      reason: "측정대상사업장의 business_type 권위값이 유효하지 않아 찐확정 기존값을 자동 변경할 수 없습니다.",
+      existingPlanId: entry.plan?.id ?? null, reconciliationId: null, measurementAssignments: [],
+    };
+    if (entry.businessTypePlanMismatch) return {
+      targetId, code: entry.target.code, businessName: entry.target.business_name,
+      classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors, fillMeasurementAssignment: entry.fillMeasurementAssignment,
+      recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
+      participantUserIds: [], participantNames: [], surveyMethod: null,
+      sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: null,
+      reason: "측정대상사업장의 business_type 권위값과 기존 V2 plan 방식이 다릅니다. 찐확정 non-null 값은 자동 변경할 수 없습니다.",
+      existingPlanId: entry.plan?.id ?? null, reconciliationId: null, measurementAssignments: [],
+    };
     if (!entry.plan && entry.target.measurer_id == null) return {
       targetId, code: entry.target.code, businessName: entry.target.business_name,
       classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors, fillMeasurementAssignment: entry.fillMeasurementAssignment,
@@ -206,8 +234,9 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
           .lte("start_date", candidateRange.at(-1)).gte("end_date", candidateRange[0])
         : { data: [], error: null };
       if (blockError) throw blockError;
-      const blockedKeys = buildScheduleBlockKeys(blocks ?? []);
-      for (const key of await loadActualMeasurementBlockedKeys(supabase, candidateDates, context.users)) blockedKeys.add(key);
+      const scheduleBlockedKeys = buildScheduleBlockKeys(blocks ?? []);
+      const actualMeasurementBlockedKeys = await loadActualMeasurementBlockedKeys(supabase, candidateDates, context.users);
+      const blockedKeys = new Set([...scheduleBlockedKeys, ...actualMeasurementBlockedKeys]);
       const selectedDate = await firstValidConfirmedRepairDate({
         candidateDates,
         participants: validParticipants,
@@ -219,6 +248,17 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
           surveyMethod: surveyMethod ?? (context.target.kind === "new" ? "field" : "phone"),
           existingAssignments: context.assignments,
           routes: createRouteMetrics(),
+          experiencedUsers: context.users.filter((user: SurveyUser) => user.experienced),
+          availability: {
+            isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+            blockedReason: (userId, date) => {
+              const key = `${userId}:${date}`;
+              return [
+                scheduleBlockedKeys.has(key) ? "USER_SCHEDULE_BLOCK" : null,
+                actualMeasurementBlockedKeys.has(key) ? "ACTUAL_MEASUREMENT_CONFLICT" : null,
+              ].filter((reason): reason is string => Boolean(reason));
+            },
+          },
         }),
       });
       if (!selectedDate.date || !selectedDate.validation) return {

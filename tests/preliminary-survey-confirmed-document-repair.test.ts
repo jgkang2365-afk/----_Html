@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
-import { classifyConfirmedDocumentState, firstValidConfirmedRepairDate } from "../lib/preliminary-survey-v2/confirmed-document-repair";
+import { classifyConfirmedDocumentState, firstValidConfirmedRepairDate, hasAuthoritativeBusinessTypePlanMismatch } from "../lib/preliminary-survey-v2/confirmed-document-repair";
 
 describe("찐확정 누락정보 보정 경계", () => {
   it("date와 surveyor가 모두 있으면 COMPLETE이고 변화가 없다", () => {
@@ -103,6 +103,21 @@ describe("찐확정 누락정보 보정 경계", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "lib/preliminary-survey-v2/confirmed-document-repair.ts"), "utf8");
     assert.match(source, /if \(entry\.fillSurveyors && reconciledIds\.length\) participants = reconciledIds/);
     assert.match(source, /entry\.plan && entry\.fillSurveyors && !reconciledIds\.length && !legacyNames\.length/);
+  });
+  it("권위 business_type과 기존 non-null plan 방식이 다르면 자동 덮어쓰기 대신 수동 확인으로 분류한다", () => {
+    for (const [code, businessType] of [["H0521", "first_measurement"], ["H0524", "external_new"], ["H0526", "first_measurement"]] as const) {
+      assert.equal(hasAuthoritativeBusinessTypePlanMismatch(businessType, {
+        source_rule_type: "existing", survey_method: "phone",
+      }), true, `${code} is protected as manual review without rewriting non-null plan fields`);
+    }
+    assert.equal(hasAuthoritativeBusinessTypePlanMismatch("existing", {
+      source_rule_type: "existing", survey_method: "phone",
+    }), false);
+    const source = fs.readFileSync(path.join(process.cwd(), "lib/preliminary-survey-v2/confirmed-document-repair.ts"), "utf8");
+    assert.match(source, /hasAuthoritativeBusinessTypePlanMismatch/);
+    assert.match(source, /businessTypePlanMismatch: hasAuthoritativeBusinessTypePlanMismatch/);
+    assert.match(source, /!entry\.businessTypePlanMismatch/);
+    assert.match(source, /찐확정 non-null 값은 자동 변경할 수 없습니다/);
   });
   it("일반 apply와 누락 보정 apply API가 분리되어 있다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");

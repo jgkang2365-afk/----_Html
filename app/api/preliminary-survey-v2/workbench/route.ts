@@ -557,6 +557,17 @@ async function applySubmittedDrafts(
         ...draftAssignments.filter((assignment) => assignment.targetId !== draft.targetId),
       ],
       routes,
+      experiencedUsers: allUsers.filter((user) => user.experienced),
+      availability: {
+        isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+        blockedReason: (userId, date) => {
+          const key = `${userId}:${date}`;
+          return [
+            scheduleBlockedKeys.has(key) ? "USER_SCHEDULE_BLOCK" : null,
+            measurementBlockedKeys.has(key) ? "ACTUAL_MEASUREMENT_CONFLICT" : null,
+          ].filter((reason): reason is string => Boolean(reason));
+        },
+      },
     });
     const roleUserIds = [...new Set([
       ...draft.participantUserIds,
@@ -824,9 +835,22 @@ export async function GET(request: NextRequest) {
         userNameById,
       });
       const sourceContext = plan?.recommendation_reason?.sourceContext;
+      const authoritativeRuleType = target.business_type === "existing"
+        ? "existing"
+        : target.business_type === "first_measurement" || target.business_type === "external_new"
+          ? "new"
+          : null;
+      const authoritativeSurveyMethod = authoritativeRuleType === "existing"
+        ? "phone"
+        : authoritativeRuleType === "new" ? "field" : null;
+      const businessTypePlanMismatch = Boolean(plan && authoritativeRuleType && (
+        (plan.source_rule_type != null && plan.source_rule_type !== authoritativeRuleType) ||
+        (plan.survey_method != null && plan.survey_method !== authoritativeSurveyMethod)
+      ));
       const stale = Boolean(plan && (
         plan.source_measurement_date !== target.measurement_date ||
         plan.source_responsible_user_id !== target.measurer_id ||
+        businessTypePlanMismatch ||
         (sourceContext && (
           sourceContext.address !== target.address ||
           sourceContext.measurementParticipants !== staff.measurementParticipants
@@ -851,6 +875,7 @@ export async function GET(request: NextRequest) {
       });
       const warnings = combineWorkbenchWarnings(
         presentationState.conflict,
+        businessTypePlanMismatch ? "business_type 원천과 기존 V2 방식 불일치 · 수동 확인 필요" : null,
         reportWriterParticipationWarning({
           source: {
             dailyStaff: target.daily_staff,
@@ -911,6 +936,7 @@ export async function GET(request: NextRequest) {
         planOrigin: plan?.plan_origin ?? null,
         hasPersistedPlan: Boolean(plan),
         locked: trueConfirmed,
+        needsManualReview: businessTypePlanMismatch,
         deleteProtectionReason: plan && (
           HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES.has(String(target.code)) || protectedPlanIds.has(String(plan.id))
         ) ? "history" : null,

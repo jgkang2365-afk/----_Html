@@ -15,6 +15,7 @@ import {
   resolveTargetBusinessCategory,
 } from "@/lib/business/target-classification";
 import { resolveJournalManagerEmailForCreate } from "@/lib/journal/manager-email-policy";
+import { resolveTargetJournalSchedule, validateJournalSavePreliminarySurveySource } from "@/lib/preliminary-survey-v2/journal-save-validation";
 
 async function queueFinalNationalSupportLookup(
   supabase: any,
@@ -241,13 +242,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: targetStateBeforeSave } = await supabase
+    const { data: targetStateBeforeSave, error: targetStateBeforeSaveError } = await supabase
       .from("measurement_target_business")
-      .select("id, national_support_status, business_category, business_type, process_changed")
+      .select("id, national_support_status, business_category, business_type, process_changed, measurement_date, measurement_end_date, daily_staff, measurer_id, collaborators")
       .eq("code", code)
       .eq("year", Number(measurementYear))
       .eq("period", measurementPeriod)
       .maybeSingle();
+    if (targetStateBeforeSaveError) {
+      console.error("측정대상사업장 원천 조회 오류:", targetStateBeforeSaveError);
+      return NextResponse.json({ error: "측정대상사업장 일정 원천을 확인할 수 없습니다." }, { status: 500 });
+    }
+
+    // V2 원천 검증은 번호 계산이나 측정일지 update/insert보다 먼저 실행한다.
+    // legacy-only 과거 행은 V2 plan/assignment가 없으므로 넓은 저장 차단을 만들지 않는다.
+    const { data: existingV2Plans, error: existingV2PlansError } = targetStateBeforeSave
+      ? await supabase.from("preliminary_survey_v2_plans")
+        .select("id, source_measurement_date")
+        .eq("measurement_target_business_id", targetStateBeforeSave.id)
+      : { data: [], error: null };
+    if (existingV2PlansError) throw existingV2PlansError;
+    const planIdsForJournalGate = (existingV2Plans ?? []).map((plan: any) => String(plan.id));
+    const { data: existingV2Assignments, error: existingV2AssignmentsError } = planIdsForJournalGate.length
+      ? await supabase.from("preliminary_survey_v2_measurement_assignments")
+        .select("plan_id, measurement_date").in("plan_id", planIdsForJournalGate)
+      : { data: [], error: null };
+    if (existingV2AssignmentsError) throw existingV2AssignmentsError;
+    const preliminarySurveyGate = validateJournalSavePreliminarySurveySource({
+      target: targetStateBeforeSave,
+      body,
+      plans: existingV2Plans ?? [],
+      assignments: existingV2Assignments ?? [],
+    });
+    if (preliminarySurveyGate) {
+      return NextResponse.json({ error: preliminarySurveyGate.message, code: preliminarySurveyGate.code }, { status: 409 });
+    }
+    const targetJournalSchedule = targetStateBeforeSave
+      ? resolveTargetJournalSchedule(targetStateBeforeSave)
+      : null;
 
     // business_info 테이블에서 추가 정보 가져오기
     const { data: businessInfo, error: businessInfoError } = await supabase
@@ -337,6 +369,12 @@ export async function POST(request: NextRequest) {
           updated_by: user.name,
           updated_at: new Date().toISOString(),
         };
+        // body가 일정을 생략해도 measurement_business의 오래된 날짜가 다시 저장되지 않게
+        // 현재 측정대상사업장 원천을 우선한다.
+        if (targetJournalSchedule?.start && targetJournalSchedule?.end) {
+          updateData.measurement_start_date = targetJournalSchedule.start;
+          updateData.measurement_end_date = targetJournalSchedule.end;
+        }
 
         // 빈 문자열을 null로 변환
         Object.keys(updateData).forEach((key) => {
@@ -604,8 +642,8 @@ export async function POST(request: NextRequest) {
       address: address || businessData.address,
       total_employees: total_employees || businessData.total_employees,
       office_jurisdiction: office_jurisdiction || businessData.office_jurisdiction,
-      measurement_start_date: measurement_start_date || businessData.measurement_start_date,
-      measurement_end_date: measurement_end_date || businessData.measurement_end_date,
+      measurement_start_date: targetJournalSchedule?.start || measurement_start_date || businessData.measurement_start_date,
+      measurement_end_date: targetJournalSchedule?.end || measurement_end_date || businessData.measurement_end_date,
       measurement_days: measurement_days ? parseInt(String(measurement_days)) : null,
       measurer: measurer || businessData.measurer,
       // business_info에서 가져오기
