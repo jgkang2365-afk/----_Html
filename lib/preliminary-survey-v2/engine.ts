@@ -26,6 +26,30 @@ const PREFERRED_EXISTING_PHONE_REVIEWER_BY_RESPONSIBLE_NAME = new Map([
   ["김민영", "한기문"],
 ]);
 
+function reportWriterPreferredResponsibleIds(target: SurveyTarget, users: SurveyUser[]) {
+  const userById = new Map(users.map((user) => [user.id, user]));
+  const userByName = new Map(users.map((user) => [user.name.trim(), user]));
+  const reportWriterIds = new Set((target.measurementStaffByDate ?? [])
+    .map((staff) => staff.reportWriterUserId)
+    .filter((userId): userId is number => Number.isInteger(userId) && Number(userId) > 0));
+  const preferred = new Set<number>();
+  for (const reportWriterId of reportWriterIds) {
+    const reportWriter = userById.get(reportWriterId);
+    if (!reportWriter || reportWriter.active === false) continue;
+    if (reportWriter.experienced) {
+      preferred.add(reportWriter.id);
+      continue;
+    }
+    // 비경력 보고서 담당자는 본인이 responsible가 되어 지정 reviewer와 조합되거나,
+    // 지정 경력 reviewer가 단독 responsible가 되는 두 가지를 우선 후보로 둔다.
+    preferred.add(reportWriter.id);
+    const reviewerName = PREFERRED_EXISTING_PHONE_REVIEWER_BY_RESPONSIBLE_NAME.get(reportWriter.name.trim());
+    const reviewer = reviewerName ? userByName.get(reviewerName) : null;
+    if (reviewer?.experienced && reviewer.active !== false) preferred.add(reviewer.id);
+  }
+  return preferred;
+}
+
 function deterministicTargets(targets: SurveyTarget[]) {
   const priority = (target: SurveyTarget) => target.businessType === "first_measurement"
     ? 0
@@ -374,6 +398,7 @@ async function recommendExistingPhoneGlobally(
       failureByTarget.set(target.id, "NO_EXPERIENCED_REVIEWER_AVAILABLE");
       return [];
     }
+    const reportWriterPreferredIds = reportWriterPreferredResponsibleIds(target, activeSurveyors);
     const candidates = dates.flatMap((candidate) => roleValidResponsibles
       .filter((responsible) =>
         !isExistingPhoneResponsibleBlocked(input.availability, responsible.id, candidate.date))
@@ -382,6 +407,7 @@ async function recommendExistingPhoneGlobally(
         responsibleUserId: responsible.id,
         workingDaysBefore: candidate.workingDaysBefore,
         primary: candidateRange(target, candidate.workingDaysBefore) === "primary",
+        reportWriterPreferred: reportWriterPreferredIds.size === 0 || reportWriterPreferredIds.has(responsible.id),
       })));
     if (!candidates.length) {
       failureByTarget.set(target.id, "RESPONSIBLE_SCHEDULE_BLOCKED_ALL_DATES");
