@@ -1,9 +1,10 @@
 import { recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { evaluateSameDayRoute } from "./route-policy";
 import type {
-  ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyMethod, SurveyTarget, SurveyUser,
+  Availability, ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyMethod, SurveyTarget, SurveyUser,
 } from "./types";
 import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
+import { isExistingPhoneResponsibleBlocked, isFieldParticipantBlocked } from "./availability-policy";
 
 export interface ManualPlanValidationInput {
   target: SurveyTarget;
@@ -12,10 +13,10 @@ export interface ManualPlanValidationInput {
   surveyMethod?: SurveyMethod | null;
   existingAssignments: ExistingAssignment[];
   routes: RouteMetrics;
-  /** 자동추천·작업대와 같은 경력자 후보군. 없으면 기존 수동 입력 호환만 유지한다. */
+  /** 호출부 호환을 위한 경력자 후보군. 수동 hard validation은 실제 참여자 구성만 판정한다. */
   experiencedUsers?: SurveyUser[];
   /** 후보일의 직원 제외/실측 충돌 hard rule. */
-  availability?: { isBlocked(userId: number, date: string): boolean };
+  availability?: Availability;
 }
 
 export interface ManualPlanValidationResult {
@@ -57,22 +58,22 @@ export async function validateManualPlanHardRules(
     errors.push("비활성 사용자는 예비조사자로 배정할 수 없습니다.");
   }
   const experiencedCount = input.participants.filter((user) => user.experienced).length;
-  if ((input.target.kind === "new" || surveyMethod === "field") && experiencedCount === 0) {
+  if (experiencedCount === 0) {
     errors.push("비경력자 단독 예비조사는 불가하며 경력자가 최소 1명 필요합니다.");
   }
-  // 기존업체의 비경력 책임자도 가능한 경력 검토자를 반드시 포함한다. 다만 후보군 전체가
-  // 해당 날짜의 hard rule에 막힌 경우에는 원천 보존/수동 경로가 null reviewer를 명시적으로 남긴다.
-  if (input.target.kind === "existing" && !input.target.responsible.experienced && input.experiencedUsers) {
-    const candidates = input.experiencedUsers.filter((user) =>
-      user.active !== false && user.id !== input.target.responsible.id,
-    );
-    const available = candidates.filter((user) => !input.availability?.isBlocked(user.id, input.recommendedDate));
-    if (available.length > 0 && !reviewer) {
-      errors.push("기존업체 비경력 책임자에는 가능한 경력 검토자가 반드시 필요합니다.");
-    } else if (available.length === 0) {
-      warnings.push(candidates.length > 0
-        ? "EXPERIENCED_REVIEWER_ALL_HARD_BLOCKED"
-        : "EXPERIENCED_REVIEWER_UNAVAILABLE");
+  if (input.target.kind === "existing" && surveyMethod === "phone") {
+    const nonExperienced = input.participants.filter((user) => !user.experienced);
+    if (nonExperienced.length > 0 && !nonExperienced.some((user) => user.id === input.target.responsible.id)) {
+      errors.push("기존업체 유선의 경력자+비경력자 조합은 비경력자가 유선 책임자여야 합니다.");
+    }
+  }
+  if (input.availability) {
+    if (input.target.kind === "existing" && surveyMethod === "phone") {
+      if (isExistingPhoneResponsibleBlocked(input.availability, input.target.responsible.id, input.recommendedDate)) {
+        errors.push("유선 책임자의 직원 제외 일정에는 예비조사를 배정할 수 없습니다.");
+      }
+    } else if (input.participants.some((user) => isFieldParticipantBlocked(input.availability!, user.id, input.recommendedDate))) {
+      errors.push("직원 제외 일정 또는 실제 측정 충돌이 있는 방문 예비조사자는 배정할 수 없습니다.");
     }
   }
   const requiresUserConfirmation = experiencedCount >= 2;

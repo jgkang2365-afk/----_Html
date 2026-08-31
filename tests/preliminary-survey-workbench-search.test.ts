@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   collectWorkbenchRecommendationTargetIds,
+  matchesAnyMeasurementDateRange,
   matchesMeasurementDateRange,
   matchesWorkbenchSearch,
   matchesWorkbenchSearchTerm,
@@ -51,4 +52,9 @@ test("계획 검색은 측정예정일의 시작일과 종료일을 모두 포�
   assert.equal(matchesMeasurementDateRange("2026-08-02", "2026-08-03", "2026-08-07"), false);
   assert.equal(matchesMeasurementDateRange("2026-08-08", "2026-08-03", "2026-08-07"), false);
   assert.equal(matchesMeasurementDateRange(null, "2026-08-03", "2026-08-07"), false);
+});
+
+test("다일 사업장은 두 번째 실제 측정일 조회에서도 같은 예비조사 정보를 공유해 노출한다", () => {
+  assert.equal(matchesAnyMeasurementDateRange(["2026-08-03", "2026-08-25"], "2026-08-25", "2026-08-25"), true);
+  assert.equal(matchesAnyMeasurementDateRange(["2026-08-03", "2026-08-25"], "2026-08-24", "2026-08-24"), false);
 });

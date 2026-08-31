@@ -8,6 +8,11 @@ import { surveyMethodForKind, type SurveyUser } from "@/lib/preliminary-survey-v
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
 import { loadActualMeasurementBlockedKeys } from "@/lib/preliminary-survey-v2/measurement-conflicts";
+import {
+  isMeasurementAssignmentSchemaMissing,
+  recomputeCanonicalMeasurementAssignments,
+} from "@/lib/preliminary-survey-v2/measurement-assignment-persistence";
+import { orderSurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/display-model";
 
 function deleteErrorResponse(message: string) {
   if (message.includes("TRUE_CONFIRMED_LOCKED")) {
@@ -121,20 +126,31 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
   if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   try {
     const targetId = Number(params.targetId);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      return NextResponse.json({ error: "측정대상 정보가 올바르지 않습니다.", code: "INVALID_TARGET_ID" }, { status: 400 });
+    }
     const body = await request.json();
     const participantIds = [...new Set((body.participantUserIds ?? []).map(Number).filter(Number.isFinite))];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.recommendedDate ?? "")) || participantIds.length === 0) {
+      return NextResponse.json({
+        error: "예비조사일과 예비조사자를 확인해 주세요.",
+        code: "INVALID_MANUAL_PLAN_INPUT",
+      }, { status: 400 });
+    }
     const supabase = await createClient();
     if (!await canManagePreliminarySurvey(supabase, session)) {
       return NextResponse.json({ error: "예비조사 담당자 또는 관리자만 수동 수정할 수 있습니다." }, { status: 403 });
     }
+    const isAdmin = session.role === "관리자";
     const { target, users, assignments } = await loadV2ManualContext(supabase, targetId, body.recommendedDate);
     const participants = participantIds.map((id) => users.find((user) => user.id === id))
       .filter((user): user is SurveyUser => Boolean(user));
-    if (participants.length !== participantIds.length) throw new Error("PARTICIPANT_NOT_FOUND");
-    // 경력+비경력 조합에서는 비경력자가 페이퍼 작성자, 경력자 단독이면 경력자가 작성한다.
-    // 측정자/보고서 담당자/link_measurer_id에서는 예비조사 책임자를 추론하지 않는다.
+    if (participants.length !== participantIds.length) {
+      return NextResponse.json({ error: "선택한 예비조사자를 찾을 수 없습니다.", code: "PARTICIPANT_NOT_FOUND" }, { status: 400 });
+    }
+    // 경력+비경력 조합에서는 비경력자가 responsible, 경력자 단독이면 해당 경력자가 responsible다.
     const responsible = participants.find((user) => !user.experienced) ?? participants[0];
-    if (!responsible) throw new Error("NO_SURVEYOR");
+    if (!responsible) return NextResponse.json({ error: "예비조사자를 선택해 주세요.", code: "NO_SURVEYOR" }, { status: 400 });
     const surveyMethod = body.surveyMethod === "field" || body.surveyMethod === "phone"
       ? body.surveyMethod
       : surveyMethodForKind(target.kind);
@@ -157,6 +173,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
       experiencedUsers: users.filter((user) => user.experienced),
       availability: {
         isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+        isScheduleBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`),
+        isActualMeasurementBlocked: (userId, date) => actualMeasurementBlockedKeys.has(`${userId}:${date}`),
         blockedReason: (userId, date) => {
           const key = `${userId}:${date}`;
           return [
@@ -166,17 +184,52 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
         },
       },
     });
-    if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
-    if (participantIds.some((userId) => blockedKeys.has(`${userId}:${body.recommendedDate}`))) {
-      return NextResponse.json({
-        error: "직원 불가 일정에 등록된 예비조사자 또는 경력 검토자는 저장할 수 없습니다.",
-        code: "USER_UNAVAILABLE_ON_SURVEY_DATE",
-        reviewRequired: true,
-      }, { status: 409 });
-    }
-    // 경력자 2명 이상 조합은 사용자 확인 전에는 저장하지 않는다.
-    // 1차 요청(confirm 미포함)에서는 계획을 저장하지 않고 확인 요청만 반환한다.
     const confirmed = body.confirm === true;
+    const ordered = orderSurveyParticipantsForDisplay(participants);
+
+    if (isAdmin) {
+      const policyWarnings = [...new Set([
+        ...validation.errors,
+        ...validation.warnings,
+        ...(validation.requiresUserConfirmation ? ["경력자 2명 이상 수동 조합"] : []),
+      ].filter(Boolean))];
+      if (policyWarnings.length > 0 && !confirmed) {
+        return NextResponse.json({
+          success: false,
+          requiresUserConfirmation: true,
+          message: `운영지침 위반/주의 사항:\n- ${policyWarnings.join("\n- ")}\n\n관리자 판단으로 그대로 저장하시겠습니까?`,
+          policyWarnings,
+        });
+      }
+      const experiencedReviewer = responsible.experienced
+        ? null
+        : ordered.find((user) => user.experienced && user.id !== responsible.id) ?? null;
+      const { data, error } = await supabase.rpc("admin_override_preliminary_survey_v2_plan", {
+        p_target_id: targetId,
+        p_recommended_date: body.recommendedDate,
+        p_survey_method: surveyMethod,
+        p_participant_user_ids: ordered.map((user) => user.id),
+        p_participant_names: ordered.map((user) => user.name),
+        p_responsible_user_id: responsible.id,
+        p_experienced_reviewer_user_id: experiencedReviewer?.id ?? null,
+        p_policy_warnings: policyWarnings,
+        p_changed_by_user_id: session.userId,
+      });
+      if (error) {
+        return NextResponse.json({
+          error: String(error.message ?? "ADMIN_MANUAL_OVERRIDE_FAILED"),
+          code: "ADMIN_MANUAL_OVERRIDE_FAILED",
+        }, { status: 409 });
+      }
+      return NextResponse.json({
+        success: true,
+        plan: Array.isArray(data) ? data[0] ?? null : data,
+        policyWarnings,
+        adminOverride: true,
+      });
+    }
+
+    if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
     if (validation.requiresUserConfirmation && !confirmed) {
       return NextResponse.json({
         success: false,
@@ -187,32 +240,96 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
         participantNames: participants.map((user) => user.name),
       });
     }
-    const ordered = [...participants].sort((left, right) =>
-      Number(right.id === responsible.id) - Number(left.id === responsible.id) || left.id - right.id,
+    const canonicalAssignments = await recomputeCanonicalMeasurementAssignments(
+      supabase,
+      [{ target }],
+      new Map([[targetId, ordered.map((user) => user.id)]]),
+      false,
     );
-    const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan", {
-      p_target_id: targetId,
-      p_recommended_date: body.recommendedDate,
-      p_responsible_user_id: responsible.id,
-      p_experienced_reviewer_id: validation.experiencedReviewer?.id ?? null,
-      p_participant_user_ids: ordered.map((user) => user.id),
-      p_participant_names: ordered.map((user) => user.name),
-      p_status: "recommended",
-      p_plan_origin: "manual",
-      p_source_measurement_date: target.measurementDate,
-      p_source_responsible_user_id: target.sourceMeasurerId,
-      p_source_rule_type: target.kind,
-      p_survey_method: surveyMethod,
-      p_recommendation_reason: {
-        reason: "관리자 수동 수정", classificationSource: target.classificationSource, surveyMethod,
+    if (canonicalAssignments.schemaMissing) {
+      return NextResponse.json({
+        error: "측정자·공시료 배정 스키마가 아직 적용되지 않아 수동 수정할 수 없습니다.",
+        code: "MEASUREMENT_ASSIGNMENT_SCHEMA_REQUIRED",
+        reviewRequired: true,
+      }, { status: 409 });
+    }
+    if (canonicalAssignments.invalidSurveyCodeUserIds.length) {
+      return NextResponse.json({
+        error: "배정 대상 측정자의 공시료 코드가 사용자 정보에 설정되어 있지 않습니다.",
+        code: "MEASUREMENT_ASSIGNMENT_SURVEY_CODE_REQUIRED",
+        reviewRequired: true,
+      }, { status: 409 });
+    }
+    if (canonicalAssignments.incompleteTargetIds.length ||
+        canonicalAssignments.canonical.length !== canonicalAssignments.expectedAssignmentCount) {
+      return NextResponse.json({
+        error: "날짜별 측정자(공시료)를 안전하게 배정할 수 없어 저장하지 않았습니다.",
+        code: "MEASUREMENT_ASSIGNMENT_INCOMPLETE",
+        reviewRequired: true,
+      }, { status: 409 });
+    }
+    if (canonicalAssignments.canonical.some((assignment) => assignment.approvalRequired)) {
+      return NextResponse.json({
+        error: "측정자 1인 3건 배정은 관리자 CCC 예외 검토에서만 확정할 수 있습니다.",
+        code: "MEASUREMENT_ASSIGNMENT_APPROVAL_REQUIRED",
+        reviewRequired: true,
+      }, { status: 409 });
+    }
+    const planPayload = [{
+      measurement_target_business_id: targetId,
+      recommended_date: body.recommendedDate,
+      responsible_user_id: responsible.id,
+      experienced_reviewer_id: validation.experiencedReviewer?.id ?? null,
+      participant_user_ids: ordered.map((user) => user.id),
+      participant_names: ordered.map((user) => user.name),
+      status: "recommended",
+      plan_origin: "manual",
+      source_measurement_date: target.measurementDate,
+      source_address: target.address ?? null,
+      source_daily_staff: target.sourceDailyStaffSnapshot ?? null,
+      source_collaborators: target.sourceCollaboratorsSnapshot ?? null,
+      source_responsible_user_id: target.sourceMeasurerId,
+      source_rule_type: target.kind,
+      survey_method: surveyMethod,
+      recommendation_reason: {
+        reason: "권한자 수동 수정", classificationSource: target.classificationSource, surveyMethod,
       },
-      p_route_evidence: { sameDayRoutes: validation.routeEvidence },
-      p_warnings: validation.warnings,
+      route_evidence: { sameDayRoutes: validation.routeEvidence, validatedAtApply: true },
+      warnings: validation.warnings,
+    }];
+    const assignmentPayload = canonicalAssignments.canonical.map((assignment) => ({
+      measurement_target_business_id: assignment.targetId,
+      measurement_date: assignment.measurementDate,
+      assignee_user_id: assignment.userId,
+      survey_code: assignment.surveyCode,
+      assignment_reason: assignment.reason,
+    }));
+    const { data, error } = await supabase.rpc("persist_preliminary_survey_v2_plan_and_assignment_groups", {
+      p_plans: planPayload,
+      p_assignments: assignmentPayload,
+      p_assignment_baseline: canonicalAssignments.baseline,
+      p_approve_third_assignment: false,
+      p_approved_by_user_id: null,
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (isMeasurementAssignmentSchemaMissing(error)) {
+        return NextResponse.json({
+          error: "측정자·공시료 배정 스키마가 아직 적용되지 않아 수동 수정할 수 없습니다.",
+          code: "MEASUREMENT_ASSIGNMENT_SCHEMA_REQUIRED",
+          reviewRequired: true,
+        }, { status: 409 });
+      }
+      const message = String(error.message ?? "MANUAL_UPDATE_FAILED");
+      return NextResponse.json({
+        error: message,
+        code: message.includes("TRUE_CONFIRMED_LOCKED") ? "TRUE_CONFIRMED_LOCKED" : "MANUAL_UPDATE_REVIEW_REQUIRED",
+        reviewRequired: true,
+      }, { status: 409 });
+    }
     return NextResponse.json({
       success: true,
-      plan: Array.isArray(data) ? data[0] : data,
+      plan: Array.isArray(data) ? data[0] ?? null : data,
+      measurementAssignments: canonicalAssignments.canonical,
       requiresUserConfirmation: validation.requiresUserConfirmation,
     });
   } catch (error) {

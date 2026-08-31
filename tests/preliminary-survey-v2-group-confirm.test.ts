@@ -149,6 +149,16 @@ test("확정 API는 관리자 전용이며 인증/빈 목록/중복을 검증한
   assert.match(route, /INVALID_DATE/);
 });
 
+test("묶음 확정도 canonical 경력·일정·실측·용량 hard rule을 서버에서 재검증한다", () => {
+  const confirmBlock = service.match(/export async function confirmGroupRecommendation[\s\S]*?\n\}/)?.[0] ?? "";
+  assert.match(confirmBlock, /loadActualMeasurementBlockedKeys/);
+  assert.match(confirmBlock, /buildScheduleBlockKeys/);
+  assert.match(confirmBlock, /validateManualPlanHardRules/);
+  assert.match(confirmBlock, /plannedAssignments/);
+  assert.match(confirmBlock, /isScheduleBlocked/);
+  assert.match(confirmBlock, /isActualMeasurementBlocked/);
+});
+
 test("확정 RPC는 일반 정상 확정을 관리자 예외 감사로그에 INSERT하지 않는다", () => {
   assert.doesNotMatch(migration, /INSERT INTO public\.preliminary_survey_exception_log/);
 });

@@ -29,6 +29,7 @@ const safeDeleteMigration = readFileSync(
 const migration = `${baseMigration}\n${forwardMigration}\n${remedialMigration}\n${persistenceFixMigration}\n${affectedGroupFixMigration}`;
 const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
 const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
+const assignmentPersistence = readFileSync("lib/preliminary-survey-v2/measurement-assignment-persistence.ts", "utf8");
 const plansUi = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
 const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
 
@@ -173,15 +174,18 @@ test("workbench apply는 전체 draft fingerprint·서버 재추천을 대조하
   assert.match(workbench, /MEASUREMENT_ASSIGNMENT_SCHEMA_REQUIRED/);
   assert.match(workbench, /persist_preliminary_survey_v2_plan_and_assignment_groups/);
   assert.match(workbench, /p_approve_third_assignment: approveThirdAssignment/);
-  assert.match(workbench, /p_approved_by_user_id: approveThirdAssignment \? approvedByUserId : null/);
+  assert.match(workbench, /p_approved_by_user_id: approveThirdAssignment \? session\.userId : null/);
   assert.doesNotMatch(workbench, /PUBLIC_SAMPLE_CODE_BY_NAME/);
   assert.doesNotMatch(workbench, /measurer_user_id/);
 });
 
 test("추천과 Apply 재계산은 동일한 canonical target builder를 사용한다", () => {
-  assert.equal((workbench.match(/buildMeasurementAssignmentTargets\(\{/g) ?? []).length, 2);
-  assert.match(workbench, /submittedByTargetId[\s\S]*sourceResponsibleUserId/);
-  assert.doesNotMatch(workbench, /const assignmentTargets:[\s\S]*businessCode: context\.target\.code, region: context\.target\.region/);
+  assert.match(workbench, /recomputeCanonicalMeasurementAssignments/);
+  assert.match(manualRoute, /recomputeCanonicalMeasurementAssignments/);
+  assert.match(assignmentPersistence, /buildMeasurementAssignmentTargets\(\{/);
+  assert.match(assignmentPersistence, /preliminarySurveyorUserIdsByTarget/);
+  assert.match(assignmentPersistence, /persistence|baseline|canonical/i);
+  assert.doesNotMatch(assignmentPersistence, /reportWriterUserId[\s\S]*preliminarySurveyorUserIds/);
   assert.match(service, /loadV2ManualContext[\s\S]*measurementStaffByDate: measurementStaffByDateFromSource/);
 });
 

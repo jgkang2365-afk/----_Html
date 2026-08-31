@@ -10,6 +10,14 @@ import {
   resolveLaborOfficeAddressFromDirectory,
   resolveLaborOfficeByStoredJurisdiction,
 } from "@/lib/labor-offices/address-resolver";
+import { isActivePreliminarySurveyTarget } from "@/lib/business/target-business-form";
+
+function targetMeasurementDates(target: { measurement_date?: unknown; daily_staff?: unknown }): string[] {
+  const dailyDates = Array.isArray(target.daily_staff)
+    ? target.daily_staff.map((day: any) => String(day?.date ?? "")).filter((date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    : [];
+  return [...new Set(dailyDates.length ? dailyDates : [String(target.measurement_date ?? "")])].filter(Boolean);
+}
 
 function resolveJournalOfficePresentation(
   address: unknown,
@@ -109,38 +117,39 @@ export async function GET(request: NextRequest) {
     }
     const laborOfficeDirectory = await loadLaborOfficeDirectory(supabase);
 
-    // 0. measurementDate가 있으면 preliminary_survey에서 해당 날짜의 사업장 코드/년도/주기 조회
+    // 0. 측정일 필터도 measurement_target_business의 실제 날짜별 일정이 단일 원천이다.
+    // legacy preliminary_survey는 다일의 둘째 날을 누락시킬 수 있으므로 조회 기준으로 사용하지 않는다.
     let dateFilteredCodes: string[] | null = null;
     let dateFilteredKeys: Set<string> | null = null;
-    let validSurveys: any[] = [];
+    let validTargets: any[] = [];
 
     if (measurementDate) {
-      const { data: surveys, error: surveyError } = await supabase
-        .from("preliminary_survey")
-        .select("code, year, period")
-        .eq("measurement_date", measurementDate);
+      const { data: targets, error: targetError } = await supabase
+        .from("measurement_target_business")
+        .select("code, year, period, measurement_date, daily_staff, is_registered, measurer_id, notes, created_at, updated_at");
 
-      if (surveyError) {
-        console.error("예비조사 측정일 검색 오류:", surveyError);
+      if (targetError) {
+        console.error("측정대상사업장 날짜별 일정 검색 오류:", targetError);
         return NextResponse.json(
-          { error: "측정일 검색 중 오류가 발생했습니다.", details: surveyError.message },
+          { error: "측정일 검색 중 오류가 발생했습니다.", details: targetError.message },
           { status: 500 }
         );
       }
 
-      const surveysList = surveys || [];
-      if (surveysList.length === 0) {
+      validTargets = (targets || []).filter((target: any) =>
+        isActivePreliminarySurveyTarget({ measurementDate: target.measurement_date, registrationStatus: target.is_registered }) &&
+        targetMeasurementDates(target).includes(measurementDate),
+      );
+      if (validTargets.length === 0) {
         return NextResponse.json({ results: [] });
       }
 
-      validSurveys = surveysList;
-
       // DB 쿼리 최적화를 위한 코드 리스트
-      dateFilteredCodes = surveysList.map((s: any) => s.code).filter(Boolean);
+      dateFilteredCodes = validTargets.map((target: any) => target.code).filter(Boolean);
 
       // 정확한 매칭을 위한 (code-year-period) 키 집합
       dateFilteredKeys = new Set(
-        surveysList.map((s: any) => `${s.code}-${s.year}-${s.period}`)
+        validTargets.map((target: any) => `${target.code}-${target.year}-${target.period}`)
       );
       console.log("[DEBUG] Date Filter Keys:", Array.from(dateFilteredKeys));
     }
@@ -404,24 +413,31 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 3.5 measurement_target_business 조회 (권위 있는 업종/분류와 비고 표시용)
+    // 3.5 measurement_target_business 조회 (권위 있는 업종/분류·현재 노출 상태용)
     const targetBusinessMap = new Map<string, {
       notes: string | null;
       business_category: string | null;
       business_type: string | null;
       process_changed: boolean | null;
+      activeForCurrentJournalSearch: boolean;
     }>();
     if (allCodes.size > 0) {
       const { data: targetData, error: targetError } = await supabase
         .from("measurement_target_business")
-        .select("code, year, period, notes, business_category, business_type, process_changed")
+        .select("code, year, period, notes, business_category, business_type, process_changed, is_registered, measurement_date")
         .in("code", Array.from(allCodes));
 
       if (!targetError && targetData) {
         targetData.forEach((target: any) => {
           // 키: code + year + period
           const key = `${target.code}-${target.year}-${target.period}`;
-          targetBusinessMap.set(key, target);
+          targetBusinessMap.set(key, {
+            ...target,
+            activeForCurrentJournalSearch: isActivePreliminarySurveyTarget({
+              measurementDate: target.measurement_date,
+              registrationStatus: target.is_registered,
+            }),
+          });
         });
       }
     }
@@ -450,6 +466,14 @@ export async function GET(request: NextRequest) {
 
     // 4. measurement_journal이 있으면 우선 사용, 없으면 measurement_business 데이터를 변환
     // 중복 제거: 같은 code-year-period 조합 중 가장 최신 것만 사용
+    // current 검색은 target 원천이 존재하는 경우 그 lifecycle을 따른다. 따라서 미실시·거래종료
+    // target에 귀속된 과거 journal은 보존하되 현재 검색 결과에만 넣지 않는다. target 자체가 없는
+    // 순수 과거 이력은 이 필터가 임의로 삭제하지 않는다.
+    journalData = journalData.filter((journal: any) => {
+      const key = `${journal.code}-${journal.measurement_year}-${journal.measurement_period}`;
+      const target = targetBusinessMap.get(key);
+      return !target || target.activeForCurrentJournalSearch;
+    });
     const journalMap = new Map<string, any>();
     (journalData || []).forEach((journal: any) => {
       const key = `${journal.code}-${journal.measurement_year}-${journal.measurement_period}`;
@@ -677,13 +701,13 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // 예비조사 데이터 중 아직 결과에 없는 것 추가 (measurement_business에도 없는 경우)
-    if (validSurveys.length > 0) {
-      validSurveys.forEach((survey: any) => {
-        const key = `${survey.code}-${survey.year}-${survey.period}`;
+    // 현재 측정대상 기준 데이터 중 아직 결과에 없는 것 추가 (과거 preliminary_survey를 원천으로 되살리지 않는다)
+    if (validTargets.length > 0) {
+      validTargets.forEach((target: any) => {
+        const key = `${target.code}-${target.year}-${target.period}`;
         if (!processedKeys.has(key)) {
           // business_info 정보 가져오기
-          const businessInfo = businessInfoMap.get(survey.code);
+          const businessInfo = businessInfoMap.get(target.code);
 
           if (!businessInfo) return; // 사업장 정보가 없으면 스킵
 
@@ -709,9 +733,9 @@ export async function GET(request: NextRequest) {
 
           const journalEntry = {
             id: null,
-            code: survey.code,
-            measurement_year: survey.year,
-            measurement_period: survey.period,
+            code: target.code,
+            measurement_year: target.year,
+            measurement_period: target.period,
             business_name: businessInfo.business_name,
             designated_office: autoDesignatedOffice,
             office_code: businessInfoOffice.officeCode,
@@ -719,18 +743,18 @@ export async function GET(request: NextRequest) {
             address: address,
             completion_status: "미완료", // 기본값
 
-            measurement_start_date: survey.measurement_date, // 예비조사 측정일을 시작일로 표시
+            measurement_start_date: target.measurement_date,
             measurement_end_date: null,
-            measurer: survey.measurer || null,
+            measurer: null,
             total_employees: null,
 
             office_jurisdiction: businessInfo.office_jurisdiction || null,
-            note: survey.notes || null, // 예비조사 비고
+            note: target.notes || null,
             document_number: null,
             sequence_number: null,
             five_plus_sequence: null,
-            created_at: survey.created_at,
-            updated_at: survey.updated_at,
+            created_at: target.created_at,
+            updated_at: target.updated_at,
 
             business_number: businessInfo.business_number || null,
             representative_name: businessInfo.representative_name || null,
