@@ -5,6 +5,8 @@ export interface ExistingPhoneDateCandidate {
   responsibleUserId: number;
   workingDaysBefore: number;
   primary: boolean;
+  /** 보고서 담당자와 canonical 경력 조합이 가능한 responsible면 true. */
+  reportWriterPreferred?: boolean;
 }
 
 export interface ExistingPhoneDateTarget {
@@ -29,6 +31,7 @@ interface Edge {
 
 const FALLBACK_PENALTY = 1_000_000_000;
 const DATE_LOAD_WEIGHT = 10_000;
+const REPORT_WRITER_PREFERENCE_WEIGHT = 1_000;
 const RESPONSIBLE_LOAD_WEIGHT = 100;
 
 function assignmentMethod(assignment: ExistingAssignment) {
@@ -82,8 +85,9 @@ function assignResponsiblesForSelectedDates(
     const date = selectedDates.get(target.targetId)?.date;
     if (!date) return;
     target.candidates.filter((candidate) => candidate.date === date).forEach((candidate) => {
+      const preferencePenalty = candidate.reportWriterPreferred ? 0 : REPORT_WRITER_PREFERENCE_WEIGHT;
       addEdge(targetNode, resourceIndex.get(`${candidate.responsibleUserId}|${date}`)!, 1,
-        stableRank.get(candidate.responsibleUserId) ?? 0,
+        preferencePenalty + (stableRank.get(candidate.responsibleUserId) ?? 0),
         { targetId: target.targetId, date, responsibleUserId: candidate.responsibleUserId });
     });
   });
@@ -145,9 +149,9 @@ function assignResponsiblesForSelectedDates(
 
 /**
  * 기존업체 유선 날짜를 업체별 greedy가 아닌 batch 전체 min-cost flow로 배정한다.
- * 비용 우선순위는 primary 구간 유지 → 날짜 load 제곱합 최소화 → canonical 날짜순이다.
- * 날짜 load가 최우선이고, 같은 날짜 load 안에서는 reviewer를 제외한 responsible
- * 실제 수행량을 균등화한다. responsible/day는 최대 3건 hard capacity다.
+ * 비용 우선순위는 primary 구간 유지 → 날짜 load 제곱합 최소화 → 보고서 담당자 조합 preference → responsible load다.
+ * 날짜 load가 최우선이고, 같은 날짜 후보 안에서는 보고서 담당자와 조합 가능한 responsible를 먼저 고른다.
+ * reviewer를 제외한 responsible 실제 수행량을 균등화하고 responsible/day는 최대 3건 hard capacity다.
  */
 export function allocateExistingPhoneDates(
   targets: ExistingPhoneDateTarget[],
@@ -187,8 +191,9 @@ export function allocateExistingPhoneDates(
     addEdge(source, targetNode, 1, 0);
     target.candidates.forEach((candidate, candidateIndex) => {
       const resourceNode = resourceIndex.get(`${candidate.responsibleUserId}|${candidate.date}`)!;
+      const preferencePenalty = candidate.reportWriterPreferred ? 0 : REPORT_WRITER_PREFERENCE_WEIGHT;
       addEdge(targetNode, resourceNode, 1,
-        (candidate.primary ? 0 : FALLBACK_PENALTY) + candidateIndex,
+        (candidate.primary ? 0 : FALLBACK_PENALTY) + preferencePenalty + candidateIndex,
         { targetId: target.targetId, date: candidate.date });
     });
   });
