@@ -56,6 +56,7 @@ import {
   preliminarySurveyDatePolicyMessage,
 } from "@/lib/preliminary-survey-v2/policy-compliance";
 import { buildThirdAssignmentReview } from "@/lib/preliminary-survey-v2/third-assignment-review";
+import { recomputeCanonicalMeasurementAssignments } from "@/lib/preliminary-survey-v2/measurement-assignment-persistence";
 
 export const dynamic = "force-dynamic";
 
@@ -298,143 +299,6 @@ function canonicalSurveySnapshot(output: Awaited<ReturnType<typeof calculateV2Re
   }).sort((left, right) => left.targetId - right.targetId);
 }
 
-interface CanonicalMeasurementAssignment {
-  targetId: number;
-  measurementDate: string;
-  userId: number;
-  userName: string;
-  surveyCode: SurveyCode;
-  approvalRequired: boolean;
-  reason: string;
-}
-
-async function recomputeCanonicalMeasurementAssignments(
-  supabase: any,
-  contexts: Awaited<ReturnType<typeof loadV2ManualContext>>[],
-  submitted: SubmittedDraft[],
-  allowAdminThirdAssignment: boolean,
-) {
-  const [{ data: assigneeUsers, error: assigneeUserError }, { data: persisted, error: persistedError }] = await Promise.all([
-    supabase.from("users").select("id, name, job, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
-    supabase.from("preliminary_survey_v2_measurement_assignments").select(
-      "plan_id, measurement_date, assignee_user_id, approval_required, approval_group_fingerprint",
-    ),
-  ]);
-  if (persistedError && isMeasurementAssignmentSchemaMissing(persistedError)) return { schemaMissing: true as const };
-  if (assigneeUserError || persistedError) throw assigneeUserError || persistedError;
-  const operationalAssigneeUsers = operationalMeasurementUsers(assigneeUsers);
-
-  const persistedPlanIds = [...new Set((persisted ?? []).map((item: any) => String(item.plan_id)))];
-  const { data: persistedPlans, error: persistedPlanError } = persistedPlanIds.length
-    ? await supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id").in("id", persistedPlanIds)
-    : { data: [], error: null };
-  if (persistedPlanError) throw persistedPlanError;
-  const submittedIds = new Set(submitted.map((draft) => draft.targetId));
-  const existingTargetIds = [...new Set((persistedPlans ?? [])
-    .map((plan: any) => Number(plan.measurement_target_business_id))
-    .filter((businessId: number) => !submittedIds.has(businessId)))];
-  const { data: existingTargets, error: existingTargetError } = existingTargetIds.length
-    ? await supabase.from("measurement_target_business").select("id, code, address").in("id", existingTargetIds)
-    : { data: [], error: null };
-  if (existingTargetError) throw existingTargetError;
-  const existingCodes = [...new Set((existingTargets ?? []).map((target: any) => target.code).filter(Boolean))];
-  const { data: existingBusinessInfo, error: existingBusinessInfoError } = existingCodes.length
-    ? await supabase.from("business_info").select("code, latitude, longitude").in("code", existingCodes)
-    : { data: [], error: null };
-  if (existingBusinessInfoError) throw existingBusinessInfoError;
-  const planById = new Map((persistedPlans ?? []).map((plan: any) => [String(plan.id), plan]));
-  const existingById = new Map((existingTargets ?? []).map((target: any) => [Number(target.id), target]));
-  const infoByCode = new Map((existingBusinessInfo ?? []).map((info: any) => [info.code, info]));
-  const existing: ExistingMeasurementAssignment[] = (persisted ?? []).flatMap((item: any) => {
-    const plan: any = planById.get(String(item.plan_id));
-    const target: any = existingById.get(Number(plan?.measurement_target_business_id));
-    const info: any = infoByCode.get(target?.code);
-    if (!target || !item.measurement_date) return [];
-    return [{
-      targetId: Number(plan.measurement_target_business_id),
-      measurementDate: String(item.measurement_date),
-      address: target.address ?? null,
-      businessCode: target.code,
-      region: routeRegion(target.address),
-      coordinate: Number.isFinite(Number(info?.latitude)) && Number.isFinite(Number(info?.longitude))
-        ? { latitude: Number(info.latitude), longitude: Number(info.longitude) } : null,
-      userId: Number(item.assignee_user_id),
-    }];
-  });
-  const incompleteTargetIds = contexts.filter((context) => !context.target.measurementAssignmentDates?.length)
-    .map((context) => context.target.id);
-  const submittedByTargetId = new Map(submitted.map((draft) => [draft.targetId, draft]));
-  const assignmentTargets: MeasurementAssignmentTarget[] = contexts.flatMap((context) =>
-    buildMeasurementAssignmentTargets({
-      target: context.target,
-      preliminarySurveyorUserIds: submittedByTargetId.get(context.target.id)?.participantUserIds ?? [],
-    }));
-  const assigneeBlockKeys = await loadScheduleBlockKeys(
-    supabase,
-    assignmentTargets.map((target) => target.measurementDate),
-    operationalAssigneeUsers.map((user: any) => Number(user.id)),
-  );
-  const assigneeCapacity = operationalAssigneeUsers.filter((user: any) => isBaseSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
-  const routeNeededDates = new Set(assigneeCapacity > 0 ? [...new Set(assignmentTargets.map((target) => target.measurementDate))].filter((date) =>
-    assignmentTargets.filter((target) => target.measurementDate === date).length +
-      existing.filter((target) => target.measurementDate === date).length > assigneeCapacity,
-  ) : []);
-  const routeEvidence = await collectMeasurementVehicleRouteEvidence({
-    targets: assignmentTargets.filter((target) => routeNeededDates.has(target.measurementDate)),
-    existing: existing.filter((target) => routeNeededDates.has(target.measurementDate)),
-    routes: createRouteMetrics(),
-  });
-  const assignments = assignMeasurementAssignees({
-    targets: assignmentTargets,
-    users: operationalAssigneeUsers.map((user: any) => ({
-      id: Number(user.id), name: user.name, active: user.is_active, surveyCode: user.survey_code,
-    })),
-    existing,
-    routeEvidence,
-    availability: { isBlocked: (userId, date) => assigneeBlockKeys.has(`${userId}:${date}`) },
-    allowAdminThirdAssignment,
-  });
-  const proposedMeasurementDates = new Set(assignmentTargets.map((target) => target.measurementDate));
-  const baseline = existing.filter((assignment) => proposedMeasurementDates.has(assignment.measurementDate)).map((assignment) => ({
-    targetId: assignment.targetId,
-    measurementDate: assignment.measurementDate,
-    userId: assignment.userId,
-  })).sort((left, right) => left.targetId - right.targetId ||
-    left.measurementDate.localeCompare(right.measurementDate) || left.userId - right.userId);
-  const userById = new Map(operationalAssigneeUsers.map((user: any) => [Number(user.id), user]));
-  const invalidSurveyCodeUserIds: number[] = [];
-  const canonical = assignments.flatMap((assignment) => {
-    const user: any = userById.get(assignment.userId);
-    const surveyCode = String(user?.survey_code ?? "").trim().toUpperCase();
-    if (!isBaseSurveyCode(surveyCode)) {
-      invalidSurveyCodeUserIds.push(assignment.userId);
-      return [];
-    }
-    return [{
-      targetId: assignment.targetId,
-      measurementDate: assignment.measurementDate,
-      userId: assignment.userId,
-      userName: assignment.userName,
-      surveyCode: assignment.publicSampleCode,
-      approvalRequired: assignment.approvalRequired,
-      reason: assignment.reason,
-    } satisfies CanonicalMeasurementAssignment];
-  });
-  const approvedGroupFingerprints = new Set((persisted ?? []).flatMap((assignment: any) =>
-    assignment.approval_required === true && typeof assignment.approval_group_fingerprint === "string" &&
-      /^[a-f0-9]{32}$/i.test(assignment.approval_group_fingerprint)
-      ? [assignment.approval_group_fingerprint] : [],
-  ));
-  return {
-    schemaMissing: false as const,
-    canonical,
-    baseline,
-    approvedGroupFingerprints,
-    invalidSurveyCodeUserIds,
-    incompleteTargetIds,
-  };
-}
-
 async function applySubmittedDrafts(
   supabase: any,
   rawDrafts: unknown[],
@@ -623,7 +487,7 @@ async function applySubmittedDrafts(
   const canonicalResult = await recomputeCanonicalMeasurementAssignments(
     supabase,
     contexts,
-    submitted,
+    new Map(submitted.map((draft) => [draft.targetId, draft.participantUserIds])),
     allowAdminThirdAssignment,
   );
   if (canonicalResult.schemaMissing) {
@@ -1427,7 +1291,6 @@ export async function POST(request: NextRequest) {
           ? result.reason
           : measurementRoleConflict ? "측정일의 보고서 담당자 또는 측정 참여자 불가 일정 충돌"
           : assignmentIncomplete ? "다일 측정 날짜별 인력 정보 또는 측정자 배정 필요"
-            : result.evidence.warnings.includes("EXPERIENCED_REVIEWER_UNASSIGNED") ? "경력 검토자 미배정"
             : targetAssignments.some((assignment) => assignment.approvalRequired) ? "관리자 3건 예외 필요" : null;
         const conflicts = combineWorkbenchWarnings(
           conflict,

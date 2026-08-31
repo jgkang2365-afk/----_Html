@@ -118,8 +118,6 @@ export interface RecommendationEvidence {
   crossTypeOverlap: boolean;
   crossTypeOverlapAvoided: boolean;
   crossTypeOverlapReason: "unavoidable_cross_type_overlap" | null;
-  /** 비경력 기존업체 책임자에게 경력 검토자를 붙이지 못한 경우의 감사 근거. */
-  experiencedReviewerCandidates?: Array<{ userId: number; hardBlockReasons: string[] }>;
   warnings: string[];
 }
 export interface RecommendationResult {

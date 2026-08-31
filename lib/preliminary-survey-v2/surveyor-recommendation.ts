@@ -83,7 +83,7 @@ function fieldCount(assignments: ExistingAssignment[], userId: number, date: str
 }
 
 function validParticipants(participants: SurveyUser[], date: string, availability: Availability) {
-  return participants.length > 0 && participants.every((user) =>
+  return participants.length > 0 && participants.some((user) => user.experienced) && participants.every((user) =>
     user.active !== false && !availability.isBlocked(user.id, date));
 }
 
@@ -116,18 +116,6 @@ function asAssignment(target: SurveyorRecommendationTarget, recommendation: Surv
 }
 
 function candidateCombinations(target: SurveyorRecommendationTarget, users: SurveyUser[]): SurveyorCombination[] {
-  if (target.kind === "existing") {
-    const experienced = users.filter((user) => user.experienced);
-    return users.flatMap((responsible) => responsible.experienced
-      ? [{ responsible, participants: [responsible], reviewer: null }]
-      : [
-          ...experienced.filter((reviewer) => reviewer.id !== responsible.id).map((reviewer) => ({
-            responsible, participants: [responsible, reviewer], reviewer,
-          })),
-          { responsible, participants: [responsible], reviewer: null },
-        ]);
-  }
-
   const experienced = users.filter((user) => user.experienced);
   return users.flatMap<SurveyorCombination>((responsible) => responsible.experienced
     ? [{ responsible, participants: [responsible], reviewer: null }]
@@ -148,22 +136,7 @@ function compareCandidates(
   right: { responsible: SurveyUser; participants: SurveyUser[] },
   kind: BusinessKind,
   target: SurveyorRecommendationTarget,
-  targets: SurveyorRecommendationTarget[],
 ) {
-  const rolePreference = (candidate: { responsible: SurveyUser }) => {
-    const roles = (target.measurementStaffByDate ?? []).filter((staff) => staff.date === target.measurementDate);
-    const participantMatch = roles.some((staff) => staff.measurementParticipantUserIds.includes(candidate.responsible.id));
-    const reportWriterMatch = roles.some((staff) => staff.reportWriterUserId === candidate.responsible.id);
-    return { participantMatch, reportWriterMatch };
-  };
-  const commonAddressParticipantCount = (candidate: { responsible: SurveyUser }) => {
-    const address = normalizedAddress(target.address);
-    if (!address || !rolePreference(candidate).participantMatch) return 0;
-    return targets.filter((other) => other.id !== target.id && other.measurementDate === target.measurementDate &&
-      normalizedAddress(other.address) === address &&
-      (other.measurementStaffByDate ?? []).some((staff) => staff.date === other.measurementDate &&
-        staff.measurementParticipantUserIds.includes(candidate.responsible.id))).length;
-  };
   const selectedAddressCount = (candidate: { responsible: SurveyUser }) => assignments.filter((assignment) =>
     normalizedAddress(target.address) && assignment.date === date &&
     assignment.responsibleUserId === candidate.responsible.id &&
@@ -171,10 +144,7 @@ function compareCandidates(
   const load = (candidate: { responsible: SurveyUser; participants: SurveyUser[] }) => kind === "existing"
     ? responsiblePhoneCount(assignments, candidate.responsible.id, date)
     : candidate.participants.reduce((sum, user) => sum + fieldCount(assignments, user.id, date), 0);
-  return Number(!rolePreference(left).participantMatch) - Number(!rolePreference(right).participantMatch) ||
-    Number(!rolePreference(left).reportWriterMatch) - Number(!rolePreference(right).reportWriterMatch) ||
-    commonAddressParticipantCount(right) - commonAddressParticipantCount(left) ||
-    selectedAddressCount(right) - selectedAddressCount(left) ||
+  return selectedAddressCount(right) - selectedAddressCount(left) ||
     load(left) - load(right) ||
     Number(kind === "existing" && !left.responsible.experienced && left.participants.length === 1) -
       Number(kind === "existing" && !right.responsible.experienced && right.participants.length === 1) ||
@@ -219,7 +189,7 @@ export function recommendSurveyors(input: SurveyorRecommendationInput): Surveyor
       const choices = candidateCombinations(target, users)
         .filter((choice) => validParticipants(choice.participants, date, input.availability))
         .filter((choice) => fitsCapacity(target.kind, choice.responsible, choice.participants, date, occupied))
-        .sort((left, right) => compareCandidates(occupied, date, left, right, target.kind, target, input.targets));
+        .sort((left, right) => compareCandidates(occupied, date, left, right, target.kind, target));
       const choice = choices[0];
       if (!choice) continue;
       selected = {

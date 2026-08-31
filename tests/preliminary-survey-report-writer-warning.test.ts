@@ -21,7 +21,7 @@ describe("보고서 담당자 측정 참여 경고", () => {
     assert.equal(reportWriterParticipationWarning({ source: { measurerId: 1, dailyStaff: [{ date: "2026-08-27", measurer_id: 1, collaborators: ["참여자"] }, { date: "2026-08-28", measurer_id: 1, collaborators: ["참여자"] }] }, userIdByName: users }), REPORT_WRITER_PARTICIPATION_WARNING);
   });
   it("기존 충돌을 덮어쓰지 않고 결합한다", () => {
-    assert.deepEqual(combineWorkbenchWarnings("경력 검토자 미배정", REPORT_WRITER_PARTICIPATION_WARNING), ["경력 검토자 미배정", REPORT_WRITER_PARTICIPATION_WARNING]);
+    assert.deepEqual(combineWorkbenchWarnings("관리자 3건 예외 필요", REPORT_WRITER_PARTICIPATION_WARNING), ["관리자 3건 예외 필요", REPORT_WRITER_PARTICIPATION_WARNING]);
   });
   it("C: 기준 보고서 담당자 미지정은 참여 누락으로 오판하지 않는다", () => {
     assert.equal(reportWriterParticipationWarning({ source: { measurementDate: "2026-08-27", measurerId: null, collaborators: ["참여자"] }, userIdByName: users }), null);

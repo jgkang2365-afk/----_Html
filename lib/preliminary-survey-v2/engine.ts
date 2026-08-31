@@ -274,21 +274,6 @@ async function reconcileEarlierExistingReviewOverlaps(
   }
 }
 
-function responsibleRolePreference(target: SurveyTarget, userId: number) {
-  // 다일 target도 예비조사 책임자 preference에는 기준 측정일 행만 사용한다.
-  const roles = (target.measurementStaffByDate ?? []).filter((staff) => staff.date === target.measurementDate);
-  const participantMatch = roles.some((staff) => staff.measurementParticipantUserIds.includes(userId));
-  const reportWriterMatch = roles.some((staff) => staff.reportWriterUserId === userId);
-  return { participantMatch, reportWriterMatch };
-}
-
-function sameAddressCommonParticipantCount(target: SurveyTarget, targets: SurveyTarget[], userId: number) {
-  const address = normalizedAddress(target.address);
-  if (!address || !responsibleRolePreference(target, userId).participantMatch) return 0;
-  return targets.filter((other) => other.id !== target.id && other.measurementDate === target.measurementDate &&
-    normalizedAddress(other.address) === address && responsibleRolePreference(other, userId).participantMatch).length;
-}
-
 function sameAddressSelectedCount(
   assignments: ExistingAssignment[], target: SurveyTarget, userId: number, preliminaryDate: string,
 ) {
@@ -392,7 +377,6 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       planningTarget: SurveyTarget,
       candidate: (typeof dates)[number],
       capacityPass: 1 | 2,
-      allowMissingExistingReviewer = false,
     ) => {
       if (target.kind === "existing" && capacityPass === 2) return null;
 
@@ -405,21 +389,15 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         if (dailyFieldVisits >= capacityPass || dailyFieldVisits >= 2) return null;
       }
 
-      // 신규 방문만 비경력자 단독을 금지한다. 기존업체 유선은 책임자 기준 하루 3건까지만 허용한다.
-      const requiresReviewer = target.kind === "new" && !planningTarget.responsible.experienced;
-      const prefersReviewer = target.kind === "existing" && !planningTarget.responsible.experienced;
-      const reviewerChoice = requiresReviewer || prefersReviewer
+      // 업체 유형·방식과 관계없이 비경력자 단독은 hard block이다.
+      const requiresExperiencedParticipant = !planningTarget.responsible.experienced;
+      const reviewerChoice = requiresExperiencedParticipant
         ? await chooseReviewer(planningTarget, candidate.date, input.experiencedUsers, virtual, input.availability, input.routes, capacityPass)
         : null;
-      if (requiresReviewer && (!reviewerChoice || reviewerChoice.hardConflict)) {
+      if (requiresExperiencedParticipant && (!reviewerChoice || reviewerChoice.hardConflict)) {
         if (reviewerChoice?.route && reviewerChoice.route.evidence.routeDecision !== "same_day_allowed") {
           rejectedSameDayRoutes.push(reviewerChoice.route.evidence);
         }
-        return null;
-      }
-      // 기존업체의 비경력 책임자는 가능한 경력 검토자를 우선 필수로 한다. 전체 후보일에서
-      // 모두 hard-block인 경우에만 2차 탐색에서 reviewer 없는 보정안을 허용한다.
-      if (prefersReviewer && (!reviewerChoice || reviewerChoice.hardConflict) && !allowMissingExistingReviewer) {
         return null;
       }
 
@@ -449,7 +427,6 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       }
 
       const reviewer = reviewerChoice && !reviewerChoice.hardConflict ? reviewerChoice.user : null;
-      const reviewerMissing = prefersReviewer && !reviewer;
       const crossTypeOverlap = false;
       const evidence: RecommendationEvidence = {
         classificationSource: target.classificationSource,
@@ -459,7 +436,7 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         range: candidateRange(target, candidate.workingDaysBefore),
         capacityPass,
         responsibleConflict: false,
-        reviewerConflict: reviewerMissing,
+        reviewerConflict: false,
         route,
         sameDayRoute,
         rejectedSameDayRoutes,
@@ -474,17 +451,8 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         crossTypeOverlap,
         crossTypeOverlapAvoided: Boolean(reviewerChoice?.crossTypeOverlapAvoided),
         crossTypeOverlapReason: crossTypeOverlap ? "unavoidable_cross_type_overlap" : null,
-        experiencedReviewerCandidates: reviewerMissing
-          ? (reviewerChoice?.choices ?? []).map((choice: any) => ({
-            userId: choice.user.id,
-            hardBlockReasons: choice.hardBlockReasons,
-          }))
-          : undefined,
         warnings: [
           holidayCoverageWarning(target.measurementDate),
-          reviewerMissing
-            ? (prefersReviewer ? "EXPERIENCED_REVIEWER_ALL_HARD_BLOCKED" : "EXPERIENCED_REVIEWER_UNASSIGNED")
-            : null,
         ].filter((value): value is string => Boolean(value)),
       };
       return {
@@ -496,30 +464,23 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         experiencedReviewer: reviewer,
         surveyMethod: surveyMethodForKind(target.kind),
         evidence,
-        reason: `${evidence.range === "primary" ? "기본구간" : "후순위구간"} -${candidate.workingDaysBefore} 워킹데이${reviewerMissing ? "; 경력 검토자 미배정" : ""}`,
+        reason: `${evidence.range === "primary" ? "기본구간" : "후순위구간"} -${candidate.workingDaysBefore} 워킹데이`,
       };
     };
 
     const evaluateForResponsible = async (
       candidate: (typeof dates)[number],
       capacityPass: 1 | 2,
-      allowMissingExistingReviewer = false,
     ) => {
       const feasible: RecommendationResult[] = [];
       for (const responsible of responsibleCandidates) {
         if (input.availability.isBlocked(responsible.id, candidate.date)) continue;
         const result = await evaluateCandidate(
-          { ...target, responsible }, candidate, capacityPass, allowMissingExistingReviewer,
+          { ...target, responsible }, candidate, capacityPass,
         );
         if (result) feasible.push(result);
       }
       feasible.sort((left, right) =>
-        Number(!responsibleRolePreference(target, left.responsible.id).participantMatch) -
-          Number(!responsibleRolePreference(target, right.responsible.id).participantMatch) ||
-        Number(!responsibleRolePreference(target, left.responsible.id).reportWriterMatch) -
-          Number(!responsibleRolePreference(target, right.responsible.id).reportWriterMatch) ||
-        sameAddressCommonParticipantCount(target, input.targets, right.responsible.id) -
-          sameAddressCommonParticipantCount(target, input.targets, left.responsible.id) ||
         sameAddressSelectedCount(virtual, target, right.responsible.id, candidate.date) -
           sameAddressSelectedCount(virtual, target, left.responsible.id, candidate.date) ||
         responsibleDailyCount(virtual, left.responsible.id, candidate.date) -
@@ -564,16 +525,6 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
         result.evidence.crossTypeOverlapAvoided ||= Boolean(overlapFallback);
         selected = finalize(result, "single", "single_available", true, null);
         break;
-      }
-      // 경력 검토자가 가능한 날짜가 하나도 없을 때만, 기존업체 비경력 책임자의 reviewer를
-      // null로 남기고 명시 warning을 기록한다. 이 분기는 신규 방문에는 적용하지 않는다.
-      if (!selected && !overlapFallback && responsibleCandidates.some((user) => !user.experienced)) {
-        for (const candidate of dates) {
-          const result = await evaluateForResponsible(candidate, 1, true);
-          if (!result) continue;
-          selected = finalize(result, "single", "single_available", true, null);
-          break;
-        }
       }
       if (!selected && overlapFallback) {
         selected = finalize(overlapFallback, "single", "single_available", true, null);

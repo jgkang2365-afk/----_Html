@@ -921,7 +921,7 @@ test("수동 기존 담당자의 같은 날 네 번째 유선 계획은 거부�
   assert.match(result.errors.join(" "), /같은 날 최대 3건/);
 });
 
-test("수동 기존업체 유선은 비경력자 단독도 현재 hard constraint를 충족한다", async () => {
+test("수동 기존업체 유선도 비경력자 단독은 hard constraint로 거부한다", async () => {
   const responsible = novice(1);
   const current = target(4, "existing", responsible);
   const date = recommendationDates(current.measurementDate)[0].date;
@@ -929,10 +929,11 @@ test("수동 기존업체 유선은 비경력자 단독도 현재 hard constrain
     target: current, recommendedDate: date, participants: [responsible], surveyMethod: "phone",
     existingAssignments: [], routes: route(),
   });
-  assert.equal(result.valid, true);
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(" "), /경력자가 최소 1명/);
 });
 
-test("기존업체 비경력 책임자의 수동 저장은 가능한 경력 검토자를 요구하고 전원 차단이면 warning만 남긴다", async () => {
+test("기존업체 비경력 책임자의 수동 저장은 경력자가 blocked여도 warning으로 살리지 않는다", async () => {
   const responsible = novice(1);
   const reviewer = experienced(2);
   const current = target(4, "existing", responsible);
@@ -942,14 +943,15 @@ test("기존업체 비경력 책임자의 수동 저장은 가능한 경력 검�
     existingAssignments: [], routes: route(), experiencedUsers: [reviewer], availability: available(),
   });
   assert.equal(missingReviewer.valid, false);
-  assert.match(missingReviewer.errors.join(" "), /경력 검토자/);
+  assert.match(missingReviewer.errors.join(" "), /경력자가 최소 1명/);
   const allBlocked = await validateManualPlanHardRules({
     target: current, recommendedDate: date, participants: [responsible], surveyMethod: "phone",
     existingAssignments: [], routes: route(), experiencedUsers: [reviewer],
     availability: available(new Set([`${reviewer.id}:${date}`])),
   });
-  assert.equal(allBlocked.valid, true);
-  assert.ok(allBlocked.warnings.includes("EXPERIENCED_REVIEWER_ALL_HARD_BLOCKED"));
+  assert.equal(allBlocked.valid, false);
+  assert.match(allBlocked.errors.join(" "), /경력자가 최소 1명/);
+  assert.equal(allBlocked.warnings.length, 0);
 });
 
 test("수동 기존업체 방문은 같은 날 참여자가 겹치는 필수 신규의 동일주소 또는 허용 route가 필요하다", async () => {
@@ -989,17 +991,17 @@ test("단일 planner는 blocked 책임 조사자를 제외한다", async () => {
   assert.deepEqual(result.participants.map((user) => user.id), [availableLead.id]);
 });
 
-test("단일 planner는 기존업체 유선을 가능한 조사자에게 날짜별 균형 배정한다", async () => {
+test("단일 planner는 경력자를 붙일 수 없는 기존업체 비경력 후보를 추천하지 않는다", async () => {
   const first = novice(1);
   const second = novice(2);
   const results = await recommendBatch({
     targets: [target(1, "existing", first), target(2, "existing", first)],
     surveyors: [first, second], experiencedUsers: [], availability: available(), routes: route(),
   });
-  assert.deepEqual(results.map((result) => result.responsible.id), [1, 2]);
+  assert.deepEqual(results.map((result) => result.status), ["manual_required", "manual_required"]);
 });
 
-test("동일 용량 후보에서는 측정 참여자를 예비조사 책임자로 우선한다", async () => {
+test("측정 참여자·보고서 담당자는 예비조사자 선택 preference가 아니다", async () => {
   const first = experienced(1);
   const participant = experienced(2);
   const current = {
@@ -1013,13 +1015,13 @@ test("동일 용량 후보에서는 측정 참여자를 예비조사 책임자�
     targets: [current], surveyors: [first, participant], experiencedUsers: [first, participant],
     availability: available(), routes: route(),
   });
-  assert.equal(result.responsible.id, participant.id);
+  assert.equal(result.responsible.id, first.id);
 });
 
-test("B: 측정 참여자가 unavailable이면 available 보고서 담당자를 우선한다", async () => {
+test("B: 측정 역할 값과 무관하게 hard constraint를 통과한 안정적 ID를 선택한다", async () => {
   const first = experienced(1);
-  const reportWriter = experienced(2);
-  const other = experienced(3);
+  const reportWriter = experienced(3);
+  const other = experienced(2);
   const date = recommendationDates("2026-07-14")[0].date;
   const current = {
     ...target(1, "new", first),
@@ -1032,7 +1034,7 @@ test("B: 측정 참여자가 unavailable이면 available 보고서 담당자를 
     targets: [current], surveyors: [first, reportWriter, other], experiencedUsers: [first, reportWriter, other],
     availability: available(new Set([`${first.id}:${date}`])), routes: route(),
   });
-  assert.equal(result.responsible.id, reportWriter.id);
+  assert.equal(result.responsible.id, other.id);
 });
 
 test("C: 측정 참여자와 보고서 담당자가 unavailable이면 다른 available 조사자를 balance로 선택한다", async () => {
@@ -1056,7 +1058,7 @@ test("C: 측정 참여자와 보고서 담당자가 unavailable이면 다른 ava
   assert.equal(result.responsible.id, other.id);
 });
 
-test("CASE 1 대원자동차공업사: 비경력 측정 참여자를 책임자로 유지하고 경력 검토자를 추가한다", async () => {
+test("비경력 책임자 조합은 경력자를 포함해 hard rule을 통과한다", async () => {
   const lee = novice(1, "이태환");
   const kim = experienced(2, "김민영");
   const current = {
@@ -1073,7 +1075,7 @@ test("CASE 1 대원자동차공업사: 비경력 측정 참여자를 책임자�
   assert.deepEqual(result.participants.map((user) => user.id), [lee.id, kim.id]);
 });
 
-test("동일주소 공통 측정 참여자 연계도 방문 1건 우선 분산 안에서 적용한다", async () => {
+test("동일주소 방문은 측정 참여자 값을 예비조사자 preference에 사용하지 않는다", async () => {
   const common = experienced(10, "한기문");
   const leftOther = experienced(1);
   const rightOther = experienced(2);
@@ -1098,12 +1100,12 @@ test("동일주소 공통 측정 참여자 연계도 방문 1건 우선 분산 �
     targets, surveyors: [leftOther, rightOther, common], experiencedUsers: [leftOther, rightOther, common],
     availability: available(), routes: route(),
   });
-  assert.deepEqual(results.map((result) => result.responsible.id), [common.id, rightOther.id]);
+  assert.deepEqual(results.map((result) => result.responsible.id), [leftOther.id, rightOther.id]);
   assert.equal(results[0].date, results[1].date);
   assert.equal(results[1].evidence.capacityPass, 1);
 });
 
-test("동일주소 공통 측정 참여자가 blocked면 같은 날짜의 다른 합법 후보를 사용한다", async () => {
+test("동일주소 방문은 blocked 여부만 hard constraint로 적용한다", async () => {
   const common = experienced(10, "한기문");
   const other = experienced(1);
   const date = recommendationDates("2026-07-14")[0].date;
@@ -1121,7 +1123,7 @@ test("동일주소 공통 측정 참여자가 blocked면 같은 날짜의 다른
   assert.deepEqual(results.map((result) => result.date), [date, date]);
 });
 
-test("다일 target의 다른 날짜 측정 참여자를 기준 측정일 예비조사 preference에 섞지 않는다", async () => {
+test("다일 target의 측정 참여자는 예비조사자 선택 preference에 사용하지 않는다", async () => {
   const firstDay = experienced(2);
   const otherDay = experienced(1);
   const current = {
@@ -1135,10 +1137,10 @@ test("다일 target의 다른 날짜 측정 참여자를 기준 측정일 예비
     targets: [current], surveyors: [otherDay, firstDay], experiencedUsers: [otherDay, firstDay],
     availability: available(), routes: route(),
   });
-  assert.equal(result.responsible.id, firstDay.id);
+  assert.equal(result.responsible.id, otherDay.id);
 });
 
-test("기존업체의 blocked 경력 검토자는 배정하지 않는다", async () => {
+test("기존업체는 경력자를 붙일 수 없는 날짜를 추천하지 않는다", async () => {
   const responsible = novice(1);
   const reviewer = experienced(10);
   const [result] = await recommendBatch({
@@ -1148,14 +1150,10 @@ test("기존업체의 blocked 경력 검토자는 배정하지 않는다", async
       blockedReason: () => ["USER_SCHEDULE_BLOCK", "ACTUAL_MEASUREMENT_CONFLICT"],
     }, routes: route(),
   });
-  assert.equal(result.status, "recommended");
-  assert.equal(result.experiencedReviewer, null);
-  assert.deepEqual(result.participants.map((user) => user.id), [responsible.id]);
-  assert.ok(result.evidence.warnings.includes("EXPERIENCED_REVIEWER_ALL_HARD_BLOCKED"));
-  assert.deepEqual(result.evidence.experiencedReviewerCandidates, [{
-    userId: reviewer.id,
-    hardBlockReasons: ["USER_SCHEDULE_BLOCK", "ACTUAL_MEASUREMENT_CONFLICT"],
-  }]);
+  assert.equal(result.status, "manual_required");
+  assert.equal(result.date, null);
+  assert.deepEqual(result.participants, []);
+  assert.equal(result.evidence.warnings.includes("EXPERIENCED_REVIEWER_ALL_HARD_BLOCKED"), false);
 });
 
 test("M/N: 보고서 담당자 변경은 자동/수동 계획 구분 없이 재추천", () => {

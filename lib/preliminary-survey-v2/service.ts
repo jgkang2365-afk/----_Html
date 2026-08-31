@@ -1114,7 +1114,7 @@ const CONFIRM_FAILURE_MESSAGES: Record<string, string> = {
   STALE_MEASUREMENT_DATE: "측정일이 변경되어 추천 날짜가 더 이상 유효하지 않습니다.",
   NO_STAFF: "실제 측정자를 확인할 수 없습니다.",
   NO_SURVEYOR: "예비조사자를 확인할 수 없습니다.",
-  NO_EXPERIENCED_REVIEWER: "최초/신규 사업장에 배정할 경력 예비조사자가 없습니다.",
+  NO_EXPERIENCED_REVIEWER: "비경력자 단독을 방지할 경력 예비조사자가 없습니다.",
   LINK_CANDIDATES_ZERO: "실제 측정자가 변경되어 예·측 조건을 만족하지 않습니다.",
   LINK_CANDIDATES_MULTIPLE_REQUIRE_SELECTION: "예·측 후보가 여러 명이므로 예·측을 선택해 주세요.",
   LINK_MEASURER_INVALID: "선택한 예·측이 예비조사자 또는 실제 측정 인원에 포함되지 않습니다.",
@@ -1161,6 +1161,18 @@ export async function confirmGroupRecommendation(
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced),
     active: user.is_active,
   }));
+  const { data: scheduleRows, error: scheduleError } = await supabase
+    .from("user_schedule_blocks")
+    .select("user_id, start_date, end_date")
+    .lte("start_date", input.date)
+    .gte("end_date", input.date);
+  if (scheduleError) throw new Error("CONFIRM_LOAD_FAILED");
+  const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleRows ?? []);
+  const measurementBlockedKeys = await loadActualMeasurementBlockedKeys(supabase, [input.date], userRows);
+  const availability = {
+    isBlocked: (userId: number, date: string) =>
+      scheduleBlockedKeys.has(`${userId}:${date}`) || measurementBlockedKeys.has(`${userId}:${date}`),
+  };
   const userById = new Map(userRows.map((user) => [user.id, user]));
   const confirmedKeys = new Set((confirmedRows ?? []).map((row: any) =>
     `${row.code}|${row.measurement_year}|${String(row.measurement_period).trim().replace("(수시)", "")}`,
@@ -1169,6 +1181,7 @@ export async function confirmGroupRecommendation(
   const targetById = new Map((targets ?? []).map((target: any) => [Number(target.id), target]));
 
   const payloads: any[] = [];
+  const plannedAssignments: ExistingAssignment[] = [];
   const failed: GroupConfirmFailure[] = [];
 
   for (const targetId of targetIds) {
@@ -1218,9 +1231,10 @@ export async function confirmGroupRecommendation(
 
     const participants = [lead];
     let reviewerId: number | null = null;
-    if (classification.kind === "new" && !lead.experienced) {
+    if (!lead.experienced) {
       const reviewer = userRows
         .filter((user) => user.experienced && user.active !== false && user.id !== lead.id)
+        .filter((user) => !availability.isBlocked(user.id, input.date))
         .sort((left, right) => left.id - right.id)[0];
       if (!reviewer) {
         failed.push({ targetId, code: target.code, reason: "NO_EXPERIENCED_REVIEWER" });
@@ -1228,6 +1242,22 @@ export async function confirmGroupRecommendation(
       }
       participants.push(reviewer);
       reviewerId = reviewer.id;
+    }
+
+    const context = await loadV2ManualContext(supabase, targetId, input.date);
+    const surveyMethod = surveyMethodForKind(classification.kind);
+    const validation = await validateManualPlanHardRules({
+      target: { ...context.target, responsible: lead },
+      recommendedDate: input.date,
+      participants,
+      surveyMethod,
+      existingAssignments: [...context.assignments, ...plannedAssignments],
+      routes: createRouteMetrics(),
+      availability,
+    });
+    if (!validation.valid) {
+      failed.push({ targetId, code: target.code, reason: validation.errors.join(" ") });
+      continue;
     }
 
     const staffSet = new Set(staff);
@@ -1260,6 +1290,19 @@ export async function confirmGroupRecommendation(
       participant_names: participants.map((user) => user.name),
       reviewer_user_id: reviewerId,
       link_measurer_id: linkId,
+    });
+    plannedAssignments.push({
+      targetId,
+      businessCode: target.code,
+      kind: classification.kind,
+      date: input.date,
+      participants: participants.map((user) => user.id),
+      responsibleUserId: lead.id,
+      experiencedReviewerId: reviewerId,
+      surveyMethod,
+      address: context.target.address,
+      coordinate: context.target.coordinate,
+      region: context.target.region,
     });
   }
 

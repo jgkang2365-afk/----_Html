@@ -30,7 +30,7 @@ test("보고서 담당·측정 참여자·예비조사자·측정자 공시료�
   assert.doesNotMatch(businessApi, /연계측정자는 실제 측정 인원에 반드시 포함/);
   assert.doesNotMatch(service, /!responsible && "link_measurer"/);
   assert.match(workbench, /assignMeasurementAssignees/);
-  assert.match(policy, /측정자, 메인측정자, 공시료 담당자는 같은 역할/);
+  assert.match(policy, /측정자 = 메인측정자 = 공시료 담당자\*\*는 같은 역할/);
 });
 
 test("사업장 상세는 측정 참여자 용어와 해제 가능한 보고서 담당 기본 체크를 사용한다", () => {
@@ -191,10 +191,10 @@ test("보고서 담당자를 실제 측정 참가자 또는 측정자 공시료�
   assert.match(workbench, /plan\?\.recommendation_reason\?\.measurementAssignee/);
 });
 
-test("measurement_journal row 존재 기준 찐확정과 자동화 PAUSE를 유지한다", () => {
+test("measurement_journal row 존재 기준 찐확정을 유지한다", () => {
   assert.doesNotMatch(workbench, /sequence_number/);
   assert.match(workbench, /measurement_journal/);
-  assert.match(policy, /기존 V2 자동추천 정책은 OFF/);
+  assert.match(policy, /`measurement_journal` row가 존재하면 찐확정이다/);
 });
 
 test("추천·재추천·적용 권한은 관리자 또는 예비조사 담당자를 서버에서 검증한다", () => {
