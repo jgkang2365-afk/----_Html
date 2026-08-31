@@ -141,14 +141,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
     if (!await canManagePreliminarySurvey(supabase, session)) {
       return NextResponse.json({ error: "예비조사 담당자 또는 관리자만 수동 수정할 수 있습니다." }, { status: 403 });
     }
+    const isAdmin = session.role === "관리자";
     const { target, users, assignments } = await loadV2ManualContext(supabase, targetId, body.recommendedDate);
     const participants = participantIds.map((id) => users.find((user) => user.id === id))
       .filter((user): user is SurveyUser => Boolean(user));
     if (participants.length !== participantIds.length) {
       return NextResponse.json({ error: "선택한 예비조사자를 찾을 수 없습니다.", code: "PARTICIPANT_NOT_FOUND" }, { status: 400 });
     }
-    // 경력+비경력 조합에서는 비경력자가 페이퍼 작성자, 경력자 단독이면 경력자가 작성한다.
-    // 측정자/보고서 담당자/link_measurer_id에서는 예비조사 책임자를 추론하지 않는다.
+    // 경력+비경력 조합에서는 비경력자가 responsible, 경력자 단독이면 해당 경력자가 responsible다.
     const responsible = participants.find((user) => !user.experienced) ?? participants[0];
     if (!responsible) return NextResponse.json({ error: "예비조사자를 선택해 주세요.", code: "NO_SURVEYOR" }, { status: 400 });
     const surveyMethod = body.surveyMethod === "field" || body.surveyMethod === "phone"
@@ -184,10 +184,52 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
         },
       },
     });
-    if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
-    // 경력자 2명 이상 조합은 사용자 확인 전에는 저장하지 않는다.
-    // 1차 요청(confirm 미포함)에서는 계획을 저장하지 않고 확인 요청만 반환한다.
     const confirmed = body.confirm === true;
+    const ordered = orderSurveyParticipantsForDisplay(participants);
+
+    if (isAdmin) {
+      const policyWarnings = [...new Set([
+        ...validation.errors,
+        ...validation.warnings,
+        ...(validation.requiresUserConfirmation ? ["경력자 2명 이상 수동 조합"] : []),
+      ].filter(Boolean))];
+      if (policyWarnings.length > 0 && !confirmed) {
+        return NextResponse.json({
+          success: false,
+          requiresUserConfirmation: true,
+          message: `운영지침 위반/주의 사항:\n- ${policyWarnings.join("\n- ")}\n\n관리자 판단으로 그대로 저장하시겠습니까?`,
+          policyWarnings,
+        });
+      }
+      const experiencedReviewer = responsible.experienced
+        ? null
+        : ordered.find((user) => user.experienced && user.id !== responsible.id) ?? null;
+      const { data, error } = await supabase.rpc("admin_override_preliminary_survey_v2_plan", {
+        p_target_id: targetId,
+        p_recommended_date: body.recommendedDate,
+        p_survey_method: surveyMethod,
+        p_participant_user_ids: ordered.map((user) => user.id),
+        p_participant_names: ordered.map((user) => user.name),
+        p_responsible_user_id: responsible.id,
+        p_experienced_reviewer_user_id: experiencedReviewer?.id ?? null,
+        p_policy_warnings: policyWarnings,
+        p_changed_by_user_id: session.userId,
+      });
+      if (error) {
+        return NextResponse.json({
+          error: String(error.message ?? "ADMIN_MANUAL_OVERRIDE_FAILED"),
+          code: "ADMIN_MANUAL_OVERRIDE_FAILED",
+        }, { status: 409 });
+      }
+      return NextResponse.json({
+        success: true,
+        plan: Array.isArray(data) ? data[0] ?? null : data,
+        policyWarnings,
+        adminOverride: true,
+      });
+    }
+
+    if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
     if (validation.requiresUserConfirmation && !confirmed) {
       return NextResponse.json({
         success: false,
@@ -198,7 +240,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
         participantNames: participants.map((user) => user.name),
       });
     }
-    const ordered = orderSurveyParticipantsForDisplay(participants);
     const canonicalAssignments = await recomputeCanonicalMeasurementAssignments(
       supabase,
       [{ target }],
@@ -251,7 +292,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
       source_rule_type: target.kind,
       survey_method: surveyMethod,
       recommendation_reason: {
-        reason: "관리자 수동 수정", classificationSource: target.classificationSource, surveyMethod,
+        reason: "권한자 수동 수정", classificationSource: target.classificationSource, surveyMethod,
       },
       route_evidence: { sameDayRoutes: validation.routeEvidence, validatedAtApply: true },
       warnings: validation.warnings,
