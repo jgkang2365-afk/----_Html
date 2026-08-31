@@ -23,6 +23,10 @@ import type {
   CanonicalMeasurementAssignmentDraft,
   RecommendationScopeSnapshot,
 } from "@/lib/preliminary-survey-v2/draft-canonical";
+import {
+  AUGUST_2026_CLEAN_ROOM_MODE,
+  includesAugust2026MeasurementDate,
+} from "@/lib/preliminary-survey-v2/transition-mode";
 
 type WorkbenchStatus = "unassigned" | "recommended" | "confirmed_repair" | "adjustment_required" | "provisional" | "review_required" | "true_confirmed";
 
@@ -75,6 +79,7 @@ interface WorkbenchRow {
   recommendationScope?: RecommendationScopeSnapshot;
   measurementAssignments?: CanonicalMeasurementAssignmentDraft[];
   recommendationReasons?: string[];
+  transitionMode?: typeof AUGUST_2026_CLEAN_ROOM_MODE;
   status: WorkbenchStatus;
   conflict: string | null;
   conflicts?: string[];
@@ -259,6 +264,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [scopeSummary, setScopeSummary] = useState<string | null>(null);
   const [rows, setRows] = useState<WorkbenchRow[]>([]);
   const [drafts, setDrafts] = useState<Map<number, WorkbenchRow>>(new Map());
+  const [draftTransitionMode, setDraftTransitionMode] = useState<typeof AUGUST_2026_CLEAN_ROOM_MODE | null>(null);
   const [confirmedRepairDrafts, setConfirmedRepairDrafts] = useState<ConfirmedRepairDraft[]>([]);
   const [users, setUsers] = useState<SurveyUser[]>([]);
   const [selected, setSelected] = useState<WorkbenchRow | null>(null);
@@ -385,19 +391,40 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const activeMethodFilter = mode === "list" ? listSearchSnapshot.methodFilter : methodFilter;
   const activeSearchQuery = mode === "list" ? listSearchSnapshot.searchQuery : planSearchSnapshot.searchQuery;
 
-  const filteredRows = useMemo(() => rows.map((row) => drafts.get(row.targetId) ?? row).filter((row) =>
+  const filteredRows = useMemo(() => {
+    const mergedRows = rows.map((row) => drafts.get(row.targetId) ?? row);
+    if (draftTransitionMode === AUGUST_2026_CLEAN_ROOM_MODE) {
+      return mergedRows.filter((row) => includesAugust2026MeasurementDate(
+        row.measurementDates?.length ? row.measurementDates : [row.measurementDate ?? ""],
+      ));
+    }
+    return mergedRows.filter((row) =>
     (!activeStatusFilter || row.status === activeStatusFilter) &&
     (!activeKindFilter || row.kind === activeKindFilter) &&
     (!activePreliminaryDateFilter || row.preliminaryDate === activePreliminaryDateFilter) &&
     (matchesMeasurementDateRange(row.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo) ||
       matchesAnyMeasurementDateRange(row.measurementDates ?? [], activeMeasurementDateFrom, activeMeasurementDateTo)) &&
     (!activeMethodFilter || row.surveyMethod === activeMethodFilter),
-  ), [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, rows]);
+    );
+  }, [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, draftTransitionMode, drafts, rows]);
 
   const displayRows = useMemo(
     () => filteredRows.filter((row) => matchesWorkbenchSearch(row, activeSearchQuery)),
     [activeSearchQuery, filteredRows],
   );
+
+  const measurementAssigneeForList = useCallback((row: WorkbenchRow) => {
+    const assignments = row.measurementAssignments ?? [];
+    if (!assignments.length) return row.mainMeasurer || "-";
+    if (activeMeasurementDateFrom === activeMeasurementDateTo) {
+      const assignment = assignments.find((item) => item.measurementDate === activeMeasurementDateFrom);
+      return assignment ? `${assignment.userName}(${assignment.surveyCode})` : "-";
+    }
+    const scoped = assignments.filter((item) =>
+      item.measurementDate >= activeMeasurementDateFrom && item.measurementDate <= activeMeasurementDateTo);
+    if (scoped.length === 1) return `${scoped[0].userName}(${scoped[0].surveyCode})`;
+    return scoped.length > 1 ? `날짜별 ${scoped.length}건 · 상세 확인` : "-";
+  }, [activeMeasurementDateFrom, activeMeasurementDateTo]);
 
   const currentScope = useMemo(() => JSON.stringify({
     year: queryYear, period: queryPeriod,
@@ -425,6 +452,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const invalidateDrafts = (message = "추천 범위가 변경되어 새 추천이 필요합니다.") => {
     if (!drafts.size && !confirmedRepairDrafts.length) return;
     setDrafts(new Map());
+    setDraftTransitionMode(null);
     setConfirmedRepairDrafts([]);
     setDraftScope(null);
     setScopeSummary(null);
@@ -528,13 +556,18 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     [drafts],
   );
 
-  const requestRecommendation = async (targetId?: number) => {
+  const requestRecommendation = async (targetId?: number, cleanRoom = false) => {
     setWorking(true);
     setError(null);
     setNotice(null);
     try {
       if (!targetId && isPlanSearchDirty) throw new Error("검색 조건이 변경되었습니다. 먼저 검색을 실행해 주세요.");
-      const recommendationTargetIds = targetId
+      const cleanRoomRows = rows.filter((row) => includesAugust2026MeasurementDate(
+        row.measurementDates?.length ? row.measurementDates : [row.measurementDate ?? ""],
+      ));
+      const recommendationTargetIds = cleanRoom
+        ? cleanRoomRows.map((row) => row.targetId)
+        : targetId
         ? [targetId]
         : collectWorkbenchRecommendationTargetIds(displayRows, selectedTargetIds);
       if (recommendationTargetIds.length === 0) {
@@ -546,9 +579,10 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         body: JSON.stringify({
           action: "recommend", year: queryYear, period: queryPeriod,
           targetIds: recommendationTargetIds,
-          explicitTargetSelection: Boolean(targetId) || selectedTargetIds.size > 0,
-          measurementDateFrom: planSearchSnapshot.measurementDateFrom || undefined,
-          measurementDateTo: planSearchSnapshot.measurementDateTo || undefined,
+          explicitTargetSelection: !cleanRoom && (Boolean(targetId) || selectedTargetIds.size > 0),
+          measurementDateFrom: cleanRoom ? "2026-08-01" : planSearchSnapshot.measurementDateFrom || undefined,
+          measurementDateTo: cleanRoom ? "2026-08-31" : planSearchSnapshot.measurementDateTo || undefined,
+          transitionMode: cleanRoom ? AUGUST_2026_CLEAN_ROOM_MODE : undefined,
           allowAdminThirdAssignment: requestThirdAssignmentException,
         }),
       });
@@ -557,19 +591,20 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       const generatedDrafts = result.drafts || [];
       setThirdAssignmentReview((result.thirdAssignmentReview || []) as ThirdAssignmentReviewGroup[]);
       setThirdAssignmentConfirmed(false);
+      setDraftTransitionMode(cleanRoom ? AUGUST_2026_CLEAN_ROOM_MODE : null);
       const recommendedCount = generatedDrafts.filter((draft: WorkbenchRow) => draft.status === "recommended").length;
       const unavailableCount = generatedDrafts.length - recommendedCount + (result.missing || []).length;
-      const repairResponse = await fetch("/api/preliminary-survey-v2/confirmed-document-repair", {
+      const repairResponse = cleanRoom ? null : await fetch("/api/preliminary-survey-v2/confirmed-document-repair", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "preview", targetIds: recommendationTargetIds }),
       });
-      const repairResult = await repairResponse.json();
-      if (!repairResponse.ok) throw new Error(repairResult.error || "찐확정 누락정보 보정안 생성 실패");
+      const repairResult = repairResponse ? await repairResponse.json() : { drafts: [], manualReviewCount: 0, unchangedCount: 0 };
+      if (repairResponse && !repairResponse.ok) throw new Error(repairResult.error || "찐확정 누락정보 보정안 생성 실패");
       const repairDrafts = (repairResult.drafts || []) as ConfirmedRepairDraft[];
       const repairableDrafts = repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO");
       setConfirmedRepairDrafts(repairableDrafts);
-      const dateScopeLabel = `${planSearchSnapshot.measurementDateFrom} ~ ${planSearchSnapshot.measurementDateTo}`;
+      const dateScopeLabel = cleanRoom ? "2026-08-01 ~ 2026-08-31" : `${planSearchSnapshot.measurementDateFrom} ~ ${planSearchSnapshot.measurementDateTo}`;
       setDrafts((current) => {
         const next = new Map(current);
         for (const draft of generatedDrafts) next.set(draft.targetId, { ...rows.find((row) => row.targetId === draft.targetId), ...draft });
@@ -591,10 +626,12 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         }
         return next;
       });
-      setDraftScope(currentScope);
+      setDraftScope(cleanRoom ? AUGUST_2026_CLEAN_ROOM_MODE : currentScope);
       const manualReviewCount = Number(repairResult.manualReviewCount || 0) + unavailableCount;
       setScopeSummary(`측정예정일 범위: ${dateScopeLabel} · 대상 ${recommendationTargetIds.length}개 · 일반 추천 ${recommendedCount}건 · 찐확정 누락 보정안 ${repairableDrafts.length}건 · 변경 없음 ${Number(repairResult.unchangedCount || 0)}건 · 수동 확인 필요 ${manualReviewCount}건`);
-      setNotice(targetId
+      setNotice(cleanRoom
+        ? `8월 전체 ${generatedDrafts.length}건을 기존 V2·찐확정·reconciliation 선점 없이 다시 계산했습니다. 검수 전용이며 저장되지 않습니다.`
+        : targetId
         ? `${result.impactSummary || "영향 범위를 재검증했습니다."} 일반 추천과 찐확정 누락 보정안을 구분해 검토해 주세요.`
         : `일반 추천 ${recommendedCount}건 · 찐확정 누락정보 보정 ${repairableDrafts.length}건 · 변경 없음 ${Number(repairResult.unchangedCount || 0)}건 · 수동 확인 필요 ${manualReviewCount}건입니다. 아직 저장되지 않았습니다.`);
     } catch (caught) {
@@ -605,6 +642,10 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   };
 
   const applyDrafts = async () => {
+    if (draftTransitionMode === AUGUST_2026_CLEAN_ROOM_MODE) {
+      setError("8월 clean-room 결과는 검수 전용이며 적용할 수 없습니다.");
+      return;
+    }
     if (draftScope !== currentScope) {
       setError("추천 범위가 변경되었습니다. 새 추천안을 생성해 주세요.");
       return;
@@ -644,6 +685,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         throw new Error(result.error || "추천안 적용 실패");
       }
       setDrafts(new Map());
+      setDraftTransitionMode(null);
       setThirdAssignmentReview([]);
       setThirdAssignmentConfirmed(false);
       setConfirmedRepairDrafts([]);
@@ -1039,9 +1081,10 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   관리자 CCC 예외 검토
                 </label>}
                 <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => requestRecommendation()} disabled={working || isPlanSearchDirty}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
+                {queryYear === 2026 && <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => requestRecommendation(undefined, true)} disabled={working || isPlanSearchDirty}>8월 Clean-room</Button>}
                 <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")} disabled={isPlanSearchDirty}>대안 보기</Button>
-                <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={applyDrafts} disabled={working || isPlanSearchDirty || applicableDraftCount === 0 || draftScope !== currentScope}>추천안 적용</Button>
-                <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={applyConfirmedRepairs} disabled={working || isPlanSearchDirty || confirmedRepairDrafts.length === 0 || draftScope !== currentScope}>누락정보 보정</Button>
+                <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={applyDrafts} disabled={working || isPlanSearchDirty || draftTransitionMode != null || applicableDraftCount === 0 || draftScope !== currentScope}>추천안 적용</Button>
+                <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={applyConfirmedRepairs} disabled={working || isPlanSearchDirty || draftTransitionMode != null || confirmedRepairDrafts.length === 0 || draftScope !== currentScope}>누락정보 보정</Button>
               </div>
             </>}
           </div>
@@ -1073,7 +1116,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   <td className="px-2 py-2">{row.surveyMethod === "field" ? "방문" : "유선"}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.measurementDate || "-"}</td>
                   <td className="truncate px-2 py-2" title={row.surveyors.join(", ")}>{row.surveyors.join(", ") || "-"}</td>
-                  <td className="truncate px-2 py-2">{row.mainMeasurer || "-"}</td>
+                  <td className="truncate px-2 py-2" title={measurementAssigneeForList(row)}>{measurementAssigneeForList(row)}</td>
                   <td className="truncate px-2 py-2" title={row.measurementParticipants || ""}>{row.measurementParticipants || "-"}</td>
                   <td className="truncate px-2 py-2">{row.reportWriter || "-"}</td>
                   <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>

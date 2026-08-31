@@ -60,6 +60,12 @@ import {
 import { orderSurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/display-model";
 import { buildThirdAssignmentReview } from "@/lib/preliminary-survey-v2/third-assignment-review";
 import { recomputeCanonicalMeasurementAssignments } from "@/lib/preliminary-survey-v2/measurement-assignment-persistence";
+import {
+  AUGUST_2026_CLEAN_ROOM_MODE,
+  includesAugust2026MeasurementDate,
+  isAugust2026CleanRoomMode,
+  isAugust2026MeasurementScope,
+} from "@/lib/preliminary-survey-v2/transition-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -142,6 +148,7 @@ interface SubmittedDraft {
   recommendationScope: RecommendationScopeSnapshot;
   measurementAssignments: CanonicalMeasurementAssignmentDraft[];
   recommendationReasons?: string[];
+  transitionMode?: typeof AUGUST_2026_CLEAN_ROOM_MODE;
 }
 
 function parseRecommendationScope(value: any): RecommendationScopeSnapshot | null {
@@ -199,6 +206,7 @@ function parseDraft(value: any): SubmittedDraft | null {
       !/^[a-f0-9]{64}$/i.test(String(value?.sourcePlanFingerprint ?? "")) ||
       !(value?.sourceMeasurerId == null || Number.isInteger(Number(value.sourceMeasurerId))) ||
       !["new", "existing"].includes(value?.sourceRuleType) ||
+      !(value?.transitionMode == null || isAugust2026CleanRoomMode(value.transitionMode)) ||
       !/^[a-f0-9]{64}$/i.test(String(value?.canonicalFingerprint ?? ""))) return null;
   return {
     targetId: Number(value.targetId),
@@ -218,6 +226,7 @@ function parseDraft(value: any): SubmittedDraft | null {
     recommendationScope,
     measurementAssignments,
     recommendationReasons: Array.isArray(value.recommendationReasons) ? value.recommendationReasons.map(String) : [],
+    transitionMode: isAugust2026CleanRoomMode(value.transitionMode) ? value.transitionMode : undefined,
   };
 }
 
@@ -315,6 +324,12 @@ async function applySubmittedDrafts(
     return NextResponse.json({ error: "적용할 추천안 형식이 올바르지 않습니다." }, { status: 400 });
   }
   const submitted = drafts as SubmittedDraft[];
+  if (submitted.some((draft) => draft.transitionMode === AUGUST_2026_CLEAN_ROOM_MODE)) {
+    return NextResponse.json({
+      error: "2026년 8월 clean-room 추천안은 검수용 preview이며 운영 데이터에 적용할 수 없습니다.",
+      code: "AUGUST_CLEAN_ROOM_PREVIEW_ONLY",
+    }, { status: 409 });
+  }
   if (new Set(submitted.map((draft) => draft.targetId)).size !== submitted.length) {
     return NextResponse.json({ error: "중복된 추천안이 포함되어 있습니다." }, { status: 400 });
   }
@@ -858,7 +873,7 @@ export async function GET(request: NextRequest) {
         reason: "저장된 날짜별 공시료",
       }));
       const measurementAssigneeLabel = measurementAssignments.length > 1
-        ? measurementAssignments.map((assignment) => `${assignment.measurementDate} ${assignment.userName}(${assignment.surveyCode})`).join(" · ")
+        ? `날짜별 ${measurementAssignments.length}건 · 상세 확인`
         : measurementAssignments.length === 1
           ? `${measurementAssignments[0].userName}(${measurementAssignments[0].surveyCode})`
           : measurementAssigneeDisplay.label;
@@ -934,6 +949,11 @@ export async function POST(request: NextRequest) {
   try {
     const session = await requireSurveyAccess();
     const body = await request.json();
+    const transitionMode = body.transitionMode == null ? null : String(body.transitionMode);
+    if (transitionMode != null && !isAugust2026CleanRoomMode(transitionMode)) {
+      return NextResponse.json({ error: "지원하지 않는 예비조사 계산 모드입니다." }, { status: 400 });
+    }
+    const augustCleanRoom = transitionMode === AUGUST_2026_CLEAN_ROOM_MODE;
     const supabase = await createClient();
     if (!await canManagePreliminarySurvey(supabase, session)) {
       return NextResponse.json({ error: "예비조사 담당자 또는 관리자만 추천안을 생성·적용할 수 있습니다." }, { status: 403 });
@@ -959,14 +979,14 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(body.targetIds) || body.targetIds.length === 0) {
       return NextResponse.json({ error: "추천할 사업장을 선택해 주세요." }, { status: 400 });
     }
-    const requestedTargetIds = body.targetIds.map(Number);
+    let requestedTargetIds = body.targetIds.map(Number);
     if (requestedTargetIds.some((value: number) => !Number.isInteger(value) || value <= 0) ||
         new Set(requestedTargetIds).size !== requestedTargetIds.length) {
       return NextResponse.json({ error: "추천 대상 사업장 정보가 올바르지 않습니다." }, { status: 400 });
     }
     let targetIds = requestedTargetIds;
     let impactTargets: PreliminarySurveyImpactTarget[] | null = null;
-    const explicitTargetSelection = body.explicitTargetSelection === true;
+    let explicitTargetSelection = body.explicitTargetSelection === true;
     const measurementDateFrom = body.measurementDateFrom == null || body.measurementDateFrom === ""
       ? undefined : String(body.measurementDateFrom);
     const measurementDateTo = body.measurementDateTo == null || body.measurementDateTo === ""
@@ -975,6 +995,24 @@ export async function POST(request: NextRequest) {
         (measurementDateTo && !parseDateOnly(measurementDateTo)) ||
         (measurementDateFrom && measurementDateTo && measurementDateFrom > measurementDateTo)) {
       return NextResponse.json({ error: "측정예정일 기간이 올바르지 않습니다." }, { status: 400 });
+    }
+    if (augustCleanRoom) {
+      if (!isAugust2026MeasurementScope(measurementDateFrom, measurementDateTo)) {
+        return NextResponse.json({
+          error: "8월 clean-room은 측정예정일 2026-08-01~2026-08-31 전체 범위에서만 실행할 수 있습니다.",
+        }, { status: 400 });
+      }
+      const { data: cleanRoomTargets, error: cleanRoomTargetError } = await supabase
+        .from("measurement_target_business")
+        .select("id, measurement_date, daily_staff, is_registered")
+        .eq("year", 2026);
+      if (cleanRoomTargetError) throw cleanRoomTargetError;
+      requestedTargetIds = (cleanRoomTargets ?? []).filter((target: any) =>
+        isActivePreliminarySurveyTarget(target.is_registered) &&
+        includesAugust2026MeasurementDate(explicitMeasurementDates(target)),
+      ).map((target: any) => Number(target.id)).sort((left: number, right: number) => left - right);
+      targetIds = requestedTargetIds;
+      explicitTargetSelection = false;
     }
     const preliminaryDateFrom = body.preliminaryDateFrom == null || body.preliminaryDateFrom === ""
       ? undefined : String(body.preliminaryDateFrom);
@@ -1089,17 +1127,17 @@ export async function POST(request: NextRequest) {
     }
     let candidateQuery = supabase.from("measurement_target_business").select("id, code, year, period, measurement_date");
     candidateQuery = candidateQuery.in("id", targetIds);
-    if (requestedTargetIds.length !== 1 && measurementDateFrom) candidateQuery = candidateQuery.gte("measurement_date", measurementDateFrom);
-    if (requestedTargetIds.length !== 1 && measurementDateTo) candidateQuery = candidateQuery.lte("measurement_date", measurementDateTo);
+    if (!augustCleanRoom && requestedTargetIds.length !== 1 && measurementDateFrom) candidateQuery = candidateQuery.gte("measurement_date", measurementDateFrom);
+    if (!augustCleanRoom && requestedTargetIds.length !== 1 && measurementDateTo) candidateQuery = candidateQuery.lte("measurement_date", measurementDateTo);
     const { data: candidateRows, error: candidateError } = await candidateQuery;
     if (candidateError) throw candidateError;
     const candidateCodes = [...new Set((candidateRows ?? []).map((row: any) => row.code))];
     const candidateIds = (candidateRows ?? []).map((row: any) => Number(row.id));
     const [{ data: journalRows, error: journalError }, { data: planRows, error: planError }] = await Promise.all([
-      candidateCodes.length
+      candidateCodes.length && !augustCleanRoom
         ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", candidateCodes)
         : Promise.resolve({ data: [], error: null }),
-      !explicitTargetSelection && candidateIds.length
+      !augustCleanRoom && !explicitTargetSelection && candidateIds.length
         ? supabase.from("preliminary_survey_v2_plans").select("measurement_target_business_id, plan_origin, source_measurement_date").in("measurement_target_business_id", candidateIds)
         : Promise.resolve({ data: [], error: null }),
     ]);
@@ -1109,6 +1147,7 @@ export async function POST(request: NextRequest) {
     const planByTarget = new Map((planRows ?? []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]));
     let eligibleTargetIds = (candidateRows ?? []).filter((row: any) => {
       if (!selectedTargetIds.has(Number(row.id))) return false;
+      if (augustCleanRoom) return true;
       if (confirmedKeys.has(journalKey(row.code, row.year, row.period))) return false;
       if (explicitTargetSelection) return true;
       const plan: any = planByTarget.get(Number(row.id));
@@ -1130,8 +1169,9 @@ export async function POST(request: NextRequest) {
       measurementDateTo: requestedTargetIds.length === 1 ? undefined : measurementDateTo,
       preliminaryDateFrom,
       preliminaryDateTo,
+      calculationMode: augustCleanRoom ? AUGUST_2026_CLEAN_ROOM_MODE : "normal",
     });
-    if (impactScope && impactTargets) {
+    if (!augustCleanRoom && impactScope && impactTargets) {
       // 새 제안 날짜·조합이 만드는 관계도 closure에 포함될 때까지 범위를 확장한다.
       for (let attempt = 0; attempt < impactTargets.length; attempt += 1) {
         const resultByTarget = new Map(output.results.map((result) => [result.targetId, result]));
@@ -1162,6 +1202,7 @@ export async function POST(request: NextRequest) {
           targetIds: eligibleTargetIds,
           preliminaryDateFrom,
           preliminaryDateTo,
+          calculationMode: "normal",
         });
       }
     }
@@ -1175,8 +1216,12 @@ export async function POST(request: NextRequest) {
     ] = await Promise.all([
       supabase.from("users").select("id, name, job, is_active, survey_code").not("survey_code", "is", null),
       supabase.from("users").select("id, name, job, is_active").eq("job", "측정"),
-      supabase.from("preliminary_survey_v2_measurement_assignments").select("plan_id, measurement_date, assignee_user_id, survey_code, created_at"),
-      supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id"),
+      augustCleanRoom
+        ? Promise.resolve({ data: [], error: null })
+        : supabase.from("preliminary_survey_v2_measurement_assignments").select("plan_id, measurement_date, assignee_user_id, survey_code, created_at"),
+      augustCleanRoom
+        ? Promise.resolve({ data: [], error: null })
+        : supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id"),
     ]);
     if (assigneeUserError || measurementRoleUserError || persistedPlanError ||
         (persistedAssignmentError && !isMeasurementAssignmentSchemaMissing(persistedAssignmentError))) {
@@ -1377,6 +1422,7 @@ export async function POST(request: NextRequest) {
             reason: assignment.reason,
           })),
           recommendationReasons,
+          transitionMode: augustCleanRoom ? AUGUST_2026_CLEAN_ROOM_MODE : undefined,
           mainMeasurer: targetAssignments.length
             ? [...new Set(targetAssignments.map((assignment) =>
                 measurementAssigneeLabel(assignment.userName, assignment.publicSampleCode),
@@ -1396,9 +1442,14 @@ export async function POST(request: NextRequest) {
           ).slice(0, 3),
         };
       });
-    const thirdAssignmentReview = buildThirdAssignmentReview(drafts, persistedReviewAssignments, measurementRouteEvidence);
+    const thirdAssignmentReview = buildThirdAssignmentReview(
+      drafts,
+      augustCleanRoom ? [] : persistedReviewAssignments,
+      measurementRouteEvidence,
+    );
     return NextResponse.json({
       success: true,
+      transitionMode: augustCleanRoom ? AUGUST_2026_CLEAN_ROOM_MODE : null,
       drafts: drafts.map((draft) => ({ ...draft, canonicalFingerprint: fingerprint })),
       thirdAssignmentReview,
       missing: output.missing,

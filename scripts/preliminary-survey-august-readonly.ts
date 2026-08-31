@@ -2,11 +2,10 @@ import { writeFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { calculateV2Recommendations } from "../lib/preliminary-survey-v2/service";
 import { assignMeasurementAssignees, buildMeasurementAssignmentTargets } from "../lib/preliminary-survey-v2/measurement-assignment";
-import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2/calendar";
 import { buildScheduleBlockKeys } from "../lib/preliminary-survey-v2/availability";
 import { checkPreliminarySurveyDatePolicy, checkPreliminarySurveyMethodPolicy } from "../lib/preliminary-survey-v2/policy-compliance";
-import type { ExistingAssignment, SurveyUser } from "../lib/preliminary-survey-v2/types";
+import { AUGUST_2026_CLEAN_ROOM_MODE } from "../lib/preliminary-survey-v2/transition-mode";
 
 const PRODUCTION_REF = "xjxqbwvcgffunqnkmoqw";
 const FROM = "2026-08-01";
@@ -77,71 +76,16 @@ const calculated = await calculateV2Recommendations(supabase, {
   targetIds,
   allowExternalRoutes: false,
   preserveManualPlans: false,
+  calculationMode: AUGUST_2026_CLEAN_ROOM_MODE,
 });
-
-// Canonical §14의 8/31 회귀 fixture는 역할을 재최적화하지 않고 날짜만 전역 load에 맞춰 역산한다.
-const august31Fixture = [
-  { code: "H0028", responsibleUserId: 15, reviewerUserId: null, participantUserIds: [15] },
-  { code: "H0033", responsibleUserId: 2, reviewerUserId: 15, participantUserIds: [2, 15] },
-  { code: "H0195", responsibleUserId: 16, reviewerUserId: 13, participantUserIds: [16, 13] },
-  { code: "H0049", responsibleUserId: 17, reviewerUserId: null, participantUserIds: [17] },
-  { code: "H0361", responsibleUserId: 13, reviewerUserId: null, participantUserIds: [13] },
-  { code: "H0130", responsibleUserId: 20, reviewerUserId: 17, participantUserIds: [20, 17] },
-];
-const fixtureCodes = new Set(august31Fixture.map((item) => item.code));
-const surveyUsers: SurveyUser[] = (users ?? []).map((user: any) => ({
-  id: Number(user.id), name: String(user.name), experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
-}));
-const surveyUserById = new Map(surveyUsers.map((user) => [user.id, user]));
-const candidateDates = recommendationDatesForBusinessType("2026-08-31", "existing").map((candidate) => candidate.date);
+const resultByTarget = new Map(calculated.results.map((result) => [result.targetId, result]));
+const surveyUserById = new Map((users ?? []).map((user: any) => [Number(user.id), {
+  experienced: Boolean(user.is_preliminary_survey_experienced),
+}]));
 const { data: scheduleBlocks, error: scheduleBlockError } = await supabase.from("user_schedule_blocks")
   .select("user_id, start_date, end_date").lte("start_date", TO).gte("end_date", "2026-06-01");
 if (scheduleBlockError) throw scheduleBlockError;
 const scheduleBlockedKeys = buildScheduleBlockKeys(scheduleBlocks ?? []);
-const fixedVirtual: ExistingAssignment[] = calculated.results.flatMap((result) => {
-  const target = calculated.targets.find((item) => item.id === result.targetId);
-  if (!target || fixtureCodes.has(target.code) || result.status !== "recommended" || !result.date) return [];
-  return [{
-    targetId: target.id, businessCode: target.code, kind: target.kind, date: result.date,
-    participants: result.participants.map((user) => user.id), responsibleUserId: result.responsible.id,
-    experiencedReviewerId: result.experiencedReviewer?.id ?? null, surveyMethod: result.surveyMethod,
-    address: target.address, coordinate: target.coordinate, region: target.region,
-  }];
-});
-const fixedResults = [];
-for (const fixed of august31Fixture) {
-  const target = calculated.targets.find((item) => item.code === fixed.code);
-  const responsible = surveyUserById.get(fixed.responsibleUserId);
-  const reviewer = fixed.reviewerUserId == null ? null : surveyUserById.get(fixed.reviewerUserId);
-  if (!target || !responsible || (fixed.reviewerUserId != null && !reviewer)) throw new Error(`FIXTURE_CONTEXT_MISSING:${fixed.code}`);
-  const [result] = await recommendBatch({
-    targets: [{ ...target, responsible }],
-    experiencedUsers: reviewer ? [reviewer] : [],
-    existingAssignments: fixedVirtual,
-    availability: {
-      isBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`),
-      isScheduleBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`),
-      isActualMeasurementBlocked: () => false,
-    },
-    routes: { between: async () => ({ source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: false }) },
-  });
-  if (result.status !== "recommended" ||
-      JSON.stringify(result.participants.map((user) => user.id)) !== JSON.stringify(fixed.participantUserIds)) {
-    throw new Error(`FIXTURE_RECALCULATION_FAILED:${fixed.code}`);
-  }
-  fixedResults.push(result);
-  fixedVirtual.push({
-    targetId: target.id, businessCode: target.code, kind: target.kind, date: result.date!,
-    participants: fixed.participantUserIds, responsibleUserId: fixed.responsibleUserId,
-    experiencedReviewerId: fixed.reviewerUserId, surveyMethod: "phone",
-    address: target.address, coordinate: target.coordinate, region: target.region,
-  });
-}
-calculated.results = [
-  ...calculated.results.filter((result) => !fixtureCodes.has(calculated.targets.find((target) => target.id === result.targetId)?.code ?? "")),
-  ...fixedResults,
-].sort((left, right) => left.targetId - right.targetId);
-const resultByTarget = new Map(calculated.results.map((result) => [result.targetId, result]));
 
 const measurementTargets = calculated.results.flatMap((result) => {
   const target = calculated.targets.find((item) => item.id === result.targetId);
@@ -308,10 +252,10 @@ const report = {
     responsibleOverCapacity,
     dateDistributionViolations,
     proposedPublicSampleThirdAssignments: proposedAssignments.filter((assignment) => assignment.approvalRequired).length,
-    firstMeasurementPhone: rows.filter((row) => row.businessType === "first_measurement" && row.currentPlan &&
-      checkPreliminarySurveyMethodPolicy({ businessType: "first_measurement", surveyMethod: row.currentPlan.method }) != null).map((row) => row.code),
-    firstMeasurementDateOutsidePolicy: rows.filter((row) => row.businessType === "first_measurement" && row.currentPlan?.date &&
-      !checkPreliminarySurveyDatePolicy({ measurementDate: row.measurementDate, preliminaryDate: row.currentPlan.date, businessType: "first_measurement" }).compliant).map((row) => row.code),
+    firstMeasurementPhone: rows.filter((row) => row.businessType === "first_measurement" && row.proposed &&
+      checkPreliminarySurveyMethodPolicy({ businessType: "first_measurement", surveyMethod: row.proposed.method }) != null).map((row) => row.code),
+    firstMeasurementDateOutsidePolicy: rows.filter((row) => row.businessType === "first_measurement" && row.proposed?.date &&
+      !checkPreliminarySurveyDatePolicy({ measurementDate: row.measurementDate, preliminaryDate: row.proposed.date, businessType: "first_measurement" }).compliant).map((row) => row.code),
     publicSampleFourPlus: [...publicSampleGroupCounts.entries()].filter(([, count]) => count >= 4)
       .map(([key, count]) => ({ key, count })),
     unapprovedThirdAssignments: proposedAssignments.filter((assignment) => assignment.approvalRequired).length,
@@ -323,7 +267,25 @@ const report = {
   excluded: targets.filter((target: any) => String(target.is_registered).trim() !== "실시").map((target: any) => ({
     targetId: target.id, code: target.code, lifecycle: target.is_registered, measurementDate: target.measurement_date,
   })),
-  rows,
+  cleanRoomResult: rows.map((row) => ({
+    targetId: row.targetId,
+    code: row.code,
+    businessName: row.businessName,
+    businessType: row.businessType,
+    measurementDate: row.measurementDate,
+    measurementDates: row.measurementDates,
+    proposed: row.proposed,
+  })),
+  historicalComparison: rows.map((row) => ({
+    targetId: row.targetId,
+    code: row.code,
+    trueConfirmed: row.trueConfirmed,
+    hasHistoricalProvenance: row.hasHistoricalProvenance,
+    currentPlan: row.currentPlan,
+    differences: row.differences,
+    currentPolicyIssues: row.currentPolicyIssues,
+    action: row.action,
+  })),
 };
 
 writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");

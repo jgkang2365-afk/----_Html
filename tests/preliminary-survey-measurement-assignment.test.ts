@@ -56,7 +56,7 @@ test("역할 연계가 일치하면 균형 범위 안에서 해당 측정자·�
   assert.deepEqual(result.map((item) => [item.targetId, item.userId]), targets.map((item) => [item.targetId, item.reportWriterUserId]));
 });
 
-test("역할이 일부 직원에게 몰려도 6명 첫 순환이 역할 일치보다 우선한다", () => {
+test("예비조사자 우선 후보군을 두 번 사용한 뒤에만 다른 측정자로 fallback한다", () => {
   const result = assignMeasurementAssignees({
     targets: users.map((_, index) => ({
       ...target(index + 1), reportWriterUserId: 1,
@@ -64,7 +64,31 @@ test("역할이 일부 직원에게 몰려도 6명 첫 순환이 역할 일치�
     })),
     users,
   });
-  assert.equal(new Set(result.map((item) => item.userId)).size, 6);
+  assert.deepEqual(result.slice(0, 2).map((item) => item.userId), [1, 1]);
+  assert.equal(result.filter((item) => item.userId === 1).length, 2);
+  assert.equal(new Set(result.slice(2).map((item) => item.userId)).size, 4);
+  assert.ok(result.slice(2).every((item) => item.reason === "예비조사자 불가 fallback"));
+});
+
+test("겹치는 예비조사자 후보군은 전역 1차 순환으로 유일 후보를 보존한다", () => {
+  const result = assignMeasurementAssignees({
+    targets: [
+      { ...target(1), preliminarySurveyorUserIds: [1, 2] },
+      { ...target(2), preliminarySurveyorUserIds: [1] },
+    ],
+    users: users.slice(0, 3),
+  });
+  assert.deepEqual(result.map((item) => [item.targetId, item.userId]), [[1, 2], [2, 1]]);
+});
+
+test("예비조사자 전원이 불가 일정일 때만 다른 측정자를 fallback으로 사용한다", () => {
+  const [result] = assignMeasurementAssignees({
+    targets: [{ ...target(1), preliminarySurveyorUserIds: [1, 2] }],
+    users: users.slice(0, 3),
+    availability: { isBlocked: (userId) => userId === 1 || userId === 2 },
+  });
+  assert.equal(result.userId, 3);
+  assert.equal(result.reason, "예비조사자 불가 fallback");
 });
 
 test("실제 6개 업체 역할 충돌에서도 A/B/C/D/F/G를 한 번씩 사용한다", () => {

@@ -193,9 +193,16 @@ test("날짜별 공시료 수동수정은 권한·찐확정·stale·동시성·�
   assert.match(policyRepairRoute, /action === "apply_method"/);
   assert.match(policyRepairRoute, /survey_method/);
   const augustReadonly = read("scripts/preliminary-survey-august-readonly.ts");
-  assert.match(augustReadonly, /firstMeasurementPhone:[\s\S]+?row\.currentPlan\.method/);
-  assert.match(augustReadonly, /firstMeasurementDateOutsidePolicy:[\s\S]+?row\.currentPlan\.date/);
+  const workbenchRoute = read("app/api/preliminary-survey-v2/workbench/route.ts");
+  assert.match(augustReadonly, /calculationMode: AUGUST_2026_CLEAN_ROOM_MODE/);
+  assert.doesNotMatch(augustReadonly, /august31Fixture|FIXTURE_RECALCULATION_FAILED/);
+  assert.match(augustReadonly, /firstMeasurementPhone:[\s\S]+?row\.proposed\.method/);
+  assert.match(augustReadonly, /firstMeasurementDateOutsidePolicy:[\s\S]+?row\.proposed\.date/);
+  assert.match(augustReadonly, /cleanRoomResult:[\s\S]+?historicalComparison:/);
   assert.match(augustReadonly, /currentPolicyMismatch[\s\S]+?FALLBACK_PRIORITY_REVIEW/);
+  assert.match(workbenchRoute, /AUGUST_CLEAN_ROOM_PREVIEW_ONLY/);
+  assert.match(workbenchRoute, /augustCleanRoom[\s\S]+?preliminary_survey_v2_measurement_assignments/);
+  assert.match(ui, /8월 Clean-room/);
 });
 
 test("CCC 검토 모델은 C/CC/CCC 전체를 보여 주고 명시 확인 전 승인 적용을 막는다", () => {

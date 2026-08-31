@@ -7,6 +7,10 @@ import { buildScheduleBlockKeys } from "./availability";
 import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
 import { parseDateOnly, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { recommendBatch } from "./engine";
+import {
+  AUGUST_2026_CLEAN_ROOM_MODE,
+  type PreliminarySurveyCalculationMode,
+} from "./transition-mode";
 import { validateManualPlanHardRules } from "./manual-validation";
 import { loadActualMeasurementBlockedKeys } from "./measurement-conflicts";
 import { measurementStaffForDate } from "./measurement-staff";
@@ -231,6 +235,8 @@ export interface CalculationOptions {
   ignoreLegacyAssignmentInputs?: boolean;
   /** 운영 전체 dry-run처럼 persisted manual plan도 현재 canonical과 비교할 때만 false. */
   preserveManualPlans?: boolean;
+  /** 2026년 8월 전수 재배정 preview 전용. 운영 저장·repair 경로에는 사용하지 않는다. */
+  calculationMode?: PreliminarySurveyCalculationMode;
 }
 
 export interface CalculationOutput {
@@ -348,6 +354,7 @@ export async function calculateV2Recommendations(
   supabase: Client,
   options: CalculationOptions = {},
 ): Promise<CalculationOutput> {
+  const augustCleanRoom = options.calculationMode === AUGUST_2026_CLEAN_ROOM_MODE;
   const scope = preliminaryDateScope(options);
   let targetQuery = supabase.from("measurement_target_business").select(
     "id, code, year, period, business_name, address, measurement_date, measurement_end_date, measurer_id, link_measurer_id, collaborators, daily_staff, created_at, business_type, process_changed, preliminary_survey_rule_type",
@@ -379,7 +386,7 @@ export async function calculateV2Recommendations(
   );
   if (codes.length) journalQuery = journalQuery.in("code", codes);
   if (years.length) journalQuery = journalQuery.in("measurement_year", years);
-  const { data: rawJournals, error: journalError } = codes.length
+  const { data: rawJournals, error: journalError } = codes.length && !augustCleanRoom
     ? await journalQuery.order("updated_at", { ascending: false }).order("created_at", { ascending: false })
     : { data: [], error: null };
   if (journalError) throw new Error(`V2_JOURNAL_QUERY_FAILED:${journalError.message}`);
@@ -503,7 +510,7 @@ export async function calculateV2Recommendations(
     ].filter((reason): reason is string => Boolean(reason));
   };
 
-  const { data: queriedPlanRows, error: planError } = options.ignoreLegacyAssignmentInputs
+  const { data: queriedPlanRows, error: planError } = options.ignoreLegacyAssignmentInputs || augustCleanRoom
     ? { data: [], error: null }
     : await supabase.from("preliminary_survey_v2_plans").select(
       "measurement_target_business_id, recommended_date, participant_user_ids, responsible_user_id, experienced_reviewer_id, status, plan_origin, source_rule_type, survey_method",

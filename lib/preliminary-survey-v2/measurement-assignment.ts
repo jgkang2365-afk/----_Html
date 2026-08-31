@@ -77,7 +77,7 @@ export interface MeasurementAssignmentResult {
   publicSampleCode: SurveyCode;
   dailyCount: number;
   approvalRequired: boolean;
-  reason: "측정자 균등배정" | "동일주소 묶음" | "근거리 묶음" | "2건 배정" | "관리자 3건 예외";
+  reason: "예비조사자 우선 배정" | "예비조사자 불가 fallback" | "동일주소 묶음" | "근거리 묶음" | "2건 배정" | "관리자 3건 예외";
 }
 
 export const MEASUREMENT_ASSIGNMENT_CAPACITY_CODE = "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED";
@@ -211,62 +211,82 @@ export function assignMeasurementAssignees(input: {
   const preliminarySurveyorMatchScore = (target: MeasurementAssignmentTarget, userId: number) =>
     Number(target.preliminarySurveyorUserIds?.includes(userId));
 
-  // 같은 날짜의 첫 순환은 6명을 한 번씩 쓰는 조건을 먼저 고정한 뒤,
-  // 개별 target greedy가 아니라 순환 전체의 예비조사자 일치 합계를 최대화한다.
+  const availableForTarget = (target: MeasurementAssignmentTarget) => users.filter((user) =>
+    !input.availability?.isBlocked(user.id, target.measurementDate));
+  const preferredForTarget = (target: MeasurementAssignmentTarget) => {
+    const preferredIds = new Set(target.preliminarySurveyorUserIds ?? []);
+    return availableForTarget(target).filter((user) => preferredIds.has(user.id));
+  };
+
+  // 같은 날짜의 첫 순환은 사업장별 예비조사자 후보군 안에서 0건 사용자를 먼저 쓴다.
+  // 후보군이 겹칠 때는 전역 matching으로 더 제한적인 target의 유일 후보를 앞 target이 선점하지 않게 한다.
   const firstCycleUserByTarget = new Map<string, number>();
   for (const measurementDate of [...new Set(targets.map((target) => target.measurementDate))]) {
     const dateTargets = targets.filter((target) => target.measurementDate === measurementDate);
     const existingOnDate = assigned.filter((item) => item.measurementDate === measurementDate);
-    const unusedUsers = users.filter((user) => !existingOnDate.some((item) => item.userId === user.id));
-    const batch = dateTargets.slice(0, Math.min(dateTargets.length, unusedUsers.length));
-    if (!batch.length) continue;
-
-    let bestScore = Number.NEGATIVE_INFINITY;
-    let bestUserIds: number[] | null = null;
-    const visit = (targetIndex: number, usedUserIds: Set<number>, selectedUserIds: number[], score: number) => {
-      if (targetIndex === batch.length) {
-        const isBetterTie = bestUserIds == null || selectedUserIds.some((id, index) =>
-          id !== bestUserIds![index] && id < bestUserIds![index] &&
-          selectedUserIds.slice(0, index).every((value, prefixIndex) => value === bestUserIds![prefixIndex]),
-        );
-        if (score > bestScore || (score === bestScore && isBetterTie)) {
-          bestScore = score;
-          bestUserIds = [...selectedUserIds];
+    const unusedUserIds = new Set(users
+      .filter((user) => !existingOnDate.some((item) => item.userId === user.id))
+      .map((user) => user.id));
+    const userBit = new Map(users.map((user, index) => [user.id, 1 << index]));
+    type FirstCycleState = { preferred: number; signature: string; pairs: Array<[number, number]> };
+    let states = new Map<number, FirstCycleState>([[0, { preferred: 0, signature: "", pairs: [] }]]);
+    for (const target of dateTargets) {
+      const next = new Map(states);
+      const hardAvailablePreferred = preferredForTarget(target);
+      const preferredCandidates = hardAvailablePreferred.filter((user) => unusedUserIds.has(user.id));
+      const fallbackCandidates = availableForTarget(target).filter((user) =>
+        unusedUserIds.has(user.id) && !preferredCandidates.some((preferredUser) => preferredUser.id === user.id));
+      const candidates = preferredCandidates.length ? preferredCandidates
+        : hardAvailablePreferred.length ? [] : fallbackCandidates;
+      for (const [mask, state] of states) {
+        for (const user of candidates) {
+          const bit = userBit.get(user.id) ?? 0;
+          if (!bit || (mask & bit) !== 0) continue;
+          const pairs: Array<[number, number]> = [...state.pairs, [target.targetId, user.id]];
+          const preferred = state.preferred + preliminarySurveyorMatchScore(target, user.id);
+          const signature = pairs.map(([targetId, userId]) => `${targetId}:${String(userId).padStart(10, "0")}`).join("|");
+          const existing = next.get(mask | bit);
+          if (!existing || preferred > existing.preferred ||
+              (preferred === existing.preferred && signature < existing.signature)) {
+            next.set(mask | bit, { preferred, signature, pairs });
+          }
         }
-        return;
       }
-      const target = batch[targetIndex];
-      for (const user of unusedUsers) {
-        if (usedUserIds.has(user.id) || input.availability?.isBlocked(user.id, measurementDate)) continue;
-        usedUserIds.add(user.id);
-        selectedUserIds.push(user.id);
-        visit(targetIndex + 1, usedUserIds, selectedUserIds, score + preliminarySurveyorMatchScore(target, user.id));
-        selectedUserIds.pop();
-        usedUserIds.delete(user.id);
-      }
-    };
-    visit(0, new Set(), [], 0);
-    const plannedUserIds = bestUserIds as number[] | null;
-    plannedUserIds?.forEach((userId: number, index: number) => {
-      firstCycleUserByTarget.set(`${measurementDate}:${batch[index].targetId}`, userId);
-    });
+      states = next;
+    }
+    const best = [...states.values()].sort((left, right) =>
+      right.pairs.length - left.pairs.length || right.preferred - left.preferred || left.signature.localeCompare(right.signature),
+    )[0] ?? { pairs: [] };
+    for (const [targetId, userId] of best.pairs) {
+      firstCycleUserByTarget.set(`${measurementDate}:${targetId}`, userId);
+    }
   }
 
   for (const target of targets) {
     // 같은 날짜의 모든 기존 배정을 비교해 동일주소/실제 경로 후보를 판단한다.
     const sameDate = assigned.filter((item) => item.measurementDate === target.measurementDate);
     const count = (userId: number) => sameDate.filter((item) => item.userId === userId).length;
-    const availableUsers = users.filter((user) => !input.availability?.isBlocked(user.id, target.measurementDate));
+    const availableUsers = availableForTarget(target);
     // 불가 일정으로 후보가 0명이면 incomplete draft로 남긴다. 3건 hard max 소진과 구분한다.
     if (!availableUsers.length) continue;
     const plannedFirstCycleUserId = firstCycleUserByTarget.get(`${target.measurementDate}:${target.targetId}`);
     const plannedFirstCycleUser = availableUsers.find((user) =>
       user.id === plannedFirstCycleUserId && count(user.id) === 0,
     );
-    const unassigned = availableUsers.filter((user) => count(user.id) === 0);
+    const preferredUsers = preferredForTarget(target);
+    const preferredAutomatic = preferredUsers.filter((user) => count(user.id) < 2);
+    const fallbackAutomatic = availableUsers.filter((user) =>
+      !preferredUsers.some((preferredUser) => preferredUser.id === user.id) && count(user.id) < 2);
+    const firstCyclePreferred = preferredAutomatic.filter((user) => count(user.id) === 0);
+    const firstCycleFallback = fallbackAutomatic.filter((user) => count(user.id) === 0);
     let candidates = plannedFirstCycleUser ? [plannedFirstCycleUser]
-      : unassigned.length ? unassigned : availableUsers.filter((user) => count(user.id) < 2);
-    if (!candidates.length && input.allowAdminThirdAssignment) candidates = availableUsers.filter((user) => count(user.id) < 3);
+      : firstCyclePreferred.length ? firstCyclePreferred
+        : preferredAutomatic.length ? preferredAutomatic
+          : firstCycleFallback.length ? firstCycleFallback : fallbackAutomatic;
+    if (!candidates.length && input.allowAdminThirdAssignment) {
+      const preferredAdmin = preferredUsers.filter((user) => count(user.id) < 3);
+      candidates = preferredAdmin.length ? preferredAdmin : availableUsers.filter((user) => count(user.id) < 3);
+    }
 
     const exactAddressUsers = new Set(sameDate
       .filter((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address))
@@ -297,11 +317,13 @@ export function assignMeasurementAssignees(input: {
     const exactAddress = exactAddressUsers.has(selected.id);
     const hasVehicleRoute = Number.isFinite(shortestVehicleRoute(selected.id));
     const approvalRequired = nextCount >= 3;
+    const usedFallback = !target.preliminarySurveyorUserIds?.includes(selected.id);
     const reason: MeasurementAssignmentResult["reason"] = approvalRequired
       ? "관리자 3건 예외"
       : exactAddress ? "동일주소 묶음"
         : hasVehicleRoute && nextCount > 1 ? "근거리 묶음"
-          : nextCount > 1 ? "2건 배정" : "측정자 균등배정";
+          : nextCount > 1 ? "2건 배정"
+            : usedFallback ? "예비조사자 불가 fallback" : "예비조사자 우선 배정";
     assigned.push({ ...target, userId: selected.id });
     results.push({
       targetId: target.targetId,
