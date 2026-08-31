@@ -25,6 +25,16 @@ BEGIN
   IF jsonb_typeof(p_repairs) <> 'array' OR jsonb_array_length(p_repairs) = 0 THEN RAISE EXCEPTION 'INVALID_REPAIR_BATCH'; END IF;
   IF (SELECT count(*) FROM jsonb_array_elements(p_repairs)) <> (SELECT count(DISTINCT (value->>'targetId')::bigint) FROM jsonb_array_elements(p_repairs)) THEN RAISE EXCEPTION 'DUPLICATE_REPAIR_TARGET'; END IF;
 
+  -- 정상 assignment wrapper와 같은 순서로 날짜 lock을 먼저 잡아 target row lock과의 교착을 피한다.
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    'preliminary-measurement-assignment|' || lock_date::text, 0))
+  FROM (
+    SELECT DISTINCT (repair.value->'measurementAssignments'->0->>'measurementDate')::date AS lock_date
+    FROM jsonb_array_elements(p_repairs) AS repair(value)
+    WHERE COALESCE((repair.value->>'fillMeasurementAssignment')::boolean, false)
+    ORDER BY lock_date
+  ) repair_dates;
+
   FOR item IN SELECT value FROM jsonb_array_elements(p_repairs) ORDER BY (value->>'targetId')::bigint LOOP
     SELECT * INTO target_row FROM public.measurement_target_business WHERE id = (item->>'targetId')::bigint FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'TARGET_NOT_FOUND'; END IF;
@@ -82,8 +92,6 @@ BEGIN
     IF (item->>'recommendedDate')::date IS NULL OR (item->>'recommendedDate')::date >= target_row.measurement_date::date THEN RAISE EXCEPTION 'INVALID_RECOMMENDED_DATE'; END IF;
 
     IF COALESCE((item->>'fillMeasurementAssignment')::boolean, false) THEN
-      PERFORM pg_advisory_xact_lock(hashtextextended(
-        'preliminary-measurement-assignment|' || (expected_assignment->>'measurementDate'), 0));
       SELECT upper(btrim(COALESCE(user_row.survey_code, ''))) INTO configured_survey_code
       FROM public.users user_row
       WHERE user_row.id = (expected_assignment->>'assigneeUserId')::integer AND user_row.is_active IS NOT FALSE;
