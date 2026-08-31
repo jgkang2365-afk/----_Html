@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth/session';
+import {
+    collectReportProcessingJournalIdentities,
+    findMissingRegisteredMeasurementJournals,
+    REPORT_PROCESSING_IDENTITY_REQUIRED_CODE,
+    REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+    REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+} from '@/lib/report-processing/journal-gate';
 
 /**
  * 백그라운드 작업 큐 등록 API
@@ -24,6 +31,30 @@ export async function POST(req: NextRequest) {
         }
 
         const supabase = await createClient();
+
+        let journalIdentities;
+        try {
+            journalIdentities = collectReportProcessingJournalIdentities(job_type, targets);
+        } catch (error: any) {
+            if (error?.message === REPORT_PROCESSING_IDENTITY_REQUIRED_CODE) {
+                return NextResponse.json(
+                    { error: '대상의 code, year, period 정보가 필요합니다.', errorCode: REPORT_PROCESSING_IDENTITY_REQUIRED_CODE },
+                    { status: 400 }
+                );
+            }
+            throw error;
+        }
+
+        const missingJournals = await findMissingRegisteredMeasurementJournals(supabase, journalIdentities);
+        if (missingJournals.length > 0) {
+            return NextResponse.json(
+                {
+                    error: REPORT_PROCESSING_JOURNAL_REQUIRED_MESSAGE,
+                    errorCode: REPORT_PROCESSING_JOURNAL_REQUIRED_CODE,
+                },
+                { status: 409 }
+            );
+        }
 
         // 요청자 정보 조회
         const { data: dbUser } = await supabase
