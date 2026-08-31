@@ -31,7 +31,7 @@ function friendlyRpcError(message: string): string {
     INVALID_PARTICIPANTS: "예비조사자 목록이 올바르지 않습니다.",
     TARGET_NOT_FOUND: "측정 대상 사업장을 찾을 수 없습니다.",
     V2_PLAN_NOT_FOUND: "예비조사 V2 계획이 존재하지 않습니다.",
-    SEQUENCE_NUMBER_NOT_CONFIRMED: "측정일지 연번이 부여되지 않아 확정 상태가 아닙니다. 예외 정비는 확정 데이터만 가능합니다.",
+    TRUE_CONFIRMED_REQUIRED: "측정일지가 없어 찐확정 상태가 아닙니다. 예외 정비는 찐확정 데이터만 가능합니다.",
     PARTICIPANT_MISMATCH: "예비조사자 정보가 사용자 정보와 일치하지 않습니다.",
     PARTICIPANT_DUPLICATE: "예비조사자에 중복된 인원이 있습니다.",
     LINK_MEASURER_REQUIRED: "예·측을 선택해 주세요.",
