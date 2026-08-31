@@ -6,7 +6,7 @@ import { getKSTISOString } from '../utils/date-utils';
 const MES_QUEUE_ID = 1;
 const MES_STALE_TIMEOUT_MINUTES = 15;
 const MES_COMPLETION_TIMEOUT_MS = 12 * 60 * 1000;
-const MES_STATUS_POLL_MS = 2000;
+const MES_STATUS_POLL_MS = 10_000;
 const KST_CRON_OPTIONS = { timezone: 'Asia/Seoul' };
 
 /**

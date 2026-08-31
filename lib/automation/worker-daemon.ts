@@ -6,6 +6,13 @@ import { getKSTISOString, getKSTDateString } from '../utils/date-utils';
 import { requestK2BCalendarSync } from "./k2b-calendar-sync-client";
 import { processNationalSupportJob } from "./national-support-worker";
 import { enqueueNationalSupportJob } from "../national-support/job-queue";
+import {
+    NATIONAL_SUPPORT_STALE_THRESHOLD_MS,
+    NATIONAL_SUPPORT_STALE_WATCHDOG_MS,
+    WORKER_ACTIVE_POLL_MS,
+    type WorkerPollOutcome,
+    nextWorkerPollingState,
+} from "./worker-polling-policy";
 
 /**
  * 백그라운드 작업기 데몬 (Worker Daemon)
@@ -14,8 +21,12 @@ import { enqueueNationalSupportJob } from "../national-support/job-queue";
  */
 export class WorkerDaemon {
     private static instance: WorkerDaemon;
-    private pollingInterval: NodeJS.Timeout | null = null;
+    private pollingTimer: NodeJS.Timeout | null = null;
+    private staleWatchdogInterval: NodeJS.Timeout | null = null;
+    private isRunning: boolean = false;
     private isProcessing: boolean = false;
+    private isRecoveringStaleJobs: boolean = false;
+    private idlePollCount: number = 0;
     private currentK2BService: K2BService | null = null;
     private currentJobId: string | null = null;
 
@@ -46,7 +57,7 @@ export class WorkerDaemon {
             return;
         }
 
-        if (this.pollingInterval) {
+        if (this.isRunning) {
             console.log("[WorkerDaemon] 이미 워커가 실행 중입니다.");
             return;
         }
@@ -55,33 +66,62 @@ export class WorkerDaemon {
             "[WorkerDaemon] background_jobs 전용 작업기를 시작합니다. " +
             "(문서 생성 Worker와 별도 실행)"
         );
-        this.pollingInterval = setInterval(() => this.poll(), 5000);
+        this.isRunning = true;
+        this.idlePollCount = 0;
+        this.scheduleNextPoll(WORKER_ACTIVE_POLL_MS);
+        this.staleWatchdogInterval = setInterval(
+            () => void this.runStaleNationalSupportWatchdog(),
+            NATIONAL_SUPPORT_STALE_WATCHDOG_MS,
+        );
     }
 
     /**
      * 워커 정지
      */
     public stop() {
-        if (this.pollingInterval) {
-            clearInterval(this.pollingInterval);
-            this.pollingInterval = null;
+        const wasRunning = this.isRunning;
+        this.isRunning = false;
+
+        if (this.pollingTimer) {
+            clearTimeout(this.pollingTimer);
+            this.pollingTimer = null;
+        }
+        if (this.staleWatchdogInterval) {
+            clearInterval(this.staleWatchdogInterval);
+            this.staleWatchdogInterval = null;
+        }
+
+        if (wasRunning) {
             console.log("[WorkerDaemon] 백그라운드 작업기(Worker Daemon)를 정지했습니다.");
         }
+    }
+
+    private scheduleNextPoll(delayMs: number) {
+        if (!this.isRunning) return;
+
+        this.pollingTimer = setTimeout(async () => {
+            this.pollingTimer = null;
+            const outcome = await this.poll();
+            const nextState = nextWorkerPollingState(
+                this.idlePollCount,
+                outcome,
+            );
+            this.idlePollCount = nextState.idlePollCount;
+            this.scheduleNextPoll(nextState.delayMs);
+        }, delayMs);
     }
 
     /**
      * 큐 폴링 함수
      */
-    private async poll() {
+    private async poll(): Promise<WorkerPollOutcome> {
         // 현재 작업을 처리 중이면 중복 폴링 패스
-        if (this.isProcessing) return;
+        if (this.isProcessing) return "activity";
 
         this.isProcessing = true;
 
         try {
             const supabase = await createClient();
-
-            await this.recoverStaleNationalSupportJobs(supabase);
 
             // PENDING 상태인 가장 오래된 작업 1개 획득
             const { data: jobs, error } = await supabase
@@ -95,8 +135,7 @@ export class WorkerDaemon {
 
             if (error) throw error;
             if (!jobs || jobs.length === 0) {
-                this.isProcessing = false;
-                return;
+                return "idle";
             }
 
             const job = jobs[0];
@@ -117,8 +156,7 @@ export class WorkerDaemon {
             // 이미 다른 워커가 가져갔거나 낙관적 락 획득 실패 시 다음 루프로 패스
             if (!updatedJobs || updatedJobs.length === 0) {
                 console.log(`[WorkerDaemon] 작업 선점 실패 (이미 다른 프로세스가 처리 중): ${job.id}`);
-                this.isProcessing = false;
-                return;
+                return "activity";
             }
 
             console.log(`[WorkerDaemon] 작업 선점 성공: ID = ${job.id}, Type = ${job.job_type}`);
@@ -135,16 +173,33 @@ export class WorkerDaemon {
                 throw new Error(`알 수 없는 작업 유형: ${job.job_type}`);
             }
 
+            return "activity";
+
         } catch (e: any) {
             console.error("[WorkerDaemon] 폴링 루프 오류:", e.message);
+            return "error";
         } finally {
             this.isProcessing = false;
             this.currentJobId = null;
         }
     }
 
+    private async runStaleNationalSupportWatchdog() {
+        if (this.isRecoveringStaleJobs) return;
+
+        this.isRecoveringStaleJobs = true;
+        try {
+            const supabase = await createClient();
+            await this.recoverStaleNationalSupportJobs(supabase);
+        } catch (e: any) {
+            console.error('[WorkerDaemon] 건강디딤돌 watchdog 오류:', e.message);
+        } finally {
+            this.isRecoveringStaleJobs = false;
+        }
+    }
+
     private async recoverStaleNationalSupportJobs(supabase: any) {
-        const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        const staleThreshold = new Date(Date.now() - NATIONAL_SUPPORT_STALE_THRESHOLD_MS).toISOString();
         const { data: staleJobs, error } = await supabase
             .from('background_jobs')
             .select('id, payload, updated_at')
