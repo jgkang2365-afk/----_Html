@@ -4,6 +4,7 @@ import type {
   Availability, ExistingAssignment, RouteMetrics, SameDayRouteEvidence, SurveyMethod, SurveyTarget, SurveyUser,
 } from "./types";
 import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
+import { isExistingPhoneResponsibleBlocked, isFieldParticipantBlocked } from "./availability-policy";
 
 export interface ManualPlanValidationInput {
   target: SurveyTarget;
@@ -60,8 +61,20 @@ export async function validateManualPlanHardRules(
   if (experiencedCount === 0) {
     errors.push("비경력자 단독 예비조사는 불가하며 경력자가 최소 1명 필요합니다.");
   }
-  if (input.participants.some((user) => input.availability?.isBlocked(user.id, input.recommendedDate))) {
-    errors.push("직원 제외 일정 또는 실제 측정 충돌이 있는 예비조사자는 배정할 수 없습니다.");
+  if (input.target.kind === "existing" && surveyMethod === "phone") {
+    const nonExperienced = input.participants.filter((user) => !user.experienced);
+    if (nonExperienced.length > 0 && !nonExperienced.some((user) => user.id === input.target.responsible.id)) {
+      errors.push("기존업체 유선의 경력자+비경력자 조합은 비경력자가 유선 책임자여야 합니다.");
+    }
+  }
+  if (input.availability) {
+    if (input.target.kind === "existing" && surveyMethod === "phone") {
+      if (isExistingPhoneResponsibleBlocked(input.availability, input.target.responsible.id, input.recommendedDate)) {
+        errors.push("유선 책임자의 직원 제외 일정에는 예비조사를 배정할 수 없습니다.");
+      }
+    } else if (input.participants.some((user) => isFieldParticipantBlocked(input.availability!, user.id, input.recommendedDate))) {
+      errors.push("직원 제외 일정 또는 실제 측정 충돌이 있는 방문 예비조사자는 배정할 수 없습니다.");
+    }
   }
   const requiresUserConfirmation = experiencedCount >= 2;
 

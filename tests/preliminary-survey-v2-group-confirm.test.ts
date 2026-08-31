@@ -155,7 +155,8 @@ test("묶음 확정도 canonical 경력·일정·실측·용량 hard rule을 서
   assert.match(confirmBlock, /buildScheduleBlockKeys/);
   assert.match(confirmBlock, /validateManualPlanHardRules/);
   assert.match(confirmBlock, /plannedAssignments/);
-  assert.match(confirmBlock, /!availability\.isBlocked\(user\.id, input\.date\)/);
+  assert.match(confirmBlock, /isScheduleBlocked/);
+  assert.match(confirmBlock, /isActualMeasurementBlocked/);
 });
 
 test("확정 RPC는 일반 정상 확정을 관리자 예외 감사로그에 INSERT하지 않는다", () => {

@@ -4,7 +4,8 @@ import { recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { validateManualPlanHardRules } from "../lib/preliminary-survey-v2/manual-validation";
 import { assignMeasurementAssignees } from "../lib/preliminary-survey-v2/measurement-assignment";
-import type { RouteMetrics, SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
+import { allocateExistingPhoneDates } from "../lib/preliminary-survey-v2/existing-phone-date-allocation";
+import type { ExistingAssignment, RouteMetrics, SurveyTarget, SurveyUser } from "../lib/preliminary-survey-v2/types";
 
 const senior = (id: number, name = `경력${id}`): SurveyUser => ({ id, name, experienced: true, active: true });
 const junior = (id: number, name = `비경력${id}`): SurveyUser => ({ id, name, experienced: false, active: true });
@@ -40,19 +41,19 @@ test("canonical: 기존업체 유선 비경력 단독은 자동추천과 수동�
   assert.match(manual.errors.join(" "), /경력자가 최소 1명/);
 });
 
-test("canonical: 기존업체 유선의 경력 단독과 경력+비경력 조합은 허용한다", async () => {
+test("canonical: 기존업체 유선의 경력 단독과 비경력 responsible+경력 reviewer 조합은 허용한다", async () => {
   const experienced = senior(1);
   const novice = junior(2);
   const date = recommendationDatesForBusinessType("2026-08-31", "existing")[0].date;
-  for (const participants of [[experienced], [experienced, novice]]) {
+  for (const [responsible, participants] of [[experienced, [experienced]], [novice, [novice, experienced]]] as const) {
     const result = await validateManualPlanHardRules({
-      target: target(experienced), recommendedDate: date, participants, surveyMethod: "phone", existingAssignments: [], routes,
+      target: target(responsible), recommendedDate: date, participants: [...participants], surveyMethod: "phone", existingAssignments: [], routes,
     });
     assert.equal(result.valid, true);
   }
 });
 
-test("canonical: 비경력자만 가능한 우선일은 탈락하고 다음 유효일을 탐색한다", async () => {
+test("canonical: 기존업체 유선 reviewer의 측정·일정은 우선일을 막지 않는다", async () => {
   const novice = junior(1);
   const experienced = senior(2);
   const candidates = recommendationDatesForBusinessType("2026-08-31", "existing");
@@ -62,7 +63,7 @@ test("canonical: 비경력자만 가능한 우선일은 탈락하고 다음 유�
     routes,
   });
   assert.equal(result.status, "recommended");
-  assert.equal(result.date, candidates[1].date);
+  assert.equal(result.date, candidates[0].date);
   assert.deepEqual(result.participants.map((user) => user.id), [novice.id, experienced.id]);
 });
 
@@ -93,8 +94,116 @@ test("canonical: 경력자+경력자 수동 선택은 확인 뒤에만 저장할
   assert.equal(result.requiresUserConfirmation, true);
 });
 
+test("canonical: 기존업체 유선 responsible·reviewer의 실제 측정 일정은 후보일을 막지 않는다", async () => {
+  const responsible = junior(2);
+  const reviewer = senior(10);
+  const date = recommendationDatesForBusinessType("2026-08-31", "existing")[0].date;
+  const result = await validateManualPlanHardRules({
+    target: target(responsible), recommendedDate: date, participants: [responsible, reviewer], surveyMethod: "phone",
+    existingAssignments: [], routes,
+    availability: {
+      isBlocked: () => true,
+      isScheduleBlocked: () => false,
+      isActualMeasurementBlocked: () => true,
+    },
+  });
+  assert.equal(result.valid, true);
+});
+
+test("canonical: 기존업체 유선 reviewer 일정과 reviewer 횟수는 capacity를 소비하지 않는다", async () => {
+  const responsible = junior(2);
+  const reviewer = senior(10);
+  const date = recommendationDatesForBusinessType("2026-08-31", "existing")[0].date;
+  const reviewAssignments = [1, 2, 3].map((id) => ({
+    targetId: 100 + id, businessCode: `R${id}`, kind: "existing" as const, date,
+    participants: [20 + id, reviewer.id], responsibleUserId: 20 + id, experiencedReviewerId: reviewer.id,
+    surveyMethod: "phone" as const, coordinate: null, region: null,
+  }));
+  const result = await validateManualPlanHardRules({
+    target: target(responsible), recommendedDate: date, participants: [responsible, reviewer], surveyMethod: "phone",
+    existingAssignments: reviewAssignments, routes,
+    availability: {
+      isBlocked: (userId) => userId === reviewer.id,
+      isScheduleBlocked: (userId) => userId === reviewer.id,
+      isActualMeasurementBlocked: () => false,
+    },
+  });
+  assert.equal(result.valid, true);
+});
+
+test("canonical: 기존업체 유선 responsible의 명시적 불가 일정은 hard block이다", async () => {
+  const responsible = senior(1);
+  const date = recommendationDatesForBusinessType("2026-08-31", "existing")[0].date;
+  const result = await validateManualPlanHardRules({
+    target: target(responsible), recommendedDate: date, participants: [responsible], surveyMethod: "phone",
+    existingAssignments: [], routes,
+    availability: { isBlocked: () => true, isScheduleBlocked: () => true, isActualMeasurementBlocked: () => false },
+  });
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(" "), /유선 책임자/);
+});
+
+test("canonical: 9/1 기존업체 6건은 빈 primary 날짜를 먼저 사용해 서로 다른 날짜로 분산한다", async () => {
+  const responsible = senior(1);
+  const results = await recommendBatch({
+    targets: Array.from({ length: 6 }, (_, index) => ({
+      ...target(responsible), id: index + 1, code: `D${index + 1}`, measurementDate: "2026-09-01",
+    })),
+    experiencedUsers: [responsible], availability: { isBlocked: () => false }, routes,
+  });
+  assert.equal(results.every((result) => result.status === "recommended" && result.date !== null), true);
+  assert.equal(new Set(results.map((result) => result.date)).size, 6);
+});
+
+test("canonical: 전역 날짜 배정은 앞 업체가 뒤 업체의 유일한 빈 날짜를 먼저 소비하지 않는다", () => {
+  const selected = allocateExistingPhoneDates([
+    { targetId: 1, candidates: [
+      { date: "2026-08-03", responsibleUserId: 1, workingDaysBefore: 20, primary: true },
+      { date: "2026-08-04", responsibleUserId: 1, workingDaysBefore: 19, primary: true },
+    ] },
+    { targetId: 2, candidates: [
+      { date: "2026-08-03", responsibleUserId: 2, workingDaysBefore: 20, primary: true },
+    ] },
+  ], []);
+  assert.deepEqual([...selected!.entries()].sort(([left], [right]) => left - right), [
+    [1, { date: "2026-08-04", responsibleUserId: 1 }],
+    [2, { date: "2026-08-03", responsibleUserId: 2 }],
+  ]);
+});
+
+test("canonical: persisted 유선 1건이 있는 날짜보다 0건 primary 날짜를 우선한다", async () => {
+  const responsible = senior(1);
+  const dates = recommendationDatesForBusinessType("2026-09-01", "existing");
+  const [result] = await recommendBatch({
+    targets: [{ ...target(responsible), measurementDate: "2026-09-01" }],
+    experiencedUsers: [responsible],
+    existingAssignments: [{
+      targetId: 99, businessCode: "PERSISTED", kind: "existing", date: dates[0].date,
+      participants: [responsible.id], responsibleUserId: responsible.id, experiencedReviewerId: null,
+      surveyMethod: "phone", coordinate: null, region: null,
+    }],
+    availability: { isBlocked: () => false }, routes,
+  });
+  assert.equal(result.date, dates[1].date);
+});
+
+test("canonical: 동일일 responsible 3건이면 네 번째는 다른 유효 날짜를 사용한다", async () => {
+  const responsible = senior(1);
+  const dates = recommendationDatesForBusinessType("2026-09-01", "existing");
+  const existingAssignments = [1, 2, 3].map((id) => ({
+    targetId: 90 + id, businessCode: `CAP${id}`, kind: "existing" as const, date: dates[0].date,
+    participants: [responsible.id], responsibleUserId: responsible.id, experiencedReviewerId: null,
+    surveyMethod: "phone" as const, coordinate: null, region: null,
+  }));
+  const [result] = await recommendBatch({
+    targets: [{ ...target(responsible), measurementDate: "2026-09-01" }], experiencedUsers: [responsible],
+    existingAssignments, availability: { isBlocked: () => false }, routes,
+  });
+  assert.equal(result.date, dates[1].date);
+});
+
 test("2026-08-31 canonical fixture는 고정 역할을 바꾸지 않고 공시료 1/1/1/1/1/1을 만든다", () => {
-  const fixture = [
+  const fixture: ReadonlyArray<readonly [string, number, string]> = [
     ["H0028", 1, "A"], ["H0033", 2, "C"], ["H0195", 4, "F"],
     ["H0049", 5, "B"], ["H0361", 3, "D"], ["H0130", 6, "G"],
   ] as const;
@@ -150,7 +259,7 @@ test("2026-08-31 canonical fixture는 Production 8/31 READ-ONLY snapshot에서 �
     ["2026-07-24", 13, 2], ["2026-07-24", 16, 3],
     ["2026-07-30", 13, 2], ["2026-07-30", 15, 3], ["2026-07-30", 17, 3], ["2026-07-30", 20, 3],
   ];
-  const assignments = existingPhoneCounts.flatMap(([date, responsibleUserId, count], groupIndex) =>
+  const assignments: ExistingAssignment[] = existingPhoneCounts.flatMap(([date, responsibleUserId, count], groupIndex) =>
     Array.from({ length: count }, (_, index) => ({
       targetId: -(groupIndex * 10 + index + 1), kind: "existing" as const, date,
       businessCode: `FIXTURE-${groupIndex}-${index}`,
@@ -158,35 +267,37 @@ test("2026-08-31 canonical fixture는 Production 8/31 READ-ONLY snapshot에서 �
       surveyMethod: "phone" as const, address: null, coordinate: null, region: null,
     })));
   const fixture = [
-    { id: 466, code: "H0028", responsible: 15, participants: [15], expected: "2026-08-11" },
-    { id: 438, code: "H0033", responsible: 15, participants: [15, 2], expected: "2026-08-11" },
-    { id: 495, code: "H0195", responsible: 13, participants: [13, 16], expected: "2026-08-06" },
-    { id: 569, code: "H0049", responsible: 17, participants: [17], expected: null },
-    { id: 502, code: "H0361", responsible: 13, participants: [13], expected: "2026-08-06" },
-    { id: 531, code: "H0130", responsible: 13, participants: [13, 20], expected: "2026-08-14" },
+    { id: 466, code: "H0028", responsible: 15, participants: [15], reviewer: null },
+    { id: 438, code: "H0033", responsible: 2, participants: [2, 15], reviewer: 15 },
+    { id: 495, code: "H0195", responsible: 16, participants: [16, 13], reviewer: 13 },
+    { id: 569, code: "H0049", responsible: 17, participants: [17], reviewer: null },
+    { id: 502, code: "H0361", responsible: 13, participants: [13], reviewer: null },
+    { id: 531, code: "H0130", responsible: 20, participants: [20, 13], reviewer: 13 },
   ];
   const selected = new Map<string, string | null>();
   for (const row of fixture) {
-    const participants = row.participants.map((id) => users.get(id)!);
     const surveyTarget = { ...target(users.get(row.responsible)!), id: row.id, code: row.code };
-    let date: string | null = null;
-    for (const candidate of recommendationDatesForBusinessType("2026-08-31", "existing")) {
-      const validation = await validateManualPlanHardRules({
-        target: surveyTarget, recommendedDate: candidate.date, participants, surveyMethod: "phone",
-        existingAssignments: assignments, routes,
-        availability: { isBlocked: (userId, candidateDate) => blockedByDate.get(candidateDate)?.has(userId) ?? false },
-      });
-      if (!validation.valid) continue;
-      date = candidate.date;
-      assignments.push({
-        targetId: row.id, kind: "existing", date, participants: row.participants,
-        businessCode: row.code,
-        responsibleUserId: row.responsible, experiencedReviewerId: null,
-        surveyMethod: "phone", address: null, coordinate: null, region: null,
-      });
-      break;
-    }
-    selected.set(row.code, date);
+    const [result] = await recommendBatch({
+      targets: [surveyTarget],
+      experiencedUsers: row.reviewer == null ? [] : [users.get(row.reviewer)!],
+      existingAssignments: assignments,
+      availability: {
+        isBlocked: (userId, candidateDate) => blockedByDate.get(candidateDate)?.has(userId) ?? false,
+        isScheduleBlocked: () => false,
+        isActualMeasurementBlocked: (userId, candidateDate) => blockedByDate.get(candidateDate)?.has(userId) ?? false,
+      },
+      routes,
+    });
+    assert.equal(result.status, "recommended", `${row.code} 날짜가 반드시 산출되어야 한다`);
+    assert.deepEqual(result.participants.map((user) => user.id), row.participants);
+    selected.set(row.code, result.date);
+    assignments.push({
+      targetId: row.id, kind: "existing", date: result.date!, participants: row.participants,
+      businessCode: row.code,
+      responsibleUserId: row.responsible, experiencedReviewerId: row.reviewer,
+      surveyMethod: "phone", address: null, coordinate: null, region: null,
+    });
   }
-  assert.deepEqual(Object.fromEntries(selected), Object.fromEntries(fixture.map((row) => [row.code, row.expected])));
+  assert.equal([...selected.values()].every((date) => date !== null), true, "H0049를 포함한 기존업체 유선 6건은 모두 날짜가 있어야 한다");
+  assert.equal(new Set(selected.values()).size, fixture.length, "빈 유효일이 있는 동안 6건을 서로 다른 날짜에 분산한다");
 });

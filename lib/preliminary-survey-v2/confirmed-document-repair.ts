@@ -64,13 +64,14 @@ export function classifyConfirmedDocumentState(plan: {
 export async function firstValidConfirmedRepairDate(input: {
   candidateDates: string[];
   participants: SurveyUser[];
-  blockedKeys: Set<string>;
+  /** @deprecated 역할별 validation이 schedule/actual source를 직접 판정한다. */
+  blockedKeys?: Set<string>;
   validate: (date: string) => Promise<{ valid: boolean; errors: string[]; experiencedReviewer: SurveyUser | null }>;
 }) {
   const errors: string[] = [];
   for (const date of input.candidateDates) {
-    if (input.participants.some((user) => user.active === false || input.blockedKeys.has(`${user.id}:${date}`))) {
-      errors.push(`${date}: 조사자 불가 일정 또는 실제 측정 충돌`);
+    if (input.participants.some((user) => user.active === false)) {
+      errors.push(`${date}: 비활성 조사자`);
       continue;
     }
     const validation = await input.validate(date);
@@ -240,7 +241,6 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       const selectedDate = await firstValidConfirmedRepairDate({
         candidateDates,
         participants: validParticipants,
-        blockedKeys,
         validate: (date) => validateManualPlanHardRules({
           target: { ...context.target, responsible },
           recommendedDate: date,
@@ -251,6 +251,8 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
           experiencedUsers: context.users.filter((user: SurveyUser) => user.experienced),
           availability: {
             isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+            isScheduleBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`),
+            isActualMeasurementBlocked: (userId, date) => actualMeasurementBlockedKeys.has(`${userId}:${date}`),
             blockedReason: (userId, date) => {
               const key = `${userId}:${date}`;
               return [

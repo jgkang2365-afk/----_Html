@@ -172,6 +172,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
       experiencedUsers: users.filter((user) => user.experienced),
       availability: {
         isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+        isScheduleBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`),
+        isActualMeasurementBlocked: (userId, date) => actualMeasurementBlockedKeys.has(`${userId}:${date}`),
         blockedReason: (userId, date) => {
           const key = `${userId}:${date}`;
           return [
@@ -182,13 +184,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
       },
     });
     if (!validation.valid) return NextResponse.json({ error: validation.errors.join(" ") }, { status: 400 });
-    if (participantIds.some((userId) => blockedKeys.has(`${userId}:${body.recommendedDate}`))) {
-      return NextResponse.json({
-        error: "직원 불가 일정에 등록된 예비조사자 또는 경력 검토자는 저장할 수 없습니다.",
-        code: "USER_UNAVAILABLE_ON_SURVEY_DATE",
-        reviewRequired: true,
-      }, { status: 409 });
-    }
     // 경력자 2명 이상 조합은 사용자 확인 전에는 저장하지 않는다.
     // 1차 요청(confirm 미포함)에서는 계획을 저장하지 않고 확인 요청만 반환한다.
     const confirmed = body.confirm === true;

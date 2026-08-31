@@ -133,6 +133,10 @@ export interface RecommendationResult {
 }
 export interface Availability {
   isBlocked(userId: number, date: string): boolean;
+  /** 명시적 직원 불가 일정. 기존업체 유선 responsible에게만 적용한다. */
+  isScheduleBlocked?(userId: number, date: string): boolean;
+  /** 실제 측정 참여 충돌. 방문 예비조사의 현장 수행자에게만 적용한다. */
+  isActualMeasurementBlocked?(userId: number, date: string): boolean;
   blockedReason?(userId: number, date: string): string[];
 }
 export interface RouteMetrics {

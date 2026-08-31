@@ -97,6 +97,8 @@ async function validatePolicyRepairHardRules(supabase: any, targetId: number, pl
     experiencedUsers: context.users.filter((user) => user.experienced),
     availability: {
       isBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`) || measurementBlockedKeys.has(`${userId}:${date}`),
+      isScheduleBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`),
+      isActualMeasurementBlocked: (userId, date) => measurementBlockedKeys.has(`${userId}:${date}`),
     },
   });
   if (!validation.valid) throw new Error(`POLICY_DATE_REPAIR_MANUAL_REVIEW:${validation.errors.join(" | ")}`);

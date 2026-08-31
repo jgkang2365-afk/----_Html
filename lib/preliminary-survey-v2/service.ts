@@ -229,6 +229,8 @@ export interface CalculationOptions {
   routeMetrics?: RouteMetrics;
   /** Stage 2 clean baseline: DB의 과거 측정 역할은 stale snapshot으로만 보존하고 추천 preference에는 사용하지 않는다. */
   ignoreLegacyAssignmentInputs?: boolean;
+  /** 운영 전체 dry-run처럼 persisted manual plan도 현재 canonical과 비교할 때만 false. */
+  preserveManualPlans?: boolean;
 }
 
 export interface CalculationOutput {
@@ -528,7 +530,7 @@ export async function calculateV2Recommendations(
     const target = targetById.get(Number(plan.measurement_target_business_id));
     // 과거 automatic plan은 새 정책의 정답으로 보존하지 않는다. 사용자가 적용한
     // manual plan만 현재 hard constraint를 통과할 때 minimum-change 후보로 유지한다.
-    if (!target || !plan.recommended_date || plan.plan_origin !== "manual") return [];
+    if (options.preserveManualPlans === false || !target || !plan.recommended_date || plan.plan_origin !== "manual") return [];
     return [{
       targetId: target.id, businessCode: target.code, kind: target.kind, date: plan.recommended_date,
       participants: Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids.map(Number) : [],
@@ -564,7 +566,7 @@ export async function calculateV2Recommendations(
     const responsible = users.find((user) => user.id === tentative.responsibleUserId) ?? null;
     if (!responsible || participants.length !== new Set(tentative.participants).size ||
         !participants.some((user) => user.id === responsible.id) ||
-        participants.some((user) => user.active === false || blockedKeys.has(`${user.id}:${tentative.date}`)) ||
+        participants.some((user) => user.active === false) ||
         !isInPreliminaryDateScope(tentative.date, scope)) return null;
     const otherAssignments = [
       ...existingAssignments,
@@ -582,6 +584,8 @@ export async function calculateV2Recommendations(
       experiencedUsers: activeSurveyors.filter((user) => user.experienced),
       availability: {
         isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+        isScheduleBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`),
+        isActualMeasurementBlocked: (userId, date) => measurementBlockedKeys.has(`${userId}:${date}`),
         blockedReason,
       },
     });
@@ -615,6 +619,8 @@ export async function calculateV2Recommendations(
     existingAssignments: [...existingAssignments, ...preservedAssignments],
     availability: {
       isBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || blockedKeys.has(`${userId}:${date}`),
+      isScheduleBlocked: (userId, date) => !isInPreliminaryDateScope(date, scope) || scheduleBlockedKeys.has(`${userId}:${date}`),
+      isActualMeasurementBlocked: (userId, date) => measurementBlockedKeys.has(`${userId}:${date}`),
       blockedReason: (userId, date) => [
         !isInPreliminaryDateScope(date, scope) ? "PRELIMINARY_DATE_SCOPE_BLOCK" : null,
         ...blockedReason(userId, date),
@@ -898,6 +904,8 @@ export async function ensureV2PlanForTarget(supabase: Client, targetId: number):
     existingAssignments: [],
     availability: {
       isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+      isScheduleBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`),
+      isActualMeasurementBlocked: (userId, date) => actualMeasurementBlockedKeys.has(`${userId}:${date}`),
       blockedReason: (userId, date) => {
         const key = `${userId}:${date}`;
         return [
@@ -1172,6 +1180,8 @@ export async function confirmGroupRecommendation(
   const availability = {
     isBlocked: (userId: number, date: string) =>
       scheduleBlockedKeys.has(`${userId}:${date}`) || measurementBlockedKeys.has(`${userId}:${date}`),
+    isScheduleBlocked: (userId: number, date: string) => scheduleBlockedKeys.has(`${userId}:${date}`),
+    isActualMeasurementBlocked: (userId: number, date: string) => measurementBlockedKeys.has(`${userId}:${date}`),
   };
   const userById = new Map(userRows.map((user) => [user.id, user]));
   const confirmedKeys = new Set((confirmedRows ?? []).map((row: any) =>
@@ -1234,7 +1244,6 @@ export async function confirmGroupRecommendation(
     if (!lead.experienced) {
       const reviewer = userRows
         .filter((user) => user.experienced && user.active !== false && user.id !== lead.id)
-        .filter((user) => !availability.isBlocked(user.id, input.date))
         .sort((left, right) => left.id - right.id)[0];
       if (!reviewer) {
         failed.push({ targetId, code: target.code, reason: "NO_EXPERIENCED_REVIEWER" });

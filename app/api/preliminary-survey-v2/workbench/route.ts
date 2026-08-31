@@ -442,6 +442,8 @@ async function applySubmittedDrafts(
       experiencedUsers: allUsers.filter((user) => user.experienced),
       availability: {
         isBlocked: (userId, date) => blockedKeys.has(`${userId}:${date}`),
+        isScheduleBlocked: (userId, date) => scheduleBlockedKeys.has(`${userId}:${date}`),
+        isActualMeasurementBlocked: (userId, date) => measurementBlockedKeys.has(`${userId}:${date}`),
         blockedReason: (userId, date) => {
           const key = `${userId}:${date}`;
           return [
@@ -451,13 +453,8 @@ async function applySubmittedDrafts(
         },
       },
     });
-    const roleUserIds = [...new Set([
-      ...draft.participantUserIds,
-      draft.sourceResponsibleUserId,
-      validation.experiencedReviewer?.id,
-    ].filter((id): id is number => id != null && Number.isInteger(id) && id > 0))];
-    if (participants.some((user) => user.active === false) || roleUserIds.some((id) => blockedKeys.has(`${id}:${draft.preliminaryDate}`))) {
-      reasons.push({ targetId: draft.targetId, reason: "추천 생성 후 조사자 제외 일정 또는 측정 업무가 추가되었습니다." });
+    if (participants.some((user) => user.active === false)) {
+      reasons.push({ targetId: draft.targetId, reason: "추천 생성 후 비활성 조사자가 포함되었습니다." });
     }
     if ((measurementRoleKeysByTarget.get(draft.targetId) ?? [])
       .some((key) => measurementRoleBlockedKeys.has(key))) {

@@ -376,8 +376,10 @@ test("Apply draftAssignments는 canonical 조사 방식과 사업장 주소를 �
 test("F: 수동 수정은 blocked 조사자를 명확한 오류로 거부한다", () => {
   const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
   assert.match(manualRoute, /user_schedule_blocks/);
-  assert.match(manualRoute, /USER_UNAVAILABLE_ON_SURVEY_DATE/);
-  assert.match(manualRoute, /status: 409/);
+  assert.match(manualRoute, /validateManualPlanHardRules/);
+  assert.match(manualRoute, /isScheduleBlocked: \(userId, date\) => scheduleBlockedKeys\.has/);
+  assert.match(manualRoute, /validation\.errors\.join/);
+  assert.match(manualRoute, /status: 400/);
 });
 
 test("E: apply는 추천 후 추가된 직원 불가 일정을 stale draft로 거부한다", () => {
@@ -386,15 +388,16 @@ test("E: apply는 추천 후 추가된 직원 불가 일정을 stale draft로 �
   const applyEnd = workbench.indexOf("export async function GET", applyStart);
   const apply = workbench.slice(applyStart, applyEnd);
   assert.match(apply, /loadScheduleBlockKeys/);
-  assert.match(apply, /blockedKeys\.has/);
-  assert.match(apply, /조사자 제외 일정 또는 측정 업무가 추가/);
+  assert.match(apply, /validateManualPlanHardRules/);
+  assert.match(apply, /isScheduleBlocked: \(userId, date\) => scheduleBlockedKeys\.has/);
   assert.match(apply, /DRAFT_REVIEW_REQUIRED/);
   assert.match(apply, /status: 409/);
 });
 
 test("기존 가확정·수동 plan은 blocked 조사자가 있으면 보존하지 않고 재추천한다", () => {
   const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
-  assert.match(service, /participants\.some\(\(user\) => user\.active === false \|\| blockedKeys\.has\(`\$\{user\.id\}:\$\{tentative\.date\}`\)\)/);
+  assert.match(service, /validateManualPlanHardRules/);
+  assert.match(service, /isScheduleBlocked: \(userId, date\) => scheduleBlockedKeys\.has/);
   assert.match(service, /preservedAssignments/);
 });
 
