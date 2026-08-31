@@ -91,6 +91,14 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(sql, /INSERT INTO public\.preliminary_survey_v2_measurement_assignments/);
     assert.match(sql, /preliminary_survey_v2_document_repair_audit/);
   });
+  it("누락 공시료 repair의 직접 INSERT도 공통 그룹 hard-max와 관리자 3건 승인을 우회하지 못한다", () => {
+    const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260831120000_guard_repair_measurement_assignment_groups.sql"), "utf8");
+    assert.match(sql, /pg_advisory_xact_lock/);
+    assert.match(sql, /MEASUREMENT_ASSIGNMENT_HARD_MAX_EXCEEDED/);
+    assert.match(sql, /MEASUREMENT_ASSIGNMENT_ADMIN_EXCEPTION_REQUIRED/);
+    assert.match(sql, /existing_assignment_group_count = 2/);
+    assert.match(sql, /repeat\(configured_survey_code, existing_assignment_group_count \+ 1\)/);
+  });
   it("forward RPC guard는 assignment-only payload의 기존 조사자 snapshot을 alias로 정확히 보존한다", () => {
     const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260830130000_guard_true_confirmed_repair_non_null_snapshots.sql"), "utf8");
     assert.match(sql, /NOT COALESCE\(\(item->>'fillSurveyors'\)::boolean, false\)[\s\S]*incoming_participant_ids IS DISTINCT FROM plan_row\.participant_user_ids[\s\S]*incoming_participant_names IS DISTINCT FROM plan_row\.participant_names[\s\S]*responsibleUserId[\s\S]*experiencedReviewerUserId/);
