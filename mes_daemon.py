@@ -26,7 +26,7 @@ if load_dotenv:
     load_dotenv(ROOT_DIR / ".env")
 
 QUEUE_ID = 1
-POLL_SECONDS = int(os.getenv("MES_DAEMON_POLL_SECONDS", "5"))
+POLL_SECONDS = int(os.getenv("MES_DAEMON_POLL_SECONDS", "30"))
 IDLE_RESET_SECONDS = int(os.getenv("MES_DAEMON_IDLE_RESET_SECONDS", "10"))
 MACRO_TIMEOUT_SECONDS = int(os.getenv("MES_DAEMON_MACRO_TIMEOUT_SECONDS", "600"))
 DRY_RUN = os.getenv("MES_DAEMON_DRY_RUN", "").lower() in ("1", "true", "yes", "y")
