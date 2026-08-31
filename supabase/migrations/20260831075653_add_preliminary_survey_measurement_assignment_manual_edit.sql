@@ -22,6 +22,7 @@ GRANT SELECT, INSERT ON TABLE public.preliminary_survey_v2_measurement_assignmen
 
 CREATE OR REPLACE FUNCTION public.update_preliminary_survey_v2_measurement_assignment(
   p_assignment_id uuid,
+  p_expected_measurement_date date,
   p_expected_assignee_user_id integer,
   p_assignee_user_id integer,
   p_reason text,
@@ -48,7 +49,8 @@ DECLARE
   proposed_group_fingerprint text;
   approval_timestamp timestamptz;
 BEGIN
-  IF p_assignment_id IS NULL OR p_expected_assignee_user_id IS NULL OR p_assignee_user_id IS NULL
+  IF p_assignment_id IS NULL OR p_expected_measurement_date IS NULL
+     OR p_expected_assignee_user_id IS NULL OR p_assignee_user_id IS NULL
      OR p_changed_by_user_id IS NULL OR btrim(COALESCE(p_reason, '')) = '' THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'INVALID_MEASUREMENT_ASSIGNMENT_MANUAL_EDIT';
   END IF;
@@ -64,13 +66,18 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'MEASUREMENT_ASSIGNMENT_ADMIN_EXCEPTION_REQUIRED';
   END IF;
 
+  -- 모든 assignment writer와 같은 date lock을 row lock보다 먼저 잡아 Apply/삭제/repair와 직렬화한다.
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    'preliminary-measurement-assignment|' || p_expected_measurement_date::text, 0
+  ));
   SELECT * INTO assignment_row
   FROM public.preliminary_survey_v2_measurement_assignments
   WHERE id = p_assignment_id
   FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'MEASUREMENT_ASSIGNMENT_NOT_FOUND'; END IF;
-  IF assignment_row.assignee_user_id <> p_expected_assignee_user_id THEN
-    RAISE EXCEPTION 'MEASUREMENT_ASSIGNMENT_SOURCE_CHANGED';
+  IF assignment_row.measurement_date IS DISTINCT FROM p_expected_measurement_date
+     OR assignment_row.assignee_user_id <> p_expected_assignee_user_id THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MEASUREMENT_ASSIGNMENT_SOURCE_CHANGED';
   END IF;
   IF assignment_row.assignee_user_id = p_assignee_user_id THEN
     RAISE EXCEPTION 'MEASUREMENT_ASSIGNMENT_ASSIGNEE_UNCHANGED';
@@ -108,10 +115,7 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MEASUREMENT_ASSIGNMENT_USER_SCHEDULE_BLOCKED';
   END IF;
 
-  -- 같은 날짜의 모든 수동수정을 직렬화하고 이전/신규 그룹 전체를 안정된 순서로 잠근다.
-  PERFORM pg_advisory_xact_lock(hashtextextended(
-    'preliminary-survey-measurement-assignment|' || assignment_row.measurement_date::text, 0
-  ));
+  -- advisory lock 이후 이전/신규 그룹 전체를 안정된 순서로 잠근다.
   PERFORM 1
   FROM public.preliminary_survey_v2_measurement_assignments locked_assignment
   WHERE locked_assignment.measurement_date = assignment_row.measurement_date
@@ -147,10 +151,10 @@ BEGIN
       MESSAGE = 'MEASUREMENT_ASSIGNMENT_ADMIN_EXCEPTION_REQUIRED:' || proposed_group_fingerprint;
   END IF;
   IF p_approve_third_assignment IS TRUE AND new_group_count <> 3 THEN
-    RAISE EXCEPTION USING ERRCODE = '40001', MESSAGE = 'MEASUREMENT_ASSIGNMENT_SOURCE_CHANGED';
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MEASUREMENT_ASSIGNMENT_SOURCE_CHANGED';
   END IF;
   IF new_group_count = 3 AND p_expected_approval_group_fingerprint IS DISTINCT FROM proposed_group_fingerprint THEN
-    RAISE EXCEPTION USING ERRCODE = '40001', MESSAGE = 'MEASUREMENT_ASSIGNMENT_SOURCE_CHANGED';
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'MEASUREMENT_ASSIGNMENT_SOURCE_CHANGED';
   END IF;
 
   SELECT to_jsonb(assignment_row) INTO before_assignment;
@@ -271,12 +275,12 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.update_preliminary_survey_v2_measurement_assignment(uuid, integer, integer, text, integer, boolean, text)
+REVOKE ALL ON FUNCTION public.update_preliminary_survey_v2_measurement_assignment(uuid, date, integer, integer, text, integer, boolean, text)
   FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.update_preliminary_survey_v2_measurement_assignment(uuid, integer, integer, text, integer, boolean, text)
+GRANT EXECUTE ON FUNCTION public.update_preliminary_survey_v2_measurement_assignment(uuid, date, integer, integer, text, integer, boolean, text)
   TO service_role;
 
-COMMENT ON FUNCTION public.update_preliminary_survey_v2_measurement_assignment(uuid, integer, integer, text, integer, boolean, text) IS
+COMMENT ON FUNCTION public.update_preliminary_survey_v2_measurement_assignment(uuid, date, integer, integer, text, integer, boolean, text) IS
   '서버 권한검사 후 비찐확정 날짜별 공시료 담당자를 최소 수정하고 영향 그룹 코드를 원자 재정규화한다.';
 
 -- 최초실시/타기관 신규 찐확정의 잘못된 유선 방식은 plan의 survey_method 한 필드만 방문으로 보정한다.

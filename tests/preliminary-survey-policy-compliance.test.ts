@@ -158,6 +158,10 @@ test("날짜별 공시료 수동수정은 권한·찐확정·stale·동시성·�
   assert.match(migration, /new_group_count >= 4/);
   assert.match(migration, /new_group_count = 3/);
   assert.match(migration, /p_expected_approval_group_fingerprint/);
+  assert.match(migration, /p_expected_measurement_date date/);
+  assert.match(migration, /preliminary-measurement-assignment\|/);
+  assert.doesNotMatch(migration, /preliminary-survey-measurement-assignment\|/);
+  assert.match(migration, /pg_advisory_xact_lock[\s\S]+?SELECT \* INTO assignment_row/);
   assert.match(migration, /proposed_group_fingerprint := md5/);
   assert.match(migration, /approval_group_fingerprint = CASE/);
   assert.match(migration, /ranked\.assignment_position = 3/);

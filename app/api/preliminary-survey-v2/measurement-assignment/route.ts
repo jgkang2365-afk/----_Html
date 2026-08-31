@@ -112,12 +112,14 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const assignmentId = String(body.assignmentId ?? "").trim();
+    const expectedMeasurementDate = String(body.expectedMeasurementDate ?? "").trim();
     const expectedAssigneeUserId = Number(body.expectedAssigneeUserId);
     const assigneeUserId = Number(body.assigneeUserId);
     const reason = String(body.reason ?? "").trim();
     const approveThirdAssignment = body.approveThirdAssignment === true;
     const expectedApprovalGroupFingerprint = String(body.expectedApprovalGroupFingerprint ?? "").trim() || null;
-    if (!/^[0-9a-f-]{36}$/i.test(assignmentId) || !Number.isInteger(expectedAssigneeUserId) || expectedAssigneeUserId <= 0 ||
+    if (!/^[0-9a-f-]{36}$/i.test(assignmentId) || !/^\d{4}-\d{2}-\d{2}$/.test(expectedMeasurementDate) ||
+        !Number.isInteger(expectedAssigneeUserId) || expectedAssigneeUserId <= 0 ||
         !Number.isInteger(assigneeUserId) || assigneeUserId <= 0 || !reason) {
       return NextResponse.json({ error: "수정할 날짜·담당자·사유를 확인해 주세요.", code: "INVALID_MEASUREMENT_ASSIGNMENT_MANUAL_EDIT" }, { status: 400 });
     }
@@ -131,6 +133,7 @@ export async function POST(request: NextRequest) {
 
     const { data, error } = await supabase.rpc("update_preliminary_survey_v2_measurement_assignment", {
       p_assignment_id: assignmentId,
+      p_expected_measurement_date: expectedMeasurementDate,
       p_expected_assignee_user_id: expectedAssigneeUserId,
       p_assignee_user_id: assigneeUserId,
       p_reason: reason,

@@ -833,6 +833,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           assignmentId: selectedMeasurementAssignment.assignmentId,
+          expectedMeasurementDate: selectedMeasurementAssignment.measurementDate,
           expectedAssigneeUserId: selectedMeasurementAssignment.userId,
           assigneeUserId: editAssignmentUserId,
           reason: editAssignmentReason.trim(),
