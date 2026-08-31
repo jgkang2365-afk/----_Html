@@ -171,6 +171,25 @@ test("canonical: 전역 날짜 배정은 앞 업체가 뒤 업체의 유일한 �
   ]);
 });
 
+test("canonical: allocator가 선택한 responsible를 최종 추천이 다시 선택하지 않는다", async () => {
+  const first = senior(1);
+  const second = senior(2);
+  const dates = recommendationDatesForBusinessType("2026-09-01", "existing");
+  const [result] = await recommendBatch({
+    targets: [{ ...target(first), measurementDate: "2026-09-01" }],
+    surveyors: [first, second],
+    experiencedUsers: [first, second],
+    availability: {
+      isBlocked: (userId, date) => userId === first.id && date === dates[0].date,
+      isScheduleBlocked: (userId, date) => userId === first.id && date === dates[0].date,
+      isActualMeasurementBlocked: () => false,
+    },
+    routes,
+  });
+  assert.equal(result.date, dates[0].date);
+  assert.equal(result.responsible.id, second.id);
+});
+
 test("canonical: persisted 유선 1건이 있는 날짜보다 0건 primary 날짜를 우선한다", async () => {
   const responsible = senior(1);
   const dates = recommendationDatesForBusinessType("2026-09-01", "existing");
@@ -200,6 +219,64 @@ test("canonical: 동일일 responsible 3건이면 네 번째는 다른 유효 �
     existingAssignments, availability: { isBlocked: () => false }, routes,
   });
   assert.equal(result.date, dates[1].date);
+});
+
+test("canonical: reviewer는 여러 비경력 responsible의 유선 capacity를 소비하지 않는다", async () => {
+  const reviewer = senior(10);
+  const responsibles = [junior(1), junior(2), junior(3)];
+  const results = await recommendBatch({
+    targets: responsibles.map((responsible, index) => ({
+      ...target(responsible), id: index + 1, code: `REVIEW-${index + 1}`, measurementDate: "2026-09-01",
+    })),
+    surveyors: responsibles,
+    experiencedUsers: [reviewer],
+    availability: { isBlocked: () => false },
+    routes,
+  });
+  assert.equal(results.every((result) => result.status === "recommended"), true);
+  assert.deepEqual(results.map((result) => result.experiencedReviewer?.id), [reviewer.id, reviewer.id, reviewer.id]);
+  assert.equal(new Set(results.map((result) => result.date)).size, results.length);
+});
+
+test("canonical: 전역 배정 실패는 target별 capacity reason을 남긴다", async () => {
+  const responsible = senior(1);
+  const dates = recommendationDatesForBusinessType("2026-09-01", "existing");
+  const existingAssignments: ExistingAssignment[] = dates.flatMap((candidate, dateIndex) =>
+    Array.from({ length: 3 }, (_, index) => ({
+      targetId: -(dateIndex * 10 + index + 1), businessCode: `FULL-${dateIndex}-${index}`,
+      kind: "existing" as const, date: candidate.date, participants: [responsible.id],
+      responsibleUserId: responsible.id, experiencedReviewerId: null,
+      surveyMethod: "phone" as const, coordinate: null, region: null,
+    })));
+  const [result] = await recommendBatch({
+    targets: [{ ...target(responsible), measurementDate: "2026-09-01" }],
+    experiencedUsers: [responsible], existingAssignments,
+    availability: { isBlocked: () => false }, routes,
+  });
+  assert.equal(result.status, "manual_required");
+  assert.deepEqual(result.evidence.warnings, ["RESPONSIBLE_CAPACITY_EXHAUSTED"]);
+});
+
+test("canonical: 일부 target capacity 실패가 성공 target의 responsible 전역 균등을 취소하지 않는다", () => {
+  const selected = allocateExistingPhoneDates([
+    { targetId: 1, candidates: [
+      { date: "2026-08-03", responsibleUserId: 1, workingDaysBefore: 20, primary: true },
+      { date: "2026-08-03", responsibleUserId: 2, workingDaysBefore: 20, primary: true },
+    ] },
+    { targetId: 2, candidates: [
+      { date: "2026-08-04", responsibleUserId: 1, workingDaysBefore: 19, primary: true },
+      { date: "2026-08-04", responsibleUserId: 2, workingDaysBefore: 19, primary: true },
+    ] },
+    { targetId: 3, candidates: [
+      { date: "2026-08-05", responsibleUserId: 1, workingDaysBefore: 18, primary: true },
+    ] },
+  ], [1, 2, 3].map((id) => ({
+    targetId: 100 + id, businessCode: `FULL-${id}`, kind: "existing" as const, date: "2026-08-05",
+    participants: [1], responsibleUserId: 1, experiencedReviewerId: null,
+    surveyMethod: "phone" as const, coordinate: null, region: null,
+  })));
+  assert.equal(selected.has(3), false);
+  assert.deepEqual([selected.get(1)?.responsibleUserId, selected.get(2)?.responsibleUserId], [2, 2]);
 });
 
 test("2026-08-31 canonical fixture는 고정 역할을 바꾸지 않고 공시료 1/1/1/1/1/1을 만든다", () => {

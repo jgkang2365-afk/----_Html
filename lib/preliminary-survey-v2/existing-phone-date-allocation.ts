@@ -24,6 +24,7 @@ interface Edge {
   cost: number;
   targetId?: number;
   date?: string;
+  responsibleUserId?: number;
 }
 
 const FALLBACK_PENALTY = 1_000_000_000;
@@ -34,9 +35,119 @@ function assignmentMethod(assignment: ExistingAssignment) {
   return assignment.surveyMethod ?? (assignment.kind === "existing" ? "phone" : "field");
 }
 
+function assignResponsiblesForSelectedDates(
+  targets: ExistingPhoneDateTarget[],
+  selectedDates: Map<number, ExistingPhoneDateSelection>,
+  existingAssignments: ExistingAssignment[],
+) {
+  const selectedTargets = targets.filter((target) => selectedDates.has(target.targetId));
+  if (!selectedTargets.length) return selectedDates;
+  const userIds = [...new Set(selectedTargets.flatMap((target) => target.candidates.map((candidate) => candidate.responsibleUserId)))].sort((a, b) => a - b);
+  const resourceKeys = [...new Set(selectedTargets.flatMap((target) => {
+    const date = selectedDates.get(target.targetId)?.date;
+    return date ? target.candidates.filter((candidate) => candidate.date === date)
+      .map((candidate) => `${candidate.responsibleUserId}|${date}`) : [];
+  }))].sort();
+  const baseDaily = new Map<string, number>();
+  const baseTotal = new Map<number, number>();
+  for (const assignment of existingAssignments) {
+    // responsible 전체 수행량은 방문·유선을 합산하되 reviewer는 responsibleUserId가
+    // 아니므로 자연스럽게 제외된다. 일일 3건 hard cap은 기존업체 유선에만 적용한다.
+    baseTotal.set(assignment.responsibleUserId, (baseTotal.get(assignment.responsibleUserId) ?? 0) + 1);
+    if (assignment.kind === "existing" && assignmentMethod(assignment) === "phone") {
+      const key = `${assignment.responsibleUserId}|${assignment.date}`;
+      baseDaily.set(key, (baseDaily.get(key) ?? 0) + 1);
+    }
+  }
+
+  const source = 0;
+  const targetOffset = 1;
+  const resourceOffset = targetOffset + selectedTargets.length;
+  const userOffset = resourceOffset + resourceKeys.length;
+  const sink = userOffset + userIds.length;
+  const graph: Edge[][] = Array.from({ length: sink + 1 }, () => []);
+  const addEdge = (from: number, to: number, capacity: number, cost: number, metadata: Partial<Edge> = {}) => {
+    const forward: Edge = { to, reverse: graph[to].length, capacity, cost, ...metadata };
+    const backward: Edge = { to: from, reverse: graph[from].length, capacity: 0, cost: -cost };
+    graph[from].push(forward);
+    graph[to].push(backward);
+  };
+  const resourceIndex = new Map(resourceKeys.map((key, index) => [key, resourceOffset + index]));
+  const userIndex = new Map(userIds.map((userId, index) => [userId, userOffset + index]));
+  const stableRank = new Map(userIds.map((userId, index) => [userId, index]));
+
+  selectedTargets.forEach((target, index) => {
+    const targetNode = targetOffset + index;
+    addEdge(source, targetNode, 1, 0);
+    const date = selectedDates.get(target.targetId)?.date;
+    if (!date) return;
+    target.candidates.filter((candidate) => candidate.date === date).forEach((candidate) => {
+      addEdge(targetNode, resourceIndex.get(`${candidate.responsibleUserId}|${date}`)!, 1,
+        stableRank.get(candidate.responsibleUserId) ?? 0,
+        { targetId: target.targetId, date, responsibleUserId: candidate.responsibleUserId });
+    });
+  });
+  resourceKeys.forEach((key) => {
+    const [userIdText] = key.split("|");
+    const userId = Number(userIdText);
+    addEdge(resourceIndex.get(key)!, userIndex.get(userId)!, Math.max(0, 3 - (baseDaily.get(key) ?? 0)), 0);
+  });
+  userIds.forEach((userId) => {
+    const base = baseTotal.get(userId) ?? 0;
+    for (let slot = 0; slot < selectedTargets.length; slot += 1) {
+      addEdge(userIndex.get(userId)!, sink, 1, (2 * (base + slot) + 1) * RESPONSIBLE_LOAD_WEIGHT);
+    }
+  });
+
+  let flow = 0;
+  while (flow < selectedTargets.length) {
+    const distance = Array(graph.length).fill(Number.POSITIVE_INFINITY);
+    const previousNode = Array(graph.length).fill(-1);
+    const previousEdge = Array(graph.length).fill(-1);
+    const inQueue = Array(graph.length).fill(false);
+    const queue = [source];
+    distance[source] = 0;
+    inQueue[source] = true;
+    while (queue.length) {
+      const node = queue.shift()!;
+      inQueue[node] = false;
+      graph[node].forEach((edge, edgeIndex) => {
+        if (edge.capacity <= 0 || distance[edge.to] <= distance[node] + edge.cost) return;
+        distance[edge.to] = distance[node] + edge.cost;
+        previousNode[edge.to] = node;
+        previousEdge[edge.to] = edgeIndex;
+        if (!inQueue[edge.to]) {
+          queue.push(edge.to);
+          inQueue[edge.to] = true;
+        }
+      });
+    }
+    if (!Number.isFinite(distance[sink])) break;
+    for (let node = sink; node !== source; node = previousNode[node]) {
+      const edge = graph[previousNode[node]][previousEdge[node]];
+      edge.capacity -= 1;
+      graph[node][edge.reverse].capacity += 1;
+    }
+    flow += 1;
+  }
+  if (flow !== selectedTargets.length) return selectedDates;
+
+  const balanced = new Map<number, ExistingPhoneDateSelection>();
+  selectedTargets.forEach((target, index) => {
+    const edge = graph[targetOffset + index].find((candidate) =>
+      candidate.targetId === target.targetId && candidate.capacity === 0);
+    if (edge?.date && edge.responsibleUserId != null) {
+      balanced.set(target.targetId, { date: edge.date, responsibleUserId: edge.responsibleUserId });
+    }
+  });
+  return balanced.size === selectedTargets.length ? balanced : selectedDates;
+}
+
 /**
  * 기존업체 유선 날짜를 업체별 greedy가 아닌 batch 전체 min-cost flow로 배정한다.
  * 비용 우선순위는 primary 구간 유지 → 날짜 load 제곱합 최소화 → canonical 날짜순이다.
+ * 날짜 load가 최우선이고, 같은 날짜 load 안에서는 reviewer를 제외한 responsible
+ * 실제 수행량을 균등화한다. responsible/day는 최대 3건 hard capacity다.
  */
 export function allocateExistingPhoneDates(
   targets: ExistingPhoneDateTarget[],
@@ -122,7 +233,7 @@ export function allocateExistingPhoneDates(
         }
       });
     }
-    if (!Number.isFinite(distance[sink])) return null;
+    if (!Number.isFinite(distance[sink])) break;
     for (let node = sink; node !== source; node = previousNode[node]) {
       const edge = graph[previousNode[node]][previousEdge[node]];
       edge.capacity -= 1;
@@ -141,5 +252,7 @@ export function allocateExistingPhoneDates(
       if (candidate) selected.set(target.targetId, { date: edge.date, responsibleUserId: candidate.responsibleUserId });
     }
   });
-  return selected.size === targets.length ? selected : null;
+  // 일부 target이 hard capacity 때문에 배정되지 않아도 성공 target의 authoritative
+  // 선택은 보존한다. 호출자는 누락 target별 실패 reason을 반드시 산출한다.
+  return assignResponsiblesForSelectedDates(targets, selected, existingAssignments);
 }
