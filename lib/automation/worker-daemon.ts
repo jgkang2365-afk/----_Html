@@ -10,6 +10,7 @@ import {
     NATIONAL_SUPPORT_STALE_THRESHOLD_MS,
     NATIONAL_SUPPORT_STALE_WATCHDOG_MS,
     WORKER_ACTIVE_POLL_MS,
+    type WorkerPollOutcome,
     nextWorkerPollingState,
 } from "./worker-polling-policy";
 
@@ -100,10 +101,10 @@ export class WorkerDaemon {
 
         this.pollingTimer = setTimeout(async () => {
             this.pollingTimer = null;
-            const activityDetected = await this.poll();
+            const outcome = await this.poll();
             const nextState = nextWorkerPollingState(
                 this.idlePollCount,
-                activityDetected,
+                outcome,
             );
             this.idlePollCount = nextState.idlePollCount;
             this.scheduleNextPoll(nextState.delayMs);
@@ -113,9 +114,9 @@ export class WorkerDaemon {
     /**
      * 큐 폴링 함수
      */
-    private async poll(): Promise<boolean> {
+    private async poll(): Promise<WorkerPollOutcome> {
         // 현재 작업을 처리 중이면 중복 폴링 패스
-        if (this.isProcessing) return true;
+        if (this.isProcessing) return "activity";
 
         this.isProcessing = true;
 
@@ -134,7 +135,7 @@ export class WorkerDaemon {
 
             if (error) throw error;
             if (!jobs || jobs.length === 0) {
-                return false;
+                return "idle";
             }
 
             const job = jobs[0];
@@ -155,7 +156,7 @@ export class WorkerDaemon {
             // 이미 다른 워커가 가져갔거나 낙관적 락 획득 실패 시 다음 루프로 패스
             if (!updatedJobs || updatedJobs.length === 0) {
                 console.log(`[WorkerDaemon] 작업 선점 실패 (이미 다른 프로세스가 처리 중): ${job.id}`);
-                return true;
+                return "activity";
             }
 
             console.log(`[WorkerDaemon] 작업 선점 성공: ID = ${job.id}, Type = ${job.job_type}`);
@@ -172,11 +173,11 @@ export class WorkerDaemon {
                 throw new Error(`알 수 없는 작업 유형: ${job.job_type}`);
             }
 
-            return true;
+            return "activity";
 
         } catch (e: any) {
             console.error("[WorkerDaemon] 폴링 루프 오류:", e.message);
-            return true;
+            return "error";
         } finally {
             this.isProcessing = false;
             this.currentJobId = null;

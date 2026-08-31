@@ -8,11 +8,13 @@ export type WorkerPollingState = {
     delayMs: number;
 };
 
+export type WorkerPollOutcome = "activity" | "idle" | "error";
+
 export function nextWorkerPollingState(
     idlePollCount: number,
-    activityDetected: boolean,
+    outcome: WorkerPollOutcome,
 ): WorkerPollingState {
-    if (activityDetected) {
+    if (outcome === "activity") {
         return {
             idlePollCount: 0,
             delayMs: WORKER_ACTIVE_POLL_MS,

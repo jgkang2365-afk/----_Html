@@ -11,19 +11,46 @@ import {
 test("background_jobs idle backoff는 5초에서 15초, 최대 30초로 증가한다", () => {
   assert.equal(WORKER_ACTIVE_POLL_MS, 5_000);
 
-  const firstIdle = nextWorkerPollingState(0, false);
+  const firstIdle = nextWorkerPollingState(0, "idle");
   assert.deepEqual(firstIdle, { idlePollCount: 1, delayMs: 15_000 });
 
-  const longIdle = nextWorkerPollingState(firstIdle.idlePollCount, false);
+  const longIdle = nextWorkerPollingState(firstIdle.idlePollCount, "idle");
   assert.deepEqual(longIdle, { idlePollCount: 2, delayMs: 30_000 });
-  assert.deepEqual(nextWorkerPollingState(longIdle.idlePollCount, false), longIdle);
+  assert.deepEqual(
+    nextWorkerPollingState(longIdle.idlePollCount, "idle"),
+    longIdle,
+  );
 });
 
-test("background_jobs 작업 발견 또는 오류 activity는 5초 주기로 복귀한다", () => {
-  assert.deepEqual(nextWorkerPollingState(2, true), {
+test("background_jobs 작업 발견은 5초 active polling으로 복귀한다", () => {
+  assert.deepEqual(nextWorkerPollingState(2, "activity"), {
     idlePollCount: 0,
     delayMs: 5_000,
   });
+});
+
+test("background_jobs 오류는 15초에서 최대 30초로 backoff한다", () => {
+  const firstError = nextWorkerPollingState(0, "error");
+  assert.deepEqual(firstError, { idlePollCount: 1, delayMs: 15_000 });
+
+  const repeatedError = nextWorkerPollingState(firstError.idlePollCount, "error");
+  assert.deepEqual(repeatedError, { idlePollCount: 2, delayMs: 30_000 });
+  assert.deepEqual(
+    nextWorkerPollingState(repeatedError.idlePollCount, "error"),
+    repeatedError,
+  );
+});
+
+test("background_jobs 오류 후 정상 작업 발견 시 5초로 복귀한다", () => {
+  const afterError = nextWorkerPollingState(0, "error");
+  assert.notEqual(afterError.delayMs, WORKER_ACTIVE_POLL_MS);
+  assert.deepEqual(nextWorkerPollingState(afterError.idlePollCount, "activity"), {
+    idlePollCount: 0,
+    delayMs: 5_000,
+  });
+
+  const source = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  assert.match(source, /catch \(e: any\)[\s\S]*return "error"/);
 });
 
 test("national_support stale watchdog은 10분 기준을 유지하고 5분마다 분리 실행한다", () => {
@@ -39,8 +66,11 @@ test("national_support stale watchdog은 10분 기준을 유지하고 5분마다
 
 test("MES idle은 30초지만 실행 중 취소 감지와 timeout 상태 전이는 유지한다", () => {
   const source = readFileSync("mes_daemon.py", "utf8");
+  const envExample = readFileSync(".env.example", "utf8");
 
   assert.match(source, /MES_DAEMON_POLL_SECONDS", "30"/);
+  assert.match(envExample, /^MES_DAEMON_POLL_SECONDS=30$/m);
+  assert.doesNotMatch(envExample, /^MES_DAEMON_POLL_SECONDS=5$/m);
   assert.match(source, /while process\.poll\(\) is None:[\s\S]*is_cancel_requested\(\)[\s\S]*time\.sleep\(1\)/);
   assert.match(source, /MACRO_TIMEOUT_SECONDS/);
   assert.match(source, /update_queue\("success"\)/);
