@@ -83,6 +83,7 @@ interface WorkbenchRow {
   hasPersistedPlan?: boolean;
   locked?: boolean;
   policyDateRepairRequired?: boolean;
+  policyMethodRepairRequired?: boolean;
   policyDateIssues?: string[];
   deleteProtectionReason?: "history" | null;
 }
@@ -110,6 +111,14 @@ interface ThirdAssignmentReviewGroup {
   sameAddress: boolean;
   routeEvidenceAvailable: boolean;
   targets: Array<{ targetId: number; code: string; businessName: string; address: string | null; surveyCode: string; previousSurveyCode?: string | null }>;
+}
+
+interface ManualThirdAssignmentReview {
+  fingerprint: string;
+  measurementDate: string;
+  assigneeUserId: number;
+  assigneeName: string;
+  items: Array<{ targetId: number; businessName: string; address: string; previousSurveyCode: string | null; resultSurveyCode: string }>;
 }
 
 interface ListSearchSnapshot {
@@ -257,6 +266,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [editMethod, setEditMethod] = useState<"field" | "phone">("field");
   const [editParticipants, setEditParticipants] = useState<number[]>([]);
   const [canApproveThirdAssignment, setCanApproveThirdAssignment] = useState(false);
+  const [canManageMeasurementAssignments, setCanManageMeasurementAssignments] = useState(false);
   const [requestThirdAssignmentException, setRequestThirdAssignmentException] = useState(false);
   const [thirdAssignmentReview, setThirdAssignmentReview] = useState<ThirdAssignmentReviewGroup[]>([]);
   const [thirdAssignmentConfirmed, setThirdAssignmentConfirmed] = useState(false);
@@ -268,6 +278,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [repairReportWriter, setRepairReportWriter] = useState(false);
   const [repairReportWriterUserId, setRepairReportWriterUserId] = useState<number | null>(null);
   const [repairReason, setRepairReason] = useState("");
+  const [editAssignmentDate, setEditAssignmentDate] = useState("");
+  const [editAssignmentUserId, setEditAssignmentUserId] = useState<number | null>(null);
+  const [editAssignmentReason, setEditAssignmentReason] = useState("");
   const [filtersReady, setFiltersReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -349,6 +362,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       setRows(result.rows || []);
       setUsers(result.users || []);
       setCanApproveThirdAssignment(result.canApproveThirdAssignment === true);
+      setCanManageMeasurementAssignments(result.canManageMeasurementAssignments === true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "예비조사 통합 현황 조회 실패");
     } finally {
@@ -676,6 +690,10 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     setRepairReportWriter(false);
     setRepairReportWriterUserId(null);
     setRepairReason("");
+    const firstAssignment = row.measurementAssignments?.[0] ?? null;
+    setEditAssignmentDate(firstAssignment?.measurementDate ?? "");
+    setEditAssignmentUserId(firstAssignment?.userId ?? null);
+    setEditAssignmentReason("");
   };
 
   const saveManual = async () => {
@@ -769,8 +787,87 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     }
   };
 
+  const repairConfirmedPolicyMethod = async () => {
+    if (!selected?.locked || !selected.policyMethodRepairRequired) return;
+    const reason = window.prompt("최초실시/타기관 신규 계획을 방문 방식으로 최소 보정할 사유를 입력해 주세요.", "방문 필수 운영지침 불일치 보정");
+    if (reason == null || !reason.trim()) return;
+    if (!window.confirm(`${selected.businessName}의 찐확정 예비조사 방식만 방문으로 보정하시겠습니까?\n측정일지·날짜·예비조사자·공시료는 변경하지 않습니다.`)) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/preliminary-survey-v2/policy-repair", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "apply_method", targetId: selected.targetId, reason: reason.trim() }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "방식 repair 저장 실패");
+      setSelected(null);
+      setNotice("찐확정 예비조사 방식을 방문으로 최소 보정하고 감사기록을 남겼습니다.");
+      await loadRows();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "방식 repair 저장 실패");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const selectedMeasurementSource = measurementSourceRepairSnapshots
     .find((item) => item.measurementDate === repairMeasurementDate) ?? null;
+  const selectedMeasurementAssignment = selected?.measurementAssignments
+    ?.find((assignment) => assignment.measurementDate === editAssignmentDate) ?? null;
+
+  const saveMeasurementAssignment = async () => {
+    if (!selected || selected.locked || !selectedMeasurementAssignment?.assignmentId || editAssignmentUserId == null || !editAssignmentReason.trim()) return;
+    const nextUser = users.find((user) => user.id === editAssignmentUserId);
+    if (!nextUser) return;
+    if (!window.confirm(
+      `${selected.businessName} ${selectedMeasurementAssignment.measurementDate} 공시료 담당자를 ` +
+      `${selectedMeasurementAssignment.userName}에서 ${nextUser.name}(으)로 변경하시겠습니까?\n` +
+      "같은 측정일의 이전·신규 담당자 그룹 코드는 C/CC/CCC 규칙으로 함께 재정규화됩니다.",
+    )) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const send = (approveThirdAssignment: boolean, expectedApprovalGroupFingerprint: string | null = null) => fetch("/api/preliminary-survey-v2/measurement-assignment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignmentId: selectedMeasurementAssignment.assignmentId,
+          expectedAssigneeUserId: selectedMeasurementAssignment.userId,
+          assigneeUserId: editAssignmentUserId,
+          reason: editAssignmentReason.trim(),
+          approveThirdAssignment,
+          expectedApprovalGroupFingerprint,
+        }),
+      });
+      let response = await send(false);
+      let result = await response.json();
+      if (!response.ok && result.approvalRequired === true && canApproveThirdAssignment) {
+        const review = result.approvalReview as ManualThirdAssignmentReview | null;
+        if (!review?.fingerprint || review.items.length !== 3) {
+          throw new Error("CCC 승인 그룹이 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
+        }
+        const groupSummary = review.items.map((item) =>
+          `${item.businessName} → ${review.assigneeName}(${item.resultSurveyCode})\n  ${item.address}`,
+        ).join("\n");
+        if (window.confirm(
+          `${review.measurementDate} ${review.assigneeName} 3건 예외 배정입니다.\n\n${groupSummary}\n\n` +
+          "위 3개 업체와 결과 코드를 확인했습니다. 관리자 CCC 예외로 저장하시겠습니까?",
+        )) {
+          response = await send(true, review.fingerprint);
+          result = await response.json();
+        }
+      }
+      if (!response.ok || !result.success) throw new Error(result.error || "공시료 수정 실패");
+      setSelected(null);
+      setNotice("날짜별 공시료 담당자를 수정하고 영향 그룹 코드를 재정규화했습니다.");
+      await loadRows();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "공시료 수정 실패");
+    } finally {
+      setWorking(false);
+    }
+  };
 
   const openMeasurementSourceRepair = async () => {
     if (!selected) return;
@@ -1013,6 +1110,20 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <div>측정 참여자: <strong>{selected.measurementParticipants || "-"}</strong></div>
             <div>보고서 담당자: <strong>{selected.reportWriter || "-"}</strong></div>
           </div>
+          {(selected.measurementAssignments?.length ?? 0) > 0 && <div className="rounded-lg border border-surface-200 p-3">
+            <div className="mb-2"><strong className="text-sm">실제 측정일별 공시료</strong><p className="text-xs text-text-500">다일 사업장도 각 실제 측정일의 담당자와 반복코드를 독립 표시합니다.</p></div>
+            <div className="overflow-x-auto"><table className="w-full min-w-[420px] text-sm"><thead className="bg-surface-50 text-left"><tr><th className="px-2 py-2">측정일</th><th className="px-2 py-2">담당자</th><th className="px-2 py-2">코드</th></tr></thead><tbody>{selected.measurementAssignments?.map((assignment) => <tr key={`${assignment.targetId}-${assignment.measurementDate}`} className="border-t border-surface-100"><td className="px-2 py-2">{assignment.measurementDate}</td><td className="px-2 py-2">{assignment.userName}</td><td className="px-2 py-2 font-medium">{assignment.surveyCode}</td></tr>)}</tbody></table></div>
+            {canManageMeasurementAssignments && !selected.locked && selected.measurementAssignments?.some((assignment) => assignment.assignmentId) && <div className="mt-3 grid gap-3 border-t border-surface-100 pt-3 md:grid-cols-2">
+              <label className="block text-sm font-medium text-text-700">측정일<select value={editAssignmentDate} onChange={(event) => {
+                const assignment = selected.measurementAssignments?.find((item) => item.measurementDate === event.target.value) ?? null;
+                setEditAssignmentDate(event.target.value);
+                setEditAssignmentUserId(assignment?.userId ?? null);
+              }} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">{selected.measurementAssignments.filter((assignment) => assignment.assignmentId).map((assignment) => <option key={assignment.measurementDate} value={assignment.measurementDate}>{assignment.measurementDate}</option>)}</select></label>
+              <label className="block text-sm font-medium text-text-700">공시료 담당자<select value={editAssignmentUserId ?? ""} onChange={(event) => setEditAssignmentUserId(event.target.value ? Number(event.target.value) : null)} className="mt-1 block h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm"><option value="">선택</option>{users.filter((user) => user.is_active).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+              <div className="md:col-span-2"><Input label="수정 사유" value={editAssignmentReason} onChange={(event) => setEditAssignmentReason(event.target.value)} placeholder="예: 8/25 실제 공시료 담당자 배정 정정" /></div>
+              <div className="flex justify-end md:col-span-2"><Button size="sm" onClick={saveMeasurementAssignment} disabled={working || !selectedMeasurementAssignment?.assignmentId || editAssignmentUserId == null || editAssignmentUserId === selectedMeasurementAssignment.userId || !editAssignmentReason.trim()}>공시료 수정</Button></div>
+            </div>}
+          </div>}
           {selected.measurementAssignmentApprovalAudit && <Alert variant="warning">공시료 3건 관리자 예외 기록: {selected.measurementAssignmentApprovalAudit}</Alert>}
           {selected.alternatives && selected.alternatives.length > 0 && <div className="rounded-lg border border-surface-200 p-3 text-sm"><strong>대안 후보일</strong><div className="mt-1">{selected.alternatives.join(" · ")}</div></div>}
           <Input label="예비조사일" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} disabled={selected.locked} />
@@ -1038,6 +1149,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => requestRecommendation(selected.targetId)} disabled={working || selected.locked}>이 업체 재추천</Button>
               {selected.policyDateRepairRequired && <Button variant="secondary" onClick={repairConfirmedPolicyDate} disabled={working || !selected.locked}>날짜 repair</Button>}
+              {selected.policyMethodRepairRequired && <Button variant="secondary" onClick={repairConfirmedPolicyMethod} disabled={working || !selected.locked}>방식 repair</Button>}
               <Button onClick={saveManual} disabled={working || selected.locked || !editDate || editParticipants.length === 0}>수동 저장</Button>
             </div>
           </div>

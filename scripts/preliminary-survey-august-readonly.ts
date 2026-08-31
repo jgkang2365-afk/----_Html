@@ -5,6 +5,7 @@ import { assignMeasurementAssignees, buildMeasurementAssignmentTargets } from ".
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
 import { recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2/calendar";
 import { buildScheduleBlockKeys } from "../lib/preliminary-survey-v2/availability";
+import { checkPreliminarySurveyDatePolicy, checkPreliminarySurveyMethodPolicy } from "../lib/preliminary-survey-v2/policy-compliance";
 import type { ExistingAssignment, SurveyUser } from "../lib/preliminary-survey-v2/types";
 
 const PRODUCTION_REF = "xjxqbwvcgffunqnkmoqw";
@@ -44,22 +45,28 @@ const activeTargets = targets.filter((target: any) => String(target.is_registere
 const targetIds = activeTargets.map((target: any) => Number(target.id));
 const codes = [...new Set(activeTargets.map((target: any) => String(target.code)))];
 
-const [{ data: plans, error: planError }, { data: journals, error: journalError }, { data: users, error: userError }] = await Promise.all([
+const [{ data: plans, error: planError }, { data: journals, error: journalError }, { data: users, error: userError }, { data: reconciliations, error: reconciliationError }] = await Promise.all([
   targetIds.length ? supabase.from("preliminary_survey_v2_plans").select("*").in("measurement_target_business_id", targetIds) : Promise.resolve({ data: [], error: null }),
   codes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period").in("code", codes).eq("measurement_year", 2026) : Promise.resolve({ data: [], error: null }),
   supabase.from("users").select("id, name, job, is_active, is_preliminary_survey_experienced, survey_code").eq("job", "측정"),
+  targetIds.length ? supabase.from("preliminary_survey_v2_legacy_reconciliation")
+    .select("measurement_target_business_id, applied_plan_id, applied_assignment_id").in("measurement_target_business_id", targetIds)
+    : Promise.resolve({ data: [], error: null }),
 ]);
-if (planError || journalError || userError) throw planError || journalError || userError;
+if (planError || journalError || userError || reconciliationError) throw planError || journalError || userError || reconciliationError;
 const planIds = (plans ?? []).map((plan: any) => String(plan.id));
-const { data: assignments, error: assignmentError } = planIds.length
-  ? await supabase.from("preliminary_survey_v2_measurement_assignments").select("*").in("plan_id", planIds)
-  : { data: [], error: null };
-if (assignmentError) throw assignmentError;
+const [{ data: assignments, error: assignmentError }, { data: recoveryRows, error: recoveryError }] = await Promise.all([
+  planIds.length ? supabase.from("preliminary_survey_v2_measurement_assignments").select("*").in("plan_id", planIds) : Promise.resolve({ data: [], error: null }),
+  planIds.length ? supabase.from("preliminary_survey_v2_history_recovery_audit").select("created_plan_id").in("created_plan_id", planIds) : Promise.resolve({ data: [], error: null }),
+]);
+if (assignmentError || recoveryError) throw assignmentError || recoveryError;
 
 const journalKeys = new Set((journals ?? []).map((journal: any) =>
   `${journal.code}|${journal.measurement_year}|${normalizedPeriod(journal.measurement_period)}`));
 const targetById = new Map(activeTargets.map((target: any) => [Number(target.id), target]));
 const planByTarget = new Map((plans ?? []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]));
+const reconciledTargetIds = new Set((reconciliations ?? []).map((row: any) => Number(row.measurement_target_business_id)));
+const recoveredPlanIds = new Set((recoveryRows ?? []).map((row: any) => String(row.created_plan_id)));
 const assignmentsByPlan = new Map<string, any[]>();
 for (const assignment of assignments ?? []) assignmentsByPlan.set(String(assignment.plan_id), [
   ...(assignmentsByPlan.get(String(assignment.plan_id)) ?? []), assignment,
@@ -79,7 +86,7 @@ const august31Fixture = [
   { code: "H0195", responsibleUserId: 16, reviewerUserId: 13, participantUserIds: [16, 13] },
   { code: "H0049", responsibleUserId: 17, reviewerUserId: null, participantUserIds: [17] },
   { code: "H0361", responsibleUserId: 13, reviewerUserId: null, participantUserIds: [13] },
-  { code: "H0130", responsibleUserId: 20, reviewerUserId: 13, participantUserIds: [20, 13] },
+  { code: "H0130", responsibleUserId: 20, reviewerUserId: 17, participantUserIds: [20, 17] },
 ];
 const fixtureCodes = new Set(august31Fixture.map((item) => item.code));
 const surveyUsers: SurveyUser[] = (users ?? []).map((user: any) => ({
@@ -182,6 +189,18 @@ const rows = activeTargets.map((target: any) => {
   const missingAssignments = proposed.some((next) => !currentAssignments.some((current: any) =>
     current.measurement_date === next.measurementDate));
   const dateConflict = Boolean(currentPlan && result?.status === "recommended" && currentPlan.recommended_date !== result.date);
+  const currentDatePolicy = currentPlan ? checkPreliminarySurveyDatePolicy({
+    measurementDate: String(target.measurement_date),
+    preliminaryDate: String(currentPlan.recommended_date ?? ""),
+    businessType: String(target.business_type),
+  }) : null;
+  const currentMethodPolicyIssue = currentPlan ? checkPreliminarySurveyMethodPolicy({
+    businessType: String(target.business_type),
+    surveyMethod: currentPlan.survey_method,
+  }) : null;
+  const currentPolicyMismatch = target.business_type === "first_measurement" || target.business_type === "external_new"
+    ? Boolean(currentDatePolicy?.issues.some((issue) => issue !== "FALLBACK_PRIORITY_REVIEW") || currentMethodPolicyIssue)
+    : false;
   const planMatches = Boolean(currentPlan && result?.status === "recommended" &&
     currentPlan.recommended_date === result.date &&
     Number(currentPlan.responsible_user_id) === result.responsible.id &&
@@ -192,11 +211,17 @@ const rows = activeTargets.map((target: any) => {
   const assignmentMatches = currentAssignments.length === proposed.length && proposed.every((next) =>
     currentAssignments.some((current: any) => current.measurement_date === next.measurementDate &&
       Number(current.assignee_user_id) === next.userId && current.survey_code === next.publicSampleCode));
-  const action = result?.status !== "recommended" || assignmentCalculationError
-    ? "REVIEW_REQUIRED"
+  const hasHistoricalProvenance = reconciledTargetIds.has(id) || (currentPlan && recoveredPlanIds.has(String(currentPlan.id)));
+  const action = protectedCodes.has(String(target.code))
+    ? "PROTECTED_KEEP"
+    : trueConfirmed && currentPolicyMismatch
+      ? "REPAIR"
+    : trueConfirmed && hasHistoricalProvenance
+      ? "HISTORICAL_KEEP"
+      : result?.status !== "recommended" || assignmentCalculationError
+        ? "REVIEW_REQUIRED"
     : planMatches && assignmentMatches ? "KEEP"
-      : protectedCodes.has(String(target.code)) ? "REVIEW_REQUIRED"
-        : trueConfirmed
+      : trueConfirmed
           ? !currentPlan || (!roleOrMethodConflict && !conflictingAssignments && (dateConflict || missingAssignments))
             ? "REPAIR"
             : "REVIEW_REQUIRED"
@@ -204,7 +229,7 @@ const rows = activeTargets.map((target: any) => {
   return {
     targetId: id, code: target.code, businessName: target.business_name, businessType: target.business_type,
     lifecycle: target.is_registered, measurementDate: target.measurement_date, measurementDates: dailyDates(target.daily_staff),
-    trueConfirmed, currentPlan: currentPlan ? {
+    trueConfirmed, hasHistoricalProvenance, currentPlan: currentPlan ? {
       id: currentPlan.id, date: currentPlan.recommended_date, responsibleUserId: currentPlan.responsible_user_id,
       reviewerUserId: currentPlan.experienced_reviewer_id, participantUserIds: currentPlan.participant_user_ids,
       method: currentPlan.survey_method, status: currentPlan.status, origin: currentPlan.plan_origin,
@@ -217,7 +242,11 @@ const rows = activeTargets.map((target: any) => {
       assignments: proposed.map((item) => ({ date: item.measurementDate, userId: item.userId, code: item.publicSampleCode })),
       reason: result.reason,
     } : null,
-    differences: { dateConflict, roleOrMethodConflict, missingAssignments, conflictingAssignments },
+    differences: { dateConflict, roleOrMethodConflict, missingAssignments, conflictingAssignments, currentPolicyMismatch },
+    currentPolicyIssues: {
+      date: currentDatePolicy && !currentDatePolicy.compliant ? currentDatePolicy.issues : [],
+      method: currentMethodPolicyIssue,
+    },
     action,
   };
 });
@@ -252,6 +281,11 @@ const nonExperiencedSolo = proposedExistingPhone.filter((row) => {
 });
 const responsibleOverCapacity = [...responsibleLoad.entries()].filter(([, count]) => count > 3)
   .map(([key, count]) => ({ key, count }));
+const publicSampleGroupCounts = new Map<string, number>();
+for (const assignment of proposedAssignments) {
+  const key = `${assignment.measurementDate}|${assignment.userId}`;
+  publicSampleGroupCounts.set(key, (publicSampleGroupCounts.get(key) ?? 0) + 1);
+}
 
 const report = {
   generatedAt: new Date().toISOString(), environment: "Production READ-ONLY", projectRef: PRODUCTION_REF,
@@ -264,7 +298,7 @@ const report = {
     externalNew: activeTargets.filter((target: any) => target.business_type === "external_new").length,
     multiDay: activeTargets.filter((target: any) => dailyDates(target.daily_staff).length > 1).length,
     trueConfirmed: rows.filter((row) => row.trueConfirmed).length,
-    actions: Object.fromEntries(["KEEP", "INSERT", "UPDATE", "REPAIR", "REVIEW_REQUIRED"].map((action) =>
+    actions: Object.fromEntries(["HISTORICAL_KEEP", "PROTECTED_KEEP", "KEEP", "INSERT", "UPDATE", "REPAIR", "REVIEW_REQUIRED"].map((action) =>
       [action, rows.filter((row) => row.action === action).length])),
   },
   assignmentCalculationError,
@@ -274,6 +308,17 @@ const report = {
     responsibleOverCapacity,
     dateDistributionViolations,
     proposedPublicSampleThirdAssignments: proposedAssignments.filter((assignment) => assignment.approvalRequired).length,
+    firstMeasurementPhone: rows.filter((row) => row.businessType === "first_measurement" && row.currentPlan &&
+      checkPreliminarySurveyMethodPolicy({ businessType: "first_measurement", surveyMethod: row.currentPlan.method }) != null).map((row) => row.code),
+    firstMeasurementDateOutsidePolicy: rows.filter((row) => row.businessType === "first_measurement" && row.currentPlan?.date &&
+      !checkPreliminarySurveyDatePolicy({ measurementDate: row.measurementDate, preliminaryDate: row.currentPlan.date, businessType: "first_measurement" }).compliant).map((row) => row.code),
+    publicSampleFourPlus: [...publicSampleGroupCounts.entries()].filter(([, count]) => count >= 4)
+      .map(([key, count]) => ({ key, count })),
+    unapprovedThirdAssignments: proposedAssignments.filter((assignment) => assignment.approvalRequired).length,
+    multiDayMissingOrCopiedAssignments: rows.filter((row) => row.measurementDates.length > 1 && (
+      row.proposed?.assignments.length !== row.measurementDates.length ||
+      row.measurementDates.some((date) => !row.proposed?.assignments.some((assignment) => assignment.date === date))
+    )).map((row) => row.code),
   },
   excluded: targets.filter((target: any) => String(target.is_registered).trim() !== "실시").map((target: any) => ({
     targetId: target.id, code: target.code, lifecycle: target.is_registered, measurementDate: target.measurement_date,

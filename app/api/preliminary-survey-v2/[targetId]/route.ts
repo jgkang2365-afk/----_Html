@@ -12,6 +12,7 @@ import {
   isMeasurementAssignmentSchemaMissing,
   recomputeCanonicalMeasurementAssignments,
 } from "@/lib/preliminary-survey-v2/measurement-assignment-persistence";
+import { orderSurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/display-model";
 
 function deleteErrorResponse(message: string) {
   if (message.includes("TRUE_CONFIRMED_LOCKED")) {
@@ -197,9 +198,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { target
         participantNames: participants.map((user) => user.name),
       });
     }
-    const ordered = [...participants].sort((left, right) =>
-      Number(right.id === responsible.id) - Number(left.id === responsible.id) || left.id - right.id,
-    );
+    const ordered = orderSurveyParticipantsForDisplay(participants);
     const canonicalAssignments = await recomputeCanonicalMeasurementAssignments(
       supabase,
       [{ target }],

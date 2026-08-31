@@ -335,3 +335,15 @@ test("다일 대상은 같은 targetId라도 measurementDate별 결과를 각각
   assert.deepEqual(result.map((item) => [item.targetId, item.measurementDate]), [[1, "2026-08-25"], [1, "2026-08-26"]]);
   assert.deepEqual(result.map((item) => item.publicSampleCode), ["A", "A"]);
 });
+
+test("H0508형 다일 공시료는 앞 날짜 담당자를 복사하지 않고 날짜별 전체 배정에서 다시 계산한다", () => {
+  const result = assignMeasurementAssignees({
+    targets: [target(508, "다일 사업장", "2026-08-03"), target(508, "다일 사업장", "2026-08-25")],
+    users: users.slice(0, 2),
+    existing: [{ ...target(999, "다른 사업장", "2026-08-25"), userId: users[0].id }],
+  });
+  assert.deepEqual(result.map((item) => [item.measurementDate, item.userId, item.publicSampleCode]), [
+    ["2026-08-03", users[0].id, "A"],
+    ["2026-08-25", users[1].id, "B"],
+  ]);
+});

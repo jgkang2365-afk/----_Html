@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { checkPreliminarySurveyDatePolicy } from "../lib/preliminary-survey-v2/policy-compliance";
+import {
+  checkPreliminarySurveyDatePolicy,
+  checkPreliminarySurveyMethodPolicy,
+} from "../lib/preliminary-survey-v2/policy-compliance";
 import { buildThirdAssignmentReview } from "../lib/preliminary-survey-v2/third-assignment-review";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
@@ -14,6 +17,17 @@ test("최초실시 -3부터의 후보 밖인 H0525 유형 날짜를 repair 대�
   assert.equal(result.compliant, false);
   assert.deepEqual(result.issues, ["OUTSIDE_POLICY_RANGE"]);
   assert.equal(result.workingDaysBefore, 30);
+});
+
+test("H0526 유형 최초실시 유선 계획은 방문 필수 위반으로 표시한다", () => {
+  assert.equal(checkPreliminarySurveyMethodPolicy({
+    businessType: "first_measurement",
+    surveyMethod: "phone",
+  }), "POLICY_MISMATCH_FIRST_MEASUREMENT_METHOD");
+  assert.equal(checkPreliminarySurveyMethodPolicy({
+    businessType: "first_measurement",
+    surveyMethod: "field",
+  }), null);
 });
 
 test("기존업체 -20 우선 범위와 -3 허용 범위를 구분한다", () => {
@@ -128,6 +142,56 @@ test("CCC 예외와 측정 원천 repair는 관리자 UI·서버 검증·최소 
   assert.match(auditPermissionMigration, /main_measurer_id/);
   assert.match(auditPermissionMigration, /helper_ids/);
   assert.doesNotMatch(auditPermissionMigration, /measurement_target\.measurer_id = participant_user\.id/);
+});
+
+test("날짜별 공시료 수동수정은 권한·찐확정·stale·동시성·그룹 재정규화와 audit 경계를 둔다", () => {
+  const migration = read("supabase/migrations/20260831075653_add_preliminary_survey_measurement_assignment_manual_edit.sql");
+  const route = read("app/api/preliminary-survey-v2/measurement-assignment/route.ts");
+  const workbench = read("app/api/preliminary-survey-v2/workbench/route.ts");
+  const ui = read("components/features/PreliminarySurveyV2Plans.tsx");
+  assert.match(migration, /preliminary_survey_v2_measurement_assignment_manual_audit/);
+  assert.match(migration, /assignment_id uuid REFERENCES[\s\S]+?ON DELETE SET NULL/);
+  assert.match(migration, /plan_id uuid REFERENCES[\s\S]+?ON DELETE SET NULL/);
+  assert.match(migration, /is_preliminary_survey_v2_true_confirmed/);
+  assert.match(migration, /MEASUREMENT_ASSIGNMENT_SOURCE_CHANGED/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /new_group_count >= 4/);
+  assert.match(migration, /new_group_count = 3/);
+  assert.match(migration, /p_expected_approval_group_fingerprint/);
+  assert.match(migration, /proposed_group_fingerprint := md5/);
+  assert.match(migration, /approval_group_fingerprint = CASE/);
+  assert.match(migration, /ranked\.assignment_position = 3/);
+  assert.match(migration, /ranked\.assignment_count <> 3 OR ranked\.assignment_position <> 3 THEN NULL/);
+  assert.match(migration, /is_preliminary_survey_manager IS TRUE/);
+  assert.match(migration, /role = '관리자'/);
+  assert.match(migration, /user_schedule_blocks/);
+  assert.match(migration, /GRANT EXECUTE[\s\S]+?TO service_role/);
+  assert.match(migration, /REVOKE ALL[\s\S]+?PUBLIC, anon, authenticated/);
+  assert.match(migration, /repair_true_confirmed_preliminary_v2_policy_method/);
+  assert.match(migration, /'\["survey_method"\]'::jsonb/);
+  assert.match(migration, /true_confirmed_policy_method_repair/);
+  assert.match(migration, /POLICY_METHOD_REPAIR_OUTSIDE_CANDIDATE_RANGE/);
+  assert.match(migration, /POLICY_METHOD_REPAIR_PARTICIPANT_INELIGIBLE/);
+  assert.match(migration, /POLICY_METHOD_REPAIR_FIELD_ROUTE_MANUAL_REVIEW/);
+  assert.match(migration, /LOCK TABLE public\.preliminary_survey_v2_plans IN SHARE ROW EXCLUSIVE MODE/);
+  assert.match(route, /canManagePreliminarySurvey/);
+  assert.match(route, /approveThirdAssignment && session\.role !== "관리자"/);
+  assert.match(route, /update_preliminary_survey_v2_measurement_assignment/);
+  assert.match(route, /loadThirdAssignmentReview/);
+  assert.match(route, /expectedApprovalGroupFingerprint/);
+  assert.match(workbench, /measurementAssignments/);
+  assert.match(workbench, /persistedAssignments\.map/);
+  assert.match(ui, /실제 측정일별 공시료/);
+  assert.match(ui, /같은 측정일의 이전·신규 담당자 그룹 코드/);
+  assert.match(ui, /review\.items\.map/);
+  assert.match(ui, /review\.fingerprint/);
+  const policyRepairRoute = read("app/api/preliminary-survey-v2/policy-repair/route.ts");
+  assert.match(policyRepairRoute, /action === "apply_method"/);
+  assert.match(policyRepairRoute, /survey_method/);
+  const augustReadonly = read("scripts/preliminary-survey-august-readonly.ts");
+  assert.match(augustReadonly, /firstMeasurementPhone:[\s\S]+?row\.currentPlan\.method/);
+  assert.match(augustReadonly, /firstMeasurementDateOutsidePolicy:[\s\S]+?row\.currentPlan\.date/);
+  assert.match(augustReadonly, /currentPolicyMismatch[\s\S]+?FALLBACK_PRIORITY_REVIEW/);
 });
 
 test("CCC 검토 모델은 C/CC/CCC 전체를 보여 주고 명시 확인 전 승인 적용을 막는다", () => {

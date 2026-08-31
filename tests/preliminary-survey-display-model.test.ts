@@ -5,6 +5,7 @@ import {
   buildPreliminarySurveyDisplayModel,
   formatMeasurementPublicSampleAssignee,
   formatPreliminarySurveyorWithPublicSampleCode,
+  orderSurveyParticipantsForDisplay,
 } from "../lib/preliminary-survey-v2/display-model";
 
 test("V2 표시 모델은 legacy보다 우선하고 인쇄 괄호에는 코드만 쓴다", () => {
@@ -43,6 +44,14 @@ test("저장된 V2 plan의 누락값은 legacy fallback으로 가리지 않는�
   assert.equal(model.source, "v2");
   assert.equal(model.preliminarySurveyors, "-");
   assert.equal(model.measurementPublicSampleAssignee, "-");
+});
+
+test("복수 예비조사자는 경력자 먼저 표시하되 responsible ID를 바꾸지 않는다", () => {
+  const responsible = { id: 2, name: "강종구", experienced: false };
+  const reviewer = { id: 15, name: "이태환", experienced: true };
+  const ordered = orderSurveyParticipantsForDisplay([responsible, reviewer]);
+  assert.deepEqual(ordered.map((user) => user.name), ["이태환", "강종구"]);
+  assert.equal(responsible.id, 2);
 });
 
 test("요약 API와 수정 모달은 공통 V2 표시 모델을 사용한다", () => {

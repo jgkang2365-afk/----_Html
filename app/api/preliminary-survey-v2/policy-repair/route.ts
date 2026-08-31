@@ -11,7 +11,9 @@ import { loadV2ManualContext } from "@/lib/preliminary-survey-v2/service";
 import type { SurveyUser } from "@/lib/preliminary-survey-v2/types";
 import {
   checkPreliminarySurveyDatePolicy,
+  checkPreliminarySurveyMethodPolicy,
   preliminarySurveyDatePolicyMessage,
+  preliminarySurveyMethodPolicyMessage,
 } from "@/lib/preliminary-survey-v2/policy-compliance";
 
 export const dynamic = "force-dynamic";
@@ -53,12 +55,17 @@ async function loadRepairContext(supabase: any, targetId: number) {
     preliminaryDate: plan?.recommended_date,
     businessType: target.business_type,
   });
-  if (datePolicy.compliant) throw new Error("POLICY_DATE_REPAIR_NOT_REQUIRED");
+  const methodPolicyIssue = plan ? checkPreliminarySurveyMethodPolicy({
+    businessType: target.business_type,
+    surveyMethod: plan.survey_method,
+  }) : null;
+  if (datePolicy.compliant && !methodPolicyIssue) throw new Error("POLICY_REPAIR_NOT_REQUIRED");
   if (!target.business_type || !target.measurement_date) throw new Error("POLICY_DATE_REPAIR_SOURCE_INCOMPLETE");
   return {
     target,
     plan,
     datePolicy,
+    methodPolicyIssue,
     candidateDates: recommendationDatesForBusinessType(target.measurement_date, target.business_type).map((item) => item.date),
   };
 }
@@ -67,7 +74,7 @@ async function loadRepairContext(supabase: any, targetId: number) {
  * 날짜 후보만 맞는 찐확정 repair는 허용하지 않는다. 현재 원천의 기존 예비조사자·방식으로
  * manual 저장과 같은 hard rule(불가 일정, 실제 측정 충돌, 용량, 방문 동선)을 통과해야 한다.
  */
-async function validatePolicyRepairHardRules(supabase: any, targetId: number, plan: any, recommendedDate: string) {
+async function validatePolicyRepairHardRules(supabase: any, targetId: number, plan: any, recommendedDate: string, surveyMethod = plan.survey_method) {
   const context = await loadV2ManualContext(supabase, targetId, recommendedDate);
   const participantIds = [...new Set(
     Array.isArray(plan.participant_user_ids)
@@ -91,7 +98,7 @@ async function validatePolicyRepairHardRules(supabase: any, targetId: number, pl
     target: { ...context.target, responsible },
     recommendedDate,
     participants,
-    surveyMethod: plan.survey_method === "field" ? "field" : "phone",
+    surveyMethod: surveyMethod === "field" ? "field" : "phone",
     existingAssignments: context.assignments,
     routes: createRouteMetrics(),
     experiencedUsers: context.users.filter((user) => user.experienced),
@@ -122,11 +129,31 @@ export async function POST(request: NextRequest) {
         candidateDates: context.candidateDates,
         policyIssues: context.datePolicy.issues,
         reason: preliminarySurveyDatePolicyMessage(context.datePolicy),
+        methodPolicyIssue: context.methodPolicyIssue,
+        methodReason: preliminarySurveyMethodPolicyMessage(context.methodPolicyIssue),
       });
+    }
+    if (body.action === "apply_method") {
+      const reason = String(body.reason ?? "").trim();
+      if (!context.plan?.id || !context.methodPolicyIssue || !reason) {
+        return NextResponse.json({ error: "INVALID_POLICY_METHOD_REPAIR" }, { status: 400 });
+      }
+      await validatePolicyRepairHardRules(
+        access.supabase, targetId, context.plan, String(context.plan.recommended_date ?? ""), "field",
+      );
+      const { error } = await access.supabase.rpc("repair_true_confirmed_preliminary_v2_policy_method", {
+        p_target_id: targetId,
+        p_expected_plan_id: context.plan.id,
+        p_expected_survey_method: context.plan.survey_method,
+        p_reason: reason,
+        p_changed_by_user_id: access.session.userId,
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+      return NextResponse.json({ success: true, repairedFields: ["survey_method"] });
     }
     const recommendedDate = String(body.recommendedDate ?? "").trim();
     const reason = String(body.reason ?? "").trim();
-    if (body.action !== "apply" || !context.plan?.id || !context.candidateDates.includes(recommendedDate) || !reason) {
+    if (body.action !== "apply" || context.datePolicy.compliant || !context.plan?.id || !context.candidateDates.includes(recommendedDate) || !reason) {
       return NextResponse.json({ error: "INVALID_POLICY_DATE_REPAIR" }, { status: 400 });
     }
     await validatePolicyRepairHardRules(access.supabase, targetId, context.plan, recommendedDate);

@@ -67,6 +67,26 @@ test("canonical: 기존업체 유선 reviewer의 측정·일정은 우선일을 
   assert.deepEqual(result.participants.map((user) => user.id), [novice.id, experienced.id]);
 });
 
+test("canonical: 기존업체 유선 비경력 responsible는 지정된 경력 reviewer 조합을 우선한다", async () => {
+  const fixtures = [
+    [junior(2, "강종구"), senior(15, "이태환")],
+    [junior(16, "고유빈"), senior(13, "이주형")],
+    [junior(20, "김민영"), senior(17, "한기문")],
+  ] as const;
+  const experiencedUsers = [senior(13, "이주형"), senior(15, "이태환"), senior(17, "한기문")];
+  for (const [responsible, preferredReviewer] of fixtures) {
+    const [result] = await recommendBatch({
+      targets: [{ ...target(responsible), id: responsible.id }],
+      surveyors: [responsible],
+      experiencedUsers,
+      availability: { isBlocked: () => false },
+      routes,
+    });
+    assert.equal(result.responsible.id, responsible.id);
+    assert.equal(result.experiencedReviewer?.id, preferredReviewer.id);
+  }
+});
+
 test("canonical: 공시료 match가 비경력 단독 hard block을 이기지 못한다", async () => {
   const novice = junior(1);
   const [recommendation] = await recommendBatch({
@@ -349,7 +369,7 @@ test("2026-08-31 canonical fixture는 Production 8/31 READ-ONLY snapshot에서 �
     { id: 495, code: "H0195", responsible: 16, participants: [16, 13], reviewer: 13 },
     { id: 569, code: "H0049", responsible: 17, participants: [17], reviewer: null },
     { id: 502, code: "H0361", responsible: 13, participants: [13], reviewer: null },
-    { id: 531, code: "H0130", responsible: 20, participants: [20, 13], reviewer: 13 },
+    { id: 531, code: "H0130", responsible: 20, participants: [20, 17], reviewer: 17 },
   ];
   const selected = new Map<string, string | null>();
   for (const row of fixture) {

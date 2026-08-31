@@ -12,6 +12,15 @@ export interface PreliminarySurveyDisplayModel {
 const text = (value: unknown) => String(value ?? "").trim();
 const join = (values: unknown[]) => [...new Set(values.map(text).filter(Boolean))].join(", ") || "-";
 
+/** 표시 순서만 경력자 우선으로 통일하며 responsible/reviewer 역할 ID는 변경하지 않는다. */
+export function orderSurveyParticipantsForDisplay<T extends { id: number; experienced: boolean }>(
+  participants: readonly T[],
+) {
+  return [...participants].sort((left, right) =>
+    Number(right.experienced) - Number(left.experienced) || left.id - right.id,
+  );
+}
+
 export function buildPreliminarySurveyDisplayModel(input: {
   v2?: {
     preliminarySurveyDate?: unknown;

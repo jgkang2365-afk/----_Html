@@ -20,6 +20,11 @@ export interface RecommendBatchInput {
 
 const SAME_ROUTE_THRESHOLD_MINUTES = 30 as const;
 const HARD_MAXIMUM_MINUTES = 60 as const;
+const PREFERRED_EXISTING_PHONE_REVIEWER_BY_RESPONSIBLE_NAME = new Map([
+  ["강종구", "이태환"],
+  ["고유빈", "이주형"],
+  ["김민영", "한기문"],
+]);
 
 function deterministicTargets(targets: SurveyTarget[]) {
   const priority = (target: SurveyTarget) => target.businessType === "first_measurement"
@@ -158,6 +163,8 @@ async function chooseReviewer(
       ].filter((value): value is string => Boolean(value));
       return {
         user,
+        preferredExistingPhonePair: target.kind === "existing" &&
+          PREFERRED_EXISTING_PHONE_REVIEWER_BY_RESPONSIBLE_NAME.get(target.responsible.name.trim()) === user.name.trim(),
         hardConflict: hardBlockReasons.length > 0,
         hardBlockReasons,
         route,
@@ -171,6 +178,7 @@ async function chooseReviewer(
     }));
   choices.sort((left, right) =>
     Number(left.hardConflict) - Number(right.hardConflict) ||
+    Number(right.preferredExistingPhonePair) - Number(left.preferredExistingPhonePair) ||
     Number(left.crossTypeOverlap) - Number(right.crossTypeOverlap) ||
     compareRoute(left.route, right.route) ||
     left.reviewCount - right.reviewCount ||

@@ -7,6 +7,10 @@ export type PreliminarySurveyDatePolicyIssue =
   | "OUTSIDE_POLICY_RANGE"
   | "FALLBACK_PRIORITY_REVIEW";
 
+export type PreliminarySurveyMethodPolicyIssue =
+  | "POLICY_MISMATCH_FIRST_MEASUREMENT_METHOD"
+  | "POLICY_MISMATCH_EXTERNAL_NEW_METHOD";
+
 export interface PreliminarySurveyDatePolicyCheck {
   compliant: boolean;
   issues: PreliminarySurveyDatePolicyIssue[];
@@ -58,5 +62,24 @@ export function preliminarySurveyDatePolicyMessage(check: PreliminarySurveyDateP
   if (check.issues.includes("INVALID_PRELIMINARY_DATE")) return "예비조사일 또는 측정예정일 형식 오류";
   if (check.issues.includes("OUTSIDE_POLICY_RANGE")) return "운영지침 날짜 범위 불일치";
   if (check.issues.includes("FALLBACK_PRIORITY_REVIEW")) return "fallback 날짜 사용 · 우선 탐색 검토 필요";
+  return null;
+}
+
+export function checkPreliminarySurveyMethodPolicy(input: {
+  businessType: PreliminarySurveyPolicyBusinessType | null | undefined;
+  surveyMethod: string | null | undefined;
+}): PreliminarySurveyMethodPolicyIssue | null {
+  if (input.businessType === "first_measurement" && input.surveyMethod !== "field") {
+    return "POLICY_MISMATCH_FIRST_MEASUREMENT_METHOD";
+  }
+  if (input.businessType === "external_new" && input.surveyMethod !== "field") {
+    return "POLICY_MISMATCH_EXTERNAL_NEW_METHOD";
+  }
+  return null;
+}
+
+export function preliminarySurveyMethodPolicyMessage(issue: PreliminarySurveyMethodPolicyIssue | null) {
+  if (issue === "POLICY_MISMATCH_FIRST_MEASUREMENT_METHOD") return "최초실시 방문 필수 위반";
+  if (issue === "POLICY_MISMATCH_EXTERNAL_NEW_METHOD") return "타기관 신규 방문 필수 위반";
   return null;
 }

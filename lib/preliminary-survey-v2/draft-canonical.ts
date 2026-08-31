@@ -22,6 +22,8 @@ export interface CanonicalSurveyDraft {
 }
 
 export interface CanonicalMeasurementAssignmentDraft {
+  /** 저장된 배정을 권한자가 날짜별 수정할 때만 존재한다. 추천 draft에는 포함하지 않는다. */
+  assignmentId?: string;
   targetId: number;
   measurementDate: string;
   userId: number;
