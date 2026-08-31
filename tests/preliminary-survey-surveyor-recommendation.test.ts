@@ -18,9 +18,9 @@ test("유선 책임자 3건 한도에 도달하면 같은 날짜의 다른 조�
     assignments: [1, 2, 3].map((id) => assignment(id + 10, "existing", 2, "2026-06-01")),
     availability: available(),
   });
-  assert.equal(result[0].date, "2026-06-01");
-  assert.equal(result[0].responsible?.id, 10);
-  assert.deepEqual(result[0].participants.map((user) => user.id), [10]);
+  assert.equal(result[0].date, "2026-06-02");
+  assert.equal(result[0].responsible?.id, 2);
+  assert.deepEqual(result[0].participants.map((user) => user.id), [2, 10]);
 });
 
 test("후보 날짜×조합에서 직원 불가 일정과 방문 개인 용량을 함께 적용한다", () => {
@@ -70,7 +70,7 @@ test("첫 날짜의 모든 사용자가 blocked면 다음 정책 유효 날짜�
   assert.equal(result[0].date, "2026-06-02");
 });
 
-test("유효한 기존 가확정은 신규 후보보다 먼저 reserve하여 최소 변경으로 유지한다", () => {
+test("비경력자 단독 기존 가확정은 보존하지 않고 경력 포함 조합으로 재추천한다", () => {
   const result = recommendSurveyors({
     targets: [
       { id: 2, kind: "existing", businessType: "existing", measurementDate: "2026-07-14", createdAt: "2026-01-02", candidateDates: ["2026-06-01"] },
@@ -81,9 +81,10 @@ test("유효한 기존 가확정은 신규 후보보다 먼저 reserve하여 최
     availability: available(),
   });
   const preserved = result.find((item) => item.targetId === 1)!;
-  assert.equal(preserved.preserved, true);
+  assert.equal(preserved.preserved, false);
   assert.equal(preserved.date, "2026-06-02");
   assert.equal(preserved.responsible?.id, 2);
+  assert.deepEqual(preserved.participants.map((user) => user.id), [2, 10]);
 });
 
 test("동일 입력은 입력 배열 순서와 무관하게 동일한 안정적 tie-break 결과를 낸다", () => {

@@ -129,9 +129,11 @@ test("batch RPC는 아무것도 쓰기 전에 모든 row를 검증하므로 1건
   }
 });
 
-test("기존 단건 RPC는 삭제하지 않고 다른 기능 호환성을 유지한다", () => {
+test("기존 단건 RPC 정의는 보존하되 수동 수정은 plan+assignment 원자 RPC를 사용한다", () => {
   assert.match(oldMigration, /CREATE OR REPLACE FUNCTION public\.persist_preliminary_survey_v2_plan/);
-  assert.match(manualRoute, /rpc\("persist_preliminary_survey_v2_plan"/);
+  assert.doesNotMatch(manualRoute, /rpc\("persist_preliminary_survey_v2_plan"/);
+  assert.match(manualRoute, /rpc\("persist_preliminary_survey_v2_plan_and_assignment_groups"/);
+  assert.match(manualRoute, /p_assignment_baseline: canonicalAssignments\.baseline/);
 });
 
 // ---- 3. service.ts 회귀: batch persist 사용 + 단건 RPC 제거(자동 경로) ----

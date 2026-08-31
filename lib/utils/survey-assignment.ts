@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { getFirstMeasurer, getSurveyCode } from "@/lib/utils/survey-code";
+import { operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
 
 export const MEASURER_OVERLAP_CONFIRMATION_CODE = "MEASURER_OVERLAP_CONFIRMATION_REQUIRED";
 export const MEASURER_OVERLAP_LIMIT_CODE = "MEASURER_OVERLAP_LIMIT_EXCEEDED";
@@ -26,17 +27,17 @@ async function getBaseSurveyCode(
   primaryMeasurer: string,
   measurementDate: string
 ): Promise<string> {
-  const { data: user, error } = await supabase
+  const { data: users, error } = await supabase
     .from("users")
-    .select("survey_code")
+    .select("id, job, is_active, survey_code")
     .eq("name", primaryMeasurer)
-    .limit(1)
-    .maybeSingle();
+    .limit(10);
 
   if (error) {
     throw new Error(`공시료 코드 조회에 실패했습니다: ${error.message}`);
   }
 
+  const user = operationalMeasurementUsers(users)[0];
   const code = String(user?.survey_code || getSurveyCode(primaryMeasurer, measurementDate) || "")
     .trim()
     .toUpperCase();
@@ -180,11 +181,10 @@ export async function rebalanceSurveyCodesForDate(
  * 활성화된 측정 담당자 수를 조회합니다.
  */
 export async function getActiveMeasurerCount(supabase: SupabaseClient): Promise<number> {
-  const { count, error } = await supabase
+  const { data, error } = await supabase
     .from("users")
-    .select("id", { count: "exact", head: true })
-    .eq("job", "측정")
-    .eq("is_active", true);
+    .select("id, job, is_active")
+    .eq("job", "측정");
 
   if (error) {
     console.error("활성 측정 담당자 수 조회 오류:", error);
@@ -192,7 +192,7 @@ export async function getActiveMeasurerCount(supabase: SupabaseClient): Promise<
     return 6;
   }
 
-  return count || 0;
+  return operationalMeasurementUsers(data).length;
 }
 
 /**

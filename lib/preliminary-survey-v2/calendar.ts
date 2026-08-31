@@ -76,11 +76,13 @@ export function recommendationDatesForBusinessType(
   measurementDate: string,
   businessType: PhaseBBusinessType,
 ) {
-  const maximum = businessType === "first_measurement" ? 30 : 25;
+  // 최초실시 방문은 -3부터 가까운 날짜를 우선하되, -20 working day 밖의 오래된
+  // 날짜를 정상 추천으로 만들지 않는다. H0525처럼 -30 값은 관리자 repair 검토 대상이다.
+  const maximum = businessType === "first_measurement" ? 20 : 25;
   const dates = workingDaysBefore(measurementDate, maximum);
   const byDistance = new Map(dates.map((item) => [item.workingDaysBefore, item]));
   const distances = businessType === "first_measurement"
-    ? Array.from({ length: 28 }, (_, index) => 3 + index)
+    ? Array.from({ length: 18 }, (_, index) => 3 + index)
     : [
         ...Array.from({ length: 18 }, (_, index) => 20 - index),
         ...Array.from({ length: 5 }, (_, index) => 25 - index),

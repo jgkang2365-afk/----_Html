@@ -12,6 +12,18 @@ export function matchesMeasurementDateRange(
   return (!from || measurementDate >= from) && (!to || measurementDate <= to);
 }
 
+/** 다일 사업장은 시작일만이 아니라 daily_staff에 명시된 모든 실제 측정일에 노출한다. */
+export function matchesAnyMeasurementDateRange(
+  measurementDates: readonly string[] | null | undefined,
+  from: string,
+  to: string,
+): boolean {
+  const dates = (measurementDates ?? []).filter(Boolean);
+  return dates.length
+    ? dates.some((date) => matchesMeasurementDateRange(date, from, to))
+    : matchesMeasurementDateRange(null, from, to);
+}
+
 function normalizedSearchValue(value: unknown): string {
   return typeof value === "string"
     ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("ko-KR")
