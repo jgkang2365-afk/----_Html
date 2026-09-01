@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+// Build/prerender 단계에서 유지보수 write가 실행되지 않도록 요청 시점에만 평가한다.
+export const dynamic = "force-dynamic";
+
 export async function GET() {
     const supabase = await createClient();
 
