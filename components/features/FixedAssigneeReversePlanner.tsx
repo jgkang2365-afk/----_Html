@@ -181,19 +181,24 @@ export function FixedAssigneeReversePlanner() {
                   <td className="p-2 font-medium">{target.code}<br /><span className="font-normal text-text-600">{target.name}</span></td>
                   <td className="space-y-2 p-2">{target.days.map((day) => {
                     const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
+                    const publicSample = result?.publicSampleAssignments.find((item) => item.measurementDate === day.date);
                     const priority = [...new Set([...day.collaboratorUserIds, ...snapshot.users.map((user) => user.id)])]
                       .map((id) => userById.get(id)).filter(Boolean);
-                    return <div key={day.date} className="flex items-center gap-1">
-                      <span className="w-20 shrink-0">{day.date.slice(5)}</span>
-                      <select aria-label={`${target.code} ${day.date} 고정 측정자`}
-                        value={fixed?.assigneeUserId ?? ""}
-                        onChange={(event) => void confirmFixed(target.id, day.date, Number(event.target.value))}
-                        className="h-8 min-w-32 rounded border border-surface-300 bg-white px-1">
-                        <option value="">미확정</option>
-                        {priority.map((user) => user && <option key={user.id} value={user.id}>
-                          {user.name}({user.baseCode ?? "-"}){day.collaboratorUserIds.includes(user.id) ? " · 참여" : ""}
-                        </option>)}
-                      </select>
+                    return <div key={day.date} className="space-y-1">
+                      <div className="flex items-center gap-1"><span className="w-20 shrink-0">{day.date.slice(5)}</span>
+                        <select aria-label={`${target.code} ${day.date} 고정 측정자`}
+                          value={fixed?.assigneeUserId ?? ""}
+                          onChange={(event) => void confirmFixed(target.id, day.date, Number(event.target.value))}
+                          className="h-8 min-w-32 rounded border border-surface-300 bg-white px-1">
+                          <option value="">미확정</option>
+                          {priority.map((user) => user && <option key={user.id} value={user.id}>
+                            {user.name}({user.baseCode ?? "-"}){day.collaboratorUserIds.includes(user.id) ? " · 참여" : ""}
+                          </option>)}
+                        </select>
+                      </div>
+                      {publicSample && <div className="pl-20 text-[11px] font-medium text-primary-700">
+                        공시료 표시: {userById.get(publicSample.assigneeUserId)?.name ?? "-"}({publicSample.publicSampleCode})
+                      </div>}
                     </div>;
                   })}</td>
                   <td className="space-y-1 p-2">{target.days.map((day) =>
