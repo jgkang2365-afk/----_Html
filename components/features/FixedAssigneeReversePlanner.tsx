@@ -125,6 +125,7 @@ export function FixedAssigneeReversePlanner() {
 
   const saveOverride = async () => {
     if (!preview || overrideTargetId == null) return;
+    if (!window.confirm("Canonical 자동결정 범위를 벗어난 관리자 예외입니다. 경고와 사유를 audit에 남기고 저장하시겠습니까?")) return;
     setWorking(true); setError(null);
     try {
       await request("/api/preliminary-survey-v2/reverse-planner", {
