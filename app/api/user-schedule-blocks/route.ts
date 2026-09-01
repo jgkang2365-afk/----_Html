@@ -3,6 +3,7 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { parseDateOnly } from "@/lib/preliminary-survey-v2/calendar";
+import { isOperationalMeasurementUser, operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
 
 const BLOCK_TYPES = new Set([
   "education",
@@ -29,7 +30,7 @@ async function canManageUser(supabase: Client, session: Session, userId: number)
     .select("job, is_active")
     .eq("id", session.userId)
     .maybeSingle();
-  return data?.job === "측정" && data?.is_active !== false;
+  return Boolean(data && isOperationalMeasurementUser({ ...data, id: session.userId }));
 }
 
 async function areEligibleMeasurementUsers(supabase: Client, userIds: number[]) {
@@ -39,8 +40,7 @@ async function areEligibleMeasurementUsers(supabase: Client, userIds: number[]) 
     .in("id", userIds);
   if (error) throw error;
   const eligible = new Set(
-    (data ?? [])
-      .filter((user) => user.job === "측정" && user.is_active !== false)
+    operationalMeasurementUsers(data)
       .map((user) => Number(user.id)),
   );
   return userIds.every((userId) => eligible.has(userId));

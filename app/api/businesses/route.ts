@@ -62,6 +62,7 @@ import {
   buildMeasurementScheduleBlockKeys,
   validateMeasurementDayAvailability,
 } from "@/lib/business/measurement-day-availability";
+import { operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
 
 async function validateMeasurementAssignmentsForSave(supabase: any, days: MeasurementDayForm[]) {
   const validation = validateMeasurementDayForms(days);
@@ -71,7 +72,7 @@ async function validateMeasurementAssignmentsForSave(supabase: any, days: Measur
   if (assignmentDates.length === 0) return { valid: true } as const;
 
   const [{ data: users, error: userError }, { data: blocks, error: blockError }] = await Promise.all([
-    supabase.from("users").select("id, name").eq("job", "측정").neq("is_active", false),
+    supabase.from("users").select("id, name, job, is_active").eq("job", "측정").eq("is_active", true),
     supabase
       .from("user_schedule_blocks")
       .select("user_id, start_date, end_date")
@@ -83,7 +84,7 @@ async function validateMeasurementAssignmentsForSave(supabase: any, days: Measur
 
   return validateMeasurementDayAvailability({
     days,
-    users: (users || []).map((user: any) => ({ id: Number(user.id), name: String(user.name) })),
+    users: operationalMeasurementUsers(users).map((user: any) => ({ id: Number(user.id), name: String(user.name) })),
     blockedKeys: buildMeasurementScheduleBlockKeys(blocks || []),
   });
 }

@@ -88,10 +88,11 @@ test("기존 단건 RPC의 date signature를 DROP하여 overload 중복을 방�
   assert.match(fixMigration, /bigint, date, integer, integer, jsonb, jsonb, text, text, text, integer, text, text, jsonb, jsonb, jsonb/);
 });
 
-// 호출부 호환성: [targetId] route / service batch 모두 문자열(source TEXT)을 그대로 전달
-test("호출부는 source_measurement_date를 문자열로 전달하므로 TEXT signature와 호환된다", () => {
-  assert.match(manualRoute, /p_source_measurement_date: target\.measurementDate/);
-  assert.match(manualRoute, /rpc\("persist_preliminary_survey_v2_plan"/);
+// 호출부 호환성: [targetId] route / service batch 모두 문자열(source TEXT)을 payload로 전달
+test("호출부는 source_measurement_date 문자열을 원자 plan+assignment RPC payload로 전달한다", () => {
+  assert.match(manualRoute, /source_measurement_date: target\.measurementDate/);
+  assert.match(manualRoute, /rpc\("persist_preliminary_survey_v2_plan_and_assignment_groups"/);
+  assert.doesNotMatch(manualRoute, /rpc\("persist_preliminary_survey_v2_plan"/);
   assert.match(service, /source_measurement_date: target\.measurementDate/);
 });
 

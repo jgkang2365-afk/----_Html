@@ -69,6 +69,7 @@ import {
     isMeasurementStaffUnavailable,
     validateMeasurementDayAvailability,
 } from "@/lib/business/measurement-day-availability";
+import { isOperationalMeasurementUser } from "@/lib/business/operational-measurement-user";
 
 interface BusinessEntry {
     id: string | number;
@@ -169,6 +170,7 @@ interface User {
     id: number;
     name: string;
     job?: string;
+    is_active?: boolean | null;
     is_preliminary_survey_experienced?: boolean;
 }
 
@@ -745,8 +747,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 if (response.ok) {
                     const result = await response.json();
                     if (result.users) {
-                        // Job이 '측정'인 사용자만 필터링 (기본값이 '측정'이므로 없어도 포함될 수 있으나 명시적 확인)
-                        const filtered = result.users.filter((u: User) => u.job === '측정' || !u.job); // job이 null인 경우도 포함할지? API default is '측정'.
+                        const filtered = result.users.filter((u: User) => isOperationalMeasurementUser(u));
                         
                         // 사용자의 시인성을 위해 공식 순서로 정렬 (이태환, 한기문, 강종구, 이주형, 배윤민, 김민영, 고유빈 순)
                         const officialOrder = ["이태환", "한기문", "강종구", "이주형", "배윤민", "김민영", "고유빈"];

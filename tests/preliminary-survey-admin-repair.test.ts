@@ -9,6 +9,9 @@ const read = (file: string) => readFileSync(path.join(root, file), "utf8");
 
 const apiSource = read("app/api/preliminary-survey-v2/admin-repair/route.ts");
 const migration = read("supabase/migrations/20260817_add_preliminary_survey_exception_log.sql");
+const boundaryMigration = read(
+  "supabase/migrations/20260831130000_restrict_preliminary_survey_legacy_repair_boundaries.sql",
+);
 const uiSource = read("components/features/MeasurementTargetBusinessManagement.tsx");
 const businessesRoute = read("app/api/businesses/route.ts");
 
@@ -19,14 +22,14 @@ const users = [
 ];
 
 // ===== 권한 =====
-test("관리자 예외 정비 API는 일반 사용자(POST)를 거부한다", () => {
-  assert.match(apiSource, /session\.role !== "관리자"/);
-  assert.match(apiSource, /관리자만 예비조사 예외 정비를 수행할 수 있습니다/);
+test("관리자 예외 정비 API는 일반 사용자를 거부하고 예비조사 담당자 권한을 서버에서 확인한다", () => {
+  assert.match(apiSource, /canManagePreliminarySurvey\(supabase, session\)/);
+  assert.match(apiSource, /예비조사 담당자 또는 관리자만 예비조사 예외 정비를 수행할 수 있습니다/);
 });
 
-test("관리자 예외 정비 API는 GET 비교 정보도 관리자 전용이다", () => {
+test("관리자 예외 정비 API는 GET 비교 정보도 예비조사 담당자 또는 관리자 전용이다", () => {
   assert.match(apiSource, /function adminGuard/);
-  assert.match(apiSource, /adminGuard\(session\)/);
+  assert.match(apiSource, /adminGuard\(supabase, session\)/);
 });
 
 test("UI: 수정 모달의 '연결 정비' 진입점은 제거됐다 (Phase A, 관리자 정비는 별도 모달/예비조사 영역)", () => {
@@ -83,10 +86,23 @@ test("다일 측정은 전체 기간 중 최소 하루 참여자면 후보가 �
   assert.ok(candidates.some((user) => user.name === "한기문"));
 });
 
-test("정비 대상은 확정(sequence_number 부여) 상태만 허용된다", () => {
-  assert.match(migration, /SEQUENCE_NUMBER_NOT_CONFIRMED/);
-  assert.match(migration, /sequence_number IS NOT NULL/);
-  assert.match(apiSource, /확정 상태가 아닙니다/);
+test("정비 대상은 sequence_number와 무관하게 measurement_journal row 존재로 찐확정한다", () => {
+  assert.match(boundaryMigration, /is_preliminary_survey_v2_true_confirmed\(p_target_id\)/);
+  assert.match(boundaryMigration, /TRUE_CONFIRMED_REQUIRED/);
+  assert.doesNotMatch(boundaryMigration, /sequence_number IS NOT NULL/);
+  assert.match(apiSource, /측정일지가 없어 찐확정 상태가 아닙니다/);
+});
+
+test("legacy SECURITY DEFINER write RPC는 service_role만 직접 실행할 수 있다", () => {
+  assert.match(
+    boundaryMigration,
+    /REVOKE ALL ON FUNCTION public\.confirm_preliminary_survey_group\(jsonb\)[\s\S]*FROM PUBLIC, anon, authenticated/,
+  );
+  assert.match(
+    boundaryMigration,
+    /GRANT EXECUTE ON FUNCTION public\.confirm_preliminary_survey_group\(jsonb\)[\s\S]*TO service_role/,
+  );
+  assert.match(boundaryMigration, /set_config\('app\.preliminary_survey_admin_repair', 'on', true\)/);
 });
 
 // ===== 저장 =====

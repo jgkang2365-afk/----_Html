@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth/session";
+import { getSession, type SessionData } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
+import { operationalMeasurementUsers } from "@/lib/business/operational-measurement-user";
+import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +17,11 @@ export const dynamic = "force-dynamic";
  * 실제 측정자·보고서 담당자·legacy 값은 이 API에서 변경하지 않는다.
  */
 
-function adminGuard(session: { role: string } | null) {
+async function adminGuard(supabase: any, session: SessionData | null) {
   if (!session) return { error: "로그인이 필요합니다.", status: 401 };
-  if (session.role !== "관리자") return { error: "관리자만 예비조사 예외 정비를 수행할 수 있습니다.", status: 403 };
+  if (!await canManagePreliminarySurvey(supabase, session)) {
+    return { error: "예비조사 담당자 또는 관리자만 예비조사 예외 정비를 수행할 수 있습니다.", status: 403 };
+  }
   return null;
 }
 
@@ -27,7 +31,7 @@ function friendlyRpcError(message: string): string {
     INVALID_PARTICIPANTS: "예비조사자 목록이 올바르지 않습니다.",
     TARGET_NOT_FOUND: "측정 대상 사업장을 찾을 수 없습니다.",
     V2_PLAN_NOT_FOUND: "예비조사 V2 계획이 존재하지 않습니다.",
-    SEQUENCE_NUMBER_NOT_CONFIRMED: "측정일지 연번이 부여되지 않아 확정 상태가 아닙니다. 예외 정비는 확정 데이터만 가능합니다.",
+    TRUE_CONFIRMED_REQUIRED: "측정일지가 없어 찐확정 상태가 아닙니다. 예외 정비는 찐확정 데이터만 가능합니다.",
     PARTICIPANT_MISMATCH: "예비조사자 정보가 사용자 정보와 일치하지 않습니다.",
     PARTICIPANT_DUPLICATE: "예비조사자에 중복된 인원이 있습니다.",
     LINK_MEASURER_REQUIRED: "예·측을 선택해 주세요.",
@@ -41,8 +45,10 @@ function friendlyRpcError(message: string): string {
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
-  const denied = adminGuard(session);
+  const supabase = await createClient();
+  const denied = await adminGuard(supabase, session);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
+  if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   try {
     const targetIdText = new URL(request.url).searchParams.get("targetId");
     const targetId = targetIdText ? Number(targetIdText) : null;
@@ -50,7 +56,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "INVALID_TARGET_ID" }, { status: 400 });
     }
 
-    const supabase = await createClient();
     const { data: target, error: targetError } = await supabase
       .from("measurement_target_business")
       .select(
@@ -134,7 +139,7 @@ export async function GET(request: NextRequest) {
           }
         : null,
       sequenceNumber: journalResult.data?.sequence_number ?? null,
-      users: (usersResult.data || []).map((user: any) => ({
+      users: operationalMeasurementUsers(usersResult.data).map((user: any) => ({
         id: Number(user.id),
         name: user.name,
         job: user.job,
@@ -149,11 +154,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
-  if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  if (session.role !== "관리자") {
-    return NextResponse.json({ error: "관리자만 예비조사 예외 정비를 수행할 수 있습니다." }, { status: 403 });
-  }
   try {
+    const supabase = await createClient();
+    const denied = await adminGuard(supabase, session);
+    if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
+    if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
     const body = await request.json();
     const targetId = Number(body.targetId);
     const participantUserIds = Array.isArray(body.participantUserIds)
@@ -183,7 +188,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "예·측을 선택해 주세요." }, { status: 400 });
     }
 
-    const supabase = await createClient();
+    const selectedUserIds = [...new Set<number>([
+      ...participantUserIds.map(Number),
+      Number(linkMeasurerId),
+    ])].filter(Number.isInteger);
+    const { data: selectedUsers, error: selectedUserError } = await supabase
+      .from("users")
+      .select("id, job, is_active")
+      .in("id", selectedUserIds);
+    if (selectedUserError) throw selectedUserError;
+    const operationalUserIds = new Set(operationalMeasurementUsers(selectedUsers).map((user) => Number(user.id)));
+    if (!selectedUserIds.every((id) => operationalUserIds.has(id))) {
+      return NextResponse.json({ error: "INELIGIBLE_OPERATIONAL_USER" }, { status: 400 });
+    }
     const { data, error } = await supabase.rpc("admin_repair_preliminary_survey_connection", {
       p_target_id: targetId,
       p_participant_user_ids: participantUserIds,

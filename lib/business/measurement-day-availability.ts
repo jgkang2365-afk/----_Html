@@ -66,11 +66,17 @@ export function validateMeasurementDayAvailability(input: {
   input.days.forEach((day, index) => {
     if (!day.date) return;
     const reportWriter = day.measurerId == null ? null : usersById.get(day.measurerId);
+    if (day.measurerId != null && !reportWriter) {
+      conflicts.push(`측정일 ${index + 1}(${day.date}) 보고서 담당자는 업무 측정 후보가 아닙니다`);
+    }
     if (reportWriter && isMeasurementStaffUnavailable(reportWriter.id, day.date, input.blockedKeys)) {
       conflicts.push(`측정일 ${index + 1}(${day.date}) 보고서 담당자 ${reportWriter.name}`);
     }
     for (const name of normalizeMeasurementCollaborators(day.collaborators)) {
       const participant = usersByName.get(name);
+      if (!participant) {
+        conflicts.push(`측정일 ${index + 1}(${day.date}) 측정 참여자 ${name}은 업무 측정 후보가 아닙니다`);
+      }
       if (participant && isMeasurementStaffUnavailable(participant.id, day.date, input.blockedKeys)) {
         conflicts.push(`측정일 ${index + 1}(${day.date}) 측정 참여자 ${participant.name}`);
       }

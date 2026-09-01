@@ -56,7 +56,7 @@ const assignmentUsers = [
 ];
 const assignmentTarget = (targetId: number, measurementDate: string): MeasurementAssignmentTarget => ({
   targetId, measurementDate, address: null, coordinate: null, reportWriterUserId: 1,
-  measurementParticipantUserIds: [1], preliminarySurveyorUserId: 1,
+  measurementParticipantUserIds: [1], preliminarySurveyorUserIds: [1],
 });
 
 test("측정자 availability는 예비조사 후보일이 아니라 실제 측정일 block만 적용한다", () => {

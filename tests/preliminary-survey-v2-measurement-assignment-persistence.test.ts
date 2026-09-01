@@ -29,6 +29,7 @@ const safeDeleteMigration = readFileSync(
 const migration = `${baseMigration}\n${forwardMigration}\n${remedialMigration}\n${persistenceFixMigration}\n${affectedGroupFixMigration}`;
 const workbench = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
 const manualRoute = readFileSync("app/api/preliminary-survey-v2/[targetId]/route.ts", "utf8");
+const assignmentPersistence = readFileSync("lib/preliminary-survey-v2/measurement-assignment-persistence.ts", "utf8");
 const plansUi = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
 const service = readFileSync("lib/preliminary-survey-v2/service.ts", "utf8");
 
@@ -173,15 +174,18 @@ test("workbench apply는 전체 draft fingerprint·서버 재추천을 대조하
   assert.match(workbench, /MEASUREMENT_ASSIGNMENT_SCHEMA_REQUIRED/);
   assert.match(workbench, /persist_preliminary_survey_v2_plan_and_assignment_groups/);
   assert.match(workbench, /p_approve_third_assignment: approveThirdAssignment/);
-  assert.match(workbench, /p_approved_by_user_id: approveThirdAssignment \? approvedByUserId : null/);
+  assert.match(workbench, /p_approved_by_user_id: approveThirdAssignment \? session\.userId : null/);
   assert.doesNotMatch(workbench, /PUBLIC_SAMPLE_CODE_BY_NAME/);
   assert.doesNotMatch(workbench, /measurer_user_id/);
 });
 
 test("추천과 Apply 재계산은 동일한 canonical target builder를 사용한다", () => {
-  assert.equal((workbench.match(/buildMeasurementAssignmentTargets\(\{/g) ?? []).length, 2);
-  assert.match(workbench, /submittedByTargetId[\s\S]*sourceResponsibleUserId/);
-  assert.doesNotMatch(workbench, /const assignmentTargets:[\s\S]*businessCode: context\.target\.code, region: context\.target\.region/);
+  assert.match(workbench, /recomputeCanonicalMeasurementAssignments/);
+  assert.match(manualRoute, /recomputeCanonicalMeasurementAssignments/);
+  assert.match(assignmentPersistence, /buildMeasurementAssignmentTargets\(\{/);
+  assert.match(assignmentPersistence, /preliminarySurveyorUserIdsByTarget/);
+  assert.match(assignmentPersistence, /persistence|baseline|canonical/i);
+  assert.doesNotMatch(assignmentPersistence, /reportWriterUserId[\s\S]*preliminarySurveyorUserIds/);
   assert.match(service, /loadV2ManualContext[\s\S]*measurementStaffByDate: measurementStaffByDateFromSource/);
 });
 
@@ -238,7 +242,7 @@ test("DELETE API는 권한·원천·보호 reference를 사전 검사하고 RPC 
   assert.doesNotMatch(manualRoute, /\.from\("preliminary_survey_v2_plans"\)[\s\S]{0,200}\.delete\(/);
 });
 
-test("관리 열은 모든 행에 안전 삭제 상태를 노출하고 취소 전 write 없이 성공 시 모든 draft를 무효화한다", () => {
+test("관리 열은 persisted plan에만 계획 삭제를 노출하고 취소 전 write 없이 성공 시 모든 draft를 무효화한다", () => {
   assert.match(workbench, /hasPersistedPlan: Boolean\(plan\)/);
   assert.match(plansUi, /hasPersistedPlan\?: boolean/);
   assert.match(plansUi, /if \(!row\.hasPersistedPlan \|\| row\.locked \|\| row\.deleteProtectionReason\) return/);
@@ -246,10 +250,10 @@ test("관리 열은 모든 행에 안전 삭제 상태를 노출하고 취소 �
   const fetchAt = plansUi.indexOf('method: "DELETE"', confirmAt);
   assert.ok(confirmAt >= 0 && fetchAt > confirmAt);
   assert.match(plansUi, /if \(!confirmed\) return/);
-  assert.match(plansUi, /!row\.hasPersistedPlan \|\| Boolean\(row\.locked\) \|\| Boolean\(row\.deleteProtectionReason\)/);
-  assert.match(plansUi, /"보고서담당", "관리", "충돌"/);
-  assert.match(plansUi, /variant="danger"[\s\S]*>삭제<\/Button>/);
-  assert.doesNotMatch(plansUi, />계획 삭제<\/Button>/);
+  assert.match(plansUi, /disabled=\{working \|\| Boolean\(row\.locked\) \|\| Boolean\(row\.deleteProtectionReason\)\}/);
+  assert.match(plansUi, /"보고서 담당", "관리", "충돌"/);
+  assert.match(plansUi, /\{row\.hasPersistedPlan \? <Button[\s\S]*?>계획 삭제<\/Button> : <span[\s\S]*?>-<\/span>\}/);
+  assert.doesNotMatch(plansUi, />삭제<\/Button>/);
   assert.match(plansUi, /setDrafts\(new Map\(\)\)[\s\S]*setConfirmedRepairDrafts\(\[\]\)[\s\S]*setDraftScope\(null\)[\s\S]*setScopeSummary\(null\)[\s\S]*await loadRows\(\)/);
   assert.match(plansUi, /측정대상 사업장 자체와 측정예정일은 삭제되지 않습니다/);
   assert.match(plansUi, /승인하고 삭제하시겠습니까/);

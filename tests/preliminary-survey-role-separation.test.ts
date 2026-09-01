@@ -191,10 +191,11 @@ test("보고서 담당자를 실제 측정 참가자 또는 측정자 공시료�
   assert.match(workbench, /plan\?\.recommendation_reason\?\.measurementAssignee/);
 });
 
-test("measurement_journal row 존재 기준 찐확정과 자동화 PAUSE를 유지한다", () => {
+test("measurement_journal row 존재 기준 찐확정을 유지한다", () => {
   assert.doesNotMatch(workbench, /sequence_number/);
   assert.match(workbench, /measurement_journal/);
   assert.match(policy, /기존 V2 자동추천.*OFF/);
+  assert.match(policy, /`measurement_journal` row가 존재하면 찐확정이다/);
 });
 
 test("추천·재추천·적용 권한은 관리자 또는 예비조사 담당자를 서버에서 검증한다", () => {

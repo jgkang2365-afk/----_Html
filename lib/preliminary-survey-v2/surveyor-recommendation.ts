@@ -1,5 +1,7 @@
 import { surveyMethodForKind, type Availability, type BusinessKind, type ExistingAssignment, type SurveyMethod, type SurveyUser } from "./types";
 import { fitsExistingPhoneResponsibleLimit, responsiblePhoneCount } from "./responsible-capacity";
+import { isExistingPhoneResponsibleBlocked, isFieldParticipantBlocked } from "./availability-policy";
+import { recommendationDatesForBusinessType } from "./calendar";
 
 export interface SurveyorRecommendationTarget {
   id: number;
@@ -82,9 +84,26 @@ function fieldCount(assignments: ExistingAssignment[], userId: number, date: str
   ).length;
 }
 
-function validParticipants(participants: SurveyUser[], date: string, availability: Availability) {
-  return participants.length > 0 && participants.every((user) =>
-    user.active !== false && !availability.isBlocked(user.id, date));
+function validParticipants(
+  target: SurveyorRecommendationTarget,
+  responsible: SurveyUser,
+  participants: SurveyUser[],
+  date: string,
+  availability: Availability,
+) {
+  if (participants.length === 0 || !participants.some((user) => user.experienced) ||
+      participants.some((user) => user.active === false)) return false;
+  if (target.kind === "existing") {
+    // 유선 reviewer는 실제 수행자가 아니므로 일정·실측 충돌을 날짜 hard block으로 쓰지 않는다.
+    return !isExistingPhoneResponsibleBlocked(availability, responsible.id, date);
+  }
+  return participants.every((user) => !isFieldParticipantBlocked(availability, user.id, date));
+}
+
+function existingPhoneDateLoad(assignments: ExistingAssignment[], date: string) {
+  return assignments.filter((assignment) =>
+    assignment.kind === "existing" && assignmentMethod(assignment) === "phone" && assignment.date === date,
+  ).length;
 }
 
 function fitsCapacity(
@@ -116,18 +135,6 @@ function asAssignment(target: SurveyorRecommendationTarget, recommendation: Surv
 }
 
 function candidateCombinations(target: SurveyorRecommendationTarget, users: SurveyUser[]): SurveyorCombination[] {
-  if (target.kind === "existing") {
-    const experienced = users.filter((user) => user.experienced);
-    return users.flatMap((responsible) => responsible.experienced
-      ? [{ responsible, participants: [responsible], reviewer: null }]
-      : [
-          ...experienced.filter((reviewer) => reviewer.id !== responsible.id).map((reviewer) => ({
-            responsible, participants: [responsible, reviewer], reviewer,
-          })),
-          { responsible, participants: [responsible], reviewer: null },
-        ]);
-  }
-
   const experienced = users.filter((user) => user.experienced);
   return users.flatMap<SurveyorCombination>((responsible) => responsible.experienced
     ? [{ responsible, participants: [responsible], reviewer: null }]
@@ -148,22 +155,7 @@ function compareCandidates(
   right: { responsible: SurveyUser; participants: SurveyUser[] },
   kind: BusinessKind,
   target: SurveyorRecommendationTarget,
-  targets: SurveyorRecommendationTarget[],
 ) {
-  const rolePreference = (candidate: { responsible: SurveyUser }) => {
-    const roles = (target.measurementStaffByDate ?? []).filter((staff) => staff.date === target.measurementDate);
-    const participantMatch = roles.some((staff) => staff.measurementParticipantUserIds.includes(candidate.responsible.id));
-    const reportWriterMatch = roles.some((staff) => staff.reportWriterUserId === candidate.responsible.id);
-    return { participantMatch, reportWriterMatch };
-  };
-  const commonAddressParticipantCount = (candidate: { responsible: SurveyUser }) => {
-    const address = normalizedAddress(target.address);
-    if (!address || !rolePreference(candidate).participantMatch) return 0;
-    return targets.filter((other) => other.id !== target.id && other.measurementDate === target.measurementDate &&
-      normalizedAddress(other.address) === address &&
-      (other.measurementStaffByDate ?? []).some((staff) => staff.date === other.measurementDate &&
-        staff.measurementParticipantUserIds.includes(candidate.responsible.id))).length;
-  };
   const selectedAddressCount = (candidate: { responsible: SurveyUser }) => assignments.filter((assignment) =>
     normalizedAddress(target.address) && assignment.date === date &&
     assignment.responsibleUserId === candidate.responsible.id &&
@@ -171,10 +163,7 @@ function compareCandidates(
   const load = (candidate: { responsible: SurveyUser; participants: SurveyUser[] }) => kind === "existing"
     ? responsiblePhoneCount(assignments, candidate.responsible.id, date)
     : candidate.participants.reduce((sum, user) => sum + fieldCount(assignments, user.id, date), 0);
-  return Number(!rolePreference(left).participantMatch) - Number(!rolePreference(right).participantMatch) ||
-    Number(!rolePreference(left).reportWriterMatch) - Number(!rolePreference(right).reportWriterMatch) ||
-    commonAddressParticipantCount(right) - commonAddressParticipantCount(left) ||
-    selectedAddressCount(right) - selectedAddressCount(left) ||
+  return selectedAddressCount(right) - selectedAddressCount(left) ||
     load(left) - load(right) ||
     Number(kind === "existing" && !left.responsible.experienced && left.participants.length === 1) -
       Number(kind === "existing" && !right.responsible.experienced && right.participants.length === 1) ||
@@ -198,11 +187,12 @@ export function recommendSurveyors(input: SurveyorRecommendationInput): Surveyor
   const occupied: ExistingAssignment[] = (input.assignments ?? []).filter((assignment) => !assignment.tentative);
   const results: SurveyorRecommendation[] = [];
 
+  const remaining: SurveyorRecommendationTarget[] = [];
   for (const target of targets) {
     const tentative = tentativeByTarget.get(target.id);
     if (tentative && target.candidateDates.includes(tentative.date)) {
       const { participants, responsible, reviewer } = participantsForTentative(tentative, usersById);
-      if (responsible && validParticipants(participants, tentative.date, input.availability) &&
+      if (responsible && validParticipants(target, responsible, participants, tentative.date, input.availability) &&
         fitsCapacity(target.kind, responsible, participants, tentative.date, occupied)) {
         const preserved = {
           targetId: target.id, date: tentative.date, responsible, participants, experiencedReviewer: reviewer,
@@ -214,20 +204,55 @@ export function recommendSurveyors(input: SurveyorRecommendationInput): Surveyor
       }
     }
 
-    let selected: SurveyorRecommendation | null = null;
-    for (const date of target.candidateDates) {
-      const choices = candidateCombinations(target, users)
-        .filter((choice) => validParticipants(choice.participants, date, input.availability))
-        .filter((choice) => fitsCapacity(target.kind, choice.responsible, choice.participants, date, occupied))
-        .sort((left, right) => compareCandidates(occupied, date, left, right, target.kind, target, input.targets));
-      const choice = choices[0];
-      if (!choice) continue;
-      selected = {
-        targetId: target.id, date, responsible: choice.responsible, participants: choice.participants,
-        experiencedReviewer: choice.reviewer, surveyMethod: surveyMethodForKind(target.kind), preserved: false,
-      };
-      break;
+    remaining.push(target);
+  }
+
+  const optionsFor = (target: SurveyorRecommendationTarget) => target.candidateDates.flatMap((date, dateIndex) =>
+    candidateCombinations(target, users)
+      .filter((choice) => validParticipants(target, choice.responsible, choice.participants, date, input.availability))
+      .filter((choice) => fitsCapacity(target.kind, choice.responsible, choice.participants, date, occupied))
+      .sort((left, right) => compareCandidates(occupied, date, left, right, target.kind, target))
+      .map((choice) => ({ date, dateIndex, choice })),
+  );
+  const eligibleOptionsFor = (target: SurveyorRecommendationTarget) => {
+    const options = optionsFor(target);
+    if (target.businessType !== "existing" && target.businessType !== "external_new") return options;
+    const distanceByDate = new Map(recommendationDatesForBusinessType(target.measurementDate, target.businessType)
+      .map((candidate) => [candidate.date, candidate.workingDaysBefore]));
+    const primary = options.filter((option) => {
+      const distance = distanceByDate.get(option.date);
+      return distance == null || distance <= 20;
+    });
+    return primary.length > 0 ? primary : options.filter((option) => (distanceByDate.get(option.date) ?? 0) > 20);
+  };
+
+  while (remaining.length > 0) {
+    // 방문은 canonical 날짜순을 유지한다. 기존업체 유선은 전체 후보 graph에서 선택지가
+    // 가장 적은 target부터 잡아 앞 target이 뒤 target의 유일 후보일을 소비하지 않게 한다.
+    const nextNewIndex = remaining.findIndex((target) => target.kind === "new");
+    let selectedIndex = nextNewIndex;
+    if (selectedIndex < 0) {
+      const ranked = remaining.map((target, index) => ({
+        index,
+        dateCount: new Set(eligibleOptionsFor(target).map((option) => option.date)).size,
+      })).sort((left, right) => left.dateCount - right.dateCount || left.index - right.index);
+      selectedIndex = ranked[0].index;
     }
+    const [target] = remaining.splice(selectedIndex, 1);
+    const options = eligibleOptionsFor(target).sort((left, right) => {
+      if (target.kind === "existing") {
+        const loadDifference = existingPhoneDateLoad(occupied, left.date) - existingPhoneDateLoad(occupied, right.date);
+        if (loadDifference !== 0) return loadDifference;
+      }
+      return left.dateIndex - right.dateIndex ||
+        compareCandidates(occupied, left.date, left.choice, right.choice, target.kind, target);
+    });
+
+    const option = options[0];
+    const selected: SurveyorRecommendation | null = option ? {
+      targetId: target.id, date: option.date, responsible: option.choice.responsible, participants: option.choice.participants,
+      experiencedReviewer: option.choice.reviewer, surveyMethod: surveyMethodForKind(target.kind), preserved: false,
+    } : null;
     if (selected) occupied.push(asAssignment(target, selected));
     results.push(selected ?? {
       targetId: target.id, date: null, responsible: null, participants: [], experiencedReviewer: null,
