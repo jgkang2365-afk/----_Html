@@ -35,6 +35,7 @@ export function FixedAssigneeReversePlanner() {
   const [overrideReviewer, setOverrideReviewer] = useState<number | null>(null);
   const [overrideParticipants, setOverrideParticipants] = useState<number[]>([]);
   const [overrideReason, setOverrideReason] = useState("");
+  const [overrideViolations, setOverrideViolations] = useState<string[]>([]);
 
   const userById = useMemo(() => new Map((snapshot?.users ?? []).map((user) => [user.id, user])), [snapshot]);
   const request = useCallback(async (url: string, init?: RequestInit) => {
@@ -63,13 +64,14 @@ export function FixedAssigneeReversePlanner() {
     const target = snapshot?.targets.find((item) => item.id === targetId);
     const day = target?.days.find((item) => item.date === fixedDate);
     if (!target || !day || !assigneeUserId) return;
-    if (!day.collaboratorUserIds.includes(assigneeUserId)
-      && !window.confirm("측정 참여자에 포함되지 않은 측정자입니다. 그래도 확정하시겠습니까?")) return;
+    const nonParticipant = !day.collaboratorUserIds.includes(assigneeUserId);
+    if (nonParticipant && !window.confirm("측정 참여자에 포함되지 않은 측정자입니다. 그래도 확정하시겠습니까?")) return;
     setWorking(true); setError(null); setNotice(null);
     try {
       await request("/api/preliminary-survey-v2/reverse-planner", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "confirm_fixed", measurementDate, targetId, fixedDate, assigneeUserId }),
+        body: JSON.stringify({ action: "confirm_fixed", measurementDate, targetId, fixedDate, assigneeUserId,
+          nonParticipantConfirmed: nonParticipant }),
       });
       setNotice(`${target.code} ${fixedDate} 고정 측정자를 확정했습니다. 이전 Preview는 폐기되었습니다.`);
       await load();
@@ -121,22 +123,32 @@ export function FixedAssigneeReversePlanner() {
     setOverrideReviewer(null);
     setOverrideParticipants(team[0] ? [team[0]] : []);
     setOverrideReason("");
+    setOverrideViolations([]);
   };
 
   const saveOverride = async () => {
     if (!preview || overrideTargetId == null) return;
-    if (!window.confirm("Canonical 자동결정 범위를 벗어난 관리자 예외입니다. 경고와 사유를 audit에 남기고 저장하시겠습니까?")) return;
+    if (overrideViolations.length > 0
+      && !window.confirm(`다음 Canonical 위반을 관리자 예외로 저장합니다.\n\n${overrideViolations.join("\n")}\n\n계속하시겠습니까?`)) return;
     setWorking(true); setError(null);
     try {
-      await request("/api/preliminary-survey-v2/reverse-planner", {
+      const response = await fetch("/api/preliminary-survey-v2/reverse-planner", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "override", measurementDate, sourceFingerprint: preview.sourceFingerprint,
           targetId: overrideTargetId, preliminaryDate: overrideDate, surveyMethod: overrideMethod,
           responsibleUserId: overrideResponsible, reviewerUserId: overrideReviewer,
           participantUserIds: overrideParticipants, overrideReason,
+          acknowledgedViolations: overrideViolations,
         }),
       });
+      const result = await response.json();
+      if (response.status === 409 && result.code === "MANUAL_OVERRIDE_CONFIRMATION_REQUIRED") {
+        setOverrideViolations(result.violations ?? []);
+        setError("아래 Canonical 위반사항을 확인한 뒤 예외 저장을 다시 실행해 주세요.");
+        return;
+      }
+      if (!response.ok) throw new Error(result.error || "관리자 예외 저장 실패");
       setOverrideTargetId(null); setPreview(null);
       setNotice("관리자 예외를 경고·사유·before/after audit과 함께 저장했습니다.");
       await load();
@@ -159,9 +171,9 @@ export function FixedAssigneeReversePlanner() {
         </label>
         <Button size="sm" variant="secondary" onClick={load} disabled={working}>대상 조회</Button>
         <Button size="sm" onClick={createPreview} disabled={working || !snapshot?.targets.length}>역산 Preview</Button>
-        <Button size="sm" onClick={applyPreview} disabled
-          title="운영정확성 보완이 완료될 때까지 정상안 적용이 일시 중지됩니다.">
-          정상안 적용 중지
+        <Button size="sm" onClick={applyPreview}
+          disabled={working || !preview || !preview.results.some((result) => result.decision === "AUTO_ASSIGNED" && result.mutation !== "KEEP_EXISTING")}>
+          정상안 적용
         </Button>
       </div>
       <Alert variant="warning">구형 측정자 자동추천은 UI와 서버에서 중지되었습니다. 이 화면의 명시적 고정값만 사용합니다.</Alert>
@@ -232,6 +244,10 @@ export function FixedAssigneeReversePlanner() {
           <Alert variant="warning">
             Canonical 자동결정 범위를 벗어나는 값입니다. 존재하지 않는 사용자·날짜 구조 오류·stale source는 관리자도 저장할 수 없습니다.
           </Alert>
+          {overrideViolations.length > 0 && <Alert variant="error">
+            <div className="font-medium">저장 전 확인할 위반사항</div>
+            <ul className="mt-1 list-disc pl-5">{overrideViolations.map((violation) => <li key={violation}>{violation}</li>)}</ul>
+          </Alert>}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label className="text-sm">예비조사일<input type="date" value={overrideDate} onChange={(event) => setOverrideDate(event.target.value)}
               className="mt-1 block h-9 w-full rounded border border-surface-300 px-2" /></label>
@@ -256,7 +272,9 @@ export function FixedAssigneeReversePlanner() {
           <label className="block text-sm">예외 사유<textarea value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)}
             className="mt-1 min-h-24 w-full rounded border border-surface-300 p-2" placeholder="구체적인 업무상 예외 사유" /></label>
           <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setOverrideTargetId(null)}>취소</Button>
-            <Button onClick={saveOverride} disabled={working || !overrideDate || !overrideResponsible || !overrideParticipants.length || !overrideReason.trim()}>예외 저장</Button></div>
+            <Button onClick={saveOverride} disabled={working || !overrideDate || !overrideResponsible || !overrideParticipants.length || !overrideReason.trim()}>
+              {overrideViolations.length > 0 ? "위반 확인 후 예외 저장" : "위반 검증"}
+            </Button></div>
         </div>
       </Modal>}
     </Card>

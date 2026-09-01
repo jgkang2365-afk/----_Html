@@ -7,8 +7,8 @@ import { createRouteMetrics } from "@/lib/preliminary-survey-v2/route-metrics";
 import { candidateDates } from "@/lib/preliminary-survey-v2/reverse-planner/candidate-dates";
 import { sourceFingerprint } from "@/lib/preliminary-survey-v2/reverse-planner/fingerprint";
 import { buildPlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/snapshot";
-import { planPreliminarySurveyGivenFixedAssignments } from "@/lib/preliminary-survey-v2/reverse-planner/solver";
-import type { PlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/types";
+import { planPreliminarySurveyGivenFixedAssignments, validateCandidateForSave } from "@/lib/preliminary-survey-v2/reverse-planner/solver";
+import type { PlannerCandidate, PlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/types";
 
 export const dynamic = "force-dynamic";
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -27,15 +27,28 @@ function subtractDays(date: string, days: number) {
 async function routeEvidenceFor(
   targets: any[],
   businessInfo: any[],
+  planningTargetIds: number[],
 ): Promise<PlanningSnapshot["routeEvidence"]> {
   const infoByCode = new Map(businessInfo.map((row) => [String(row.code), row]));
+  const planningIds = new Set(planningTargetIds);
   const routes = createRouteMetrics();
   const capturedAt = new Date().toISOString();
   const result: PlanningSnapshot["routeEvidence"] = [];
+  const pairs: Array<[any, any]> = [];
   for (let leftIndex = 0; leftIndex < targets.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < targets.length; rightIndex += 1) {
       const left = targets[leftIndex];
       const right = targets[rightIndex];
+      if (!planningIds.has(Number(left.id)) && !planningIds.has(Number(right.id))) continue;
+      pairs.push([left, right]);
+    }
+  }
+  let nextPair = 0;
+  const worker = async () => {
+    while (nextPair < pairs.length) {
+      const pairIndex = nextPair;
+      nextPair += 1;
+      const [left, right] = pairs[pairIndex];
       const leftInfo = infoByCode.get(String(left.code));
       const rightInfo = infoByCode.get(String(right.code));
       const coordinate = (row: any) => Number.isFinite(Number(row?.latitude)) && Number.isFinite(Number(row?.longitude))
@@ -73,53 +86,85 @@ async function routeEvidenceFor(
         });
       }
     }
-  }
-  return result;
+  };
+  await Promise.all(Array.from({ length: Math.min(8, pairs.length) }, () => worker()));
+  return result.sort((left, right) => left.date.localeCompare(right.date)
+    || left.leftTargetId - right.leftTargetId || left.rightTargetId - right.rightTargetId);
 }
 
 async function loadSnapshot(supabase: any, measurementDate: string) {
   const year = Number(measurementDate.slice(0, 4));
   const { data: candidates, error: targetError } = await supabase
     .from("measurement_target_business")
-    .select("id, code, year, period, business_name, address, measurement_date, measurement_end_date, daily_staff, collaborators, measurer_id, business_type, preliminary_survey_rule_type")
+    .select("id, code, year, period, business_name, address, measurement_date, measurement_end_date, daily_staff, collaborators, measurer_id, business_type, preliminary_survey_rule_type, updated_at")
     .in("year", [year - 1, year, year + 1]);
   if (targetError) throw targetError;
-  const targets = (candidates ?? []).filter((target: any) =>
-    measurementDayFormsFrom({
+  const measurementDays = (target: any) => measurementDayFormsFrom({
       dailyStaff: target.daily_staff,
       measurementDate: target.measurement_date,
       measurerId: target.measurer_id,
       collaborators: target.collaborators,
-    }).some((day) => day.date === measurementDate),
-  );
-  const targetIds = targets.map((target: any) => Number(target.id));
-  const codes = [...new Set(targets.map((target: any) => String(target.code)))];
-  const [{ data: users, error: userError }, fixedResult, planResult, scheduleResult, infoResult, journalResult] = await Promise.all([
+    });
+  const planningTargets = (candidates ?? []).filter((target: any) =>
+    measurementDays(target).some((day) => day.date === measurementDate));
+  const planningTargetIds = planningTargets.map((target: any) => Number(target.id));
+  const planningDates = [...new Set<string>(planningTargets.flatMap((target: any) => measurementDays(target).map((day) => String(day.date))))].sort();
+  const earliestMeasurementDate = planningDates[0] ?? measurementDate;
+  const latestMeasurementDate = planningDates.at(-1) ?? measurementDate;
+  const candidateRangeStart = subtractDays(earliestMeasurementDate, 45);
+  const occupancyTargets = (candidates ?? []).filter((target: any) => measurementDays(target)
+    .some((day) => day.date >= candidateRangeStart && day.date <= latestMeasurementDate));
+  const occupancyTargetIds = occupancyTargets.map((target: any) => Number(target.id));
+  const codes = [...new Set((candidates ?? []).map((target: any) => String(target.code)))];
+  const [{ data: users, error: userError }, fixedResult, rangePlanResult, planningPlanResult, scheduleResult, infoResult, journalResult, publicGroupResult] = await Promise.all([
     supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced, survey_code").eq("job", "측정"),
-    targetIds.length
-      ? supabase.from("preliminary_survey_v2_fixed_assignments").select("*").in("measurement_target_business_id", targetIds)
+    occupancyTargetIds.length
+      ? supabase.from("preliminary_survey_v2_fixed_assignments").select("*").in("measurement_target_business_id", occupancyTargetIds)
       : Promise.resolve({ data: [], error: null }),
-    targetIds.length
-      ? supabase.from("preliminary_survey_v2_plans").select("*").in("measurement_target_business_id", targetIds)
+    supabase.from("preliminary_survey_v2_plans").select("*")
+      .gte("recommended_date", candidateRangeStart).lte("recommended_date", latestMeasurementDate),
+    planningTargetIds.length
+      ? supabase.from("preliminary_survey_v2_plans").select("*").in("measurement_target_business_id", planningTargetIds)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
-      .lte("start_date", measurementDate).gte("end_date", subtractDays(measurementDate, 35)),
+      .lte("start_date", latestMeasurementDate).gte("end_date", candidateRangeStart),
     codes.length
       ? supabase.from("business_info").select("code, latitude, longitude").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
     codes.length
       ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
+    planningDates.length
+      ? supabase.from("preliminary_survey_v2_measurement_assignments")
+        .select("plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code").in("measurement_date", planningDates)
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  const firstError = userError || fixedResult.error || planResult.error || scheduleResult.error || infoResult.error || journalResult.error;
+  const firstError = userError || fixedResult.error || rangePlanResult.error || planningPlanResult.error
+    || scheduleResult.error || infoResult.error || journalResult.error || publicGroupResult.error;
   if (firstError) throw firstError;
-  const plans = planResult.data ?? [];
+  const preliminaryPlans = [...(rangePlanResult.data ?? []), ...(planningPlanResult.data ?? [])];
+  const publicGroupPlanIds = [...new Set<string>((publicGroupResult.data ?? []).map((assignment: any) => String(assignment.plan_id)))];
+  const knownPlanIds = new Set(preliminaryPlans.map((plan: any) => String(plan.id)));
+  const missingPlanIds = publicGroupPlanIds.filter((id) => !knownPlanIds.has(id));
+  const missingPlanResult = missingPlanIds.length
+    ? await supabase.from("preliminary_survey_v2_plans").select("*").in("id", missingPlanIds)
+    : { data: [], error: null };
+  if (missingPlanResult.error) throw missingPlanResult.error;
+  const plans = [...new Map([...preliminaryPlans, ...(missingPlanResult.data ?? [])]
+    .map((plan: any) => [String(plan.id), plan])).values()];
+  const planTargetIds = new Set(plans.map((plan: any) => Number(plan.measurement_target_business_id)));
+  const snapshotTargets = [...new Map([
+    ...occupancyTargets,
+    ...(candidates ?? []).filter((target: any) => planTargetIds.has(Number(target.id))),
+  ].map((target: any) => [Number(target.id), target])).values()];
   const planIds = plans.map((plan: any) => String(plan.id));
-  const { data: assignments, error: assignmentError } = planIds.length
+  const { data: planAssignments, error: assignmentError } = planIds.length
     ? await supabase.from("preliminary_survey_v2_measurement_assignments")
       .select("plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code").in("plan_id", planIds)
     : { data: [], error: null };
   if (assignmentError) throw assignmentError;
+  const assignments = [...new Map([...(planAssignments ?? []), ...(publicGroupResult.data ?? [])]
+    .map((assignment: any) => [`${assignment.plan_id}|${assignment.measurement_date}`, assignment])).values()];
   const [reconciliationResult, historyResult] = planIds.length ? await Promise.all([
     supabase.from("preliminary_survey_v2_legacy_reconciliation").select("applied_plan_id").in("applied_plan_id", planIds),
     supabase.from("preliminary_survey_v2_history_recovery_audit").select("created_plan_id").in("created_plan_id", planIds),
@@ -133,24 +178,75 @@ async function loadSnapshot(supabase: any, measurementDate: string) {
   const journalKeys = new Set((journalResult.data ?? []).map((row: any) =>
     `${row.code}|${row.measurement_year}|${normalizedPeriod(row.measurement_period)}`
   ));
-  const protectedTargetIds = targets.filter((target: any) =>
+  const protectedTargetIds = snapshotTargets.filter((target: any) =>
     journalKeys.has(`${target.code}|${target.year}|${normalizedPeriod(target.period)}`)
     || protectedPlanIds.has(String(plans.find((plan: any) => Number(plan.measurement_target_business_id) === Number(target.id))?.id ?? ""))
   ).map((target: any) => Number(target.id));
-  const routeEvidence = await routeEvidenceFor(targets, infoResult.data ?? []);
+  const routeEvidence = await routeEvidenceFor(snapshotTargets, infoResult.data ?? [], planningTargetIds);
   return {
     snapshot: buildPlanningSnapshot({
-      targets,
+      targets: snapshotTargets,
       users: users ?? [],
       fixedAssignments: fixedResult.data ?? [],
       plans,
-      assignments: assignments ?? [],
+      assignments,
       scheduleBlocks: scheduleResult.data ?? [],
       routeEvidence,
       trueConfirmedTargetIds: protectedTargetIds,
+      planningTargetIds,
     }),
-    rawTargets: targets,
+    rawTargets: planningTargets,
   };
+}
+
+function occupancyBaseline(snapshot: PlanningSnapshot, excludedTargetIds: Set<number>, candidate: PlannerCandidate) {
+  return snapshot.existingSurveyOccupancy
+    .filter((item) => !excludedTargetIds.has(item.targetId)
+      && item.preliminaryDate === candidate.preliminaryDate
+      && (candidate.surveyMethod === "phone"
+        ? item.surveyMethod === "phone" && item.responsibleUserId === candidate.responsibleUserId
+        : item.surveyMethod === "field"
+          && item.participantUserIds.some((id) => candidate.participantUserIds.includes(id))))
+    .map((item) => ({ targetId: item.targetId, planId: item.planId,
+      updatedAtMs: item.updatedAt ? new Date(item.updatedAt).getTime() : null }))
+    .sort((left, right) => left.targetId - right.targetId);
+}
+
+function scheduleBaseline(snapshot: PlanningSnapshot, candidate: PlannerCandidate) {
+  const workerIds = new Set(candidate.surveyMethod === "phone"
+    ? [candidate.responsibleUserId] : candidate.participantUserIds);
+  return snapshot.scheduleBlocks.filter((block) => workerIds.has(block.userId)
+      && block.startDate <= candidate.preliminaryDate && block.endDate >= candidate.preliminaryDate)
+    .map((block) => ({ userId: block.userId, startDate: block.startDate, endDate: block.endDate }))
+    .sort((left, right) => left.userId - right.userId || left.startDate.localeCompare(right.startDate)
+      || left.endDate.localeCompare(right.endDate));
+}
+
+function actualMeasurementBaseline(snapshot: PlanningSnapshot, excludedTargetIds: Set<number>, candidate: PlannerCandidate) {
+  if (candidate.surveyMethod !== "field") return [];
+  return snapshot.actualMeasurementOccupancy
+    .filter((item) => item.date === candidate.preliminaryDate && !excludedTargetIds.has(item.targetId))
+    .map((item) => ({
+      targetId: item.targetId,
+      targetUpdatedAtMs: item.targetUpdatedAt ? new Date(item.targetUpdatedAt).getTime() : null,
+      fixedUpdatedAtMs: (item.fixedUpdatedAts ?? []).map((value) => new Date(value).getTime()).sort((a, b) => a - b),
+    }))
+    .sort((left, right) => left.targetId - right.targetId);
+}
+
+function userBaseline(snapshot: PlanningSnapshot) {
+  return [...snapshot.users].sort((left, right) => left.id - right.id).map((user) => ({
+    id: user.id, active: user.active, experienced: user.experienced, baseCode: user.baseCode,
+  }));
+}
+
+function fixedBaseline(target: PlanningSnapshot["targets"][number]) {
+  return target.fixedAssignments.map((fixed) => ({
+    measurementDate: fixed.measurementDate,
+    assigneeUserId: fixed.assigneeUserId,
+    updatedAtMs: new Date(fixed.updatedAt).getTime(),
+    nonParticipantConfirmed: fixed.nonParticipantConfirmed === true,
+  })).sort((left, right) => left.measurementDate.localeCompare(right.measurementDate));
 }
 
 async function authorize() {
@@ -167,6 +263,10 @@ function responseError(error: unknown) {
   if (message === "UNAUTHORIZED") return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   if (message === "FORBIDDEN") return NextResponse.json({ error: "예비조사 담당자 또는 관리자만 사용할 수 있습니다." }, { status: 403 });
   if (schemaMissing(value)) return NextResponse.json({ error: "역산 플래너 DB migration이 필요합니다.", code: "PLANNER_SCHEMA_REQUIRED" }, { status: 503 });
+  if (/SOURCE_CHANGED/.test(message)) return NextResponse.json({ error: "원천이 변경되어 저장하지 않았습니다.",
+    code: "SOURCE_CHANGED", appliedCount: 0 }, { status: 409 });
+  if (/PUBLIC_SAMPLE_PREVIEW_MISMATCH/.test(message)) return NextResponse.json({ error: "공시료 Preview와 저장 결과가 달라 저장하지 않았습니다.",
+    code: "PUBLIC_SAMPLE_PREVIEW_MISMATCH", appliedCount: 0 }, { status: 409 });
   return NextResponse.json({ error: message || "REVERSE_PLANNER_FAILED" }, { status: 500 });
 }
 
@@ -188,13 +288,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const measurementDate = String(body.measurementDate ?? "");
     if (!DATE_ONLY.test(measurementDate)) return NextResponse.json({ error: "실제 측정일이 필요합니다." }, { status: 400 });
-    if (body.action === "apply") {
-      return NextResponse.json({
-        error: "운영정확성 보완이 완료될 때까지 정상안 적용이 일시 중지되었습니다.",
-        code: "REVERSE_PLANNER_APPLY_TEMPORARILY_DISABLED",
-        appliedCount: 0,
-      }, { status: 503 });
-    }
     const { snapshot } = await loadSnapshot(supabase, measurementDate);
 
     if (body.action === "confirm_fixed") {
@@ -205,11 +298,19 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "고정 측정자 확정값이 올바르지 않습니다." }, { status: 400 });
       }
       const target = snapshot.targets.find((item) => item.id === targetId);
-      if (!target?.days.some((day) => day.date === fixedDate)) {
+      const day = target?.days.find((item) => item.date === fixedDate);
+      if (!target || !day) {
         return NextResponse.json({ error: "해당 사업장의 실제 측정일이 아닙니다." }, { status: 400 });
       }
       if (target.days.some((day) => day.date.startsWith("2026-08-"))) {
         return NextResponse.json({ error: "2026년 8월 실제 측정자료는 새 플래너로 확정하지 않습니다.", code: "TRANSITION_BOUNDARY_REVIEW_REQUIRED" }, { status: 409 });
+      }
+      const nonParticipant = !day.collaboratorUserIds.includes(assigneeUserId);
+      if (nonParticipant && body.nonParticipantConfirmed !== true) {
+        return NextResponse.json({
+          error: "측정 참여자에 포함되지 않은 측정자입니다. 명시 확인 후 다시 요청해 주세요.",
+          code: "NON_PARTICIPANT_ASSIGNEE_CONFIRMATION_REQUIRED",
+        }, { status: 409 });
       }
       const fingerprint = sourceFingerprint(snapshot);
       const { data, error } = await supabase.rpc("confirm_preliminary_survey_v2_fixed_assignment", {
@@ -219,7 +320,7 @@ export async function POST(request: NextRequest) {
         p_actor_user_id: session.userId,
         p_confirmation_path: "planner_ui",
         p_source_fingerprint: fingerprint,
-        p_source_snapshot: target,
+        p_source_snapshot: { ...target, nonParticipantConfirmed: nonParticipant && body.nonParticipantConfirmed === true },
       });
       if (error) throw error;
       return NextResponse.json({ success: true, fixedAssignment: Array.isArray(data) ? data[0] : data });
@@ -253,7 +354,39 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "관리자 override 입력 또는 원천 구조가 올바르지 않습니다." }, { status: 400 });
       }
       const result = output.results.find((item) => item.targetId === targetId)!;
+      if (result.decision === "SOURCE_INVALID") {
+        return NextResponse.json({ error: "구조적으로 유효하지 않은 원천은 관리자도 저장할 수 없습니다.",
+          code: result.reason ?? "SOURCE_INVALID", appliedCount: 0 }, { status: 409 });
+      }
       const userById = new Map(snapshot.users.map((user) => [user.id, user]));
+      const overrideWriter = snapshot.users.find((user) => participantUserIds.includes(user.id) && !user.experienced)
+        ?? snapshot.users.find((user) => participantUserIds.includes(user.id) && user.experienced);
+      const overrideCandidate: PlannerCandidate = {
+        preliminaryDate,
+        surveyMethod,
+        participantUserIds,
+        responsibleUserId,
+        reviewerUserId,
+        writerUserId: overrideWriter?.id ?? responsibleUserId,
+        objective: [0, 0, 0, 0, 0, 0] as const,
+        reasons: ["ADMIN_EXPLICIT_OVERRIDE"],
+      };
+      const violations = [...new Set([
+        ...(result.reason ? [result.reason] : []),
+        ...(target.protected ? ["PROTECTED_PLAN_REQUIRES_REVIEW"] : []),
+        ...validateCandidateForSave(snapshot, target, overrideCandidate),
+      ])].sort();
+      const acknowledgedViolations = Array.isArray(body.acknowledgedViolations)
+        ? [...new Set(body.acknowledgedViolations.map(String))].sort()
+        : [];
+      if (JSON.stringify(acknowledgedViolations) !== JSON.stringify(violations)) {
+        return NextResponse.json({
+          error: "관리자 예외 위반사항을 확인해 주세요.",
+          code: "MANUAL_OVERRIDE_CONFIRMATION_REQUIRED",
+          violations,
+          appliedCount: 0,
+        }, { status: 409 });
+      }
       const plannerRunId = crypto.randomUUID();
       const plan = {
         target_id: target.id,
@@ -271,9 +404,15 @@ export async function POST(request: NextRequest) {
         source_rule_type: target.businessType === "existing" ? "existing" : "new",
         survey_method: surveyMethod,
         reasons: ["ADMIN_EXPLICIT_OVERRIDE"],
-        warnings: [result.reason ?? "CANONICAL_OVERRIDE"],
+        warnings: violations,
         route_evidence: snapshot.routeEvidence.filter((item) => item.leftTargetId === target.id || item.rightTargetId === target.id),
         before_snapshot: target.existingPlan ?? {},
+        source_occupancy_versions: occupancyBaseline(snapshot, new Set([target.id]), overrideCandidate),
+        source_schedule_blocks: scheduleBaseline(snapshot, overrideCandidate),
+        source_actual_measurement_versions: actualMeasurementBaseline(snapshot, new Set([target.id]), overrideCandidate),
+        source_users: userBaseline(snapshot),
+        source_fixed_versions: fixedBaseline(target),
+        source_protected: target.protected === true,
         actual_measurement_team: target.days,
         fixed_assignments: target.fixedAssignments,
       };
@@ -301,9 +440,11 @@ export async function POST(request: NextRequest) {
     if (String(body.sourceFingerprint ?? "") !== output.sourceFingerprint) {
       return NextResponse.json({ error: "원천이 변경되어 적용하지 않았습니다.", code: "SOURCE_CHANGED", appliedCount: 0 }, { status: 409 });
     }
-    const applicable = output.results.filter((result) => result.decision === "AUTO_ASSIGNED" && result.mutation !== "NONE");
+    const applicable = output.results.filter((result) => result.decision === "AUTO_ASSIGNED"
+      && (result.mutation === "CREATE" || result.mutation === "REPLACE"));
     const userById = new Map(snapshot.users.map((user) => [user.id, user]));
     const targetById = new Map(snapshot.targets.map((target) => [target.id, target]));
+    const applicableTargetIds = new Set(applicable.map((result) => result.targetId));
     const plans = applicable.map((result) => {
       const target = targetById.get(result.targetId)!;
       const candidate = result.candidate!;
@@ -326,6 +467,12 @@ export async function POST(request: NextRequest) {
         warnings: result.warnings,
         route_evidence: snapshot.routeEvidence.filter((item) => item.leftTargetId === target.id || item.rightTargetId === target.id),
         before_snapshot: target.existingPlan ?? {},
+        source_occupancy_versions: occupancyBaseline(snapshot, applicableTargetIds, candidate),
+        source_schedule_blocks: scheduleBaseline(snapshot, candidate),
+        source_actual_measurement_versions: actualMeasurementBaseline(snapshot, applicableTargetIds, candidate),
+        source_users: userBaseline(snapshot),
+        source_fixed_versions: fixedBaseline(target),
+        source_protected: target.protected === true,
       };
     });
     const assignments = applicable.flatMap((result) => result.publicSampleAssignments.map((assignment) => ({
