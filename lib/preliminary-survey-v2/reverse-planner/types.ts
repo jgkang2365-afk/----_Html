@@ -12,7 +12,10 @@ export type ReversePlannerReason =
   | "INVALID_BASE_CODE" | "CONFLICTING_AUTHORITATIVE_SOURCE";
 
 export interface PlannerUser { id: number; name: string; active: boolean; experienced: boolean; baseCode: string | null }
-export interface PlannerDay { date: string; collaboratorUserIds: number[]; reportWriterUserId: number | null }
+export interface PlannerDay {
+  date: string; collaboratorUserIds: number[]; reportWriterUserId: number | null;
+  invalidCollaboratorNames?: string[]; invalidReportWriterUserId?: number | null;
+}
 export interface FixedMeasurementAssignment {
   targetId: number; measurementDate: string; assigneeUserId: number; confirmedAt: string; updatedAt: string;
   nonParticipantConfirmed?: boolean;

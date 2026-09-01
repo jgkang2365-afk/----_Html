@@ -53,13 +53,21 @@ export function buildPlanningSnapshot(input: {
       measurementDate: target.measurement_date,
       measurerId: target.measurer_id,
       collaborators: target.collaborators,
-    }).map((day) => ({
-      date: day.date,
-      collaboratorUserIds: day.collaborators
-        .map((name) => userIdByName.get(name))
-        .filter((id): id is number => id != null),
-      reportWriterUserId: day.measurerId,
-    })).sort((left, right) => left.date.localeCompare(right.date));
+    }).map((day) => {
+      const invalidCollaboratorNames = day.collaborators
+        .filter((name) => !userIdByName.has(name));
+      const reportWriterUserId = day.measurerId == null ? null : Number(day.measurerId);
+      return {
+        date: day.date,
+        collaboratorUserIds: day.collaborators
+          .map((name) => userIdByName.get(name))
+          .filter((id): id is number => id != null),
+        reportWriterUserId,
+        invalidCollaboratorNames,
+        invalidReportWriterUserId: reportWriterUserId != null && !users.some((user) => user.id === reportWriterUserId)
+          ? reportWriterUserId : null,
+      };
+    }).sort((left, right) => left.date.localeCompare(right.date));
     const plan = planByTarget.get(Number(target.id));
     return {
       id: Number(target.id),
@@ -136,10 +144,12 @@ export function buildPlanningSnapshot(input: {
     ])].sort((left, right) => left - right),
   }))).sort((left, right) => left.date.localeCompare(right.date)
     || naturalCode(left.businessCode, right.businessCode) || left.targetId - right.targetId);
-  const existingPublicSampleAssignments = input.assignments.flatMap((assignment) => {
+  const persistedAssignmentKeys = new Set<string>();
+  const persistedPublicSampleAssignments = input.assignments.flatMap((assignment) => {
     const plan = input.plans.find((item) => String(item.id) === String(assignment.plan_id));
     const target = plan ? targetById.get(Number(plan.measurement_target_business_id)) : null;
     if (!target) return [];
+    persistedAssignmentKeys.add(`${target.id}|${String(assignment.measurement_date)}`);
     return [{
       targetId: target.id,
       businessCode: target.code,
@@ -150,6 +160,25 @@ export function buildPlanningSnapshot(input: {
       protected: protectedIds.has(target.id),
     }];
   });
+  const fixedOnlyPublicSampleAssignments = input.fixedAssignments.flatMap((fixed) => {
+    const target = targetById.get(Number(fixed.measurement_target_business_id));
+    const assignee = userById.get(Number(fixed.assignee_user_id));
+    const measurementDate = String(fixed.measurement_date);
+    if (!target || !assignee?.baseCode || persistedAssignmentKeys.has(`${target.id}|${measurementDate}`)) return [];
+    return [{
+      targetId: target.id,
+      businessCode: target.code,
+      measurementDate,
+      assigneeUserId: assignee.id,
+      surveyCode: assignee.baseCode,
+      publicSampleCode: null,
+      protected: protectedIds.has(target.id),
+    }];
+  });
+  const existingPublicSampleAssignments = [...persistedPublicSampleAssignments, ...fixedOnlyPublicSampleAssignments]
+    .sort((left, right) => left.measurementDate.localeCompare(right.measurementDate)
+      || left.assigneeUserId - right.assigneeUserId || naturalCode(left.businessCode, right.businessCode)
+      || left.targetId - right.targetId);
   return {
     canonicalSha: PRELIMINARY_SURVEY_CANONICAL_SHA,
     plannerVersion: REVERSE_PLANNER_VERSION,

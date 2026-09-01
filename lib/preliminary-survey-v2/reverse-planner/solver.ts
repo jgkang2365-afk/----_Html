@@ -39,6 +39,9 @@ function sourceError(target: PlannerTarget, users: Map<number, PlannerUser>): Re
   if (new Set(target.days.map((day) => day.date)).size !== target.days.length) return "INVALID_DAILY_STAFF";
   if (target.fixedAssignments.length !== target.days.length) return "FIXED_ASSIGNEE_NOT_CONFIRMED";
   for (const day of target.days) {
+    if (day.invalidCollaboratorNames?.length || day.invalidReportWriterUserId != null) return "USER_NOT_FOUND";
+    if (day.collaboratorUserIds.some((id) => !users.has(id))
+        || (day.reportWriterUserId != null && !users.has(day.reportWriterUserId))) return "USER_NOT_FOUND";
     const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
     if (!fixed) return "FIXED_ASSIGNEE_NOT_CONFIRMED";
     const user = users.get(fixed.assigneeUserId);
@@ -95,7 +98,10 @@ export function validateCandidateHardRules(
   if (candidate.surveyMethod !== expectedMethod) violations.push("SURVEY_METHOD_MISMATCH");
   if (!rolesValid(snapshot, candidate)) violations.push("INVALID_SURVEYOR_ROLE_COMBINATION");
   if (!candidate.participantUserIds.some((id) => actualTeam(target).has(id))) violations.push("ACTUAL_TEAM_INTERSECTION_REQUIRED");
-  if (candidate.participantUserIds.some((id) => isScheduleBlocked(id, candidate.preliminaryDate, snapshot.scheduleBlocks))) {
+  const scheduledWorkers = candidate.surveyMethod === "phone"
+    ? [candidate.responsibleUserId]
+    : candidate.participantUserIds;
+  if (scheduledWorkers.some((id) => isScheduleBlocked(id, candidate.preliminaryDate, snapshot.scheduleBlocks))) {
     violations.push("USER_UNAVAILABLE_ON_SURVEY_DATE");
   }
   if (candidate.surveyMethod === "field" && snapshot.actualMeasurementOccupancy.some((occupancy) =>
@@ -112,7 +118,6 @@ function candidateObjective(
   participants: PlannerUser[],
   responsible: PlannerUser,
   reviewer: PlannerUser | null,
-  writer: PlannerUser,
   preliminaryDate: string,
   changedPlanCount: number,
 ): PlannerObjective {
@@ -121,8 +126,7 @@ function candidateObjective(
   const reportWriterIds = new Set(target.days.map((day) => day.reportWriterUserId).filter((id): id is number => id != null));
   const reviewerPenalty = reviewer && preferredReviewerByResponsible[responsible.name] !== reviewer.name ? 1 : 0;
   const reportPenalty = participants.some((user) => reportWriterIds.has(user.id)) ? 0 : 1;
-  return [fallback, changedPlanCount, 0, reviewerPenalty + reportPenalty,
-    Number(snapshot.writingCounters[String(writer.id)] ?? 0), 0];
+  return [fallback, changedPlanCount, 0, reviewerPenalty + reportPenalty, 0, 0];
 }
 
 function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
@@ -150,7 +154,7 @@ function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): Plann
       responsibleUserId: choice.responsible.id,
       reviewerUserId: choice.reviewer?.id ?? null,
       writerUserId: choice.writer.id,
-      objective: candidateObjective(snapshot, target, choice.participants, choice.responsible, choice.reviewer, choice.writer, date, 1),
+      objective: candidateObjective(snapshot, target, choice.participants, choice.responsible, choice.reviewer, date, 1),
       reasons: [ranges.primary.includes(date) ? "PRIMARY_DATE" : "FALLBACK_DATE",
         choice.reviewer ? "EXPERIENCED_AND_INEXPERIENCED" : "EXPERIENCED_SOLO"],
     };
@@ -204,7 +208,7 @@ function existingCandidate(snapshot: PlanningSnapshot, target: PlannerTarget): P
     reviewerUserId: plan.reviewerUserId,
     writerUserId: writer.id,
     objective: candidateObjective(snapshot, target, participants, userById.get(plan.responsibleUserId) ?? writer,
-      plan.reviewerUserId == null ? null : userById.get(plan.reviewerUserId) ?? null, writer, plan.preliminaryDate, 0),
+      plan.reviewerUserId == null ? null : userById.get(plan.reviewerUserId) ?? null, plan.preliminaryDate, 0),
     reasons: ["KEEP_EXISTING"],
   };
   return validateCandidateHardRules(snapshot, target, candidate).length === 0 ? candidate : null;
@@ -229,9 +233,9 @@ function conflictsWithSelected(
   target: PlannerTarget,
   candidate: PlannerCandidate,
   selected: Map<number, PlannerCandidate>,
+  mutableTargetIds: Set<number>,
 ): { blocked: boolean; phoneReuse: number; longRouteCount: number } {
-  const planningIds = new Set(snapshot.targets.map((item) => item.id));
-  const external = snapshot.existingSurveyOccupancy.filter((item) => !planningIds.has(item.targetId));
+  const external = snapshot.existingSurveyOccupancy.filter((item) => !mutableTargetIds.has(item.targetId));
   const phoneSameResponsible = external.filter((item) => item.surveyMethod === "phone"
     && item.preliminaryDate === candidate.preliminaryDate && item.responsibleUserId === candidate.responsibleUserId).length
     + [...selected.values()].filter((item) => item.surveyMethod === "phone"
@@ -266,8 +270,7 @@ function conflictsWithSelected(
 
 export function validateCandidateForSave(snapshot: PlanningSnapshot, target: PlannerTarget, candidate: PlannerCandidate) {
   const violations = validateCandidateHardRules(snapshot, target, candidate);
-  const planningIds = new Set(snapshot.targets.map((item) => item.id));
-  const external = snapshot.existingSurveyOccupancy.filter((item) => !planningIds.has(item.targetId));
+  const external = snapshot.existingSurveyOccupancy.filter((item) => item.targetId !== target.id);
   if (candidate.surveyMethod === "phone") {
     const count = external.filter((item) => item.surveyMethod === "phone"
       && item.preliminaryDate === candidate.preliminaryDate
@@ -290,9 +293,11 @@ export function validateCandidateForSave(snapshot: PlanningSnapshot, target: Pla
 
 function solveBatch(snapshot: PlanningSnapshot, choices: Map<number, PlannerCandidate[]>) {
   const targets = sortedTargets(snapshot).filter((target) => (choices.get(target.id)?.length ?? 0) > 0);
+  const mutableTargetIds = new Set(targets.map((target) => target.id));
   let best = new Map<number, PlannerCandidate>();
   let bestObjective: PlannerObjective | null = null;
-  const visit = (index: number, selected: Map<number, PlannerCandidate>, objective: PlannerObjective) => {
+  const visit = (index: number, selected: Map<number, PlannerCandidate>, objective: PlannerObjective,
+    selectedWriterCounts: Map<number, number>) => {
     if (bestObjective && compareObjective(objective, bestObjective) >= 0) return;
     if (index === targets.length) {
       best = new Map(selected);
@@ -301,15 +306,20 @@ function solveBatch(snapshot: PlanningSnapshot, choices: Map<number, PlannerCand
     }
     const target = targets[index];
     for (const candidate of choices.get(target.id) ?? []) {
-      const conflict = conflictsWithSelected(snapshot, target, candidate, selected);
+      const conflict = conflictsWithSelected(snapshot, target, candidate, selected, mutableTargetIds);
       if (conflict.blocked) continue;
-      const dynamic: PlannerObjective = [0, 0, conflict.phoneReuse, 0, 0, conflict.longRouteCount];
+      const selectedWriterCount = selectedWriterCounts.get(candidate.writerUserId) ?? 0;
+      const writingLoad = Number(snapshot.writingCounters[String(candidate.writerUserId)] ?? 0) + selectedWriterCount;
+      const dynamic: PlannerObjective = [0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount];
       selected.set(target.id, candidate);
-      visit(index + 1, selected, addObjective(objective, addObjective(candidate.objective, dynamic)));
+      selectedWriterCounts.set(candidate.writerUserId, selectedWriterCount + 1);
+      visit(index + 1, selected, addObjective(objective, addObjective(candidate.objective, dynamic)), selectedWriterCounts);
+      if (selectedWriterCount === 0) selectedWriterCounts.delete(candidate.writerUserId);
+      else selectedWriterCounts.set(candidate.writerUserId, selectedWriterCount);
       selected.delete(target.id);
     }
   };
-  visit(0, new Map(), ZERO_OBJECTIVE);
+  visit(0, new Map(), ZERO_OBJECTIVE, new Map());
   return best;
 }
 

@@ -20,6 +20,9 @@ Planner version: `fixed-assignee-reverse-planner-v1.1.0`
 - 기존 일반 수동 PATCH가 새 저장 계약을 우회할 수 있었다.
 - 관리자 override가 `automatic` origin으로 저장되고 구체적인 위반 목록을 고정하지 않았다.
 - `KEEP_EXISTING`과 보고서 담당 null 처리가 전체 Canonical validator를 통과하지 않았다.
+- 1차 Fresh Verification에서 유선 reviewer 일정 오차단, planning target 중 미선택 persisted 점유 누락,
+  outside fixed 공시료 그룹 누락, Apply group 동시성, 보호 NULL code backfill 시도, batch writer counter 누락과
+  미존재 역할 사용자의 조용한 drop을 추가 확인했다. 이 상태의 PR #80 merge를 중단하고 모두 보완한 뒤 재검증했다.
 
 ## 2. 최종 PlanningSnapshot 구조
 
@@ -44,10 +47,14 @@ DB 조회와 route provider 호출은 API 경계에서 끝내며 solver는 Supab
 - 기존 persisted 유선 plan은 responsible 3건 capacity, 날짜 분산과 작성 counter에 포함한다.
 - 방문 capacity와 route는 날짜별 공유 participant 기준으로 계산한다. 방문 수행자는 불가 일정과 실제 측정 일정 모두를 통과해야 한다.
 - 기존업체 유선은 responsible/reviewer의 실제 측정 일정 때문에 차단하지 않는다.
+- 유선 불가 일정은 실제 전화·작성 responsible에게만 적용하며 reviewer의 일정은 유선 후보를 차단하지 않는다.
 - primary 후보로 전체 batch hard-rule 해를 먼저 탐색하고, 정상해가 없을 때만 fallback 후보를 허용한다.
 - objective는 비음수 lexicographic tuple이며 단조 lower-bound만 가지치기한다. 순서 permutation과 전역 최적해 회귀를 고정했다.
 - `KEEP_EXISTING`도 날짜·방식·경력·역할·교집합·일정·capacity·route·보호·fixed·원천 구조를 동일 validator로 다시 통과한다.
 - 보고서 담당 미입력은 preference 부재이며 단독 `SOURCE_INVALID` 사유가 아니다. 단일/다일 원천이 구조적으로 충돌할 때만 invalid다.
+- non-null 보고서 담당 ID 또는 collaborator 이름이 사용자 원천에 없으면 `USER_NOT_FOUND`로 자동결정을 중단한다.
+- 계산 batch에 포함됐더라도 SOURCE_INVALID·전환·보호 때문에 선택되지 않은 target의 persisted plan은 고정 점유로 유지한다.
+- 작성업무 preference는 persisted counter에 현재 batch의 선택 writer count를 누적해 계산한다.
 
 ## 4. 저장 경로와 보안
 
@@ -59,6 +66,10 @@ DB 조회와 route provider 호출은 API 경계에서 끝내며 solver는 Supab
 - override는 `plan_origin = manual`, audit `event_type/decision = MANUAL_OVERRIDE`로 저장한다.
 - Apply transaction은 Preview 공시료 코드와 정규화 후 persisted 코드가 다르면 `PUBLIC_SAMPLE_PREVIEW_MISMATCH`로 전체 rollback한다.
 - 보호 plan의 공시료 코드를 변경하는 UPDATE는 DB trigger도 차단한다.
+- assignment가 아직 없는 batch 밖 fixed confirmation도 Preview 공시료 그룹에 포함한다.
+- 보호 assignment의 NULL code가 base-code fallback과 같은 경우 trigger는 기존 NULL row를 그대로 반환해 backfill하지 않는다.
+- 같은 날짜·담당자 공시료 그룹은 transaction advisory lock으로 직렬화하며 CREATE/REPLACE는 기존 plan ID·updated_at baseline을 재검증한다.
+- 관리자 override RPC만 transaction-local repair flag를 설정하며 일반 Apply는 찐확정 보호를 우회하지 않는다.
 - RPC 실행권한은 `service_role`만 가지며 `PUBLIC/anon/authenticated`에는 부여하지 않는다.
 
 ## 5. Golden Regression
@@ -80,11 +91,13 @@ v1.1 focused suite는 다음 범주를 영구 고정한다.
 
 ## 6. DB 변경과 Staging 결과
 
-Migration `20260902150000_harden_reverse_planner_v1_1.sql`은 additive/forward-compatible이다.
+Migration `20260902150000_harden_reverse_planner_v1_1.sql`과
+`20260902170000_serialize_reverse_planner_v1_1_apply.sql`은 additive/forward-compatible이다.
 
 - reconciliation의 applied plan/assignment 참조에 partial index를 추가했다.
 - 보호 plan 공시료 코드 UPDATE 차단 trigger를 추가했다.
 - 기존 Apply RPC를 같은 signature로 forward 교체하여 override origin과 Preview/persisted 코드 일치 검사를 보강했다.
+- 같은 공시료 그룹 advisory lock, target plan baseline, 관리자 override transaction 경계와 보호 NULL 무백필을 추가했다.
 - 기존 table/column 삭제·rename·backfill은 없다.
 
 Staging synthetic 검증 결과:
@@ -93,6 +106,8 @@ Staging synthetic 검증 결과:
 - 잘못된 Preview 코드 `FF`: `PUBLIC_SAMPLE_PREVIEW_MISMATCH`, plan/audit 0건 rollback PASS
 - 올바른 자동 코드 `F`: automatic plan/assignment/audit 원자 저장 PASS
 - 보호 assignment 직접 변경: 기존 찐확정 lock에서 write 0건 PASS
+- 실제 Staging 함수 정의: advisory lock, plan baseline, override flag, Preview guard, empty search_path PASS
+- 보호+NULL assignment의 base-code 정규화 시도: transaction rollback 검증에서 NULL 보존 PASS
 
 ## 7. 운영 보호와 rollback
 

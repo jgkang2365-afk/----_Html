@@ -73,9 +73,11 @@ for (const [noviceId, reviewerId, label] of [[1, 2, "강종구 → 이태환"], 
   });
 }
 
-test("우선 reviewer가 불가하면 다른 경력자를 탐색한다", () => {
+test("유선 reviewer 불가 일정은 차단하지 않고, 비활성 reviewer면 다른 경력자를 탐색한다", () => {
   const input = fixture({ scheduleBlocks: [{ userId: 2, startDate: "2026-08-01", endDate: "2026-09-30" }] });
-  assert.equal(resultFor(input).candidate?.reviewerUserId, 4);
+  assert.equal(resultFor(input).candidate?.reviewerUserId, 2);
+  const inactivePreferred = fixture({ users: users.map((user) => user.id === 2 ? { ...user, active: false } : user) });
+  assert.equal(resultFor(inactivePreferred).candidate?.reviewerUserId, 4);
 });
 
 test("비경력자 단독은 AUTO 후보가 아니며 경력+비경력 작성자는 비경력자다", () => {
@@ -134,6 +136,18 @@ test("batch 밖 기존 유선 날짜 점유를 포함해 빈 날짜를 우선한
   assert.notEqual(resultFor(fixture({ existingSurveyOccupancy: occupancy })).candidate?.preliminaryDate, usedDate);
 });
 
+test("batch 안 SOURCE_INVALID target의 persisted plan도 고정 점유로 유지한다", () => {
+  const usedDate = candidateDates("2026-09-16", "existing").primary[0];
+  const invalid = target({ id: 11, code: "H0011",
+    fixedAssignments: [{ targetId: 11, measurementDate: "2026-09-16", assigneeUserId: 999, confirmedAt: "x", updatedAt: "x" }] });
+  const occupancy = [{ targetId: 11, businessCode: "H0011", address: "대전", preliminaryDate: usedDate,
+    surveyMethod: "phone" as const, participantUserIds: [2, 1], responsibleUserId: 1, reviewerUserId: 2,
+    writerUserId: 1, protected: false }];
+  const input = fixture({ targets: [target(), invalid], existingSurveyOccupancy: occupancy });
+  assert.equal(resultFor(input, 11).decision, "SOURCE_INVALID");
+  assert.notEqual(resultFor(input).candidate?.preliminaryDate, usedDate);
+});
+
 test("batch 밖 방문 capacity는 공유 수행자별로 계산한다", () => {
   const fieldTarget = target({ businessType: "first_measurement",
     days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
@@ -186,6 +200,16 @@ test("target/user/query 순서를 바꿔도 fingerprint와 global optimum이 같
   assert.deepEqual(left.results, right.results);
 });
 
+test("작성업무 균등은 persisted counter와 batch 선택 writer를 함께 누적한다", () => {
+  const sharedDays = [{ date: "2026-09-16", collaboratorUserIds: [1, 3], reportWriterUserId: null }];
+  const first = target({ id: 10, code: "H0010", days: sharedDays,
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }] });
+  const second = target({ id: 11, code: "H0011", days: sharedDays,
+    fixedAssignments: [{ targetId: 11, measurementDate: "2026-09-16", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }] });
+  const output = planPreliminarySurveyGivenFixedAssignments(fixture({ targets: [first, second] }));
+  assert.equal(new Set(output.results.map((result) => result.candidate?.writerUserId)).size, 2);
+});
+
 test("C/CC/CCC Preview는 batch 밖 persisted 그룹까지 natural sort한다", () => {
   const input = fixture({ targets: [target({ code: "H0002" })], existingPublicSampleAssignments: [{
     targetId: 20, businessCode: "H0001", measurementDate: "2026-09-16", assigneeUserId: 1,
@@ -195,6 +219,24 @@ test("C/CC/CCC Preview는 batch 밖 persisted 그룹까지 natural sort한다", 
   const direct = normalizePublicSampleCodes({ targets: [...input.targets].reverse(), users: [...users].reverse(),
     existingAssignments: [...input.existingPublicSampleAssignments].reverse() });
   assert.deepEqual(direct.map((item) => item.publicSampleCode), ["C", "CC"]);
+});
+
+test("batch 밖 fixed confirmation도 assignment 생성 전 공시료 그룹에 포함한다", () => {
+  const snapshot = buildPlanningSnapshot({
+    targets: [
+      { id: 10, code: "H0002", business_name: "계산 대상", address: "대전", measurement_date: "2026-09-16",
+        measurer_id: 1, collaborators: "강종구", daily_staff: null, business_type: "existing" },
+      { id: 20, code: "H0001", business_name: "외부 fixed", address: "대전", measurement_date: "2026-09-16",
+        measurer_id: 1, collaborators: "강종구", daily_staff: null, business_type: "existing" },
+    ],
+    users: users.map((user) => ({ id: user.id, name: user.name, is_active: user.active,
+      is_preliminary_survey_experienced: user.experienced, survey_code: user.baseCode })),
+    fixedAssignments: [10, 20].map((id) => ({ measurement_target_business_id: id, measurement_date: "2026-09-16",
+      assignee_user_id: 1, confirmed_at: "x", updated_at: "x", source_snapshot: {} })),
+    plans: [], assignments: [], scheduleBlocks: [], planningTargetIds: [10],
+  });
+  assert.ok(snapshot.existingPublicSampleAssignments.some((item) => item.targetId === 20));
+  assert.equal(resultFor(snapshot).publicSampleAssignments[0].publicSampleCode, "CC");
 });
 
 test("보호 plan code group 자동변경은 MANUAL_REQUIRED다", () => {
@@ -232,6 +274,25 @@ test("보고서 담당 null은 SOURCE_INVALID가 아니며 daily_staff 원천을
     plans: [], assignments: [], scheduleBlocks: [], planningTargetIds: [10],
   });
   assert.notEqual(resultFor(snapshot).decision, "SOURCE_INVALID");
+});
+
+test("미존재 collaborator 또는 non-null 보고서 담당은 SOURCE_INVALID다", () => {
+  for (const source of [
+    { collaborators: "없는직원", measurer_id: null },
+    { collaborators: "강종구", measurer_id: 999 },
+  ]) {
+    const snapshot = buildPlanningSnapshot({
+      targets: [{ id: 10, code: "H0010", business_name: "사업장", address: "대전", measurement_date: "2026-09-16",
+        daily_staff: null, business_type: "existing", ...source }],
+      users: users.map((user) => ({ id: user.id, name: user.name, is_active: user.active,
+        is_preliminary_survey_experienced: user.experienced, survey_code: user.baseCode })),
+      fixedAssignments: [{ measurement_target_business_id: 10, measurement_date: "2026-09-16", assignee_user_id: 1,
+        confirmed_at: "x", updated_at: "x", source_snapshot: {} }],
+      plans: [], assignments: [], scheduleBlocks: [], planningTargetIds: [10],
+    });
+    assert.equal(resultFor(snapshot).decision, "SOURCE_INVALID");
+    assert.equal(resultFor(snapshot).reason, "USER_NOT_FOUND");
+  }
 });
 
 test("source 역할·external occupancy·fixed·route 변경은 fingerprint를 바꾼다", () => {
@@ -275,10 +336,14 @@ test("관리자 override는 구체 violation 확인·manual origin·audit로 분
 });
 
 test("migration은 additive·service-only·보호 code trigger·backfill 0이다", () => {
-  const migration = readFileSync("supabase/migrations/20260902150000_harden_reverse_planner_v1_1.sql", "utf8");
+  const migration = readFileSync("supabase/migrations/20260902150000_harden_reverse_planner_v1_1.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902170000_serialize_reverse_planner_v1_1_apply.sql", "utf8");
   assert.match(migration, /CREATE TRIGGER trg_protect_preliminary_survey_v2_public_sample_code/);
   assert.match(migration, /PROTECTED_PLAN_REQUIRES_REVIEW/);
   assert.match(migration, /REVOKE ALL ON FUNCTION/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /OLD\.public_sample_code IS NULL/);
+  assert.match(migration, /app\.preliminary_survey_admin_repair/);
   assert.doesNotMatch(migration, /UPDATE public\.measurement_target_business|INSERT INTO public\.measurement_target_business/i);
 });
 
