@@ -120,12 +120,22 @@ async function loadSnapshot(supabase: any, measurementDate: string) {
       .select("plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code").in("plan_id", planIds)
     : { data: [], error: null };
   if (assignmentError) throw assignmentError;
+  const [reconciliationResult, historyResult] = planIds.length ? await Promise.all([
+    supabase.from("preliminary_survey_v2_legacy_reconciliation").select("applied_plan_id").in("applied_plan_id", planIds),
+    supabase.from("preliminary_survey_v2_history_recovery_audit").select("created_plan_id").in("created_plan_id", planIds),
+  ]) : [{ data: [], error: null }, { data: [], error: null }];
+  if (reconciliationResult.error || historyResult.error) throw reconciliationResult.error || historyResult.error;
+  const protectedPlanIds = new Set([
+    ...(reconciliationResult.data ?? []).map((row: any) => String(row.applied_plan_id)),
+    ...(historyResult.data ?? []).map((row: any) => String(row.created_plan_id)),
+  ]);
   const normalizedPeriod = (value: unknown) => String(value ?? "").trim().replace("(수시)", "");
   const journalKeys = new Set((journalResult.data ?? []).map((row: any) =>
     `${row.code}|${row.measurement_year}|${normalizedPeriod(row.measurement_period)}`
   ));
   const protectedTargetIds = targets.filter((target: any) =>
     journalKeys.has(`${target.code}|${target.year}|${normalizedPeriod(target.period)}`)
+    || protectedPlanIds.has(String(plans.find((plan: any) => Number(plan.measurement_target_business_id) === Number(target.id))?.id ?? ""))
   ).map((target: any) => Number(target.id));
   const routeEvidence = await routeEvidenceFor(targets, infoResult.data ?? []);
   return {
@@ -190,6 +200,9 @@ export async function POST(request: NextRequest) {
       const target = snapshot.targets.find((item) => item.id === targetId);
       if (!target?.days.some((day) => day.date === fixedDate)) {
         return NextResponse.json({ error: "해당 사업장의 실제 측정일이 아닙니다." }, { status: 400 });
+      }
+      if (target.days.some((day) => day.date.startsWith("2026-08-"))) {
+        return NextResponse.json({ error: "2026년 8월 실제 측정자료는 새 플래너로 확정하지 않습니다.", code: "TRANSITION_BOUNDARY_REVIEW_REQUIRED" }, { status: 409 });
       }
       const fingerprint = sourceFingerprint(snapshot);
       const { data, error } = await supabase.rpc("confirm_preliminary_survey_v2_fixed_assignment", {

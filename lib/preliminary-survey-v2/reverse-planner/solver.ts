@@ -82,6 +82,10 @@ function touchesProtectedPublicCodeGroup(snapshot: PlanningSnapshot, target: Pla
   );
 }
 
+function isTransitionProtectedTarget(target: PlannerTarget) {
+  return target.days.some((day) => day.date.startsWith("2026-08-"));
+}
+
 function existingAssignmentsCompatible(target: PlannerTarget, plan: ExistingPlannerPlan | null) {
   if (!plan?.preliminaryDate || !plan.participantUserIds.some((id) => actualTeam(target).has(id))) return false;
   const fixed = new Map(target.fixedAssignments.map((item) => [item.measurementDate, item.assigneeUserId]));
@@ -174,8 +178,9 @@ function solveBatch(snapshot: PlanningSnapshot, choices: Map<number, PlannerCand
 export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSnapshot): ReversePlannerOutput {
   const users = new Map(snapshot.users.map((user) => [user.id, user])); const errors = new Map<number, ReversePlannerReason>();
   const choices = new Map<number, PlannerCandidate[]>(); const publicCodes = normalizePublicSampleCodes({ targets: snapshot.targets, users: snapshot.users });
-  const routeBlocked = new Set<number>(); const protectedGroupBlocked = new Set<number>();
+  const routeBlocked = new Set<number>(); const protectedGroupBlocked = new Set<number>(); const transitionBlocked = new Set<number>();
   for (const target of sortedTargets(snapshot)) {
+    if (isTransitionProtectedTarget(target)) { transitionBlocked.add(target.id); continue; }
     const error = sourceError(target, users);
     if (error) errors.set(target.id, error);
     else if (touchesProtectedPublicCodeGroup(snapshot, target)) protectedGroupBlocked.add(target.id);
@@ -195,6 +200,8 @@ export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSna
         ? ["PUBLIC_SAMPLE_HARD_RULE_EXCEEDED"] : [] as string[] };
     if (error) return { ...common, decision: error === "FIXED_ASSIGNEE_NOT_CONFIRMED" ? "MANUAL_REQUIRED" as const : "SOURCE_INVALID" as const,
       mutation: "NONE" as const, reason: error, candidate: null };
+    if (transitionBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,
+      mutation: "NONE" as const, reason: "TRANSITION_BOUNDARY_REVIEW_REQUIRED" as const, candidate: null };
     if (routeBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,
       mutation: "NONE" as const, reason: "ROUTE_EVIDENCE_REQUIRED" as const, candidate: null };
     if (protectedGroupBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,
