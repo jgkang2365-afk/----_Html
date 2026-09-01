@@ -105,9 +105,6 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = 'TARGET_NOT_FOUND';
   END IF;
-  IF p_measurement_date >= DATE '2026-08-01' AND p_measurement_date < DATE '2026-09-01' THEN
-    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'TRANSITION_BOUNDARY_REVIEW_REQUIRED';
-  END IF;
   IF p_measurement_date IS DISTINCT FROM target_row.measurement_date::date AND NOT EXISTS (
     SELECT 1
     FROM jsonb_array_elements(
@@ -205,16 +202,6 @@ BEGIN
     IF NOT FOUND THEN
       RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = 'TARGET_NOT_FOUND';
     END IF;
-    IF target_row.measurement_date::date >= DATE '2026-08-01'
-       AND target_row.measurement_date::date < DATE '2026-09-01'
-       OR EXISTS (
-         SELECT 1 FROM jsonb_array_elements(
-           CASE WHEN jsonb_typeof(target_row.daily_staff) = 'array' THEN target_row.daily_staff ELSE '[]'::jsonb END
-         ) day
-         WHERE day->>'date' >= '2026-08-01' AND day->>'date' < '2026-09-01'
-       ) THEN
-      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'TRANSITION_BOUNDARY_REVIEW_REQUIRED';
-    END IF;
     IF target_row.measurement_date::text IS DISTINCT FROM plan_item->>'source_measurement_date'
        OR COALESCE(target_row.measurer_id, -1)
           IS DISTINCT FROM COALESCE((plan_item->>'source_report_writer_id')::integer, -1)
@@ -259,7 +246,7 @@ BEGIN
         plan_item->'participant_names',
         'recommended',
         'automatic',
-        target_row.measurement_date::date,
+        target_row.measurement_date,
         target_row.measurer_id,
         plan_item->>'source_rule_type',
         plan_item->>'survey_method',
@@ -330,7 +317,7 @@ BEGIN
       p_planner_run_id,
       CASE WHEN p_override_reason IS NULL THEN 'APPLY' ELSE 'MANUAL_OVERRIDE' END,
       target_row.id,
-      target_row.measurement_date::date,
+      target_row.measurement_date,
       COALESCE(plan_item->'before_snapshot', '{}'::jsonb),
       plan_item,
       COALESCE(plan_item->>'decision', 'AUTO_ASSIGNED'),
