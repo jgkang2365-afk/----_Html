@@ -18,6 +18,10 @@ import {
   normalizeJournalManagerEmailForSave,
   resolveJournalManagerContact,
 } from "@/lib/journal/manager-email-policy";
+import {
+  formatMeasurementPublicSampleAssignee,
+  type PreliminarySurveyDisplayModel,
+} from "@/lib/preliminary-survey-v2/display-model";
 
 interface JournalEntry {
   id: number | null;
@@ -87,6 +91,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   const [businessCategories, setBusinessCategories] = useState<{ value: string; label: string }[]>([]);
   // 예비조사 정보를 별도로 보여주기 위한 상태
   const [surveyInfo, setSurveyInfo] = useState<any>(null);
+  const [preliminaryDisplay, setPreliminaryDisplay] = useState<PreliminarySurveyDisplayModel | null>(null);
   // 전회 측정비 정보 (참고용)
   const [previousMeasurementFee, setPreviousMeasurementFee] = useState<{
     business: number | null;
@@ -370,6 +375,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
   // 직전 측정일지 및 예비조사 데이터 자동 채우기
   useEffect(() => {
+    setSurveyInfo(null);
+    setPreliminaryDisplay(null);
     setPreviousContactInfo({
       manager_name: null,
       manager_mobile: null,
@@ -388,6 +395,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
           if (response.ok) {
             const data = await response.json();
+            setPreliminaryDisplay(data.preliminaryDisplay || null);
 
             // 디버깅: 산재관리번호 확인
             console.log('[JournalEditForm] 직전 측정일지 데이터:', {
@@ -2362,6 +2370,34 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
   );
 
   const renderSurveyInfo = () => {
+    if (preliminaryDisplay) {
+      const fields = [
+        ["예비조사일", preliminaryDisplay.preliminarySurveyDate || "-"],
+        ["예비조사자", preliminaryDisplay.preliminarySurveyors],
+        ["측정자(공시료)", formatMeasurementPublicSampleAssignee(preliminaryDisplay)],
+        ["측정 참여자", preliminaryDisplay.measurementParticipants],
+        ["보고서 담당", preliminaryDisplay.reportWriter],
+      ];
+
+      return (
+        <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
+          <div className="mb-4 pb-2 border-b border-blue-100">
+            <h3 className="text-lg font-bold text-blue-900">예비조사 정보 (참고용)</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            {fields.map(([label, value]) => (
+              <div key={label}>
+                <label className="block text-sm font-medium text-blue-700 mb-1">{label}</label>
+                <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium min-h-9 flex items-center shadow-sm">
+                  {value || "-"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     if (!surveyInfo) return null;
 
     // surveyInfo가 배열인 경우(신규 로직)와 단일 객체인 경우(기존 로직) 모두 대응

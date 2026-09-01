@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
+import {
+  buildPreliminarySurveyDisplayModel,
+  measurementRolesForDisplay,
+} from "@/lib/preliminary-survey-v2/display-model";
 import { checkPermission } from "@/lib/auth/check-permission";
 
 /**
@@ -228,6 +232,89 @@ export async function GET(request: NextRequest) {
 
     const surveys = periodSurveys || [];
 
+    // Persisted V2 plan/assignment가 있으면 표시 모델 전체에서 legacy 값을 섞지 않는다.
+    const { data: targetRow, error: targetError } = await supabase
+      .from("measurement_target_business")
+      .select("id, measurement_date, collaborators, daily_staff, measurer_id")
+      .eq("code", trimmedCode)
+      .eq("year", measurementYear)
+      .eq("period", period)
+      .maybeSingle();
+    if (targetError) {
+      throw new Error(`측정대상사업장 표시 원천 조회 오류: ${targetError.message}`);
+    }
+
+    const { data: v2Plan, error: v2PlanError } = targetRow
+      ? await supabase
+        .from("preliminary_survey_v2_plans")
+        .select("id, recommended_date, participant_names")
+        .eq("measurement_target_business_id", targetRow.id)
+        .maybeSingle()
+      : { data: null, error: null };
+    if (v2PlanError) {
+      throw new Error(`예비조사 V2 계획 표시 원천 조회 오류: ${v2PlanError.message}`);
+    }
+
+    const { data: v2Assignment, error: v2AssignmentError } = v2Plan && targetRow?.measurement_date
+      ? await supabase
+        .from("preliminary_survey_v2_measurement_assignments")
+        .select("assignee_user_id, survey_code")
+        .eq("plan_id", v2Plan.id)
+        .eq("measurement_date", targetRow.measurement_date)
+        .maybeSingle()
+      : { data: null, error: null };
+    if (v2AssignmentError) {
+      throw new Error(`예비조사 V2 공시료 배정 표시 원천 조회 오류: ${v2AssignmentError.message}`);
+    }
+
+    const measurementRoles = targetRow
+      ? measurementRolesForDisplay({
+        dailyStaff: targetRow.daily_staff,
+        measurementDate: targetRow.measurement_date,
+        measurerId: targetRow.measurer_id,
+        collaborators: targetRow.collaborators,
+      })
+      : { measurementParticipants: [], reportWriterUserId: null };
+    const roleIds = [measurementRoles.reportWriterUserId, v2Assignment?.assignee_user_id]
+      .map(Number)
+      .filter((id) => Number.isInteger(id) && id > 0);
+    const { data: displayUsers, error: displayUsersError } = roleIds.length > 0
+      ? await supabase.from("users").select("id, name").in("id", roleIds)
+      : { data: [], error: null };
+    if (displayUsersError) {
+      throw new Error(`예비조사 V2 표시 사용자 조회 오류: ${displayUsersError.message}`);
+    }
+    const displayUserNames = new Map(
+      (displayUsers ?? []).map((user: any) => [Number(user.id), String(user.name ?? "").trim()]),
+    );
+
+    const legacyDisplaySource = surveys.find(
+      (survey: any) => survey.measurement_date === targetRow?.measurement_date,
+    ) ?? latestSurvey ?? surveys.at(-1) ?? null;
+    const preliminaryDisplay = buildPreliminarySurveyDisplayModel({
+      v2: v2Plan ? {
+        preliminarySurveyDate: v2Plan.recommended_date,
+        preliminarySurveyors: v2Plan.participant_names,
+        measurementPublicSampleAssignee: v2Assignment
+          ? displayUserNames.get(Number(v2Assignment.assignee_user_id))
+          : null,
+        publicSampleCode: v2Assignment?.survey_code,
+        measurementParticipants: measurementRoles.measurementParticipants,
+        reportWriter: measurementRoles.reportWriterUserId == null
+          ? null
+          : displayUserNames.get(measurementRoles.reportWriterUserId),
+      } : null,
+      legacy: legacyDisplaySource ? {
+        preliminarySurveyDate: null,
+        preliminarySurveyors: legacyDisplaySource.preliminary_surveyor,
+        measurementPublicSampleAssignee: legacyDisplaySource.measurer,
+        publicSampleCode: legacyDisplaySource.survey_code,
+        measurementParticipants: legacyDisplaySource.actual_measurer,
+        reportWriter: legacyDisplaySource.report_writer,
+      } : null,
+    });
+    const hasPreliminaryDisplay = preliminaryDisplay.source !== "none";
+
     // 국고지원 상태 결정 우선순위:
     // 1. national_support_application 테이블
     // 2. measurement_business 테이블
@@ -246,7 +333,8 @@ export async function GET(request: NextRequest) {
 
     // previousJournal이 없어도 fallbackDefaults가 있으면 데이터를 반환할 수 있도록 함
     // 또는 businessData가 있으면 반환
-    const hasData = previousJournal || Object.keys(fallbackDefaults).length > 0 || businessData || (referenceData.source_type !== 'none');
+    const hasData = previousJournal || Object.keys(fallbackDefaults).length > 0 || businessData
+      || (referenceData.source_type !== 'none') || hasPreliminaryDisplay;
 
     if (!hasData && !nationalSupportData && !summaryData) {
       return NextResponse.json({
@@ -255,6 +343,7 @@ export async function GET(request: NextRequest) {
         message: "직전 측정일지 데이터가 없습니다.",
         referenceData,
         currentManagerContact,
+        preliminaryDisplay: hasPreliminaryDisplay ? preliminaryDisplay : null,
       });
     }
 
@@ -372,6 +461,7 @@ export async function GET(request: NextRequest) {
       summaryInfo,
       surveyInfo,
       surveys, // 해당 기간의 모든 예비조사 목록
+      preliminaryDisplay: hasPreliminaryDisplay ? preliminaryDisplay : null,
       referenceData, // 프론트엔드에서 자동 완성에 사용됨
       currentManagerContact,
       source: previousJournal ? {
