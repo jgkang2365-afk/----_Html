@@ -1,54 +1,165 @@
 import { candidateDates, isScheduleBlocked } from "./candidate-dates";
 import { sourceFingerprint } from "./fingerprint";
 import { normalizePublicSampleCodes } from "./public-sample-code";
-import type { ExistingPlannerPlan, PlannerCandidate, PlannerTarget, PlannerUser, PlanningSnapshot, ReversePlannerReason, ReversePlannerResult, ReversePlannerOutput } from "./types";
+import type {
+  ExistingPlannerPlan,
+  PlannerCandidate,
+  PlannerObjective,
+  PlannerTarget,
+  PlannerUser,
+  PlanningSnapshot,
+  ReversePlannerOutput,
+  ReversePlannerReason,
+  ReversePlannerResult,
+} from "./types";
 
 const natural = new Intl.Collator("ko", { numeric: true, sensitivity: "base" });
-const reviewerPreference: Record<string, string> = { "강종구": "이태환", "고유빈": "이주형", "김민영": "한기문" };
-const sortedTargets = (snapshot: PlanningSnapshot) => [...snapshot.targets].sort((a, b) => natural.compare(a.code, b.code) || a.id - b.id);
+const preferredReviewerByResponsible: Record<string, string> = {
+  "강종구": "이태환",
+  "고유빈": "이주형",
+  "김민영": "한기문",
+};
+const ZERO_OBJECTIVE: PlannerObjective = [0, 0, 0, 0, 0, 0];
+const sortedTargets = (snapshot: PlanningSnapshot) => [...snapshot.targets]
+  .sort((left, right) => natural.compare(left.code, right.code) || left.id - right.id);
+
+function addObjective(left: PlannerObjective, right: PlannerObjective): PlannerObjective {
+  return left.map((value, index) => value + right[index]) as unknown as PlannerObjective;
+}
+
+function compareObjective(left: PlannerObjective, right: PlannerObjective) {
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
 
 function sourceError(target: PlannerTarget, users: Map<number, PlannerUser>): ReversePlannerReason | null {
   if (!target.days.length || target.days.some((day) => !/^\d{4}-\d{2}-\d{2}$/.test(day.date))) return "INVALID_MEASUREMENT_DATES";
   if (new Set(target.days.map((day) => day.date)).size !== target.days.length) return "INVALID_DAILY_STAFF";
-  if ("sourceReportWriterUserId" in target && target.sourceReportWriterUserId == null) return "CONFLICTING_AUTHORITATIVE_SOURCE";
   if (target.fixedAssignments.length !== target.days.length) return "FIXED_ASSIGNEE_NOT_CONFIRMED";
   for (const day of target.days) {
     const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
-    if (!fixed) return "FIXED_ASSIGNEE_NOT_CONFIRMED"; const user = users.get(fixed.assigneeUserId);
-    if (!user) return "USER_NOT_FOUND"; if (!user.active || !user.baseCode || !/^[A-Z]$/.test(user.baseCode)) return "INVALID_BASE_CODE";
+    if (!fixed) return "FIXED_ASSIGNEE_NOT_CONFIRMED";
+    const user = users.get(fixed.assigneeUserId);
+    if (!user) return "USER_NOT_FOUND";
+    if (!user.active || !user.baseCode || !/^[A-Z]$/.test(user.baseCode)) return "INVALID_BASE_CODE";
   }
   return null;
 }
 
-function actualTeam(target: PlannerTarget) {
+export function actualTeam(target: PlannerTarget) {
   const team = new Set<number>();
-  for (const day of target.days) { day.collaboratorUserIds.forEach((id) => team.add(id));
-    const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date); if (fixed) team.add(fixed.assigneeUserId); }
+  for (const day of target.days) {
+    day.collaboratorUserIds.forEach((id) => team.add(id));
+    const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
+    if (fixed) team.add(fixed.assigneeUserId);
+  }
   return team;
 }
 
-function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
-  const active = snapshot.users.filter((user) => user.active); const experienced = active.filter((user) => user.experienced);
-  const inexperienced = active.filter((user) => !user.experienced); const team = actualTeam(target);
-  const reportWriterIds = new Set(target.days.map((day) => day.reportWriterUserId).filter((id): id is number => id != null));
-  const measurementDate = [...target.days].sort((a, b) => a.date.localeCompare(b.date))[0].date;
-  const ranges = candidateDates(measurementDate, target.businessType);
-  const combinations: Array<{ participants: PlannerUser[]; responsible: PlannerUser; reviewer: PlannerUser | null; writer: PlannerUser; score: number }> = [];
-  experienced.filter((user) => team.has(user.id)).forEach((user) => combinations.push({ participants: [user], responsible: user, reviewer: null, writer: user, score: 10 }));
-  for (const novice of inexperienced) for (const reviewer of experienced) {
-    if (!team.has(novice.id) && !team.has(reviewer.id)) continue;
-    combinations.push({ participants: [reviewer, novice], responsible: novice, reviewer, writer: novice,
-      score: (reviewerPreference[reviewer.name] === novice.name ? 0 : 5)
-        - Number(reportWriterIds.has(novice.id) || reportWriterIds.has(reviewer.id)) * 2 });
+function routeEvidence(snapshot: PlanningSnapshot, date: string, leftTargetId: number, rightTargetId: number) {
+  return snapshot.routeEvidence.find((item) => item.date === date
+    && [item.leftTargetId, item.rightTargetId].includes(leftTargetId)
+    && [item.leftTargetId, item.rightTargetId].includes(rightTargetId));
+}
+
+function rolesValid(snapshot: PlanningSnapshot, candidate: PlannerCandidate) {
+  const users = candidate.participantUserIds.map((id) => snapshot.users.find((user) => user.id === id));
+  if (users.some((user) => !user?.active)) return false;
+  const participants = users.filter((user): user is PlannerUser => Boolean(user));
+  const experienced = participants.filter((user) => user.experienced);
+  const novices = participants.filter((user) => !user.experienced);
+  if (experienced.length === 1 && novices.length === 0) {
+    return candidate.responsibleUserId === experienced[0].id
+      && candidate.reviewerUserId == null
+      && candidate.writerUserId === experienced[0].id;
   }
-  return combinations.flatMap((choice) => {
-    const ids = choice.participants.map((user) => user.id); const available = (dates: string[]) => dates.filter((date) => ids.every((id) => !isScheduleBlocked(id, date, snapshot.scheduleBlocks)));
-    const primary = available(ranges.primary); const dates = primary.length ? primary : available(ranges.fallback);
-    return dates.map((date, index) => ({ preliminaryDate: date, surveyMethod: target.businessType === "existing" ? "phone" as const : "field" as const,
-      participantUserIds: ids, responsibleUserId: choice.responsible.id, reviewerUserId: choice.reviewer?.id ?? null,
-      writerUserId: choice.writer.id, score: choice.score + index + Number(snapshot.writingCounters[String(choice.writer.id)] ?? 0) * 100,
-      reasons: [primary.length ? "PRIMARY_DATE" : "FALLBACK_DATE", choice.reviewer ? "EXPERIENCED_AND_INEXPERIENCED" : "EXPERIENCED_SOLO"] }));
-  }).sort((a, b) => a.score - b.score || a.preliminaryDate.localeCompare(b.preliminaryDate) || a.responsibleUserId - b.responsibleUserId);
+  if (experienced.length === 1 && novices.length === 1) {
+    return candidate.responsibleUserId === novices[0].id
+      && candidate.reviewerUserId === experienced[0].id
+      && candidate.writerUserId === novices[0].id;
+  }
+  return false;
+}
+
+export function validateCandidateHardRules(
+  snapshot: PlanningSnapshot,
+  target: PlannerTarget,
+  candidate: PlannerCandidate,
+): string[] {
+  const violations: string[] = [];
+  const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);
+  if (![...ranges.primary, ...ranges.fallback].includes(candidate.preliminaryDate)) violations.push("PRELIMINARY_DATE_OUT_OF_RANGE");
+  const expectedMethod = target.businessType === "existing" ? "phone" : "field";
+  if (candidate.surveyMethod !== expectedMethod) violations.push("SURVEY_METHOD_MISMATCH");
+  if (!rolesValid(snapshot, candidate)) violations.push("INVALID_SURVEYOR_ROLE_COMBINATION");
+  if (!candidate.participantUserIds.some((id) => actualTeam(target).has(id))) violations.push("ACTUAL_TEAM_INTERSECTION_REQUIRED");
+  if (candidate.participantUserIds.some((id) => isScheduleBlocked(id, candidate.preliminaryDate, snapshot.scheduleBlocks))) {
+    violations.push("USER_UNAVAILABLE_ON_SURVEY_DATE");
+  }
+  if (candidate.surveyMethod === "field" && snapshot.actualMeasurementOccupancy.some((occupancy) =>
+    occupancy.date === candidate.preliminaryDate
+    && occupancy.participantUserIds.some((id) => candidate.participantUserIds.includes(id)))) {
+    violations.push("ACTUAL_MEASUREMENT_CONFLICT");
+  }
+  return violations;
+}
+
+function candidateObjective(
+  snapshot: PlanningSnapshot,
+  target: PlannerTarget,
+  participants: PlannerUser[],
+  responsible: PlannerUser,
+  reviewer: PlannerUser | null,
+  writer: PlannerUser,
+  preliminaryDate: string,
+  changedPlanCount: number,
+): PlannerObjective {
+  const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);
+  const fallback = ranges.fallback.includes(preliminaryDate) ? 1 : 0;
+  const reportWriterIds = new Set(target.days.map((day) => day.reportWriterUserId).filter((id): id is number => id != null));
+  const reviewerPenalty = reviewer && preferredReviewerByResponsible[responsible.name] !== reviewer.name ? 1 : 0;
+  const reportPenalty = participants.some((user) => reportWriterIds.has(user.id)) ? 0 : 1;
+  return [fallback, changedPlanCount, 0, reviewerPenalty + reportPenalty,
+    Number(snapshot.writingCounters[String(writer.id)] ?? 0), 0];
+}
+
+function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
+  const active = snapshot.users.filter((user) => user.active);
+  const experienced = active.filter((user) => user.experienced);
+  const novices = active.filter((user) => !user.experienced);
+  const team = actualTeam(target);
+  const combinations: Array<{ participants: PlannerUser[]; responsible: PlannerUser; reviewer: PlannerUser | null; writer: PlannerUser }> = [];
+  experienced.filter((user) => team.has(user.id)).forEach((user) => {
+    combinations.push({ participants: [user], responsible: user, reviewer: null, writer: user });
+  });
+  for (const novice of novices) {
+    for (const reviewer of experienced) {
+      if (!team.has(novice.id) && !team.has(reviewer.id)) continue;
+      combinations.push({ participants: [reviewer, novice], responsible: novice, reviewer, writer: novice });
+    }
+  }
+  const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);
+  const dates = [...ranges.primary, ...ranges.fallback];
+  return combinations.flatMap((choice) => dates.map((date) => {
+    const candidate: PlannerCandidate = {
+      preliminaryDate: date,
+      surveyMethod: target.businessType === "existing" ? "phone" : "field",
+      participantUserIds: choice.participants.map((user) => user.id),
+      responsibleUserId: choice.responsible.id,
+      reviewerUserId: choice.reviewer?.id ?? null,
+      writerUserId: choice.writer.id,
+      objective: candidateObjective(snapshot, target, choice.participants, choice.responsible, choice.reviewer, choice.writer, date, 1),
+      reasons: [ranges.primary.includes(date) ? "PRIMARY_DATE" : "FALLBACK_DATE",
+        choice.reviewer ? "EXPERIENCED_AND_INEXPERIENCED" : "EXPERIENCED_SOLO"],
+    };
+    return candidate;
+  })).filter((candidate) => validateCandidateHardRules(snapshot, target, candidate).length === 0)
+    .sort((left, right) => compareObjective(left.objective, right.objective)
+      || left.preliminaryDate.localeCompare(right.preliminaryDate)
+      || left.responsibleUserId - right.responsibleUserId
+      || (left.reviewerUserId ?? 0) - (right.reviewerUserId ?? 0));
 }
 
 function emptyCandidateReason(snapshot: PlanningSnapshot, target: PlannerTarget): ReversePlannerReason {
@@ -58,28 +169,11 @@ function emptyCandidateReason(snapshot: PlanningSnapshot, target: PlannerTarget)
   const team = actualTeam(target);
   const hasCanonicalTeamCombination = experienced.some((user) => team.has(user.id))
     || active.some((user) => !user.experienced && team.has(user.id));
-  const measurementDate = [...target.days].sort((a, b) => a.date.localeCompare(b.date))[0]?.date ?? "";
-  const ranges = candidateDates(measurementDate, target.businessType);
-  const dates = [...ranges.primary, ...ranges.fallback];
-  const hasAvailableMismatch = experienced.some((user) =>
-    !team.has(user.id) && dates.some((date) => !isScheduleBlocked(user.id, date, snapshot.scheduleBlocks))
-  );
-  if (hasCanonicalTeamCombination && hasAvailableMismatch) return "ONLY_MISMATCH_ALTERNATIVES_AVAILABLE";
-  return hasCanonicalTeamCombination
-    ? "NO_VALID_PRELIMINARY_DATE"
-    : "ONLY_MISMATCH_ALTERNATIVES_AVAILABLE";
-}
-
-function touchesProtectedPublicCodeGroup(snapshot: PlanningSnapshot, target: PlannerTarget) {
-  const protectedGroups = new Set(snapshot.targets.flatMap((item) =>
-    item.existingPlan?.protected
-      ? item.existingPlan.assignments.map((assignment) => `${assignment.measurementDate}|${assignment.assigneeUserId}`)
-      : []
-  ));
-  return target.fixedAssignments.some((fixed) =>
-    protectedGroups.has(`${fixed.measurementDate}|${fixed.assigneeUserId}`)
-    && !target.existingPlan?.protected
-  );
+  const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);
+  const mismatchAvailable = experienced.some((user) => !team.has(user.id)
+    && [...ranges.primary, ...ranges.fallback].some((date) => !isScheduleBlocked(user.id, date, snapshot.scheduleBlocks)));
+  if (hasCanonicalTeamCombination && mismatchAvailable) return "ONLY_MISMATCH_ALTERNATIVES_AVAILABLE";
+  return hasCanonicalTeamCombination ? "NO_VALID_PRELIMINARY_DATE" : "ONLY_MISMATCH_ALTERNATIVES_AVAILABLE";
 }
 
 function isTransitionProtectedTarget(target: PlannerTarget) {
@@ -89,102 +183,167 @@ function isTransitionProtectedTarget(target: PlannerTarget) {
 function existingAssignmentsCompatible(target: PlannerTarget, plan: ExistingPlannerPlan | null) {
   if (!plan?.preliminaryDate || !plan.participantUserIds.some((id) => actualTeam(target).has(id))) return false;
   const fixed = new Map(target.fixedAssignments.map((item) => [item.measurementDate, item.assigneeUserId]));
-  return plan.assignments.length === target.days.length && plan.assignments.every((item) => fixed.get(item.measurementDate) === item.assigneeUserId);
+  return plan.assignments.length === target.days.length
+    && plan.assignments.every((item) => fixed.get(item.measurementDate) === item.assigneeUserId);
 }
 
 function existingCandidate(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate | null {
   const plan = target.existingPlan;
   if (!plan?.preliminaryDate || !existingAssignmentsCompatible(target, plan)) return null;
   const userById = new Map(snapshot.users.map((user) => [user.id, user]));
-  const participants = plan.participantUserIds.map((id) => userById.get(id)).filter((user): user is PlannerUser => Boolean(user?.active));
-  if (participants.length !== plan.participantUserIds.length) return null;
+  const participants = plan.participantUserIds.map((id) => userById.get(id)).filter((user): user is PlannerUser => Boolean(user));
   const experienced = participants.filter((user) => user.experienced);
-  const inexperienced = participants.filter((user) => !user.experienced);
-  if (!((experienced.length === 1 && inexperienced.length === 0)
-      || (experienced.length === 1 && inexperienced.length === 1))) return null;
-  if (participants.some((user) => isScheduleBlocked(user.id, plan.preliminaryDate!, snapshot.scheduleBlocks))) return null;
-  const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);
-  if (![...ranges.primary, ...ranges.fallback].includes(plan.preliminaryDate)) return null;
-  if (plan.surveyMethod !== (target.businessType === "existing" ? "phone" : "field")) return null;
-  const responsible = userById.get(plan.responsibleUserId);
-  if (!responsible || !participants.some((user) => user.id === responsible.id)) return null;
-  return {
+  const novices = participants.filter((user) => !user.experienced);
+  const writer = novices[0] ?? experienced[0];
+  if (!writer) return null;
+  const candidate: PlannerCandidate = {
     preliminaryDate: plan.preliminaryDate,
     surveyMethod: plan.surveyMethod,
     participantUserIds: plan.participantUserIds,
     responsibleUserId: plan.responsibleUserId,
     reviewerUserId: plan.reviewerUserId,
-    writerUserId: inexperienced[0]?.id ?? experienced[0].id,
-    score: -10_000,
+    writerUserId: writer.id,
+    objective: candidateObjective(snapshot, target, participants, userById.get(plan.responsibleUserId) ?? writer,
+      plan.reviewerUserId == null ? null : userById.get(plan.reviewerUserId) ?? null, writer, plan.preliminaryDate, 0),
     reasons: ["KEEP_EXISTING"],
   };
+  return validateCandidateHardRules(snapshot, target, candidate).length === 0 ? candidate : null;
 }
 
 function measurementRouteEvidenceMissing(snapshot: PlanningSnapshot, target: PlannerTarget) {
-  for (const other of snapshot.targets) {
-    if (other.id === target.id) continue;
-    for (const day of target.days) {
-      const otherDay = other.days.find((item) => item.date === day.date);
-      if (!otherDay) continue;
-      const targetTeam = new Set([
-        ...day.collaboratorUserIds,
-        ...target.fixedAssignments.filter((item) => item.measurementDate === day.date).map((item) => item.assigneeUserId),
-      ]);
-      const otherTeam = new Set([
-        ...otherDay.collaboratorUserIds,
-        ...other.fixedAssignments.filter((item) => item.measurementDate === day.date).map((item) => item.assigneeUserId),
-      ]);
-      if (![...targetTeam].some((id) => otherTeam.has(id))) continue;
-      const evidence = snapshot.routeEvidence.find((item) => item.date === day.date
-        && [item.leftTargetId, item.rightTargetId].includes(target.id)
-        && [item.leftTargetId, item.rightTargetId].includes(other.id));
-      if (!evidence || (!evidence.sameAddress && evidence.durationMinutes == null)) return true;
+  for (const day of target.days) {
+    const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
+    const team = new Set([...day.collaboratorUserIds, ...(fixed ? [fixed.assigneeUserId] : [])]);
+    for (const occupancy of snapshot.actualMeasurementOccupancy) {
+      if (occupancy.targetId === target.id || occupancy.date !== day.date
+        || !occupancy.participantUserIds.some((id) => team.has(id))) continue;
+      const evidence = routeEvidence(snapshot, day.date, target.id, occupancy.targetId);
+      if (!evidence || (!evidence.sameAddress && (evidence.durationMinutes == null || evidence.durationMinutes > 60))) return true;
     }
   }
   return false;
 }
 
+function conflictsWithSelected(
+  snapshot: PlanningSnapshot,
+  target: PlannerTarget,
+  candidate: PlannerCandidate,
+  selected: Map<number, PlannerCandidate>,
+): { blocked: boolean; phoneReuse: number; longRouteCount: number } {
+  const planningIds = new Set(snapshot.targets.map((item) => item.id));
+  const external = snapshot.existingSurveyOccupancy.filter((item) => !planningIds.has(item.targetId));
+  const phoneSameResponsible = external.filter((item) => item.surveyMethod === "phone"
+    && item.preliminaryDate === candidate.preliminaryDate && item.responsibleUserId === candidate.responsibleUserId).length
+    + [...selected.values()].filter((item) => item.surveyMethod === "phone"
+      && item.preliminaryDate === candidate.preliminaryDate && item.responsibleUserId === candidate.responsibleUserId).length;
+  if (candidate.surveyMethod === "phone" && phoneSameResponsible >= 3) return { blocked: true, phoneReuse: 0, longRouteCount: 0 };
+  const phoneDateUse = candidate.surveyMethod === "phone"
+    ? external.filter((item) => item.surveyMethod === "phone" && item.preliminaryDate === candidate.preliminaryDate).length
+      + [...selected.values()].filter((item) => item.surveyMethod === "phone" && item.preliminaryDate === candidate.preliminaryDate).length
+    : 0;
+  if (candidate.surveyMethod !== "field") return { blocked: false, phoneReuse: phoneDateUse, longRouteCount: 0 };
+
+  let longRouteCount = 0;
+  const fieldPeers = [
+    ...external.filter((item) => item.surveyMethod === "field" && item.preliminaryDate === candidate.preliminaryDate)
+      .map((item) => ({ targetId: item.targetId, participantUserIds: item.participantUserIds })),
+    ...[...selected.entries()].filter(([, item]) => item.surveyMethod === "field" && item.preliminaryDate === candidate.preliminaryDate)
+      .map(([targetId, item]) => ({ targetId, participantUserIds: item.participantUserIds })),
+  ];
+  for (const participantId of candidate.participantUserIds) {
+    const peers = fieldPeers.filter((peer) => peer.participantUserIds.includes(participantId));
+    if (peers.length >= 2) return { blocked: true, phoneReuse: 0, longRouteCount: 0 };
+    for (const peer of peers) {
+      const evidence = routeEvidence(snapshot, candidate.preliminaryDate, target.id, peer.targetId);
+      if (!evidence || (!evidence.sameAddress && (evidence.durationMinutes == null || evidence.durationMinutes > 60))) {
+        return { blocked: true, phoneReuse: 0, longRouteCount: 0 };
+      }
+      if (!evidence.sameAddress && Number(evidence.durationMinutes) > 30) longRouteCount += 1;
+    }
+  }
+  return { blocked: false, phoneReuse: 0, longRouteCount };
+}
+
+export function validateCandidateForSave(snapshot: PlanningSnapshot, target: PlannerTarget, candidate: PlannerCandidate) {
+  const violations = validateCandidateHardRules(snapshot, target, candidate);
+  const planningIds = new Set(snapshot.targets.map((item) => item.id));
+  const external = snapshot.existingSurveyOccupancy.filter((item) => !planningIds.has(item.targetId));
+  if (candidate.surveyMethod === "phone") {
+    const count = external.filter((item) => item.surveyMethod === "phone"
+      && item.preliminaryDate === candidate.preliminaryDate
+      && item.responsibleUserId === candidate.responsibleUserId).length;
+    if (count >= 3) violations.push("PHONE_RESPONSIBLE_CAPACITY_EXCEEDED");
+  } else {
+    const peers = external.filter((item) => item.surveyMethod === "field" && item.preliminaryDate === candidate.preliminaryDate);
+    for (const participantId of candidate.participantUserIds) {
+      const shared = peers.filter((peer) => peer.participantUserIds.includes(participantId));
+      if (shared.length >= 2) violations.push("FIELD_VISIT_CAPACITY_EXCEEDED");
+      for (const peer of shared) {
+        const evidence = routeEvidence(snapshot, candidate.preliminaryDate, target.id, peer.targetId);
+        if (!evidence || (!evidence.sameAddress && evidence.durationMinutes == null)) violations.push("ROUTE_EVIDENCE_REQUIRED");
+        else if (!evidence.sameAddress && Number(evidence.durationMinutes) > 60) violations.push("FIELD_ROUTE_OVER_60_MINUTES");
+      }
+    }
+  }
+  return [...new Set(violations)].sort();
+}
+
 function solveBatch(snapshot: PlanningSnapshot, choices: Map<number, PlannerCandidate[]>) {
   const targets = sortedTargets(snapshot).filter((target) => (choices.get(target.id)?.length ?? 0) > 0);
-  let best = new Map<number, PlannerCandidate>(); let bestScore = Number.POSITIVE_INFINITY;
-  const visit = (index: number, selected: Map<number, PlannerCandidate>, score: number) => {
-    if (score >= bestScore) return; if (index === targets.length) { best = new Map(selected); bestScore = score; return; }
+  let best = new Map<number, PlannerCandidate>();
+  let bestObjective: PlannerObjective | null = null;
+  const visit = (index: number, selected: Map<number, PlannerCandidate>, objective: PlannerObjective) => {
+    if (bestObjective && compareObjective(objective, bestObjective) >= 0) return;
+    if (index === targets.length) {
+      best = new Map(selected);
+      bestObjective = objective;
+      return;
+    }
     const target = targets[index];
     for (const candidate of choices.get(target.id) ?? []) {
-      const sameField = [...selected.entries()].filter(([, item]) => item.surveyMethod === "field" && item.preliminaryDate === candidate.preliminaryDate);
-      let routePenalty = 0;
-      if (candidate.surveyMethod === "field" && sameField.length) {
-        if (sameField.length >= 2) continue;
-        const otherId = sameField[0][0]; const evidence = snapshot.routeEvidence.find((item) => item.date === candidate.preliminaryDate
-          && [item.leftTargetId, item.rightTargetId].includes(target.id) && [item.leftTargetId, item.rightTargetId].includes(otherId));
-        if (!evidence || (!evidence.sameAddress && (evidence.durationMinutes == null || evidence.durationMinutes > 60))) continue;
-        routePenalty = !evidence.sameAddress && Number(evidence.durationMinutes) > 30 ? 500 : 0;
-      }
-      const phoneCount = [...selected.values()].filter((item) => item.surveyMethod === "phone" && item.preliminaryDate === candidate.preliminaryDate
-        && item.responsibleUserId === candidate.responsibleUserId).length;
-      if (candidate.surveyMethod === "phone" && phoneCount >= 3) continue;
-      const sameExistingDate = [...selected.values()].filter((item) =>
-        item.surveyMethod === "phone" && item.preliminaryDate === candidate.preliminaryDate
-      ).length;
+      const conflict = conflictsWithSelected(snapshot, target, candidate, selected);
+      if (conflict.blocked) continue;
+      const dynamic: PlannerObjective = [0, 0, conflict.phoneReuse, 0, 0, conflict.longRouteCount];
       selected.set(target.id, candidate);
-      visit(index + 1, selected, score + candidate.score + routePenalty
-        + (candidate.surveyMethod === "phone" ? sameExistingDate * 1_000 : 0));
+      visit(index + 1, selected, addObjective(objective, addObjective(candidate.objective, dynamic)));
       selected.delete(target.id);
     }
   };
-  visit(0, new Map(), 0); return best;
+  visit(0, new Map(), ZERO_OBJECTIVE);
+  return best;
+}
+
+function protectedPublicCodeGroups(snapshot: PlanningSnapshot, normalized: ReturnType<typeof normalizePublicSampleCodes>) {
+  const changedGroups = new Set<string>();
+  for (const persisted of snapshot.existingPublicSampleAssignments.filter((item) => item.protected)) {
+    const next = normalized.find((item) => item.targetId === persisted.targetId && item.measurementDate === persisted.measurementDate);
+    if (next && next.publicSampleCode !== (persisted.publicSampleCode ?? persisted.surveyCode)) {
+      changedGroups.add(`${persisted.measurementDate}|${persisted.assigneeUserId}`);
+    }
+  }
+  return changedGroups;
 }
 
 export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSnapshot): ReversePlannerOutput {
-  const users = new Map(snapshot.users.map((user) => [user.id, user])); const errors = new Map<number, ReversePlannerReason>();
-  const choices = new Map<number, PlannerCandidate[]>(); const publicCodes = normalizePublicSampleCodes({ targets: snapshot.targets, users: snapshot.users });
-  const routeBlocked = new Set<number>(); const protectedGroupBlocked = new Set<number>(); const transitionBlocked = new Set<number>();
+  const users = new Map(snapshot.users.map((user) => [user.id, user]));
+  const errors = new Map<number, ReversePlannerReason>();
+  const choices = new Map<number, PlannerCandidate[]>();
+  const publicCodes = normalizePublicSampleCodes({
+    targets: snapshot.targets,
+    users: snapshot.users,
+    existingAssignments: snapshot.existingPublicSampleAssignments,
+  });
+  const protectedCodeGroups = protectedPublicCodeGroups(snapshot, publicCodes);
+  const routeBlocked = new Set<number>();
+  const protectedGroupBlocked = new Set<number>();
+  const transitionBlocked = new Set<number>();
   for (const target of sortedTargets(snapshot)) {
     if (isTransitionProtectedTarget(target)) { transitionBlocked.add(target.id); continue; }
     const error = sourceError(target, users);
     if (error) errors.set(target.id, error);
-    else if (touchesProtectedPublicCodeGroup(snapshot, target)) protectedGroupBlocked.add(target.id);
-    else if (measurementRouteEvidenceMissing(snapshot, target)) routeBlocked.add(target.id);
+    else if (target.fixedAssignments.some((fixed) => protectedCodeGroups.has(`${fixed.measurementDate}|${fixed.assigneeUserId}`))) {
+      protectedGroupBlocked.add(target.id);
+    } else if (measurementRouteEvidenceMissing(snapshot, target)) routeBlocked.add(target.id);
     else {
       const keep = existingCandidate(snapshot, target);
       choices.set(target.id, [...(keep ? [keep] : []), ...candidatesFor(snapshot, target)]);
@@ -194,10 +353,14 @@ export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSna
   const results: ReversePlannerResult[] = sortedTargets(snapshot).map((target) => {
     const error = errors.get(target.id);
     const targetPublicCodes = publicCodes.filter((item) => item.targetId === target.id);
-    const common = { targetId: target.id, code: target.code, fixedAssignments: target.fixedAssignments,
+    const common = {
+      targetId: target.id,
+      code: target.code,
+      fixedAssignments: target.fixedAssignments,
       publicSampleAssignments: targetPublicCodes,
       warnings: targetPublicCodes.some((item) => item.publicSampleCode.length > 3)
-        ? ["PUBLIC_SAMPLE_HARD_RULE_EXCEEDED"] : [] as string[] };
+        ? ["PUBLIC_SAMPLE_HARD_RULE_EXCEEDED"] : [] as string[],
+    };
     if (error) return { ...common, decision: error === "FIXED_ASSIGNEE_NOT_CONFIRMED" ? "MANUAL_REQUIRED" as const : "SOURCE_INVALID" as const,
       mutation: "NONE" as const, reason: error, candidate: null };
     if (transitionBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,
@@ -208,7 +371,7 @@ export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSna
       mutation: "NONE" as const, reason: "PROTECTED_PLAN_REQUIRES_REVIEW" as const, candidate: null };
     const candidate = selected.get(target.id) ?? null;
     if (!candidate) return { ...common, decision: "MANUAL_REQUIRED" as const, mutation: "NONE" as const,
-      reason: (choices.get(target.id)?.length ? "ROUTE_EVIDENCE_REQUIRED" : emptyCandidateReason(snapshot, target)), candidate: null };
+      reason: choices.get(target.id)?.length ? "ROUTE_EVIDENCE_REQUIRED" as const : emptyCandidateReason(snapshot, target), candidate: null };
     const keepExisting = candidate.reasons.includes("KEEP_EXISTING");
     if (target.existingPlan?.protected && !keepExisting) return { ...common, decision: "MANUAL_REQUIRED" as const,
       mutation: "NONE" as const, reason: "PROTECTED_PLAN_REQUIRES_REVIEW" as const, candidate: null };

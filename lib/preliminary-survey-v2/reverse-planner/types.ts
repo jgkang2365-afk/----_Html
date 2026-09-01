@@ -1,4 +1,4 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.0.0";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.1.0";
 export const PRELIMINARY_SURVEY_CANONICAL_SHA = "aca759e7d785231cc89bc656ba635eb367f65de3";
 
 export type ReversePlannerDecision = "AUTO_ASSIGNED" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
@@ -15,6 +15,7 @@ export interface PlannerUser { id: number; name: string; active: boolean; experi
 export interface PlannerDay { date: string; collaboratorUserIds: number[]; reportWriterUserId: number | null }
 export interface FixedMeasurementAssignment {
   targetId: number; measurementDate: string; assigneeUserId: number; confirmedAt: string; updatedAt: string;
+  nonParticipantConfirmed?: boolean;
 }
 export interface ExistingPlannerPlan {
   id: string; preliminaryDate: string | null; surveyMethod: "field" | "phone"; participantUserIds: number[];
@@ -35,14 +36,37 @@ export interface PlannerRouteEvidence {
   date: string; leftTargetId: number; rightTargetId: number; sameAddress: boolean;
   durationMinutes: number | null; provider: string; capturedAt: string;
 }
+export interface ExistingSurveyOccupancy {
+  targetId: number; businessCode: string; address: string | null; preliminaryDate: string;
+  surveyMethod: "field" | "phone"; participantUserIds: number[]; responsibleUserId: number;
+  reviewerUserId: number | null; writerUserId: number | null; protected: boolean;
+}
+export interface ActualMeasurementOccupancy {
+  targetId: number; businessCode: string; address: string | null; date: string; participantUserIds: number[];
+}
+export interface ExistingPublicSampleAssignment {
+  targetId: number; businessCode: string; measurementDate: string; assigneeUserId: number;
+  surveyCode: string; publicSampleCode: string | null; protected: boolean;
+}
 export interface PlanningSnapshot {
   canonicalSha: string; plannerVersion: string; targets: PlannerTarget[]; users: PlannerUser[];
   scheduleBlocks: PlannerScheduleBlock[]; routeEvidence: PlannerRouteEvidence[]; writingCounters: Record<string, number>;
+  existingSurveyOccupancy: ExistingSurveyOccupancy[];
+  actualMeasurementOccupancy: ActualMeasurementOccupancy[];
+  existingPublicSampleAssignments: ExistingPublicSampleAssignment[];
 }
+export type PlannerObjective = readonly [
+  fallbackCount: number,
+  changedPlanCount: number,
+  phoneDateReuse: number,
+  reviewerAndReportPenalty: number,
+  writingLoad: number,
+  longRouteCount: number,
+];
 export interface PlannerCandidate {
   preliminaryDate: string; surveyMethod: "field" | "phone"; participantUserIds: number[];
   responsibleUserId: number; reviewerUserId: number | null; writerUserId: number;
-  score: number; reasons: string[];
+  objective: PlannerObjective; reasons: string[];
 }
 export interface PublicSampleAssignment {
   targetId: number; businessCode: string; measurementDate: string; assigneeUserId: number;
