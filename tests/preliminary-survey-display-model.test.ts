@@ -12,6 +12,10 @@ test("V2 plan이 있으면 5개 역할과 공시료 코드를 persisted V2/targe
     v2: {
       preliminarySurveyDate: "2026-08-07",
       preliminarySurveyors: ["고유빈", "이주형"],
+      preliminarySurveyorUsers: [
+        { name: "고유빈", isExperienced: false },
+        { name: "이주형", isExperienced: true },
+      ],
       measurementPublicSampleAssignee: "고유빈",
       publicSampleCode: "F",
       measurementParticipants: ["고유빈"],
@@ -29,7 +33,7 @@ test("V2 plan이 있으면 5개 역할과 공시료 코드를 persisted V2/targe
 
   assert.deepEqual(model, {
     preliminarySurveyDate: "2026-08-07",
-    preliminarySurveyors: "고유빈, 이주형",
+    preliminarySurveyors: "이주형, 고유빈",
     measurementPublicSampleAssignee: "고유빈",
     publicSampleCode: "F",
     measurementParticipants: "고유빈",
@@ -43,6 +47,10 @@ test("V2 plan이 없을 때만 legacy 표시값을 사용한다", () => {
   const model = buildPreliminarySurveyDisplayModel({
     legacy: {
       preliminarySurveyors: " 강종구, 이태환,강종구 ",
+      preliminarySurveyorUsers: [
+        { name: "강종구", isExperienced: false },
+        { name: "이태환", isExperienced: true },
+      ],
       measurementPublicSampleAssignee: "강종구",
       publicSampleCode: "C",
       measurementParticipants: "강종구",
@@ -52,10 +60,21 @@ test("V2 plan이 없을 때만 legacy 표시값을 사용한다", () => {
 
   assert.equal(model.source, "legacy");
   assert.equal(model.preliminarySurveyDate, null);
-  assert.equal(model.preliminarySurveyors, "강종구, 이태환");
+  assert.equal(model.preliminarySurveyors, "이태환, 강종구");
   assert.equal(formatMeasurementPublicSampleAssignee(model), "강종구(C)");
   assert.equal(model.measurementParticipants, "강종구");
   assert.equal(model.reportWriter, "이태환");
+});
+
+test("경력 정보가 일부만 확인되면 persisted 예비조사자 순서를 임의 변경하지 않는다", () => {
+  const model = buildPreliminarySurveyDisplayModel({
+    v2: {
+      preliminarySurveyors: ["첫 번째", "두 번째"],
+      preliminarySurveyorUsers: [{ name: "두 번째", isExperienced: true }],
+    },
+  });
+
+  assert.equal(model.preliminarySurveyors, "첫 번째, 두 번째");
 });
 
 test("V2 plan의 일부 필드가 비어도 legacy 값으로 임의 보충하지 않는다", () => {
@@ -120,6 +139,8 @@ test("previous-data API와 등록·수정 공통 폼은 V2 READ 표시 모델을
 
   assert.match(route, /from\("preliminary_survey_v2_plans"\)/);
   assert.match(route, /from\("preliminary_survey_v2_measurement_assignments"\)/);
+  assert.match(route, /participant_user_ids/);
+  assert.match(route, /is_preliminary_survey_experienced/);
   assert.match(route, /\|\| hasPreliminaryDisplay/);
   assert.match(route, /preliminaryDisplay: hasPreliminaryDisplay \? preliminaryDisplay : null/g);
   assert.doesNotMatch(route, /from\("preliminary_survey_v2_(?:plans|measurement_assignments)"\)[\s\S]{0,120}\.(?:insert|update|upsert|delete)\(/);

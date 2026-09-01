@@ -247,7 +247,7 @@ export async function GET(request: NextRequest) {
     const { data: v2Plan, error: v2PlanError } = targetRow
       ? await supabase
         .from("preliminary_survey_v2_plans")
-        .select("id, recommended_date, participant_names")
+        .select("id, recommended_date, participant_user_ids, participant_names")
         .eq("measurement_target_business_id", targetRow.id)
         .maybeSingle()
       : { data: null, error: null };
@@ -275,11 +275,26 @@ export async function GET(request: NextRequest) {
         collaborators: targetRow.collaborators,
       })
       : { measurementParticipants: [], reportWriterUserId: null };
-    const roleIds = [measurementRoles.reportWriterUserId, v2Assignment?.assignee_user_id]
+    const legacyDisplaySource = surveys.find(
+      (survey: any) => survey.measurement_date === targetRow?.measurement_date,
+    ) ?? latestSurvey ?? surveys.at(-1) ?? null;
+    const participantIds = Array.isArray(v2Plan?.participant_user_ids)
+      ? v2Plan.participant_user_ids
+        .map(Number)
+        .filter((id: number) => Number.isInteger(id) && id > 0)
+      : [];
+    const roleIds = [
+      measurementRoles.reportWriterUserId,
+      v2Assignment?.assignee_user_id,
+      ...participantIds,
+    ]
       .map(Number)
       .filter((id) => Number.isInteger(id) && id > 0);
     const { data: displayUsers, error: displayUsersError } = roleIds.length > 0
-      ? await supabase.from("users").select("id, name").in("id", roleIds)
+      ? await supabase
+        .from("users")
+        .select("id, name, is_preliminary_survey_experienced")
+        .in("id", roleIds)
       : { data: [], error: null };
     if (displayUsersError) {
       throw new Error(`예비조사 V2 표시 사용자 조회 오류: ${displayUsersError.message}`);
@@ -287,14 +302,36 @@ export async function GET(request: NextRequest) {
     const displayUserNames = new Map(
       (displayUsers ?? []).map((user: any) => [Number(user.id), String(user.name ?? "").trim()]),
     );
+    const v2SurveyorUsers = participantIds
+      .map((id: number) => (displayUsers ?? []).find((user: any) => Number(user.id) === id))
+      .filter(Boolean)
+      .map((user: any) => ({
+        name: user.name,
+        isExperienced: user.is_preliminary_survey_experienced,
+      }));
+    const legacySurveyorNames = !v2Plan && legacyDisplaySource?.preliminary_surveyor
+      ? [...new Set(
+        String(legacyDisplaySource.preliminary_surveyor)
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean),
+      )]
+      : [];
+    const { data: legacySurveyorRows, error: legacySurveyorError } = legacySurveyorNames.length > 0
+      ? await supabase
+        .from("users")
+        .select("name, is_preliminary_survey_experienced")
+        .in("name", legacySurveyorNames)
+      : { data: [], error: null };
+    if (legacySurveyorError) {
+      throw new Error(`legacy 예비조사자 표시 사용자 조회 오류: ${legacySurveyorError.message}`);
+    }
 
-    const legacyDisplaySource = surveys.find(
-      (survey: any) => survey.measurement_date === targetRow?.measurement_date,
-    ) ?? latestSurvey ?? surveys.at(-1) ?? null;
     const preliminaryDisplay = buildPreliminarySurveyDisplayModel({
       v2: v2Plan ? {
         preliminarySurveyDate: v2Plan.recommended_date,
         preliminarySurveyors: v2Plan.participant_names,
+        preliminarySurveyorUsers: v2SurveyorUsers,
         measurementPublicSampleAssignee: v2Assignment
           ? displayUserNames.get(Number(v2Assignment.assignee_user_id))
           : null,
@@ -307,6 +344,10 @@ export async function GET(request: NextRequest) {
       legacy: legacyDisplaySource ? {
         preliminarySurveyDate: null,
         preliminarySurveyors: legacyDisplaySource.preliminary_surveyor,
+        preliminarySurveyorUsers: (legacySurveyorRows ?? []).map((user: any) => ({
+          name: user.name,
+          isExperienced: user.is_preliminary_survey_experienced,
+        })),
         measurementPublicSampleAssignee: legacyDisplaySource.measurer,
         publicSampleCode: legacyDisplaySource.survey_code,
         measurementParticipants: legacyDisplaySource.actual_measurer,

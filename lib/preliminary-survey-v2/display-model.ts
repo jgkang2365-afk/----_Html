@@ -17,6 +17,10 @@ export interface PreliminarySurveyDisplayModel {
 interface PreliminarySurveyDisplaySource {
   preliminarySurveyDate?: unknown;
   preliminarySurveyors?: unknown;
+  preliminarySurveyorUsers?: Array<{
+    name?: unknown;
+    isExperienced?: unknown;
+  }>;
   measurementPublicSampleAssignee?: unknown;
   publicSampleCode?: unknown;
   measurementParticipants?: unknown;
@@ -24,9 +28,26 @@ interface PreliminarySurveyDisplaySource {
 }
 
 const text = (value: unknown) => String(value ?? "").trim();
-const names = (value: unknown) => {
+const names = (
+  value: unknown,
+  surveyorUsers?: PreliminarySurveyDisplaySource["preliminarySurveyorUsers"],
+) => {
   const values = Array.isArray(value) ? value : String(value ?? "").split(",");
-  return [...new Set(values.map(text).filter(Boolean))].join(", ") || "-";
+  const uniqueNames = [...new Set(values.map(text).filter(Boolean))];
+  const experienceByName = new Map(
+    (surveyorUsers ?? [])
+      .filter((user) => typeof user.isExperienced === "boolean")
+      .map((user) => [text(user.name), user.isExperienced] as const)
+      .filter(([name]) => Boolean(name)),
+  );
+
+  if (uniqueNames.length > 1 && uniqueNames.every((name) => experienceByName.has(name))) {
+    uniqueNames.sort((left, right) =>
+      Number(experienceByName.get(right)) - Number(experienceByName.get(left))
+    );
+  }
+
+  return uniqueNames.join(", ") || "-";
 };
 
 /**
@@ -42,7 +63,10 @@ export function buildPreliminarySurveyDisplayModel(input: {
 
   return {
     preliminarySurveyDate: text(source?.preliminarySurveyDate) || null,
-    preliminarySurveyors: names(source?.preliminarySurveyors),
+    preliminarySurveyors: names(
+      source?.preliminarySurveyors,
+      source?.preliminarySurveyorUsers,
+    ),
     measurementPublicSampleAssignee: text(source?.measurementPublicSampleAssignee) || "-",
     publicSampleCode: text(source?.publicSampleCode) || "-",
     measurementParticipants: names(source?.measurementParticipants),
