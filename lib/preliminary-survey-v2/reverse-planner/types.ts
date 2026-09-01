@@ -29,7 +29,9 @@ export interface PlannerTarget {
   id: number; code: string; name: string; address: string | null;
   businessType: "existing" | "first_measurement" | "external_new"; days: PlannerDay[];
   fixedAssignments: FixedMeasurementAssignment[]; existingPlan: ExistingPlannerPlan | null;
+  protected?: boolean;
   sourceMeasurementDate?: string;
+  sourceUpdatedAt?: string;
   sourceReportWriterUserId?: number | null;
   sourceCollaborators?: unknown;
   sourceDailyStaff?: unknown;
@@ -43,9 +45,11 @@ export interface ExistingSurveyOccupancy {
   targetId: number; businessCode: string; address: string | null; preliminaryDate: string;
   surveyMethod: "field" | "phone"; participantUserIds: number[]; responsibleUserId: number;
   reviewerUserId: number | null; writerUserId: number | null; protected: boolean;
+  planId?: string; updatedAt?: string;
 }
 export interface ActualMeasurementOccupancy {
   targetId: number; businessCode: string; address: string | null; date: string; participantUserIds: number[];
+  targetUpdatedAt?: string; fixedUpdatedAts?: string[];
 }
 export interface ExistingPublicSampleAssignment {
   targetId: number; businessCode: string; measurementDate: string; assigneeUserId: number;

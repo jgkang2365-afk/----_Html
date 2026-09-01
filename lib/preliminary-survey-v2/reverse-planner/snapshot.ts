@@ -77,6 +77,7 @@ export function buildPlanningSnapshot(input: {
       businessType: businessType(target.business_type, target.preliminary_survey_rule_type),
       days,
       sourceMeasurementDate: String(target.measurement_date),
+      sourceUpdatedAt: target.updated_at == null ? undefined : String(target.updated_at),
       sourceReportWriterUserId: target.measurer_id == null ? null : Number(target.measurer_id),
       sourceCollaborators: target.collaborators ?? null,
       sourceDailyStaff: target.daily_staff ?? null,
@@ -88,6 +89,7 @@ export function buildPlanningSnapshot(input: {
         updatedAt: String(fixed.updated_at),
         nonParticipantConfirmed: fixed.source_snapshot?.nonParticipantConfirmed === true,
       })).sort((left, right) => left.measurementDate.localeCompare(right.measurementDate)),
+      protected: protectedIds.has(Number(target.id)),
       existingPlan: plan ? {
         id: String(plan.id),
         preliminaryDate: plan.recommended_date == null ? null : String(plan.recommended_date),
@@ -130,6 +132,8 @@ export function buildPlanningSnapshot(input: {
       reviewerUserId: plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
       writerUserId: writer?.id ?? null,
       protected: protectedIds.has(target.id),
+      planId: String(plan.id),
+      updatedAt: String(plan.updated_at),
     }];
   }).sort((left, right) => left.preliminaryDate.localeCompare(right.preliminaryDate)
     || naturalCode(left.businessCode, right.businessCode) || left.targetId - right.targetId);
@@ -142,6 +146,9 @@ export function buildPlanningSnapshot(input: {
       ...day.collaboratorUserIds,
       ...target.fixedAssignments.filter((fixed) => fixed.measurementDate === day.date).map((fixed) => fixed.assigneeUserId),
     ])].sort((left, right) => left - right),
+    targetUpdatedAt: target.sourceUpdatedAt,
+    fixedUpdatedAts: target.fixedAssignments.filter((fixed) => fixed.measurementDate === day.date)
+      .map((fixed) => fixed.updatedAt).sort(),
   }))).sort((left, right) => left.date.localeCompare(right.date)
     || naturalCode(left.businessCode, right.businessCode) || left.targetId - right.targetId);
   const persistedAssignmentKeys = new Set<string>();

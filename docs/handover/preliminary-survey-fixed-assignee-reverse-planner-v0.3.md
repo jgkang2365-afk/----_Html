@@ -69,6 +69,9 @@ DB 조회와 route provider 호출은 API 경계에서 끝내며 solver는 Supab
 - assignment가 아직 없는 batch 밖 fixed confirmation도 Preview 공시료 그룹에 포함한다.
 - 보호 assignment의 NULL code가 base-code fallback과 같은 경우 trigger는 기존 NULL row를 그대로 반환해 backfill하지 않는다.
 - 같은 날짜·담당자 공시료 그룹은 transaction advisory lock으로 직렬화하며 CREATE/REPLACE는 기존 plan ID·updated_at baseline을 재검증한다.
+- 유선 responsible/date, 방문 participant/date와 공시료 group resource key 전체를 정렬 잠근다. users, fixed,
+  schedule, actual measurement, external survey occupancy와 보호상태 원천을 transaction 안에서 baseline 재검증한다.
+- plan/assignment table은 짧은 `SHARE ROW EXCLUSIVE` 경계로 다른 저장 경로의 phantom write까지 차단한다.
 - 관리자 override RPC만 transaction-local repair flag를 설정하며 일반 Apply는 찐확정 보호를 우회하지 않는다.
 - RPC 실행권한은 `service_role`만 가지며 `PUBLIC/anon/authenticated`에는 부여하지 않는다.
 
@@ -91,8 +94,8 @@ v1.1 focused suite는 다음 범주를 영구 고정한다.
 
 ## 6. DB 변경과 Staging 결과
 
-Migration `20260902150000_harden_reverse_planner_v1_1.sql`과
-`20260902170000_serialize_reverse_planner_v1_1_apply.sql`은 additive/forward-compatible이다.
+`20260902150000_harden_reverse_planner_v1_1.sql`부터 `20260902250000_order_reverse_planner_table_locks.sql`까지의
+v1.1 forward migrations은 additive/forward-compatible이다.
 
 - reconciliation의 applied plan/assignment 참조에 partial index를 추가했다.
 - 보호 plan 공시료 코드 UPDATE 차단 trigger를 추가했다.
@@ -108,6 +111,9 @@ Staging synthetic 검증 결과:
 - 보호 assignment 직접 변경: 기존 찐확정 lock에서 write 0건 PASS
 - 실제 Staging 함수 정의: advisory lock, plan baseline, override flag, Preview guard, empty search_path PASS
 - 보호+NULL assignment의 base-code 정규화 시도: transaction rollback 검증에서 NULL 보존 PASS
+- outside fixed-only ZRP9040 + Apply ZRP9041: Preview 기대 `FF`와 persisted `FF` 일치 PASS
+- user/fixed/schedule/actual/occupancy/protection baseline과 deterministic resource lock 실제 함수 정의 PASS
+- target lifecycle writer와 같은 target → plan/assignment table lock 순서 적용 PASS
 
 ## 7. 운영 보호와 rollback
 

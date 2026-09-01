@@ -330,6 +330,9 @@ test("관리자 override는 구체 violation 확인·manual origin·audit로 분
   const migration = readFileSync("supabase/migrations/20260902150000_harden_reverse_planner_v1_1.sql", "utf8");
   assert.match(route, /MANUAL_OVERRIDE_CONFIRMATION_REQUIRED/);
   assert.match(route, /validateCandidateForSave/);
+  assert.match(route, /result\.decision === "SOURCE_INVALID"/);
+  assert.match(route, /target\.protected \? \["PROTECTED_PLAN_REQUIRES_REVIEW"\]/);
+  assert.match(route, /PUBLIC_SAMPLE_PREVIEW_MISMATCH[\s\S]*status: 409/);
   assert.match(ui, /저장 전 확인할 위반사항/);
   assert.match(migration, /ELSE ''manual'' END/);
   assert.match(migration, /PUBLIC_SAMPLE_PREVIEW_MISMATCH/);
@@ -337,13 +340,32 @@ test("관리자 override는 구체 violation 확인·manual origin·audit로 분
 
 test("migration은 additive·service-only·보호 code trigger·backfill 0이다", () => {
   const migration = readFileSync("supabase/migrations/20260902150000_harden_reverse_planner_v1_1.sql", "utf8")
-    + readFileSync("supabase/migrations/20260902170000_serialize_reverse_planner_v1_1_apply.sql", "utf8");
+    + readFileSync("supabase/migrations/20260902170000_serialize_reverse_planner_v1_1_apply.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902180000_validate_reverse_planner_occupancy_baseline.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902190000_complete_reverse_planner_source_baseline.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902200000_lock_reverse_planner_user_fixed_sources.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902210000_fix_reverse_planner_lock_aliases.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902220000_fix_reverse_planner_lock_key_precedence.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902230000_lock_reverse_planner_protection_sources.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902240000_fix_reverse_planner_reentrant_lock_precedence.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902250000_order_reverse_planner_table_locks.sql", "utf8");
   assert.match(migration, /CREATE TRIGGER trg_protect_preliminary_survey_v2_public_sample_code/);
   assert.match(migration, /PROTECTED_PLAN_REQUIRES_REVIEW/);
   assert.match(migration, /REVOKE ALL ON FUNCTION/);
   assert.match(migration, /pg_advisory_xact_lock/);
   assert.match(migration, /OLD\.public_sample_code IS NULL/);
   assert.match(migration, /app\.preliminary_survey_admin_repair/);
+  assert.match(migration, /source_actual_measurement_versions/);
+  assert.match(migration, /source_users/);
+  assert.match(migration, /source_fixed_versions/);
+  assert.match(migration, /group_members AS/);
+  assert.match(migration, /source_protected/);
+  assert.match(migration, /SHARE ROW EXCLUSIVE MODE/);
+  assert.ok(
+    migration.lastIndexOf("LOCK TABLE public.measurement_target_business IN SHARE MODE")
+      < migration.lastIndexOf("LOCK TABLE public.preliminary_survey_v2_plans IN SHARE ROW EXCLUSIVE MODE"),
+    "target lifecycle writer와 동일하게 target을 plan보다 먼저 잠가야 한다",
+  );
   assert.doesNotMatch(migration, /UPDATE public\.measurement_target_business|INSERT INTO public\.measurement_target_business/i);
 });
 

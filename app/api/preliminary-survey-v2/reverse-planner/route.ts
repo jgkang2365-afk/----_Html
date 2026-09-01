@@ -96,7 +96,7 @@ async function loadSnapshot(supabase: any, measurementDate: string) {
   const year = Number(measurementDate.slice(0, 4));
   const { data: candidates, error: targetError } = await supabase
     .from("measurement_target_business")
-    .select("id, code, year, period, business_name, address, measurement_date, measurement_end_date, daily_staff, collaborators, measurer_id, business_type, preliminary_survey_rule_type")
+    .select("id, code, year, period, business_name, address, measurement_date, measurement_end_date, daily_staff, collaborators, measurer_id, business_type, preliminary_survey_rule_type, updated_at")
     .in("year", [year - 1, year, year + 1]);
   if (targetError) throw targetError;
   const measurementDays = (target: any) => measurementDayFormsFrom({
@@ -199,6 +199,56 @@ async function loadSnapshot(supabase: any, measurementDate: string) {
   };
 }
 
+function occupancyBaseline(snapshot: PlanningSnapshot, excludedTargetIds: Set<number>, candidate: PlannerCandidate) {
+  return snapshot.existingSurveyOccupancy
+    .filter((item) => !excludedTargetIds.has(item.targetId)
+      && item.preliminaryDate === candidate.preliminaryDate
+      && (candidate.surveyMethod === "phone"
+        ? item.surveyMethod === "phone" && item.responsibleUserId === candidate.responsibleUserId
+        : item.surveyMethod === "field"
+          && item.participantUserIds.some((id) => candidate.participantUserIds.includes(id))))
+    .map((item) => ({ targetId: item.targetId, planId: item.planId,
+      updatedAtMs: item.updatedAt ? new Date(item.updatedAt).getTime() : null }))
+    .sort((left, right) => left.targetId - right.targetId);
+}
+
+function scheduleBaseline(snapshot: PlanningSnapshot, candidate: PlannerCandidate) {
+  const workerIds = new Set(candidate.surveyMethod === "phone"
+    ? [candidate.responsibleUserId] : candidate.participantUserIds);
+  return snapshot.scheduleBlocks.filter((block) => workerIds.has(block.userId)
+      && block.startDate <= candidate.preliminaryDate && block.endDate >= candidate.preliminaryDate)
+    .map((block) => ({ userId: block.userId, startDate: block.startDate, endDate: block.endDate }))
+    .sort((left, right) => left.userId - right.userId || left.startDate.localeCompare(right.startDate)
+      || left.endDate.localeCompare(right.endDate));
+}
+
+function actualMeasurementBaseline(snapshot: PlanningSnapshot, excludedTargetIds: Set<number>, candidate: PlannerCandidate) {
+  if (candidate.surveyMethod !== "field") return [];
+  return snapshot.actualMeasurementOccupancy
+    .filter((item) => item.date === candidate.preliminaryDate && !excludedTargetIds.has(item.targetId))
+    .map((item) => ({
+      targetId: item.targetId,
+      targetUpdatedAtMs: item.targetUpdatedAt ? new Date(item.targetUpdatedAt).getTime() : null,
+      fixedUpdatedAtMs: (item.fixedUpdatedAts ?? []).map((value) => new Date(value).getTime()).sort((a, b) => a - b),
+    }))
+    .sort((left, right) => left.targetId - right.targetId);
+}
+
+function userBaseline(snapshot: PlanningSnapshot) {
+  return [...snapshot.users].sort((left, right) => left.id - right.id).map((user) => ({
+    id: user.id, active: user.active, experienced: user.experienced, baseCode: user.baseCode,
+  }));
+}
+
+function fixedBaseline(target: PlanningSnapshot["targets"][number]) {
+  return target.fixedAssignments.map((fixed) => ({
+    measurementDate: fixed.measurementDate,
+    assigneeUserId: fixed.assigneeUserId,
+    updatedAtMs: new Date(fixed.updatedAt).getTime(),
+    nonParticipantConfirmed: fixed.nonParticipantConfirmed === true,
+  })).sort((left, right) => left.measurementDate.localeCompare(right.measurementDate));
+}
+
 async function authorize() {
   const session = await getSession();
   if (!session) throw new Error("UNAUTHORIZED");
@@ -213,6 +263,10 @@ function responseError(error: unknown) {
   if (message === "UNAUTHORIZED") return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   if (message === "FORBIDDEN") return NextResponse.json({ error: "예비조사 담당자 또는 관리자만 사용할 수 있습니다." }, { status: 403 });
   if (schemaMissing(value)) return NextResponse.json({ error: "역산 플래너 DB migration이 필요합니다.", code: "PLANNER_SCHEMA_REQUIRED" }, { status: 503 });
+  if (/SOURCE_CHANGED/.test(message)) return NextResponse.json({ error: "원천이 변경되어 저장하지 않았습니다.",
+    code: "SOURCE_CHANGED", appliedCount: 0 }, { status: 409 });
+  if (/PUBLIC_SAMPLE_PREVIEW_MISMATCH/.test(message)) return NextResponse.json({ error: "공시료 Preview와 저장 결과가 달라 저장하지 않았습니다.",
+    code: "PUBLIC_SAMPLE_PREVIEW_MISMATCH", appliedCount: 0 }, { status: 409 });
   return NextResponse.json({ error: message || "REVERSE_PLANNER_FAILED" }, { status: 500 });
 }
 
@@ -300,6 +354,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "관리자 override 입력 또는 원천 구조가 올바르지 않습니다." }, { status: 400 });
       }
       const result = output.results.find((item) => item.targetId === targetId)!;
+      if (result.decision === "SOURCE_INVALID") {
+        return NextResponse.json({ error: "구조적으로 유효하지 않은 원천은 관리자도 저장할 수 없습니다.",
+          code: result.reason ?? "SOURCE_INVALID", appliedCount: 0 }, { status: 409 });
+      }
       const userById = new Map(snapshot.users.map((user) => [user.id, user]));
       const overrideWriter = snapshot.users.find((user) => participantUserIds.includes(user.id) && !user.experienced)
         ?? snapshot.users.find((user) => participantUserIds.includes(user.id) && user.experienced);
@@ -315,6 +373,7 @@ export async function POST(request: NextRequest) {
       };
       const violations = [...new Set([
         ...(result.reason ? [result.reason] : []),
+        ...(target.protected ? ["PROTECTED_PLAN_REQUIRES_REVIEW"] : []),
         ...validateCandidateForSave(snapshot, target, overrideCandidate),
       ])].sort();
       const acknowledgedViolations = Array.isArray(body.acknowledgedViolations)
@@ -348,6 +407,12 @@ export async function POST(request: NextRequest) {
         warnings: violations,
         route_evidence: snapshot.routeEvidence.filter((item) => item.leftTargetId === target.id || item.rightTargetId === target.id),
         before_snapshot: target.existingPlan ?? {},
+        source_occupancy_versions: occupancyBaseline(snapshot, new Set([target.id]), overrideCandidate),
+        source_schedule_blocks: scheduleBaseline(snapshot, overrideCandidate),
+        source_actual_measurement_versions: actualMeasurementBaseline(snapshot, new Set([target.id]), overrideCandidate),
+        source_users: userBaseline(snapshot),
+        source_fixed_versions: fixedBaseline(target),
+        source_protected: target.protected === true,
         actual_measurement_team: target.days,
         fixed_assignments: target.fixedAssignments,
       };
@@ -379,6 +444,7 @@ export async function POST(request: NextRequest) {
       && (result.mutation === "CREATE" || result.mutation === "REPLACE"));
     const userById = new Map(snapshot.users.map((user) => [user.id, user]));
     const targetById = new Map(snapshot.targets.map((target) => [target.id, target]));
+    const applicableTargetIds = new Set(applicable.map((result) => result.targetId));
     const plans = applicable.map((result) => {
       const target = targetById.get(result.targetId)!;
       const candidate = result.candidate!;
@@ -401,6 +467,12 @@ export async function POST(request: NextRequest) {
         warnings: result.warnings,
         route_evidence: snapshot.routeEvidence.filter((item) => item.leftTargetId === target.id || item.rightTargetId === target.id),
         before_snapshot: target.existingPlan ?? {},
+        source_occupancy_versions: occupancyBaseline(snapshot, applicableTargetIds, candidate),
+        source_schedule_blocks: scheduleBaseline(snapshot, candidate),
+        source_actual_measurement_versions: actualMeasurementBaseline(snapshot, applicableTargetIds, candidate),
+        source_users: userBaseline(snapshot),
+        source_fixed_versions: fixedBaseline(target),
+        source_protected: target.protected === true,
       };
     });
     const assignments = applicable.flatMap((result) => result.publicSampleAssignments.map((assignment) => ({

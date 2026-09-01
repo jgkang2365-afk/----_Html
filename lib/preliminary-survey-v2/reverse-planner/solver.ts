@@ -351,6 +351,7 @@ export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSna
     if (isTransitionProtectedTarget(target)) { transitionBlocked.add(target.id); continue; }
     const error = sourceError(target, users);
     if (error) errors.set(target.id, error);
+    else if (target.protected && !target.existingPlan) protectedGroupBlocked.add(target.id);
     else if (target.fixedAssignments.some((fixed) => protectedCodeGroups.has(`${fixed.measurementDate}|${fixed.assigneeUserId}`))) {
       protectedGroupBlocked.add(target.id);
     } else if (measurementRouteEvidenceMissing(snapshot, target)) routeBlocked.add(target.id);
@@ -383,7 +384,7 @@ export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSna
     if (!candidate) return { ...common, decision: "MANUAL_REQUIRED" as const, mutation: "NONE" as const,
       reason: choices.get(target.id)?.length ? "ROUTE_EVIDENCE_REQUIRED" as const : emptyCandidateReason(snapshot, target), candidate: null };
     const keepExisting = candidate.reasons.includes("KEEP_EXISTING");
-    if (target.existingPlan?.protected && !keepExisting) return { ...common, decision: "MANUAL_REQUIRED" as const,
+    if (target.protected && !keepExisting) return { ...common, decision: "MANUAL_REQUIRED" as const,
       mutation: "NONE" as const, reason: "PROTECTED_PLAN_REQUIRES_REVIEW" as const, candidate: null };
     return { ...common, decision: "AUTO_ASSIGNED" as const,
       mutation: keepExisting ? "KEEP_EXISTING" as const : target.existingPlan ? "REPLACE" as const : "CREATE" as const,
