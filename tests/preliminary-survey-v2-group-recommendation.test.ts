@@ -126,11 +126,11 @@ test("J: 그룹 추천 결과는 사업장 단위 독립 항목으로 구성된�
 });
 
 // ===== 기타 =====
-test("묶음 추천 API는 READ-ONLY이며 survey:read 권한을 요구한다", () => {
+test("구형 묶음 추천 API는 권한 확인 후 410이며 DB를 조회하지 않는다", () => {
   assert.match(route, /checkPermission\("survey:read"\)/);
-  assert.match(route, /buildGroupRecommendation/);
-  assert.match(route, /loadGroupRecommendationTargets/);
-  assert.doesNotMatch(route, /\.from\(["']measurement_target_business["']\)\.(update|insert|delete|upsert)/);
+  assert.match(route, /LEGACY_WORKBENCH_DISABLED/);
+  assert.match(route, /status: 410/);
+  assert.doesNotMatch(route, /buildGroupRecommendation|loadGroupRecommendationTargets|\.from\(/);
 });
 
 test("추천 결과는 사업장당 하나의 그룹만 (중복 추천 없음)", () => {

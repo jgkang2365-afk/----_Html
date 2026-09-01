@@ -189,33 +189,23 @@ test("탭 순서 저장값 복원, 오류 fallback, 누락 탭 보완, 이동을
   assert.match(surveyPage, /shrink-0 text-2xl font-bold text-text-900">예비조사/);
 });
 
-test("계획/목록은 동일 작업대와 단일 추천 API를 사용하고 추천은 apply 전 저장하지 않는다", () => {
+test("계획/목록은 동일 작업대를 유지하되 구형 추천·적용을 UI와 서버에서 차단한다", () => {
   const page = readFileSync("app/survey/page.tsx", "utf8");
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
   assert.match(page, /<PreliminarySurveyV2Plans mode="list"/);
   assert.match(ui, /<table/);
   for (const column of ["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자\\(공시료\\)", "측정 참여자", "보고서담당", "충돌"]) assert.match(ui, new RegExp(column));
-  assert.match(ui, /이 업체 재추천/);
-  assert.match(ui, /action: "apply", drafts: targetIds\.map/);
-  assert.match(api, /applySubmittedDrafts/);
-  assert.match(api, /participant_user_ids: draft\.participantUserIds/);
-  assert.match(api, /recommended_date: draft\.preliminaryDate/);
-  assert.match(api, /survey_method: draft\.surveyMethod/);
-  assert.match(api, /participants\.find\(\(user\) => user\.id === draft\.sourceResponsibleUserId\)/);
-  assert.match(api, /DRAFT_REVIEW_REQUIRED/);
-  const applyStart = api.indexOf("async function applySubmittedDrafts");
-  const applyEnd = api.indexOf("export async function GET", applyStart);
-  // apply는 draft를 새로 저장하지 않지만, stale 방지를 위해 서버에서 동일 추천을 재계산한다.
-  assert.match(api.slice(applyStart, applyEnd), /calculateV2Recommendations/);
-  assert.match(api.slice(applyStart, applyEnd), /canonicalFingerprint/);
-  assert.match(api.slice(applyStart, applyEnd), /loadActualMeasurementBlockedKeys/);
-  assert.match(api.slice(applyStart, applyEnd), /blockedKeys\.has/);
-  assert.doesNotMatch(api.slice(applyStart, applyEnd), /report_writer/);
+  assert.match(ui, /<FixedAssigneeReversePlanner/);
+  assert.match(ui, /disabled title="측정자 고정형 역산 플래너를 사용해 주세요\."/);
+  assert.match(ui, /구형 추천 중지/);
+  assert.match(ui, /구형 적용 중지/);
+  assert.match(api, /LEGACY_WORKBENCH_DISABLED/);
+  assert.match(api, /status: 410/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
   assert.match(ui, /flex flex-wrap items-end gap-2 xl:flex-nowrap/);
-  assert.match(api, /measurement_journal/);
-  assert.doesNotMatch(api, /sequence_number/);
+  const postStart = api.indexOf("export async function POST");
+  assert.match(api.slice(postStart), /LEGACY_WORKBENCH_DISABLED/);
 });
 
 test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합만 사용하고 draft scope 변경 시 적용을 막는다", () => {
@@ -299,7 +289,7 @@ test("계획 검색은 기준일 snapshot을 확정한 뒤 화면 결과와 같�
   assert.match(ui, /measurementRangeUnit !== planSearchSnapshot\.measurementRangeUnit/);
   assert.match(ui, /측정예정일 범위:/);
   assert.match(ui, /searchQuery: activeSearchQuery/);
-  assert.match(ui, /disabled=\{working \|\| isPlanSearchDirty\}/);
+  assert.match(ui, /구형 추천 중지/);
   assert.match(ui, /검색어 변경 · 검색 필요/);
   assert.match(ui, /일반 추천 \$\{recommendedCount\}건 · 찐확정 누락정보 보정 \$\{repairableDrafts\.length\}건/);
 });
