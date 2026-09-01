@@ -78,17 +78,17 @@ test("D: 보고서 담당자(measurer_id)는 V2 자동 변경 기준이 아니�
 });
 
 // ===== E. 정책 OFF + group-recommend 차단 =====
-test("E: 정책 OFF이면 group-recommend가 enabled=false를 반환한다", () => {
-  assert.match(groupRecommendRoute, /loadV2AutomationPolicy/);
-  assert.match(groupRecommendRoute, /reason: "POLICY_DISABLED"/);
-  assert.match(groupRecommendRoute, /enabled: false/);
+test("E: 구형 group-recommend는 정책 flag와 무관하게 영구 차단한다", () => {
+  assert.match(groupRecommendRoute, /LEGACY_WORKBENCH_DISABLED/);
+  assert.match(groupRecommendRoute, /status: 410/);
+  assert.doesNotMatch(groupRecommendRoute, /buildGroupRecommendation|loadGroupRecommendationTargets/);
 });
 
 // ===== F. 정책 OFF + group-confirm 차단 =====
-test("F: 정책 OFF이면 group-confirm이 저장하지 않고 차단한다", () => {
-  assert.match(groupConfirmRoute, /PRELIMINARY_SURVEY_AUTOMATION_DISABLED/);
-  assert.match(groupConfirmRoute, /loadV2AutomationPolicy/);
-  assert.match(groupConfirmRoute, /isPreliminarySurveyV2AutomationEnabled/);
+test("F: 구형 group-confirm은 직접 호출해도 업무 데이터를 저장하지 않는다", () => {
+  assert.match(groupConfirmRoute, /LEGACY_WORKBENCH_DISABLED/);
+  assert.match(groupConfirmRoute, /status: 410/);
+  assert.doesNotMatch(groupConfirmRoute, /\.rpc\(|\.insert\(|\.update\(|\.upsert\(/);
 });
 
 test("F: V2 recommend API도 정책 OFF에서 차단된다", () => {

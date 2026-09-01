@@ -1,61 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { createClient } from "@/lib/supabase/server";
-import { confirmGroupRecommendation, loadV2AutomationPolicy } from "@/lib/preliminary-survey-v2/service";
-import { isPreliminarySurveyV2AutomationEnabled } from "@/lib/preliminary-survey-v2/policy";
 
 export const dynamic = "force-dynamic";
 
-/**
- * 예비조사 묶음 추천 확정(저장) API (관리자 전용)
- *
- * - 클라이언트는 추천 날짜와 선택 target IDs만 보낸다. participants/link는 서버가 재검증해 결정한다.
- * - 확정 직전 현재 DB를 다시 읽어 measurement_journal 찐확정 / manual plan / 실제 측정자 / 측정일 변경을 재검증한다.
- * - 원자적으로 처리되며(전부 성공 또는 전부 rollback), 실패 시 사업장별 사유를 반환한다.
- * - 제외된 사업장은 변경하지 않는다.
- * - 예비조사 자동추천 정책 OFF이면 저장하지 않고 차단한다.
- */
-export async function POST(request: NextRequest) {
+/** 직접 호출해도 구형 추천 확정이 업무 데이터를 변경하지 않도록 서버에서 차단한다. */
+export async function POST() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   if (session.role !== "관리자") {
     return NextResponse.json({ error: "관리자만 묶음 추천을 확정할 수 있습니다." }, { status: 403 });
   }
-  try {
-    const supabase = await createClient();
-    const policy = await loadV2AutomationPolicy(supabase);
-    if (!isPreliminarySurveyV2AutomationEnabled(policy)) {
-      return NextResponse.json({
-        error: "PRELIMINARY_SURVEY_AUTOMATION_DISABLED",
-        message: "예비조사 자동추천 정책이 중지되어 묶음 추천 확정을 저장할 수 없습니다.",
-      }, { status: 403 });
-    }
-
-    const body = await request.json();
-    const date = typeof body.date === "string" ? body.date : null;
-    const targetIds = Array.isArray(body.targetIds) ? body.targetIds.map(Number).filter(Number.isFinite) : [];
-    const linkOverrides = body.linkOverrides && typeof body.linkOverrides === "object"
-      ? Object.fromEntries(Object.entries(body.linkOverrides).map(([key, value]) => [Number(key), Number(value)]))
-      : undefined;
-
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return NextResponse.json({ error: "INVALID_DATE" }, { status: 400 });
-    }
-    if (targetIds.length === 0) {
-      return NextResponse.json({ error: "확정할 사업장을 선택해 주세요." }, { status: 400 });
-    }
-    if (new Set(targetIds).size !== targetIds.length) {
-      return NextResponse.json({ error: "중복된 사업장이 포함되어 있습니다." }, { status: 400 });
-    }
-
-    const result = await confirmGroupRecommendation(supabase, { date, targetIds, linkOverrides });
-
-    if (result.failed.length > 0) {
-      return NextResponse.json({ success: false, ...result }, { status: 400 });
-    }
-    return NextResponse.json({ success: true, ...result });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "GROUP_CONFIRM_FAILED";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+  return NextResponse.json({
+    error: "LEGACY_WORKBENCH_DISABLED",
+    message: "구형 묶음 추천 확정은 중지되었습니다. 측정자 고정형 역산 플래너를 사용해 주세요.",
+  }, { status: 410 });
 }

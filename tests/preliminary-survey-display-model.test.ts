@@ -66,6 +66,20 @@ test("V2 plan이 없을 때만 legacy 표시값을 사용한다", () => {
   assert.equal(model.reportWriter, "이태환");
 });
 
+test("다일 공시료 담당자는 날짜별 public_sample_code를 모두 표시한다", () => {
+  const model = buildPreliminarySurveyDisplayModel({
+    v2: {
+      preliminarySurveyDate: "2026-09-01",
+      measurementPublicSampleAssignments: [
+        { measurementDate: "2026-09-16", assignee: "고유빈", publicSampleCode: "F" },
+        { measurementDate: "2026-09-14", assignee: "이태환", publicSampleCode: "A" },
+        { measurementDate: "2026-09-15", assignee: "한기문", publicSampleCode: "B" },
+      ],
+    },
+  });
+  assert.equal(formatMeasurementPublicSampleAssignee(model), "09/14 이태환(A)\n09/15 한기문(B)\n09/16 고유빈(F)");
+});
+
 test("경력 정보가 일부만 확인되면 persisted 예비조사자 순서를 임의 변경하지 않는다", () => {
   const model = buildPreliminarySurveyDisplayModel({
     v2: {

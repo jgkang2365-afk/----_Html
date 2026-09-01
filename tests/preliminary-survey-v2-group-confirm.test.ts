@@ -26,7 +26,7 @@ test("A: 정상 대상은 예·측 단일 후보로 확정 가능하다", () => 
   const candidates = repairLinkCandidates([17], users, ["한기문"]);
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0].name, "한기문");
-  assert.match(route, /confirmGroupRecommendation/);
+  assert.match(route, /LEGACY_WORKBENCH_DISABLED/);
   assert.match(migration, /ON CONFLICT \(measurement_target_business_id\) DO UPDATE/);
 });
 
@@ -141,12 +141,12 @@ test("N: 사전 검증 실패 시 아무것도 저장하지 않는다 (원자적
 });
 
 // ===== API 보안 =====
-test("확정 API는 관리자 전용이며 인증/빈 목록/중복을 검증한다", () => {
+test("구형 확정 API는 인증·관리자 확인 후에도 410으로 차단한다", () => {
   assert.match(route, /session\.role !== "관리자"/);
   assert.match(route, /관리자만 묶음 추천을 확정할 수 있습니다/);
-  assert.match(route, /targetIds\.length === 0/);
-  assert.match(route, /중복된 사업장이 포함되어 있습니다/);
-  assert.match(route, /INVALID_DATE/);
+  assert.match(route, /LEGACY_WORKBENCH_DISABLED/);
+  assert.match(route, /status: 410/);
+  assert.doesNotMatch(route, /confirmGroupRecommendation|\.rpc\(/);
 });
 
 test("확정 RPC는 일반 정상 확정을 관리자 예외 감사로그에 INSERT하지 않는다", () => {

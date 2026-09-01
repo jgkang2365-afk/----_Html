@@ -2388,7 +2388,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
             {fields.map(([label, value]) => (
               <div key={label}>
                 <label className="block text-sm font-medium text-blue-700 mb-1">{label}</label>
-                <div className="p-2 bg-white rounded-md border border-blue-200 text-sm font-medium min-h-9 flex items-center shadow-sm">
+                <div className="whitespace-pre-line p-2 bg-white rounded-md border border-blue-200 text-sm font-medium min-h-9 flex items-center shadow-sm">
                   {value || "-"}
                 </div>
               </div>

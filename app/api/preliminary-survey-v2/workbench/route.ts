@@ -922,6 +922,12 @@ export async function POST(request: NextRequest) {
     if (!await canManagePreliminarySurvey(supabase, session)) {
       return NextResponse.json({ error: "예비조사 담당자 또는 관리자만 추천안을 생성·적용할 수 있습니다." }, { status: 403 });
     }
+    if (body.action === "recommend" || body.action === "apply") {
+      return NextResponse.json({
+        error: "구형 자동추천은 안전을 위해 중지되었습니다. 측정자 고정형 역산 플래너를 사용해 주세요.",
+        code: "LEGACY_WORKBENCH_DISABLED",
+      }, { status: 410 });
+    }
     if (body.action === "apply") {
       return applySubmittedDrafts(
         supabase,

@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
+import { FixedAssigneeReversePlanner } from "@/components/features/FixedAssigneeReversePlanner";
 import {
   adjacentMeasurementReferenceDate,
   currentDateInKst,
@@ -730,6 +731,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   return (
     <div className="space-y-4">
+      {mode === "plan" && <FixedAssigneeReversePlanner />}
       <Card ref={toolbarRef} className="sticky top-28 z-30 bg-white p-3 shadow-sm lg:top-40">
         <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"}>
           {mode === "plan" ? <div className="flex flex-wrap items-end gap-2 xl:flex-nowrap">
@@ -768,9 +770,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               {isPlanSearchDirty && <span className="shrink-0 text-amber-700">검색어 변경 · 검색 필요</span>}
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 shrink-0 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
               <div className="ml-auto flex shrink-0 gap-2">
-                <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => requestRecommendation()} disabled={working || isPlanSearchDirty}>{drafts.size ? "새로 추천" : "추천 생성"}</Button>
+                <Button size="sm" className="shrink-0 whitespace-nowrap" disabled title="측정자 고정형 역산 플래너를 사용해 주세요.">구형 추천 중지</Button>
                 <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")} disabled={isPlanSearchDirty}>대안 보기</Button>
-                <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={applyDrafts} disabled={working || isPlanSearchDirty || applicableDraftCount === 0 || draftScope !== currentScope}>추천안 적용</Button>
+                <Button size="sm" className="shrink-0 whitespace-nowrap" disabled>구형 적용 중지</Button>
                 <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={applyConfirmedRepairs} disabled={working || isPlanSearchDirty || confirmedRepairDrafts.length === 0 || draftScope !== currentScope}>누락정보 보정</Button>
               </div>
             </>}
@@ -847,7 +849,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           {selected.locked && <Alert variant="warning">유효한 측정일지가 있어 찐확정된 업체입니다. 일반 수정과 자동추천이 차단됩니다.</Alert>}
           <div className="flex justify-end gap-2">
             <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => requestRecommendation(selected.targetId)} disabled={working || selected.locked}>이 업체 재추천</Button>
+              <Button variant="secondary" disabled title="측정자 고정형 역산 플래너를 사용해 주세요.">구형 재추천 중지</Button>
               <Button onClick={saveManual} disabled={working || selected.locked || !editDate || editParticipants.length === 0}>수동 저장</Button>
             </div>
           </div>

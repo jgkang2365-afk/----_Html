@@ -194,7 +194,7 @@ test("보고서 담당자를 실제 측정 참가자 또는 측정자 공시료�
 test("measurement_journal row 존재 기준 찐확정과 자동화 PAUSE를 유지한다", () => {
   assert.doesNotMatch(workbench, /sequence_number/);
   assert.match(workbench, /measurement_journal/);
-  assert.match(policy, /기존 V2 자동추천.*OFF/);
+  assert.match(policy, /기존 V2 일반 자동추천.*OFF/);
 });
 
 test("추천·재추천·적용 권한은 관리자 또는 예비조사 담당자를 서버에서 검증한다", () => {
