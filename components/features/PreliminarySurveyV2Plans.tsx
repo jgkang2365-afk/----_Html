@@ -850,7 +850,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           <div className="flex justify-end gap-2">
             <div className="flex justify-end gap-2">
               <Button variant="secondary" disabled title="측정자 고정형 역산 플래너를 사용해 주세요.">구형 재추천 중지</Button>
-              <Button onClick={saveManual} disabled={working || selected.locked || !editDate || editParticipants.length === 0}>수동 저장</Button>
+              <Button onClick={saveManual} disabled title="운영정확성 보완이 완료될 때까지 기존 수동 저장이 중지됩니다.">수동 저장 중지</Button>
             </div>
           </div>
         </div>

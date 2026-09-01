@@ -38,6 +38,10 @@ function normalizedPeriod(value: unknown) {
   return String(value ?? "").replace("(수시)", "").trim();
 }
 
+function legacyManualPlanWriteDisabled() {
+  return true;
+}
+
 export async function DELETE(request: NextRequest, { params }: { params: { targetId: string } }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
@@ -118,6 +122,12 @@ export async function DELETE(request: NextRequest, { params }: { params: { targe
 export async function PATCH(request: NextRequest, { params }: { params: { targetId: string } }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  if (legacyManualPlanWriteDisabled()) {
+    return NextResponse.json({
+      error: "운영정확성 보완이 완료될 때까지 기존 수동 저장을 사용할 수 없습니다.",
+      code: "LEGACY_MANUAL_PLAN_WRITE_DISABLED",
+    }, { status: 410 });
+  }
   try {
     const targetId = Number(params.targetId);
     const body = await request.json();
