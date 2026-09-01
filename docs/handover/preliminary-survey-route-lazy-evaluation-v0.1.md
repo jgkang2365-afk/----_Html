@@ -47,3 +47,25 @@ Staging 전용 추가 trigger는 현재 적용 RPC와 별개인 schema drift이�
 - Production business-data write: 0
 - Production backfill: 0
 - 이번 Route 개선용 DB migration: 0
+- Staging synthetic fixture: `ZRP9020`, `ZRP9021`의 비어 있던 좌표만 Route 검증용으로 입력했다. Production 데이터에는 복사하지 않았다.
+
+## 검증 결과
+
+- 단위/회귀: Route Lazy focused 8/8 PASS, 전체 `npm test` 544/544 PASS
+- 정적 검증: `npx tsc --noEmit` PASS, ESLint 신규 오류 0, `npm run build` PASS, `git diff --check` PASS
+- Vercel Preview 배포: READY. Deployment Protection 때문에 별도 headless session의 Preview 직접 접근은 Vercel 로그인으로 차단됐다.
+- 대체 경로: 같은 Production build를 `NEXT_PHASE=phase-production-build`로 로컬 기동하여 background scheduler를 비활성화하고, Production DB는 READ-ONLY로 연결했다.
+- browser mode: headless Chromium
+- session: `route-lazy-local-prod-readonly` (독립 session)
+- URL: `http://127.0.0.1:3212/survey`
+- 사용자 Desktop 입력 사용: 0
+- Orca computer 사용: 0
+- 공유 Orca browser 사용: 0
+- 실제 측정일 `2026-09-02`: planning target 6건, snapshot target 131건, candidate/required pair 4건, 동일주소 0건, cache hit 0건, 외부 Route 호출 4건, 성공 4건
+- 화면 표시: `경로 확인: 필요 4쌍 · 동일주소 0쌍 · 캐시 0쌍 · 외부 조회 4회`, target별 차량 시간 표시 PASS
+- Network: Preview POST 1건, HTTP 200
+- Console error: 0
+- Production 무변경 교차확인: 검증 시작 이후 planner audit, fixed assignment, plan, measurement assignment 변경 건수 모두 0
+- 화면 캡처: `C:\Users\USER\orca\artifacts\route-lazy-pr82\production-readonly-preview.png`
+
+Apply는 Production에서 실행하지 않았다. Preview token/frozen Route evidence 재사용과 Apply Route provider 0회는 focused test로 검증했으며, Staging authenticated Apply E2E는 Preview Deployment Protection 우회용 인증 수단이 없어 미검증으로 남긴다.
