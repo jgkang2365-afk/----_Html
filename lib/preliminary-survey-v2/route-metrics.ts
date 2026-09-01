@@ -1,7 +1,9 @@
 import type { Coordinate, ExistingAssignment, RouteMetric, RouteMetrics, SurveyTarget } from "./types";
 
 const TTL_MS = 5 * 60 * 1000;
+const NEGATIVE_TTL_MS = 90 * 1000;
 const sharedCache = new Map<string, { expiresAt: number; value: RouteMetric }>();
+const negativeCache = new Map<string, number>();
 
 function validCoordinate(value: Coordinate | null): value is Coordinate {
   return Boolean(value && value.latitude >= 33 && value.latitude <= 39 && value.longitude >= 124 && value.longitude <= 132);
@@ -17,7 +19,7 @@ function haversineKm(left: Coordinate, right: Coordinate) {
 }
 
 function pairKey(left: Coordinate, right: Coordinate) {
-  return `${left.latitude.toFixed(6)},${left.longitude.toFixed(6)}->${right.latitude.toFixed(6)},${right.longitude.toFixed(6)}`;
+  return `kakao|${left.latitude.toFixed(6)},${left.longitude.toFixed(6)}->${right.latitude.toFixed(6)},${right.longitude.toFixed(6)}`;
 }
 
 async function vehicleMetric(left: Coordinate, right: Coordinate, apiKey: string): Promise<RouteMetric | null> {
@@ -47,7 +49,7 @@ export function createRouteMetrics(apiKey = process.env.KAKAO_REST_API_KEY): Rou
   const sessionCache = new Map<string, Promise<RouteMetric>>();
   const stats = {
     requests: 0, externalCalls: 0, successes: 0, failures: 0,
-    sessionCacheHits: 0, sharedCacheHits: 0, coordinateUnavailable: 0,
+    sessionCacheHits: 0, sharedCacheHits: 0, negativeCacheHits: 0, coordinateUnavailable: 0,
   };
   return {
     stats,
@@ -72,6 +74,11 @@ export function createRouteMetrics(apiKey = process.env.KAKAO_REST_API_KEY): Rou
           stats.sharedCacheHits += 1;
           return { ...cached.value, sameRegion };
         }
+        const negativeExpiry = negativeCache.get(key) ?? 0;
+        if (negativeExpiry > Date.now()) {
+          stats.negativeCacheHits += 1;
+          return { source: "unknown" as const, durationMinutes: null, distanceKm: null, sameRegion };
+        }
         if (apiKey) stats.externalCalls += 1;
         const vehicle = apiKey ? await vehicleMetric(leftCoordinate, rightCoordinate, apiKey) : null;
         if (apiKey) vehicle ? stats.successes += 1 : stats.failures += 1;
@@ -79,6 +86,7 @@ export function createRouteMetrics(apiKey = process.env.KAKAO_REST_API_KEY): Rou
           ? { ...vehicle, sameRegion }
           : { source: "distance", durationMinutes: null, distanceKm: haversineKm(leftCoordinate, rightCoordinate), sameRegion };
         if (vehicle) sharedCache.set(key, { expiresAt: Date.now() + TTL_MS, value });
+        else if (apiKey) negativeCache.set(key, Date.now() + NEGATIVE_TTL_MS);
         return value;
       })();
       sessionCache.set(key, promise);

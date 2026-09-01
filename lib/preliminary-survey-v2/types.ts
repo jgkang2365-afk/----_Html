@@ -143,6 +143,7 @@ export interface RouteMetrics {
     failures: number;
     sessionCacheHits: number;
     sharedCacheHits: number;
+    negativeCacheHits: number;
     coordinateUnavailable: number;
   };
 }
