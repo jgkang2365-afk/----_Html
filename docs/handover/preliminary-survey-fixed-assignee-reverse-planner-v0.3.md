@@ -115,6 +115,20 @@ Staging synthetic 검증 결과:
 - user/fixed/schedule/actual/occupancy/protection baseline과 deterministic resource lock 실제 함수 정의 PASS
 - target lifecycle writer와 같은 target → plan/assignment table lock 순서 적용 PASS
 
+Production 적용 결과(2026-09-02):
+
+- P0-A 안전차단 PR #79와 v1.1 보완 PR #80을 순서대로 병합했다. PR #80 merge commit은
+  `b3db310f0f21f8bbb24bd1e4b277e827b7be01fa`이다.
+- v1.1 forward migration 10건을 순서대로 적용했고 Production Vercel 배포가 성공했다.
+- migration 전후 `fixed=0`, `audit=0`, 9월 이전 target 기준 `plan=92`, `assignment=44`가 동일하다.
+- migration·배포 구간의 plan/assignment 업무 데이터 write는 0건이며 backfill도 0건이다.
+- Production RPC는 `SECURITY DEFINER`, empty `search_path`, service-role 전용 실행권한과
+  target → plan/assignment table lock 순서를 유지한다.
+- 독립 headless session `reverse-planner-v11-production`에서 Production alias의 `/survey`가
+  앱 로그인 화면으로 정상 연결되고 정적 자산이 200 응답함을 확인했다.
+- 독립 session에는 업무 인증정보가 없어 로그인 후 내부 UI는 조작하지 않았다. Apply 저장 E2E는
+  Staging에서만 수행했고 Production smoke는 HTTP 및 DB READ-ONLY로 종료했다.
+
 ## 7. 운영 보호와 rollback
 
 - Production business-data backfill은 0건이며 기존 plan/assignment/fixed/public code를 일괄 수정하지 않는다.
