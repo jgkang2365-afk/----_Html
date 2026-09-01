@@ -12,6 +12,11 @@ export interface PreliminarySurveyDisplayModel {
   measurementParticipants: string;
   reportWriter: string;
   source: "v2" | "legacy" | "none";
+  measurementPublicSampleAssignments?: Array<{
+    measurementDate: string;
+    assignee: string;
+    publicSampleCode: string;
+  }>;
 }
 
 interface PreliminarySurveyDisplaySource {
@@ -25,6 +30,11 @@ interface PreliminarySurveyDisplaySource {
   publicSampleCode?: unknown;
   measurementParticipants?: unknown;
   reportWriter?: unknown;
+  measurementPublicSampleAssignments?: Array<{
+    measurementDate?: unknown;
+    assignee?: unknown;
+    publicSampleCode?: unknown;
+  }>;
 }
 
 const text = (value: unknown) => String(value ?? "").trim();
@@ -61,7 +71,7 @@ export function buildPreliminarySurveyDisplayModel(input: {
   const hasV2 = Boolean(input.v2);
   const source = hasV2 ? input.v2! : input.legacy;
 
-  return {
+  const model: PreliminarySurveyDisplayModel = {
     preliminarySurveyDate: text(source?.preliminarySurveyDate) || null,
     preliminarySurveyors: names(
       source?.preliminarySurveyors,
@@ -73,6 +83,16 @@ export function buildPreliminarySurveyDisplayModel(input: {
     reportWriter: text(source?.reportWriter) || "-",
     source: hasV2 ? "v2" : source ? "legacy" : "none",
   };
+  const datedAssignments = (source?.measurementPublicSampleAssignments ?? [])
+    .map((assignment) => ({
+      measurementDate: text(assignment.measurementDate),
+      assignee: text(assignment.assignee) || "-",
+      publicSampleCode: text(assignment.publicSampleCode) || "-",
+    }))
+    .filter((assignment) => assignment.measurementDate)
+    .sort((left, right) => left.measurementDate.localeCompare(right.measurementDate));
+  if (datedAssignments.length > 1) model.measurementPublicSampleAssignments = datedAssignments;
+  return model;
 }
 
 /** 단일일은 target 기본값, 다일은 시작 측정일의 daily_staff 값을 선택한다. */
@@ -89,6 +109,12 @@ export function measurementRolesForDisplay(source: MeasurementDaySource) {
 
 /** 측정자(공시료)는 persisted 담당자명과 코드를 함께 표시한다. */
 export function formatMeasurementPublicSampleAssignee(model: PreliminarySurveyDisplayModel) {
+  if (model.measurementPublicSampleAssignments?.length) {
+    return model.measurementPublicSampleAssignments.map((assignment) =>
+      `${assignment.measurementDate.slice(5).replace("-", "/")} ${assignment.assignee}${assignment.publicSampleCode === "-"
+        ? "" : `(${assignment.publicSampleCode})`}`
+    ).join("\n");
+  }
   if (model.measurementPublicSampleAssignee === "-") return "-";
   return model.publicSampleCode !== "-"
     ? `${model.measurementPublicSampleAssignee}(${model.publicSampleCode})`

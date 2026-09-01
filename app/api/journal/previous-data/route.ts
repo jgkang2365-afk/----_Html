@@ -255,17 +255,19 @@ export async function GET(request: NextRequest) {
       throw new Error(`예비조사 V2 계획 표시 원천 조회 오류: ${v2PlanError.message}`);
     }
 
-    const { data: v2Assignment, error: v2AssignmentError } = v2Plan && targetRow?.measurement_date
+    const { data: v2Assignments, error: v2AssignmentError } = v2Plan
       ? await supabase
         .from("preliminary_survey_v2_measurement_assignments")
-        .select("assignee_user_id, survey_code")
+        .select("measurement_date, assignee_user_id, survey_code, public_sample_code")
         .eq("plan_id", v2Plan.id)
-        .eq("measurement_date", targetRow.measurement_date)
-        .maybeSingle()
-      : { data: null, error: null };
+        .order("measurement_date")
+      : { data: [], error: null };
     if (v2AssignmentError) {
       throw new Error(`예비조사 V2 공시료 배정 표시 원천 조회 오류: ${v2AssignmentError.message}`);
     }
+    const v2Assignment = (v2Assignments ?? []).find(
+      (assignment: any) => assignment.measurement_date === targetRow?.measurement_date,
+    ) ?? (v2Assignments ?? [])[0] ?? null;
 
     const measurementRoles = targetRow
       ? measurementRolesForDisplay({
@@ -285,7 +287,7 @@ export async function GET(request: NextRequest) {
       : [];
     const roleIds = [
       measurementRoles.reportWriterUserId,
-      v2Assignment?.assignee_user_id,
+      ...(v2Assignments ?? []).map((assignment: any) => assignment.assignee_user_id),
       ...participantIds,
     ]
       .map(Number)
@@ -336,6 +338,11 @@ export async function GET(request: NextRequest) {
           ? displayUserNames.get(Number(v2Assignment.assignee_user_id))
           : null,
         publicSampleCode: v2Assignment?.survey_code,
+        measurementPublicSampleAssignments: (v2Assignments ?? []).map((assignment: any) => ({
+          measurementDate: assignment.measurement_date,
+          assignee: displayUserNames.get(Number(assignment.assignee_user_id)),
+          publicSampleCode: assignment.public_sample_code ?? assignment.survey_code,
+        })),
         measurementParticipants: measurementRoles.measurementParticipants,
         reportWriter: measurementRoles.reportWriterUserId == null
           ? null
