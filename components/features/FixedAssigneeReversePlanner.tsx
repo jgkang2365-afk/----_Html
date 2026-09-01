@@ -159,9 +159,9 @@ export function FixedAssigneeReversePlanner() {
         </label>
         <Button size="sm" variant="secondary" onClick={load} disabled={working}>대상 조회</Button>
         <Button size="sm" onClick={createPreview} disabled={working || !snapshot?.targets.length}>역산 Preview</Button>
-        <Button size="sm" onClick={applyPreview}
-          disabled={working || !preview || !preview.results.some((result) => result.decision === "AUTO_ASSIGNED" && result.mutation !== "KEEP_EXISTING")}>
-          정상안 적용
+        <Button size="sm" onClick={applyPreview} disabled
+          title="운영정확성 보완이 완료될 때까지 정상안 적용이 일시 중지됩니다.">
+          정상안 적용 중지
         </Button>
       </div>
       <Alert variant="warning">구형 측정자 자동추천은 UI와 서버에서 중지되었습니다. 이 화면의 명시적 고정값만 사용합니다.</Alert>

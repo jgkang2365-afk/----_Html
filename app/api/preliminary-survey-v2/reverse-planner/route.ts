@@ -188,6 +188,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const measurementDate = String(body.measurementDate ?? "");
     if (!DATE_ONLY.test(measurementDate)) return NextResponse.json({ error: "실제 측정일이 필요합니다." }, { status: 400 });
+    if (body.action === "apply") {
+      return NextResponse.json({
+        error: "운영정확성 보완이 완료될 때까지 정상안 적용이 일시 중지되었습니다.",
+        code: "REVERSE_PLANNER_APPLY_TEMPORARILY_DISABLED",
+        appliedCount: 0,
+      }, { status: 503 });
+    }
     const { snapshot } = await loadSnapshot(supabase, measurementDate);
 
     if (body.action === "confirm_fixed") {
