@@ -21,10 +21,15 @@
 
 문서와 실제 코드가 충돌하면 임의로 판단하지 말고 차이를 보고한다.
 
-### 예비조사 작업의 canonical 필독 규칙
+### 예비조사 작업의 canonical 필독·동기화 규칙
 
-- 예비조사 관련 코드, DB, 추천, 재추천, 전수 재배정, repair, UI 표시, 테스트 또는 검수 작업을 시작하기 전에 **반드시 `docs/business-rules/preliminary-survey.md` 전체를 직접 읽는다.**
-- 예비조사 업무에서는 `docs/business-rules/preliminary-survey.md`가 단일 canonical이며 `BUSINESS_LOGIC.md`, 코드 주석, 테스트 fixture, PR 설명, 과거 작업지시서보다 우선한다.
+- 예비조사 관련 코드, DB, 추천, 재추천, 전수 재배정, repair, UI 표시, 테스트 또는 검수 작업을 시작하기 전에 **반드시 `docs/business-rules/preliminary-survey.md` 전체를 저장소에서 직접 읽는다.** 문서 전체를 하위 worker prompt에 복사하지 말고, 하위 worker에는 현재 Gate에 필요한 섹션·경로·근거만 전달하여 컨텍스트 잘림과 토큰 낭비를 방지한다.
+- 예비조사 업무에서는 GitHub `main`의 `docs/business-rules/preliminary-survey.md`가 단일 canonical 기준이다. `BUSINESS_LOGIC.md`, 코드 주석, 테스트 fixture, PR 설명, 과거 작업지시서, 오래된 로컬 사본보다 우선한다.
+- 작업 시작 전 `git fetch origin`으로 GitHub 상태를 갱신하고 `origin/main:docs/business-rules/preliminary-survey.md`와 현재 작업 사본의 차이를 확인한다. 오래된 로컬 사본으로 GitHub의 더 최신 정책을 덮어쓰지 않는다.
+- 필수 Windows 로컬 동기화 대상은 **`C:\Users\USER\Desktop\안티그래비티\측정일지_html\docs\business-rules\preliminary-survey.md`** 이다. WSL에서 접근할 때는 **`/mnt/c/Users/USER/Desktop/안티그래비티/측정일지_html/docs/business-rules/preliminary-survey.md`** 를 사용한다.
+- 작업 시작 시 GitHub canonical과 위 Windows 로컬 파일이 다르면 **GitHub `main`을 기준으로 로컬 파일을 먼저 최신화**하고 예비조사 정책 판단을 시작한다. 두 파일이 다르다는 사실을 알면서 로컬 파일을 정책 기준으로 사용하지 않는다.
+- 예비조사 업무 규칙을 새로 확정하거나 수정하는 작업은 **GitHub canonical과 위 Windows 로컬 파일을 같은 작업에서 반드시 함께 갱신**한다. 코드·DB·테스트·UI만 수정하고 두 정책 문서 사본 중 하나를 남겨두는 것은 완료가 아니다.
+- 정책 변경을 마칠 때 GitHub에 반영된 canonical 내용과 Windows 로컬 파일의 내용 또는 SHA-256을 비교하여 동일함을 확인한다. 로컬 경로 접근 불가 등으로 동기화 검증을 하지 못하면 `예비조사 운영지침 최신화 완료`라고 보고하지 말고 정확한 미완료 사유를 남긴다.
 - 작업 시작 시 읽은 canonical의 Git blob SHA를 확인하고 작업 보고에 기록한다. 종료 직전 다시 SHA를 확인하여 작업 중 canonical 변경 여부를 검증한다.
 - canonical과 다른 문서·코드·테스트가 충돌하면 오래된 쪽을 임의로 채택하지 않는다. 충돌을 먼저 제거하거나 사용자에게 보고한 뒤 작업한다.
 - 예비조사 테스트 기간의 한시 특례는 운영 canonical에 합치지 않는다. 작업지시가 명시적으로 한시 특례 문서를 지정한 경우에만 해당 범위에서 함께 읽으며, 운영 전환 후에는 그 특례를 적용하지 않는다.
@@ -73,7 +78,7 @@
 
 - 사업장, 측정일지, 측정대상, 예비조사, 국고지원, K2B, 매출/미수금 등 업무 규칙을 임의로 단순화하지 않는다.
 - 데이터 원천과 우선순위를 변경할 때는 `BUSINESS_LOGIC.md`와 현재 구현을 함께 확인한다.
-- 단, 예비조사 업무는 §2의 canonical 필독·우선 규칙을 적용한다.
+- 단, 예비조사 업무는 §2의 canonical 필독·우선·동기화 규칙을 적용한다.
 - 화면 표시값과 DB 원천값을 혼동하지 않는다.
 - 오래된 일회성 구현 계획이나 과거 진단 문서를 현재 정책으로 사용하지 않는다.
 
