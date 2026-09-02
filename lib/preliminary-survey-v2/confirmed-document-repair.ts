@@ -214,6 +214,10 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         .map((user) => [user.id, user])).values()];
       const responsible = entry.plan ? usersById.get(Number(entry.plan.responsible_user_id)) : validParticipants[0];
       if (!responsible) throw new Error("REPAIR_RESPONSIBLE_MAPPING_FAILED");
+      const selectedExperiencedReviewer = validParticipants.find(
+        (user) => user.id !== responsible.id && user.experienced,
+      ) ?? null;
+      const selectedExperiencedReviewerId = selectedExperiencedReviewer?.id ?? null;
       const { data: blocks, error: blockError } = await supabase.from("user_schedule_blocks")
         .select("user_id").in("user_id", validParticipants.map((user) => user.id))
         .lte("start_date", repairDate).gte("end_date", repairDate);
@@ -226,7 +230,7 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         existingAssignments: context.assignments,
         routes: createRouteMetrics(),
       });
-      if ((blocks ?? []).length || !validation.valid || !isCanonicalAutoSurveyorCombination(validParticipants, responsible.id, experiencedReviewerUserId)) return {
+      if ((blocks ?? []).length || !validation.valid || !isCanonicalAutoSurveyorCombination(validParticipants, responsible.id, selectedExperiencedReviewerId)) return {
         targetId, code: entry.target.code, businessName: entry.target.business_name,
         classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
         recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
@@ -240,21 +244,8 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       participantUserIds = validParticipants.map((user) => user.id);
       participantNames = validParticipants.map((user) => user.name);
       responsibleUserId = responsible.id;
-      experiencedReviewerUserId = entry.plan?.experienced_reviewer_id ?? validation.experiencedReviewer?.id ?? null;
+      experiencedReviewerUserId = selectedExperiencedReviewerId;
     }
-    if (entry.fillSurveyors && !isCanonicalAutoSurveyorCombination(
-      result.participants,
-      result.responsible?.id ?? responsibleUserId,
-      result.experiencedReviewer?.id ?? experiencedReviewerUserId,
-    )) return {
-      targetId, code: entry.target.code, businessName: entry.target.business_name,
-      classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
-      recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
-      participantUserIds: [], participantNames: [], surveyMethod: null,
-      sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null,
-      sourceRuleType: calculatedTarget?.kind ?? null,
-      reason: "현행 운영지침에 맞지 않는 예비조사자 조합은 자동 보정할 수 없습니다.", existingPlanId: entry.plan?.id ?? null,
-    };
     return {
       targetId, code: entry.target.code, businessName: entry.target.business_name,
       classification: "MISSING_DOCUMENTARY_INFO", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
