@@ -161,15 +161,17 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       `${String(entry.target.code)}|${Number(entry.target.year)}|${String(entry.target.period ?? "").trim().replace("(수시)", "")}|${String(entry.target.measurement_date)}`,
     );
     const legacyNames = entry.fillSurveyors ? splitNames(legacy?.preliminary_surveyor) : [];
-    if (entry.plan || legacyNames.length) {
+    if (entry.plan || legacyNames.length || entry.fillSurveyors) {
       const context = await loadV2ManualContext(supabase, targetId, repairDate);
       const usersById = new Map<number, SurveyUser>(context.users.map((user: SurveyUser) => [user.id, user]));
       const usersByName = new Map<string, SurveyUser>(context.users.map((user: SurveyUser) => [user.name, user]));
       let participants: Array<SurveyUser | undefined | null> = participantUserIds.map((userId: number) => usersById.get(userId));
       if (legacyNames.length) participants = legacyNames.map((name) => usersByName.get(name));
-      if (entry.plan && entry.fillSurveyors && !legacyNames.length) {
-        const preservedResponsible = usersById.get(Number(entry.plan.responsible_user_id));
-        const preservedReviewer = entry.plan.experienced_reviewer_id == null
+      if (entry.fillSurveyors && !legacyNames.length) {
+        const preservedResponsible = entry.plan
+          ? usersById.get(Number(entry.plan.responsible_user_id))
+          : usersById.get(Number(result.responsible?.id));
+        const preservedReviewer = !entry.plan || entry.plan.experienced_reviewer_id == null
           ? null : usersById.get(Number(entry.plan.experienced_reviewer_id));
         let selectedReviewer = preservedReviewer;
         if (!selectedReviewer && preservedResponsible && !preservedResponsible.experienced) {
