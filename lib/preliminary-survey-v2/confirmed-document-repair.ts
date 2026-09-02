@@ -26,6 +26,13 @@ export interface ConfirmedDocumentRepairDraft {
   sourceRuleType: "new" | "existing" | null;
   reason: string;
   existingPlanId: string | null;
+  measurementAssignments?: RepairMeasurementAssigneeSnapshot[];
+}
+
+export interface RepairMeasurementAssigneeSnapshot {
+  targetId: number;
+  measurementDate: string;
+  assigneeUserId: number;
 }
 
 /** Canonical 자동 보정은 최소 1명의 경력자를 포함해야 한다. */
@@ -83,7 +90,11 @@ function journalKey(row: { code: unknown; year: unknown; period: unknown }) {
 }
 
 /** 읽기 전용 preview. 일반 추천/apply에 섞지 않는다. */
-export async function buildConfirmedDocumentRepairPreview(supabase: any, targetIds: number[]) {
+export async function buildConfirmedDocumentRepairPreview(
+  supabase: any,
+  targetIds: number[],
+  effectiveMeasurementAssignments: RepairMeasurementAssigneeSnapshot[] = [],
+) {
   if (!targetIds.length) return { drafts: [] as ConfirmedDocumentRepairDraft[], unchangedCount: 0, manualReviewCount: 0 };
   const canonicalTargetIds = [...targetIds].sort((left, right) => left - right);
   const { data: targets, error: targetError } = await supabase.from("measurement_target_business").select(
@@ -112,6 +123,12 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
     code: row.code, year: row.measurement_year, period: row.measurement_period,
   })));
   const planByTarget = new Map((plans ?? []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]));
+  const previewAssigneesByTarget = new Map<number, Set<number>>();
+  for (const assignment of effectiveMeasurementAssignments) {
+    const idsForTarget = previewAssigneesByTarget.get(Number(assignment.targetId)) ?? new Set<number>();
+    idsForTarget.add(Number(assignment.assigneeUserId));
+    previewAssigneesByTarget.set(Number(assignment.targetId), idsForTarget);
+  }
   const legacyByTargetKey = new Map((legacyRows ?? []).map((row: any) => [
     `${String(row.code)}|${Number(row.year)}|${String(row.period ?? "").trim().replace("(수시)", "")}|${String(row.measurement_date ?? "")}`,
     row,
@@ -175,18 +192,31 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
     const legacyNames = entry.fillSurveyors ? splitNames(legacy?.preliminary_surveyor) : [];
     if (entry.plan || legacyNames.length || entry.fillSurveyors) {
       const context = await loadV2ManualContext(supabase, targetId, repairDate);
+      const previewAssignees = previewAssigneesByTarget.get(targetId);
+      const effectiveAssigneeIds = previewAssignees?.size
+        ? [...previewAssignees]
+        : (context.target.measurementAssigneeUserIds ?? []);
+      context.target = { ...context.target, measurementAssigneeUserIds: effectiveAssigneeIds };
       const usersById = new Map<number, SurveyUser>(context.users.map((user: SurveyUser) => [user.id, user]));
       const usersByName = new Map<string, SurveyUser>(context.users.map((user: SurveyUser) => [user.name, user]));
       let participants: Array<SurveyUser | undefined | null> = participantUserIds.map((userId: number) => usersById.get(userId));
       if (legacyNames.length) participants = legacyNames.map((name) => usersByName.get(name));
       if (entry.fillSurveyors && !legacyNames.length) {
-        const preservedResponsible = entry.plan
-          ? usersById.get(Number(entry.plan.responsible_user_id))
-          : usersById.get(Number(result.responsible?.id));
-        const preservedReviewer = !entry.plan || entry.plan.experienced_reviewer_id == null
-          ? null : usersById.get(Number(entry.plan.experienced_reviewer_id));
-        let selectedReviewer = preservedReviewer;
-        if (!selectedReviewer && preservedResponsible && !preservedResponsible.experienced) {
+        const mandatoryAssignees = effectiveAssigneeIds
+          .map((id) => usersById.get(Number(id)))
+          .filter((user): user is SurveyUser => Boolean(user && user.active !== false))
+          .sort((left, right) => Number(right.experienced) - Number(left.experienced) || left.id - right.id);
+        const preservedResponsible = mandatoryAssignees[0];
+        if (!preservedResponsible) return {
+          targetId, code: entry.target.code, businessName: entry.target.business_name,
+          classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
+          recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
+          participantUserIds: [], participantNames: [], surveyMethod: null,
+          sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
+          reason: "공시료 담당자 원천이 없어 자동 조사자 조합을 구성할 수 없습니다.", existingPlanId: entry.plan?.id ?? null,
+        };
+        let selectedReviewer: SurveyUser | null = preservedResponsible.experienced ? null : null;
+        if (!preservedResponsible.experienced) {
           const reviewerCandidates = orderRepairReviewerCandidates(preservedResponsible, context.users
             .filter((user) => user.active !== false && user.experienced && user.id !== preservedResponsible.id)
           );
@@ -272,9 +302,15 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
     };
   }));
   const confirmedCount = orderedTargets.filter((target: any) => confirmed.has(journalKey(target))).length;
+  const draftsWithAssignments = drafts.map((draft) => ({
+    ...draft,
+    measurementAssignments: effectiveMeasurementAssignments
+      .filter((assignment) => Number(assignment.targetId) === draft.targetId)
+      .map((assignment) => ({ ...assignment })),
+  }));
   return {
-    drafts: drafts.sort((left, right) => left.targetId - right.targetId),
+    drafts: draftsWithAssignments.sort((left, right) => left.targetId - right.targetId),
     unchangedCount: confirmedCount - missingTargets.length,
-    manualReviewCount: drafts.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO").length,
+    manualReviewCount: draftsWithAssignments.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO").length,
   };
 }

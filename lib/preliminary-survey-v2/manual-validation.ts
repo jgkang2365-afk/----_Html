@@ -47,6 +47,12 @@ export async function validateManualPlanHardRules(
   if (!participantIds.has(input.target.responsible.id)) {
     errors.push("페이퍼 작성자는 예비조사자에 반드시 포함되어야 합니다.");
   }
+  if (input.target.measurementAssigneeUserIds) {
+    const measurementAssigneeIds = new Set(input.target.measurementAssigneeUserIds);
+    if (measurementAssigneeIds.size === 0 || ![...measurementAssigneeIds].some((id) => participantIds.has(id))) {
+      errors.push("측정자(공시료 담당자) 원천이 없거나 예비조사자에 포함되지 않았습니다.");
+    }
+  }
   if (input.participants.some((user) => user.active === false)) {
     errors.push("비활성 사용자는 예비조사자로 배정할 수 없습니다.");
   }

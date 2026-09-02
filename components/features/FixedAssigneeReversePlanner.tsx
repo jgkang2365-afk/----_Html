@@ -44,6 +44,7 @@ const reasonLabel: Record<ReversePlannerReason, string> = {
   MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED: "측정자 이동경로 확인 필요",
   MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE: "측정자 3건째는 관리자 확인이 필요합니다.",
   MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED: "측정자 4건 이상은 배정할 수 없습니다.",
+  MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED: "측정자(공시료 담당자)가 예비조사자에 포함되어야 합니다.",
 };
 
 function resultStatus(result: ReversePlannerResult | undefined, target: PlannerTarget) {
@@ -183,7 +184,16 @@ export function FixedAssigneeReversePlanner({
       if (protectedTargetIds.length) {
         const repair = await request("/api/preliminary-survey-v2/confirmed-document-repair", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "preview", targetIds: protectedTargetIds }),
+          body: JSON.stringify({
+            action: "preview",
+            targetIds: protectedTargetIds,
+            measurementAssigneeSnapshots: (result.results ?? []).flatMap((item: ReversePlannerResult) =>
+              item.publicSampleAssignments.map((assignment) => ({
+                targetId: assignment.targetId,
+                measurementDate: assignment.measurementDate,
+                assigneeUserId: assignment.assigneeUserId,
+              }))),
+          }),
         });
         setRepairDrafts(repair.drafts ?? []);
       } else {
@@ -217,7 +227,8 @@ export function FixedAssigneeReversePlanner({
         try {
           const repairResult = await request("/api/preliminary-survey-v2/confirmed-document-repair", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "apply", targetIds: repairable.map((draft) => draft.targetId), drafts: repairable }),
+            body: JSON.stringify({ action: "apply", targetIds: repairable.map((draft) => draft.targetId), drafts: repairable,
+              measurementDate, reversePreviewToken: preview.previewToken }),
           });
           repairedCount = Number(repairResult.repairedCount ?? 0);
         } catch (caught) {

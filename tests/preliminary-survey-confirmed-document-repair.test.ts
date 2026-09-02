@@ -5,6 +5,7 @@ import path from "node:path";
 import { classifyConfirmedDocumentState, isCanonicalAutoSurveyorCombination, orderRepairReviewerCandidates, selectRepairReviewerCandidate } from "../lib/preliminary-survey-v2/confirmed-document-repair";
 import { buildTargetBusinessEditPatch } from "../lib/business/target-business-form";
 import { defaultEmptyParticipantsToReportWriter, measurementDayFormsFrom } from "../lib/business/measurement-day-form";
+import { validateManualPlanHardRules } from "../lib/preliminary-survey-v2/manual-validation";
 
 describe("찐확정 누락정보 보정 경계", () => {
   it("date와 surveyor가 모두 있으면 COMPLETE이고 변화가 없다", () => {
@@ -90,6 +91,14 @@ describe("찐확정 누락정보 보정 경계", () => {
     const component = fs.readFileSync(path.join(process.cwd(), "components/features/MeasurementTargetBusinessManagement.tsx"), "utf8");
     assert.match(component, /const measurementDays = editMeasurementDays;/);
   });
+  it("Repair hard rule은 참여자·보고서 담당자만의 일치를 공시료 담당자 일치로 인정하지 않는다", async () => {
+    const target = { id: 1, code: "H0452", name: "QA", kind: "existing" as const, measurementDate: "2026-09-03", businessType: "existing" as const,
+      responsible: { id: 2, name: "강종구", experienced: false, active: true }, address: null, region: null, coordinate: null,
+      measurementAssigneeUserIds: [16], createdAt: "2026-09-01T00:00:00Z" };
+    const participants = [{ id: 2, name: "강종구", experienced: false, active: true }, { id: 15, name: "이태환", experienced: true, active: true }];
+    const result = await validateManualPlanHardRules({ target, recommendedDate: "2026-08-25", participants, surveyMethod: "phone", existingAssignments: [], routes: { byPair: new Map() } as any });
+    assert.ok(result.errors.some((error) => error.includes("공시료 담당자")));
+  });
   it("SQL은 non-null overwrite를 차단하고 감사 provenance를 남기며 업무 원천을 갱신하지 않는다", () => {
     const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260827143000_add_true_confirmed_missing_documentary_repair.sql"), "utf8");
     assert.match(sql, /NON_NULL_OVERWRITE_FORBIDDEN/);
@@ -117,6 +126,16 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(api, /isCanonicalAutoSurveyorCombination/);
     assert.doesNotMatch(api, /for \(const draft of canonical\)/);
   });
+  it("공시료 assignment 조회는 실제 plan_id 관계를 사용하고 존재하지 않는 target FK 컬럼을 조회하지 않는다", () => {
+    const service = fs.readFileSync(path.join(process.cwd(), "lib/preliminary-survey-v2/service.ts"), "utf8");
+    const api = fs.readFileSync(path.join(process.cwd(), "app/api/preliminary-survey-v2/confirmed-document-repair/route.ts"), "utf8");
+    for (const source of [service, api]) {
+      assert.match(source, /preliminary_survey_v2_plans/);
+      assert.match(source, /preliminary_survey_v2_measurement_assignments/);
+      assert.match(source, /plan_id/);
+      assert.doesNotMatch(source, /from\("preliminary_survey_v2_measurement_assignments"\)[\s\S]{0,180}measurement_target_business_id/);
+    }
+  });
   it("측정대상사업장 저장 경계에서 보고서 담당자 기본 참여자를 보장한다", () => {
     const businessUi = fs.readFileSync(path.join(process.cwd(), "components/features/MeasurementTargetBusinessManagement.tsx"), "utf8");
     assert.match(businessUi, /저장 경계에서도 보고서 담당자 기본 참여자 값을 보장한다/);
@@ -127,7 +146,7 @@ describe("찐확정 누락정보 보정 경계", () => {
   it("자동 배정 모달이 보호 누락정보 repair preview/apply를 같은 workflow로 연결한다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/FixedAssigneeReversePlanner.tsx"), "utf8");
     assert.match(ui, /confirmed-document-repair/);
-    assert.match(ui, /action: "preview", targetIds: protectedTargetIds/);
+    assert.match(ui, /action: "preview",[\s\S]*targetIds: protectedTargetIds/);
     assert.match(ui, /action: "apply", targetIds: repairable\.map/);
     assert.match(ui, /누락정보 보정 가능/);
     assert.match(ui, /일반 자동배정 .* 완료되었습니다/);

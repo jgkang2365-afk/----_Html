@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
-import { buildConfirmedDocumentRepairPreview, isCanonicalAutoSurveyorCombination } from "@/lib/preliminary-survey-v2/confirmed-document-repair";
+import { buildConfirmedDocumentRepairPreview, isCanonicalAutoSurveyorCombination, type RepairMeasurementAssigneeSnapshot } from "@/lib/preliminary-survey-v2/confirmed-document-repair";
+import { verifyPreviewToken } from "@/lib/preliminary-survey-v2/reverse-planner/preview-token";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,24 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const targetIds = targetIdsFrom(body.targetIds);
     if (!targetIds) return NextResponse.json({ error: "INVALID_TARGET_IDS" }, { status: 400 });
-    const preview = await buildConfirmedDocumentRepairPreview(access.supabase, targetIds);
+    let measurementAssigneeSnapshots: RepairMeasurementAssigneeSnapshot[] = Array.isArray(body.measurementAssigneeSnapshots)
+      ? body.measurementAssigneeSnapshots.filter((item: any) => Number.isInteger(Number(item?.targetId)) && Number.isInteger(Number(item?.assigneeUserId)))
+        .map((item: any) => ({ targetId: Number(item.targetId), measurementDate: String(item.measurementDate ?? ""), assigneeUserId: Number(item.assigneeUserId) }))
+      : [];
+    if (body.action === "apply") {
+      const measurementDate = String(body.measurementDate ?? "");
+      const reversePreviewToken = String(body.reversePreviewToken ?? "");
+      if (!measurementDate || !reversePreviewToken) {
+        return NextResponse.json({ error: "REPAIR_SOURCE_CHANGED", code: "REPAIR_SOURCE_CHANGED" }, { status: 409 });
+      }
+      const verified = verifyPreviewToken(reversePreviewToken, access.session.userId, measurementDate);
+      measurementAssigneeSnapshots = (verified.effectiveMeasurementAssignments ?? []).map((assignment) => ({
+        targetId: assignment.targetId,
+        measurementDate: assignment.measurementDate,
+        assigneeUserId: assignment.assigneeUserId,
+      }));
+    }
+    const preview = await buildConfirmedDocumentRepairPreview(access.supabase, targetIds, measurementAssigneeSnapshots);
     if (body.action === "preview") return NextResponse.json({ success: true, ...preview });
     if (body.action !== "apply") return NextResponse.json({ error: "UNSUPPORTED_ACTION" }, { status: 400 });
 
@@ -65,12 +83,64 @@ export async function POST(request: NextRequest) {
         repairedCount: 0,
       }, { status: 409 });
     }
+    const canonicalTargetIds = canonical.map((draft) => draft.targetId);
+    const { data: targetPlans, error: targetPlansError } = await access.supabase
+      .from("preliminary_survey_v2_plans")
+      .select("id, measurement_target_business_id")
+      .in("measurement_target_business_id", canonicalTargetIds);
+    if (targetPlansError) throw targetPlansError;
+    const planIds = (targetPlans ?? []).map((row: any) => String(row.id));
+    const targetByPlanId = new Map((targetPlans ?? []).map((row: any) => [String(row.id), Number(row.measurement_target_business_id)]));
+    const [{ data: measurementAssignments, error: measurementAssignmentError }, { data: fixedAssignments, error: fixedAssignmentError }] = await Promise.all([
+      planIds.length ? access.supabase.from("preliminary_survey_v2_measurement_assignments")
+        .select("plan_id, assignee_user_id")
+        .in("plan_id", planIds) : Promise.resolve({ data: [], error: null }),
+      access.supabase.from("preliminary_survey_v2_fixed_assignments")
+        .select("measurement_target_business_id, assignee_user_id")
+        .in("measurement_target_business_id", canonicalTargetIds),
+    ]);
+    if (measurementAssignmentError) throw measurementAssignmentError;
+    if (fixedAssignmentError) throw fixedAssignmentError;
+    const assigneesByTarget = new Map<number, Set<number>>();
+    for (const row of measurementAssignments ?? []) {
+      const key = targetByPlanId.get(String(row.plan_id));
+      if (key == null) continue;
+      const values = assigneesByTarget.get(key) ?? new Set<number>();
+      values.add(Number(row.assignee_user_id));
+      assigneesByTarget.set(key, values);
+    }
+    for (const row of fixedAssignments ?? []) {
+      const key = Number(row.measurement_target_business_id);
+      const values = assigneesByTarget.get(key) ?? new Set<number>();
+      values.add(Number(row.assignee_user_id));
+      assigneesByTarget.set(key, values);
+    }
+    // Apply에서 검증한 signed Preview의 automatic effective assignee도 같은 target/date 원천으로 합친다.
+    // 실제 저장은 RPC가 다시 fixed/persisted/서명 evidence를 검증한 뒤 수행한다.
+    for (const row of measurementAssigneeSnapshots) {
+      const key = Number(row.targetId);
+      const values = assigneesByTarget.get(key) ?? new Set<number>();
+      values.add(Number(row.assigneeUserId));
+      assigneesByTarget.set(key, values);
+    }
+    const missingMeasurementAssignee = canonical.filter((draft) => {
+      const assignees = assigneesByTarget.get(draft.targetId) ?? new Set<number>();
+      return !draft.participantUserIds.some((id) => assignees.has(Number(id)));
+    });
+    if (missingMeasurementAssignee.length) {
+      return NextResponse.json({
+        error: "측정자(공시료 담당자)가 예비조사자에 포함되어야 합니다.",
+        code: "REPAIR_MEASUREMENT_ASSIGNEE_REQUIRED",
+        targetIds: missingMeasurementAssignee.map((draft) => draft.targetId),
+        repairedCount: 0,
+      }, { status: 409 });
+    }
     const { data, error } = await access.supabase.rpc("repair_true_confirmed_preliminary_v2_missing_batch", {
       p_repairs: canonical,
       p_changed_by_user_id: access.session.userId,
     });
     if (error) {
-      const status = /SOURCE_CHANGED|NON_NULL_OVERWRITE|PROTECTED|TRUE_CONFIRMED/.test(error.message) ? 409 : 400;
+      const status = /SOURCE_CHANGED|REPAIR_MEASUREMENT_ASSIGNMENT_CONFLICT|NON_NULL_OVERWRITE|PROTECTED|TRUE_CONFIRMED/.test(error.message) ? 409 : 400;
       return NextResponse.json({ error: error.message, code: error.message }, { status });
     }
     return NextResponse.json({ success: true, repairedCount: Number(data) });

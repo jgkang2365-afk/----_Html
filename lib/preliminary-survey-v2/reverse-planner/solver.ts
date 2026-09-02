@@ -67,6 +67,11 @@ export function actualTeam(target: PlannerTarget) {
   return team;
 }
 
+/** 날짜별 effective(confirmed 또는 automatic) 공시료 assignment의 전체 담당자 집합. */
+export function measurementAssigneeIds(target: PlannerTarget) {
+  return new Set(target.fixedAssignments.map((assignment) => assignment.assigneeUserId));
+}
+
 function routeEvidence(snapshot: PlanningSnapshot, date: string, leftTargetId: number, rightTargetId: number) {
   return snapshot.routeEvidence.find((item) => item.date === date
     && [item.leftTargetId, item.rightTargetId].includes(leftTargetId)
@@ -103,6 +108,9 @@ export function validateCandidateHardRules(
   const expectedMethod = target.businessType === "existing" ? "phone" : "field";
   if (candidate.surveyMethod !== expectedMethod) violations.push("SURVEY_METHOD_MISMATCH");
   if (!rolesValid(snapshot, candidate)) violations.push("INVALID_SURVEYOR_ROLE_COMBINATION");
+  if (!candidate.participantUserIds.some((id) => measurementAssigneeIds(target).has(id))) {
+    violations.push("MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED");
+  }
   if (!candidate.participantUserIds.some((id) => actualTeam(target).has(id))) violations.push("ACTUAL_TEAM_INTERSECTION_REQUIRED");
   const scheduledWorkers = candidate.surveyMethod === "phone"
     ? [candidate.responsibleUserId]
@@ -139,14 +147,14 @@ function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): Plann
   const active = snapshot.users.filter((user) => user.active);
   const experienced = active.filter((user) => user.experienced);
   const novices = active.filter((user) => !user.experienced);
-  const team = actualTeam(target);
+  const measurementAssignees = measurementAssigneeIds(target);
   const combinations: Array<{ participants: PlannerUser[]; responsible: PlannerUser; reviewer: PlannerUser | null; writer: PlannerUser }> = [];
-  experienced.filter((user) => team.has(user.id)).forEach((user) => {
+  experienced.filter((user) => measurementAssignees.has(user.id)).forEach((user) => {
     combinations.push({ participants: [user], responsible: user, reviewer: null, writer: user });
   });
   for (const novice of novices) {
     for (const reviewer of experienced) {
-      if (!team.has(novice.id) && !team.has(reviewer.id)) continue;
+      if (!measurementAssignees.has(novice.id) && !measurementAssignees.has(reviewer.id)) continue;
       combinations.push({ participants: [reviewer, novice], responsible: novice, reviewer, writer: novice });
     }
   }
@@ -176,11 +184,11 @@ function emptyCandidateReason(snapshot: PlanningSnapshot, target: PlannerTarget)
   const active = snapshot.users.filter((user) => user.active);
   const experienced = active.filter((user) => user.experienced);
   if (!experienced.length) return "NO_EXPERIENCED_PARTNER_AVAILABLE";
-  const team = actualTeam(target);
-  const hasCanonicalTeamCombination = experienced.some((user) => team.has(user.id))
-    || active.some((user) => !user.experienced && team.has(user.id));
+  const assignees = measurementAssigneeIds(target);
+  const hasCanonicalTeamCombination = experienced.some((user) => assignees.has(user.id))
+    || active.some((user) => !user.experienced && assignees.has(user.id));
   const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);
-  const mismatchAvailable = experienced.some((user) => !team.has(user.id)
+  const mismatchAvailable = experienced.some((user) => !assignees.has(user.id)
     && [...ranges.primary, ...ranges.fallback].some((date) => !isScheduleBlocked(user.id, date, snapshot.scheduleBlocks)));
   if (hasCanonicalTeamCombination && mismatchAvailable) return "ONLY_MISMATCH_ALTERNATIVES_AVAILABLE";
   return hasCanonicalTeamCombination ? "NO_VALID_PRELIMINARY_DATE" : "ONLY_MISMATCH_ALTERNATIVES_AVAILABLE";
@@ -191,7 +199,7 @@ function isTransitionProtectedTarget(target: PlannerTarget) {
 }
 
 function existingAssignmentsCompatible(target: PlannerTarget, plan: ExistingPlannerPlan | null) {
-  if (!plan?.preliminaryDate || !plan.participantUserIds.some((id) => actualTeam(target).has(id))) return false;
+  if (!plan?.preliminaryDate || !plan.participantUserIds.some((id) => measurementAssigneeIds(target).has(id))) return false;
   const fixed = new Map(target.fixedAssignments.map((item) => [item.measurementDate, item.assigneeUserId]));
   return plan.assignments.length === target.days.length
     && plan.assignments.every((item) => fixed.get(item.measurementDate) === item.assigneeUserId);

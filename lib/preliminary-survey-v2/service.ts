@@ -117,6 +117,33 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
     id: Number(user.id), name: user.name, experienced: Boolean(user.is_preliminary_survey_experienced), active: user.is_active,
   }));
   const userNameById = new Map(users.map((user) => [user.id, user.name]));
+  const assignmentDates = measurementAssignmentDates(
+    targetRow.measurement_date, targetRow.measurement_end_date, targetRow.daily_staff,
+  );
+  const { data: targetPlanRows, error: targetPlanError } = await supabase
+    .from("preliminary_survey_v2_plans")
+    .select("id")
+    .eq("measurement_target_business_id", targetId);
+  if (targetPlanError && targetPlanError.code !== "42P01" && targetPlanError.code !== "PGRST205") {
+    throw new Error(`V2_PLAN_QUERY_FAILED:${targetPlanError.message}`);
+  }
+  const targetPlanIds = (targetPlanRows ?? []).map((row: any) => String(row.id));
+  const [{ data: measurementAssignmentRows, error: measurementAssignmentError }, { data: fixedAssignmentRows, error: fixedAssignmentError }] = await Promise.all([
+    targetPlanIds.length ? supabase.from("preliminary_survey_v2_measurement_assignments")
+      .select("assignee_user_id, measurement_date, plan_id")
+      .in("plan_id", targetPlanIds)
+      .in("measurement_date", assignmentDates ?? []) : Promise.resolve({ data: [], error: null }),
+    supabase.from("preliminary_survey_v2_fixed_assignments")
+      .select("assignee_user_id, measurement_date")
+      .eq("measurement_target_business_id", targetId)
+      .in("measurement_date", assignmentDates ?? []),
+  ]);
+  if (measurementAssignmentError && measurementAssignmentError.code !== "42P01" && measurementAssignmentError.code !== "PGRST205") {
+    throw new Error(`V2_MEASUREMENT_ASSIGNMENT_QUERY_FAILED:${measurementAssignmentError.message}`);
+  }
+  if (fixedAssignmentError && fixedAssignmentError.code !== "42P01" && fixedAssignmentError.code !== "PGRST205") {
+    throw new Error(`V2_FIXED_ASSIGNMENT_QUERY_FAILED:${fixedAssignmentError.message}`);
+  }
   const userIdByName = new Map(users.map((user) => [user.name.trim(), user.id]));
   const measurementParticipantsSnapshot = measurementStaffForDate({
     dailyStaff: targetRow.daily_staff,
@@ -140,6 +167,7 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
     measurementAssignmentDates: measurementAssignmentDates(
       targetRow.measurement_date, targetRow.measurement_end_date, targetRow.daily_staff,
     ), responsible,
+    measurementAssigneeUserIds: [...new Set([...(measurementAssignmentRows ?? []), ...(fixedAssignmentRows ?? [])].map((row: any) => Number(row.assignee_user_id)).filter((id: number) => Number.isInteger(id) && id > 0))],
     address: targetRow.address, region: regionFromAddress(targetRow.address), coordinate: coordinateFromRow(infoRow),
     createdAt: targetRow.created_at,
     businessType: classification.businessType,
