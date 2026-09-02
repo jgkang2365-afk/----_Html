@@ -6,6 +6,7 @@ import {
   measurementRolesForDisplay,
 } from "@/lib/preliminary-survey-v2/display-model";
 import { checkPermission } from "@/lib/auth/check-permission";
+import { collectMeasurementParticipantNames } from "@/lib/business/measurement-day-form";
 
 /**
  * 직전 측정일지 데이터 조회 API
@@ -277,6 +278,14 @@ export async function GET(request: NextRequest) {
         collaborators: targetRow.collaborators,
       })
       : { measurementParticipants: [], reportWriterUserId: null };
+    const currentMeasurementParticipants = targetRow
+      ? collectMeasurementParticipantNames({
+        dailyStaff: targetRow.daily_staff,
+        measurementDate: targetRow.measurement_date,
+        measurerId: targetRow.measurer_id,
+        collaborators: targetRow.collaborators,
+      })
+      : [];
     const legacyDisplaySource = surveys.find(
       (survey: any) => survey.measurement_date === targetRow?.measurement_date,
     ) ?? latestSurvey ?? surveys.at(-1) ?? null;
@@ -337,13 +346,13 @@ export async function GET(request: NextRequest) {
         measurementPublicSampleAssignee: v2Assignment
           ? displayUserNames.get(Number(v2Assignment.assignee_user_id))
           : null,
-        publicSampleCode: v2Assignment?.survey_code,
+        publicSampleCode: v2Assignment?.public_sample_code ?? v2Assignment?.survey_code,
         measurementPublicSampleAssignments: (v2Assignments ?? []).map((assignment: any) => ({
           measurementDate: assignment.measurement_date,
           assignee: displayUserNames.get(Number(assignment.assignee_user_id)),
           publicSampleCode: assignment.public_sample_code ?? assignment.survey_code,
         })),
-        measurementParticipants: measurementRoles.measurementParticipants,
+        measurementParticipants: currentMeasurementParticipants,
         reportWriter: measurementRoles.reportWriterUserId == null
           ? null
           : displayUserNames.get(measurementRoles.reportWriterUserId),
@@ -357,7 +366,7 @@ export async function GET(request: NextRequest) {
         })),
         measurementPublicSampleAssignee: legacyDisplaySource.measurer,
         publicSampleCode: legacyDisplaySource.survey_code,
-        measurementParticipants: legacyDisplaySource.actual_measurer,
+        measurementParticipants: targetRow ? currentMeasurementParticipants : legacyDisplaySource.actual_measurer,
         reportWriter: legacyDisplaySource.report_writer,
       } : null,
     });
@@ -392,6 +401,7 @@ export async function GET(request: NextRequest) {
         referenceData,
         currentManagerContact,
         preliminaryDisplay: hasPreliminaryDisplay ? preliminaryDisplay : null,
+        currentMeasurementParticipants: currentMeasurementParticipants.join(", ") || null,
       });
     }
 
@@ -510,6 +520,7 @@ export async function GET(request: NextRequest) {
       surveyInfo,
       surveys, // 해당 기간의 모든 예비조사 목록
       preliminaryDisplay: hasPreliminaryDisplay ? preliminaryDisplay : null,
+      currentMeasurementParticipants: currentMeasurementParticipants.join(", ") || null,
       referenceData, // 프론트엔드에서 자동 완성에 사용됨
       currentManagerContact,
       source: previousJournal ? {

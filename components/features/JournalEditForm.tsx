@@ -85,6 +85,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     getOfficeJurisdictionDisplay(entry.office_jurisdiction_display, entry.office_jurisdiction)
   );
   const addressAutoFillSequence = useRef(0);
+  const currentRoleLoadSequence = useRef(0);
   const [mounted, setMounted] = useState(false);
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
@@ -175,7 +176,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
     measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
     measurement_days: entry.measurement_days || "",
-    measurer: entry.measurer || "",
+    measurer: "",
     completion_status: entry.completion_status || "미완료",
 
     // 사업장 정보
@@ -395,7 +396,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
           if (response.ok) {
             const data = await response.json();
-            setPreliminaryDisplay(data.preliminaryDisplay || null);
 
             // 디버깅: 산재관리번호 확인
             console.log('[JournalEditForm] 직전 측정일지 데이터:', {
@@ -491,7 +491,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   updated.invoice_email = updated.invoice_email || "";
                   updated.invoice_email_2 = updated.invoice_email_2 || data.previousData.invoice_email_2 || "";
                 }
-                updated.measurer = updated.measurer || data.previousData.measurer || "";
                 
                 if (!updated.industrial_accident_number && data.previousData.industrial_accident_number) {
                   updated.industrial_accident_number = data.previousData.industrial_accident_number;
@@ -628,21 +627,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                     updated.measurement_days = uniqueDates.size;
                   }
                 }
-
-                // 3. 측정자 통합 (모든 일자의 측정자 합집합)
-                const allMeasurers = new Set<string>();
-                surveys.forEach((s: any) => {
-                  if (s.measurer) {
-                    s.measurer.split(',').forEach((m: string) => {
-                      const trimmed = m.trim();
-                      if (trimmed) allMeasurers.add(trimmed);
-                    });
-                  }
-                });
-
-                if (allMeasurers.size > 0 && !prev.measurer) {
-                  updated.measurer = Array.from(allMeasurers).join(', ');
-                }
+                // 3. 측정 참여자는 위 current-period Canonical projection을 유지한다.
 
                 // 4. K2B 전송자 (가장 마지막 날짜의 보고서 담당자 사용)
                 const lastSurvey = surveys[surveys.length - 1];
@@ -735,6 +720,45 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       fetchUnpaidInfo();
     }
   }, [entry.id, entry.code, entry.measurement_year, entry.measurement_period, entry.business_name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 현재 역할값은 폼에서 선택된 code/year/period의 exact target만 사용한다.
+  // 전회 담당자/측정비 등 비교용 previousData는 이 effect와 분리해 그대로 유지한다.
+  useEffect(() => {
+    const code = String(formData.code || "").trim();
+    const year = Number(formData.measurement_year);
+    const period = String(formData.measurement_period || "").trim();
+    const requestSequence = ++currentRoleLoadSequence.current;
+
+    setFormData((previous) => ({ ...previous, measurer: "" }));
+    setPreliminaryDisplay(null);
+    if (!code || !Number.isInteger(year) || !period) return;
+
+    const fetchCurrentRoles = async () => {
+      try {
+        const response = await fetch(
+          `/api/journal/previous-data?code=${encodeURIComponent(code)}&year=${year}&period=${encodeURIComponent(period)}`,
+        );
+        if (!response.ok) return;
+        const data = await response.json();
+        if (requestSequence !== currentRoleLoadSequence.current) return;
+
+        setFormData((previous) => {
+          if (
+            String(previous.code || "").trim() !== code
+            || Number(previous.measurement_year) !== year
+            || String(previous.measurement_period || "").trim() !== period
+          ) return previous;
+          return { ...previous, measurer: data.currentMeasurementParticipants || "" };
+        });
+        const currentPreliminaryDisplay = data.preliminaryDisplay || null;
+        setPreliminaryDisplay(currentPreliminaryDisplay);
+      } catch (currentRoleError) {
+        console.error("현재 측정 역할 조회 오류:", currentRoleError);
+      }
+    };
+
+    fetchCurrentRoles();
+  }, [formData.code, formData.measurement_year, formData.measurement_period]);
 
   // 대기 중인 번호 변경 요청 조회 (수정 모드에서만, 일반 사용자만)
   useEffect(() => {
@@ -951,7 +975,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
       measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
       measurement_days: entry.measurement_days || "",
-      measurer: entry.measurer || "",
+      measurer: "",
       completion_status: entry.completion_status || "미완료",
 
       // 사업장 정보
@@ -1306,6 +1330,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       delete submitData._isFromBusiness;
       delete submitData._isFromSurvey;
       delete submitData.office_jurisdiction_raw;
+      // 수정 모달의 측정 참여자는 current target에서 읽는 표시값이다. 과거 journal.measurer를 자동 덮어쓰지 않는다.
+      if (entry.id) delete submitData.measurer;
 
       const url = entry.id ? `/api/journal/${entry.id}` : "/api/journal";
       const method = entry.id ? "PUT" : "POST";
@@ -2297,12 +2323,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           placeholder="일수"
         />
         <Input
-          label="측정자"
+          label="측정 참여자"
           value={formData.measurer}
-          onChange={(e) => setFormData({ ...formData, measurer: e.target.value })}
-          placeholder="측정자 입력"
-          disabled={isLockedByCompletion}
-          className={isLockedByCompletion ? "bg-surface-50" : ""}
+          placeholder="현재 측정대상사업장 참여자"
+          disabled
+          className="bg-surface-50"
         />
       </div>
     </div>

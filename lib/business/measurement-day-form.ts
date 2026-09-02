@@ -172,6 +172,13 @@ export function measurementDayFormsFrom(source: MeasurementDaySource): Measureme
   }];
 }
 
+/** 측정일지/요약 표시용: 해당 target 전체 측정일의 참여자를 중복 없이 합친다. */
+export function collectMeasurementParticipantNames(source: MeasurementDaySource): string[] {
+  return normalizeMeasurementCollaborators(
+    measurementDayFormsFrom(source).flatMap((day) => day.collaborators),
+  );
+}
+
 export interface SerializedMeasurementDays {
   daily_staff: Array<{ date: string; measurer_id: number | null; collaborators: string[] }> | null;
   measurement_date: string | null;
