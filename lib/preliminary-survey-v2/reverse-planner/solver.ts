@@ -14,11 +14,15 @@ import type {
 } from "./types";
 
 const natural = new Intl.Collator("ko", { numeric: true, sensitivity: "base" });
-const preferredReviewerByResponsible: Record<string, string> = {
+export const preferredReviewerByResponsible: Record<string, string> = {
   "강종구": "이태환",
   "고유빈": "이주형",
   "김민영": "한기문",
 };
+
+export function preferredReviewerNameForResponsible(responsibleName: string) {
+  return preferredReviewerByResponsible[responsibleName] ?? null;
+}
 const ZERO_OBJECTIVE: PlannerObjective = [0, 0, 0, 0, 0, 0];
 const sortedTargets = (snapshot: PlanningSnapshot) => [...snapshot.targets]
   .sort((left, right) => natural.compare(left.code, right.code) || left.id - right.id);

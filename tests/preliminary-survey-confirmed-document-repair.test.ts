@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
-import { classifyConfirmedDocumentState, hasExperiencedParticipant } from "../lib/preliminary-survey-v2/confirmed-document-repair";
+import { classifyConfirmedDocumentState, isCanonicalAutoSurveyorCombination } from "../lib/preliminary-survey-v2/confirmed-document-repair";
 
 describe("찐확정 누락정보 보정 경계", () => {
   it("date와 surveyor가 모두 있으면 COMPLETE이고 변화가 없다", () => {
@@ -28,9 +28,15 @@ describe("찐확정 누락정보 보정 경계", () => {
   it("역사/수동 보호 대상은 자동 보정하지 않는다", () => {
     assert.equal(classifyConfirmedDocumentState(null, true).classification, "PROTECTED_MANUAL");
   });
-  it("비경력자 단독 자동 보정 조합을 허용하지 않는다", () => {
-    assert.equal(hasExperiencedParticipant([{ experienced: false }]), false);
-    assert.equal(hasExperiencedParticipant([{ experienced: true }, { experienced: false }]), true);
+  it("자동 보정 조합은 Canonical exact role shape만 허용한다", () => {
+    const experienced = { id: 15, experienced: true };
+    const novice = { id: 2, experienced: false };
+    assert.equal(isCanonicalAutoSurveyorCombination([experienced], 15, null), true);
+    assert.equal(isCanonicalAutoSurveyorCombination([experienced, novice], 2, 15), true);
+    assert.equal(isCanonicalAutoSurveyorCombination([novice], 2, null), false);
+    assert.equal(isCanonicalAutoSurveyorCombination([{ id: 2, experienced: false }, { id: 3, experienced: false }], 2, 3), false);
+    assert.equal(isCanonicalAutoSurveyorCombination([{ id: 15, experienced: true }, { id: 17, experienced: true }], 15, 17), false);
+    assert.equal(isCanonicalAutoSurveyorCombination([experienced, novice, { id: 16, experienced: false }], 2, 15), false);
   });
   it("SQL은 non-null overwrite를 차단하고 감사 provenance를 남기며 업무 원천을 갱신하지 않는다", () => {
     const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260827143000_add_true_confirmed_missing_documentary_repair.sql"), "utf8");
@@ -56,7 +62,7 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(ui, /예비조사 자동 배정/);
     assert.match(api, /repair_true_confirmed_preliminary_v2_missing_batch/);
     assert.match(api, /REPAIR_CANONICAL_ROLE_INVALID/);
-    assert.match(api, /is_preliminary_survey_experienced/);
+    assert.match(api, /isCanonicalAutoSurveyorCombination/);
     assert.doesNotMatch(api, /for \(const draft of canonical\)/);
   });
   it("측정대상사업장 저장 경계에서 보고서 담당자 기본 참여자를 보장한다", () => {

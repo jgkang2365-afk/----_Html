@@ -4,6 +4,7 @@ import { splitNames } from "../business/link-measurer";
 import { validateManualPlanHardRules } from "./manual-validation";
 import { createRouteMetrics } from "./route-metrics";
 import type { SurveyUser } from "./types";
+import { preferredReviewerNameForResponsible } from "./reverse-planner/solver";
 
 export type ConfirmedRepairClassification = "COMPLETE" | "MISSING_DOCUMENTARY_INFO" | "PROTECTED_MANUAL" | "NEEDS_MANUAL_REVIEW";
 
@@ -28,8 +29,20 @@ export interface ConfirmedDocumentRepairDraft {
 }
 
 /** Canonical 자동 보정은 최소 1명의 경력자를 포함해야 한다. */
-export function hasExperiencedParticipant(participants: Array<Pick<SurveyUser, "experienced"> | null | undefined>) {
-  return participants.some((participant) => participant?.experienced === true);
+export function isCanonicalAutoSurveyorCombination(
+  participants: Array<Pick<SurveyUser, "id" | "experienced"> | null | undefined>,
+  responsibleUserId: number | null | undefined,
+  reviewerUserId: number | null | undefined,
+) {
+  const valid = participants.filter((participant): participant is Pick<SurveyUser, "id" | "experienced"> => Boolean(participant));
+  const experienced = valid.filter((participant) => participant.experienced);
+  const novice = valid.filter((participant) => !participant.experienced);
+  if (valid.length === 1) {
+    return experienced.length === 1 && novice.length === 0 && Number(responsibleUserId) === valid[0].id && reviewerUserId == null;
+  }
+  return valid.length === 2 && experienced.length === 1 && novice.length === 1
+    && Number(responsibleUserId) === novice[0].id
+    && Number(reviewerUserId) === experienced[0].id;
 }
 
 export function classifyConfirmedDocumentState(plan: {
@@ -152,7 +165,11 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         const preservedResponsible = usersById.get(Number(entry.plan.responsible_user_id));
         const preservedReviewer = entry.plan.experienced_reviewer_id == null
           ? null : usersById.get(Number(entry.plan.experienced_reviewer_id));
-        const recommendedReviewer = result.participants.find((user: any) => user.experienced && user.id !== preservedResponsible?.id);
+        const preferredReviewerName = preservedResponsible && !preservedResponsible.experienced
+          ? preferredReviewerNameForResponsible(preservedResponsible.name)
+          : null;
+        const recommendedReviewer = result.participants.find((user: any) => user.experienced && user.name === preferredReviewerName)
+          ?? result.participants.find((user: any) => user.experienced && user.id !== preservedResponsible?.id);
         participants = [preservedResponsible, preservedReviewer ?? recommendedReviewer].filter(Boolean);
       }
       if (participants.some((user) => !user)) return {
@@ -181,14 +198,14 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         existingAssignments: context.assignments,
         routes: createRouteMetrics(),
       });
-      if ((blocks ?? []).length || !validation.valid || !hasExperiencedParticipant(validParticipants)) return {
+      if ((blocks ?? []).length || !validation.valid || !isCanonicalAutoSurveyorCombination(validParticipants, responsible.id, experiencedReviewerUserId)) return {
         targetId, code: entry.target.code, businessName: entry.target.business_name,
         classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
         recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
         participantUserIds: [], participantNames: [], surveyMethod: null,
         sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
-        reason: !hasExperiencedParticipant(validParticipants)
-          ? "비경력자 단독 예비조사 조합은 자동 보정할 수 없습니다."
+        reason: !isCanonicalAutoSurveyorCombination(validParticipants, responsible.id, experiencedReviewerUserId)
+          ? "현행 운영지침에 맞지 않는 예비조사자 조합은 자동 보정할 수 없습니다."
           : `보존할 조사자 원천이 보정 날짜의 hard rule을 충족하지 않습니다: ${validation.errors.join(" · ") || "직원 불가 일정"}`,
         existingPlanId: entry.plan?.id ?? null,
       };
@@ -197,14 +214,18 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       responsibleUserId = responsible.id;
       experiencedReviewerUserId = entry.plan?.experienced_reviewer_id ?? validation.experiencedReviewer?.id ?? null;
     }
-    if (entry.fillSurveyors && !hasExperiencedParticipant(result.participants)) return {
+    if (entry.fillSurveyors && !isCanonicalAutoSurveyorCombination(
+      result.participants,
+      result.responsible?.id ?? responsibleUserId,
+      result.experiencedReviewer?.id ?? experiencedReviewerUserId,
+    )) return {
       targetId, code: entry.target.code, businessName: entry.target.business_name,
       classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
       recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
       participantUserIds: [], participantNames: [], surveyMethod: null,
       sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null,
       sourceRuleType: calculatedTarget?.kind ?? null,
-      reason: "비경력자 단독 예비조사 조합은 자동 보정할 수 없습니다.", existingPlanId: entry.plan?.id ?? null,
+      reason: "현행 운영지침에 맞지 않는 예비조사자 조합은 자동 보정할 수 없습니다.", existingPlanId: entry.plan?.id ?? null,
     };
     return {
       targetId, code: entry.target.code, businessName: entry.target.business_name,

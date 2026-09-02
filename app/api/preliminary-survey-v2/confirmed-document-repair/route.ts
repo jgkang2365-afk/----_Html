@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
-import { buildConfirmedDocumentRepairPreview } from "@/lib/preliminary-survey-v2/confirmed-document-repair";
+import { buildConfirmedDocumentRepairPreview, isCanonicalAutoSurveyorCombination } from "@/lib/preliminary-survey-v2/confirmed-document-repair";
 
 export const dynamic = "force-dynamic";
 
@@ -47,11 +47,15 @@ export async function POST(request: NextRequest) {
       .select("id, is_preliminary_survey_experienced")
       .in("id", participantIds);
     if (participantError) throw participantError;
-    const experiencedIds = new Set((participantUsers ?? [])
-      .filter((user: { is_preliminary_survey_experienced?: boolean | null }) => user.is_preliminary_survey_experienced === true)
-      .map((user: { id: number }) => Number(user.id)));
+    const usersById = new Map((participantUsers ?? []).map((user: { id: number; is_preliminary_survey_experienced?: boolean | null }) => [
+      Number(user.id), { id: Number(user.id), experienced: user.is_preliminary_survey_experienced === true },
+    ]));
     const invalidRoleDrafts = canonical.filter((draft) =>
-      !draft.participantUserIds.some((userId) => experiencedIds.has(Number(userId))),
+      !isCanonicalAutoSurveyorCombination(
+        draft.participantUserIds.map((userId) => usersById.get(Number(userId))),
+        draft.responsibleUserId,
+        draft.experiencedReviewerUserId,
+      ),
     );
     if (invalidRoleDrafts.length) {
       return NextResponse.json({
