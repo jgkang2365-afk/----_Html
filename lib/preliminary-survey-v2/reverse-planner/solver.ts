@@ -37,13 +37,15 @@ function compareObjective(left: PlannerObjective, right: PlannerObjective) {
 function sourceError(target: PlannerTarget, users: Map<number, PlannerUser>): ReversePlannerReason | null {
   if (!target.days.length || target.days.some((day) => !/^\d{4}-\d{2}-\d{2}$/.test(day.date))) return "INVALID_MEASUREMENT_DATES";
   if (new Set(target.days.map((day) => day.date)).size !== target.days.length) return "INVALID_DAILY_STAFF";
-  if (target.fixedAssignments.length !== target.days.length) return "FIXED_ASSIGNEE_NOT_CONFIRMED";
+  if (target.fixedAssignments.length !== target.days.length) {
+    return target.automaticAssignmentIssue ?? "FIXED_ASSIGNEE_NOT_CONFIRMED";
+  }
   for (const day of target.days) {
     if (day.invalidCollaboratorNames?.length || day.invalidReportWriterUserId != null) return "USER_NOT_FOUND";
     if (day.collaboratorUserIds.some((id) => !users.has(id))
         || (day.reportWriterUserId != null && !users.has(day.reportWriterUserId))) return "USER_NOT_FOUND";
     const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
-    if (!fixed) return "FIXED_ASSIGNEE_NOT_CONFIRMED";
+    if (!fixed) return target.automaticAssignmentIssue ?? "FIXED_ASSIGNEE_NOT_CONFIRMED";
     const user = users.get(fixed.assigneeUserId);
     if (!user) return "USER_NOT_FOUND";
     if (!user.active || !user.baseCode || !/^[A-Z]$/.test(user.baseCode)) return "INVALID_BASE_CODE";

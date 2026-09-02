@@ -57,7 +57,7 @@ describe("찐확정 누락정보 보정 경계", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");
     assert.match(ui, /"보고서담당", "상태", "구분", "관리", "확인사항"/);
     assert.match(ui, /저장된 예비조사 계획이 없습니다\./);
-    assert.match(ui, /찐확정 계획은 삭제할 수 없습니다\./);
+    assert.match(ui, /확정 계획은 삭제할 수 없습니다\./);
     assert.match(ui, /역사 복원 보호 계획입니다\./);
     assert.equal((ui.match(/>계획 삭제<\/Button>/g) ?? []).length, 0);
   });

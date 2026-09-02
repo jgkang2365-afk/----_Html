@@ -3,7 +3,11 @@ import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
-import { withAutomaticMeasurementAssignments } from "@/lib/preliminary-survey-v2/reverse-planner/automatic-measurement-assignment";
+import {
+  resolveAutomaticMeasurementAssignments,
+  withAutomaticMeasurementAssignments,
+} from "@/lib/preliminary-survey-v2/reverse-planner/automatic-measurement-assignment";
+import { createRouteMetrics } from "@/lib/preliminary-survey-v2/route-metrics";
 import { candidateDates, earliestMeasurementDate } from "@/lib/preliminary-survey-v2/reverse-planner/candidate-dates";
 import { sourceFingerprint } from "@/lib/preliminary-survey-v2/reverse-planner/fingerprint";
 import { resolveLazyRouteEvidence } from "@/lib/preliminary-survey-v2/reverse-planner/lazy-route";
@@ -74,7 +78,7 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
       : Promise.resolve({ data: [], error: null }),
     mode === "calculation" && planningDates.length
       ? supabase.from("preliminary_survey_v2_measurement_assignments")
-        .select("plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code").in("measurement_date", planningDates)
+        .select("plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code, updated_at").in("measurement_date", planningDates)
       : Promise.resolve({ data: [], error: null }),
   ]);
   const firstError = userError || fixedResult.error || rangePlanResult.error || planningPlanResult.error
@@ -98,7 +102,7 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
   const planIds = plans.map((plan: any) => String(plan.id));
   const { data: planAssignments, error: assignmentError } = planIds.length
     ? await supabase.from("preliminary_survey_v2_measurement_assignments")
-      .select("plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code").in("plan_id", planIds)
+      .select("plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code, updated_at").in("plan_id", planIds)
     : { data: [], error: null };
   if (assignmentError) throw assignmentError;
   const assignments = [...new Map([...(planAssignments ?? []), ...(publicGroupResult.data ?? [])]
@@ -132,7 +136,7 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
       planningTargetIds,
     });
   return {
-    snapshot: mode === "calculation" ? withAutomaticMeasurementAssignments(snapshot) : snapshot,
+    snapshot,
     rawTargets: planningTargets,
   };
 }
@@ -187,6 +191,37 @@ function fixedBaseline(target: PlanningSnapshot["targets"][number]) {
   })).sort((left, right) => left.measurementDate.localeCompare(right.measurementDate));
 }
 
+function measurementAssignmentScope(snapshot: PlanningSnapshot) {
+  return snapshot.targets.flatMap((target) => target.days.map((day) => ({
+    targetId: target.id,
+    measurementDate: day.date,
+  }))).sort((left, right) => left.measurementDate.localeCompare(right.measurementDate)
+    || left.targetId - right.targetId);
+}
+
+function measurementAssignmentBaseline(snapshot: PlanningSnapshot) {
+  const scope = measurementAssignmentScope(snapshot);
+  const scopeKeys = new Set(scope.map((item) => `${item.targetId}|${item.measurementDate}`));
+  const scopeDates = new Set(scope.map((item) => item.measurementDate));
+  return snapshot.existingPublicSampleAssignments
+    .filter((item) => item.source === "persisted"
+      && scopeDates.has(item.measurementDate)
+      && !scopeKeys.has(`${item.targetId}|${item.measurementDate}`))
+    .map((item) => ({
+      targetId: item.targetId,
+      measurementDate: item.measurementDate,
+      assigneeUserId: item.assigneeUserId,
+      updatedAtMs: new Date(item.updatedAt).getTime(),
+    }))
+    .sort((left, right) => left.measurementDate.localeCompare(right.measurementDate)
+      || left.targetId - right.targetId || left.assigneeUserId - right.assigneeUserId);
+}
+
+function assignmentOrigin(target: PlanningSnapshot["targets"][number], measurementDate: string) {
+  return target.fixedAssignments.find((fixed) => fixed.measurementDate === measurementDate)?.origin === "automatic"
+    ? "automatic" as const : "confirmed" as const;
+}
+
 async function authorize() {
   const session = await getSession();
   if (!session) throw new Error("UNAUTHORIZED");
@@ -230,7 +265,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const measurementDate = String(body.measurementDate ?? "");
     if (!DATE_ONLY.test(measurementDate)) return NextResponse.json({ error: "실제 측정일이 필요합니다." }, { status: 400 });
-    const { snapshot } = await loadSnapshot(supabase, measurementDate,
+    let { snapshot } = await loadSnapshot(supabase, measurementDate,
       body.action === "confirm_fixed" ? "display" : "calculation");
 
     if (body.action === "confirm_fixed") {
@@ -270,8 +305,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "preview") {
-      const resolved = await resolveLazyRouteEvidence(snapshot, {
-        loadCoordinates: async (businessCodes) => {
+      const routes = createRouteMetrics();
+      const loadCoordinates = async (businessCodes: string[]) => {
           if (!businessCodes.length) return new Map();
           const { data, error } = await supabase.from("business_info")
             .select("code, latitude, longitude").in("code", businessCodes);
@@ -283,7 +318,14 @@ export async function POST(request: NextRequest) {
               ? [[String(row.code), { latitude, longitude }] as const]
               : [];
           }));
-        },
+        };
+      const automatic = await resolveAutomaticMeasurementAssignments(snapshot, {
+        routes,
+        loadCoordinates,
+      });
+      const resolved = await resolveLazyRouteEvidence(automatic.snapshot, {
+        routes,
+        loadCoordinates,
       });
       const output = planPreliminarySurveyGivenFixedAssignments(resolved.snapshot,
         resolved.solverTimedOut ? { deadlineAt: Date.now() } : {});
@@ -305,6 +347,7 @@ export async function POST(request: NextRequest) {
         deadlinePairCount: resolved.stats.deadlinePairs,
         successCount: resolved.stats.routeSuccess,
         failureCount: resolved.stats.routeFailure,
+        automaticMeasurementRequiredPairCount: automatic.requiredPairs,
       });
       return NextResponse.json({ ...output, routeStats: resolved.stats,
         routeEvidence: resolved.snapshot.routeEvidence, previewToken });
@@ -313,6 +356,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "지원하지 않는 작업입니다." }, { status: 400 });
     }
     const preview = verifyPreviewToken(String(body.previewToken ?? ""), session.userId, measurementDate);
+    snapshot = withAutomaticMeasurementAssignments(snapshot, preview.routeEvidence);
     const frozenSnapshot = { ...snapshot, routeEvidence: preview.routeEvidence };
     const output = planPreliminarySurveyGivenFixedAssignments(frozenSnapshot);
     if (preview.sourceFingerprint !== output.sourceFingerprint) throw new Error("SOURCE_CHANGED");
@@ -400,6 +444,8 @@ export async function POST(request: NextRequest) {
         source_actual_measurement_versions: actualMeasurementBaseline(snapshot, new Set([target.id]), overrideCandidate),
         source_users: userBaseline(snapshot),
         source_fixed_versions: fixedBaseline(target),
+        source_assignment_scope_keys: measurementAssignmentScope(snapshot),
+        source_assignment_occupancy_versions: measurementAssignmentBaseline(snapshot),
         source_protected: target.protected === true,
         actual_measurement_team: target.days,
         fixed_assignments: target.fixedAssignments,
@@ -410,6 +456,7 @@ export async function POST(request: NextRequest) {
         assignee_user_id: assignment.assigneeUserId,
         survey_code: assignment.surveyCode,
         public_sample_code: assignment.publicSampleCode,
+        assignment_origin: assignmentOrigin(target, assignment.measurementDate),
       }));
       const { data, error } = await supabase.rpc("apply_preliminary_survey_v2_reverse_planner", {
         p_planner_run_id: plannerRunId,
@@ -459,6 +506,8 @@ export async function POST(request: NextRequest) {
         source_actual_measurement_versions: actualMeasurementBaseline(snapshot, applicableTargetIds, candidate),
         source_users: userBaseline(snapshot),
         source_fixed_versions: fixedBaseline(target),
+        source_assignment_scope_keys: measurementAssignmentScope(snapshot),
+        source_assignment_occupancy_versions: measurementAssignmentBaseline(snapshot),
         source_protected: target.protected === true,
       };
     });
@@ -468,6 +517,7 @@ export async function POST(request: NextRequest) {
       assignee_user_id: assignment.assigneeUserId,
       survey_code: assignment.surveyCode,
       public_sample_code: assignment.publicSampleCode,
+      assignment_origin: assignmentOrigin(targetById.get(assignment.targetId)!, assignment.measurementDate),
     })));
     const plannerRunId = crypto.randomUUID();
     const { data, error } = await supabase.rpc("apply_preliminary_survey_v2_reverse_planner", {

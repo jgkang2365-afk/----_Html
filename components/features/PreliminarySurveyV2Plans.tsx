@@ -173,7 +173,7 @@ const STATUS_LABELS: Record<WorkbenchStatus, string> = {
   adjustment_required: "조정 필요",
   provisional: "가확정",
   review_required: "재검토 필요",
-  true_confirmed: "찐확정",
+  true_confirmed: "확정",
 };
 
 const STATUS_STYLES: Record<WorkbenchStatus, string> = {
@@ -478,7 +478,6 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     setMeasurementRangeUnit(unit);
   };
 
-  const selectedRows = useMemo(() => rows.filter((row) => selectedTargetIds.has(row.targetId)), [rows, selectedTargetIds]);
   const applicableDraftCount = useMemo(
     () => [...drafts.values()].filter((draft) => draft.status === "recommended").length,
     [drafts],
@@ -508,7 +507,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "추천 생성 실패");
+      if (!response.ok) throw new Error(result.error || "배정안 계산 실패");
       const generatedDrafts = result.drafts || [];
       const recommendedCount = generatedDrafts.filter((draft: WorkbenchRow) => draft.status === "recommended").length;
       const unavailableCount = generatedDrafts.length - recommendedCount + (result.missing || []).length;
@@ -518,7 +517,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         body: JSON.stringify({ action: "preview", targetIds: recommendationTargetIds }),
       });
       const repairResult = await repairResponse.json();
-      if (!repairResponse.ok) throw new Error(repairResult.error || "찐확정 누락정보 보정안 생성 실패");
+      if (!repairResponse.ok) throw new Error(repairResult.error || "확정 자료 누락정보 보정안 생성 실패");
       const repairDrafts = (repairResult.drafts || []) as ConfirmedRepairDraft[];
       const repairableDrafts = repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO");
       setConfirmedRepairDrafts(repairableDrafts);
@@ -530,7 +529,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           const base = rows.find((row) => row.targetId === repair.targetId);
           if (!base) continue;
           const warning = repair.classification === "MISSING_DOCUMENTARY_INFO"
-            ? "찐확정 누락정보 보정안 · 별도 확인 필요" : repair.reason;
+            ? "확정 자료 누락정보 보정안 · 별도 확인 필요" : repair.reason;
           const conflicts = [...new Set([...(base.conflicts ?? (base.conflict ? [base.conflict] : [])), warning])];
           next.set(repair.targetId, {
             ...base,
@@ -546,12 +545,12 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       });
       setDraftScope(currentScope);
       const manualReviewCount = Number(repairResult.manualReviewCount || 0) + unavailableCount;
-      setScopeSummary(`측정예정일 범위: ${dateScopeLabel} · 대상 ${recommendationTargetIds.length}개 · 일반 추천 ${recommendedCount}건 · 찐확정 누락 보정안 ${repairableDrafts.length}건 · 변경 없음 ${Number(repairResult.unchangedCount || 0)}건 · 수동 확인 필요 ${manualReviewCount}건`);
+      setScopeSummary(`측정예정일 범위: ${dateScopeLabel} · 대상 ${recommendationTargetIds.length}개 · 일반 배정 ${recommendedCount}건 · 확정 자료 누락 보정안 ${repairableDrafts.length}건 · 변경 없음 ${Number(repairResult.unchangedCount || 0)}건 · 수동 확인 필요 ${manualReviewCount}건`);
       setNotice(targetId
-        ? `${result.impactSummary || "영향 범위를 재검증했습니다."} 일반 추천과 찐확정 누락 보정안을 구분해 검토해 주세요.`
-        : `일반 추천 ${recommendedCount}건 · 찐확정 누락정보 보정 ${repairableDrafts.length}건 · 변경 없음 ${Number(repairResult.unchangedCount || 0)}건 · 수동 확인 필요 ${manualReviewCount}건입니다. 아직 저장되지 않았습니다.`);
+        ? `${result.impactSummary || "영향 범위를 재검증했습니다."} 일반 배정과 확정 자료 누락 보정안을 구분해 검토해 주세요.`
+        : `일반 배정 ${recommendedCount}건 · 확정 자료 누락정보 보정 ${repairableDrafts.length}건 · 변경 없음 ${Number(repairResult.unchangedCount || 0)}건 · 수동 확인 필요 ${manualReviewCount}건입니다. 아직 저장되지 않았습니다.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "추천 생성 실패");
+      setError(caught instanceof Error ? caught.message : "배정안 계산 실패");
     } finally {
       setWorking(false);
     }
@@ -585,7 +584,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             ? { ...draft, status: "review_required" as const, conflict: "원천값 변경 · 새 추천 필요" }
             : draft])));
         }
-        throw new Error(result.error || "추천안 적용 실패");
+        throw new Error(result.error || "배정 확정 실패");
       }
       setDrafts(new Map());
       setConfirmedRepairDrafts([]);
@@ -594,7 +593,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       setNotice(`${result.appliedCount}개 변경사항을 가확정했습니다.`);
       await loadRows();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "추천안 적용 실패");
+      setError(caught instanceof Error ? caught.message : "배정 확정 실패");
     } finally {
       setWorking(false);
     }
@@ -625,7 +624,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   const applyConfirmedRepairs = async () => {
     if (!confirmedRepairDrafts.length || draftScope !== currentScope) return;
-    if (!window.confirm(`찐확정 계획 ${confirmedRepairDrafts.length}건의 누락된 예비조사 정보만 보정하시겠습니까?\n기존 값과 측정 원천은 변경되지 않습니다.`)) return;
+    if (!window.confirm(`확정 계획 ${confirmedRepairDrafts.length}건의 누락된 예비조사 정보만 보정하시겠습니까?\n기존 값과 측정 원천은 변경되지 않습니다.`)) return;
     setWorking(true);
     setError(null);
     try {
@@ -639,15 +638,15 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "찐확정 누락정보 보정 실패");
+      if (!response.ok) throw new Error(result.error || "확정 자료 누락정보 보정 실패");
       setDrafts(new Map());
       setConfirmedRepairDrafts([]);
       setDraftScope(null);
       setScopeSummary(null);
-      setNotice(`찐확정 누락정보 ${result.repairedCount}건을 보정했습니다.`);
+      setNotice(`확정 자료 누락정보 ${result.repairedCount}건을 보정했습니다.`);
       await loadRows();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "찐확정 누락정보 보정 실패");
+      setError(caught instanceof Error ? caught.message : "확정 자료 누락정보 보정 실패");
     } finally {
       setWorking(false);
     }
@@ -740,14 +739,13 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <div className="flex shrink-0 items-end"><Button className="h-9 px-3 text-xs" onClick={commitSearch}>검색</Button></div>
           </div>}
           <div className="mt-2 flex h-9 min-w-0 items-center gap-2 border-t border-surface-100 pt-2 text-xs text-text-600">
-            <span className="shrink-0">검색 결과 {displayRows.length}건{mode === "plan" ? ` · 선택 ${selectedTargetIds.size}건` : ""}</span>
+            <span className="shrink-0">검색 결과 {displayRows.length}건{mode === "plan" ? " · 자동 배정은 기준일 전체 사업장 대상" : ""}</span>
             {refreshing && <span className="flex shrink-0 items-center gap-1 text-primary-700"><span className="h-3 w-3 animate-spin rounded-full border-2 border-surface-300 border-t-primary-600" />조회 중...</span>}
             {mode === "plan" && <>
               {isPlanSearchDirty && <span className="shrink-0 text-amber-700">검색어 변경 · 검색 필요</span>}
-              <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 shrink-0 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
+              <div className="min-w-0 flex-1" />
               <div className="ml-auto flex shrink-0 gap-2">
-                {confirmedRepairDrafts.length > 0 && <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={applyConfirmedRepairs} disabled={working || isPlanSearchDirty || draftScope !== currentScope}>누락정보 보정</Button>}
-                <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setIsAutoAssignmentOpen(true)}>예비조사 자동 배정</Button>
+                <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setIsAutoAssignmentOpen(true)} disabled={working || isPlanSearchDirty} title={isPlanSearchDirty ? "검색을 먼저 실행해 주세요." : undefined}>예비조사 자동 배정</Button>
               </div>
             </>}
           </div>
@@ -760,7 +758,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : "phase-b-list-table-scroll"} className="overflow-visible">
           <table className="w-full min-w-[1080px] table-fixed text-sm">
             <thead className="sticky z-20 bg-surface-50 text-left text-text-700 shadow-sm" style={{ top: tableHeaderTop }}>
-              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}
+              <tr>
                 <th className="w-52 px-2 py-3 font-semibold">사업장</th><th className="w-28 px-2 py-3 font-semibold">측정예정일</th>
                 <th className="w-28 bg-primary-50 px-2 py-3 font-semibold text-primary-900">예비조사일</th><th className="w-40 bg-primary-50 px-2 py-3 font-semibold text-primary-900">예비조사자</th>
                 {["방식", "측정자(공시료)", "측정 참여자", "보고서담당", "상태", "구분", "관리", "확인사항"].map((label) => <th key={label} className="px-2 py-3 font-semibold">{label}</th>)}
@@ -769,7 +767,6 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <tbody className="divide-y divide-surface-200">
               {displayRows.map((row) => (
                 <tr key={row.targetId} onClick={() => openDetail(row)} className="cursor-pointer hover:bg-primary-50/40">
-                  {mode === "plan" && <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}><input aria-label={`${row.businessName} 선택`} type="checkbox" checked={selectedTargetIds.has(row.targetId)} onChange={() => toggleTarget(row.targetId)} /></td>}
                   <td className="px-2 py-2"><div className="font-semibold text-text-900">{row.code}</div><div className="truncate text-text-700" title={row.businessName}>{row.businessName}</div></td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.measurementDate || "-"}</td>
                   <td className="bg-primary-50/40 px-2 py-2 text-base font-bold text-primary-900 whitespace-nowrap">{row.preliminaryDate || "-"}</td>
@@ -787,7 +784,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                       disabled={working || !row.hasPersistedPlan || Boolean(row.locked) || Boolean(row.deleteProtectionReason)}
                       title={!row.hasPersistedPlan
                         ? "저장된 예비조사 계획이 없습니다."
-                        : row.locked ? "찐확정 계획은 삭제할 수 없습니다."
+                        : row.locked ? "확정 계획은 삭제할 수 없습니다."
                           : row.deleteProtectionReason ? "역사 복원 보호 계획입니다."
                             : "예비조사 계획 삭제"}
                       onClick={() => deletePlan(row)}
@@ -824,7 +821,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <div>예비조사자: <strong>{displaySurveyors(selected.surveyors)}</strong></div>
             <div>방식: <strong>{selected.surveyMethod === "field" ? "방문" : "유선"}</strong></div>
           </div>
-          {selected.locked && <Alert variant="warning">유효한 측정일지가 있어 찐확정된 업체입니다. 일반 수정과 자동추천이 차단됩니다.</Alert>}
+          {selected.locked && <Alert variant="warning">유효한 측정일지가 있어 확정된 업체입니다. 일반 자동 변경이 차단됩니다.</Alert>}
           <div className="flex justify-end"><Button variant="secondary" onClick={() => setSelected(null)}>닫기</Button></div>
         </div>
       </Modal>}

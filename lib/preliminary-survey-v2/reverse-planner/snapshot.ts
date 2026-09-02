@@ -142,7 +142,21 @@ export function buildPlanningSnapshot(input: {
     }];
   }).sort((left, right) => left.preliminaryDate.localeCompare(right.preliminaryDate)
     || naturalCode(left.businessCode, right.businessCode) || left.targetId - right.targetId);
-  const actualMeasurementOccupancy = allTargets.flatMap((target) => target.days.map((day) => ({
+  const persistedByTargetDate = new Map<string, any>();
+  for (const assignment of input.assignments) {
+    const plan = input.plans.find((item) => String(item.id) === String(assignment.plan_id));
+    if (!plan) continue;
+    persistedByTargetDate.set(
+      `${Number(plan.measurement_target_business_id)}|${String(assignment.measurement_date)}`,
+      assignment,
+    );
+  }
+  const actualMeasurementOccupancy = allTargets.flatMap((target) => target.days.map((day) => {
+    const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
+    const persisted = persistedByTargetDate.get(`${target.id}|${day.date}`);
+    const effectiveAssigneeUserId = fixed?.assigneeUserId
+      ?? (!planningIds.has(target.id) && persisted ? Number(persisted.assignee_user_id) : null);
+    return ({
     targetId: target.id,
     businessCode: target.code,
     address: target.address,
@@ -150,19 +164,17 @@ export function buildPlanningSnapshot(input: {
     date: day.date,
     participantUserIds: [...new Set([
       ...day.collaboratorUserIds,
-      ...target.fixedAssignments.filter((fixed) => fixed.measurementDate === day.date).map((fixed) => fixed.assigneeUserId),
+      ...(effectiveAssigneeUserId == null ? [] : [effectiveAssigneeUserId]),
     ])].sort((left, right) => left - right),
     targetUpdatedAt: target.sourceUpdatedAt,
     fixedUpdatedAts: target.fixedAssignments.filter((fixed) => fixed.measurementDate === day.date)
       .map((fixed) => fixed.updatedAt).sort(),
-  }))).sort((left, right) => left.date.localeCompare(right.date)
+  }); })).sort((left, right) => left.date.localeCompare(right.date)
     || naturalCode(left.businessCode, right.businessCode) || left.targetId - right.targetId);
-  const persistedAssignmentKeys = new Set<string>();
   const persistedPublicSampleAssignments = input.assignments.flatMap((assignment) => {
     const plan = input.plans.find((item) => String(item.id) === String(assignment.plan_id));
     const target = plan ? targetById.get(Number(plan.measurement_target_business_id)) : null;
     if (!target) return [];
-    persistedAssignmentKeys.add(`${target.id}|${String(assignment.measurement_date)}`);
     return [{
       targetId: target.id,
       businessCode: target.code,
@@ -171,13 +183,15 @@ export function buildPlanningSnapshot(input: {
       surveyCode: String(assignment.survey_code),
       publicSampleCode: assignment.public_sample_code == null ? null : String(assignment.public_sample_code),
       protected: protectedIds.has(target.id),
+      source: "persisted" as const,
+      updatedAt: String(assignment.updated_at),
     }];
   });
-  const fixedOnlyPublicSampleAssignments = input.fixedAssignments.flatMap((fixed) => {
+  const fixedPublicSampleAssignments = input.fixedAssignments.flatMap((fixed) => {
     const target = targetById.get(Number(fixed.measurement_target_business_id));
     const assignee = userById.get(Number(fixed.assignee_user_id));
     const measurementDate = String(fixed.measurement_date);
-    if (!target || !assignee?.baseCode || persistedAssignmentKeys.has(`${target.id}|${measurementDate}`)) return [];
+    if (!target || !assignee?.baseCode) return [];
     return [{
       targetId: target.id,
       businessCode: target.code,
@@ -186,9 +200,14 @@ export function buildPlanningSnapshot(input: {
       surveyCode: assignee.baseCode,
       publicSampleCode: null,
       protected: protectedIds.has(target.id),
+      source: "fixed" as const,
+      updatedAt: String(fixed.updated_at),
     }];
   });
-  const existingPublicSampleAssignments = [...persistedPublicSampleAssignments, ...fixedOnlyPublicSampleAssignments]
+  const existingPublicSampleAssignments = [...new Map([
+    ...persistedPublicSampleAssignments,
+    ...fixedPublicSampleAssignments,
+  ].map((assignment) => [`${assignment.targetId}|${assignment.measurementDate}`, assignment])).values()]
     .sort((left, right) => left.measurementDate.localeCompare(right.measurementDate)
       || left.assigneeUserId - right.assigneeUserId || naturalCode(left.businessCode, right.businessCode)
       || left.targetId - right.targetId);

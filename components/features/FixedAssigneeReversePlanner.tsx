@@ -41,6 +41,9 @@ const reasonLabel: Record<ReversePlannerReason, string> = {
   INVALID_DAILY_STAFF: "다일 측정정보 확인 필요",
   INVALID_BASE_CODE: "공시료 코드 확인 필요",
   CONFLICTING_AUTHORITATIVE_SOURCE: "원천정보 확인 필요",
+  MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED: "측정자 이동경로 확인 필요",
+  MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE: "측정자 3건째는 관리자 확인이 필요합니다.",
+  MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED: "측정자 4건 이상은 배정할 수 없습니다.",
 };
 
 function resultStatus(result: ReversePlannerResult | undefined, target: PlannerTarget) {
@@ -193,9 +196,15 @@ export function FixedAssigneeReversePlanner({
           previewToken: preview.previewToken,
         }),
       });
-      await onApplied();
-      setNotice(`예비조사 ${Number(result.appliedCount ?? 0)}건을 배정했습니다.`);
-      onClose();
+      setPreview(null);
+      const appliedCount = Number(result.appliedCount ?? 0);
+      try {
+        await onApplied();
+        setNotice(`예비조사 ${appliedCount}건을 배정했습니다.`);
+        onClose();
+      } catch {
+        setNotice(`예비조사 ${appliedCount}건의 배정은 완료되었습니다. 목록 새로고침에 실패했습니다. 다시 조회해 주세요.`);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "배정 확정에 실패했습니다.");
     } finally {
@@ -245,11 +254,15 @@ export function FixedAssigneeReversePlanner({
         return;
       }
       if (!response.ok) throw new Error(result.error || "예외 처리에 실패했습니다.");
-      await onApplied();
-      setOverrideTargetId(null);
       setPreview(null);
-      setNotice("예외 처리를 저장했습니다.");
-      await load(measurementDate);
+      setOverrideTargetId(null);
+      try {
+        await onApplied();
+        setNotice("예외 처리를 저장했습니다.");
+        await load(measurementDate);
+      } catch {
+        setNotice("예외 처리는 완료되었습니다. 목록 새로고침에 실패했습니다. 다시 조회해 주세요.");
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "예외 처리에 실패했습니다.");
     } finally {
@@ -275,6 +288,7 @@ export function FixedAssigneeReversePlanner({
           onChange={(event) => changeMeasurementDate(event.target.value)}
           className="h-9 rounded-md border border-surface-300 bg-white px-3 text-sm font-medium" />
         <Button size="sm" variant="secondary" onClick={() => changeMeasurementDate(moveDate(measurementDate, 1))} disabled={working}>다음일 ▶</Button>
+        <span className="text-sm font-medium text-text-700">대상 사업장 {snapshot?.targets.length ?? 0}개</span>
         <div className="ml-auto flex items-center gap-3">
           {preview && <div className="text-sm text-text-700"><strong className="text-emerald-700">배정 가능 {autoCount}건</strong>{reviewCount > 0 && <span className="ml-3 font-medium text-amber-700">확인 필요 {reviewCount}건</span>}</div>}
           <Button size="sm" onClick={createPreview} disabled={working || !snapshot?.targets.length}>배정안 계산</Button>

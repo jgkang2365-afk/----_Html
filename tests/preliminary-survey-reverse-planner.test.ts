@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildPlanningSnapshot } from "../lib/preliminary-survey-v2/reverse-planner/snapshot";
 import { candidateDates } from "../lib/preliminary-survey-v2/reverse-planner/candidate-dates";
-import { withAutomaticMeasurementAssignments } from "../lib/preliminary-survey-v2/reverse-planner/automatic-measurement-assignment";
+import {
+  resolveAutomaticMeasurementAssignments,
+  withAutomaticMeasurementAssignments,
+} from "../lib/preliminary-survey-v2/reverse-planner/automatic-measurement-assignment";
 import { normalizePublicSampleCodes } from "../lib/preliminary-survey-v2/reverse-planner/public-sample-code";
 import { planPreliminarySurveyGivenFixedAssignments, validateCandidateHardRules } from "../lib/preliminary-survey-v2/reverse-planner/solver";
 import {
@@ -123,6 +126,136 @@ test("고정값이 없는 기본 자동모드는 계산용 측정자를 만들�
   assert.match(route, /fixed\.origin !== "automatic"/);
 });
 
+test("6개 자동 대상은 6명에게 첫 순환으로 하나씩 배정한다", () => {
+  const targets = users.map((_, index) => target({
+    id: 10 + index,
+    code: `H00${10 + index}`,
+    address: `대전 ${index}`,
+    fixedAssignments: [],
+  }));
+  const resolved = withAutomaticMeasurementAssignments(fixture({ targets }));
+  const automatic = resolved.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic");
+  assert.equal(automatic.length, 6);
+  assert.equal(new Set(automatic.map((item) => item.assigneeUserId)).size, 6);
+});
+
+test("Route 없는 두 번째 자동 측정자는 배정하지 않고 해당 target만 확인 필요로 남긴다", () => {
+  const targets = Array.from({ length: 7 }, (_, index) => target({
+    id: 10 + index,
+    code: `H00${10 + index}`,
+    address: `서로 다른 주소 ${index}`,
+    fixedAssignments: [],
+  }));
+  const resolved = withAutomaticMeasurementAssignments(fixture({ targets }));
+  assert.equal(resolved.targets.flatMap((item) => item.fixedAssignments).length, 6);
+  assert.equal(resolved.targets.find((item) => item.id === 16)?.automaticAssignmentIssue,
+    "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED");
+});
+
+test("첫 Route 후보가 60분 초과여도 다음 측정자 후보를 찾아 자동 배정한다", async () => {
+  const targets = Array.from({ length: 7 }, (_, index) => target({
+    id: 10 + index,
+    code: `H00${10 + index}`,
+    address: `서로 다른 주소 ${index}`,
+    coordinate: { latitude: 36.3 + index / 100, longitude: 127.3 + index / 100 },
+    fixedAssignments: [],
+  }));
+  const durations = [65, 65, 25, 25, 65, 65, 65, 65, 65, 65, 65, 65];
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+    concurrency: 1,
+    routes: {
+      async between() {
+        calls += 1;
+        return { source: "vehicle", durationMinutes: durations.shift() ?? 65,
+          distanceKm: 1, sameRegion: true };
+      },
+    },
+  });
+  const finalTarget = resolved.snapshot.targets.find((item) => item.id === 16)!;
+  assert.equal(calls, 12);
+  assert.equal(finalTarget.fixedAssignments[0]?.origin, "automatic");
+  assert.equal(finalTarget.automaticAssignmentIssue, undefined);
+});
+
+test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline 안에 확인 필요로 반환한다", async () => {
+  const targets = Array.from({ length: 7 }, (_, index) => target({
+    id: 10 + index,
+    code: `H00${10 + index}`,
+    address: `서로 다른 주소 ${index}`,
+    coordinate: { latitude: 36.3 + index / 100, longitude: 127.3 + index / 100 },
+    fixedAssignments: [],
+  }));
+  const startedAt = Date.now();
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+    deadlineMs: 20,
+    routes: { between: () => new Promise(() => undefined) },
+  });
+  assert.ok(Date.now() - startedAt < 1_000);
+  assert.equal(resolved.snapshot.targets.find((item) => item.id === 16)?.automaticAssignmentIssue,
+    "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED");
+  assert.ok(resolved.routeEvidence.some((item) => item.provider === "route_deadline"));
+});
+
+test("자동 3건째는 target 단위 MANUAL_REQUIRED이고 4건 이상 점유는 hard block 사유다", () => {
+  const sameAddressTargets = Array.from({ length: 13 }, (_, index) => target({
+    id: 10 + index,
+    code: `H00${10 + index}`,
+    address: "대전 동일주소",
+    fixedAssignments: [],
+  }));
+  const third = withAutomaticMeasurementAssignments(fixture({ targets: sameAddressTargets }));
+  assert.equal(third.targets.flatMap((item) => item.fixedAssignments).length, 12);
+  assert.equal(third.targets.find((item) => item.id === 22)?.automaticAssignmentIssue,
+    "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE");
+
+  const existingPublicSampleAssignments = users.flatMap((user, userIndex) => [0, 1, 2].map((offset) => ({
+    targetId: 100 + userIndex * 10 + offset,
+    businessCode: `X${userIndex}${offset}`,
+    measurementDate: "2026-09-16",
+    assigneeUserId: user.id,
+    surveyCode: user.baseCode!,
+    publicSampleCode: user.baseCode!,
+    protected: false,
+    source: "persisted" as const,
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  })));
+  const fourth = withAutomaticMeasurementAssignments(fixture({
+    targets: [target({ fixedAssignments: [] })],
+    existingPublicSampleAssignments,
+  }));
+  assert.equal(fourth.targets[0].automaticAssignmentIssue, "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED");
+});
+
+test("동일 target/date의 fixed와 persisted는 한 번만 세고 outside persisted 측정자를 실제팀에 포함한다", () => {
+  const rawTargets = [
+    { id: 10, code: "H0010", business_name: "계산 대상", address: "대전 A", measurement_date: "2026-09-16",
+      measurer_id: 1, collaborators: "강종구", daily_staff: null, business_type: "existing" },
+    { id: 20, code: "H0020", business_name: "외부 대상", address: "대전 B", measurement_date: "2026-09-16",
+      measurer_id: 1, collaborators: "강종구", daily_staff: null, business_type: "existing" },
+  ];
+  const rawUsers = users.map((user) => ({ id: user.id, name: user.name, is_active: user.active,
+    is_preliminary_survey_experienced: user.experienced, survey_code: user.baseCode }));
+  const plans = [{ id: "p20", measurement_target_business_id: 20, recommended_date: "2026-08-20",
+    survey_method: "phone", participant_user_ids: [2, 1], responsible_user_id: 1,
+    experienced_reviewer_id: 2, updated_at: "2026-09-01T00:00:00.000Z" }];
+  const assignments = [{ plan_id: "p20", measurement_date: "2026-09-16", assignee_user_id: 3,
+    survey_code: "F", public_sample_code: "F", updated_at: "2026-09-01T00:00:00.000Z" }];
+  const withFixed = buildPlanningSnapshot({ targets: rawTargets, users: rawUsers,
+    fixedAssignments: [{ measurement_target_business_id: 20, measurement_date: "2026-09-16",
+      assignee_user_id: 1, confirmed_at: "x", updated_at: "2026-09-01T00:00:00.000Z", source_snapshot: {} }],
+    plans, assignments, scheduleBlocks: [], planningTargetIds: [10] });
+  assert.deepEqual(withFixed.existingPublicSampleAssignments.filter((item) => item.targetId === 20)
+    .map((item) => [item.assigneeUserId, item.source]), [[1, "fixed"]]);
+  assert.deepEqual(withFixed.actualMeasurementOccupancy.find((item) => item.targetId === 20)?.participantUserIds, [1]);
+
+  const persistedOnly = buildPlanningSnapshot({ targets: rawTargets, users: rawUsers, fixedAssignments: [],
+    plans, assignments, scheduleBlocks: [], planningTargetIds: [10] });
+  assert.deepEqual(persistedOnly.actualMeasurementOccupancy.find((item) => item.targetId === 20)?.participantUserIds,
+    [1, 3]);
+});
+
 test("fixed assignee와 예비조사자가 달라도 collaborator 교집합으로 정상이다", () => {
   const input = fixture({ targets: [target({
     days: [{ date: "2026-09-16", collaboratorUserIds: [1], reportWriterUserId: 1 }],
@@ -226,6 +359,7 @@ test("C/CC/CCC Preview는 batch 밖 persisted 그룹까지 natural sort한다", 
   const input = fixture({ targets: [target({ code: "H0002" })], existingPublicSampleAssignments: [{
     targetId: 20, businessCode: "H0001", measurementDate: "2026-09-16", assigneeUserId: 1,
     surveyCode: "C", publicSampleCode: "C", protected: false,
+    source: "persisted", updatedAt: "2026-09-01T00:00:00.000Z",
   }] });
   assert.equal(resultFor(input).publicSampleAssignments[0].publicSampleCode, "CC");
   const direct = normalizePublicSampleCodes({ targets: [...input.targets].reverse(), users: [...users].reverse(),
@@ -255,6 +389,7 @@ test("보호 plan code group 자동변경은 MANUAL_REQUIRED다", () => {
   const input = fixture({ targets: [target({ code: "H0001" })], existingPublicSampleAssignments: [{
     targetId: 20, businessCode: "H0002", measurementDate: "2026-09-16", assigneeUserId: 1,
     surveyCode: "C", publicSampleCode: "C", protected: true,
+    source: "persisted", updatedAt: "2026-09-01T00:00:00.000Z",
   }] });
   assert.equal(resultFor(input).reason, "PROTECTED_PLAN_REQUIRES_REVIEW");
 });
@@ -360,7 +495,8 @@ test("migration은 additive·service-only·보호 code trigger·backfill 0이다
     + readFileSync("supabase/migrations/20260902220000_fix_reverse_planner_lock_key_precedence.sql", "utf8")
     + readFileSync("supabase/migrations/20260902230000_lock_reverse_planner_protection_sources.sql", "utf8")
     + readFileSync("supabase/migrations/20260902240000_fix_reverse_planner_reentrant_lock_precedence.sql", "utf8")
-    + readFileSync("supabase/migrations/20260902250000_order_reverse_planner_table_locks.sql", "utf8");
+    + readFileSync("supabase/migrations/20260902250000_order_reverse_planner_table_locks.sql", "utf8")
+    + readFileSync("supabase/migrations/20260902260000_support_automatic_reverse_planner_assignments.sql", "utf8");
   assert.match(migration, /CREATE TRIGGER trg_protect_preliminary_survey_v2_public_sample_code/);
   assert.match(migration, /PROTECTED_PLAN_REQUIRES_REVIEW/);
   assert.match(migration, /REVOKE ALL ON FUNCTION/);
@@ -373,12 +509,27 @@ test("migration은 additive·service-only·보호 code trigger·backfill 0이다
   assert.match(migration, /group_members AS/);
   assert.match(migration, /source_protected/);
   assert.match(migration, /SHARE ROW EXCLUSIVE MODE/);
+  assert.match(migration, /assignment_origin/);
+  assert.match(migration, /INVALID_ASSIGNMENT_ORIGIN/);
+  assert.match(migration, /source_assignment_occupancy_versions/);
+  assert.match(migration, /fixed\.measurement_target_business_id = assignment_plan\.measurement_target_business_id/);
   assert.ok(
     migration.lastIndexOf("LOCK TABLE public.measurement_target_business IN SHARE MODE")
       < migration.lastIndexOf("LOCK TABLE public.preliminary_survey_v2_plans IN SHARE ROW EXCLUSIVE MODE"),
     "target lifecycle writer와 동일하게 target을 plan보다 먼저 잠가야 한다",
   );
   assert.doesNotMatch(migration, /UPDATE public\.measurement_target_business|INSERT INTO public\.measurement_target_business/i);
+});
+
+test("automatic Apply 계약은 fixed row를 만들지 않고 confirmed만 fixed 존재를 요구한다", () => {
+  const route = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
+  const migration = readFileSync("supabase/migrations/20260902260000_support_automatic_reverse_planner_assignments.sql", "utf8");
+  assert.match(route, /assignment_origin: assignmentOrigin/);
+  assert.match(route, /source_assignment_scope_keys/);
+  assert.match(route, /source_assignment_occupancy_versions/);
+  assert.match(migration, /item->>''assignment_origin'' = ''confirmed''[\s\S]*FIXED_ASSIGNEE_SOURCE_CHANGED/);
+  assert.match(migration, /item->>''assignment_origin'' = ''automatic''[\s\S]*MESSAGE = ''SOURCE_CHANGED''/);
+  assert.doesNotMatch(migration, /INSERT INTO public\.preliminary_survey_v2_fixed_assignments/i);
 });
 
 test("v1.1 정상 Apply만 재활성화하고 legacy manual write는 계속 차단한다", () => {

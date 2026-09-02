@@ -198,6 +198,9 @@ test("계획/목록은 실제 업무 목록과 예비조사 자동 배정 모달
   for (const column of ["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자\\(공시료\\)", "측정 참여자", "보고서담당", "충돌"]) assert.match(ui, new RegExp(column));
   assert.match(ui, /<FixedAssigneeReversePlanner/);
   assert.match(ui, /예비조사 자동 배정/);
+  assert.match(ui, /disabled=\{working \|\| isPlanSearchDirty\}/);
+  assert.doesNotMatch(ui, /aria-label="표시 대상 전체 선택"/);
+  assert.doesNotMatch(ui, /aria-label=\{`\$\{row\.businessName\} 선택`\}/);
   assert.doesNotMatch(ui, /구형 측정자 자동추천/);
   assert.doesNotMatch(ui, /구형 추천 중지|구형 적용 중지/);
   assert.match(api, /LEGACY_WORKBENCH_DISABLED/);
@@ -224,7 +227,7 @@ test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합�
   assert.doesNotMatch(ui, /preliminaryDateFrom|preliminaryDateTo/);
   assert.match(ui, /bg-slate-200 text-slate-900/);
   assert.match(ui, /bg-slate-100 p-0 text-slate-700/);
-  assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 2);
+  assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 1);
   assert.match(ui, /confirmed-document-repair/);
   assert.match(ui, /w-\[360px\] max-w-\[420px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
   assert.match(ui, /w-\[280px\] max-w-\[300px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
@@ -291,7 +294,7 @@ test("계획 검색은 기준일 snapshot을 확정한 뒤 화면 결과와 같�
   assert.match(ui, /searchQuery: activeSearchQuery/);
   assert.match(ui, /예비조사 자동 배정/);
   assert.match(ui, /검색어 변경 · 검색 필요/);
-  assert.match(ui, /일반 추천 \$\{recommendedCount\}건 · 찐확정 누락정보 보정 \$\{repairableDrafts\.length\}건/);
+  assert.match(ui, /일반 배정 \$\{recommendedCount\}건 · 확정 자료 누락정보 보정 \$\{repairableDrafts\.length\}건/);
 });
 
 test("예비조사 탭·toolbar와 table header는 동적 sticky 계층과 단일 세로 스크롤을 사용한다", () => {
