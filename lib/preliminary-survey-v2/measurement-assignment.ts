@@ -52,7 +52,7 @@ export function buildMeasurementAssignmentTargets(input: {
 
 /**
  * 직선거리는 후보 순위에 사용하지 않는다. 차량 경로를 실제로 조회해 얻은 evidence만 전달한다.
- * 양방향 evidence가 있으면 더 짧은 시간을 사용한다.
+ * 방문순서가 확정되지 않았으므로 양방향이 모두 성공한 경우의 더 긴 시간을 사용한다.
  */
 export interface MeasurementVehicleRouteEvidence {
   fromTargetId: number;
@@ -157,11 +157,14 @@ export async function collectMeasurementVehicleRouteEvidence(input: {
       input.routes.between(asRouteEntity(left), asRouteEntity(right)),
       input.routes.between(asRouteEntity(right), asRouteEntity(left)),
     ]);
-    const vehicleMinutes = [forward, reverse]
-      .filter((metric) => metric.source === "vehicle" && metric.durationMinutes != null)
-      .map((metric) => Number(metric.durationMinutes))
-      .filter((minutes) => Number.isFinite(minutes) && minutes >= 0);
-    const durationMinutes = vehicleMinutes.length ? Math.min(...vehicleMinutes) : null;
+    const forwardMinutes = forward.source === "vehicle" && forward.durationMinutes != null
+      ? Number(forward.durationMinutes) : null;
+    const reverseMinutes = reverse.source === "vehicle" && reverse.durationMinutes != null
+      ? Number(reverse.durationMinutes) : null;
+    const complete = forwardMinutes != null && reverseMinutes != null
+      && Number.isFinite(forwardMinutes) && Number.isFinite(reverseMinutes)
+      && forwardMinutes >= 0 && reverseMinutes >= 0;
+    const durationMinutes = complete ? Math.max(forwardMinutes, reverseMinutes) : null;
     return {
       fromTargetId: left.targetId,
       fromMeasurementDate: left.measurementDate,
@@ -185,6 +188,10 @@ export function assignMeasurementAssignees(input: {
   routeEvidence?: MeasurementVehicleRouteEvidence[];
   /** 직원 제외 일정은 측정자·공시료 배정에서도 예외 없는 hard constraint다. */
   availability?: Availability;
+  /** Reverse Planner 자동모드는 두 번째 배정에 실제 이동근거를 요구한다. */
+  requireRouteForSecond?: boolean;
+  /** 기존 Workbench 호환용. Reverse Planner 자동모드는 false다. */
+  allowThirdWithApproval?: boolean;
 }): MeasurementAssignmentResult[] {
   const users = input.users
     .filter((user): user is MeasurementAssigneeUser & { surveyCode: SurveyCode } =>
@@ -252,15 +259,6 @@ export function assignMeasurementAssignees(input: {
     const availableUsers = users.filter((user) => !input.availability?.isBlocked(user.id, target.measurementDate));
     // 불가 일정으로 후보가 0명이면 incomplete draft로 남긴다. 3건 hard max 소진과 구분한다.
     if (!availableUsers.length) continue;
-    const plannedFirstCycleUserId = firstCycleUserByTarget.get(`${target.measurementDate}:${target.targetId}`);
-    const plannedFirstCycleUser = availableUsers.find((user) =>
-      user.id === plannedFirstCycleUserId && count(user.id) === 0,
-    );
-    const unassigned = availableUsers.filter((user) => count(user.id) === 0);
-    let candidates = plannedFirstCycleUser ? [plannedFirstCycleUser]
-      : unassigned.length ? unassigned : availableUsers.filter((user) => count(user.id) < 2);
-    if (!candidates.length) candidates = availableUsers.filter((user) => count(user.id) < 3);
-
     const exactAddressUsers = new Set(sameDate
       .filter((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address))
       .map((item) => item.userId));
@@ -268,6 +266,20 @@ export function assignMeasurementAssignees(input: {
       ...sameDate.filter((item) => item.userId === userId).map((item) => routeMinutes(target, item, evidence)),
       Number.POSITIVE_INFINITY,
     );
+    const plannedFirstCycleUserId = firstCycleUserByTarget.get(`${target.measurementDate}:${target.targetId}`);
+    const plannedFirstCycleUser = availableUsers.find((user) =>
+      user.id === plannedFirstCycleUserId && count(user.id) === 0,
+    );
+    const unassigned = availableUsers.filter((user) => count(user.id) === 0);
+    let candidates = plannedFirstCycleUser ? [plannedFirstCycleUser]
+      : unassigned.length ? unassigned
+        : input.requireRouteForSecond
+          ? availableUsers.filter((user) => count(user.id) === 1
+            && (exactAddressUsers.has(user.id) || Number.isFinite(shortestVehicleRoute(user.id))))
+          : availableUsers.filter((user) => count(user.id) < 2);
+    if (!candidates.length && !input.requireRouteForSecond && input.allowThirdWithApproval !== false) {
+      candidates = availableUsers.filter((user) => count(user.id) < 3);
+    }
     candidates.sort((left, right) =>
       count(left.id) - count(right.id) ||
       roleMatchScore(target, right.id) - roleMatchScore(target, left.id) ||
@@ -278,7 +290,11 @@ export function assignMeasurementAssignees(input: {
     // 해당 날짜에 가능한 측정자가 없으면 incomplete draft로 남겨 사용자 재검토를 요구한다.
     const selected = candidates[0];
     if (!selected) {
-      throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, 0);
+      const minimumDailyCount = Math.min(...availableUsers.map((user) => count(user.id)));
+      if (!input.requireRouteForSecond && minimumDailyCount >= 3) {
+        throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, availableUsers[0].id);
+      }
+      continue;
     }
     const nextCount = count(selected.id) + 1;
     if (nextCount > 3) {
@@ -287,8 +303,7 @@ export function assignMeasurementAssignees(input: {
     const exactAddress = exactAddressUsers.has(selected.id);
     const hasVehicleRoute = Number.isFinite(shortestVehicleRoute(selected.id));
     const approvalRequired = nextCount >= 3;
-    const reason: MeasurementAssignmentResult["reason"] = approvalRequired
-      ? "3건 승인 필요"
+    const reason: MeasurementAssignmentResult["reason"] = approvalRequired ? "3건 승인 필요"
       : exactAddress ? "동일주소 묶음"
         : hasVehicleRoute && nextCount > 1 ? "근거리 묶음"
           : nextCount > 1 ? "2건 배정" : "측정자 균등배정";

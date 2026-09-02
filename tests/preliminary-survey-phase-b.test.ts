@@ -189,7 +189,7 @@ test("탭 순서 저장값 복원, 오류 fallback, 누락 탭 보완, 이동을
   assert.match(surveyPage, /shrink-0 text-2xl font-bold text-text-900">예비조사/);
 });
 
-test("계획/목록은 동일 작업대를 유지하되 구형 추천·적용을 UI와 서버에서 차단한다", () => {
+test("계획/목록은 실제 업무 목록과 예비조사 자동 배정 모달을 사용하고 구형 API를 차단한다", () => {
   const page = readFileSync("app/survey/page.tsx", "utf8");
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
@@ -197,9 +197,12 @@ test("계획/목록은 동일 작업대를 유지하되 구형 추천·적용을
   assert.match(ui, /<table/);
   for (const column of ["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자\\(공시료\\)", "측정 참여자", "보고서담당", "충돌"]) assert.match(ui, new RegExp(column));
   assert.match(ui, /<FixedAssigneeReversePlanner/);
-  assert.match(ui, /disabled title="측정자 고정형 역산 플래너를 사용해 주세요\."/);
-  assert.match(ui, /구형 추천 중지/);
-  assert.match(ui, /구형 적용 중지/);
+  assert.match(ui, /예비조사 자동 배정/);
+  assert.match(ui, /disabled=\{working \|\| isPlanSearchDirty\}/);
+  assert.doesNotMatch(ui, /aria-label="표시 대상 전체 선택"/);
+  assert.doesNotMatch(ui, /aria-label=\{`\$\{row\.businessName\} 선택`\}/);
+  assert.doesNotMatch(ui, /구형 측정자 자동추천/);
+  assert.doesNotMatch(ui, /구형 추천 중지|구형 적용 중지/);
   assert.match(api, /LEGACY_WORKBENCH_DISABLED/);
   assert.match(api, /status: 410/);
   assert.match(ui, /data-testid=\{mode === "plan" \? "phase-b-plan-toolbar" : "phase-b-list-toolbar"\}/);
@@ -224,7 +227,7 @@ test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합�
   assert.doesNotMatch(ui, /preliminaryDateFrom|preliminaryDateTo/);
   assert.match(ui, /bg-slate-200 text-slate-900/);
   assert.match(ui, /bg-slate-100 p-0 text-slate-700/);
-  assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 4);
+  assert.equal((ui.match(/className="shrink-0 whitespace-nowrap"/g) || []).length, 1);
   assert.match(ui, /confirmed-document-repair/);
   assert.match(ui, /w-\[360px\] max-w-\[420px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
   assert.match(ui, /w-\[280px\] max-w-\[300px\] shrink text-xs font-medium text-text-700">코드 · 사업장명/);
@@ -260,7 +263,7 @@ test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합�
 test("목록 검색은 조사자 필터 없이 독립 snapshot과 기준일 범위를 사용한다", () => {
   const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   assert.doesNotMatch(ui, /aria-label="조사자"/);
-  assert.match(ui, /"예비조사자"/);
+  assert.match(ui, /예비조사자/);
   assert.equal((ui.match(/aria-label="코드 또는 사업장명 검색"/g) || []).length, 2);
   assert.match(ui, /const \[listSearchSnapshot, setListSearchSnapshot\]/);
   assert.match(ui, /PRELIMINARY_SURVEY_LIST_FILTERS_STORAGE_KEY/);
@@ -289,9 +292,9 @@ test("계획 검색은 기준일 snapshot을 확정한 뒤 화면 결과와 같�
   assert.match(ui, /measurementRangeUnit !== planSearchSnapshot\.measurementRangeUnit/);
   assert.match(ui, /측정예정일 범위:/);
   assert.match(ui, /searchQuery: activeSearchQuery/);
-  assert.match(ui, /구형 추천 중지/);
+  assert.match(ui, /예비조사 자동 배정/);
   assert.match(ui, /검색어 변경 · 검색 필요/);
-  assert.match(ui, /일반 추천 \$\{recommendedCount\}건 · 찐확정 누락정보 보정 \$\{repairableDrafts\.length\}건/);
+  assert.match(ui, /일반 배정 \$\{recommendedCount\}건 · 확정 자료 누락정보 보정 \$\{repairableDrafts\.length\}건/);
 });
 
 test("예비조사 탭·toolbar와 table header는 동적 sticky 계층과 단일 세로 스크롤을 사용한다", () => {

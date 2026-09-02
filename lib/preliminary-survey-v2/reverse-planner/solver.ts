@@ -37,13 +37,15 @@ function compareObjective(left: PlannerObjective, right: PlannerObjective) {
 function sourceError(target: PlannerTarget, users: Map<number, PlannerUser>): ReversePlannerReason | null {
   if (!target.days.length || target.days.some((day) => !/^\d{4}-\d{2}-\d{2}$/.test(day.date))) return "INVALID_MEASUREMENT_DATES";
   if (new Set(target.days.map((day) => day.date)).size !== target.days.length) return "INVALID_DAILY_STAFF";
-  if (target.fixedAssignments.length !== target.days.length) return "FIXED_ASSIGNEE_NOT_CONFIRMED";
+  if (target.fixedAssignments.length !== target.days.length) {
+    return target.automaticAssignmentIssue ?? "FIXED_ASSIGNEE_NOT_CONFIRMED";
+  }
   for (const day of target.days) {
     if (day.invalidCollaboratorNames?.length || day.invalidReportWriterUserId != null) return "USER_NOT_FOUND";
     if (day.collaboratorUserIds.some((id) => !users.has(id))
         || (day.reportWriterUserId != null && !users.has(day.reportWriterUserId))) return "USER_NOT_FOUND";
     const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
-    if (!fixed) return "FIXED_ASSIGNEE_NOT_CONFIRMED";
+    if (!fixed) return target.automaticAssignmentIssue ?? "FIXED_ASSIGNEE_NOT_CONFIRMED";
     const user = users.get(fixed.assigneeUserId);
     if (!user) return "USER_NOT_FOUND";
     if (!user.active || !user.baseCode || !/^[A-Z]$/.test(user.baseCode)) return "INVALID_BASE_CODE";
@@ -305,13 +307,76 @@ function solveBatch(
   let best = new Map<number, PlannerCandidate>();
   let bestObjective: PlannerObjective | null = null;
   let timedOut = false;
+  const minimumStaticSuffix: PlannerObjective[] = Array.from({ length: targets.length + 1 }, () => [...ZERO_OBJECTIVE]);
+  for (let index = targets.length - 1; index >= 0; index -= 1) {
+    const candidates = choices.get(targets[index].id) ?? [];
+    const minimum = ZERO_OBJECTIVE.map((_, objectiveIndex) =>
+      Math.min(...candidates.map((candidate) => candidate.objective[objectiveIndex]))) as unknown as PlannerObjective;
+    minimumStaticSuffix[index] = addObjective(minimum, minimumStaticSuffix[index + 1]);
+  }
+  const writerIds = [...new Set(targets.flatMap((target) =>
+    (choices.get(target.id) ?? []).map((candidate) => candidate.writerUserId)))].sort((left, right) => left - right);
+  const writerIndex = new Map(writerIds.map((writerId, index) => [writerId, index]));
+  const writingLowerBoundMemo = new Map<string, number>();
+  const remainingWritingLowerBound = (index: number, selectedWriterCounts: Map<number, number>) => {
+    const counts = writerIds.map((writerId) => selectedWriterCounts.get(writerId) ?? 0);
+    const visitWriting = (targetIndex: number): number => {
+      if (targetIndex === targets.length) return 0;
+      const key = `${targetIndex}|${counts.join(",")}`;
+      const cached = writingLowerBoundMemo.get(key);
+      if (cached != null) return cached;
+      const writers = [...new Set((choices.get(targets[targetIndex].id) ?? []).map((candidate) => candidate.writerUserId))];
+      let minimum = Number.POSITIVE_INFINITY;
+      for (const writerId of writers) {
+        const countIndex = writerIndex.get(writerId)!;
+        const cost = Number(snapshot.writingCounters[String(writerId)] ?? 0) + counts[countIndex];
+        counts[countIndex] += 1;
+        minimum = Math.min(minimum, cost + visitWriting(targetIndex + 1));
+        counts[countIndex] -= 1;
+      }
+      writingLowerBoundMemo.set(key, minimum);
+      return minimum;
+    };
+    return visitWriting(index);
+  };
+  const seedGreedySolution = () => {
+    const selected = new Map<number, PlannerCandidate>();
+    const writerCounts = new Map<number, number>();
+    let objective = ZERO_OBJECTIVE;
+    for (const target of targets) {
+      let chosen: { candidate: PlannerCandidate; objective: PlannerObjective } | null = null;
+      for (const candidate of choices.get(target.id) ?? []) {
+        const conflict = conflictsWithSelected(snapshot, target, candidate, selected, mutableTargetIds, allowMissingRouteEvidence);
+        if (conflict.blocked) continue;
+        const writingLoad = Number(snapshot.writingCounters[String(candidate.writerUserId)] ?? 0)
+          + (writerCounts.get(candidate.writerUserId) ?? 0);
+        const nextObjective = addObjective(objective, addObjective(candidate.objective,
+          [0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount]));
+        if (!chosen || compareObjective(nextObjective, chosen.objective) < 0) chosen = { candidate, objective: nextObjective };
+      }
+      if (!chosen) return;
+      selected.set(target.id, chosen.candidate);
+      writerCounts.set(chosen.candidate.writerUserId, (writerCounts.get(chosen.candidate.writerUserId) ?? 0) + 1);
+      objective = chosen.objective;
+    }
+    best = selected;
+    bestObjective = objective;
+  };
+  seedGreedySolution();
   const visit = (index: number, selected: Map<number, PlannerCandidate>, objective: PlannerObjective,
     selectedWriterCounts: Map<number, number>) => {
     if (deadlineAt != null && Date.now() >= deadlineAt) {
       timedOut = true;
       return;
     }
-    if (bestObjective && compareObjective(objective, bestObjective) >= 0) return;
+    if (bestObjective) {
+      const staticLowerBound = addObjective(objective, minimumStaticSuffix[index]);
+      const lowerBound: PlannerObjective = [
+        staticLowerBound[0], staticLowerBound[1], staticLowerBound[2], staticLowerBound[3],
+        staticLowerBound[4] + remainingWritingLowerBound(index, selectedWriterCounts), staticLowerBound[5],
+      ];
+      if (compareObjective(lowerBound, bestObjective) >= 0) return;
+    }
     if (index === targets.length) {
       best = new Map(selected);
       bestObjective = objective;

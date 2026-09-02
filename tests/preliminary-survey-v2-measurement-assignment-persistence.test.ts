@@ -247,7 +247,7 @@ test("관리 열은 모든 행에 안전 삭제 상태를 노출하고 취소 �
   assert.ok(confirmAt >= 0 && fetchAt > confirmAt);
   assert.match(plansUi, /if \(!confirmed\) return/);
   assert.match(plansUi, /!row\.hasPersistedPlan \|\| Boolean\(row\.locked\) \|\| Boolean\(row\.deleteProtectionReason\)/);
-  assert.match(plansUi, /"보고서담당", "관리", "충돌"/);
+  assert.match(plansUi, /"보고서담당", "상태", "구분", "관리", "확인사항"/);
   assert.match(plansUi, /variant="danger"[\s\S]*>삭제<\/Button>/);
   assert.doesNotMatch(plansUi, />계획 삭제<\/Button>/);
   assert.match(plansUi, /setDrafts\(new Map\(\)\)[\s\S]*setConfirmedRepairDrafts\(\[\]\)[\s\S]*setDraftScope\(null\)[\s\S]*setScopeSummary\(null\)[\s\S]*await loadRows\(\)/);

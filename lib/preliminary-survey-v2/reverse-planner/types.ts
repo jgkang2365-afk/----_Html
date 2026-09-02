@@ -1,5 +1,5 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.2.1";
-export const PRELIMINARY_SURVEY_CANONICAL_SHA = "aca759e7d785231cc89bc656ba635eb367f65de3";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.2.3";
+export const PRELIMINARY_SURVEY_CANONICAL_SHA = "ebc76b986a43597c1f22a1509d925b206ca0b9e8";
 
 export type ReversePlannerDecision = "AUTO_ASSIGNED" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
 export type ReversePlannerMutation = "KEEP_EXISTING" | "CREATE" | "REPLACE" | "NONE";
@@ -9,7 +9,10 @@ export type ReversePlannerReason =
   | "ROUTE_EVIDENCE_REQUIRED" | "PROTECTED_PLAN_REQUIRES_REVIEW"
   | "TRANSITION_BOUNDARY_REVIEW_REQUIRED" | "SOURCE_CHANGED" | "TARGET_NOT_FOUND"
   | "USER_NOT_FOUND" | "INVALID_MEASUREMENT_DATES" | "INVALID_DAILY_STAFF"
-  | "INVALID_BASE_CODE" | "CONFLICTING_AUTHORITATIVE_SOURCE";
+  | "INVALID_BASE_CODE" | "CONFLICTING_AUTHORITATIVE_SOURCE"
+  | "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"
+  | "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE"
+  | "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED";
 
 export interface PlannerUser { id: number; name: string; active: boolean; experienced: boolean; baseCode: string | null }
 export interface PlannerDay {
@@ -19,6 +22,8 @@ export interface PlannerDay {
 export interface FixedMeasurementAssignment {
   targetId: number; measurementDate: string; assigneeUserId: number; confirmedAt: string; updatedAt: string;
   nonParticipantConfirmed?: boolean;
+  /** automatic은 계산용 후보이며 fixed confirmation row가 아니다. */
+  origin?: "confirmed" | "automatic";
 }
 export interface ExistingPlannerPlan {
   id: string; preliminaryDate: string | null; surveyMethod: "field" | "phone"; participantUserIds: number[];
@@ -36,6 +41,9 @@ export interface PlannerTarget {
   sourceReportWriterUserId?: number | null;
   sourceCollaborators?: unknown;
   sourceDailyStaff?: unknown;
+  automaticAssignmentIssue?: "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"
+    | "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE"
+    | "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED";
 }
 export interface PlannerScheduleBlock { userId: number; startDate: string; endDate: string }
 export interface PlannerRouteEvidence {
@@ -49,7 +57,8 @@ export interface PlannerRouteEvidence {
 export type RouteRequirementReason =
   | "ACTUAL_MEASUREMENT_TEAM_OVERLAP"
   | "PRELIMINARY_FIELD_VISIT_OVERLAP"
-  | "EXISTING_FIELD_OCCUPANCY_OVERLAP";
+  | "EXISTING_FIELD_OCCUPANCY_OVERLAP"
+  | "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT";
 export interface RouteRequirement {
   date: string; leftTargetId: number; rightTargetId: number;
   reasons: RouteRequirementReason[]; sharedUserIds: number[];
@@ -75,6 +84,7 @@ export interface ActualMeasurementOccupancy {
 export interface ExistingPublicSampleAssignment {
   targetId: number; businessCode: string; measurementDate: string; assigneeUserId: number;
   surveyCode: string; publicSampleCode: string | null; protected: boolean;
+  source: "persisted" | "fixed"; updatedAt: string;
 }
 export interface PlanningSnapshot {
   canonicalSha: string; plannerVersion: string; targets: PlannerTarget[]; users: PlannerUser[];
