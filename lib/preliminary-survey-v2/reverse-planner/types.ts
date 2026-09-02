@@ -1,4 +1,4 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.2.0";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.2.1";
 export const PRELIMINARY_SURVEY_CANONICAL_SHA = "aca759e7d785231cc89bc656ba635eb367f65de3";
 
 export type ReversePlannerDecision = "AUTO_ASSIGNED" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
@@ -41,6 +41,9 @@ export interface PlannerScheduleBlock { userId: number; startDate: string; endDa
 export interface PlannerRouteEvidence {
   date: string; leftTargetId: number; rightTargetId: number; sameAddress: boolean;
   durationMinutes: number | null; provider: string; capturedAt: string;
+  forwardDurationMinutes?: number | null; reverseDurationMinutes?: number | null;
+  effectiveDurationMinutes?: number | null;
+  forwardProvider?: string; reverseProvider?: string;
   routeReason?: RouteRequirementReason; sharedUserIds?: number[];
 }
 export type RouteRequirementReason =
@@ -54,7 +57,8 @@ export interface RouteRequirement {
 export interface PlannerRouteStats {
   planningTargetCount: number; snapshotTargetCount: number; candidatePairs: number;
   requiredPairs: number; sameAddressResolved: number; cacheHits: number; negativeCacheHits: number;
-  externalCalls: number; routeSuccess: number; routeFailure: number; routeUnknown: number;
+  directionalRequests: number; externalCalls: number; routeSuccess: number; routeFailure: number;
+  routeUnknown: number; guardedPairs: number; deadlinePairs: number;
 }
 export interface ExistingSurveyOccupancy {
   targetId: number; businessCode: string; address: string | null; preliminaryDate: string;

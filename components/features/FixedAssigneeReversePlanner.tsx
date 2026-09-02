@@ -182,8 +182,11 @@ export function FixedAssigneeReversePlanner() {
       {notice && <Alert variant="success">{notice}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
       {preview?.routeStats && <div className="rounded-md border border-surface-200 bg-white px-3 py-2 text-xs text-text-700">
-        경로 확인: 필요 {preview.routeStats.requiredPairs}쌍 · 동일주소 {preview.routeStats.sameAddressResolved}쌍 ·
-        캐시 {preview.routeStats.cacheHits}쌍 · 외부 조회 {preview.routeStats.externalCalls}회
+        경로 확인: 필요 {preview.routeStats.requiredPairs}쌍 · 방향 조회 {preview.routeStats.directionalRequests}회 ·
+        동일주소 {preview.routeStats.sameAddressResolved}쌍 · 캐시 {preview.routeStats.cacheHits}회 ·
+        외부 조회 {preview.routeStats.externalCalls}회
+        {preview.routeStats.guardedPairs > 0 ? ` · 제한 ${preview.routeStats.guardedPairs}쌍` : ""}
+        {preview.routeStats.deadlinePairs > 0 ? ` · 시간초과 ${preview.routeStats.deadlinePairs}쌍` : ""}
         {preview.routeStats.routeUnknown > 0 && ` · 확인 필요 ${preview.routeStats.routeUnknown}쌍`}
       </div>}
       {snapshot && snapshot.targets.length > 0 && (

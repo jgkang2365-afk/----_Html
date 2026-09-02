@@ -22,13 +22,21 @@ function pairKey(left: Coordinate, right: Coordinate) {
   return `kakao|${left.latitude.toFixed(6)},${left.longitude.toFixed(6)}->${right.latitude.toFixed(6)},${right.longitude.toFixed(6)}`;
 }
 
-async function vehicleMetric(left: Coordinate, right: Coordinate, apiKey: string): Promise<RouteMetric | null> {
+async function vehicleMetric(
+  left: Coordinate,
+  right: Coordinate,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<RouteMetric | null> {
   const url = new URL("https://apis-navi.kakaomobility.com/v1/directions");
   url.searchParams.set("origin", `${left.longitude},${left.latitude}`);
   url.searchParams.set("destination", `${right.longitude},${right.latitude}`);
   url.searchParams.set("priority", "RECOMMEND");
   try {
-    const response = await fetch(url, { headers: { Authorization: `KakaoAK ${apiKey}` }, signal: AbortSignal.timeout(5_000) });
+    const requestSignal = signal
+      ? AbortSignal.any([AbortSignal.timeout(5_000), signal])
+      : AbortSignal.timeout(5_000);
+    const response = await fetch(url, { headers: { Authorization: `KakaoAK ${apiKey}` }, signal: requestSignal });
     if (!response.ok) return null;
     const body = await response.json();
     const summary = body?.routes?.[0]?.summary;
@@ -53,7 +61,7 @@ export function createRouteMetrics(apiKey = process.env.KAKAO_REST_API_KEY): Rou
   };
   return {
     stats,
-    between(left: SurveyTarget | ExistingAssignment, right: SurveyTarget | ExistingAssignment) {
+    between(left: SurveyTarget | ExistingAssignment, right: SurveyTarget | ExistingAssignment, options) {
       stats.requests += 1;
       const leftCoordinate = left.coordinate;
       const rightCoordinate = right.coordinate;
@@ -80,7 +88,7 @@ export function createRouteMetrics(apiKey = process.env.KAKAO_REST_API_KEY): Rou
           return { source: "unknown" as const, durationMinutes: null, distanceKm: null, sameRegion };
         }
         if (apiKey) stats.externalCalls += 1;
-        const vehicle = apiKey ? await vehicleMetric(leftCoordinate, rightCoordinate, apiKey) : null;
+        const vehicle = apiKey ? await vehicleMetric(leftCoordinate, rightCoordinate, apiKey, options?.signal) : null;
         if (apiKey) vehicle ? stats.successes += 1 : stats.failures += 1;
         const value: RouteMetric = vehicle
           ? { ...vehicle, sameRegion }

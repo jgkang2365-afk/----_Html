@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
-import { candidateDates } from "@/lib/preliminary-survey-v2/reverse-planner/candidate-dates";
+import { candidateDates, earliestMeasurementDate } from "@/lib/preliminary-survey-v2/reverse-planner/candidate-dates";
 import { sourceFingerprint } from "@/lib/preliminary-survey-v2/reverse-planner/fingerprint";
 import { resolveLazyRouteEvidence } from "@/lib/preliminary-survey-v2/reverse-planner/lazy-route";
 import { createPreviewToken, verifyPreviewToken } from "@/lib/preliminary-survey-v2/reverse-planner/preview-token";
@@ -38,7 +38,10 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
   const planningDates = [...new Set<string>(planningTargets.flatMap((target: any) => measurementDays(target).map((day) => String(day.date))))].sort();
   const latestMeasurementDate = planningDates.at(-1) ?? measurementDate;
   const candidateRangeStart = planningTargets.flatMap((target: any) => {
-    const firstDate = measurementDays(target)[0]?.date ?? measurementDate;
+    const firstDate = earliestMeasurementDate(
+      measurementDays(target).map((day) => day.date),
+      measurementDate,
+    );
     const type = target.business_type === "first_measurement" ? "first_measurement"
       : target.business_type === "external_new" ? "external_new" : "existing";
     const range = candidateDates(firstDate, type);
@@ -49,7 +52,7 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
   const occupancyTargetIds = occupancyTargets.map((target: any) => Number(target.id));
   const codes = [...new Set((mode === "display" ? planningTargets : (candidates ?? []))
     .map((target: any) => String(target.code)))];
-  const [{ data: users, error: userError }, fixedResult, rangePlanResult, planningPlanResult, scheduleResult, infoResult, journalResult, publicGroupResult] = await Promise.all([
+  const [{ data: users, error: userError }, fixedResult, rangePlanResult, planningPlanResult, scheduleResult, journalResult, publicGroupResult] = await Promise.all([
     supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced, survey_code").eq("job", "측정"),
     occupancyTargetIds.length
       ? supabase.from("preliminary_survey_v2_fixed_assignments").select("*").in("measurement_target_business_id", occupancyTargetIds)
@@ -65,9 +68,6 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
       ? supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
         .lte("start_date", latestMeasurementDate).gte("end_date", candidateRangeStart)
       : Promise.resolve({ data: [], error: null }),
-    mode === "calculation" && codes.length
-      ? supabase.from("business_info").select("code, latitude, longitude").in("code", codes)
-      : Promise.resolve({ data: [], error: null }),
     codes.length
       ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
@@ -77,7 +77,7 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
       : Promise.resolve({ data: [], error: null }),
   ]);
   const firstError = userError || fixedResult.error || rangePlanResult.error || planningPlanResult.error
-    || scheduleResult.error || infoResult.error || journalResult.error || publicGroupResult.error;
+    || scheduleResult.error || journalResult.error || publicGroupResult.error;
   if (firstError) throw firstError;
   const preliminaryPlans = [...(rangePlanResult.data ?? []), ...(planningPlanResult.data ?? [])];
   const publicGroupPlanIds = [...new Set<string>((publicGroupResult.data ?? []).map((assignment: any) => String(assignment.plan_id)))];
@@ -119,15 +119,9 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
     journalKeys.has(`${target.code}|${target.year}|${normalizedPeriod(target.period)}`)
     || protectedPlanIds.has(String(plans.find((plan: any) => Number(plan.measurement_target_business_id) === Number(target.id))?.id ?? ""))
   ).map((target: any) => Number(target.id));
-  const infoByCode = new Map<string, any>((infoResult.data ?? []).map((row: any) => [String(row.code), row]));
-  const targetsWithCoordinates = snapshotTargets.map((target: any) => ({
-    ...target,
-    latitude: infoByCode.get(String(target.code))?.latitude,
-    longitude: infoByCode.get(String(target.code))?.longitude,
-  }));
   return {
     snapshot: buildPlanningSnapshot({
-      targets: targetsWithCoordinates,
+      targets: snapshotTargets,
       users: users ?? [],
       fixedAssignments: fixedResult.data ?? [],
       plans,
@@ -274,7 +268,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "preview") {
-      const resolved = await resolveLazyRouteEvidence(snapshot);
+      const resolved = await resolveLazyRouteEvidence(snapshot, {
+        loadCoordinates: async (businessCodes) => {
+          if (!businessCodes.length) return new Map();
+          const { data, error } = await supabase.from("business_info")
+            .select("code, latitude, longitude").in("code", businessCodes);
+          if (error) throw error;
+          return new Map((data ?? []).flatMap((row: any) => {
+            const latitude = Number(row.latitude);
+            const longitude = Number(row.longitude);
+            return Number.isFinite(latitude) && Number.isFinite(longitude)
+              ? [[String(row.code), { latitude, longitude }] as const]
+              : [];
+          }));
+        },
+      });
       const output = planPreliminarySurveyGivenFixedAssignments(resolved.snapshot);
       const previewToken = createPreviewToken({
         actorUserId: session.userId,
@@ -282,7 +290,19 @@ export async function POST(request: NextRequest) {
         sourceFingerprint: output.sourceFingerprint,
         routeEvidence: resolved.snapshot.routeEvidence,
       });
-      console.info("[reverse-planner] route stats", resolved.stats);
+      console.info("[reverse-planner] route stats", {
+        planningTargetCount: resolved.stats.planningTargetCount,
+        snapshotTargetCount: resolved.stats.snapshotTargetCount,
+        requiredPairCount: resolved.stats.requiredPairs,
+        directionalRequestCount: resolved.stats.directionalRequests,
+        externalCallCount: resolved.stats.externalCalls,
+        cacheHitCount: resolved.stats.cacheHits,
+        sameAddressCount: resolved.stats.sameAddressResolved,
+        guardedPairCount: resolved.stats.guardedPairs,
+        deadlinePairCount: resolved.stats.deadlinePairs,
+        successCount: resolved.stats.routeSuccess,
+        failureCount: resolved.stats.routeFailure,
+      });
       return NextResponse.json({ ...output, routeStats: resolved.stats,
         routeEvidence: resolved.snapshot.routeEvidence, previewToken });
     }

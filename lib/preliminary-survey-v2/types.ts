@@ -135,7 +135,11 @@ export interface Availability {
   isBlocked(userId: number, date: string): boolean;
 }
 export interface RouteMetrics {
-  between(left: SurveyTarget | ExistingAssignment, right: SurveyTarget | ExistingAssignment): Promise<RouteMetric>;
+  between(
+    left: SurveyTarget | ExistingAssignment,
+    right: SurveyTarget | ExistingAssignment,
+    options?: { signal?: AbortSignal },
+  ): Promise<RouteMetric>;
   stats?: {
     requests: number;
     externalCalls: number;
