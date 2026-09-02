@@ -17,7 +17,7 @@ jobs:
           fetch-depth: 0
           ref: feature/summary-canonical-ui-current-participants
 
-      - name: Transplant PR75 summary UI and align current canonical sources
+      - name: Transplant PR75 summary UI
         shell: bash
         run: |
           set -euo pipefail
@@ -26,150 +26,7 @@ jobs:
           git diff bf6e7e1f54f42ef8d2b2433ea8352207d9590f72 0efdafb91833c2b4aef27b080b45a04436491cd0 -- \
             components/features/SummaryTable.tsx app/api/summary/route.ts > /tmp/pr75-summary-ui.patch
           git apply --3way /tmp/pr75-summary-ui.patch
-
-          python3 <<'PY'
-          from pathlib import Path
-          import re
-
-          # 1) Summary UI: keep PR75 layout transplant, but render current Canonical roles as 4 + 4.
-          summary_path = Path('components/features/SummaryTable.tsx')
-          summary = summary_path.read_text(encoding='utf-8')
-          summary = summary.replace(
-              'import { formatMeasurementPublicSampleAssignee, formatPreliminarySurveyorWithPublicSampleCode, type PreliminarySurveyDisplayModel } from "@/lib/preliminary-survey-v2/display-model";',
-              'import { formatMeasurementPublicSampleAssignee, type PreliminarySurveyDisplayModel } from "@/lib/preliminary-survey-v2/display-model";',
-          )
-          old_second_row = '''    <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">\n      {cell("예비조사일", display.preliminarySurveyDate)}\n      {cell("예비조사자명(공시료 코드)", formatPreliminarySurveyorWithPublicSampleCode(display))}\n      {cell("측정 참여자", display.measurementParticipants)}\n    </div>'''
-          new_second_row = '''    <div className="grid grid-cols-1 md:grid-cols-4 print:grid-cols-4 gap-3 md:gap-4">\n      {cell("예비조사일", display.preliminarySurveyDate)}\n      {cell("예비조사자", display.preliminarySurveyors)}\n      {cell("측정자(공시료)", formatMeasurementPublicSampleAssignee(display))}\n      {cell("측정 참여자", display.measurementParticipants)}\n    </div>'''
-          if old_second_row not in summary:
-              raise SystemExit('SummaryTable: PR75 second-row block not found')
-          summary = summary.replace(old_second_row, new_second_row, 1)
-          if 'formatPreliminarySurveyorWithPublicSampleCode' in summary:
-              raise SystemExit('SummaryTable: obsolete combined surveyor/code helper remains')
-          summary_path.write_text(summary, encoding='utf-8')
-
-          # 2) Summary API: PR75 projection + current V2 Canonical source model.
-          api_path = Path('app/api/summary/route.ts')
-          api = api_path.read_text(encoding='utf-8')
-          api = api.replace(
-              'import { buildPreliminarySurveyDisplayModel } from "@/lib/preliminary-survey-v2/display-model";\nimport { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";',
-              'import { buildPreliminarySurveyDisplayModel, measurementRolesForDisplay } from "@/lib/preliminary-survey-v2/display-model";',
-          )
-          api = api.replace(
-              '"id, measurement_target_business_id, recommended_date, participant_names",',
-              '"id, measurement_target_business_id, recommended_date, participant_user_ids, participant_names",',
-          )
-          api = api.replace(
-              '"plan_id, measurement_date, assignee_user_id, survey_code",',
-              '"plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code",',
-          )
-          api = api.replace(
-              'targets.forEach((target) => {\n      measurementDayFormsFrom({\n        dailyStaff: target.daily_staff,\n        measurementDate: target.measurement_date,\n        measurerId: target.measurer_id,\n        collaborators: target.collaborators,\n      }).forEach((day) => {\n        if (day.measurerId != null) displayUserIds.add(day.measurerId);\n      });\n    });',
-              'targets.forEach((target) => {\n      const roles = measurementRolesForDisplay({\n        dailyStaff: target.daily_staff,\n        measurementDate: target.measurement_date,\n        measurerId: target.measurer_id,\n        collaborators: target.collaborators,\n      });\n      if (roles.reportWriterUserId != null) displayUserIds.add(roles.reportWriterUserId);\n    });',
-          )
-          marker = '''    (v2Assignments ?? []).forEach((assignment: any) => {\n      const assigneeId = Number(assignment.assignee_user_id);\n      if (Number.isInteger(assigneeId)) displayUserIds.add(assigneeId);\n    });'''
-          if marker not in api:
-              raise SystemExit('summary API: assignment user collection marker not found')
-          api = api.replace(marker, marker + '''\n    (v2Plans ?? []).forEach((plan: any) => {\n      const participantIds = Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids : [];\n      participantIds.forEach((id: unknown) => {\n        const participantId = Number(id);\n        if (Number.isInteger(participantId)) displayUserIds.add(participantId);\n      });\n    });''', 1)
-          api = api.replace(
-              'supabase.from("users").select("id, name").in("id", [...displayUserIds])',
-              'supabase.from("users").select("id, name, is_preliminary_survey_experienced").in("id", [...displayUserIds])',
-          )
-          api = api.replace(
-              'const userNameById = new Map((users ?? []).map((user: any) => [Number(user.id), String(user.name ?? "")]));',
-              'const userNameById = new Map((users ?? []).map((user: any) => [Number(user.id), String(user.name ?? "")]));\n    const userById = new Map((users ?? []).map((user: any) => [Number(user.id), user]));',
-          )
-
-          start = api.find('      const nationalSupportStatus = journal.national_support_status || target?.national_support_status || null;')
-          end_marker = '      // 요약 수정 API가 measurement_business에도 저장하는 필드만 최신 동기화 원본을 우선한다.'
-          end = api.find(end_marker, start)
-          if start < 0 or end < 0:
-              raise SystemExit('summary API: display projection block boundaries not found')
-          replacement = '''      const nationalSupportStatus = journal.national_support_status || target?.national_support_status || null;\n      // 역할 표시 원천은 반드시 해당 년도·주기의 exact target만 사용한다.\n      // code-only/다른 주기 target fallback은 국고지원 보완에만 허용하고 역할 값에는 사용하지 않는다.\n      const displayTarget = exactTarget;\n      const v2Plan: any = displayTarget ? v2PlanByTarget.get(Number(displayTarget.id)) : null;\n      const displayMeasurementDate = displayTarget?.measurement_date || journal.measurement_start_date || null;\n      const measurementRoles = displayTarget ? measurementRolesForDisplay({\n        dailyStaff: displayTarget.daily_staff,\n        measurementDate: displayTarget.measurement_date,\n        measurerId: displayTarget.measurer_id,\n        collaborators: displayTarget.collaborators,\n      }) : { measurementParticipants: [], reportWriterUserId: null };\n      const v2PlanAssignments = v2Plan\n        ? (v2Assignments ?? [])\n          .filter((assignment: any) => String(assignment.plan_id) === String(v2Plan.id))\n          .sort((left: any, right: any) => String(left.measurement_date).localeCompare(String(right.measurement_date)))\n        : [];\n      const v2Assignment: any = v2PlanAssignments.find(\n        (assignment: any) => assignment.measurement_date === displayMeasurementDate,\n      ) ?? v2PlanAssignments[0] ?? null;\n      const participantIds = Array.isArray(v2Plan?.participant_user_ids)\n        ? v2Plan.participant_user_ids.map(Number).filter((id: number) => Number.isInteger(id) && id > 0)\n        : [];\n      const v2SurveyorUsers = participantIds\n        .map((id: number) => userById.get(id))\n        .filter(Boolean)\n        .map((user: any) => ({\n          name: user.name,\n          isExperienced: user.is_preliminary_survey_experienced,\n        }));\n      const reportWriter = measurementRoles.reportWriterUserId == null\n        ? null\n        : userNameById.get(Number(measurementRoles.reportWriterUserId));\n      const legacySurvey = relatedSurveys.find((item: any) => item.measurement_date === displayMeasurementDate)\n        ?? relatedSurveys.at(-1)\n        ?? null;\n      const preliminaryDisplay = buildPreliminarySurveyDisplayModel({\n        v2: v2Plan ? {\n          preliminarySurveyDate: v2Plan.recommended_date,\n          preliminarySurveyors: v2Plan.participant_names,\n          preliminarySurveyorUsers: v2SurveyorUsers,\n          measurementPublicSampleAssignee: v2Assignment\n            ? userNameById.get(Number(v2Assignment.assignee_user_id))\n            : null,\n          publicSampleCode: v2Assignment?.public_sample_code ?? v2Assignment?.survey_code,\n          measurementPublicSampleAssignments: v2PlanAssignments.map((assignment: any) => ({\n            measurementDate: assignment.measurement_date,\n            assignee: userNameById.get(Number(assignment.assignee_user_id)),\n            publicSampleCode: assignment.public_sample_code ?? assignment.survey_code,\n          })),\n          measurementParticipants: measurementRoles.measurementParticipants,\n          reportWriter,\n        } : null,\n        legacy: !v2Plan && legacySurvey ? {\n          preliminarySurveyDate: null,\n          preliminarySurveyors: legacySurvey.preliminary_surveyor,\n          measurementPublicSampleAssignee: legacySurvey.measurer,\n          publicSampleCode: legacySurvey.survey_code,\n          measurementParticipants: displayTarget\n            ? measurementRoles.measurementParticipants\n            : legacySurvey.actual_measurer,\n          reportWriter: displayTarget ? reportWriter : legacySurvey.report_writer,\n        } : null,\n      });\n'''
-          api = api[:start] + replacement + api[end:]
-          api = api.replace(
-              'public_sample_measurer: survey?.measurer || null,',
-              'public_sample_measurer: preliminaryDisplay.measurementPublicSampleAssignee === "-" ? null : preliminaryDisplay.measurementPublicSampleAssignee,',
-          )
-          if 'measurementDayFormsFrom' in api:
-              raise SystemExit('summary API: stale measurementDayFormsFrom usage remains')
-          api_path.write_text(api, encoding='utf-8')
-
-          # 3) Journal edit: current-period target participants only; never previous-period measurer fallback.
-          journal_path = Path('components/features/JournalEditForm.tsx')
-          journal = journal_path.read_text(encoding='utf-8')
-          if '    measurer: entry.measurer || "",' not in journal:
-              raise SystemExit('JournalEditForm: initial measurer source not found')
-          journal = journal.replace('    measurer: entry.measurer || "",', '    measurer: "",', 1)
-          journal = journal.replace('                updated.measurer = updated.measurer || data.previousData.measurer || "";\n', '')
-
-          survey_marker = '              // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)\n'
-          if survey_marker not in journal:
-              raise SystemExit('JournalEditForm: survey marker not found')
-          canonical_block = '''              // 측정 참여자는 현재 code/year/period의 target 원천만 사용한다.\n              // previous journal 또는 legacy survey의 measurer를 fallback하지 않는다.\n              if (data.preliminaryDisplay) {\n                setPreliminaryDisplay(data.preliminaryDisplay);\n                const canonicalMeasurementParticipants =\n                  data.preliminaryDisplay.measurementParticipants &&\n                  data.preliminaryDisplay.measurementParticipants !== "-"\n                    ? data.preliminaryDisplay.measurementParticipants\n                    : "";\n                updated.measurer = canonicalMeasurementParticipants;\n              } else {\n                setPreliminaryDisplay(null);\n                updated.measurer = "";\n              }\n\n'''
-          journal = journal.replace(survey_marker, canonical_block + survey_marker, 1)
-
-          measurer_block = re.compile(
-              r'''\n\s*// 3\. 측정자 통합 \(모든 일자의 측정자 합집합\)\n\s*const allMeasurers = new Set<string>\(\);\n\s*surveys\.forEach\(\(s: any\) => \{\n\s*if \(s\.measurer\) \{\n\s*s\.measurer\.split\(','\)\.forEach\(\(m: string\) => \{\n\s*const trimmed = m\.trim\(\);\n\s*if \(trimmed\) allMeasurers\.add\(trimmed\);\n\s*\}\);\n\s*\}\n\s*\}\);\n\n\s*if \(allMeasurers\.size > 0 && !prev\.measurer\) \{\n\s*updated\.measurer = Array\.from\(allMeasurers\)\.join\(', '\);\n\s*\}\n''',
-              re.MULTILINE,
-          )
-          journal, count = measurer_block.subn('\n                // 3. 측정 참여자는 위 current-period Canonical projection을 유지한다.\n', journal, count=1)
-          if count != 1:
-              raise SystemExit(f'JournalEditForm: legacy survey measurer block removal count={count}')
-
-          old_input = '''        <Input\n          label="측정자"\n          value={formData.measurer}\n          onChange={(e) => setFormData({ ...formData, measurer: e.target.value })}\n          placeholder="측정자 입력"\n          disabled={isLockedByCompletion}\n          className={isLockedByCompletion ? "bg-surface-50" : ""}\n        />'''
-          new_input = '''        <Input\n          label="측정 참여자"\n          value={formData.measurer}\n          placeholder="현재 측정대상사업장 참여자"\n          disabled\n          className="bg-surface-50"\n        />'''
-          if old_input not in journal:
-              raise SystemExit('JournalEditForm: measurement input block not found')
-          journal = journal.replace(old_input, new_input, 1)
-          if 'updated.measurer = updated.measurer || data.previousData.measurer' in journal:
-              raise SystemExit('JournalEditForm: previousData measurer fallback remains')
-          if 'const allMeasurers = new Set<string>();' in journal:
-              raise SystemExit('JournalEditForm: legacy survey measurer aggregation remains')
-          journal_path.write_text(journal, encoding='utf-8')
-
-          # 4) Focused regression guards.
-          test_path = Path('tests/summary-journal-current-role-source.test.ts')
-          test_path.write_text(r'''import assert from "node:assert/strict";
-          import fs from "node:fs";
-          import test from "node:test";
-
-          const summaryUi = fs.readFileSync("components/features/SummaryTable.tsx", "utf8");
-          const summaryApi = fs.readFileSync("app/api/summary/route.ts", "utf8");
-          const journalForm = fs.readFileSync("components/features/JournalEditForm.tsx", "utf8");
-          const previousDataApi = fs.readFileSync("app/api/journal/previous-data/route.ts", "utf8");
-
-          test("summary uses separate current Canonical role cells", () => {
-            assert.match(summaryUi, /cell\("예비조사일"/);
-            assert.match(summaryUi, /cell\("예비조사자", display\.preliminarySurveyors\)/);
-            assert.match(summaryUi, /cell\("측정자\(공시료\)", formatMeasurementPublicSampleAssignee\(display\)\)/);
-            assert.match(summaryUi, /cell\("측정 참여자", display\.measurementParticipants\)/);
-            assert.doesNotMatch(summaryUi, /예비조사자명\(공시료 코드\)/);
-          });
-
-          test("summary role projection never uses a loose cross-period target", () => {
-            assert.match(summaryApi, /const displayTarget = exactTarget;/);
-            assert.match(summaryApi, /public_sample_code/);
-            assert.match(summaryApi, /measurementPublicSampleAssignments/);
-            assert.match(summaryApi, /measurementRolesForDisplay/);
-          });
-
-          test("journal measurement participant is read-only current-period Canonical data", () => {
-            assert.match(journalForm, /label="측정 참여자"/);
-            assert.match(journalForm, /measurer: ""/);
-            assert.match(journalForm, /data\.preliminaryDisplay\.measurementParticipants/);
-            assert.doesNotMatch(journalForm, /updated\.measurer = updated\.measurer \|\| data\.previousData\.measurer/);
-            assert.doesNotMatch(journalForm, /const allMeasurers = new Set<string>/);
-          });
-
-          test("previous-data Canonical projection is exact code year period", () => {
-            assert.match(previousDataApi, /\.eq\("code", trimmedCode\)/);
-            assert.match(previousDataApi, /\.eq\("year", measurementYear\)/);
-            assert.match(previousDataApi, /\.eq\("period", period\)/);
-            assert.match(previousDataApi, /preliminaryDisplay/);
-          });
-          '''.replace(/^          /gm, ''), encoding='utf-8')
-          PY
-
+          python3 scripts/apply_summary_canonical_ui.py
           git diff --check
 
       - uses: actions/setup-node@v4
@@ -193,8 +50,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm .github/workflows/apply-summary-canonical-ui.yml
-          git add components/features/SummaryTable.tsx app/api/summary/route.ts components/features/JournalEditForm.tsx tests/summary-journal-current-role-source.test.ts .github/workflows/apply-summary-canonical-ui.yml
+          rm .github/workflows/apply-summary-canonical-ui.yml scripts/apply_summary_canonical_ui.py
+          git add -A
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
