@@ -42,4 +42,18 @@ test("same-run automatic evidence is signed, forwarded to Repair Apply, and pass
   assert.match(repairRoute, /verifyPreviewToken\(reversePreviewToken/);
   assert.match(ui, /reversePreviewToken: preview\.previewToken/);
   assert.match(migration, /COALESCE\(repair_item->'measurementAssignments'/);
+  assert.match(repairRoute, /for \(const row of measurementAssigneeSnapshots\)/);
+});
+
+test("Repair normalization includes persisted members plus fixed-only members", () => {
+  const sql = fs.readFileSync(migrationPath, "utf8");
+  assert.match(sql, /group_members AS \([\s\S]*UNION ALL[\s\S]*SELECT NULL::uuid AS assignment_id/);
+  assert.match(sql, /WHERE NOT EXISTS \([\s\S]*plan\.measurement_target_business_id = fixed\.measurement_target_business_id/);
+  assert.match(sql, /ranked\.id IS NOT NULL/);
+});
+
+test("Repair assignment conflict is returned as a 409 source-change response", () => {
+  const source = fs.readFileSync(path.join(process.cwd(), "app/api/preliminary-survey-v2/confirmed-document-repair/route.ts"), "utf8");
+  assert.match(source, /REPAIR_MEASUREMENT_ASSIGNMENT_CONFLICT/);
+  assert.match(source, /REPAIR_MEASUREMENT_ASSIGNMENT_CONFLICT\|NON_NULL_OVERWRITE/);
 });

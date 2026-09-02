@@ -105,26 +105,44 @@ BEGIN
     SELECT DISTINCT measurement_date, assignee_user_id
     FROM public.preliminary_survey_v2_measurement_assignments
     WHERE plan_id = p_plan_id
-  ), ranked AS (
-    SELECT assignment.id,
-      upper(btrim(base_user.survey_code)) AS base_code,
-      row_number() OVER (
-        PARTITION BY assignment.measurement_date, assignment.assignee_user_id
-        ORDER BY target.code, target.id
-      ) AS position
+  ), group_members AS (
+    SELECT assignment.id AS assignment_id, plan.measurement_target_business_id AS target_id,
+      assignment.measurement_date, assignment.assignee_user_id
     FROM public.preliminary_survey_v2_measurement_assignments assignment
     JOIN public.preliminary_survey_v2_plans plan ON plan.id = assignment.plan_id
-    JOIN public.measurement_target_business target ON target.id = plan.measurement_target_business_id
-    JOIN public.users base_user ON base_user.id = assignment.assignee_user_id
     JOIN affected ON affected.measurement_date = assignment.measurement_date
       AND affected.assignee_user_id = assignment.assignee_user_id
+    UNION ALL
+    SELECT NULL::uuid AS assignment_id, fixed.measurement_target_business_id AS target_id,
+      fixed.measurement_date, fixed.assignee_user_id
+    FROM public.preliminary_survey_v2_fixed_assignments fixed
+    JOIN affected ON affected.measurement_date = fixed.measurement_date
+      AND affected.assignee_user_id = fixed.assignee_user_id
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM public.preliminary_survey_v2_measurement_assignments assignment
+      JOIN public.preliminary_survey_v2_plans plan ON plan.id = assignment.plan_id
+      WHERE plan.measurement_target_business_id = fixed.measurement_target_business_id
+        AND assignment.measurement_date = fixed.measurement_date
+    )
+  ), ranked AS (
+    SELECT member.assignment_id AS id,
+      upper(btrim(base_user.survey_code)) AS base_code,
+      row_number() OVER (
+        PARTITION BY member.measurement_date, member.assignee_user_id
+        ORDER BY target.code, target.id
+      ) AS position
+    FROM group_members member
+    JOIN public.measurement_target_business target ON target.id = member.target_id
+    JOIN public.users base_user ON base_user.id = member.assignee_user_id
   )
   UPDATE public.preliminary_survey_v2_measurement_assignments assignment
   SET survey_code = ranked.base_code,
       public_sample_code = repeat(ranked.base_code, ranked.position::integer),
       updated_at = CURRENT_TIMESTAMP
   FROM ranked
-  WHERE assignment.id = ranked.id;
+  WHERE assignment.id = ranked.id
+    AND ranked.id IS NOT NULL;
 
   RETURN assignment_count;
 END;

@@ -115,6 +115,14 @@ export async function POST(request: NextRequest) {
       values.add(Number(row.assignee_user_id));
       assigneesByTarget.set(key, values);
     }
+    // Apply에서 검증한 signed Preview의 automatic effective assignee도 같은 target/date 원천으로 합친다.
+    // 실제 저장은 RPC가 다시 fixed/persisted/서명 evidence를 검증한 뒤 수행한다.
+    for (const row of measurementAssigneeSnapshots) {
+      const key = Number(row.targetId);
+      const values = assigneesByTarget.get(key) ?? new Set<number>();
+      values.add(Number(row.assigneeUserId));
+      assigneesByTarget.set(key, values);
+    }
     const missingMeasurementAssignee = canonical.filter((draft) => {
       const assignees = assigneesByTarget.get(draft.targetId) ?? new Set<number>();
       return !draft.participantUserIds.some((id) => assignees.has(Number(id)));
@@ -132,7 +140,7 @@ export async function POST(request: NextRequest) {
       p_changed_by_user_id: access.session.userId,
     });
     if (error) {
-      const status = /SOURCE_CHANGED|NON_NULL_OVERWRITE|PROTECTED|TRUE_CONFIRMED/.test(error.message) ? 409 : 400;
+      const status = /SOURCE_CHANGED|REPAIR_MEASUREMENT_ASSIGNMENT_CONFLICT|NON_NULL_OVERWRITE|PROTECTED|TRUE_CONFIRMED/.test(error.message) ? 409 : 400;
       return NextResponse.json({ error: error.message, code: error.message }, { status });
     }
     return NextResponse.json({ success: true, repairedCount: Number(data) });
