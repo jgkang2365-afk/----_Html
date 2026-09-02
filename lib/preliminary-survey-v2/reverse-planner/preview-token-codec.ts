@@ -8,6 +8,14 @@ export type PreviewTokenPayload = {
   measurementDate: string;
   sourceFingerprint: string;
   routeEvidence: PlannerRouteEvidence[];
+  effectiveMeasurementAssignments?: Array<{
+    targetId: number;
+    measurementDate: string;
+    assigneeUserId: number;
+    assignmentOrigin: "confirmed" | "automatic";
+    surveyCode?: string;
+    publicSampleCode?: string;
+  }>;
   expiresAt: number;
 };
 
@@ -43,6 +51,7 @@ export function verifySignedPreviewToken(
     const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as PreviewTokenPayload;
     if (payload.actorUserId !== actorUserId || payload.measurementDate !== measurementDate
         || payload.expiresAt <= now || !Array.isArray(payload.routeEvidence)
+        || !Array.isArray(payload.effectiveMeasurementAssignments)
         || typeof payload.sourceFingerprint !== "string") {
       throw new Error("INVALID_PREVIEW_TOKEN");
     }

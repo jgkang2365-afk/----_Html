@@ -227,7 +227,8 @@ export function FixedAssigneeReversePlanner({
         try {
           const repairResult = await request("/api/preliminary-survey-v2/confirmed-document-repair", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "apply", targetIds: repairable.map((draft) => draft.targetId), drafts: repairable }),
+            body: JSON.stringify({ action: "apply", targetIds: repairable.map((draft) => draft.targetId), drafts: repairable,
+              measurementDate, reversePreviewToken: preview.previewToken }),
           });
           repairedCount = Number(repairResult.repairedCount ?? 0);
         } catch (caught) {

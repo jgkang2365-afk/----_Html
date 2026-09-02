@@ -26,6 +26,7 @@ export interface ConfirmedDocumentRepairDraft {
   sourceRuleType: "new" | "existing" | null;
   reason: string;
   existingPlanId: string | null;
+  measurementAssignments?: RepairMeasurementAssigneeSnapshot[];
 }
 
 export interface RepairMeasurementAssigneeSnapshot {
@@ -301,9 +302,15 @@ export async function buildConfirmedDocumentRepairPreview(
     };
   }));
   const confirmedCount = orderedTargets.filter((target: any) => confirmed.has(journalKey(target))).length;
+  const draftsWithAssignments = drafts.map((draft) => ({
+    ...draft,
+    measurementAssignments: effectiveMeasurementAssignments
+      .filter((assignment) => Number(assignment.targetId) === draft.targetId)
+      .map((assignment) => ({ ...assignment })),
+  }));
   return {
-    drafts: drafts.sort((left, right) => left.targetId - right.targetId),
+    drafts: draftsWithAssignments.sort((left, right) => left.targetId - right.targetId),
     unchangedCount: confirmedCount - missingTargets.length,
-    manualReviewCount: drafts.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO").length,
+    manualReviewCount: draftsWithAssignments.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO").length,
   };
 }

@@ -18,7 +18,7 @@ test("Repair persistence migration uses plan_id as the assignment relationship",
 test("Repair persistence is atomic through a wrapper that raises on missing or conflicting assignments", () => {
   const sql = fs.readFileSync(migrationPath, "utf8");
   assert.match(sql, /ALTER FUNCTION public\.repair_true_confirmed_preliminary_survey_v2_missing_info[\s\S]*RENAME TO/);
-  assert.match(sql, /PERFORM public\.ensure_repair_measurement_assignments\(p_target_id, repaired\.id\)/);
+  assert.match(sql, /PERFORM public\.ensure_repair_measurement_assignments\(p_target_id, repaired\.id/);
   assert.match(sql, /REPAIR_MEASUREMENT_ASSIGNMENT_SOURCE_REQUIRED/);
   assert.match(sql, /REPAIR_MEASUREMENT_ASSIGNMENT_CONFLICT/);
   assert.match(sql, /filled_fields = CASE/);
@@ -31,3 +31,15 @@ test("Repair assignment persistence covers every multi-day daily_staff date", ()
   assert.match(sql, /ON CONFLICT \(plan_id, measurement_date\) DO NOTHING/);
 });
 
+test("same-run automatic evidence is signed, forwarded to Repair Apply, and passed into the RPC", () => {
+  const tokenCodec = fs.readFileSync(path.join(process.cwd(), "lib/preliminary-survey-v2/reverse-planner/preview-token-codec.ts"), "utf8");
+  const reverseRoute = fs.readFileSync(path.join(process.cwd(), "app/api/preliminary-survey-v2/reverse-planner/route.ts"), "utf8");
+  const repairRoute = fs.readFileSync(path.join(process.cwd(), "app/api/preliminary-survey-v2/confirmed-document-repair/route.ts"), "utf8");
+  const ui = fs.readFileSync(path.join(process.cwd(), "components/features/FixedAssigneeReversePlanner.tsx"), "utf8");
+  const migration = fs.readFileSync(migrationPath, "utf8");
+  assert.match(tokenCodec, /effectiveMeasurementAssignments/);
+  assert.match(reverseRoute, /effectiveMeasurementAssignments = output\.results\.flatMap/);
+  assert.match(repairRoute, /verifyPreviewToken\(reversePreviewToken/);
+  assert.match(ui, /reversePreviewToken: preview\.previewToken/);
+  assert.match(migration, /COALESCE\(repair_item->'measurementAssignments'/);
+});

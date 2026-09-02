@@ -7,7 +7,8 @@ ALTER FUNCTION public.repair_true_confirmed_preliminary_survey_v2_missing_info(
 
 CREATE OR REPLACE FUNCTION public.ensure_repair_measurement_assignments(
   p_target_id bigint,
-  p_plan_id uuid
+  p_plan_id uuid,
+  p_expected_assignments jsonb DEFAULT '[]'::jsonb
 ) RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
@@ -16,6 +17,7 @@ DECLARE
   measurement_date date;
   expected_assignee integer;
   existing_assignee integer;
+  preview_assignee integer;
   assignment_count integer := 0;
   base_code text;
 BEGIN
@@ -54,7 +56,25 @@ BEGIN
     ORDER BY assignment.updated_at DESC, assignment.id DESC
     LIMIT 1;
 
+    SELECT (item->>'assigneeUserId')::integer INTO preview_assignee
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p_expected_assignments) = 'array'
+      THEN p_expected_assignments ELSE '[]'::jsonb END) item
+    WHERE (item->>'targetId')::bigint = p_target_id
+      AND (item->>'measurementDate')::date = measurement_date
+    ORDER BY item->>'assigneeUserId'
+    LIMIT 1;
+
+    IF expected_assignee IS NOT NULL AND preview_assignee IS NOT NULL
+       AND expected_assignee IS DISTINCT FROM preview_assignee THEN
+      RAISE EXCEPTION 'REPAIR_MEASUREMENT_ASSIGNMENT_CONFLICT';
+    END IF;
+    IF existing_assignee IS NOT NULL AND preview_assignee IS NOT NULL
+       AND existing_assignee IS DISTINCT FROM preview_assignee THEN
+      RAISE EXCEPTION 'REPAIR_SOURCE_CHANGED';
+    END IF;
+
     IF expected_assignee IS NULL THEN expected_assignee := existing_assignee; END IF;
+    IF expected_assignee IS NULL THEN expected_assignee := preview_assignee; END IF;
     IF expected_assignee IS NULL THEN
       RAISE EXCEPTION 'REPAIR_MEASUREMENT_ASSIGNMENT_SOURCE_REQUIRED';
     END IF;
@@ -111,7 +131,7 @@ END;
 $$;
 
 -- 내부 wrapper에서만 호출되는 SECURITY DEFINER helper는 외부 실행을 허용하지 않는다.
-REVOKE ALL ON FUNCTION public.ensure_repair_measurement_assignments(bigint, uuid)
+REVOKE ALL ON FUNCTION public.ensure_repair_measurement_assignments(bigint, uuid, jsonb)
   FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.repair_true_confirmed_preliminary_survey_v2_missing_info(
@@ -140,7 +160,7 @@ BEGIN
     p_survey_method, p_source_rule_type, p_fill_date, p_fill_surveyors,
     p_changed_by_user_id
   );
-  PERFORM public.ensure_repair_measurement_assignments(p_target_id, repaired.id);
+  PERFORM public.ensure_repair_measurement_assignments(p_target_id, repaired.id, '[]'::jsonb);
   UPDATE public.preliminary_survey_v2_document_repair_audit audit
   SET filled_fields = CASE
     WHEN audit.filled_fields @> '["measurement_assignments"]'::jsonb
@@ -160,11 +180,59 @@ BEGIN
 END;
 $$;
 
+-- same-run automatic snapshot을 전달하는 확장 signature. 기존 14-인자 호출도 유지한다.
+CREATE OR REPLACE FUNCTION public.repair_true_confirmed_preliminary_survey_v2_missing_info(
+  p_target_id bigint,
+  p_expected_plan_id uuid,
+  p_expected_measurement_date date,
+  p_expected_source_measurer_id integer,
+  p_recommended_date date,
+  p_responsible_user_id integer,
+  p_experienced_reviewer_id integer,
+  p_participant_user_ids jsonb,
+  p_participant_names jsonb,
+  p_survey_method text,
+  p_source_rule_type text,
+  p_fill_date boolean,
+  p_fill_surveyors boolean,
+  p_changed_by_user_id integer,
+  p_expected_assignments jsonb
+) RETURNS public.preliminary_survey_v2_plans
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE repaired public.preliminary_survey_v2_plans%ROWTYPE;
+BEGIN
+  repaired := public.repair_true_confirmed_preliminary_survey_v2_missing_info_legacy_v1(
+    p_target_id, p_expected_plan_id, p_expected_measurement_date,
+    p_expected_source_measurer_id, p_recommended_date, p_responsible_user_id,
+    p_experienced_reviewer_id, p_participant_user_ids, p_participant_names,
+    p_survey_method, p_source_rule_type, p_fill_date, p_fill_surveyors,
+    p_changed_by_user_id
+  );
+  PERFORM public.ensure_repair_measurement_assignments(p_target_id, repaired.id, p_expected_assignments);
+  UPDATE public.preliminary_survey_v2_document_repair_audit audit
+  SET filled_fields = CASE WHEN audit.filled_fields @> '["measurement_assignments"]'::jsonb
+    THEN audit.filled_fields ELSE audit.filled_fields || '["measurement_assignments"]'::jsonb END
+  WHERE audit.plan_id = repaired.id
+    AND audit.measurement_target_business_id = p_target_id
+    AND audit.provenance = 'true_confirmed_missing_documentary_info_repair'
+    AND audit.created_at = (SELECT max(recent.created_at)
+      FROM public.preliminary_survey_v2_document_repair_audit recent
+      WHERE recent.plan_id = repaired.id AND recent.measurement_target_business_id = p_target_id);
+  RETURN repaired;
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.repair_true_confirmed_preliminary_survey_v2_missing_info(
   bigint, uuid, date, integer, date, integer, integer, jsonb, jsonb, text, text, boolean, boolean, integer
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.repair_true_confirmed_preliminary_survey_v2_missing_info(
   bigint, uuid, date, integer, date, integer, integer, jsonb, jsonb, text, text, boolean, boolean, integer
+) TO service_role;
+REVOKE ALL ON FUNCTION public.repair_true_confirmed_preliminary_survey_v2_missing_info(
+  bigint, uuid, date, integer, date, integer, integer, jsonb, jsonb, text, text, boolean, boolean, integer, jsonb
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.repair_true_confirmed_preliminary_survey_v2_missing_info(
+  bigint, uuid, date, integer, date, integer, integer, jsonb, jsonb, text, text, boolean, boolean, integer, jsonb
 ) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.repair_true_confirmed_preliminary_v2_missing_batch(
@@ -193,7 +261,8 @@ BEGIN
       repair_item->'participantUserIds', repair_item->'participantNames',
       repair_item->>'surveyMethod', repair_item->>'sourceRuleType',
       COALESCE((repair_item->>'fillDate')::boolean, false),
-      COALESCE((repair_item->>'fillSurveyors')::boolean, false), p_changed_by_user_id
+      COALESCE((repair_item->>'fillSurveyors')::boolean, false), p_changed_by_user_id,
+      COALESCE(repair_item->'measurementAssignments', '[]'::jsonb)
     );
     repaired_count := repaired_count + 1;
   END LOOP;

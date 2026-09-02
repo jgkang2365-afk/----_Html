@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { buildConfirmedDocumentRepairPreview, isCanonicalAutoSurveyorCombination, type RepairMeasurementAssigneeSnapshot } from "@/lib/preliminary-survey-v2/confirmed-document-repair";
+import { verifyPreviewToken } from "@/lib/preliminary-survey-v2/reverse-planner/preview-token";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +30,23 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const targetIds = targetIdsFrom(body.targetIds);
     if (!targetIds) return NextResponse.json({ error: "INVALID_TARGET_IDS" }, { status: 400 });
-    const measurementAssigneeSnapshots: RepairMeasurementAssigneeSnapshot[] = Array.isArray(body.measurementAssigneeSnapshots)
+    let measurementAssigneeSnapshots: RepairMeasurementAssigneeSnapshot[] = Array.isArray(body.measurementAssigneeSnapshots)
       ? body.measurementAssigneeSnapshots.filter((item: any) => Number.isInteger(Number(item?.targetId)) && Number.isInteger(Number(item?.assigneeUserId)))
         .map((item: any) => ({ targetId: Number(item.targetId), measurementDate: String(item.measurementDate ?? ""), assigneeUserId: Number(item.assigneeUserId) }))
       : [];
+    if (body.action === "apply") {
+      const measurementDate = String(body.measurementDate ?? "");
+      const reversePreviewToken = String(body.reversePreviewToken ?? "");
+      if (!measurementDate || !reversePreviewToken) {
+        return NextResponse.json({ error: "REPAIR_SOURCE_CHANGED", code: "REPAIR_SOURCE_CHANGED" }, { status: 409 });
+      }
+      const verified = verifyPreviewToken(reversePreviewToken, access.session.userId, measurementDate);
+      measurementAssigneeSnapshots = (verified.effectiveMeasurementAssignments ?? []).map((assignment) => ({
+        targetId: assignment.targetId,
+        measurementDate: assignment.measurementDate,
+        assigneeUserId: assignment.assigneeUserId,
+      }));
+    }
     const preview = await buildConfirmedDocumentRepairPreview(access.supabase, targetIds, measurementAssigneeSnapshots);
     if (body.action === "preview") return NextResponse.json({ success: true, ...preview });
     if (body.action !== "apply") return NextResponse.json({ error: "UNSUPPORTED_ACTION" }, { status: 400 });

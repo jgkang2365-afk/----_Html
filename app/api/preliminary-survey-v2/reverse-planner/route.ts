@@ -329,11 +329,20 @@ export async function POST(request: NextRequest) {
       });
       const output = planPreliminarySurveyGivenFixedAssignments(resolved.snapshot,
         resolved.solverTimedOut ? { deadlineAt: Date.now() } : {});
+      const effectiveMeasurementAssignments = output.results.flatMap((result) => result.publicSampleAssignments.map((assignment) => ({
+        targetId: assignment.targetId,
+        measurementDate: assignment.measurementDate,
+        assigneeUserId: assignment.assigneeUserId,
+        assignmentOrigin: assignmentOrigin(snapshot.targets.find((target) => target.id === assignment.targetId)!, assignment.measurementDate),
+        surveyCode: assignment.surveyCode,
+        publicSampleCode: assignment.publicSampleCode,
+      })));
       const previewToken = createPreviewToken({
         actorUserId: session.userId,
         measurementDate,
         sourceFingerprint: output.sourceFingerprint,
         routeEvidence: resolved.snapshot.routeEvidence,
+        effectiveMeasurementAssignments,
       });
       console.info("[reverse-planner] route stats", {
         planningTargetCount: resolved.stats.planningTargetCount,
