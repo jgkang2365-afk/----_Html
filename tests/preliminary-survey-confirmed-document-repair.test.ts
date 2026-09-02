@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
-import { classifyConfirmedDocumentState } from "../lib/preliminary-survey-v2/confirmed-document-repair";
+import { classifyConfirmedDocumentState, isCanonicalAutoSurveyorCombination, orderRepairReviewerCandidates, selectRepairReviewerCandidate } from "../lib/preliminary-survey-v2/confirmed-document-repair";
+import { buildTargetBusinessEditPatch } from "../lib/business/target-business-form";
+import { defaultEmptyParticipantsToReportWriter, measurementDayFormsFrom } from "../lib/business/measurement-day-form";
 
 describe("찐확정 누락정보 보정 경계", () => {
   it("date와 surveyor가 모두 있으면 COMPLETE이고 변화가 없다", () => {
@@ -28,6 +30,66 @@ describe("찐확정 누락정보 보정 경계", () => {
   it("역사/수동 보호 대상은 자동 보정하지 않는다", () => {
     assert.equal(classifyConfirmedDocumentState(null, true).classification, "PROTECTED_MANUAL");
   });
+  it("자동 보정 조합은 Canonical exact role shape만 허용한다", () => {
+    const experienced = { id: 15, experienced: true };
+    const novice = { id: 2, experienced: false };
+    assert.equal(isCanonicalAutoSurveyorCombination([experienced], 15, null), true);
+    assert.equal(isCanonicalAutoSurveyorCombination([experienced, novice], 2, 15), true);
+    assert.equal(isCanonicalAutoSurveyorCombination([novice], 2, null), false);
+    assert.equal(isCanonicalAutoSurveyorCombination([{ id: 2, experienced: false }, { id: 3, experienced: false }], 2, 3), false);
+    assert.equal(isCanonicalAutoSurveyorCombination([{ id: 15, experienced: true }, { id: 17, experienced: true }], 15, 17), false);
+    assert.equal(isCanonicalAutoSurveyorCombination([experienced, novice, { id: 16, experienced: false }], 2, 15), false);
+  });
+  it("responsible별 preferred reviewer를 유효 후보의 첫 순서로 둔다", () => {
+    const users = [
+      { id: 17, name: "한기문", experienced: true },
+      { id: 15, name: "이태환", experienced: true },
+      { id: 13, name: "이주형", experienced: true },
+    ];
+    assert.equal(orderRepairReviewerCandidates({ id: 2, name: "강종구", experienced: false }, users)[0].name, "이태환");
+    assert.equal(orderRepairReviewerCandidates({ id: 16, name: "고유빈", experienced: false }, users)[0].name, "이주형");
+    assert.equal(orderRepairReviewerCandidates({ id: 20, name: "김민영", experienced: false }, users)[0].name, "한기문");
+  });
+  it("실제 reviewer 선택 helper가 preferred·fallback·수동검토를 결정한다", async () => {
+    const experienced = (id: number, name: string) => ({ id, name, experienced: true, active: true });
+    const cases = [
+      [{ id: 2, name: "강종구", experienced: false, active: true }, [experienced(17, "한기문"), experienced(15, "이태환")], [15, 17]],
+      [{ id: 16, name: "고유빈", experienced: false, active: true }, [experienced(17, "한기문"), experienced(13, "이주형")], [13, 17]],
+      [{ id: 20, name: "김민영", experienced: false, active: true }, [experienced(15, "이태환"), experienced(17, "한기문")], [17, 15]],
+    ] as const;
+    for (const [responsible, candidates, expected] of cases) {
+      assert.equal((await selectRepairReviewerCandidate(responsible, [...candidates], async (candidate) => candidate.id === expected[0]))?.id, expected[0]);
+      assert.equal((await selectRepairReviewerCandidate(responsible, [...candidates], async (candidate) => candidate.id !== expected[0]))?.id, expected[1]);
+      assert.equal(await selectRepairReviewerCandidate(responsible, [...candidates], async () => false), null);
+    }
+  });
+  it("기본 체크 유지 시 collaborators에 보고서 담당자를 저장한다", () => {
+    const source = measurementDayFormsFrom({ dailyStaff: null, measurementDate: "2026-09-03", measurerId: 16, collaborators: null });
+    const uiDays = defaultEmptyParticipantsToReportWriter(source, [{ id: 16, name: "고유빈" }] as any);
+    const patch = buildTargetBusinessEditPatch(
+      { code: "H0452", business_name: "QA", measurer_id: 16, collaborators: null } as any,
+      { code: "H0452", business_name: "QA", measurer_id: 16, collaborators: null } as any,
+      source,
+      uiDays,
+    );
+    assert.equal(patch.collaborators, "고유빈");
+    const readSource = measurementDayFormsFrom({ dailyStaff: null, measurementDate: "2026-09-03", measurerId: 16, collaborators: patch.collaborators });
+    assert.deepEqual(readSource[0].collaborators, ["고유빈"]);
+    assert.equal(readSource[0].measurerId, 16);
+  });
+  it("사용자가 측정 참여자 체크를 해제하면 보고서 담당자를 재삽입하지 않는다", () => {
+    const source = measurementDayFormsFrom({ dailyStaff: null, measurementDate: "2026-09-03", measurerId: 16, collaborators: null });
+    const uncheckedDays = source.map((day) => ({ ...day, collaborators: [] }));
+    const patch = buildTargetBusinessEditPatch(
+      { code: "H0452", business_name: "QA", measurer_id: 16, collaborators: null } as any,
+      { code: "H0452", business_name: "QA", measurer_id: 16, collaborators: [] } as any,
+      source,
+      uncheckedDays,
+    );
+    assert.equal(patch.collaborators, undefined);
+    const component = fs.readFileSync(path.join(process.cwd(), "components/features/MeasurementTargetBusinessManagement.tsx"), "utf8");
+    assert.match(component, /const measurementDays = editMeasurementDays;/);
+  });
   it("SQL은 non-null overwrite를 차단하고 감사 provenance를 남기며 업무 원천을 갱신하지 않는다", () => {
     const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260827143000_add_true_confirmed_missing_documentary_repair.sql"), "utf8");
     assert.match(sql, /NON_NULL_OVERWRITE_FORBIDDEN/);
@@ -51,7 +113,16 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(ui, /누락정보 보정/);
     assert.match(ui, /예비조사 자동 배정/);
     assert.match(api, /repair_true_confirmed_preliminary_v2_missing_batch/);
+    assert.match(api, /REPAIR_CANONICAL_ROLE_INVALID/);
+    assert.match(api, /isCanonicalAutoSurveyorCombination/);
     assert.doesNotMatch(api, /for \(const draft of canonical\)/);
+  });
+  it("측정대상사업장 저장 경계에서 보고서 담당자 기본 참여자를 보장한다", () => {
+    const businessUi = fs.readFileSync(path.join(process.cwd(), "components/features/MeasurementTargetBusinessManagement.tsx"), "utf8");
+    assert.match(businessUi, /저장 경계에서도 보고서 담당자 기본 참여자 값을 보장한다/);
+    assert.match(businessUi, /const sourceDays = measurementDayFormsFrom\(/);
+    assert.match(businessUi, /const initialDays = defaultEmptyParticipantsToReportWriter\(sourceDays/);
+    assert.match(businessUi, /const measurementDays = editMeasurementDays;/);
   });
   it("자동 배정 모달이 보호 누락정보 repair preview/apply를 같은 workflow로 연결한다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/FixedAssigneeReversePlanner.tsx"), "utf8");

@@ -1350,12 +1350,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
         // 보고서 담당자(measurer_id)는 측정 참여자와 별개 역할이다.
         // 모달에서는 편의를 위해 기본 체크하되 사용자가 자유롭게 해제할 수 있다.
-        const initialDays = defaultEmptyParticipantsToReportWriter(measurementDayFormsFrom({
+        const sourceDays = measurementDayFormsFrom({
             dailyStaff: item.daily_staff,
             measurementDate: item.measurement_date,
             measurerId: item.measurer_id,
             collaborators: item.collaborators,
-        }), measurers, (userId, date) => !isMeasurementStaffUnavailable(userId, date, blockedKeys));
+        });
+        const initialDays = defaultEmptyParticipantsToReportWriter(sourceDays, measurers, (userId, date) => !isMeasurementStaffUnavailable(userId, date, blockedKeys));
         const initialForm = {
             ...item,
             sanjae: item.industrial_accident_number || item.sanjae || "",
@@ -1363,7 +1364,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         };
 
         setEditForm(initialForm);
-        editInitialStateRef.current = { form: initialForm, days: initialDays };
+        editInitialStateRef.current = { form: initialForm, days: sourceDays };
         setEditMeasurementDays(withMeasurementDayUiKeys(initialDays));
         setIsEditModalOpen(true);
     };
@@ -1411,6 +1412,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
+        // 저장 경계에서도 보고서 담당자 기본 참여자 값을 보장한다.
+        // 모달 초기화가 생략되거나 사용자가 다른 필드를 먼저 저장해도
+        // DB의 collaborators 원천이 보고서 담당자와 어긋나지 않도록 한다.
         const measurementDays = editMeasurementDays;
         const measurementDayValidation = validateMeasurementDayForms(measurementDays);
         if (!measurementDayValidation.valid) {

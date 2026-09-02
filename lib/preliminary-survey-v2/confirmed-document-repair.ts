@@ -4,6 +4,7 @@ import { splitNames } from "../business/link-measurer";
 import { validateManualPlanHardRules } from "./manual-validation";
 import { createRouteMetrics } from "./route-metrics";
 import type { SurveyUser } from "./types";
+import { preferredReviewerNameForResponsible } from "./reverse-planner/solver";
 
 export type ConfirmedRepairClassification = "COMPLETE" | "MISSING_DOCUMENTARY_INFO" | "PROTECTED_MANUAL" | "NEEDS_MANUAL_REVIEW";
 
@@ -25,6 +26,41 @@ export interface ConfirmedDocumentRepairDraft {
   sourceRuleType: "new" | "existing" | null;
   reason: string;
   existingPlanId: string | null;
+}
+
+/** Canonical 자동 보정은 최소 1명의 경력자를 포함해야 한다. */
+export function isCanonicalAutoSurveyorCombination(
+  participants: Array<Pick<SurveyUser, "id" | "experienced"> | null | undefined>,
+  responsibleUserId: number | null | undefined,
+  reviewerUserId: number | null | undefined,
+) {
+  const valid = participants.filter((participant): participant is Pick<SurveyUser, "id" | "experienced"> => Boolean(participant));
+  const experienced = valid.filter((participant) => participant.experienced);
+  const novice = valid.filter((participant) => !participant.experienced);
+  if (valid.length === 1) {
+    return experienced.length === 1 && novice.length === 0 && Number(responsibleUserId) === valid[0].id && reviewerUserId == null;
+  }
+  return valid.length === 2 && experienced.length === 1 && novice.length === 1
+    && Number(responsibleUserId) === novice[0].id
+    && Number(reviewerUserId) === experienced[0].id;
+}
+
+export function orderRepairReviewerCandidates(responsible: SurveyUser, candidates: SurveyUser[]) {
+  const preferredName = preferredReviewerNameForResponsible(responsible.name);
+  return [...candidates].sort((left, right) =>
+    (left.name === preferredName ? -1 : right.name === preferredName ? 1 : left.id - right.id));
+}
+
+/** 유효성 검사를 통과하는 첫 경력 reviewer를 deterministic하게 선택한다. */
+export async function selectRepairReviewerCandidate(
+  responsible: SurveyUser,
+  candidates: SurveyUser[],
+  isValid: (candidate: SurveyUser) => boolean | Promise<boolean>,
+) {
+  for (const candidate of orderRepairReviewerCandidates(responsible, candidates)) {
+    if (await isValid(candidate)) return candidate;
+  }
+  return null;
 }
 
 export function classifyConfirmedDocumentState(plan: {
@@ -137,18 +173,42 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       `${String(entry.target.code)}|${Number(entry.target.year)}|${String(entry.target.period ?? "").trim().replace("(수시)", "")}|${String(entry.target.measurement_date)}`,
     );
     const legacyNames = entry.fillSurveyors ? splitNames(legacy?.preliminary_surveyor) : [];
-    if (entry.plan || legacyNames.length) {
+    if (entry.plan || legacyNames.length || entry.fillSurveyors) {
       const context = await loadV2ManualContext(supabase, targetId, repairDate);
       const usersById = new Map<number, SurveyUser>(context.users.map((user: SurveyUser) => [user.id, user]));
       const usersByName = new Map<string, SurveyUser>(context.users.map((user: SurveyUser) => [user.name, user]));
       let participants: Array<SurveyUser | undefined | null> = participantUserIds.map((userId: number) => usersById.get(userId));
       if (legacyNames.length) participants = legacyNames.map((name) => usersByName.get(name));
-      if (entry.plan && entry.fillSurveyors && !legacyNames.length) {
-        const preservedResponsible = usersById.get(Number(entry.plan.responsible_user_id));
-        const preservedReviewer = entry.plan.experienced_reviewer_id == null
+      if (entry.fillSurveyors && !legacyNames.length) {
+        const preservedResponsible = entry.plan
+          ? usersById.get(Number(entry.plan.responsible_user_id))
+          : usersById.get(Number(result.responsible?.id));
+        const preservedReviewer = !entry.plan || entry.plan.experienced_reviewer_id == null
           ? null : usersById.get(Number(entry.plan.experienced_reviewer_id));
-        const recommendedReviewer = result.participants.find((user: any) => user.experienced && user.id !== preservedResponsible?.id);
-        participants = [preservedResponsible, preservedReviewer ?? recommendedReviewer].filter(Boolean);
+        let selectedReviewer = preservedReviewer;
+        if (!selectedReviewer && preservedResponsible && !preservedResponsible.experienced) {
+          const reviewerCandidates = orderRepairReviewerCandidates(preservedResponsible, context.users
+            .filter((user) => user.active !== false && user.experienced && user.id !== preservedResponsible.id)
+          );
+          const selected = await selectRepairReviewerCandidate(preservedResponsible, reviewerCandidates, async (candidate) => {
+            const { data: candidateBlocks, error: candidateBlockError } = await supabase.from("user_schedule_blocks")
+              .select("user_id").in("user_id", [preservedResponsible.id, candidate.id])
+              .lte("start_date", repairDate).gte("end_date", repairDate);
+            if (candidateBlockError) throw candidateBlockError;
+            if ((candidateBlocks ?? []).length) return false;
+            const candidateValidation = await validateManualPlanHardRules({
+              target: { ...context.target, responsible: preservedResponsible },
+              recommendedDate: repairDate,
+              participants: [preservedResponsible, candidate],
+              surveyMethod,
+              existingAssignments: context.assignments,
+              routes: createRouteMetrics(),
+            });
+            return candidateValidation.valid && isCanonicalAutoSurveyorCombination([preservedResponsible, candidate], preservedResponsible.id, candidate.id);
+          });
+          if (selected) selectedReviewer = selected;
+        }
+        participants = [preservedResponsible, selectedReviewer].filter(Boolean);
       }
       if (participants.some((user) => !user)) return {
         targetId, code: entry.target.code, businessName: entry.target.business_name,
@@ -164,6 +224,10 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         .map((user) => [user.id, user])).values()];
       const responsible = entry.plan ? usersById.get(Number(entry.plan.responsible_user_id)) : validParticipants[0];
       if (!responsible) throw new Error("REPAIR_RESPONSIBLE_MAPPING_FAILED");
+      const selectedExperiencedReviewer = validParticipants.find(
+        (user) => user.id !== responsible.id && user.experienced,
+      ) ?? null;
+      const selectedExperiencedReviewerId = selectedExperiencedReviewer?.id ?? null;
       const { data: blocks, error: blockError } = await supabase.from("user_schedule_blocks")
         .select("user_id").in("user_id", validParticipants.map((user) => user.id))
         .lte("start_date", repairDate).gte("end_date", repairDate);
@@ -176,19 +240,21 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         existingAssignments: context.assignments,
         routes: createRouteMetrics(),
       });
-      if ((blocks ?? []).length || !validation.valid) return {
+      if ((blocks ?? []).length || !validation.valid || !isCanonicalAutoSurveyorCombination(validParticipants, responsible.id, selectedExperiencedReviewerId)) return {
         targetId, code: entry.target.code, businessName: entry.target.business_name,
         classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
         recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
         participantUserIds: [], participantNames: [], surveyMethod: null,
         sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
-        reason: `보존할 조사자 원천이 보정 날짜의 hard rule을 충족하지 않습니다: ${validation.errors.join(" · ") || "직원 불가 일정"}`,
+        reason: !isCanonicalAutoSurveyorCombination(validParticipants, responsible.id, experiencedReviewerUserId)
+          ? "현행 운영지침에 맞지 않는 예비조사자 조합은 자동 보정할 수 없습니다."
+          : `보존할 조사자 원천이 보정 날짜의 hard rule을 충족하지 않습니다: ${validation.errors.join(" · ") || "직원 불가 일정"}`,
         existingPlanId: entry.plan?.id ?? null,
       };
       participantUserIds = validParticipants.map((user) => user.id);
       participantNames = validParticipants.map((user) => user.name);
       responsibleUserId = responsible.id;
-      experiencedReviewerUserId = entry.plan?.experienced_reviewer_id ?? validation.experiencedReviewer?.id ?? null;
+      experiencedReviewerUserId = selectedExperiencedReviewerId;
     }
     return {
       targetId, code: entry.target.code, businessName: entry.target.business_name,
