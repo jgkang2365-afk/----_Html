@@ -140,6 +140,34 @@ test("6개 자동 대상은 6명에게 첫 순환으로 하나씩 배정한다",
   assert.equal(new Set(automatic.map((item) => item.assigneeUserId)).size, 6);
 });
 
+test("13개 batch도 정상 12건을 보존하고 자동 3건째 대상만 확인 필요로 남긴다", () => {
+  const targets = Array.from({ length: 13 }, (_, index) => {
+    const assignee = users[index % users.length];
+    return target({
+      id: 100 + index,
+      code: `QA${String(index + 1).padStart(2, "0")}`,
+      address: "대전 동일주소",
+      days: [{ date: "2026-10-16", collaboratorUserIds: [assignee.id], reportWriterUserId: assignee.id }],
+      fixedAssignments: index < 12 ? [{
+        targetId: 100 + index,
+        measurementDate: "2026-10-16",
+        assigneeUserId: assignee.id,
+        confirmedAt: "automatic-preview",
+        updatedAt: "automatic-preview",
+        origin: "automatic",
+      }] : [],
+      automaticAssignmentIssue: index === 12 ? "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE" : undefined,
+    });
+  });
+  const output = planPreliminarySurveyGivenFixedAssignments(fixture({ targets }), {
+    deadlineAt: Date.now() + 2_000,
+  });
+  assert.equal(output.solverTimedOut, undefined);
+  assert.equal(output.results.filter((result) => result.decision === "AUTO_ASSIGNED").length, 12);
+  assert.equal(output.results.find((result) => result.targetId === 112)?.reason,
+    "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE");
+});
+
 test("Route 없는 두 번째 자동 측정자는 배정하지 않고 해당 target만 확인 필요로 남긴다", () => {
   const targets = Array.from({ length: 7 }, (_, index) => target({
     id: 10 + index,
