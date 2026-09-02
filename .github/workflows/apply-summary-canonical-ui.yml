@@ -26,6 +26,13 @@ jobs:
           git diff bf6e7e1f54f42ef8d2b2433ea8352207d9590f72 0efdafb91833c2b4aef27b080b45a04436491cd0 -- \
             components/features/SummaryTable.tsx app/api/summary/route.ts > /tmp/pr75-summary-ui.patch
           git apply --3way /tmp/pr75-summary-ui.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/apply_summary_canonical_ui.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("        r'''\\\n", "        r'''\n", 1)
+          p.write_text(s, encoding='utf-8')
+          PY
           python3 scripts/apply_summary_canonical_ui.py
           git diff --check
 
@@ -36,6 +43,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Focused guard
+        run: npx tsx --test tests/summary-journal-current-role-source.test.ts
 
       - name: Test
         run: npm test
