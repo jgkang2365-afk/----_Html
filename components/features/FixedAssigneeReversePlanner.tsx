@@ -83,6 +83,7 @@ export function FixedAssigneeReversePlanner({
   const [measurementDate, setMeasurementDate] = useState(initialMeasurementDate);
   const [snapshot, setSnapshot] = useState<PlanningSnapshot | null>(null);
   const [preview, setPreview] = useState<ReversePlannerOutput | null>(null);
+  const [repairDrafts, setRepairDrafts] = useState<Array<Record<string, unknown>>>([]);
   const [working, setWorking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +115,7 @@ export function FixedAssigneeReversePlanner({
     setError(null);
     setNotice(null);
     setPreview(null);
+    setRepairDrafts([]);
     setOverrideTargetId(null);
     try {
       const result = await request(`/api/preliminary-survey-v2/reverse-planner?measurementDate=${date}`);
@@ -175,6 +177,18 @@ export function FixedAssigneeReversePlanner({
         body: JSON.stringify({ action: "preview", measurementDate }),
       });
       setPreview(result);
+      const protectedTargetIds = (result.snapshot?.targets ?? snapshot?.targets ?? [])
+        .filter((target: PlannerTarget) => target.protected)
+        .map((target: PlannerTarget) => target.id);
+      if (protectedTargetIds.length) {
+        const repair = await request("/api/preliminary-survey-v2/confirmed-document-repair", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "preview", targetIds: protectedTargetIds }),
+        });
+        setRepairDrafts(repair.drafts ?? []);
+      } else {
+        setRepairDrafts([]);
+      }
       setNotice("배정안을 계산했습니다.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "배정안 계산에 실패했습니다.");
@@ -196,11 +210,28 @@ export function FixedAssigneeReversePlanner({
           previewToken: preview.previewToken,
         }),
       });
+      let repairedCount = 0;
+      let repairError: string | null = null;
+      const repairable: any[] = repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO");
+      if (repairable.length) {
+        try {
+          const repairResult = await request("/api/preliminary-survey-v2/confirmed-document-repair", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "apply", targetIds: repairable.map((draft) => draft.targetId), drafts: repairable }),
+          });
+          repairedCount = Number(repairResult.repairedCount ?? 0);
+        } catch (caught) {
+          repairError = caught instanceof Error ? caught.message : "확정자료 누락보정에 실패했습니다.";
+        }
+      }
       setPreview(null);
+      setRepairDrafts([]);
       const appliedCount = Number(result.appliedCount ?? 0);
       try {
         await onApplied();
-        setNotice(`예비조사 ${appliedCount}건을 배정했습니다.`);
+        setNotice(repairError
+          ? `일반 자동배정 ${appliedCount}건은 완료되었습니다. 확정자료 ${repairable.length}건은 반영하지 못했습니다: ${repairError}`
+          : `예비조사 ${appliedCount + repairedCount}건을 배정했습니다.`);
         onClose();
       } catch {
         setNotice(`예비조사 ${appliedCount}건의 배정은 완료되었습니다. 목록 새로고침에 실패했습니다. 다시 조회해 주세요.`);
@@ -270,10 +301,12 @@ export function FixedAssigneeReversePlanner({
     }
   };
 
-  const autoCount = preview?.results.filter((result) => result.decision === "AUTO_ASSIGNED").length ?? 0;
-  const reviewCount = preview ? preview.results.length - autoCount : 0;
+  const repairableCount = repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO").length;
+  const autoCount = (preview?.results.filter((result) => result.decision === "AUTO_ASSIGNED").length ?? 0) + repairableCount;
+  const reviewCount = (preview ? preview.results.length - (preview.results.filter((result) => result.decision === "AUTO_ASSIGNED").length) : 0)
+    + repairDrafts.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO" && draft.classification !== "COMPLETE").length;
   const canApply = Boolean(preview?.results.some((result) => result.decision === "AUTO_ASSIGNED"
-    && (result.mutation === "CREATE" || result.mutation === "REPLACE")));
+    && (result.mutation === "CREATE" || result.mutation === "REPLACE")) || repairableCount > 0);
 
   return <Modal
     isOpen={isOpen}
@@ -317,12 +350,19 @@ export function FixedAssigneeReversePlanner({
           <tbody className="divide-y divide-surface-200">
             {(snapshot?.targets ?? []).map((target) => {
               const result = preview?.results.find((item) => item.targetId === target.id);
+              const repair = repairDrafts.find((item) => Number(item.targetId) === target.id) as any;
               const candidate = result?.candidate;
               const plan = target.existingPlan;
-              const preliminaryDate = candidate?.preliminaryDate ?? plan?.preliminaryDate ?? null;
-              const surveyorIds = candidate?.participantUserIds ?? plan?.participantUserIds ?? [];
-              const method = candidate?.surveyMethod ?? plan?.surveyMethod ?? null;
-              const status = resultStatus(result, target);
+              const preliminaryDate = candidate?.preliminaryDate ?? plan?.preliminaryDate ?? repair?.recommendedDate ?? null;
+              const surveyorIds = candidate?.participantUserIds ?? plan?.participantUserIds ?? repair?.participantUserIds ?? [];
+              const method = candidate?.surveyMethod ?? plan?.surveyMethod ?? repair?.surveyMethod ?? null;
+              const status = repair?.classification === "MISSING_DOCUMENTARY_INFO"
+                ? { label: "누락정보 보정 가능", tone: "text-emerald-800 bg-emerald-50" }
+                : repair?.classification === "PROTECTED_MANUAL"
+                  ? { label: "기존 확정값 확인 필요", tone: "text-amber-800 bg-amber-50" }
+                  : repair?.classification === "NEEDS_MANUAL_REVIEW"
+                    ? { label: "원천정보 확인 필요", tone: "text-amber-800 bg-amber-50" }
+                    : resultStatus(result, target);
               const routeLabels = [...new Set((preview?.routeEvidence ?? [])
                 .filter((item) => item.leftTargetId === target.id || item.rightTargetId === target.id)
                 .map((item) => item.sameAddress ? "동일주소"

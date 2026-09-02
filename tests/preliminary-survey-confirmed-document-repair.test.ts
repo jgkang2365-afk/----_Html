@@ -53,6 +53,14 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(api, /repair_true_confirmed_preliminary_v2_missing_batch/);
     assert.doesNotMatch(api, /for \(const draft of canonical\)/);
   });
+  it("자동 배정 모달이 보호 누락정보 repair preview/apply를 같은 workflow로 연결한다", () => {
+    const ui = fs.readFileSync(path.join(process.cwd(), "components/features/FixedAssigneeReversePlanner.tsx"), "utf8");
+    assert.match(ui, /confirmed-document-repair/);
+    assert.match(ui, /action: "preview", targetIds: protectedTargetIds/);
+    assert.match(ui, /action: "apply", targetIds: repairable\.map/);
+    assert.match(ui, /누락정보 보정 가능/);
+    assert.match(ui, /일반 자동배정 .* 완료되었습니다/);
+  });
   it("관리 열은 모든 행에 삭제 버튼을 렌더링하고 상세 모달의 중복 진입점은 없다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");
     assert.match(ui, /"보고서담당", "상태", "구분", "관리", "확인사항"/);
