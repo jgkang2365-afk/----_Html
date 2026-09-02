@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
-import { buildConfirmedDocumentRepairPreview, isCanonicalAutoSurveyorCombination } from "@/lib/preliminary-survey-v2/confirmed-document-repair";
+import { buildConfirmedDocumentRepairPreview, isCanonicalAutoSurveyorCombination, type RepairMeasurementAssigneeSnapshot } from "@/lib/preliminary-survey-v2/confirmed-document-repair";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const targetIds = targetIdsFrom(body.targetIds);
     if (!targetIds) return NextResponse.json({ error: "INVALID_TARGET_IDS" }, { status: 400 });
-    const preview = await buildConfirmedDocumentRepairPreview(access.supabase, targetIds);
+    const measurementAssigneeSnapshots: RepairMeasurementAssigneeSnapshot[] = Array.isArray(body.measurementAssigneeSnapshots)
+      ? body.measurementAssigneeSnapshots.filter((item: any) => Number.isInteger(Number(item?.targetId)) && Number.isInteger(Number(item?.assigneeUserId)))
+        .map((item: any) => ({ targetId: Number(item.targetId), measurementDate: String(item.measurementDate ?? ""), assigneeUserId: Number(item.assigneeUserId) }))
+      : [];
+    const preview = await buildConfirmedDocumentRepairPreview(access.supabase, targetIds, measurementAssigneeSnapshots);
     if (body.action === "preview") return NextResponse.json({ success: true, ...preview });
     if (body.action !== "apply") return NextResponse.json({ error: "UNSUPPORTED_ACTION" }, { status: 400 });
 
@@ -66,10 +70,17 @@ export async function POST(request: NextRequest) {
       }, { status: 409 });
     }
     const canonicalTargetIds = canonical.map((draft) => draft.targetId);
+    const { data: targetPlans, error: targetPlansError } = await access.supabase
+      .from("preliminary_survey_v2_plans")
+      .select("id, measurement_target_business_id")
+      .in("measurement_target_business_id", canonicalTargetIds);
+    if (targetPlansError) throw targetPlansError;
+    const planIds = (targetPlans ?? []).map((row: any) => String(row.id));
+    const targetByPlanId = new Map((targetPlans ?? []).map((row: any) => [String(row.id), Number(row.measurement_target_business_id)]));
     const [{ data: measurementAssignments, error: measurementAssignmentError }, { data: fixedAssignments, error: fixedAssignmentError }] = await Promise.all([
-      access.supabase.from("preliminary_survey_v2_measurement_assignments")
-        .select("measurement_target_business_id, assignee_user_id")
-        .in("measurement_target_business_id", canonicalTargetIds),
+      planIds.length ? access.supabase.from("preliminary_survey_v2_measurement_assignments")
+        .select("plan_id, assignee_user_id")
+        .in("plan_id", planIds) : Promise.resolve({ data: [], error: null }),
       access.supabase.from("preliminary_survey_v2_fixed_assignments")
         .select("measurement_target_business_id, assignee_user_id")
         .in("measurement_target_business_id", canonicalTargetIds),
@@ -77,7 +88,14 @@ export async function POST(request: NextRequest) {
     if (measurementAssignmentError) throw measurementAssignmentError;
     if (fixedAssignmentError) throw fixedAssignmentError;
     const assigneesByTarget = new Map<number, Set<number>>();
-    for (const row of [...(measurementAssignments ?? []), ...(fixedAssignments ?? [])]) {
+    for (const row of measurementAssignments ?? []) {
+      const key = targetByPlanId.get(String(row.plan_id));
+      if (key == null) continue;
+      const values = assigneesByTarget.get(key) ?? new Set<number>();
+      values.add(Number(row.assignee_user_id));
+      assigneesByTarget.set(key, values);
+    }
+    for (const row of fixedAssignments ?? []) {
       const key = Number(row.measurement_target_business_id);
       const values = assigneesByTarget.get(key) ?? new Set<number>();
       values.add(Number(row.assignee_user_id));

@@ -120,11 +120,19 @@ export async function loadV2ManualContext(supabase: Client, targetId: number, re
   const assignmentDates = measurementAssignmentDates(
     targetRow.measurement_date, targetRow.measurement_end_date, targetRow.daily_staff,
   );
+  const { data: targetPlanRows, error: targetPlanError } = await supabase
+    .from("preliminary_survey_v2_plans")
+    .select("id")
+    .eq("measurement_target_business_id", targetId);
+  if (targetPlanError && targetPlanError.code !== "42P01" && targetPlanError.code !== "PGRST205") {
+    throw new Error(`V2_PLAN_QUERY_FAILED:${targetPlanError.message}`);
+  }
+  const targetPlanIds = (targetPlanRows ?? []).map((row: any) => String(row.id));
   const [{ data: measurementAssignmentRows, error: measurementAssignmentError }, { data: fixedAssignmentRows, error: fixedAssignmentError }] = await Promise.all([
-    supabase.from("preliminary_survey_v2_measurement_assignments")
-    .select("assignee_user_id, measurement_date")
-    .eq("measurement_target_business_id", targetId)
-    .in("measurement_date", assignmentDates ?? []),
+    targetPlanIds.length ? supabase.from("preliminary_survey_v2_measurement_assignments")
+      .select("assignee_user_id, measurement_date, plan_id")
+      .in("plan_id", targetPlanIds)
+      .in("measurement_date", assignmentDates ?? []) : Promise.resolve({ data: [], error: null }),
     supabase.from("preliminary_survey_v2_fixed_assignments")
       .select("assignee_user_id, measurement_date")
       .eq("measurement_target_business_id", targetId)

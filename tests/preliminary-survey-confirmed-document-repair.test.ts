@@ -126,6 +126,16 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(api, /isCanonicalAutoSurveyorCombination/);
     assert.doesNotMatch(api, /for \(const draft of canonical\)/);
   });
+  it("공시료 assignment 조회는 실제 plan_id 관계를 사용하고 존재하지 않는 target FK 컬럼을 조회하지 않는다", () => {
+    const service = fs.readFileSync(path.join(process.cwd(), "lib/preliminary-survey-v2/service.ts"), "utf8");
+    const api = fs.readFileSync(path.join(process.cwd(), "app/api/preliminary-survey-v2/confirmed-document-repair/route.ts"), "utf8");
+    for (const source of [service, api]) {
+      assert.match(source, /preliminary_survey_v2_plans/);
+      assert.match(source, /preliminary_survey_v2_measurement_assignments/);
+      assert.match(source, /plan_id/);
+      assert.doesNotMatch(source, /from\("preliminary_survey_v2_measurement_assignments"\)[\s\S]{0,180}measurement_target_business_id/);
+    }
+  });
   it("측정대상사업장 저장 경계에서 보고서 담당자 기본 참여자를 보장한다", () => {
     const businessUi = fs.readFileSync(path.join(process.cwd(), "components/features/MeasurementTargetBusinessManagement.tsx"), "utf8");
     assert.match(businessUi, /저장 경계에서도 보고서 담당자 기본 참여자 값을 보장한다/);
@@ -136,7 +146,7 @@ describe("찐확정 누락정보 보정 경계", () => {
   it("자동 배정 모달이 보호 누락정보 repair preview/apply를 같은 workflow로 연결한다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/FixedAssigneeReversePlanner.tsx"), "utf8");
     assert.match(ui, /confirmed-document-repair/);
-    assert.match(ui, /action: "preview", targetIds: protectedTargetIds/);
+    assert.match(ui, /action: "preview",[\s\S]*targetIds: protectedTargetIds/);
     assert.match(ui, /action: "apply", targetIds: repairable\.map/);
     assert.match(ui, /누락정보 보정 가능/);
     assert.match(ui, /일반 자동배정 .* 완료되었습니다/);

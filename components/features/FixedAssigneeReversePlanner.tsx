@@ -184,7 +184,16 @@ export function FixedAssigneeReversePlanner({
       if (protectedTargetIds.length) {
         const repair = await request("/api/preliminary-survey-v2/confirmed-document-repair", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "preview", targetIds: protectedTargetIds }),
+          body: JSON.stringify({
+            action: "preview",
+            targetIds: protectedTargetIds,
+            measurementAssigneeSnapshots: (result.results ?? []).flatMap((item: ReversePlannerResult) =>
+              item.publicSampleAssignments.map((assignment) => ({
+                targetId: assignment.targetId,
+                measurementDate: assignment.measurementDate,
+                assigneeUserId: assignment.assigneeUserId,
+              }))),
+          }),
         });
         setRepairDrafts(repair.drafts ?? []);
       } else {
