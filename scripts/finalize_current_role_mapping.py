@@ -160,6 +160,13 @@ canonical_block = '''              // 측정 참여자는 현재 code/year/perio
 
 '''
 journal = replace_once(journal, canonical_block, "", "JournalEditForm entry-keyed current role block")
+# Historical/reference request must never own the current-role display. It still populates previousContactInfo/fees.
+journal = replace_once(
+    journal,
+    '                const data = await response.json();\n                setPreliminaryDisplay(data.preliminaryDisplay || null);\n\n                // 디버깅: 산재관리번호 확인',
+    '                const data = await response.json();\n\n                // 디버깅: 산재관리번호 확인',
+    "JournalEditForm historical request current-role race",
+)
 journal = replace_once(
     journal,
     '      measurer: entry.measurer || "",',
@@ -197,7 +204,8 @@ role_effect = '''  // 현재 역할값은 폼에서 선택된 code/year/period�
           ) return previous;
           return { ...previous, measurer: data.currentMeasurementParticipants || "" };
         });
-        setPreliminaryDisplay(data.preliminaryDisplay || null);
+        const currentPreliminaryDisplay = data.preliminaryDisplay || null;
+        setPreliminaryDisplay(currentPreliminaryDisplay);
       } catch (currentRoleError) {
         console.error("현재 측정 역할 조회 오류:", currentRoleError);
       }
@@ -219,6 +227,8 @@ if "setPreviousContactInfo" not in journal or "setPreviousMeasurementFee" not in
     raise SystemExit("JournalEditForm: historical comparison/reference paths were lost")
 if "updated.measurer = updated.measurer || data.previousData.measurer" in journal:
     raise SystemExit("JournalEditForm: previous measurer fallback remains")
+if "setPreliminaryDisplay(data.preliminaryDisplay || null);" in journal:
+    raise SystemExit("JournalEditForm: entry-keyed historical request can still overwrite current roles")
 journal_path.write_text(journal, encoding="utf-8")
 
 # Summary edit modal: do not re-save hidden historical journal.measurer.
@@ -241,6 +251,10 @@ summary_path.write_text(summary, encoding="utf-8")
 # Focused regression guards.
 test_path = Path("tests/summary-journal-current-role-source.test.ts")
 test = test_path.read_text(encoding="utf-8")
+test = test.replace(
+    '  assert.match(journalForm, /data\\.preliminaryDisplay\\.measurementParticipants/);',
+    '  assert.match(journalForm, /data\\.currentMeasurementParticipants/);',
+)
 extra = r'''
 
 test("multi-day current measurement participants are collected from the exact target only", () => {
@@ -260,6 +274,12 @@ test("journal keeps previous comparison values but never injects previous measur
   assert.doesNotMatch(journalForm, /updated\.measurer = updated\.measurer \|\| data\.previousData\.measurer/);
 });
 
+test("historical reference fetch cannot overwrite the current role display", () => {
+  assert.doesNotMatch(journalForm, /setPreliminaryDisplay\(data\.preliminaryDisplay \|\| null\)/);
+  assert.match(journalForm, /const currentPreliminaryDisplay = data\.preliminaryDisplay \|\| null/);
+  assert.match(journalForm, /requestSequence !== currentRoleLoadSequence\.current/);
+});
+
 test("read-only current participant values are not written back by edit modals", () => {
   assert.match(journalForm, /if \(entry\.id\) delete submitData\.measurer/);
   assert.match(summaryUi, /delete saveData\.measurer/);
@@ -269,11 +289,8 @@ test("previous-data exposes current exact-period participants separately from hi
   assert.match(previousDataApi, /currentMeasurementParticipants/);
   assert.match(previousDataApi, /collectMeasurementParticipantNames/);
   assert.match(previousDataApi, /previousData/);
-  assert.match(previousDataApi, /setPrevious/);
 });
 '''
-# Last assertion references frontend-only text and must not be kept in previousDataApi source check.
-extra = extra.replace('  assert.match(previousDataApi, /setPrevious/);\n', '')
 if "multi-day current measurement participants are collected" not in test:
     test += extra
 test_path.write_text(test, encoding="utf-8")
