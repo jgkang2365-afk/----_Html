@@ -1,5 +1,5 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.2.3";
-export const PRELIMINARY_SURVEY_CANONICAL_SHA = "30eb7473cd54e5c6d56860794ef3473b59844dca";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.0";
+export const PRELIMINARY_SURVEY_CANONICAL_SHA = "b4dc6da49a4a7f1a9eb49cef3b48f9485ae17a50";
 
 export type ReversePlannerDecision = "AUTO_ASSIGNED" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
 export type ReversePlannerMutation = "KEEP_EXISTING" | "CREATE" | "REPLACE" | "NONE";
@@ -12,7 +12,8 @@ export type ReversePlannerReason =
   | "INVALID_BASE_CODE" | "CONFLICTING_AUTHORITATIVE_SOURCE"
   | "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"
   | "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE"
-  | "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED";
+  | "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED"
+  | "MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED";
 
 export interface PlannerUser { id: number; name: string; active: boolean; experienced: boolean; baseCode: string | null }
 export interface PlannerDay {

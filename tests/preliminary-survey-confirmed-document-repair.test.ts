@@ -5,6 +5,7 @@ import path from "node:path";
 import { classifyConfirmedDocumentState, isCanonicalAutoSurveyorCombination, orderRepairReviewerCandidates, selectRepairReviewerCandidate } from "../lib/preliminary-survey-v2/confirmed-document-repair";
 import { buildTargetBusinessEditPatch } from "../lib/business/target-business-form";
 import { defaultEmptyParticipantsToReportWriter, measurementDayFormsFrom } from "../lib/business/measurement-day-form";
+import { validateManualPlanHardRules } from "../lib/preliminary-survey-v2/manual-validation";
 
 describe("찐확정 누락정보 보정 경계", () => {
   it("date와 surveyor가 모두 있으면 COMPLETE이고 변화가 없다", () => {
@@ -89,6 +90,14 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.equal(patch.collaborators, undefined);
     const component = fs.readFileSync(path.join(process.cwd(), "components/features/MeasurementTargetBusinessManagement.tsx"), "utf8");
     assert.match(component, /const measurementDays = editMeasurementDays;/);
+  });
+  it("Repair hard rule은 참여자·보고서 담당자만의 일치를 공시료 담당자 일치로 인정하지 않는다", async () => {
+    const target = { id: 1, code: "H0452", name: "QA", kind: "existing" as const, measurementDate: "2026-09-03", businessType: "existing" as const,
+      responsible: { id: 2, name: "강종구", experienced: false, active: true }, address: null, region: null, coordinate: null,
+      measurementAssigneeUserIds: [16], createdAt: "2026-09-01T00:00:00Z" };
+    const participants = [{ id: 2, name: "강종구", experienced: false, active: true }, { id: 15, name: "이태환", experienced: true, active: true }];
+    const result = await validateManualPlanHardRules({ target, recommendedDate: "2026-08-25", participants, surveyMethod: "phone", existingAssignments: [], routes: { byPair: new Map() } as any });
+    assert.ok(result.errors.some((error) => error.includes("공시료 담당자")));
   });
   it("SQL은 non-null overwrite를 차단하고 감사 provenance를 남기며 업무 원천을 갱신하지 않는다", () => {
     const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260827143000_add_true_confirmed_missing_documentary_repair.sql"), "utf8");

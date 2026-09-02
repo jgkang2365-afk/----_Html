@@ -65,6 +65,36 @@ export async function POST(request: NextRequest) {
         repairedCount: 0,
       }, { status: 409 });
     }
+    const canonicalTargetIds = canonical.map((draft) => draft.targetId);
+    const [{ data: measurementAssignments, error: measurementAssignmentError }, { data: fixedAssignments, error: fixedAssignmentError }] = await Promise.all([
+      access.supabase.from("preliminary_survey_v2_measurement_assignments")
+        .select("measurement_target_business_id, assignee_user_id")
+        .in("measurement_target_business_id", canonicalTargetIds),
+      access.supabase.from("preliminary_survey_v2_fixed_assignments")
+        .select("measurement_target_business_id, assignee_user_id")
+        .in("measurement_target_business_id", canonicalTargetIds),
+    ]);
+    if (measurementAssignmentError) throw measurementAssignmentError;
+    if (fixedAssignmentError) throw fixedAssignmentError;
+    const assigneesByTarget = new Map<number, Set<number>>();
+    for (const row of [...(measurementAssignments ?? []), ...(fixedAssignments ?? [])]) {
+      const key = Number(row.measurement_target_business_id);
+      const values = assigneesByTarget.get(key) ?? new Set<number>();
+      values.add(Number(row.assignee_user_id));
+      assigneesByTarget.set(key, values);
+    }
+    const missingMeasurementAssignee = canonical.filter((draft) => {
+      const assignees = assigneesByTarget.get(draft.targetId) ?? new Set<number>();
+      return !draft.participantUserIds.some((id) => assignees.has(Number(id)));
+    });
+    if (missingMeasurementAssignee.length) {
+      return NextResponse.json({
+        error: "측정자(공시료 담당자)가 예비조사자에 포함되어야 합니다.",
+        code: "REPAIR_MEASUREMENT_ASSIGNEE_REQUIRED",
+        targetIds: missingMeasurementAssignee.map((draft) => draft.targetId),
+        repairedCount: 0,
+      }, { status: 409 });
+    }
     const { data, error } = await access.supabase.rpc("repair_true_confirmed_preliminary_v2_missing_batch", {
       p_repairs: canonical,
       p_changed_by_user_id: access.session.userId,

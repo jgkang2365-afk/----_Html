@@ -95,6 +95,42 @@ test("비경력자 단독은 AUTO 후보가 아니며 경력+비경력 작성자
     .includes("INVALID_SURVEYOR_ROLE_COMBINATION"));
 });
 
+test("공시료 담당자가 예비조사자에 포함되어야 하며 참여자·보고서 담당자만 일치하면 실패한다", () => {
+  const input = fixture({ targets: [target({
+    days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 1, confirmedAt: "x", updatedAt: "x" }],
+  })] });
+  const participantOnly = { preliminaryDate: "2026-08-20", surveyMethod: "phone" as const, participantUserIds: [2], responsibleUserId: 2, reviewerUserId: null, writerUserId: 2, objective: [0, 0, 0, 0, 0, 0] as const, reasons: [] };
+  assert.ok(validateCandidateHardRules(input, input.targets[0], participantOnly).includes("MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED"));
+  assert.ok(resultFor(input).candidate?.participantUserIds.includes(1));
+});
+
+test("다일은 전체 날짜의 공시료 담당자 집합 중 한 명 포함이면 통과한다", () => {
+  const input = fixture({ targets: [target({
+    days: [
+      { date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 },
+      { date: "2026-09-17", collaboratorUserIds: [5], reportWriterUserId: 5 },
+    ],
+    fixedAssignments: [
+      { targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 2, confirmedAt: "x", updatedAt: "x" },
+      { targetId: 10, measurementDate: "2026-09-17", assigneeUserId: 5, confirmedAt: "x", updatedAt: "x" },
+    ],
+  })] });
+  const candidate = resultFor(input).candidate!;
+  assert.ok(candidate.participantUserIds.includes(2) || candidate.participantUserIds.includes(5));
+  assert.ok(validateCandidateHardRules(input, input.targets[0], { ...candidate, participantUserIds: [4], responsibleUserId: 4, reviewerUserId: null, writerUserId: 4 })
+    .includes("MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED"));
+});
+
+test("공시료 담당자만 예비조사자에 포함되면 자동 후보로 허용한다", () => {
+  const input = fixture({ targets: [target({
+    days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 1, confirmedAt: "x", updatedAt: "x" }],
+  })] });
+  const candidate = resultFor(input).candidate!;
+  assert.ok(candidate.participantUserIds.includes(1));
+});
+
 test("경력자 단독은 본인이 작성한다", () => {
   const input = fixture({ users: users.map((user) => user.experienced ? user : { ...user, active: false }), targets: [target({
     days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
@@ -284,13 +320,18 @@ test("동일 target/date의 fixed와 persisted는 한 번만 세고 outside pers
     [1, 3]);
 });
 
-test("fixed assignee와 예비조사자가 달라도 collaborator 교집합으로 정상이다", () => {
+test("fixed assignee가 빠지고 collaborator만 일치하면 자동 배정하지 않는다", () => {
   const input = fixture({ targets: [target({
     days: [{ date: "2026-09-16", collaboratorUserIds: [1], reportWriterUserId: 1 }],
     fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 3, confirmedAt: "x", updatedAt: "x" }],
   })] });
-  assert.equal(resultFor(input).decision, "AUTO_ASSIGNED");
-  assert.ok(resultFor(input).candidate?.participantUserIds.includes(1));
+  const candidate = {
+    preliminaryDate: candidateDates("2026-09-16", "existing").primary[0], surveyMethod: "phone" as const,
+    participantUserIds: [1, 2], responsibleUserId: 1, reviewerUserId: 2, writerUserId: 1,
+    objective: [0, 0, 0, 0, 0, 0] as const, reasons: [],
+  };
+  assert.ok(validateCandidateHardRules(input, input.targets[0], candidate)
+    .includes("MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED"));
 });
 
 test("batch 밖 기존 유선 3건은 responsible capacity에 포함된다", () => {

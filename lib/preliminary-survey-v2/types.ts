@@ -34,6 +34,8 @@ export interface SurveyTarget {
   sourceDailyStaffSnapshot?: unknown;
   /** legacy CSV 또는 JSON 배열 모두 가능한 측정 참여자 원천 snapshot. */
   sourceCollaboratorsSnapshot?: unknown;
+  /** 동일 target의 persisted 공시료 assignment 담당자 집합. */
+  measurementAssigneeUserIds?: number[];
   /** 추천 preference에만 사용하는 날짜별 원천 역할. 역할 자체를 서로 복사하지 않는다. */
   measurementStaffByDate?: Array<{
     date: string;

@@ -44,6 +44,7 @@ const reasonLabel: Record<ReversePlannerReason, string> = {
   MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED: "측정자 이동경로 확인 필요",
   MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE: "측정자 3건째는 관리자 확인이 필요합니다.",
   MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED: "측정자 4건 이상은 배정할 수 없습니다.",
+  MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED: "측정자(공시료 담당자)가 예비조사자에 포함되어야 합니다.",
 };
 
 function resultStatus(result: ReversePlannerResult | undefined, target: PlannerTarget) {
