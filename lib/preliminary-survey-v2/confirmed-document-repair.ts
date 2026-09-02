@@ -45,6 +45,12 @@ export function isCanonicalAutoSurveyorCombination(
     && Number(reviewerUserId) === experienced[0].id;
 }
 
+export function orderRepairReviewerCandidates(responsible: SurveyUser, candidates: SurveyUser[]) {
+  const preferredName = preferredReviewerNameForResponsible(responsible.name);
+  return [...candidates].sort((left, right) =>
+    (left.name === preferredName ? -1 : right.name === preferredName ? 1 : left.id - right.id));
+}
+
 export function classifyConfirmedDocumentState(plan: {
   recommended_date?: string | null;
   participant_user_ids?: unknown;
@@ -165,12 +171,32 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         const preservedResponsible = usersById.get(Number(entry.plan.responsible_user_id));
         const preservedReviewer = entry.plan.experienced_reviewer_id == null
           ? null : usersById.get(Number(entry.plan.experienced_reviewer_id));
-        const preferredReviewerName = preservedResponsible && !preservedResponsible.experienced
-          ? preferredReviewerNameForResponsible(preservedResponsible.name)
-          : null;
-        const recommendedReviewer = result.participants.find((user: any) => user.experienced && user.name === preferredReviewerName)
-          ?? result.participants.find((user: any) => user.experienced && user.id !== preservedResponsible?.id);
-        participants = [preservedResponsible, preservedReviewer ?? recommendedReviewer].filter(Boolean);
+        let selectedReviewer = preservedReviewer;
+        if (!selectedReviewer && preservedResponsible && !preservedResponsible.experienced) {
+          const reviewerCandidates = orderRepairReviewerCandidates(preservedResponsible, context.users
+            .filter((user) => user.active !== false && user.experienced && user.id !== preservedResponsible.id)
+          );
+          for (const candidate of reviewerCandidates) {
+            const { data: candidateBlocks, error: candidateBlockError } = await supabase.from("user_schedule_blocks")
+              .select("user_id").in("user_id", [preservedResponsible.id, candidate.id])
+              .lte("start_date", repairDate).gte("end_date", repairDate);
+            if (candidateBlockError) throw candidateBlockError;
+            if ((candidateBlocks ?? []).length) continue;
+            const candidateValidation = await validateManualPlanHardRules({
+              target: { ...context.target, responsible: preservedResponsible },
+              recommendedDate: repairDate,
+              participants: [preservedResponsible, candidate],
+              surveyMethod,
+              existingAssignments: context.assignments,
+              routes: createRouteMetrics(),
+            });
+            if (candidateValidation.valid && isCanonicalAutoSurveyorCombination([preservedResponsible, candidate], preservedResponsible.id, candidate.id)) {
+              selectedReviewer = candidate;
+              break;
+            }
+          }
+        }
+        participants = [preservedResponsible, selectedReviewer].filter(Boolean);
       }
       if (participants.some((user) => !user)) return {
         targetId, code: entry.target.code, businessName: entry.target.business_name,

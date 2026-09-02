@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
-import { classifyConfirmedDocumentState, isCanonicalAutoSurveyorCombination } from "../lib/preliminary-survey-v2/confirmed-document-repair";
+import { classifyConfirmedDocumentState, isCanonicalAutoSurveyorCombination, orderRepairReviewerCandidates } from "../lib/preliminary-survey-v2/confirmed-document-repair";
 
 describe("찐확정 누락정보 보정 경계", () => {
   it("date와 surveyor가 모두 있으면 COMPLETE이고 변화가 없다", () => {
@@ -37,6 +37,16 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.equal(isCanonicalAutoSurveyorCombination([{ id: 2, experienced: false }, { id: 3, experienced: false }], 2, 3), false);
     assert.equal(isCanonicalAutoSurveyorCombination([{ id: 15, experienced: true }, { id: 17, experienced: true }], 15, 17), false);
     assert.equal(isCanonicalAutoSurveyorCombination([experienced, novice, { id: 16, experienced: false }], 2, 15), false);
+  });
+  it("responsible별 preferred reviewer를 유효 후보의 첫 순서로 둔다", () => {
+    const users = [
+      { id: 17, name: "한기문", experienced: true },
+      { id: 15, name: "이태환", experienced: true },
+      { id: 13, name: "이주형", experienced: true },
+    ];
+    assert.equal(orderRepairReviewerCandidates({ id: 2, name: "강종구", experienced: false }, users)[0].name, "이태환");
+    assert.equal(orderRepairReviewerCandidates({ id: 16, name: "고유빈", experienced: false }, users)[0].name, "이주형");
+    assert.equal(orderRepairReviewerCandidates({ id: 20, name: "김민영", experienced: false }, users)[0].name, "한기문");
   });
   it("SQL은 non-null overwrite를 차단하고 감사 provenance를 남기며 업무 원천을 갱신하지 않는다", () => {
     const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260827143000_add_true_confirmed_missing_documentary_repair.sql"), "utf8");
