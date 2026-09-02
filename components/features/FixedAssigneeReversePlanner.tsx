@@ -100,7 +100,8 @@ export function FixedAssigneeReversePlanner() {
     try {
       const result = await request("/api/preliminary-survey-v2/reverse-planner", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "apply", measurementDate, sourceFingerprint: preview.sourceFingerprint }),
+        body: JSON.stringify({ action: "apply", measurementDate, sourceFingerprint: preview.sourceFingerprint,
+          previewToken: preview.previewToken }),
       });
       setPreview(null);
       setNotice(`정상안 ${Number(result.appliedCount ?? 0)}건을 원자적으로 적용했습니다.`);
@@ -136,6 +137,7 @@ export function FixedAssigneeReversePlanner() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "override", measurementDate, sourceFingerprint: preview.sourceFingerprint,
+          previewToken: preview.previewToken,
           targetId: overrideTargetId, preliminaryDate: overrideDate, surveyMethod: overrideMethod,
           responsibleUserId: overrideResponsible, reviewerUserId: overrideReviewer,
           participantUserIds: overrideParticipants, overrideReason,
@@ -179,6 +181,14 @@ export function FixedAssigneeReversePlanner() {
       <Alert variant="warning">구형 측정자 자동추천은 UI와 서버에서 중지되었습니다. 이 화면의 명시적 고정값만 사용합니다.</Alert>
       {notice && <Alert variant="success">{notice}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
+      {preview?.routeStats && <div className="rounded-md border border-surface-200 bg-white px-3 py-2 text-xs text-text-700">
+        경로 확인: 필요 {preview.routeStats.requiredPairs}쌍 · 방향 조회 {preview.routeStats.directionalRequests}회 ·
+        동일주소 {preview.routeStats.sameAddressResolved}쌍 · 캐시 {preview.routeStats.cacheHits}회 ·
+        외부 조회 {preview.routeStats.externalCalls}회
+        {preview.routeStats.guardedPairs > 0 ? ` · 제한 ${preview.routeStats.guardedPairs}쌍` : ""}
+        {preview.routeStats.deadlinePairs > 0 ? ` · 시간초과 ${preview.routeStats.deadlinePairs}쌍` : ""}
+        {preview.routeStats.routeUnknown > 0 && ` · 확인 필요 ${preview.routeStats.routeUnknown}쌍`}
+      </div>}
       {snapshot && snapshot.targets.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-surface-200 bg-white">
           <table className="w-full min-w-[1050px] text-left text-xs">
@@ -190,6 +200,12 @@ export function FixedAssigneeReversePlanner() {
             <tbody>
               {snapshot.targets.map((target) => {
                 const result = preview?.results.find((item) => item.targetId === target.id);
+                const routeLabels = [...new Set((preview?.routeEvidence ?? [])
+                  .filter((item) => item.leftTargetId === target.id || item.rightTargetId === target.id)
+                  .map((item) => item.sameAddress ? "동일주소"
+                    : item.durationMinutes == null ? "경로 확인 필요"
+                      : item.durationMinutes <= 30 ? `차량 ${item.durationMinutes}분`
+                        : `차량 ${item.durationMinutes}분 · fallback`))];
                 return <tr key={target.id} className="border-t border-surface-200 align-top">
                   <td className="p-2 font-medium">{target.code}<br /><span className="font-normal text-text-600">{target.name}</span></td>
                   <td className="space-y-2 p-2">{target.days.map((day) => {
@@ -226,6 +242,7 @@ export function FixedAssigneeReversePlanner() {
                     </span>
                     <div>{result.candidate?.preliminaryDate ?? result.reason ?? "-"}</div>
                     <div>{result.candidate?.participantUserIds.map((id) => userById.get(id)?.name).filter(Boolean).join(", ") ?? "-"}</div>
+                    {routeLabels.length > 0 && <div className="mt-1 text-[11px] text-text-600">{routeLabels.join(" · ")}</div>}
                     {canOverride && result.decision === "MANUAL_REQUIRED"
                       && <button type="button" className="mt-1 text-red-700 underline" onClick={() => openOverride(target.id)}>관리자 예외</button>}
                   </> : "Preview 전"}</td>

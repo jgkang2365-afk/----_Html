@@ -74,6 +74,9 @@ export function buildPlanningSnapshot(input: {
       code: String(target.code),
       name: String(target.business_name),
       address: target.address == null ? null : String(target.address),
+      coordinate: Number.isFinite(Number(target.latitude)) && Number.isFinite(Number(target.longitude))
+        ? { latitude: Number(target.latitude), longitude: Number(target.longitude) }
+        : null,
       businessType: businessType(target.business_type, target.preliminary_survey_rule_type),
       days,
       sourceMeasurementDate: String(target.measurement_date),
@@ -125,6 +128,7 @@ export function buildPlanningSnapshot(input: {
       targetId: target.id,
       businessCode: target.code,
       address: target.address,
+      coordinate: target.coordinate,
       preliminaryDate,
       surveyMethod: plan.survey_method === "field" ? "field" as const : "phone" as const,
       participantUserIds,
@@ -141,6 +145,7 @@ export function buildPlanningSnapshot(input: {
     targetId: target.id,
     businessCode: target.code,
     address: target.address,
+    coordinate: target.coordinate,
     date: day.date,
     participantUserIds: [...new Set([
       ...day.collaboratorUserIds,

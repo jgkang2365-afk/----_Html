@@ -1,4 +1,4 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.1.0";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.2.1";
 export const PRELIMINARY_SURVEY_CANONICAL_SHA = "aca759e7d785231cc89bc656ba635eb367f65de3";
 
 export type ReversePlannerDecision = "AUTO_ASSIGNED" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
@@ -27,6 +27,7 @@ export interface ExistingPlannerPlan {
 }
 export interface PlannerTarget {
   id: number; code: string; name: string; address: string | null;
+  coordinate?: { latitude: number; longitude: number } | null;
   businessType: "existing" | "first_measurement" | "external_new"; days: PlannerDay[];
   fixedAssignments: FixedMeasurementAssignment[]; existingPlan: ExistingPlannerPlan | null;
   protected?: boolean;
@@ -40,15 +41,35 @@ export interface PlannerScheduleBlock { userId: number; startDate: string; endDa
 export interface PlannerRouteEvidence {
   date: string; leftTargetId: number; rightTargetId: number; sameAddress: boolean;
   durationMinutes: number | null; provider: string; capturedAt: string;
+  forwardDurationMinutes?: number | null; reverseDurationMinutes?: number | null;
+  effectiveDurationMinutes?: number | null;
+  forwardProvider?: string; reverseProvider?: string;
+  routeReason?: RouteRequirementReason; sharedUserIds?: number[];
+}
+export type RouteRequirementReason =
+  | "ACTUAL_MEASUREMENT_TEAM_OVERLAP"
+  | "PRELIMINARY_FIELD_VISIT_OVERLAP"
+  | "EXISTING_FIELD_OCCUPANCY_OVERLAP";
+export interface RouteRequirement {
+  date: string; leftTargetId: number; rightTargetId: number;
+  reasons: RouteRequirementReason[]; sharedUserIds: number[];
+}
+export interface PlannerRouteStats {
+  planningTargetCount: number; snapshotTargetCount: number; candidatePairs: number;
+  requiredPairs: number; sameAddressResolved: number; cacheHits: number; negativeCacheHits: number;
+  directionalRequests: number; externalCalls: number; routeSuccess: number; routeFailure: number;
+  routeUnknown: number; guardedPairs: number; deadlinePairs: number;
 }
 export interface ExistingSurveyOccupancy {
   targetId: number; businessCode: string; address: string | null; preliminaryDate: string;
+  coordinate?: { latitude: number; longitude: number } | null;
   surveyMethod: "field" | "phone"; participantUserIds: number[]; responsibleUserId: number;
   reviewerUserId: number | null; writerUserId: number | null; protected: boolean;
   planId?: string; updatedAt?: string;
 }
 export interface ActualMeasurementOccupancy {
   targetId: number; businessCode: string; address: string | null; date: string; participantUserIds: number[];
+  coordinate?: { latitude: number; longitude: number } | null;
   targetUpdatedAt?: string; fixedUpdatedAts?: string[];
 }
 export interface ExistingPublicSampleAssignment {
@@ -86,4 +107,8 @@ export interface ReversePlannerResult {
 }
 export interface ReversePlannerOutput {
   results: ReversePlannerResult[]; sourceFingerprint: string; canonicalSha: string; plannerVersion: string;
+  solverTimedOut?: boolean;
+  routeStats?: PlannerRouteStats;
+  routeEvidence?: PlannerRouteEvidence[];
+  previewToken?: string;
 }

@@ -214,7 +214,7 @@ function existingCandidate(snapshot: PlanningSnapshot, target: PlannerTarget): P
   return validateCandidateHardRules(snapshot, target, candidate).length === 0 ? candidate : null;
 }
 
-function measurementRouteEvidenceMissing(snapshot: PlanningSnapshot, target: PlannerTarget) {
+function measurementRouteEvidenceMissing(snapshot: PlanningSnapshot, target: PlannerTarget, allowMissingRouteEvidence = false) {
   for (const day of target.days) {
     const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
     const team = new Set([...day.collaboratorUserIds, ...(fixed ? [fixed.assigneeUserId] : [])]);
@@ -222,7 +222,8 @@ function measurementRouteEvidenceMissing(snapshot: PlanningSnapshot, target: Pla
       if (occupancy.targetId === target.id || occupancy.date !== day.date
         || !occupancy.participantUserIds.some((id) => team.has(id))) continue;
       const evidence = routeEvidence(snapshot, day.date, target.id, occupancy.targetId);
-      if (!evidence || (!evidence.sameAddress && (evidence.durationMinutes == null || evidence.durationMinutes > 60))) return true;
+      if ((!evidence && !allowMissingRouteEvidence)
+          || (evidence && !evidence.sameAddress && (evidence.durationMinutes == null || evidence.durationMinutes > 60))) return true;
     }
   }
   return false;
@@ -234,6 +235,7 @@ function conflictsWithSelected(
   candidate: PlannerCandidate,
   selected: Map<number, PlannerCandidate>,
   mutableTargetIds: Set<number>,
+  allowMissingRouteEvidence = false,
 ): { blocked: boolean; phoneReuse: number; longRouteCount: number } {
   const external = snapshot.existingSurveyOccupancy.filter((item) => !mutableTargetIds.has(item.targetId));
   const phoneSameResponsible = external.filter((item) => item.surveyMethod === "phone"
@@ -259,10 +261,11 @@ function conflictsWithSelected(
     if (peers.length >= 2) return { blocked: true, phoneReuse: 0, longRouteCount: 0 };
     for (const peer of peers) {
       const evidence = routeEvidence(snapshot, candidate.preliminaryDate, target.id, peer.targetId);
-      if (!evidence || (!evidence.sameAddress && (evidence.durationMinutes == null || evidence.durationMinutes > 60))) {
+      if ((!evidence && !allowMissingRouteEvidence)
+          || (evidence && !evidence.sameAddress && (evidence.durationMinutes == null || evidence.durationMinutes > 60))) {
         return { blocked: true, phoneReuse: 0, longRouteCount: 0 };
       }
-      if (!evidence.sameAddress && Number(evidence.durationMinutes) > 30) longRouteCount += 1;
+      if (evidence && !evidence.sameAddress && Number(evidence.durationMinutes) > 30) longRouteCount += 1;
     }
   }
   return { blocked: false, phoneReuse: 0, longRouteCount };
@@ -291,13 +294,23 @@ export function validateCandidateForSave(snapshot: PlanningSnapshot, target: Pla
   return [...new Set(violations)].sort();
 }
 
-function solveBatch(snapshot: PlanningSnapshot, choices: Map<number, PlannerCandidate[]>) {
+function solveBatch(
+  snapshot: PlanningSnapshot,
+  choices: Map<number, PlannerCandidate[]>,
+  allowMissingRouteEvidence = false,
+  deadlineAt?: number,
+) {
   const targets = sortedTargets(snapshot).filter((target) => (choices.get(target.id)?.length ?? 0) > 0);
   const mutableTargetIds = new Set(targets.map((target) => target.id));
   let best = new Map<number, PlannerCandidate>();
   let bestObjective: PlannerObjective | null = null;
+  let timedOut = false;
   const visit = (index: number, selected: Map<number, PlannerCandidate>, objective: PlannerObjective,
     selectedWriterCounts: Map<number, number>) => {
+    if (deadlineAt != null && Date.now() >= deadlineAt) {
+      timedOut = true;
+      return;
+    }
     if (bestObjective && compareObjective(objective, bestObjective) >= 0) return;
     if (index === targets.length) {
       best = new Map(selected);
@@ -306,7 +319,7 @@ function solveBatch(snapshot: PlanningSnapshot, choices: Map<number, PlannerCand
     }
     const target = targets[index];
     for (const candidate of choices.get(target.id) ?? []) {
-      const conflict = conflictsWithSelected(snapshot, target, candidate, selected, mutableTargetIds);
+      const conflict = conflictsWithSelected(snapshot, target, candidate, selected, mutableTargetIds, allowMissingRouteEvidence);
       if (conflict.blocked) continue;
       const selectedWriterCount = selectedWriterCounts.get(candidate.writerUserId) ?? 0;
       const writingLoad = Number(snapshot.writingCounters[String(candidate.writerUserId)] ?? 0) + selectedWriterCount;
@@ -320,7 +333,7 @@ function solveBatch(snapshot: PlanningSnapshot, choices: Map<number, PlannerCand
     }
   };
   visit(0, new Map(), ZERO_OBJECTIVE, new Map());
-  return best;
+  return { selected: timedOut ? new Map<number, PlannerCandidate>() : best, timedOut };
 }
 
 function protectedPublicCodeGroups(snapshot: PlanningSnapshot, normalized: ReturnType<typeof normalizePublicSampleCodes>) {
@@ -334,7 +347,10 @@ function protectedPublicCodeGroups(snapshot: PlanningSnapshot, normalized: Retur
   return changedGroups;
 }
 
-export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSnapshot): ReversePlannerOutput {
+export function planPreliminarySurveyGivenFixedAssignments(
+  snapshot: PlanningSnapshot,
+  options: { allowMissingRouteEvidence?: boolean; deadlineAt?: number } = {},
+): ReversePlannerOutput {
   const users = new Map(snapshot.users.map((user) => [user.id, user]));
   const errors = new Map<number, ReversePlannerReason>();
   const choices = new Map<number, PlannerCandidate[]>();
@@ -354,13 +370,14 @@ export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSna
     else if (target.protected && !target.existingPlan) protectedGroupBlocked.add(target.id);
     else if (target.fixedAssignments.some((fixed) => protectedCodeGroups.has(`${fixed.measurementDate}|${fixed.assigneeUserId}`))) {
       protectedGroupBlocked.add(target.id);
-    } else if (measurementRouteEvidenceMissing(snapshot, target)) routeBlocked.add(target.id);
+    } else if (measurementRouteEvidenceMissing(snapshot, target, options.allowMissingRouteEvidence)) routeBlocked.add(target.id);
     else {
       const keep = existingCandidate(snapshot, target);
       choices.set(target.id, [...(keep ? [keep] : []), ...candidatesFor(snapshot, target)]);
     }
   }
-  const selected = solveBatch(snapshot, choices);
+  const solved = solveBatch(snapshot, choices, options.allowMissingRouteEvidence, options.deadlineAt);
+  const selected = solved.selected;
   const results: ReversePlannerResult[] = sortedTargets(snapshot).map((target) => {
     const error = errors.get(target.id);
     const targetPublicCodes = publicCodes.filter((item) => item.targetId === target.id);
@@ -380,6 +397,8 @@ export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSna
       mutation: "NONE" as const, reason: "ROUTE_EVIDENCE_REQUIRED" as const, candidate: null };
     if (protectedGroupBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,
       mutation: "NONE" as const, reason: "PROTECTED_PLAN_REQUIRES_REVIEW" as const, candidate: null };
+    if (solved.timedOut) return { ...common, decision: "MANUAL_REQUIRED" as const, mutation: "NONE" as const,
+      reason: "ROUTE_EVIDENCE_REQUIRED" as const, candidate: null };
     const candidate = selected.get(target.id) ?? null;
     if (!candidate) return { ...common, decision: "MANUAL_REQUIRED" as const, mutation: "NONE" as const,
       reason: choices.get(target.id)?.length ? "ROUTE_EVIDENCE_REQUIRED" as const : emptyCandidateReason(snapshot, target), candidate: null };
@@ -390,5 +409,6 @@ export function planPreliminarySurveyGivenFixedAssignments(snapshot: PlanningSna
       mutation: keepExisting ? "KEEP_EXISTING" as const : target.existingPlan ? "REPLACE" as const : "CREATE" as const,
       reason: null, candidate };
   });
-  return { results, sourceFingerprint: sourceFingerprint(snapshot), canonicalSha: snapshot.canonicalSha, plannerVersion: snapshot.plannerVersion };
+  return { results, sourceFingerprint: sourceFingerprint(snapshot), canonicalSha: snapshot.canonicalSha,
+    plannerVersion: snapshot.plannerVersion, solverTimedOut: solved.timedOut || undefined };
 }
