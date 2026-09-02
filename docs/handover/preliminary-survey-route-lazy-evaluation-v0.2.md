@@ -1,7 +1,7 @@
 # 측정자 고정형 역산 플래너 Route Lazy Evaluation v0.2
 
-기준일: 2026-09-02  
-Canonical blob SHA: `aca759e7d785231cc89bc656ba635eb367f65de3`  
+기준일: 2026-09-02
+Canonical blob SHA: `aca759e7d785231cc89bc656ba635eb367f65de3`
 Planner version: `fixed-assignee-reverse-planner-v1.2.1`
 
 ## 최종 구조
@@ -23,7 +23,7 @@ Planner version: `fixed-assignee-reverse-planner-v1.2.1`
 - Route resolution deadline: 기본 20,000ms
 - 성공 cache: 방향별 5분
 - 일시 실패 negative cache: 방향별 90초
-- guard/deadline 도달 시 임의 앞쪽 pair만 처리하지 않고 자동확정을 중단한다.
+- guard/deadline 도달 시 임의 앞쪽 pair만 처리하지 않고 관련 unresolved target을 `ROUTE_EVIDENCE_REQUIRED`로 낮춘다. Route와 무관한 target의 계산은 계속한다.
 
 ## 날짜 및 좌표 범위
 
@@ -46,17 +46,19 @@ Planner version: `fixed-assignee-reverse-planner-v1.2.1`
 ## Staging authenticated headless E2E
 
 - browser mode: headless Chromium
-- session: `route-lazy-staging-e2e-v121`
-- Preview URL: `https://html-git-feature-preliminary-surv-78df8c-joos-projects-3d60ca1e.vercel.app/survey`
+- final HEAD: `88365bfde1172888518370c368baf95793266d2c`
+- session: `route-lazy-staging-final-v121`
+- Preview URL: `https://html-gxmedq0zl-joos-projects-3d60ca1e.vercel.app/survey`
 - DB: Staging synthetic fixture `ZRP9040`, `ZRP9041`
 - 화면 진입/대상 조회/고정 측정자 확정: Route resolver 호출 0
 - 동일주소 Preview: required 1, same-address 1, directional 0, external 0
-- SOURCE_CHANGED: Apply HTTP 409, plan/audit write 0
-- 원천 복원 후 Apply: HTTP 200
+- final HEAD Preview: HTTP 200, 499ms, planning 2, snapshot 85, `AUTO_ASSIGNED + KEEP_EXISTING`, `F/FF`
+- final HEAD Apply: HTTP 200, 568ms, `appliedCount=0` (`KEEP_EXISTING` 재검증)
+- SOURCE_CHANGED: synthetic fixed assignment 변경 후 stale Apply HTTP 409, `appliedCount=0`; 원래 fixed assignment로 즉시 복원
 - persisted 결과: `ZRP9040=F`, `ZRP9041=FF`, plan `automatic`, audit `AUTO_ASSIGNED/CREATE`, source fingerprint 저장
 - Apply network에는 새 Route 요청이 없다.
 - QA 계정 임시 비밀번호는 E2E 종료 후 무작위 폐기값으로 회전했다.
-- screenshot: `C:\Users\USER\orca\artifacts\route-lazy-pr82-v121\staging-after-apply.png`
+- screenshot: `C:\Users\USER\orca\artifacts\route-lazy-pr82-v121\staging-final-head-after-apply.png`
 
 ## 실제 Route 호출 Acceptance
 
@@ -89,8 +91,16 @@ elapsed: 21.175s (DB snapshot 포함)
 ## 환경 관찰
 
 - Vercel Preview에는 `KAKAO_REST_API_KEY`가 없어 다른 주소 fixture에서 directional request 2건, external call 0건으로 계측됐다. 동일주소 Staging Apply E2E와 실제 키가 있는 Production READ-ONLY Preview를 결합하여 저장 흐름과 실제 외부 호출을 분리 검증했다.
-- PR 최신 Preview가 Production DB를 가리키는 환경 drift도 확인했다. 최신 Preview에서는 쓰기 검증을 중단하고 READ-ONLY로만 확인했다. Vercel Preview DB binding은 별도 환경설정 정비 대상이다.
+- stable branch alias의 Deployment Protection 우회 링크가 간헐적으로 실패하여 최종 HEAD 고유 deployment URL에서 검증했다. 고유 deployment의 Staging synthetic fixture 조회와 Apply가 정상 동작했다.
 - 기존 migration ledger reconciliation과 Staging-only trigger drift는 v0.1 기록을 유지하며 이번 Route PR에서 변경하지 않았다.
+
+## Fresh Verification
+
+- independent verifier: Sol/high, READ-ONLY
+- 검증 HEAD: `88365bfde1172888518370c368baf95793266d2c` (이후 문서 증거 정리만 추가)
+- 12개 필수 질문: PASS 12/12
+- blocking issue: 0
+- merge 권고: PASS
 
 ## 배포 및 rollback
 

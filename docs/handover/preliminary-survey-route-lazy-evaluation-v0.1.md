@@ -1,6 +1,6 @@
 # 측정자 고정형 역산 플래너 Route Lazy Evaluation v0.1
 
-기준일: 2026-09-02  
+기준일: 2026-09-02
 Canonical blob SHA: `aca759e7d785231cc89bc656ba635eb367f65de3`
 
 ## 구현 범위
