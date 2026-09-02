@@ -1411,7 +1411,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
-        const measurementDays = editMeasurementDays;
+        // 저장 경계에서도 보고서 담당자 기본 참여자 값을 보장한다.
+        // 모달 초기화가 생략되거나 사용자가 다른 필드를 먼저 저장해도
+        // DB의 collaborators 원천이 보고서 담당자와 어긋나지 않도록 한다.
+        const measurementDays = defaultEmptyParticipantsToReportWriter(
+            editMeasurementDays,
+            measurers,
+            (userId, date) => !isMeasurementStaffUnavailable(userId, date, measurementScheduleBlockedKeys),
+        );
         const measurementDayValidation = validateMeasurementDayForms(measurementDays);
         if (!measurementDayValidation.valid) {
             alert(measurementDayValidation.message);

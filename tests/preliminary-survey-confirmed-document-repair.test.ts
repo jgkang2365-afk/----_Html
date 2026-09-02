@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
-import { classifyConfirmedDocumentState } from "../lib/preliminary-survey-v2/confirmed-document-repair";
+import { classifyConfirmedDocumentState, hasExperiencedParticipant } from "../lib/preliminary-survey-v2/confirmed-document-repair";
 
 describe("찐확정 누락정보 보정 경계", () => {
   it("date와 surveyor가 모두 있으면 COMPLETE이고 변화가 없다", () => {
@@ -28,6 +28,10 @@ describe("찐확정 누락정보 보정 경계", () => {
   it("역사/수동 보호 대상은 자동 보정하지 않는다", () => {
     assert.equal(classifyConfirmedDocumentState(null, true).classification, "PROTECTED_MANUAL");
   });
+  it("비경력자 단독 자동 보정 조합을 허용하지 않는다", () => {
+    assert.equal(hasExperiencedParticipant([{ experienced: false }]), false);
+    assert.equal(hasExperiencedParticipant([{ experienced: true }, { experienced: false }]), true);
+  });
   it("SQL은 non-null overwrite를 차단하고 감사 provenance를 남기며 업무 원천을 갱신하지 않는다", () => {
     const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260827143000_add_true_confirmed_missing_documentary_repair.sql"), "utf8");
     assert.match(sql, /NON_NULL_OVERWRITE_FORBIDDEN/);
@@ -51,7 +55,14 @@ describe("찐확정 누락정보 보정 경계", () => {
     assert.match(ui, /누락정보 보정/);
     assert.match(ui, /예비조사 자동 배정/);
     assert.match(api, /repair_true_confirmed_preliminary_v2_missing_batch/);
+    assert.match(api, /REPAIR_CANONICAL_ROLE_INVALID/);
+    assert.match(api, /is_preliminary_survey_experienced/);
     assert.doesNotMatch(api, /for \(const draft of canonical\)/);
+  });
+  it("측정대상사업장 저장 경계에서 보고서 담당자 기본 참여자를 보장한다", () => {
+    const businessUi = fs.readFileSync(path.join(process.cwd(), "components/features/MeasurementTargetBusinessManagement.tsx"), "utf8");
+    assert.match(businessUi, /저장 경계에서도 보고서 담당자 기본 참여자 값을 보장한다/);
+    assert.match(businessUi, /const measurementDays = defaultEmptyParticipantsToReportWriter\(/);
   });
   it("자동 배정 모달이 보호 누락정보 repair preview/apply를 같은 workflow로 연결한다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/FixedAssigneeReversePlanner.tsx"), "utf8");

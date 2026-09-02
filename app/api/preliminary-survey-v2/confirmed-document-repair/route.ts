@@ -41,6 +41,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "원천값이 변경되었습니다. 누락정보 보정안을 다시 생성해 주세요.", code: "REPAIR_SOURCE_CHANGED" }, { status: 409 });
     }
     if (!canonical.length) return NextResponse.json({ success: true, repairedCount: 0 });
+    const participantIds = [...new Set(canonical.flatMap((draft) => draft.participantUserIds.map(Number)))];
+    const { data: participantUsers, error: participantError } = await access.supabase
+      .from("users")
+      .select("id, is_preliminary_survey_experienced")
+      .in("id", participantIds);
+    if (participantError) throw participantError;
+    const experiencedIds = new Set((participantUsers ?? [])
+      .filter((user: { is_preliminary_survey_experienced?: boolean | null }) => user.is_preliminary_survey_experienced === true)
+      .map((user: { id: number }) => Number(user.id)));
+    const invalidRoleDrafts = canonical.filter((draft) =>
+      !draft.participantUserIds.some((userId) => experiencedIds.has(Number(userId))),
+    );
+    if (invalidRoleDrafts.length) {
+      return NextResponse.json({
+        error: "비경력자 단독 예비조사 조합은 자동 보정할 수 없습니다.",
+        code: "REPAIR_CANONICAL_ROLE_INVALID",
+        targetIds: invalidRoleDrafts.map((draft) => draft.targetId),
+        repairedCount: 0,
+      }, { status: 409 });
+    }
     const { data, error } = await access.supabase.rpc("repair_true_confirmed_preliminary_v2_missing_batch", {
       p_repairs: canonical,
       p_changed_by_user_id: access.session.userId,

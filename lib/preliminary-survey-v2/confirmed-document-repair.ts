@@ -27,6 +27,11 @@ export interface ConfirmedDocumentRepairDraft {
   existingPlanId: string | null;
 }
 
+/** Canonical 자동 보정은 최소 1명의 경력자를 포함해야 한다. */
+export function hasExperiencedParticipant(participants: Array<Pick<SurveyUser, "experienced"> | null | undefined>) {
+  return participants.some((participant) => participant?.experienced === true);
+}
+
 export function classifyConfirmedDocumentState(plan: {
   recommended_date?: string | null;
   participant_user_ids?: unknown;
@@ -176,13 +181,15 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
         existingAssignments: context.assignments,
         routes: createRouteMetrics(),
       });
-      if ((blocks ?? []).length || !validation.valid) return {
+      if ((blocks ?? []).length || !validation.valid || !hasExperiencedParticipant(validParticipants)) return {
         targetId, code: entry.target.code, businessName: entry.target.business_name,
         classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
         recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
         participantUserIds: [], participantNames: [], surveyMethod: null,
         sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null, sourceRuleType: calculatedTarget?.kind ?? null,
-        reason: `보존할 조사자 원천이 보정 날짜의 hard rule을 충족하지 않습니다: ${validation.errors.join(" · ") || "직원 불가 일정"}`,
+        reason: !hasExperiencedParticipant(validParticipants)
+          ? "비경력자 단독 예비조사 조합은 자동 보정할 수 없습니다."
+          : `보존할 조사자 원천이 보정 날짜의 hard rule을 충족하지 않습니다: ${validation.errors.join(" · ") || "직원 불가 일정"}`,
         existingPlanId: entry.plan?.id ?? null,
       };
       participantUserIds = validParticipants.map((user) => user.id);
@@ -190,6 +197,15 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
       responsibleUserId = responsible.id;
       experiencedReviewerUserId = entry.plan?.experienced_reviewer_id ?? validation.experiencedReviewer?.id ?? null;
     }
+    if (entry.fillSurveyors && !hasExperiencedParticipant(result.participants)) return {
+      targetId, code: entry.target.code, businessName: entry.target.business_name,
+      classification: "NEEDS_MANUAL_REVIEW", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
+      recommendedDate: null, responsibleUserId: null, experiencedReviewerUserId: null,
+      participantUserIds: [], participantNames: [], surveyMethod: null,
+      sourceMeasurementDate: entry.target.measurement_date, sourceMeasurerId: entry.target.measurer_id ?? null,
+      sourceRuleType: calculatedTarget?.kind ?? null,
+      reason: "비경력자 단독 예비조사 조합은 자동 보정할 수 없습니다.", existingPlanId: entry.plan?.id ?? null,
+    };
     return {
       targetId, code: entry.target.code, businessName: entry.target.business_name,
       classification: "MISSING_DOCUMENTARY_INFO", fillDate: entry.fillDate, fillSurveyors: entry.fillSurveyors,
