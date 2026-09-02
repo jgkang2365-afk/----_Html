@@ -471,6 +471,7 @@ A/B/D/F/G도 동일하게 적용한다.
 - 과거 `recommendation_reason.measurementAssignee`는 read-only 표시 fallback일 뿐 새 write·고정 확인·자동 backfill 근거로 사용하지 않는다.
 - Preview 생성은 DB를 변경하지 않는다.
 - plan과 날짜별 assignment는 최종 wrapper RPC 한 transaction에서 저장한다.
+- 자동 또는 고정 공시료 담당자가 최종 적용되는 경우 날짜별 measurement assignment가 V2 plan과 함께 영속화되어야 하며, fixed 또는 Preview-only automatic 값만 존재하는 상태는 적용 완료로 보지 않는다. Repair 신규 plan의 plan·assignment·audit도 원자적으로 처리한다.
 - apply 서버는 현재 원천으로 실제 측정팀과 예비조사 plan을 다시 계산하고 canonical draft, source fingerprint, 기존 baseline을 비교한다.
 - 클라이언트가 보낸 사용자 ID·이름·공시료 코드·판정 boolean을 authoritative 판단 근거로 신뢰하지 않는다.
 - 같은 실제 측정일, 후보 예비조사일과 관련 직원의 영향 그룹은 advisory lock 또는 row lock으로 직렬화한다.
