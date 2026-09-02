@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
+import { withAutomaticMeasurementAssignments } from "@/lib/preliminary-survey-v2/reverse-planner/automatic-measurement-assignment";
 import { candidateDates, earliestMeasurementDate } from "@/lib/preliminary-survey-v2/reverse-planner/candidate-dates";
 import { sourceFingerprint } from "@/lib/preliminary-survey-v2/reverse-planner/fingerprint";
 import { resolveLazyRouteEvidence } from "@/lib/preliminary-survey-v2/reverse-planner/lazy-route";
@@ -119,8 +120,7 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
     journalKeys.has(`${target.code}|${target.year}|${normalizedPeriod(target.period)}`)
     || protectedPlanIds.has(String(plans.find((plan: any) => Number(plan.measurement_target_business_id) === Number(target.id))?.id ?? ""))
   ).map((target: any) => Number(target.id));
-  return {
-    snapshot: buildPlanningSnapshot({
+  const snapshot = buildPlanningSnapshot({
       targets: snapshotTargets,
       users: users ?? [],
       fixedAssignments: fixedResult.data ?? [],
@@ -130,7 +130,9 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
       routeEvidence: [],
       trueConfirmedTargetIds: protectedTargetIds,
       planningTargetIds,
-    }),
+    });
+  return {
+    snapshot: mode === "calculation" ? withAutomaticMeasurementAssignments(snapshot) : snapshot,
     rawTargets: planningTargets,
   };
 }
@@ -177,7 +179,7 @@ function userBaseline(snapshot: PlanningSnapshot) {
 }
 
 function fixedBaseline(target: PlanningSnapshot["targets"][number]) {
-  return target.fixedAssignments.map((fixed) => ({
+  return target.fixedAssignments.filter((fixed) => fixed.origin !== "automatic").map((fixed) => ({
     measurementDate: fixed.measurementDate,
     assigneeUserId: fixed.assigneeUserId,
     updatedAtMs: new Date(fixed.updatedAt).getTime(),

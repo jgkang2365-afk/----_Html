@@ -1,5 +1,5 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.2.1";
-export const PRELIMINARY_SURVEY_CANONICAL_SHA = "aca759e7d785231cc89bc656ba635eb367f65de3";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.2.2";
+export const PRELIMINARY_SURVEY_CANONICAL_SHA = "ebc76b986a43597c1f22a1509d925b206ca0b9e8";
 
 export type ReversePlannerDecision = "AUTO_ASSIGNED" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
 export type ReversePlannerMutation = "KEEP_EXISTING" | "CREATE" | "REPLACE" | "NONE";
@@ -19,6 +19,8 @@ export interface PlannerDay {
 export interface FixedMeasurementAssignment {
   targetId: number; measurementDate: string; assigneeUserId: number; confirmedAt: string; updatedAt: string;
   nonParticipantConfirmed?: boolean;
+  /** automatic은 계산용 후보이며 fixed confirmation row가 아니다. */
+  origin?: "confirmed" | "automatic";
 }
 export interface ExistingPlannerPlan {
   id: string; preliminaryDate: string | null; surveyMethod: "field" | "phone"; participantUserIds: number[];

@@ -49,13 +49,13 @@ describe("찐확정 누락정보 보정 경계", () => {
     const api = fs.readFileSync(path.join(process.cwd(), "app/api/preliminary-survey-v2/confirmed-document-repair/route.ts"), "utf8");
     assert.match(ui, /action: "apply",\s*targetIds: confirmedRepairDrafts/);
     assert.match(ui, /누락정보 보정/);
-    assert.match(ui, /추천안 적용/);
+    assert.match(ui, /예비조사 자동 배정/);
     assert.match(api, /repair_true_confirmed_preliminary_v2_missing_batch/);
     assert.doesNotMatch(api, /for \(const draft of canonical\)/);
   });
   it("관리 열은 모든 행에 삭제 버튼을 렌더링하고 상세 모달의 중복 진입점은 없다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");
-    assert.match(ui, /"보고서담당", "관리", "충돌"/);
+    assert.match(ui, /"보고서담당", "상태", "구분", "관리", "확인사항"/);
     assert.match(ui, /저장된 예비조사 계획이 없습니다\./);
     assert.match(ui, /찐확정 계획은 삭제할 수 없습니다\./);
     assert.match(ui, /역사 복원 보호 계획입니다\./);

@@ -2,6 +2,7 @@ import {
   measurementDayFormsFrom,
   type MeasurementDaySource,
 } from "@/lib/business/measurement-day-form";
+import { formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
 
 /** 예비조사 V2와 legacy fallback을 측정일지 화면에서 같은 의미로 표현한다. */
 export interface PreliminarySurveyDisplayModel {
@@ -51,13 +52,10 @@ const names = (
       .filter(([name]) => Boolean(name)),
   );
 
-  if (uniqueNames.length > 1 && uniqueNames.every((name) => experienceByName.has(name))) {
-    uniqueNames.sort((left, right) =>
-      Number(experienceByName.get(right)) - Number(experienceByName.get(left))
-    );
-  }
-
-  return uniqueNames.join(", ") || "-";
+  return formatPreliminarySurveyParticipantsForDisplay(uniqueNames.map((name) => ({
+    name,
+    experienced: typeof experienceByName.get(name) === "boolean" ? experienceByName.get(name) as boolean : undefined,
+  })), ", ");
 };
 
 /**

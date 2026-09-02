@@ -6,6 +6,23 @@ import {
   formatMeasurementPublicSampleAssignee,
   measurementRolesForDisplay,
 } from "../lib/preliminary-survey-v2/display-model";
+import { formatPreliminarySurveyParticipantsForDisplay } from "../lib/preliminary-survey-v2/participant-display";
+
+test("예비조사자 표시는 경력자→비경력자이며 같은 분류의 source order를 유지한다", () => {
+  const format = (left: string, leftExperienced: boolean, right: string, rightExperienced: boolean) =>
+    formatPreliminarySurveyParticipantsForDisplay([
+      { name: left, experienced: leftExperienced },
+      { name: right, experienced: rightExperienced },
+    ]);
+  assert.equal(format("강종구", false, "이태환", true), "이태환 · 강종구");
+  assert.equal(format("고유빈", false, "한기문", true), "한기문 · 고유빈");
+  assert.equal(format("김민영", false, "이주형", true), "이주형 · 김민영");
+  assert.equal(format("이태환", true, "한기문", true), "이태환 · 한기문");
+  assert.equal(formatPreliminarySurveyParticipantsForDisplay([
+    { name: "미확인", experienced: null },
+    { name: "이태환", experienced: true },
+  ]), "이태환 · 미확인");
+});
 
 test("V2 plan이 있으면 5개 역할과 공시료 코드를 persisted V2/target 값으로 표시한다", () => {
   const model = buildPreliminarySurveyDisplayModel({
@@ -80,7 +97,7 @@ test("다일 공시료 담당자는 날짜별 public_sample_code를 모두 표�
   assert.equal(formatMeasurementPublicSampleAssignee(model), "09/14 이태환(A)\n09/15 한기문(B)\n09/16 고유빈(F)");
 });
 
-test("경력 정보가 일부만 확인되면 persisted 예비조사자 순서를 임의 변경하지 않는다", () => {
+test("경력 정보가 일부만 확인돼도 경력자를 먼저, 미확인 사용자를 마지막에 표시한다", () => {
   const model = buildPreliminarySurveyDisplayModel({
     v2: {
       preliminarySurveyors: ["첫 번째", "두 번째"],
@@ -88,7 +105,7 @@ test("경력 정보가 일부만 확인되면 persisted 예비조사자 순서�
     },
   });
 
-  assert.equal(model.preliminarySurveyors, "첫 번째, 두 번째");
+  assert.equal(model.preliminarySurveyors, "두 번째, 첫 번째");
 });
 
 test("V2 plan의 일부 필드가 비어도 legacy 값으로 임의 보충하지 않는다", () => {

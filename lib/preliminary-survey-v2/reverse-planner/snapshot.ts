@@ -91,6 +91,7 @@ export function buildPlanningSnapshot(input: {
         confirmedAt: String(fixed.confirmed_at),
         updatedAt: String(fixed.updated_at),
         nonParticipantConfirmed: fixed.source_snapshot?.nonParticipantConfirmed === true,
+        origin: "confirmed" as const,
       })).sort((left, right) => left.measurementDate.localeCompare(right.measurementDate)),
       protected: protectedIds.has(Number(target.id)),
       existingPlan: plan ? {

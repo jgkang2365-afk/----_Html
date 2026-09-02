@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Input } from "@/components/ui/Input";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { FixedAssigneeReversePlanner } from "@/components/features/FixedAssigneeReversePlanner";
+import { formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
 import {
   adjacentMeasurementReferenceDate,
   currentDateInKst,
@@ -231,15 +231,13 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [confirmedRepairDrafts, setConfirmedRepairDrafts] = useState<ConfirmedRepairDraft[]>([]);
   const [users, setUsers] = useState<SurveyUser[]>([]);
   const [selected, setSelected] = useState<WorkbenchRow | null>(null);
-  const [editDate, setEditDate] = useState("");
-  const [editMethod, setEditMethod] = useState<"field" | "phone">("field");
-  const [editParticipants, setEditParticipants] = useState<number[]>([]);
   const [filtersReady, setFiltersReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [isAutoAssignmentOpen, setIsAutoAssignmentOpen] = useState(false);
   const hasLoadedRef = useRef(false);
   const lastCommittedSearchRef = useRef("");
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -322,6 +320,14 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       setRefreshing(false);
     }
   }, [queryPeriod, queryYear]);
+
+  const experienceByName = useMemo(() => new Map(users.map((user) => [
+    user.name,
+    user.is_preliminary_survey_experienced,
+  ] as const)), [users]);
+  const displaySurveyors = useCallback((names: string[]) => formatPreliminarySurveyParticipantsForDisplay(
+    names.map((name) => ({ name, experienced: experienceByName.get(name) })),
+  ), [experienceByName]);
 
   useEffect(() => {
     if (!filtersReady) return;
@@ -615,35 +621,6 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   const openDetail = (row: WorkbenchRow) => {
     setSelected(row);
-    setEditDate(row.preliminaryDate || "");
-    setEditMethod(row.surveyMethod);
-    setEditParticipants(users.filter((user) => row.surveyors.includes(user.name)).map((user) => user.id));
-  };
-
-  const saveManual = async () => {
-    if (!selected || selected.locked) return;
-    setWorking(true);
-    try {
-      const send = async (confirm: boolean) => fetch(`/api/preliminary-survey-v2/${selected.targetId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recommendedDate: editDate, surveyMethod: editMethod, participantUserIds: editParticipants, confirm }),
-      });
-      let response = await send(false);
-      let result = await response.json();
-      if (response.ok && result.requiresUserConfirmation && window.confirm(result.message)) {
-        response = await send(true);
-        result = await response.json();
-      }
-      if (!response.ok || !result.success) throw new Error(result.error || "수동 저장 실패");
-      setSelected(null);
-      setNotice("수동 수정 내용을 가확정했습니다.");
-      await loadRows();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "수동 저장 실패");
-    } finally {
-      setWorking(false);
-    }
   };
 
   const applyConfirmedRepairs = async () => {
@@ -731,7 +708,6 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   return (
     <div className="space-y-4">
-      {mode === "plan" && <FixedAssigneeReversePlanner />}
       <Card ref={toolbarRef} className="sticky top-28 z-30 bg-white p-3 shadow-sm lg:top-40">
         <div data-testid={mode === "plan" ? "phase-b-plan-toolbar" : "phase-b-list-toolbar"}>
           {mode === "plan" ? <div className="flex flex-wrap items-end gap-2 xl:flex-nowrap">
@@ -770,10 +746,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               {isPlanSearchDirty && <span className="shrink-0 text-amber-700">검색어 변경 · 검색 필요</span>}
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">{selectedRows.slice(0, 4).map((row) => <span key={row.targetId} className="flex max-w-36 items-center gap-1 rounded-full bg-surface-100 px-2 py-1"><span className="truncate">{row.code} {row.businessName}</span><button aria-label={`${row.businessName} 선택 해제`} onClick={() => toggleTarget(row.targetId)}>×</button></span>)}{selectedTargetIds.size > 4 && <span>외 {selectedTargetIds.size - 4}건</span>}{selectedTargetIds.size > 0 && <button className="ml-1 shrink-0 text-primary-700 underline" onClick={() => { invalidateDrafts(); setSelectedTargetIds(new Set()); }}>전체 해제</button>}</div>
               <div className="ml-auto flex shrink-0 gap-2">
-                <Button size="sm" className="shrink-0 whitespace-nowrap" disabled title="측정자 고정형 역산 플래너를 사용해 주세요.">구형 추천 중지</Button>
-                <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={() => setNotice("행을 선택하면 추천 근거와 업체별 대안을 확인할 수 있습니다.")} disabled={isPlanSearchDirty}>대안 보기</Button>
-                <Button size="sm" className="shrink-0 whitespace-nowrap" disabled>구형 적용 중지</Button>
-                <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={applyConfirmedRepairs} disabled={working || isPlanSearchDirty || confirmedRepairDrafts.length === 0 || draftScope !== currentScope}>누락정보 보정</Button>
+                {confirmedRepairDrafts.length > 0 && <Button size="sm" className="shrink-0 whitespace-nowrap" variant="secondary" onClick={applyConfirmedRepairs} disabled={working || isPlanSearchDirty || draftScope !== currentScope}>누락정보 보정</Button>}
+                <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setIsAutoAssignmentOpen(true)}>예비조사 자동 배정</Button>
               </div>
             </>}
           </div>
@@ -786,23 +760,26 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         <div data-testid={mode === "plan" ? "phase-b-plan-table-scroll" : "phase-b-list-table-scroll"} className="overflow-visible">
           <table className="w-full min-w-[1080px] table-fixed text-sm">
             <thead className="sticky z-20 bg-surface-50 text-left text-text-700 shadow-sm" style={{ top: tableHeaderTop }}>
-              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}{["상태", "예비조사일", "코드", "사업장명", "구분", "측정예정일", "예비조사자", "방식", "측정자(공시료)", "측정 참여자", "보고서담당", "관리", "충돌"].map((label) => <th key={label} className="px-2 py-3 font-semibold first:w-24">{label}</th>)}</tr>
+              <tr>{mode === "plan" && <th className="w-9 px-2 py-3"><input aria-label="표시 대상 전체 선택" type="checkbox" checked={displayRows.length > 0 && displayRows.every((row) => selectedTargetIds.has(row.targetId))} onChange={toggleDisplayedTargets} /></th>}
+                <th className="w-52 px-2 py-3 font-semibold">사업장</th><th className="w-28 px-2 py-3 font-semibold">측정예정일</th>
+                <th className="w-28 bg-primary-50 px-2 py-3 font-semibold text-primary-900">예비조사일</th><th className="w-40 bg-primary-50 px-2 py-3 font-semibold text-primary-900">예비조사자</th>
+                {["방식", "측정자(공시료)", "측정 참여자", "보고서담당", "상태", "구분", "관리", "확인사항"].map((label) => <th key={label} className="px-2 py-3 font-semibold">{label}</th>)}
+              </tr>
             </thead>
             <tbody className="divide-y divide-surface-200">
               {displayRows.map((row) => (
                 <tr key={row.targetId} onClick={() => openDetail(row)} className="cursor-pointer hover:bg-primary-50/40">
                   {mode === "plan" && <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}><input aria-label={`${row.businessName} 선택`} type="checkbox" checked={selectedTargetIds.has(row.targetId)} onChange={() => toggleTarget(row.targetId)} /></td>}
-                  <td className="px-2 py-2"><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${STATUS_STYLES[row.status]}`}>{STATUS_LABELS[row.status]}</span></td>
-                  <td className="px-2 py-2 whitespace-nowrap">{row.preliminaryDate || "-"}</td>
-                  <td className="px-2 py-2 font-medium">{row.code}</td>
-                  <td className="truncate px-2 py-2" title={row.businessName}>{row.businessName}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{row.kind}</td>
+                  <td className="px-2 py-2"><div className="font-semibold text-text-900">{row.code}</div><div className="truncate text-text-700" title={row.businessName}>{row.businessName}</div></td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.measurementDate || "-"}</td>
-                  <td className="truncate px-2 py-2" title={row.surveyors.join(", ")}>{row.surveyors.join(", ") || "-"}</td>
+                  <td className="bg-primary-50/40 px-2 py-2 text-base font-bold text-primary-900 whitespace-nowrap">{row.preliminaryDate || "-"}</td>
+                  <td className="truncate bg-primary-50/40 px-2 py-2 text-base font-bold text-primary-900" title={displaySurveyors(row.surveyors)}>{displaySurveyors(row.surveyors)}</td>
                   <td className="px-2 py-2">{row.surveyMethod === "field" ? "방문" : "유선"}</td>
                   <td className="truncate px-2 py-2">{row.mainMeasurer || "-"}</td>
                   <td className="truncate px-2 py-2" title={row.measurementParticipants || ""}>{row.measurementParticipants || "-"}</td>
                   <td className="truncate px-2 py-2">{row.reportWriter || "-"}</td>
+                  <td className="px-2 py-2"><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${STATUS_STYLES[row.status]}`}>{STATUS_LABELS[row.status]}</span></td>
+                  <td className="px-2 py-2 whitespace-nowrap">{row.kind}</td>
                   <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
                     <Button
                       size="sm"
@@ -827,8 +804,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         </div>
       </Card>
 
-      {selected && <Modal isOpen onClose={() => setSelected(null)} title={`${selected.businessName} 예비조사 상세`} size="lg">
+      {selected && <Modal isOpen onClose={() => setSelected(null)} title="예비조사 상세" size="lg">
         <div className="space-y-4">
+          <div className="break-words text-sm text-text-700">업체명 : <strong className="text-text-900">{selected.businessName}</strong></div>
           <div className="grid grid-cols-2 gap-3 rounded-lg bg-surface-50 p-3 text-sm">
             <div>상태: <strong>{STATUS_LABELS[selected.status]}</strong></div><div>구분: <strong>{selected.kind}</strong></div>
             <div>측정예정일: <strong>{selected.measurementDate || "-"}</strong></div><div>충돌: <strong>{selected.conflicts?.join(" · ") || selected.conflict || "없음"}</strong></div>
@@ -841,20 +819,24 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
             <div>보고서 담당자: <strong>{selected.reportWriter || "-"}</strong></div>
           </div>
           {selected.alternatives && selected.alternatives.length > 0 && <div className="rounded-lg border border-surface-200 p-3 text-sm"><strong>대안 후보일</strong><div className="mt-1">{selected.alternatives.join(" · ")}</div></div>}
-          <Input label="예비조사일" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} disabled={selected.locked} />
-          <label className="block text-sm font-medium text-text-700">방식
-            <select value={editMethod} onChange={(event) => setEditMethod(event.target.value as "field" | "phone")} disabled={selected.locked} className="mt-1 block h-10 w-full rounded-md border border-surface-300 bg-white px-3"><option value="field">방문</option><option value="phone">유선</option></select>
-          </label>
-          <fieldset disabled={selected.locked}><legend className="mb-2 text-sm font-medium text-text-700">예비조사자</legend><div className="grid grid-cols-2 gap-2">{users.filter((user) => user.is_active).map((user) => <label key={user.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editParticipants.includes(user.id)} onChange={() => setEditParticipants((current) => current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id])} />{user.name}{user.is_preliminary_survey_experienced ? " (경력)" : ""}</label>)}</div></fieldset>
-          {selected.locked && <Alert variant="warning">유효한 측정일지가 있어 찐확정된 업체입니다. 일반 수정과 자동추천이 차단됩니다.</Alert>}
-          <div className="flex justify-end gap-2">
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" disabled title="측정자 고정형 역산 플래너를 사용해 주세요.">구형 재추천 중지</Button>
-              <Button onClick={saveManual} disabled title="운영정확성 보완이 완료될 때까지 기존 수동 저장이 중지됩니다.">수동 저장 중지</Button>
-            </div>
+          <div className="grid grid-cols-1 gap-3 rounded-lg border border-surface-200 p-3 text-sm md:grid-cols-3">
+            <div>예비조사일: <strong>{selected.preliminaryDate || "-"}</strong></div>
+            <div>예비조사자: <strong>{displaySurveyors(selected.surveyors)}</strong></div>
+            <div>방식: <strong>{selected.surveyMethod === "field" ? "방문" : "유선"}</strong></div>
           </div>
+          {selected.locked && <Alert variant="warning">유효한 측정일지가 있어 찐확정된 업체입니다. 일반 수정과 자동추천이 차단됩니다.</Alert>}
+          <div className="flex justify-end"><Button variant="secondary" onClick={() => setSelected(null)}>닫기</Button></div>
         </div>
       </Modal>}
+      {mode === "plan" && <FixedAssigneeReversePlanner
+        isOpen={isAutoAssignmentOpen}
+        initialMeasurementDate={measurementBaseDate}
+        onClose={() => setIsAutoAssignmentOpen(false)}
+        onApplied={async () => {
+          await loadRows();
+          setNotice("예비조사 배정 결과를 목록에 반영했습니다.");
+        }}
+      />}
     </div>
   );
 }

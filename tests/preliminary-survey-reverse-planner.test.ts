@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildPlanningSnapshot } from "../lib/preliminary-survey-v2/reverse-planner/snapshot";
 import { candidateDates } from "../lib/preliminary-survey-v2/reverse-planner/candidate-dates";
+import { withAutomaticMeasurementAssignments } from "../lib/preliminary-survey-v2/reverse-planner/automatic-measurement-assignment";
 import { normalizePublicSampleCodes } from "../lib/preliminary-survey-v2/reverse-planner/public-sample-code";
 import { planPreliminarySurveyGivenFixedAssignments, validateCandidateHardRules } from "../lib/preliminary-survey-v2/reverse-planner/solver";
 import {
@@ -109,6 +110,17 @@ test("기존 assignment는 fixed confirmation으로 승격하지 않는다", () 
     participantUserIds: [2, 1], responsibleUserId: 1, reviewerUserId: 2, protected: false, updatedAt: "x",
     assignments: [{ measurementDate: "2026-09-15", assigneeUserId: 1, surveyCode: "C", publicSampleCode: null }] };
   assert.equal(resultFor(input).reason, "FIXED_ASSIGNEE_NOT_CONFIRMED");
+});
+
+test("고정값이 없는 기본 자동모드는 계산용 측정자를 만들되 fixed confirmation으로 위장하지 않는다", () => {
+  const input = fixture({ targets: [target({ fixedAssignments: [] })] });
+  const resolved = withAutomaticMeasurementAssignments(input);
+  const [assignment] = resolved.targets[0].fixedAssignments;
+  assert.equal(input.targets[0].fixedAssignments.length, 0);
+  assert.equal(assignment.origin, "automatic");
+  assert.equal(resultFor(resolved).decision, "AUTO_ASSIGNED");
+  const route = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
+  assert.match(route, /fixed\.origin !== "automatic"/);
 });
 
 test("fixed assignee와 예비조사자가 달라도 collaborator 교집합으로 정상이다", () => {
@@ -333,7 +345,7 @@ test("관리자 override는 구체 violation 확인·manual origin·audit로 분
   assert.match(route, /result\.decision === "SOURCE_INVALID"/);
   assert.match(route, /target\.protected \? \["PROTECTED_PLAN_REQUIRES_REVIEW"\]/);
   assert.match(route, /PUBLIC_SAMPLE_PREVIEW_MISMATCH[\s\S]*status: 409/);
-  assert.match(ui, /저장 전 확인할 위반사항/);
+  assert.match(ui, /확인할 위반사항/);
   assert.match(migration, /ELSE ''manual'' END/);
   assert.match(migration, /PUBLIC_SAMPLE_PREVIEW_MISMATCH/);
 });
@@ -374,5 +386,5 @@ test("v1.1 정상 Apply만 재활성화하고 legacy manual write는 계속 차�
   const ui = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
   assert.doesNotMatch(route, /REVERSE_PLANNER_APPLY_TEMPORARILY_DISABLED/);
   assert.match(route, /body\.action !== "apply"/);
-  assert.match(ui, />\s*정상안 적용\s*</);
+  assert.match(ui, />\s*배정 확정\s*</);
 });
