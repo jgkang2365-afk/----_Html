@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { buildPreliminarySurveyDisplayModel, measurementRolesForDisplay } from "@/lib/preliminary-survey-v2/display-model";
+import { collectMeasurementParticipantNames } from "@/lib/business/measurement-day-form";
 
 /**
  * 측정정보 요약 조회 API
@@ -371,6 +372,14 @@ export async function GET(request: NextRequest) {
         measurerId: displayTarget.measurer_id,
         collaborators: displayTarget.collaborators,
       }) : { measurementParticipants: [], reportWriterUserId: null };
+      const currentMeasurementParticipants = displayTarget
+        ? collectMeasurementParticipantNames({
+          dailyStaff: displayTarget.daily_staff,
+          measurementDate: displayTarget.measurement_date,
+          measurerId: displayTarget.measurer_id,
+          collaborators: displayTarget.collaborators,
+        })
+        : [];
       const v2PlanAssignments = v2Plan
         ? (v2Assignments ?? [])
           .filter((assignment: any) => String(assignment.plan_id) === String(v2Plan.id))
@@ -409,7 +418,7 @@ export async function GET(request: NextRequest) {
             assignee: userNameById.get(Number(assignment.assignee_user_id)),
             publicSampleCode: assignment.public_sample_code ?? assignment.survey_code,
           })),
-          measurementParticipants: measurementRoles.measurementParticipants,
+          measurementParticipants: currentMeasurementParticipants,
           reportWriter,
         } : null,
         legacy: !v2Plan && legacySurvey ? {
@@ -418,7 +427,7 @@ export async function GET(request: NextRequest) {
           measurementPublicSampleAssignee: legacySurvey.measurer,
           publicSampleCode: legacySurvey.survey_code,
           measurementParticipants: displayTarget
-            ? measurementRoles.measurementParticipants
+            ? currentMeasurementParticipants
             : legacySurvey.actual_measurer,
           reportWriter: displayTarget ? reportWriter : legacySurvey.report_writer,
         } : null,
@@ -460,13 +469,13 @@ export async function GET(request: NextRequest) {
         measurement_start_date: journal.measurement_start_date,
         measurement_end_date: journal.measurement_end_date,
         measurement_days: journal.measurement_days,
-        measurer: journal.measurer,
+        measurer: preliminaryDisplay.measurementParticipants === "-" ? null : preliminaryDisplay.measurementParticipants,
         preliminary_display: preliminaryDisplay,
         public_sample_measurer: preliminaryDisplay.measurementPublicSampleAssignee === "-" ? null : preliminaryDisplay.measurementPublicSampleAssignee,
-        preliminary_surveyor: survey?.preliminary_surveyor || null,
-        actual_measurer: survey?.actual_measurer || null,
-        report_writer: survey?.report_writer || null,
-        survey_code: survey?.survey_code || null,
+        preliminary_surveyor: preliminaryDisplay.preliminarySurveyors === "-" ? null : preliminaryDisplay.preliminarySurveyors,
+        actual_measurer: preliminaryDisplay.measurementParticipants === "-" ? null : preliminaryDisplay.measurementParticipants,
+        report_writer: preliminaryDisplay.reportWriter === "-" ? null : preliminaryDisplay.reportWriter,
+        survey_code: preliminaryDisplay.publicSampleCode === "-" ? null : preliminaryDisplay.publicSampleCode,
         survey_measurement_date: survey?.measurement_date || null,
         survey_end_date: survey?.end_date || null,
         survey_measurement_weekdays: survey?.measurement_weekdays || null,

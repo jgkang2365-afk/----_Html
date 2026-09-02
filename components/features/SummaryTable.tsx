@@ -334,7 +334,9 @@ export const SummaryTable: React.FC = () => {
       measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
       measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
       measurement_days: calculatedDays,
-      measurer: entry.measurer || "",
+      measurer: preliminaryDisplayOf(entry).measurementParticipants === "-"
+        ? ""
+        : preliminaryDisplayOf(entry).measurementParticipants,
       business_name: entry.business_name || "",
       total_employees: entry.total_employees || null,
       business_number: entry.business_number || "",
@@ -457,6 +459,8 @@ export const SummaryTable: React.FC = () => {
 
       // 저장할 데이터 준비 (빈 문자열을 null로 변환)
       const saveData = { ...editFormData } as any;
+      // 측정 참여자는 current Canonical 표시값이며 이 요약 수정 모달의 편집 대상이 아니다.
+      delete saveData.measurer;
       saveData.manager_mobile = normalizeManagerMobile(saveData.manager_mobile, saveData.manager_name);
 
       // manager_email_1, manager_email_2를 결합하여 manager_email 설정하고 임시 필드 삭제

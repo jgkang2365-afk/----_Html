@@ -85,6 +85,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     getOfficeJurisdictionDisplay(entry.office_jurisdiction_display, entry.office_jurisdiction)
   );
   const addressAutoFillSequence = useRef(0);
+  const currentRoleLoadSequence = useRef(0);
   const [mounted, setMounted] = useState(false);
   const [pendingNumberRequest, setPendingNumberRequest] = useState<any>(null);
   const [requestingNumberChange, setRequestingNumberChange] = useState(false);
@@ -395,7 +396,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
 
           if (response.ok) {
             const data = await response.json();
-            setPreliminaryDisplay(data.preliminaryDisplay || null);
 
             // 디버깅: 산재관리번호 확인
             console.log('[JournalEditForm] 직전 측정일지 데이터:', {
@@ -592,21 +592,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 updated.national_support_status = prev.national_support_status || normalizedStatus || "";
               }
 
-              // 측정 참여자는 현재 code/year/period의 target 원천만 사용한다.
-              // previous journal 또는 legacy survey의 measurer를 fallback하지 않는다.
-              if (data.preliminaryDisplay) {
-                setPreliminaryDisplay(data.preliminaryDisplay);
-                const canonicalMeasurementParticipants =
-                  data.preliminaryDisplay.measurementParticipants &&
-                  data.preliminaryDisplay.measurementParticipants !== "-"
-                    ? data.preliminaryDisplay.measurementParticipants
-                    : "";
-                updated.measurer = canonicalMeasurementParticipants;
-              } else {
-                setPreliminaryDisplay(null);
-                updated.measurer = "";
-              }
-
               // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)
               if (data.surveys && data.surveys.length > 0) {
                 const surveys = data.surveys;
@@ -735,6 +720,45 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       fetchUnpaidInfo();
     }
   }, [entry.id, entry.code, entry.measurement_year, entry.measurement_period, entry.business_name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 현재 역할값은 폼에서 선택된 code/year/period의 exact target만 사용한다.
+  // 전회 담당자/측정비 등 비교용 previousData는 이 effect와 분리해 그대로 유지한다.
+  useEffect(() => {
+    const code = String(formData.code || "").trim();
+    const year = Number(formData.measurement_year);
+    const period = String(formData.measurement_period || "").trim();
+    const requestSequence = ++currentRoleLoadSequence.current;
+
+    setFormData((previous) => ({ ...previous, measurer: "" }));
+    setPreliminaryDisplay(null);
+    if (!code || !Number.isInteger(year) || !period) return;
+
+    const fetchCurrentRoles = async () => {
+      try {
+        const response = await fetch(
+          `/api/journal/previous-data?code=${encodeURIComponent(code)}&year=${year}&period=${encodeURIComponent(period)}`,
+        );
+        if (!response.ok) return;
+        const data = await response.json();
+        if (requestSequence !== currentRoleLoadSequence.current) return;
+
+        setFormData((previous) => {
+          if (
+            String(previous.code || "").trim() !== code
+            || Number(previous.measurement_year) !== year
+            || String(previous.measurement_period || "").trim() !== period
+          ) return previous;
+          return { ...previous, measurer: data.currentMeasurementParticipants || "" };
+        });
+        const currentPreliminaryDisplay = data.preliminaryDisplay || null;
+        setPreliminaryDisplay(currentPreliminaryDisplay);
+      } catch (currentRoleError) {
+        console.error("현재 측정 역할 조회 오류:", currentRoleError);
+      }
+    };
+
+    fetchCurrentRoles();
+  }, [formData.code, formData.measurement_year, formData.measurement_period]);
 
   // 대기 중인 번호 변경 요청 조회 (수정 모드에서만, 일반 사용자만)
   useEffect(() => {
@@ -951,7 +975,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
       measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
       measurement_days: entry.measurement_days || "",
-      measurer: entry.measurer || "",
+      measurer: "",
       completion_status: entry.completion_status || "미완료",
 
       // 사업장 정보
@@ -1306,6 +1330,8 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
       delete submitData._isFromBusiness;
       delete submitData._isFromSurvey;
       delete submitData.office_jurisdiction_raw;
+      // 수정 모달의 측정 참여자는 current target에서 읽는 표시값이다. 과거 journal.measurer를 자동 덮어쓰지 않는다.
+      if (entry.id) delete submitData.measurer;
 
       const url = entry.id ? `/api/journal/${entry.id}` : "/api/journal";
       const method = entry.id ? "PUT" : "POST";
