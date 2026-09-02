@@ -1,0 +1,57 @@
+name: Finalize current role mapping
+
+on:
+  push:
+    branches:
+      - feature/summary-canonical-ui-current-participants
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feature/summary-canonical-ui-current-participants
+
+      - name: Apply exact-period role mapping guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/finalize_current_role_mapping.py
+          git diff --check
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Focused role-source guard
+        run: npx tsx --test tests/summary-journal-current-role-source.test.ts
+
+      - name: Test
+        run: npm test
+
+      - name: Typecheck
+        run: npx tsc --noEmit --pretty false --incremental false
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Commit verified changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/finalize-current-role-mapping.yml scripts/finalize_current_role_mapping.py
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: keep current role values period-exact"
+          git push origin HEAD:feature/summary-canonical-ui-current-participants
