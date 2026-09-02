@@ -1350,12 +1350,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
         // 보고서 담당자(measurer_id)는 측정 참여자와 별개 역할이다.
         // 모달에서는 편의를 위해 기본 체크하되 사용자가 자유롭게 해제할 수 있다.
-        const initialDays = defaultEmptyParticipantsToReportWriter(measurementDayFormsFrom({
+        const sourceDays = measurementDayFormsFrom({
             dailyStaff: item.daily_staff,
             measurementDate: item.measurement_date,
             measurerId: item.measurer_id,
             collaborators: item.collaborators,
-        }), measurers, (userId, date) => !isMeasurementStaffUnavailable(userId, date, blockedKeys));
+        });
+        const initialDays = defaultEmptyParticipantsToReportWriter(sourceDays, measurers, (userId, date) => !isMeasurementStaffUnavailable(userId, date, blockedKeys));
         const initialForm = {
             ...item,
             sanjae: item.industrial_accident_number || item.sanjae || "",
@@ -1363,7 +1364,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         };
 
         setEditForm(initialForm);
-        editInitialStateRef.current = { form: initialForm, days: initialDays };
+        editInitialStateRef.current = { form: initialForm, days: sourceDays };
         setEditMeasurementDays(withMeasurementDayUiKeys(initialDays));
         setIsEditModalOpen(true);
     };

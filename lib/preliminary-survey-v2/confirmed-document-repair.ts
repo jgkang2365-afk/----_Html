@@ -51,6 +51,18 @@ export function orderRepairReviewerCandidates(responsible: SurveyUser, candidate
     (left.name === preferredName ? -1 : right.name === preferredName ? 1 : left.id - right.id));
 }
 
+/** 유효성 검사를 통과하는 첫 경력 reviewer를 deterministic하게 선택한다. */
+export async function selectRepairReviewerCandidate(
+  responsible: SurveyUser,
+  candidates: SurveyUser[],
+  isValid: (candidate: SurveyUser) => boolean | Promise<boolean>,
+) {
+  for (const candidate of orderRepairReviewerCandidates(responsible, candidates)) {
+    if (await isValid(candidate)) return candidate;
+  }
+  return null;
+}
+
 export function classifyConfirmedDocumentState(plan: {
   recommended_date?: string | null;
   participant_user_ids?: unknown;
@@ -178,12 +190,12 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
           const reviewerCandidates = orderRepairReviewerCandidates(preservedResponsible, context.users
             .filter((user) => user.active !== false && user.experienced && user.id !== preservedResponsible.id)
           );
-          for (const candidate of reviewerCandidates) {
+          const selected = await selectRepairReviewerCandidate(preservedResponsible, reviewerCandidates, async (candidate) => {
             const { data: candidateBlocks, error: candidateBlockError } = await supabase.from("user_schedule_blocks")
               .select("user_id").in("user_id", [preservedResponsible.id, candidate.id])
               .lte("start_date", repairDate).gte("end_date", repairDate);
             if (candidateBlockError) throw candidateBlockError;
-            if ((candidateBlocks ?? []).length) continue;
+            if ((candidateBlocks ?? []).length) return false;
             const candidateValidation = await validateManualPlanHardRules({
               target: { ...context.target, responsible: preservedResponsible },
               recommendedDate: repairDate,
@@ -192,11 +204,9 @@ export async function buildConfirmedDocumentRepairPreview(supabase: any, targetI
               existingAssignments: context.assignments,
               routes: createRouteMetrics(),
             });
-            if (candidateValidation.valid && isCanonicalAutoSurveyorCombination([preservedResponsible, candidate], preservedResponsible.id, candidate.id)) {
-              selectedReviewer = candidate;
-              break;
-            }
-          }
+            return candidateValidation.valid && isCanonicalAutoSurveyorCombination([preservedResponsible, candidate], preservedResponsible.id, candidate.id);
+          });
+          if (selected) selectedReviewer = selected;
         }
         participants = [preservedResponsible, selectedReviewer].filter(Boolean);
       }
