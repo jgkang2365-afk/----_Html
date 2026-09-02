@@ -269,6 +269,19 @@ test("전체 deadline은 진행 중 Route를 중단하고 관련 pair만 미확�
   assert.equal(result.snapshot.routeEvidence[0].provider, "route_deadline");
 });
 
+test("provider가 AbortSignal을 무시해도 resolver hard deadline은 Preview를 반환한다", async () => {
+  const routes = fakeRoutes(() => new Promise<RouteMetric>(() => undefined));
+  const startedAt = Date.now();
+  const result = await resolveLazyRouteEvidence(fixture({ actualMeasurementOccupancy: [
+    ...fixture().actualMeasurementOccupancy,
+    { targetId: 20, businessCode: "H0020", address: "다른 주소", coordinate: { latitude: 36.352, longitude: 127.452 },
+      date: "2026-09-16", participantUserIds: [1] },
+  ] }), { routes, deadlineMs: 20 });
+  assert.ok(Date.now() - startedAt < 1_000);
+  assert.equal(result.stats.deadlinePairs, 1);
+  assert.equal(result.snapshot.routeEvidence[0].provider, "route_deadline");
+});
+
 test("4개 pair는 pair concurrency 4에서 최대 8개 양방향 요청으로 제한된다", async () => {
   let active = 0;
   let maxActive = 0;

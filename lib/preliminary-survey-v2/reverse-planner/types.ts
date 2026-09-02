@@ -107,6 +107,7 @@ export interface ReversePlannerResult {
 }
 export interface ReversePlannerOutput {
   results: ReversePlannerResult[]; sourceFingerprint: string; canonicalSha: string; plannerVersion: string;
+  solverTimedOut?: boolean;
   routeStats?: PlannerRouteStats;
   routeEvidence?: PlannerRouteEvidence[];
   previewToken?: string;

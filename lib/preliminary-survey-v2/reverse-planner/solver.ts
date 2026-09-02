@@ -294,13 +294,23 @@ export function validateCandidateForSave(snapshot: PlanningSnapshot, target: Pla
   return [...new Set(violations)].sort();
 }
 
-function solveBatch(snapshot: PlanningSnapshot, choices: Map<number, PlannerCandidate[]>, allowMissingRouteEvidence = false) {
+function solveBatch(
+  snapshot: PlanningSnapshot,
+  choices: Map<number, PlannerCandidate[]>,
+  allowMissingRouteEvidence = false,
+  deadlineAt?: number,
+) {
   const targets = sortedTargets(snapshot).filter((target) => (choices.get(target.id)?.length ?? 0) > 0);
   const mutableTargetIds = new Set(targets.map((target) => target.id));
   let best = new Map<number, PlannerCandidate>();
   let bestObjective: PlannerObjective | null = null;
+  let timedOut = false;
   const visit = (index: number, selected: Map<number, PlannerCandidate>, objective: PlannerObjective,
     selectedWriterCounts: Map<number, number>) => {
+    if (deadlineAt != null && Date.now() >= deadlineAt) {
+      timedOut = true;
+      return;
+    }
     if (bestObjective && compareObjective(objective, bestObjective) >= 0) return;
     if (index === targets.length) {
       best = new Map(selected);
@@ -323,7 +333,7 @@ function solveBatch(snapshot: PlanningSnapshot, choices: Map<number, PlannerCand
     }
   };
   visit(0, new Map(), ZERO_OBJECTIVE, new Map());
-  return best;
+  return { selected: timedOut ? new Map<number, PlannerCandidate>() : best, timedOut };
 }
 
 function protectedPublicCodeGroups(snapshot: PlanningSnapshot, normalized: ReturnType<typeof normalizePublicSampleCodes>) {
@@ -339,7 +349,7 @@ function protectedPublicCodeGroups(snapshot: PlanningSnapshot, normalized: Retur
 
 export function planPreliminarySurveyGivenFixedAssignments(
   snapshot: PlanningSnapshot,
-  options: { allowMissingRouteEvidence?: boolean } = {},
+  options: { allowMissingRouteEvidence?: boolean; deadlineAt?: number } = {},
 ): ReversePlannerOutput {
   const users = new Map(snapshot.users.map((user) => [user.id, user]));
   const errors = new Map<number, ReversePlannerReason>();
@@ -366,7 +376,8 @@ export function planPreliminarySurveyGivenFixedAssignments(
       choices.set(target.id, [...(keep ? [keep] : []), ...candidatesFor(snapshot, target)]);
     }
   }
-  const selected = solveBatch(snapshot, choices, options.allowMissingRouteEvidence);
+  const solved = solveBatch(snapshot, choices, options.allowMissingRouteEvidence, options.deadlineAt);
+  const selected = solved.selected;
   const results: ReversePlannerResult[] = sortedTargets(snapshot).map((target) => {
     const error = errors.get(target.id);
     const targetPublicCodes = publicCodes.filter((item) => item.targetId === target.id);
@@ -386,6 +397,8 @@ export function planPreliminarySurveyGivenFixedAssignments(
       mutation: "NONE" as const, reason: "ROUTE_EVIDENCE_REQUIRED" as const, candidate: null };
     if (protectedGroupBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,
       mutation: "NONE" as const, reason: "PROTECTED_PLAN_REQUIRES_REVIEW" as const, candidate: null };
+    if (solved.timedOut) return { ...common, decision: "MANUAL_REQUIRED" as const, mutation: "NONE" as const,
+      reason: "ROUTE_EVIDENCE_REQUIRED" as const, candidate: null };
     const candidate = selected.get(target.id) ?? null;
     if (!candidate) return { ...common, decision: "MANUAL_REQUIRED" as const, mutation: "NONE" as const,
       reason: choices.get(target.id)?.length ? "ROUTE_EVIDENCE_REQUIRED" as const : emptyCandidateReason(snapshot, target), candidate: null };
@@ -396,5 +409,6 @@ export function planPreliminarySurveyGivenFixedAssignments(
       mutation: keepExisting ? "KEEP_EXISTING" as const : target.existingPlan ? "REPLACE" as const : "CREATE" as const,
       reason: null, candidate };
   });
-  return { results, sourceFingerprint: sourceFingerprint(snapshot), canonicalSha: snapshot.canonicalSha, plannerVersion: snapshot.plannerVersion };
+  return { results, sourceFingerprint: sourceFingerprint(snapshot), canonicalSha: snapshot.canonicalSha,
+    plannerVersion: snapshot.plannerVersion, solverTimedOut: solved.timedOut || undefined };
 }

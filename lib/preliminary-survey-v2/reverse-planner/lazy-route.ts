@@ -115,6 +115,21 @@ async function mapWithConcurrency<T>(
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
 }
 
+async function settleBeforeDeadline<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<{ timedOut: false; value: T } | { timedOut: true }> {
+  if (signal.aborted) return { timedOut: true };
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve({ timedOut: true });
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => resolve({ timedOut: false, value }),
+      reject,
+    ).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 /** Preview 전용: route-free solve 뒤 실제 shared-person pair만 양방향 조회해 evidence를 동결한다. */
 export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, options: LazyRouteOptions = {}) {
   const routes = options.routes ?? createRouteMetrics();
@@ -127,6 +142,7 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
   let sameAddressResolved = 0;
   let guardedPairs = 0;
   let deadlinePairs = 0;
+  let solverTimedOut = false;
   const capturedAt = new Date().toISOString();
   const maxPairs = routePairLimit(options);
   const concurrency = routeConcurrency(options);
@@ -134,15 +150,37 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
   const deadlineAt = Date.now() + deadlineMs;
   const deadlineController = new AbortController();
   const deadlineTimer = setTimeout(() => deadlineController.abort(), deadlineMs);
+  let seedActualMeasurementRequirements = true;
 
   try {
     while (true) {
+      if (!seedActualMeasurementRequirements && (deadlineController.signal.aborted || Date.now() >= deadlineAt)) {
+        solverTimedOut = true;
+        break;
+      }
       const provisionalSnapshot = { ...snapshot, routeEvidence: [...evidence.values()] };
-      const provisional = planPreliminarySurveyGivenFixedAssignments(provisionalSnapshot,
-        { allowMissingRouteEvidence: true });
-      const requirements = collectRequiredRoutePairs(provisionalSnapshot, provisional);
+      // 실제 측정팀 중복은 solver 결과와 무관하다. 이를 먼저 해결하면 route-free global solve가
+      // 이미 확정된 이동 불가 대상을 조합에 넣어 지수적으로 탐색하는 일을 피할 수 있다.
+      const collectingSeed = seedActualMeasurementRequirements;
+      const provisional = collectingSeed ? null
+        : planPreliminarySurveyGivenFixedAssignments(provisionalSnapshot,
+          { allowMissingRouteEvidence: true, deadlineAt });
+      if (provisional?.solverTimedOut) {
+        solverTimedOut = true;
+        break;
+      }
+      const requirements = collectingSeed
+        ? collectRequiredRoutePairs(provisionalSnapshot, {
+          results: [],
+          sourceFingerprint: "",
+          canonicalSha: snapshot.canonicalSha,
+          plannerVersion: snapshot.plannerVersion,
+        })
+        : collectRequiredRoutePairs(provisionalSnapshot, provisional!);
+      seedActualMeasurementRequirements = false;
       requirements.forEach((requirement) => candidatePairKeys.add(routeRequirementKey(requirement)));
       const unresolved = requirements.filter((requirement) => !evidence.has(routeRequirementKey(requirement)));
+      if (collectingSeed && !unresolved.length) continue;
       if (!unresolved.length) break;
 
       unresolved.forEach((requirement) => requiredKeys.add(routeRequirementKey(requirement)));
@@ -181,6 +219,7 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
             deadlinePairs += 1;
             added += 1;
           }
+          break;
         } else if (external.length > remainingBudget) {
           // 정렬 앞쪽만 처리하는 target-id 편향을 만들지 않고 현재 unresolved 묶음 전체를 보수적으로 낮춘다.
           for (const requirement of external) {
@@ -188,6 +227,7 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
             guardedPairs += 1;
             added += 1;
           }
+          break;
         } else {
           external.forEach((requirement) => budgetedPairKeys.add(routeRequirementKey(requirement)));
           if (options.loadCoordinates) {
@@ -199,10 +239,15 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
             codes.forEach((code) => loadedCoordinateCodes.add(code));
             if (codes.length) {
               try {
-                const loaded = await options.loadCoordinates(codes);
-                for (const location of locations.values()) {
-                  const coordinate = loaded.get(location.businessCode);
-                  if (coordinate) location.coordinate = coordinate;
+                const loadedResult = await settleBeforeDeadline(
+                  options.loadCoordinates(codes),
+                  deadlineController.signal,
+                );
+                if (!loadedResult.timedOut) {
+                  for (const location of locations.values()) {
+                    const coordinate = loadedResult.value.get(location.businessCode);
+                    if (coordinate) location.coordinate = coordinate;
+                  }
                 }
               } catch {
                 console.warn("[reverse-planner] coordinate lookup failed");
@@ -222,7 +267,7 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
             const right = locations.get(requirement.rightTargetId);
             const region = (address: string | null | undefined) => String(address ?? "").trim()
               .split(/\s+/).slice(0, 2).join(" ") || null;
-            const [forwardResult, reverseResult] = await Promise.allSettled([
+            const settled = await settleBeforeDeadline(Promise.allSettled([
               routes.between(
                 { coordinate: left?.coordinate ?? null, region: region(left?.address) } as any,
                 { coordinate: right?.coordinate ?? null, region: region(right?.address) } as any,
@@ -233,7 +278,14 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
                 { coordinate: left?.coordinate ?? null, region: region(left?.address) } as any,
                 { signal: deadlineController.signal },
               ),
-            ]);
+            ]), deadlineController.signal);
+            if (settled.timedOut) {
+              evidence.set(key, unresolvedEvidence(requirement, capturedAt, "route_deadline"));
+              deadlinePairs += 1;
+              added += 1;
+              return;
+            }
+            const [forwardResult, reverseResult] = settled.value;
             const forward = forwardResult.status === "fulfilled" ? forwardResult.value : null;
             const reverse = reverseResult.status === "fulfilled" ? reverseResult.value : null;
             const forwardMinutes = forward?.source === "vehicle" ? forward.durationMinutes : null;
@@ -291,5 +343,5 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
     guardedPairs,
     deadlinePairs,
   };
-  return { snapshot: { ...snapshot, routeEvidence: allEvidence }, stats };
+  return { snapshot: { ...snapshot, routeEvidence: allEvidence }, stats, solverTimedOut };
 }

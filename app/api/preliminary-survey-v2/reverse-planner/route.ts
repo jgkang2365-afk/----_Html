@@ -283,7 +283,8 @@ export async function POST(request: NextRequest) {
           }));
         },
       });
-      const output = planPreliminarySurveyGivenFixedAssignments(resolved.snapshot);
+      const output = planPreliminarySurveyGivenFixedAssignments(resolved.snapshot,
+        resolved.solverTimedOut ? { deadlineAt: Date.now() } : {});
       const previewToken = createPreviewToken({
         actorUserId: session.userId,
         measurementDate,
