@@ -175,7 +175,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
     measurement_start_date: normalizeDateForInput(entry.measurement_start_date),
     measurement_end_date: normalizeDateForInput(entry.measurement_end_date),
     measurement_days: entry.measurement_days || "",
-    measurer: entry.measurer || "",
+    measurer: "",
     completion_status: entry.completion_status || "미완료",
 
     // 사업장 정보
@@ -491,7 +491,6 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                   updated.invoice_email = updated.invoice_email || "";
                   updated.invoice_email_2 = updated.invoice_email_2 || data.previousData.invoice_email_2 || "";
                 }
-                updated.measurer = updated.measurer || data.previousData.measurer || "";
                 
                 if (!updated.industrial_accident_number && data.previousData.industrial_accident_number) {
                   updated.industrial_accident_number = data.previousData.industrial_accident_number;
@@ -593,6 +592,21 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                 updated.national_support_status = prev.national_support_status || normalizedStatus || "";
               }
 
+              // 측정 참여자는 현재 code/year/period의 target 원천만 사용한다.
+              // previous journal 또는 legacy survey의 measurer를 fallback하지 않는다.
+              if (data.preliminaryDisplay) {
+                setPreliminaryDisplay(data.preliminaryDisplay);
+                const canonicalMeasurementParticipants =
+                  data.preliminaryDisplay.measurementParticipants &&
+                  data.preliminaryDisplay.measurementParticipants !== "-"
+                    ? data.preliminaryDisplay.measurementParticipants
+                    : "";
+                updated.measurer = canonicalMeasurementParticipants;
+              } else {
+                setPreliminaryDisplay(null);
+                updated.measurer = "";
+              }
+
               // 예비조사 정보 (우선순위: 예비조사 정보가 최우선)
               if (data.surveys && data.surveys.length > 0) {
                 const surveys = data.surveys;
@@ -628,21 +642,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
                     updated.measurement_days = uniqueDates.size;
                   }
                 }
-
-                // 3. 측정자 통합 (모든 일자의 측정자 합집합)
-                const allMeasurers = new Set<string>();
-                surveys.forEach((s: any) => {
-                  if (s.measurer) {
-                    s.measurer.split(',').forEach((m: string) => {
-                      const trimmed = m.trim();
-                      if (trimmed) allMeasurers.add(trimmed);
-                    });
-                  }
-                });
-
-                if (allMeasurers.size > 0 && !prev.measurer) {
-                  updated.measurer = Array.from(allMeasurers).join(', ');
-                }
+                // 3. 측정 참여자는 위 current-period Canonical projection을 유지한다.
 
                 // 4. K2B 전송자 (가장 마지막 날짜의 보고서 담당자 사용)
                 const lastSurvey = surveys[surveys.length - 1];
@@ -2297,12 +2297,11 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
           placeholder="일수"
         />
         <Input
-          label="측정자"
+          label="측정 참여자"
           value={formData.measurer}
-          onChange={(e) => setFormData({ ...formData, measurer: e.target.value })}
-          placeholder="측정자 입력"
-          disabled={isLockedByCompletion}
-          className={isLockedByCompletion ? "bg-surface-50" : ""}
+          placeholder="현재 측정대상사업장 참여자"
+          disabled
+          className="bg-surface-50"
         />
       </div>
     </div>

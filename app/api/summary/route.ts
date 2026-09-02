@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { toShortName } from "@/lib/constants/designated-offices";
+import { buildPreliminarySurveyDisplayModel, measurementRolesForDisplay } from "@/lib/preliminary-survey-v2/display-model";
 
 /**
  * 측정정보 요약 조회 API
@@ -123,7 +124,7 @@ export async function GET(request: NextRequest) {
     if (codes.length > 0) {
       const { data: surveyData, error: surveyError } = await supabase
         .from("preliminary_survey")
-        .select("id, code, year, period, measurement_date, end_date, measurement_weekdays, preliminary_surveyor, actual_measurer, report_writer, survey_code, created_at")
+        .select("id, code, year, period, measurement_date, end_date, measurement_weekdays, preliminary_surveyor, measurer, actual_measurer, report_writer, survey_code, created_at")
         .in("code", codes)
         .order("measurement_date", { ascending: true });
 
@@ -212,14 +213,17 @@ export async function GET(request: NextRequest) {
     if (codes.length > 0) {
       const { data: targetData, error: targetError } = await supabase
         .from("measurement_target_business")
-        .select("code, year, period, national_support_status, measurement_date, plan_manager")
+        .select("id, code, year, period, national_support_status, measurement_date, plan_manager, collaborators, daily_staff, measurer_id")
         .in("code", codes);
 
       if (targetError) {
-        console.warn("대상 사업장 조회 오류 (국고지원여부):", targetError);
-      } else {
-        targets = targetData || [];
+        console.error("대상 사업장 조회 오류:", targetError);
+        return NextResponse.json(
+          { error: "측정대상사업장 원천을 불러오지 못했습니다.", details: targetError.message },
+          { status: 500 },
+        );
       }
+      targets = targetData || [];
     }
 
     // 예비조사 정보를 조인하여 요약 데이터 생성
@@ -256,6 +260,70 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    const targetIds = targets.map((target) => Number(target.id)).filter(Number.isInteger);
+    const { data: v2Plans, error: v2PlanError } = targetIds.length
+      ? await supabase.from("preliminary_survey_v2_plans").select(
+        "id, measurement_target_business_id, recommended_date, participant_user_ids, participant_names",
+      ).in("measurement_target_business_id", targetIds)
+      : { data: [], error: null };
+    if (v2PlanError) {
+      console.error("예비조사 V2 계획 표시 원천 조회 오류:", v2PlanError);
+      return NextResponse.json(
+        { error: "예비조사 V2 계획 원천을 불러오지 못했습니다.", details: v2PlanError.message },
+        { status: 500 },
+      );
+    }
+    const planIds = (v2Plans ?? []).map((plan: any) => String(plan.id));
+    const { data: v2Assignments, error: v2AssignmentError } = planIds.length
+      ? await supabase.from("preliminary_survey_v2_measurement_assignments").select(
+        "plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code",
+      ).in("plan_id", planIds)
+      : { data: [], error: null };
+    if (v2AssignmentError) {
+      console.error("예비조사 V2 공시료 배정 표시 원천 조회 오류:", v2AssignmentError);
+      return NextResponse.json(
+        { error: "예비조사 V2 공시료 배정 원천을 불러오지 못했습니다.", details: v2AssignmentError.message },
+        { status: 500 },
+      );
+    }
+    const displayUserIds = new Set<number>();
+    targets.forEach((target) => {
+      const roles = measurementRolesForDisplay({
+        dailyStaff: target.daily_staff,
+        measurementDate: target.measurement_date,
+        measurerId: target.measurer_id,
+        collaborators: target.collaborators,
+      });
+      if (roles.reportWriterUserId != null) displayUserIds.add(roles.reportWriterUserId);
+    });
+    (v2Assignments ?? []).forEach((assignment: any) => {
+      const assigneeId = Number(assignment.assignee_user_id);
+      if (Number.isInteger(assigneeId)) displayUserIds.add(assigneeId);
+    });
+    (v2Plans ?? []).forEach((plan: any) => {
+      const participantIds = Array.isArray(plan.participant_user_ids) ? plan.participant_user_ids : [];
+      participantIds.forEach((id: unknown) => {
+        const participantId = Number(id);
+        if (Number.isInteger(participantId)) displayUserIds.add(participantId);
+      });
+    });
+    const { data: users, error: userError } = displayUserIds.size
+      ? await supabase.from("users").select("id, name, is_preliminary_survey_experienced").in("id", [...displayUserIds])
+      : { data: [], error: null };
+    if (userError) {
+      console.error("예비조사 V2 표시 사용자 조회 오류:", userError);
+      return NextResponse.json(
+        { error: "예비조사 V2 표시 사용자 원천을 불러오지 못했습니다.", details: userError.message },
+        { status: 500 },
+      );
+    }
+    const v2PlanByTarget = new Map((v2Plans ?? []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]));
+    const v2AssignmentsByPlanDate = new Map((v2Assignments ?? []).map((assignment: any) => [
+      `${assignment.plan_id}|${assignment.measurement_date}`, assignment,
+    ]));
+    const userNameById = new Map((users ?? []).map((user: any) => [Number(user.id), String(user.name ?? "")]));
+    const userById = new Map((users ?? []).map((user: any) => [Number(user.id), user]));
+
     const summaryData = (journals || []).map((journal: any) => {
       const exactKey = `${journal.code}-${journal.measurement_year}-${journal.measurement_period}`;
       const mb = journal.code ? (mbExactMap.get(exactKey) || mbLatestMap.get(journal.code)) : null;
@@ -274,8 +342,10 @@ export async function GET(request: NextRequest) {
         return Number(s.year) === Number(journal.measurement_year) && surveyPeriod === journalPeriod;
       });
 
-      // 기존 UI 호환성을 위한 대표 survey (첫 번째 항목)
-      const survey = relatedSurveys.length > 0 ? relatedSurveys[0] : null;
+      // legacy fallback도 현재 측정일 정확 일치를 우선하고, 없으면 기존 최신 원천을 쓴다.
+      const survey = relatedSurveys.find((item) => item.measurement_date === journal.measurement_start_date)
+        ?? relatedSurveys.at(-1)
+        ?? null;
 
       // Find target for National Support Status fallback
       let target = exactTarget;
@@ -290,6 +360,69 @@ export async function GET(request: NextRequest) {
       }
 
       const nationalSupportStatus = journal.national_support_status || target?.national_support_status || null;
+      // 역할 표시 원천은 반드시 해당 년도·주기의 exact target만 사용한다.
+      // code-only/다른 주기 target fallback은 국고지원 보완에만 허용하고 역할 값에는 사용하지 않는다.
+      const displayTarget = exactTarget;
+      const v2Plan: any = displayTarget ? v2PlanByTarget.get(Number(displayTarget.id)) : null;
+      const displayMeasurementDate = displayTarget?.measurement_date || journal.measurement_start_date || null;
+      const measurementRoles = displayTarget ? measurementRolesForDisplay({
+        dailyStaff: displayTarget.daily_staff,
+        measurementDate: displayTarget.measurement_date,
+        measurerId: displayTarget.measurer_id,
+        collaborators: displayTarget.collaborators,
+      }) : { measurementParticipants: [], reportWriterUserId: null };
+      const v2PlanAssignments = v2Plan
+        ? (v2Assignments ?? [])
+          .filter((assignment: any) => String(assignment.plan_id) === String(v2Plan.id))
+          .sort((left: any, right: any) => String(left.measurement_date).localeCompare(String(right.measurement_date)))
+        : [];
+      const v2Assignment: any = v2PlanAssignments.find(
+        (assignment: any) => assignment.measurement_date === displayMeasurementDate,
+      ) ?? v2PlanAssignments[0] ?? null;
+      const participantIds = Array.isArray(v2Plan?.participant_user_ids)
+        ? v2Plan.participant_user_ids.map(Number).filter((id: number) => Number.isInteger(id) && id > 0)
+        : [];
+      const v2SurveyorUsers = participantIds
+        .map((id: number) => userById.get(id))
+        .filter(Boolean)
+        .map((user: any) => ({
+          name: user.name,
+          isExperienced: user.is_preliminary_survey_experienced,
+        }));
+      const reportWriter = measurementRoles.reportWriterUserId == null
+        ? null
+        : userNameById.get(Number(measurementRoles.reportWriterUserId));
+      const legacySurvey = relatedSurveys.find((item: any) => item.measurement_date === displayMeasurementDate)
+        ?? relatedSurveys.at(-1)
+        ?? null;
+      const preliminaryDisplay = buildPreliminarySurveyDisplayModel({
+        v2: v2Plan ? {
+          preliminarySurveyDate: v2Plan.recommended_date,
+          preliminarySurveyors: v2Plan.participant_names,
+          preliminarySurveyorUsers: v2SurveyorUsers,
+          measurementPublicSampleAssignee: v2Assignment
+            ? userNameById.get(Number(v2Assignment.assignee_user_id))
+            : null,
+          publicSampleCode: v2Assignment?.public_sample_code ?? v2Assignment?.survey_code,
+          measurementPublicSampleAssignments: v2PlanAssignments.map((assignment: any) => ({
+            measurementDate: assignment.measurement_date,
+            assignee: userNameById.get(Number(assignment.assignee_user_id)),
+            publicSampleCode: assignment.public_sample_code ?? assignment.survey_code,
+          })),
+          measurementParticipants: measurementRoles.measurementParticipants,
+          reportWriter,
+        } : null,
+        legacy: !v2Plan && legacySurvey ? {
+          preliminarySurveyDate: null,
+          preliminarySurveyors: legacySurvey.preliminary_surveyor,
+          measurementPublicSampleAssignee: legacySurvey.measurer,
+          publicSampleCode: legacySurvey.survey_code,
+          measurementParticipants: displayTarget
+            ? measurementRoles.measurementParticipants
+            : legacySurvey.actual_measurer,
+          reportWriter: displayTarget ? reportWriter : legacySurvey.report_writer,
+        } : null,
+      });
       // 요약 수정 API가 measurement_business에도 저장하는 필드만 최신 동기화 원본을 우선한다.
       // 그 외 일지 고유 필드는 스냅샷을 유지해 저장 직후 이전 값으로 되돌아 보이지 않게 한다.
       const reference = mb ? {
@@ -328,6 +461,8 @@ export async function GET(request: NextRequest) {
         measurement_end_date: journal.measurement_end_date,
         measurement_days: journal.measurement_days,
         measurer: journal.measurer,
+        preliminary_display: preliminaryDisplay,
+        public_sample_measurer: preliminaryDisplay.measurementPublicSampleAssignee === "-" ? null : preliminaryDisplay.measurementPublicSampleAssignee,
         preliminary_surveyor: survey?.preliminary_surveyor || null,
         actual_measurer: survey?.actual_measurer || null,
         report_writer: survey?.report_writer || null,

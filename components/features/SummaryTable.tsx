@@ -23,6 +23,7 @@ import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 import { getDynamicEmailFontSize, splitEmails } from "@/lib/utils/email-utils";
+import { formatMeasurementPublicSampleAssignee, type PreliminarySurveyDisplayModel } from "@/lib/preliminary-survey-v2/display-model";
 
 
 // 금액 포맷팅 함수 (천단위 콤마)
@@ -71,6 +72,7 @@ interface SummaryEntry {
   measurement_end_date: string | null;
   measurement_days: number | null;
   measurer: string | null;
+  public_sample_measurer?: string | null;
   preliminary_surveyor: string | null;
   actual_measurer: string | null;
   report_writer: string | null;
@@ -110,7 +112,40 @@ interface SummaryEntry {
   created_at: string;
   updated_at: string;
   all_surveys?: any[]; // [New] 다중 일자 지원을 위한 연관 예비조사 목록
+  preliminary_display?: PreliminarySurveyDisplayModel;
 }
+
+const preliminaryDisplayOf = (entry: SummaryEntry): PreliminarySurveyDisplayModel => entry.preliminary_display ?? {
+  preliminarySurveyDate: null,
+  preliminarySurveyors: entry.preliminary_surveyor || "-",
+  measurementPublicSampleAssignee: entry.public_sample_measurer || "-",
+  publicSampleCode: entry.survey_code || "-",
+  measurementParticipants: entry.actual_measurer || "-",
+  reportWriter: entry.report_writer || "-",
+  source: "legacy",
+};
+
+const PreliminarySummaryFields = ({ entry }: { entry: SummaryEntry }) => {
+  const display = preliminaryDisplayOf(entry);
+  const cell = (label: string, value: string | null | undefined) => <div className="p-1" key={label}>
+    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">{label}</label>
+    <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">{value || "-"}</div>
+  </div>;
+  return <>
+    <div className="grid grid-cols-1 md:grid-cols-4 print:grid-cols-4 gap-3 md:gap-4">
+      {cell("공문연번", entry.document_number)}
+      {cell("연번", entry.sequence_number)}
+      {cell("5인 이상 연번", entry.five_plus_sequence)}
+      {cell("보고서 담당", display.reportWriter)}
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-4 print:grid-cols-4 gap-3 md:gap-4">
+      {cell("예비조사일", display.preliminarySurveyDate)}
+      {cell("예비조사자", display.preliminarySurveyors)}
+      {cell("측정자(공시료)", formatMeasurementPublicSampleAssignee(display))}
+      {cell("측정 참여자", display.measurementParticipants)}
+    </div>
+  </>;
+};
 
 export const SummaryTable: React.FC = () => {
   // 초기값 설정
@@ -567,89 +602,7 @@ export const SummaryTable: React.FC = () => {
                 {/* 수정 불가 필드 (읽기 전용) */}
                 <div className="bg-surface-50 p-4 rounded-lg space-y-2 border">
                   <h3 className="font-semibold text-text-900 mb-3 px-1">기본 정보</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
-                      <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
-                        {entry.document_number || "-"}
-                      </div>
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">연번</label>
-                      <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
-                        {entry.sequence_number || "-"}
-                      </div>
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
-                      <div className="font-bold bg-white p-2.5 rounded-lg border text-base text-text-900 shadow-sm">
-                        {entry.five_plus_sequence || "-"}
-                        {(() => {
-                          // 1. 정확히 일치하는 주기 검색
-                          let quota = quotas.find(
-                            (q: any) =>
-                              q.year === entry.measurement_year &&
-                              q.period === entry.measurement_period &&
-                              q.office_name === entry.designated_office
-                          );
-
-                          // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
-                          if (!quota && entry.measurement_period.includes('(수시)')) {
-                            const basePeriod = entry.measurement_period.replace('(수시)', '');
-                            quota = quotas.find(
-                              (q: any) =>
-                                q.year === entry.measurement_year &&
-                                q.period === basePeriod &&
-                                q.office_name === entry.designated_office
-                            );
-                          }
-
-                          return quota ? <span className="text-gray-500 font-normal ml-1">/ {quota.quota}</span> : null;
-                        })()}
-                      </div>
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
-                      <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                        {(() => {
-                           const surveys = entry.all_surveys || [];
-                           if (surveys.length === 0) return entry.preliminary_surveyor || "-";
-                           const surveyor = entry.preliminary_surveyor || "-";
-                           const codes = surveys
-                             .filter(s => s.measurement_date && s.survey_code)
-                             .map(s => surveys.length === 1 
-                              ? s.survey_code 
-                              : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
-                            )
-                             .join(", ");
-                           return codes ? `${surveyor} (${codes})` : surveyor;
-                        })()}
-                      </div>
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
-                      <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                         {(() => {
-                           const surveys = entry.all_surveys || [];
-                           if (surveys.length === 0) return entry.measurer || "-";
-                           const names = new Set<string>();
-                           surveys.forEach(s => {
-                             if (s.measurer) {
-                               s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
-                             }
-                           });
-                           if (names.size === 0) return entry.measurer || "-";
-                           return Array.from(names).sort().join(", ");
-                        })()}
-                      </div>
-                    </div>
-                    <div className="p-1">
-                      <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">보고서 담당</label>
-                      <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">
-                        {entry.report_writer || "-"}
-                      </div>
-                    </div>
-                  </div>
+                  <PreliminarySummaryFields entry={entry} />
                 </div>
 
                 <hr className="border-gray-200" />
@@ -1215,9 +1168,9 @@ export const SummaryTable: React.FC = () => {
                         <TableHead className="w-24 text-center text-xs font-bold text-slate-800">측정시작일</TableHead>
                         <TableHead className="w-24 text-center text-xs font-bold text-slate-800">측정종료일</TableHead>
                         <TableHead className="w-12 text-center text-xs font-bold text-slate-800">일수</TableHead>
-                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정자</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정자(공시료)</TableHead>
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">예비조사자</TableHead>
-                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">실측정자</TableHead>
+                        <TableHead className="w-20 text-center text-xs font-bold text-slate-800">측정 참여자</TableHead>
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">보고서 담당</TableHead>
                         <TableHead className="w-20 text-center text-xs font-bold text-slate-800">완료여부</TableHead>
                         <TableHead className="w-16 text-center text-xs font-bold text-slate-800">작업</TableHead>
@@ -1288,26 +1241,10 @@ export const SummaryTable: React.FC = () => {
                               return uniqueDates.size > 0 ? uniqueDates.size : "-";
                             })()}
                           </TableCell>
-                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
-                            {(() => {
-                               const names = new Set<string>();
-                               (entry.all_surveys || []).forEach(s => {
-                                 if (s.measurer) s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
-                               });
-                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.measurer || "-");
-                            })()}
-                          </TableCell>
-                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.preliminary_surveyor || "-"}</TableCell>
-                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">
-                            {(() => {
-                               const names = new Set<string>();
-                               (entry.all_surveys || []).forEach(s => {
-                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
-                               });
-                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.actual_measurer || "-");
-                            })()}
-                          </TableCell>
-                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{entry.report_writer || "-"}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{formatMeasurementPublicSampleAssignee(preliminaryDisplayOf(entry))}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{preliminaryDisplayOf(entry).preliminarySurveyors}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{preliminaryDisplayOf(entry).measurementParticipants}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{preliminaryDisplayOf(entry).reportWriter}</TableCell>
                           <TableCell className="w-20 text-center py-3 px-1">
                             <span
                               className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap shadow-sm border ${entry.completion_status === "완료"
@@ -1400,36 +1337,20 @@ export const SummaryTable: React.FC = () => {
                           </p>
                         </div>
                         <div className="space-y-0.5">
-                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">측정자</span>
-                          <p className="text-xs font-medium text-slate-600">
-                            {(() => {
-                               const names = new Set<string>();
-                               (entry.all_surveys || []).forEach(s => {
-                                 if (s.measurer) s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
-                               });
-                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.measurer || "-");
-                            })()}
-                          </p>
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">측정자(공시료)</span>
+                          <p className="text-xs font-medium text-slate-600">{formatMeasurementPublicSampleAssignee(preliminaryDisplayOf(entry))}</p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">예비조사자</span>
-                          <p className="text-xs font-medium text-slate-600">{entry.preliminary_surveyor || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">{preliminaryDisplayOf(entry).preliminarySurveyors}</p>
                         </div>
                         <div className="space-y-0.5">
-                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">실측정자</span>
-                          <p className="text-xs font-medium text-slate-600">
-                            {(() => {
-                               const names = new Set<string>();
-                               (entry.all_surveys || []).forEach(s => {
-                                 if (s.actual_measurer) s.actual_measurer.split(',').forEach((n: string) => names.add(n.trim()));
-                               });
-                               return names.size > 0 ? Array.from(names).sort().join(", ") : (entry.actual_measurer || "-");
-                            })()}
-                          </p>
+                          <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">측정 참여자</span>
+                          <p className="text-xs font-medium text-slate-600">{preliminaryDisplayOf(entry).measurementParticipants}</p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">보고서 담당</span>
-                          <p className="text-xs font-medium text-slate-600">{entry.report_writer || "-"}</p>
+                          <p className="text-xs font-medium text-slate-600">{preliminaryDisplayOf(entry).reportWriter}</p>
                         </div>
                       </div>
 
@@ -1500,89 +1421,7 @@ export const SummaryTable: React.FC = () => {
               {/* 수정 불가 필드 (읽기 전용) */}
               <div className="bg-surface-50 p-4 rounded-lg space-y-2">
                 <h3 className="font-semibold text-text-900 mb-3 px-1">수정 불가 필드</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 md:gap-4">
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">공문연번</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
-                      {selectedEntry.document_number || "-"}
-                    </div>
-                  </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">연번</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
-                      {selectedEntry.sequence_number || "-"}
-                    </div>
-                  </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">5인 이상 연번</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-900 text-slate-600 shadow-sm">
-                      {selectedEntry.five_plus_sequence || "-"}
-                      {(() => {
-                        // 1. 정확히 일치하는 주기 검색
-                        let quota = quotas.find(
-                          (q) =>
-                            q.year === selectedEntry.measurement_year &&
-                            q.period === selectedEntry.measurement_period &&
-                            q.office_name === selectedEntry.designated_office
-                        );
-
-                        // 2. '(수시)'가 포함된 경우, '(수시)'를 제거한 주기로 검색
-                        if (!quota && selectedEntry.measurement_period && selectedEntry.measurement_period.includes('(수시)')) {
-                          const basePeriod = selectedEntry.measurement_period.replace('(수시)', '');
-                          quota = quotas.find(
-                            (q) =>
-                              q.year === selectedEntry.measurement_year &&
-                              q.period === basePeriod &&
-                              q.office_name === selectedEntry.designated_office
-                          );
-                        }
-
-                        return quota ? <span className="text-gray-500 font-normal ml-1">/ {quota.quota}</span> : null;
-                      })()}
-                    </div>
-                  </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">예비조사자명(공시료 코드)</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
-                      {(() => {
-                         const surveys = selectedEntry.all_surveys || [];
-                         if (surveys.length === 0) return selectedEntry.preliminary_surveyor || "-";
-                         const surveyor = selectedEntry.preliminary_surveyor || "-";
-                         const codes = surveys
-                           .filter(s => s.measurement_date && s.survey_code)
-                           .map(s => surveys.length === 1 
-                            ? s.survey_code 
-                            : `${s.measurement_date.slice(5).replace('-', '/')}: ${s.survey_code}`
-                          )
-                           .join(", ");
-                         return codes ? `${surveyor} (${codes})` : surveyor;
-                      })()}
-                    </div>
-                  </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">측정자</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
-                       {(() => {
-                         const surveys = selectedEntry.all_surveys || [];
-                         if (surveys.length === 0) return selectedEntry.measurer || "-";
-                         const names = new Set<string>();
-                         surveys.forEach(s => {
-                           if (s.measurer) {
-                             s.measurer.split(',').forEach((n: string) => names.add(n.trim()));
-                           }
-                         });
-                         if (names.size === 0) return selectedEntry.measurer || "-";
-                         return Array.from(names).sort().join(", ");
-                      })()}
-                    </div>
-                  </div>
-                  <div className="p-1">
-                    <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">보고서 담당</label>
-                    <div className="md:font-bold font-medium bg-white p-2.5 rounded-lg border md:text-base text-xs md:text-text-800 text-slate-600 shadow-sm">
-                      {selectedEntry.report_writer || "-"}
-                    </div>
-                  </div>
-                </div>
+                <PreliminarySummaryFields entry={selectedEntry} />
               </div>
 
               {/* 수정 가능 필드 */}
