@@ -1,0 +1,92 @@
+name: tmp-pr89-uat-followup
+
+on:
+  push:
+    branches:
+      - fix/reverse-planner-actual-date-cast
+
+permissions:
+  contents: write
+
+jobs:
+  apply-uat-followup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/reverse-planner-actual-date-cast
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply approved status and policy fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected 1 match, got {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'lib/preliminary-survey-v2/workbench-status.ts',
+              '  planOrigin: string | null;\n  planStatus: string | null;',
+              '  planOrigin: string | null;\n  /** Reverse Planner에서 사용자가 Preview를 검토한 뒤 배정 확정으로 적용한 automatic plan 여부. */\n  reviewedAutomatic?: boolean;\n  planStatus: string | null;',
+          )
+          replace_once(
+              'lib/preliminary-survey-v2/workbench-status.ts',
+              '    : input.stale || scheduleConflict || input.planOrigin === "automatic"\n      ? "review_required"',
+              '    : input.stale || scheduleConflict || (input.planOrigin === "automatic" && input.reviewedAutomatic !== true)\n      ? "review_required"',
+          )
+          replace_once(
+              'app/api/preliminary-survey-v2/workbench/route.ts',
+              '        planOrigin: plan?.plan_origin ?? null,\n        planStatus: plan?.status ?? null,',
+              '        planOrigin: plan?.plan_origin ?? null,\n        reviewedAutomatic: Boolean(plan?.plan_origin === "automatic" && plan?.recommendation_reason?.plannerRunId),\n        planStatus: plan?.status ?? null,',
+          )
+          replace_once(
+              'tests/preliminary-survey-confirmed-document-repair.test.ts',
+              'import { validateManualPlanHardRules } from "../lib/preliminary-survey-v2/manual-validation";\n',
+              'import { validateManualPlanHardRules } from "../lib/preliminary-survey-v2/manual-validation";\nimport { storedPlanWorkbenchState } from "../lib/preliminary-survey-v2/workbench-status";\n',
+          )
+          marker = '''  it("관리 열은 모든 행에 삭제 버튼을 렌더링하고 상세 모달의 중복 진입점은 없다", () => {\n'''
+          tests = '''  it("Reverse Planner에서 사용자가 배정 확정한 automatic plan은 가확정으로 표시하고 legacy automatic은 재검토를 유지한다", () => {\n    const base = {\n      trueConfirmed: false, stale: false, hasPlan: true, planOrigin: "automatic", planStatus: "recommended",\n      preliminaryScheduleBlocked: false, measurementScheduleBlocked: false, measurementRoleScheduleBlocked: false,\n    };\n    assert.equal(storedPlanWorkbenchState({ ...base, reviewedAutomatic: true }).status, "provisional");\n    assert.equal(storedPlanWorkbenchState({ ...base, reviewedAutomatic: false }).status, "review_required");\n    assert.equal(storedPlanWorkbenchState({ ...base, reviewedAutomatic: true, stale: true }).status, "review_required");\n    assert.equal(storedPlanWorkbenchState({ ...base, reviewedAutomatic: true, measurementScheduleBlocked: true }).status, "review_required");\n  });\n  it("누락정보 보정 Preview는 apply RPC보다 먼저 반환되는 read-only 경로다", () => {\n    const api = fs.readFileSync(path.join(process.cwd(), "app/api/preliminary-survey-v2/confirmed-document-repair/route.ts"), "utf8");\n    const previewReturn = api.indexOf('if (body.action === "preview") return NextResponse.json');\n    const applyRpc = api.indexOf('repair_true_confirmed_preliminary_v2_missing_batch');\n    assert.ok(previewReturn >= 0 && applyRpc > previewReturn);\n    const builder = fs.readFileSync(path.join(process.cwd(), "lib/preliminary-survey-v2/confirmed-document-repair.ts"), "utf8");\n    const start = builder.indexOf("export async function buildConfirmedDocumentRepairPreview");\n    const end = builder.indexOf("\\nexport ", start + 10);\n    const previewBuilder = builder.slice(start, end > start ? end : undefined);\n    assert.doesNotMatch(previewBuilder, /\\.(?:insert|update|delete|upsert|rpc)\\(/);\n  });\n'''
+          p = Path('tests/preliminary-survey-confirmed-document-repair.test.ts')
+          text = p.read_text(encoding='utf-8')
+          if marker not in text:
+              raise SystemExit('test insertion marker not found')
+          p.write_text(text.replace(marker, tests + marker, 1), encoding='utf-8')
+
+          doc = Path('docs/business-rules/preliminary-survey.md')
+          text = doc.read_text(encoding='utf-8')
+          old = '- Preview 생성은 DB를 변경하지 않는다.\n- plan과 날짜별 assignment는 최종 wrapper RPC 한 transaction에서 저장한다.'
+          new = '- Preview 생성은 DB를 변경하지 않는다.\n- `누락정보 보정`의 Preview도 조회·계산 전용이며 보정 RPC를 호출하지 않는다. 실제 보정 write는 사용자가 별도 적용을 명시한 경우에만 수행한다.\n- Reverse Planner에서 사용자가 Preview를 검토한 뒤 `배정 확정`으로 정상 적용한 automatic plan은 작업대에서 **가확정**으로 표시한다. 단, 과거 automatic plan 중 사용자 검토·적용 provenance가 없는 자료는 기존처럼 **재검토 필요**를 유지한다. 적용 후 원천값 변경·직원 제외 일정 충돌 등 재검토 사유가 생기면 provenance와 무관하게 `재검토 필요`로 전환한다.\n- plan과 날짜별 assignment는 최종 wrapper RPC 한 transaction에서 저장한다.'
+          if text.count(old) != 1:
+              raise SystemExit(f'doc section marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          old2 = '- `H0527`: 실제 측정팀 교집합과 hard constraint를 통과한 후보 안에서 보고서 담당자 조합 preference를 적용한다.\n'
+          new2 = old2 + '- `자동배정 확정 상태`: Reverse Planner `배정 확정` provenance(`recommendation_reason.plannerRunId`)가 있는 automatic plan은 새 충돌이 없으면 `가확정`이어야 한다. provenance가 없는 legacy automatic plan은 `재검토 필요`를 유지하며, stale·직원 제외 일정 충돌이 생긴 plan은 모두 `재검토 필요`여야 한다.\n- `누락정보 보정 Preview`: 운영 데이터에서도 Preview 호출은 read-only여야 하며, 보정 적용 RPC가 실행되기 전에는 기존 plan·측정 원천을 변경하지 않아야 한다.\n'
+          if text.count(old2) != 1:
+              raise SystemExit(f'doc regression marker count={text.count(old2)}')
+          doc.write_text(text.replace(old2, new2, 1), encoding='utf-8')
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Focused regression tests
+        run: npx tsx --test tests/preliminary-survey-confirmed-document-repair.test.ts tests/preliminary-survey-reverse-planner.test.ts tests/preliminary-survey-route-lazy.test.ts
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Commit implementation and remove temporary runner
+        shell: bash
+        run: |
+          git rm .github/workflows/tmp-pr89-uat-followup.yml
+          git add lib/preliminary-survey-v2/workbench-status.ts app/api/preliminary-survey-v2/workbench/route.ts tests/preliminary-survey-confirmed-document-repair.test.ts docs/business-rules/preliminary-survey.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: align preliminary survey applied status and repair preview guard"
+          git push origin HEAD:fix/reverse-planner-actual-date-cast
