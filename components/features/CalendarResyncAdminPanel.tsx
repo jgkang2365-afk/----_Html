@@ -97,7 +97,7 @@ export const CalendarResyncAdminPanel: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-slate-900">캘린더 재동기화</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  측정대상사업장·예비조사 원천이 일치할 때만 Google Calendar를 강제로 복구합니다.
+                  측정대상사업장의 현재 일정값을 Google Calendar에 다시 반영합니다.
                 </p>
               </div>
               <button
@@ -148,7 +148,7 @@ export const CalendarResyncAdminPanel: React.FC = () => {
               </div>
 
               <div className="rounded-md bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-                일반 저장의 자동 동기화를 대체하지 않는 관리자 복구 기능입니다. 원천 데이터가 서로 다르면 캘린더를 건드리지 않고 중단합니다.
+                일정 날짜·보고서 담당자·측정참여자는 측정대상사업장 현재값을 기준으로 복구합니다. 예비조사 행은 캘린더 연결값을 유지하도록 함께 매핑하며, K2B 전송·계산서 완료에 따른 완료 색상 규칙은 기존 측정일지 기준을 그대로 적용합니다.
               </div>
 
               {result && (
@@ -173,18 +173,18 @@ export const CalendarResyncAdminPanel: React.FC = () => {
                           ))}
                         </ul>
                       ) : (
-                        <div className="text-xs">변경할 캘린더 일정이 없습니다.</div>
+                        <div className="text-xs">캘린더 값을 다시 확인했습니다.</div>
                       )}
                     </div>
                   ) : (
                     <div className="space-y-1">
                       <div className="font-semibold">재동기화 실패</div>
                       <div className="text-xs leading-5">{result.error || "알 수 없는 오류"}</div>
-                      {result.code === "CALENDAR_SOURCE_MISMATCH" && result.details && (
+                      {result.details && (
                         <div className="mt-2 text-xs">
-                          측정대상: {(result.details.expectedDates || []).join(", ") || "없음"}
+                          측정대상 일정: {(result.details.expectedDates || []).join(", ") || "없음"}
                           <br />
-                          예비조사: {(result.details.surveyDates || []).join(", ") || "없음"}
+                          현재 연계 일정: {(result.details.surveyDates || []).join(", ") || "없음"}
                         </div>
                       )}
                     </div>
