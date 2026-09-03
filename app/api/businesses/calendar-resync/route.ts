@@ -5,8 +5,8 @@ import { getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import {
   buildExpectedCalendarDays,
+  planCalendarProjectionReconciliation,
   summarizeCalendarResyncActions,
-  validateCalendarProjection,
   type CalendarSurveyProjection,
 } from "@/lib/google/calendar-resync";
 
@@ -113,19 +113,55 @@ export async function POST(request: NextRequest) {
     if (surveyError) throw surveyError;
 
     const before = (surveys || []) as CalendarSurveyProjection[];
-    const projectionValidation = validateCalendarProjection(expectedDays, before);
-    if (!projectionValidation.valid) {
+    const reconciliation = planCalendarProjectionReconciliation(expectedDays, before);
+    if (!reconciliation.valid) {
       return NextResponse.json(
         {
           success: false,
-          error: projectionValidation.message,
-          code: "CALENDAR_SOURCE_MISMATCH",
-          details: projectionValidation.details,
+          error: reconciliation.message,
+          code: "CALENDAR_MAPPING_DUPLICATE",
+          details: reconciliation.details,
         },
         { status: 409 },
       );
     }
 
+    // Calendar 일정의 업무 원천은 measurement_target_business다.
+    // preliminary_survey는 legacy 연결/google_event_id 매핑 계층으로 사용하며,
+    // 날짜·보고서 담당자·측정참여자는 target의 현재 값을 가져와 정합화한다.
+    for (const update of reconciliation.updates) {
+      const { error: updateError } = await supabase
+        .from("preliminary_survey")
+        .update({
+          measurement_date: update.date,
+          end_date: update.date,
+          business_name: target.business_name,
+          report_writer: update.reportWriter,
+          actual_measurer: update.participants.join(", ") || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", update.id);
+      if (updateError) throw updateError;
+    }
+
+    for (const insert of reconciliation.inserts) {
+      const { error: insertError } = await supabase
+        .from("preliminary_survey")
+        .insert({
+          code,
+          year,
+          period,
+          measurement_date: insert.date,
+          end_date: insert.date,
+          business_name: target.business_name,
+          report_writer: insert.reportWriter,
+          actual_measurer: insert.participants.join(", ") || null,
+        });
+      if (insertError) throw insertError;
+    }
+
+    // 반드시 기존 Calendar 동기화 엔진을 사용한다.
+    // 이 엔진이 측정일지의 K2B 전송/계산서 완료 상태를 확인해 완료 색상 정책을 적용한다.
     const syncResult = await syncBusinessToCalendar(supabase, code, year, period);
     if (!syncResult?.success) {
       throw new Error("캘린더 동기화 결과를 확인하지 못했습니다.");
@@ -147,6 +183,7 @@ export async function POST(request: NextRequest) {
       date: string;
       eventId: string;
       summary: string | null;
+      colorId: string | null;
     }> = [];
 
     for (const survey of after) {
@@ -171,6 +208,7 @@ export async function POST(request: NextRequest) {
         date: survey.measurement_date,
         eventId: survey.google_event_id,
         summary: event.summary || null,
+        colorId: event.colorId || null,
       });
     }
 
