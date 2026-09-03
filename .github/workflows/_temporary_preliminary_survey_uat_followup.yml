@@ -24,6 +24,19 @@ jobs:
           cache: npm
       - name: Apply approved UAT follow-up
         run: python .github/scripts/apply_preliminary_survey_uat_followup.py
+      - name: Normalize generated route-warning newline
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("components/features/FixedAssigneeReversePlanner.tsx")
+          text = path.read_text(encoding="utf-8")
+          broken = 'detail: [...new Set(details)].join("\n"),'.replace('\\n', '\n')
+          fixed = 'detail: [...new Set(details)].join("\\n"),'
+          if broken not in text:
+              raise SystemExit("generated route warning newline marker not found")
+          path.write_text(text.replace(broken, fixed, 1), encoding="utf-8")
+          PY
       - name: Install dependencies
         run: npm ci
       - name: Focused regression tests
