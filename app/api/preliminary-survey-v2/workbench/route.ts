@@ -835,6 +835,7 @@ export async function GET(request: NextRequest) {
         stale,
         hasPlan: Boolean(plan),
         planOrigin: plan?.plan_origin ?? null,
+        reviewedAutomatic: Boolean(plan?.plan_origin === "automatic" && plan?.recommendation_reason?.plannerRunId),
         planStatus: plan?.status ?? null,
         preliminaryScheduleBlocked,
         measurementScheduleBlocked,
