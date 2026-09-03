@@ -14,6 +14,7 @@ export interface ModalProps {
   headerActions?: React.ReactNode;
   resizable?: boolean;
   error?: string | null;
+  bodyScroll?: boolean;
 }
 
 import { createContext, useContext } from "react";
@@ -36,6 +37,7 @@ export const Modal: React.FC<ModalProps> = ({
   headerActions,
   resizable = false,
   error: parentError = null,
+  bodyScroll = true,
 }) => {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -325,7 +327,8 @@ export const Modal: React.FC<ModalProps> = ({
 
         {/* 내용 - 스크롤 가능 */}
         <div className={cn(
-          "px-4 sm:px-8 pb-6 sm:pb-8 overflow-y-auto custom-scrollbar flex-1 min-h-0",
+          "px-4 sm:px-8 pb-6 sm:pb-8 flex-1 min-h-0",
+          bodyScroll ? "overflow-y-auto custom-scrollbar" : "overflow-hidden",
           // 리사이즈 핸들이 내용을 가리지 않도록 하단 패딩 추가
           resizable && "pb-8"
         )}>

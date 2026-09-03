@@ -8,7 +8,7 @@ import {
   withAutomaticMeasurementAssignments,
 } from "../lib/preliminary-survey-v2/reverse-planner/automatic-measurement-assignment";
 import { normalizePublicSampleCodes } from "../lib/preliminary-survey-v2/reverse-planner/public-sample-code";
-import { planPreliminarySurveyGivenFixedAssignments, validateCandidateHardRules } from "../lib/preliminary-survey-v2/reverse-planner/solver";
+import { planPreliminarySurveyGivenFixedAssignments, rankedCandidatesForTarget, validateCandidateHardRules } from "../lib/preliminary-survey-v2/reverse-planner/solver";
 import {
   PRELIMINARY_SURVEY_CANONICAL_SHA,
   REVERSE_PLANNER_VERSION,
@@ -643,6 +643,39 @@ test("자동배정 UI는 정상 30분 이하 차량값을 숨기고 8개까지 �
   assert.match(route, /body\.action !== "validate_adjustment"/);
   assert.match(route, /USER_REVIEW_ADJUSTMENT/);
   assert.match(route, /forcedCandidates: parsedReview\.candidates/);
+});
+
+
+test("H0527 수정 추천 pool은 최초실시 상위 3개 날짜를 -3 → -5 순으로 보존한다", () => {
+  const h0527 = target({
+    businessType: "first_measurement",
+    days: [{ date: "2026-09-02", collaboratorUserIds: [5], reportWriterUserId: 5 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-02", assigneeUserId: 5, confirmedAt: "x", updatedAt: "x" }],
+  });
+  const input = fixture({ targets: [h0527] });
+  const dates = [...new Set(rankedCandidatesForTarget(input, h0527).map((candidate) => candidate.preliminaryDate))].slice(0, 3);
+  assert.deepEqual(dates, ["2026-08-28", "2026-08-27", "2026-08-26"]);
+});
+
+test("자동배정 검토 UI는 업체구분·출처·추천3안·route 환경진단·모달 무스크롤 계약을 가진다", () => {
+  const ui = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
+  const route = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
+  const modal = readFileSync("components/ui/Modal.tsx", "utf8");
+  const env = readFileSync(".env.example", "utf8");
+  assert.match(ui, /first_measurement: "최초실시"/);
+  assert.match(ui, /candidate \? "자동계산"/);
+  assert.match(ui, /action: "suggest_adjustments"/);
+  assert.match(ui, /지침에 맞는 추천 후보/);
+  assert.match(ui, /bodyScroll=\{false\}/);
+  assert.match(ui, /collapseRouteWarnings/);
+  assert.match(ui, /visibleRouteWarnings/);
+  assert.match(route, /body\.action !== "suggest_adjustments"/);
+  assert.match(route, /rankedCandidatesForTarget/);
+  assert.match(route, /preferred\.slice\(0, 3\)/);
+  assert.match(route, /routeProviderConfigured: Boolean\(process\.env\.KAKAO_REST_API_KEY\)/);
+  assert.match(modal, /bodyScroll\?: boolean/);
+  assert.match(modal, /bodyScroll \? "overflow-y-auto custom-scrollbar" : "overflow-hidden"/);
+  assert.match(env, /Vercel Preview[\s\S]*KAKAO_REST_API_KEY/);
 });
 
 test("v1.1 정상 Apply만 재활성화하고 legacy manual write는 계속 차단한다", () => {

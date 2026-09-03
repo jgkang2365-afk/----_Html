@@ -13,7 +13,7 @@ import { sourceFingerprint } from "@/lib/preliminary-survey-v2/reverse-planner/f
 import { resolveLazyRouteEvidence } from "@/lib/preliminary-survey-v2/reverse-planner/lazy-route";
 import { createPreviewToken, verifyPreviewToken } from "@/lib/preliminary-survey-v2/reverse-planner/preview-token";
 import { buildPlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/snapshot";
-import { planPreliminarySurveyGivenFixedAssignments, validateCandidateForSave, validateCandidateHardRules } from "@/lib/preliminary-survey-v2/reverse-planner/solver";
+import { planPreliminarySurveyGivenFixedAssignments, rankedCandidatesForTarget, validateCandidateForSave, validateCandidateHardRules } from "@/lib/preliminary-survey-v2/reverse-planner/solver";
 import type { PlannerCandidate, PlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/types";
 
 export const dynamic = "force-dynamic";
@@ -450,9 +450,11 @@ export async function POST(request: NextRequest) {
         automaticMeasurementRequiredPairCount: automatic.requiredPairs,
       });
       return NextResponse.json({ ...output, routeStats: resolved.stats,
-        routeEvidence: resolved.snapshot.routeEvidence, previewToken });
+        routeEvidence: resolved.snapshot.routeEvidence, previewToken,
+        routeProviderConfigured: Boolean(process.env.KAKAO_REST_API_KEY) });
     }
-    if (body.action !== "apply" && body.action !== "override" && body.action !== "validate_adjustment") {
+    if (body.action !== "apply" && body.action !== "override" && body.action !== "validate_adjustment"
+        && body.action !== "suggest_adjustments") {
       return NextResponse.json({ error: "지원하지 않는 작업입니다." }, { status: 400 });
     }
     const preview = verifyPreviewToken(String(body.previewToken ?? ""), session.userId, measurementDate);
@@ -490,6 +492,65 @@ export async function POST(request: NextRequest) {
         sourceFingerprint: adjustedOutput.sourceFingerprint,
         routeEvidence: preview.routeEvidence,
       });
+    }
+
+
+    if (body.action === "suggest_adjustments") {
+      const targetId = Number(body.targetId);
+      const target = frozenSnapshot.targets.find((item) => item.id === targetId);
+      if (!Number.isInteger(targetId) || !target) {
+        return NextResponse.json({ error: "추천 후보 대상 사업장을 확인해 주세요." }, { status: 400 });
+      }
+      if (target.protected) return NextResponse.json({ success: true, suggestions: [] });
+      const parsed = parseReviewAdjustments(frozenSnapshot, body.reviewAdjustments);
+      parsed.candidates.delete(targetId);
+      parsed.violations.delete(targetId);
+      if (parsed.violations.size) {
+        return NextResponse.json({
+          error: "이미 반영한 다른 수정안을 먼저 확인해 주세요.",
+          code: "REVIEW_ADJUSTMENT_REQUIRES_OVERRIDE",
+          violations: Object.fromEntries(parsed.violations),
+        }, { status: 409 });
+      }
+      const current = output.results.find((item) => item.targetId === targetId)?.candidate ?? null;
+      const pool = [...(current ? [current] : []), ...rankedCandidatesForTarget(frozenSnapshot, target)];
+      const uniquePool: PlannerCandidate[] = [];
+      const candidateKeys = new Set<string>();
+      for (const candidate of pool) {
+        const key = `${candidate.preliminaryDate}|${candidate.surveyMethod}|${[...candidate.participantUserIds].sort((a, b) => a - b).join(",")}`;
+        if (candidateKeys.has(key)) continue;
+        candidateKeys.add(key);
+        uniquePool.push(candidate);
+      }
+      const preferred: Array<Record<string, unknown>> = [];
+      const alternates: Array<Record<string, unknown>> = [];
+      const preferredDates = new Set<string>();
+      let attempts = 0;
+      for (const candidate of uniquePool) {
+        if (attempts >= 80 || preferred.length >= 3) break;
+        attempts += 1;
+        const forced = new Map(parsed.candidates);
+        forced.set(targetId, candidate);
+        const adjusted = planPreliminarySurveyGivenFixedAssignments(frozenSnapshot, { forcedCandidates: forced });
+        if (reviewAdjustmentConflictTargets(adjusted, forced).length) continue;
+        const selected = adjusted.results.find((item) => item.targetId === targetId)?.candidate ?? null;
+        if (!sameReviewCandidate(selected, candidate)) continue;
+        const suggestion = {
+          targetId,
+          preliminaryDate: candidate.preliminaryDate,
+          surveyMethod: candidate.surveyMethod,
+          participantUserIds: candidate.participantUserIds,
+          reasons: candidate.reasons,
+        };
+        if (!preferredDates.has(candidate.preliminaryDate)) {
+          preferredDates.add(candidate.preliminaryDate);
+          preferred.push(suggestion);
+        } else {
+          alternates.push(suggestion);
+        }
+      }
+      while (preferred.length < 3 && alternates.length) preferred.push(alternates.shift()!);
+      return NextResponse.json({ success: true, suggestions: preferred.slice(0, 3) });
     }
 
     if (body.action === "override") {

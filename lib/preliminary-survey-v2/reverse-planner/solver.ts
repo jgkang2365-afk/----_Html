@@ -143,7 +143,7 @@ function candidateObjective(
   return [fallback, changedPlanCount, 0, reviewerPenalty + reportPenalty, 0, 0];
 }
 
-function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
+function generatedCandidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
   const active = snapshot.users.filter((user) => user.active);
   const experienced = active.filter((user) => user.experienced);
   const novices = active.filter((user) => !user.experienced);
@@ -180,6 +180,11 @@ function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): Plann
         - (dateRank.get(right.preliminaryDate) ?? Number.MAX_SAFE_INTEGER)
       || left.responsibleUserId - right.responsibleUserId
       || (left.reviewerUserId ?? 0) - (right.reviewerUserId ?? 0));
+}
+
+export function rankedCandidatesForTarget(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
+  const keep = existingCandidate(snapshot, target);
+  return [...(keep ? [keep] : []), ...generatedCandidatesFor(snapshot, target)];
 }
 
 function emptyCandidateReason(snapshot: PlanningSnapshot, target: PlannerTarget): ReversePlannerReason {
@@ -459,8 +464,7 @@ export function planPreliminarySurveyGivenFixedAssignments(
       if (forced) {
         choices.set(target.id, validateCandidateHardRules(snapshot, target, forced).length === 0 ? [forced] : []);
       } else {
-        const keep = existingCandidate(snapshot, target);
-        choices.set(target.id, [...(keep ? [keep] : []), ...candidatesFor(snapshot, target)]);
+        choices.set(target.id, rankedCandidatesForTarget(snapshot, target));
       }
     }
   }
