@@ -154,7 +154,7 @@ test("한 방향만 성공하면 정상 Route 근거로 사용하지 않는다",
 });
 
 test("후보 Route가 연속 탈락해도 target 수와 무관하게 세 번째 정상 후보까지 탐색한다", async () => {
-  const candidateDays = [...candidateDates("2026-09-16", "first_measurement").primary].sort();
+  const candidateDays = [...candidateDates("2026-09-16", "first_measurement").primary];
   const allowed = candidateDays.slice(0, 3);
   const blocked = candidateDays.slice(3).flatMap((date) => users.map((user) => ({
     userId: user.id, startDate: date, endDate: date,

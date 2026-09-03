@@ -601,6 +601,50 @@ test("automatic Apply 계약은 fixed row를 만들지 않고 confirmed만 fixed
   assert.doesNotMatch(migration, /INSERT INTO public\.preliminary_survey_v2_fixed_assignments/i);
 });
 
+
+test("H0527 최초실시는 -3 → -20 후보순위를 보존해 2026-08-28을 먼저 선택한다", () => {
+  const h0527 = target({
+    businessType: "first_measurement",
+    days: [{ date: "2026-09-02", collaboratorUserIds: [5], reportWriterUserId: 5 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-02", assigneeUserId: 5, confirmedAt: "x", updatedAt: "x" }],
+  });
+  const input = fixture({ targets: [h0527] });
+  assert.equal(candidateDates("2026-09-02", "first_measurement").primary[0], "2026-08-28");
+  const result = resultFor(input);
+  assert.equal(result.decision, "AUTO_ASSIGNED");
+  assert.equal(result.candidate?.preliminaryDate, "2026-08-28");
+});
+
+test("사용자 검토 수정안은 forced candidate로 batch 재계산되어 선택값을 보존한다", () => {
+  const h0527 = target({
+    businessType: "first_measurement",
+    days: [{ date: "2026-09-02", collaboratorUserIds: [5], reportWriterUserId: 5 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-02", assigneeUserId: 5, confirmedAt: "x", updatedAt: "x" }],
+  });
+  const input = fixture({ targets: [h0527] });
+  const base = resultFor(input).candidate!;
+  const forced = { ...base, preliminaryDate: candidateDates("2026-09-02", "first_measurement").primary[1],
+    objective: [0, 0, 0, 0, 0, 0] as const, reasons: ["USER_REVIEW_ADJUSTMENT"] };
+  const output = planPreliminarySurveyGivenFixedAssignments(input, { forcedCandidates: new Map([[10, forced]]) });
+  assert.equal(output.results[0].decision, "AUTO_ASSIGNED");
+  assert.equal(output.results[0].candidate?.preliminaryDate, forced.preliminaryDate);
+});
+
+test("자동배정 UI는 정상 30분 이하 차량값을 숨기고 8개까지 내부 세로스크롤을 끈다", () => {
+  const ui = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
+  const route = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
+  assert.match(ui, /item\.durationMinutes == null \|\| item\.durationMinutes > 30/);
+  assert.match(ui, /동선 검토/);
+  assert.match(ui, /동선 불가/);
+  assert.doesNotMatch(ui, /item\.durationMinutes <= 30 \? `차량/);
+  assert.match(ui, /snapshotTargetCount > 8 \? "enabled" : "disabled"/);
+  assert.match(ui, /reviewAdjustments: \[\.\.\.reviewAdjustments\.values\(\)\]/);
+  assert.match(ui, /배정 확정 전에는 저장되지 않습니다/);
+  assert.match(route, /body\.action !== "validate_adjustment"/);
+  assert.match(route, /USER_REVIEW_ADJUSTMENT/);
+  assert.match(route, /forcedCandidates: parsedReview\.candidates/);
+});
+
 test("v1.1 정상 Apply만 재활성화하고 legacy manual write는 계속 차단한다", () => {
   const route = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
   const ui = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
