@@ -24,18 +24,41 @@ jobs:
           cache: npm
       - name: Apply approved implementation patch
         run: python .github/scripts/apply_preliminary_survey_approved_fix.py
-      - name: Align existing lazy-route regression with canonical first-measurement order
+      - name: Normalize review validation labels and policy-order fixture
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          path = Path("tests/preliminary-survey-route-lazy.test.ts")
-          text = path.read_text(encoding="utf-8")
+
+          ui = Path("components/features/FixedAssigneeReversePlanner.tsx")
+          text = ui.read_text(encoding="utf-8")
+          bad = '''  MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED: "측정자(공시료 담당자)가 예비조사자에 포함되어야 합니다.",
+          REVIEW_ADJUSTMENT_BATCH_CONFLICT: "같은 batch의 다른 배정안과 일정·용량·동선이 충돌합니다.",
+          INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",
+          USER_NOT_FOUND: "선택한 예비조사자 원천정보를 확인해 주세요.",
+          };'''
+          good = '''  MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED: "측정자(공시료 담당자)가 예비조사자에 포함되어야 합니다.",
+          };'''
+          if text.count(bad) != 1:
+              raise SystemExit(f"expected one generated reason-label block, found {text.count(bad)}")
+          text = text.replace(bad, good, 1)
+          anchor = '''  ...reasonLabel,
+          };'''
+          replacement = '''  ...reasonLabel,
+          REVIEW_ADJUSTMENT_BATCH_CONFLICT: "같은 batch의 다른 배정안과 일정·용량·동선이 충돌합니다.",
+          INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",
+          };'''
+          if text.count(anchor) != 1:
+              raise SystemExit(f"expected one violation-label anchor, found {text.count(anchor)}")
+          ui.write_text(text.replace(anchor, replacement, 1), encoding="utf-8")
+
+          route_test = Path("tests/preliminary-survey-route-lazy.test.ts")
+          text = route_test.read_text(encoding="utf-8")
           old = '  const candidateDays = [...candidateDates("2026-09-16", "first_measurement").primary].sort();'
           new = '  const candidateDays = [...candidateDates("2026-09-16", "first_measurement").primary];'
           if text.count(old) != 1:
               raise SystemExit(f"expected one lazy-route policy-order fixture, found {text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          route_test.write_text(text.replace(old, new, 1), encoding="utf-8")
           PY
       - name: Install dependencies
         run: npm ci
