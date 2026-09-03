@@ -32,22 +32,22 @@ jobs:
 
           ui = Path("components/features/FixedAssigneeReversePlanner.tsx")
           text = ui.read_text(encoding="utf-8")
-          bad = '''  MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED: "측정자(공시료 담당자)가 예비조사자에 포함되어야 합니다.",
-          REVIEW_ADJUSTMENT_BATCH_CONFLICT: "같은 batch의 다른 배정안과 일정·용량·동선이 충돌합니다.",
-          INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",
-          USER_NOT_FOUND: "선택한 예비조사자 원천정보를 확인해 주세요.",
-          };'''
-          good = '''  MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED: "측정자(공시료 담당자)가 예비조사자에 포함되어야 합니다.",
-          };'''
-          if text.count(bad) != 1:
-              raise SystemExit(f"expected one generated reason-label block, found {text.count(bad)}")
-          text = text.replace(bad, good, 1)
-          anchor = '''  ...reasonLabel,
-          };'''
-          replacement = '''  ...reasonLabel,
-          REVIEW_ADJUSTMENT_BATCH_CONFLICT: "같은 batch의 다른 배정안과 일정·용량·동선이 충돌합니다.",
-          INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",
-          };'''
+          generated_only = [
+              '  REVIEW_ADJUSTMENT_BATCH_CONFLICT: "같은 batch의 다른 배정안과 일정·용량·동선이 충돌합니다.",\n',
+              '  INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",\n',
+              '  USER_NOT_FOUND: "선택한 예비조사자 원천정보를 확인해 주세요.",\n',
+          ]
+          for line in generated_only:
+              if text.count(line) != 1:
+                  raise SystemExit(f"expected one generated review-label line, found {text.count(line)}: {line.strip()}")
+              text = text.replace(line, "", 1)
+          anchor = '  ...reasonLabel,\n};'
+          replacement = (
+              '  ...reasonLabel,\n'
+              '  REVIEW_ADJUSTMENT_BATCH_CONFLICT: "같은 batch의 다른 배정안과 일정·용량·동선이 충돌합니다.",\n'
+              '  INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",\n'
+              '};'
+          )
           if text.count(anchor) != 1:
               raise SystemExit(f"expected one violation-label anchor, found {text.count(anchor)}")
           ui.write_text(text.replace(anchor, replacement, 1), encoding="utf-8")
