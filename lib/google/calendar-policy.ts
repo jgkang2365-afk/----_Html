@@ -1,6 +1,6 @@
 export const COMPLETED_CALENDAR_COLOR_ID = "3";
 
-const REPORT_WRITER_COLOR_MAP: Record<string, string> = {
+const CALENDAR_LEAD_COLOR_MAP: Record<string, string> = {
   "한기문": "10",
   "배윤민": "6",
   "김민영": "6",
@@ -25,12 +25,12 @@ export function isCalendarWorkCompleted(journal: CompletionFields | null | undef
 }
 
 export function resolveCalendarColorId(
-  reportWriter: string | null | undefined,
+  calendarLead: string | null | undefined,
   journal: CompletionFields | null | undefined,
 ) {
   if (isCalendarWorkCompleted(journal)) {
     return COMPLETED_CALENDAR_COLOR_ID;
   }
 
-  return REPORT_WRITER_COLOR_MAP[reportWriter?.trim() || ""] || "10";
+  return CALENDAR_LEAD_COLOR_MAP[calendarLead?.trim() || ""] || "10";
 }
