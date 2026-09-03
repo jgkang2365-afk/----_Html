@@ -1,0 +1,303 @@
+name: Patch admin preliminary override protection
+
+on:
+  push:
+    branches:
+      - fix/protect-admin-preliminary-override-final
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply approved protection policy
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"pattern not found in {path}: {old[:100]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Canonical business rule first.
+          doc_path = Path("docs/business-rules/preliminary-survey.md")
+          doc = doc_path.read_text()
+          old = """- 관리자 수정 모달의 직접 수동수정은 자동결정 hard rule과 별도 경로다.\n- 관리자가 자동 기준과 다른 조합을 저장하려는 경우 구체적인 지침 위반 경고, 예외 사유, 명시 확인과 audit을 남기고 관리자 판단으로 저장할 수 있다.\n- 데이터 형식, 사용자 존재성, 권한, 동시성, transaction 등 구조적 무결성 오류는 관리자도 저장할 수 없다.\n"""
+          new = """- 관리자 수정 모달의 직접 수동수정은 자동결정 hard rule과 별도 경로다.\n- 관리자가 자동 기준과 다른 조합을 저장하려는 경우 구체적인 지침 위반 경고, 예외 사유, 명시 확인과 audit을 남기고 관리자 판단으로 저장할 수 있다.\n- `ADMIN_EXPLICIT_OVERRIDE`로 저장된 관리자 명시 편성은 이후 `배정안 계산`의 자동 변경 대상이 아니다. 자동계산은 해당 사업장의 예비조사일·방식·예비조사자 구성을 그대로 유지하고 `관리자 지정 유지`로 표시한다.\n- 관리자 명시 편성은 계산에서 제거하는 것이 아니라 **기존 점유 일정**으로 반영한다. 따라서 다른 사업장의 자동배정은 관리자 지정 예비조사일·수행자를 이미 사용 중인 일정으로 보고 용량·동선 충돌을 계산한다.\n- 운영 순서는 `관리자 지정 → 나머지 자동배정`, `자동배정 → 일부 관리자 지정 → 재계산` 어느 쪽이든 동일한 결과를 내야 한다. 재계산을 이유로 관리자 지정값을 초기화하거나 일반 자동 hard rule로 되돌리지 않는다.\n- 관리자 지정 후 측정예정일, 보고서 담당자, 날짜별 측정 참여자 또는 고정 측정자 등 관리자 지정 당시의 핵심 원천이 변경되면 자동으로 덮어쓰지 않고 `관리자 지정 재검토 필요`로 전환한다. 관리자가 다시 수정·확인한 뒤 새 원천 snapshot으로 저장한다.\n- 일반 예비조사 담당자는 관리자 명시 편성을 일반 수정안으로 덮어쓸 수 없다. 관리자만 예외 수정 경로로 다시 변경할 수 있다.\n- 데이터 형식, 사용자 존재성, 권한, 동시성, transaction 등 구조적 무결성 오류는 관리자도 저장할 수 없다.\n"""
+          if old not in doc:
+              raise SystemExit("canonical admin-direct-edit section not found")
+          doc = doc.replace(old, new, 1)
+          doc = doc.replace(
+              "정책 기준: 2026-09-03 사용자가 승인한 자동배정 날짜 우선순위·검토 후보 3안·업체구분/출처 표시·동선 환경진단·8개 업체 무스크롤 UI 규칙을 포함한 통합 운영 규칙",
+              "정책 기준: 2026-09-03 사용자가 승인한 자동배정 날짜 우선순위·검토 후보 3안·업체구분/출처 표시·동선 환경진단·관리자 명시 편성 보호·8개 업체 무스크롤 UI 규칙을 포함한 통합 운영 규칙",
+              1,
+          )
+          doc_path.write_text(doc)
+          canonical_sha = hashlib.sha1(doc.encode()).hexdigest()
+
+          # Types / version / canonical fingerprint.
+          replace("lib/preliminary-survey-v2/reverse-planner/types.ts",
+              'export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.3";',
+              'export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.4";')
+          p = Path("lib/preliminary-survey-v2/reverse-planner/types.ts")
+          text = p.read_text()
+          import re
+          text = re.sub(r'export const PRELIMINARY_SURVEY_CANONICAL_SHA = "[0-9a-f]+";',
+              f'export const PRELIMINARY_SURVEY_CANONICAL_SHA = "{canonical_sha}";', text, count=1)
+          p.write_text(text)
+          replace("lib/preliminary-survey-v2/reverse-planner/types.ts",
+              'export type ReversePlannerDecision = "AUTO_ASSIGNED" | "MANUAL_REQUIRED" | "SOURCE_INVALID";',
+              'export type ReversePlannerDecision = "AUTO_ASSIGNED" | "ADMIN_OVERRIDE_KEPT" | "MANUAL_REQUIRED" | "SOURCE_INVALID";')
+          replace("lib/preliminary-survey-v2/reverse-planner/types.ts",
+              '  | "ROUTE_EVIDENCE_REQUIRED" | "PROTECTED_PLAN_REQUIRES_REVIEW"\n',
+              '  | "ROUTE_EVIDENCE_REQUIRED" | "PROTECTED_PLAN_REQUIRES_REVIEW" | "ADMIN_OVERRIDE_SOURCE_CHANGED"\n')
+          replace("lib/preliminary-survey-v2/reverse-planner/types.ts",
+              '  protected?: boolean;\n  sourceMeasurementDate?: string;\n',
+              '  protected?: boolean;\n  /** 관리자 ADMIN_EXPLICIT_OVERRIDE 자동변경 금지. */\n  adminOverrideProtected?: boolean;\n  /** 관리자 지정 당시 핵심 원천이 이후 변경됨. */\n  adminOverrideSourceChanged?: boolean;\n  sourceMeasurementDate?: string;\n')
+
+          # Snapshot flags remain separate from true-confirmed protection.
+          replace("lib/preliminary-survey-v2/reverse-planner/snapshot.ts",
+              '  trueConfirmedTargetIds?: number[];\n  planningTargetIds?: number[];\n',
+              '  trueConfirmedTargetIds?: number[];\n  adminOverrideTargetIds?: number[];\n  adminOverrideStaleTargetIds?: number[];\n  planningTargetIds?: number[];\n')
+          replace("lib/preliminary-survey-v2/reverse-planner/snapshot.ts",
+              '  const protectedIds = new Set(input.trueConfirmedTargetIds ?? []);\n  const allTargets = input.targets.map((target) => {\n',
+              '  const protectedIds = new Set(input.trueConfirmedTargetIds ?? []);\n  const adminOverrideIds = new Set(input.adminOverrideTargetIds ?? []);\n  const adminOverrideStaleIds = new Set(input.adminOverrideStaleTargetIds ?? []);\n  const allTargets = input.targets.map((target) => {\n')
+          replace("lib/preliminary-survey-v2/reverse-planner/snapshot.ts",
+              '      protected: protectedIds.has(Number(target.id)),\n      existingPlan: plan ? {\n',
+              '      protected: protectedIds.has(Number(target.id)),\n      adminOverrideProtected: adminOverrideIds.has(Number(target.id)),\n      adminOverrideSourceChanged: adminOverrideStaleIds.has(Number(target.id)),\n      existingPlan: plan ? {\n')
+
+          # Route: detect admin explicit override and whether its source changed.
+          replace("app/api/preliminary-survey-v2/reverse-planner/route.ts",
+              'import { buildPlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/snapshot";\n',
+              'import { buildPlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/snapshot";\nimport { adminOverrideSourceChanged, isAdminExplicitOverridePlan } from "@/lib/preliminary-survey-v2/reverse-planner/admin-override-protection";\n')
+          replace("app/api/preliminary-survey-v2/reverse-planner/route.ts",
+              '''  const protectedPlanIds = new Set([\n    ...(reconciliationResult.data ?? []).map((row: any) => String(row.applied_plan_id)),\n    ...(historyResult.data ?? []).map((row: any) => String(row.created_plan_id)),\n  ]);\n  const normalizedPeriod = (value: unknown) => String(value ?? "").trim().replace("(수시)", "");\n''',
+              '''  const protectedPlanIds = new Set([\n    ...(reconciliationResult.data ?? []).map((row: any) => String(row.applied_plan_id)),\n    ...(historyResult.data ?? []).map((row: any) => String(row.created_plan_id)),\n  ]);\n\n  // 관리자 명시 override는 true-confirmed와 별도의 보호 계층이다.\n  // 일반 자동계산은 이를 변경하지 않되, 관리자 저장 당시 핵심 원천이 바뀌면 재검토로 돌린다.\n  const adminOverridePlans = plans.filter((plan: any) => isAdminExplicitOverridePlan(plan));\n  const adminOverrideTargetIds = new Set<number>(adminOverridePlans\n    .map((plan: any) => Number(plan.measurement_target_business_id)));\n  const adminOverrideAuditResult = adminOverrideTargetIds.size\n    ? await supabase.from("preliminary_survey_v2_planner_audit")\n      .select("target_id, after_snapshot, created_at")\n      .eq("event_type", "MANUAL_OVERRIDE")\n      .in("target_id", [...adminOverrideTargetIds])\n      .order("created_at", { ascending: false })\n    : { data: [], error: null };\n  if (adminOverrideAuditResult.error) throw adminOverrideAuditResult.error;\n  const latestAdminOverrideAudit = new Map<number, any>();\n  for (const row of adminOverrideAuditResult.data ?? []) {\n    const targetId = Number((row as any).target_id);\n    if (!latestAdminOverrideAudit.has(targetId)) latestAdminOverrideAudit.set(targetId, row);\n  }\n  const adminOverrideStaleTargetIds = new Set<number>();\n  for (const target of snapshotTargets) {\n    const targetId = Number((target as any).id);\n    if (!adminOverrideTargetIds.has(targetId)) continue;\n    const plan = adminOverridePlans.find((item: any) => Number(item.measurement_target_business_id) === targetId);\n    if (!plan) continue;\n    if (adminOverrideSourceChanged({\n      target,\n      plan,\n      fixedAssignments: fixedResult.data ?? [],\n      auditAfterSnapshot: latestAdminOverrideAudit.get(targetId)?.after_snapshot,\n    })) adminOverrideStaleTargetIds.add(targetId);\n  }\n\n  const normalizedPeriod = (value: unknown) => String(value ?? "").trim().replace("(수시)", "");\n''')
+          replace("app/api/preliminary-survey-v2/reverse-planner/route.ts",
+              '      trueConfirmedTargetIds: protectedTargetIds,\n      planningTargetIds,\n',
+              '      trueConfirmedTargetIds: protectedTargetIds,\n      adminOverrideTargetIds: [...adminOverrideTargetIds],\n      adminOverrideStaleTargetIds: [...adminOverrideStaleTargetIds],\n      planningTargetIds,\n')
+          replace("app/api/preliminary-survey-v2/reverse-planner/route.ts",
+              '    if (target.protected) localViolations.push("PROTECTED_PLAN_REQUIRES_REVIEW");\n',
+              '    if (target.protected) localViolations.push("PROTECTED_PLAN_REQUIRES_REVIEW");\n    if (target.adminOverrideProtected) localViolations.push("ADMIN_OVERRIDE_REQUIRES_ADMIN");\n')
+          replace("app/api/preliminary-survey-v2/reverse-planner/route.ts",
+              '      if (target.protected) return NextResponse.json({ success: true, suggestions: [] });\n',
+              '      if (target.protected || target.adminOverrideProtected) return NextResponse.json({ success: true, suggestions: [] });\n')
+
+          # Solver: admin override is immutable occupancy, not an auto candidate.
+          replace("lib/preliminary-survey-v2/reverse-planner/solver.ts",
+              '\nfunction measurementRouteEvidenceMissing(snapshot: PlanningSnapshot, target: PlannerTarget, allowMissingRouteEvidence = false) {\n',
+              '''\nfunction existingAdminOverrideCandidate(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate | null {\n  const plan = target.existingPlan;\n  if (!plan?.preliminaryDate || !existingAssignmentsCompatible(target, plan)) return null;\n  const userById = new Map(snapshot.users.map((user) => [user.id, user]));\n  const participants = plan.participantUserIds.map((id) => userById.get(id));\n  if (participants.length !== plan.participantUserIds.length || participants.some((user) => !user?.active)) return null;\n  const responsible = userById.get(plan.responsibleUserId);\n  if (!responsible?.active || !plan.participantUserIds.includes(responsible.id)) return null;\n  if (plan.reviewerUserId != null) {\n    const reviewer = userById.get(plan.reviewerUserId);\n    if (!reviewer?.active || !plan.participantUserIds.includes(reviewer.id)) return null;\n  }\n  return {\n    preliminaryDate: plan.preliminaryDate,\n    surveyMethod: plan.surveyMethod,\n    participantUserIds: [...plan.participantUserIds],\n    responsibleUserId: plan.responsibleUserId,\n    reviewerUserId: plan.reviewerUserId,\n    writerUserId: responsible.id,\n    objective: [0, 0, 0, 0, 0, 0],\n    reasons: ["ADMIN_EXPLICIT_OVERRIDE", "KEEP_EXISTING"],\n  };\n}\n\nfunction measurementRouteEvidenceMissing(snapshot: PlanningSnapshot, target: PlannerTarget, allowMissingRouteEvidence = false) {\n''')
+          replace("lib/preliminary-survey-v2/reverse-planner/solver.ts",
+              '  const routeBlocked = new Set<number>();\n  const protectedGroupBlocked = new Set<number>();\n  const transitionBlocked = new Set<number>();\n',
+              '  const routeBlocked = new Set<number>();\n  const protectedGroupBlocked = new Set<number>();\n  const transitionBlocked = new Set<number>();\n  const adminOverrideKept = new Map<number, PlannerCandidate>();\n  const adminOverrideReview = new Set<number>();\n')
+          replace("lib/preliminary-survey-v2/reverse-planner/solver.ts",
+              '''    const error = sourceError(target, users);\n    if (error) errors.set(target.id, error);\n    else if (target.protected && !target.existingPlan) protectedGroupBlocked.add(target.id);\n''',
+              '''    const error = sourceError(target, users);\n    if (error) errors.set(target.id, error);\n    else if (target.adminOverrideProtected) {\n      const candidate = existingAdminOverrideCandidate(snapshot, target);\n      if (target.adminOverrideSourceChanged || !candidate) adminOverrideReview.add(target.id);\n      else adminOverrideKept.set(target.id, candidate);\n    } else if (target.protected && !target.existingPlan) protectedGroupBlocked.add(target.id);\n''')
+          replace("lib/preliminary-survey-v2/reverse-planner/solver.ts",
+              '''    if (error) return { ...common, decision: error === "FIXED_ASSIGNEE_NOT_CONFIRMED" ? "MANUAL_REQUIRED" as const : "SOURCE_INVALID" as const,\n      mutation: "NONE" as const, reason: error, candidate: null };\n    if (transitionBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,\n''',
+              '''    if (error) return { ...common, decision: error === "FIXED_ASSIGNEE_NOT_CONFIRMED" ? "MANUAL_REQUIRED" as const : "SOURCE_INVALID" as const,\n      mutation: "NONE" as const, reason: error, candidate: null };\n    if (adminOverrideReview.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,\n      mutation: "NONE" as const, reason: "ADMIN_OVERRIDE_SOURCE_CHANGED" as const, candidate: null };\n    const keptAdminOverride = adminOverrideKept.get(target.id);\n    if (keptAdminOverride) return { ...common, decision: "ADMIN_OVERRIDE_KEPT" as const,\n      mutation: "KEEP_EXISTING" as const, reason: null, candidate: keptAdminOverride };\n    if (transitionBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,\n''')
+
+          # UI semantics.
+          replace("components/features/FixedAssigneeReversePlanner.tsx",
+              '  PROTECTED_PLAN_REQUIRES_REVIEW: "기존 확정값 확인",\n',
+              '  PROTECTED_PLAN_REQUIRES_REVIEW: "기존 확정값 확인",\n  ADMIN_OVERRIDE_SOURCE_CHANGED: "관리자 지정 재검토 필요",\n')
+          replace("components/features/FixedAssigneeReversePlanner.tsx",
+              '''  if (result.decision === "AUTO_ASSIGNED") return result.mutation === "KEEP_EXISTING"\n    ? { label: "기존 배정 유지", tone: "text-emerald-800 bg-emerald-50" }\n    : { label: "배정 가능", tone: "text-emerald-800 bg-emerald-50" };\n''',
+              '''  if (result.decision === "AUTO_ASSIGNED") return result.mutation === "KEEP_EXISTING"\n    ? { label: "기존 배정 유지", tone: "text-emerald-800 bg-emerald-50" }\n    : { label: "배정 가능", tone: "text-emerald-800 bg-emerald-50" };\n  if (result.decision === "ADMIN_OVERRIDE_KEPT") {\n    return { label: "관리자 지정 유지", tone: "text-blue-800 bg-blue-50" };\n  }\n''')
+          replace("components/features/FixedAssigneeReversePlanner.tsx",
+              '  INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",\n',
+              '  INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",\n  ADMIN_OVERRIDE_REQUIRES_ADMIN: "관리자 지정 편성은 관리자 예외 수정으로만 변경할 수 있습니다.",\n')
+          replace("components/features/FixedAssigneeReversePlanner.tsx",
+              '''  const repairableCount = repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO").length;\n  const autoCount = (preview?.results.filter((result) => result.decision === "AUTO_ASSIGNED").length ?? 0) + repairableCount;\n  const reviewCount = (preview ? preview.results.length - (preview.results.filter((result) => result.decision === "AUTO_ASSIGNED").length) : 0)\n    + repairDrafts.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO" && draft.classification !== "COMPLETE").length;\n''',
+              '''  const repairableCount = repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO").length;\n  const autoResultCount = preview?.results.filter((result) => result.decision === "AUTO_ASSIGNED").length ?? 0;\n  const adminOverrideKeptCount = preview?.results.filter((result) => result.decision === "ADMIN_OVERRIDE_KEPT").length ?? 0;\n  const autoCount = autoResultCount + repairableCount;\n  const reviewCount = (preview ? preview.results.length - autoResultCount - adminOverrideKeptCount : 0)\n    + repairDrafts.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO" && draft.classification !== "COMPLETE").length;\n''')
+          replace("components/features/FixedAssigneeReversePlanner.tsx",
+              '{preview && <div className="text-sm text-text-700"><strong className="text-emerald-700">배정 가능 {autoCount}건</strong>{reviewCount > 0 && <span className="ml-3 font-medium text-amber-700">확인 필요 {reviewCount}건</span>}</div>}',
+              '{preview && <div className="text-sm text-text-700"><strong className="text-emerald-700">배정 가능 {autoCount}건</strong>{adminOverrideKeptCount > 0 && <span className="ml-3 font-medium text-blue-700">관리자 지정 유지 {adminOverrideKeptCount}건</span>}{reviewCount > 0 && <span className="ml-3 font-medium text-amber-700">확인 필요 {reviewCount}건</span>}</div>}')
+          replace("components/features/FixedAssigneeReversePlanner.tsx",
+              '''              const valueSourceLabel = isReviewAdjusted ? "수정안"\n                : result?.decision === "AUTO_ASSIGNED" && result.mutation === "KEEP_EXISTING" ? "기존값 유지"\n                  : candidate ? "자동계산" : plan ? "기존값" : repair ? "보정안" : "미계산";\n''',
+              '''              const valueSourceLabel = isReviewAdjusted ? "수정안"\n                : result?.decision === "ADMIN_OVERRIDE_KEPT" ? "관리자 지정"\n                  : result?.decision === "AUTO_ASSIGNED" && result.mutation === "KEEP_EXISTING" ? "기존값 유지"\n                    : candidate ? "자동계산" : plan ? "기존값" : repair ? "보정안" : "미계산";\n''')
+          replace("components/features/FixedAssigneeReversePlanner.tsx",
+              '              return <tr key={target.id} className={result && result.decision !== "AUTO_ASSIGNED" ? "bg-amber-50/40 align-top" : "align-top"}>\n',
+              '              return <tr key={target.id} className={result && result.decision !== "AUTO_ASSIGNED" && result.decision !== "ADMIN_OVERRIDE_KEPT" ? "bg-amber-50/40 align-top" : "align-top"}>\n')
+
+          # Regression tests.
+          replace("tests/preliminary-survey-reverse-planner.test.ts",
+              'import { buildPlanningSnapshot } from "../lib/preliminary-survey-v2/reverse-planner/snapshot";\n',
+              'import { buildPlanningSnapshot } from "../lib/preliminary-survey-v2/reverse-planner/snapshot";\nimport { adminOverrideSourceChanged, isAdminExplicitOverridePlan } from "../lib/preliminary-survey-v2/reverse-planner/admin-override-protection";\n')
+          tests = Path("tests/preliminary-survey-reverse-planner.test.ts")
+          test_text = tests.read_text()
+          addition = r'''
+
+test("관리자 ADMIN_EXPLICIT_OVERRIDE plan을 식별한다", () => {
+  assert.equal(isAdminExplicitOverridePlan({
+    plan_origin: "manual",
+    recommendation_reason: { reason: ["ADMIN_EXPLICIT_OVERRIDE"] },
+  }), true);
+  assert.equal(isAdminExplicitOverridePlan({
+    plan_origin: "manual",
+    recommendation_reason: { reason: ["USER_REVIEW_ADJUSTMENT"] },
+  }), false);
+});
+
+test("관리자 지정 당시 핵심 원천이 같으면 유지하고 변경되면 stale로 판정한다", () => {
+  const fixed = [{
+    measurement_target_business_id: 599,
+    measurement_date: "2026-09-14",
+    assignee_user_id: 5,
+    updated_at: "2026-09-03T06:47:38.537Z",
+    source_snapshot: { nonParticipantConfirmed: false },
+  }];
+  const targetSource = {
+    id: 599,
+    measurement_date: "2026-09-14",
+    measurer_id: 5,
+    collaborators: "이주형, 한기문",
+    daily_staff: [{ date: "2026-09-14", measurer_id: 5, collaborators: ["이주형", "한기문"] }],
+  };
+  const audit = {
+    source_measurement_date: "2026-09-14",
+    source_report_writer_id: 5,
+    source_collaborators: "이주형, 한기문",
+    source_daily_staff: targetSource.daily_staff,
+    source_fixed_versions: [{ measurementDate: "2026-09-14", assigneeUserId: 5,
+      updatedAtMs: new Date("2026-09-03T06:47:38.537Z").getTime(), nonParticipantConfirmed: false }],
+  };
+  const plan = { plan_origin: "manual", source_measurement_date: "2026-09-14", source_responsible_user_id: 5 };
+  assert.equal(adminOverrideSourceChanged({ target: targetSource, plan, fixedAssignments: fixed, auditAfterSnapshot: audit }), false);
+  assert.equal(adminOverrideSourceChanged({ target: { ...targetSource, collaborators: "이주형" }, plan,
+    fixedAssignments: fixed, auditAfterSnapshot: audit }), true);
+});
+
+test("관리자 명시 편성은 일반 hard rule 위반이어도 재계산에서 그대로 유지한다", () => {
+  const input = fixture();
+  const fixed = input.targets[0].fixedAssignments[0];
+  input.targets[0] = target({
+    adminOverrideProtected: true,
+    existingPlan: {
+      id: "admin-plan",
+      preliminaryDate: "2026-09-07",
+      surveyMethod: "field",
+      participantUserIds: users.map((user) => user.id),
+      responsibleUserId: 5,
+      reviewerUserId: 5,
+      protected: false,
+      updatedAt: "2026-09-03T00:00:00.000Z",
+      assignments: [{ measurementDate: fixed.measurementDate, assigneeUserId: fixed.assigneeUserId,
+        surveyCode: "C", publicSampleCode: "C" }],
+    },
+  });
+  const result = resultFor(input);
+  assert.equal(result.decision, "ADMIN_OVERRIDE_KEPT");
+  assert.equal(result.mutation, "KEEP_EXISTING");
+  assert.equal(result.candidate?.preliminaryDate, "2026-09-07");
+  assert.equal(result.candidate?.surveyMethod, "field");
+  assert.deepEqual(result.candidate?.participantUserIds, users.map((user) => user.id));
+});
+
+test("관리자 지정 편성은 같은 batch의 다른 자동배정에 기존 점유로 반영된다", () => {
+  const usedDate = candidateDates("2026-09-16", "first_measurement").primary[0];
+  const admin = target({
+    id: 10,
+    code: "ADMIN",
+    adminOverrideProtected: true,
+    days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 2, confirmedAt: "x", updatedAt: "x" }],
+    existingPlan: {
+      id: "admin-plan",
+      preliminaryDate: usedDate,
+      surveyMethod: "field",
+      participantUserIds: [2],
+      responsibleUserId: 2,
+      reviewerUserId: null,
+      protected: false,
+      updatedAt: "x",
+      assignments: [{ measurementDate: "2026-09-16", assigneeUserId: 2, surveyCode: "A", publicSampleCode: "A" }],
+    },
+  });
+  const automatic = target({
+    id: 11,
+    code: "AUTO",
+    businessType: "first_measurement",
+    days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
+    fixedAssignments: [{ targetId: 11, measurementDate: "2026-09-16", assigneeUserId: 2, confirmedAt: "x", updatedAt: "x" }],
+  });
+  const occupancy = [{ targetId: 10, businessCode: "ADMIN", address: "대전 A", preliminaryDate: usedDate,
+    surveyMethod: "field" as const, participantUserIds: [2], responsibleUserId: 2, reviewerUserId: null,
+    writerUserId: 2, protected: false }];
+  const input = fixture({ targets: [admin, automatic], existingSurveyOccupancy: occupancy });
+  assert.equal(resultFor(input, 10).decision, "ADMIN_OVERRIDE_KEPT");
+  assert.notEqual(resultFor(input, 11).candidate?.preliminaryDate, usedDate);
+});
+
+test("관리자 지정 후 핵심 원천이 바뀌면 자동 덮어쓰기 대신 재검토가 필요하다", () => {
+  const input = fixture();
+  const fixed = input.targets[0].fixedAssignments[0];
+  input.targets[0] = target({
+    adminOverrideProtected: true,
+    adminOverrideSourceChanged: true,
+    existingPlan: {
+      id: "admin-plan",
+      preliminaryDate: "2026-09-07",
+      surveyMethod: "field",
+      participantUserIds: [2],
+      responsibleUserId: 2,
+      reviewerUserId: null,
+      protected: false,
+      updatedAt: "x",
+      assignments: [{ measurementDate: fixed.measurementDate, assigneeUserId: fixed.assigneeUserId,
+        surveyCode: "C", publicSampleCode: "C" }],
+    },
+  });
+  const result = resultFor(input);
+  assert.equal(result.decision, "MANUAL_REQUIRED");
+  assert.equal(result.mutation, "NONE");
+  assert.equal(result.reason, "ADMIN_OVERRIDE_SOURCE_CHANGED");
+});
+
+'''
+          if '관리자 명시 편성은 일반 hard rule 위반이어도 재계산에서 그대로 유지한다' in test_text:
+              raise SystemExit('admin override tests already present')
+          tests.write_text(test_text + addition)
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reverse planner regression
+        run: npx tsx --test tests/preliminary-survey-reverse-planner.test.ts
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Commit patched implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/preliminary-survey-v2/reverse-planner/route.ts \
+            components/features/FixedAssigneeReversePlanner.tsx \
+            docs/business-rules/preliminary-survey.md \
+            lib/preliminary-survey-v2/reverse-planner/admin-override-protection.ts \
+            lib/preliminary-survey-v2/reverse-planner/snapshot.ts \
+            lib/preliminary-survey-v2/reverse-planner/solver.ts \
+            lib/preliminary-survey-v2/reverse-planner/types.ts \
+            tests/preliminary-survey-reverse-planner.test.ts
+          git commit -m "fix: 관리자 예비조사 지정 편성 자동배정 보호"
+          git push
