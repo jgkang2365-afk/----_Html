@@ -1,7 +1,10 @@
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent, listEvents } from "./calendar";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveCalendarColorId } from "./calendar-policy";
-import { formatCalendarMeasurementParticipants } from "./calendar-staff-display";
+import {
+  formatCalendarMeasurementParticipants,
+  resolveCalendarLeadParticipant,
+} from "./calendar-staff-display";
 
 /**
  * 특정 사업장의 정보를 구글 캘린더와 동기화합니다.
@@ -100,9 +103,13 @@ export async function syncBusinessToCalendar(
         continue;
       }
 
-      // 제목에는 실제 측정 참여자만 표시한다. 보고서 담당자는 포함된 경우에만 맨 앞에 둔다.
-      // 캘린더 색상은 아래 resolveCalendarColorId에서 보고서 담당자 기준을 그대로 유지한다.
+      // 제목과 색상은 동일한 일자별 대표 측정참여자 기준을 사용한다.
+      // 보고서 담당자가 실제 참여하면 맨 앞/색상 기준이고, 미참여 시 승인된 참여자 우선순위를 적용한다.
       const staffDisplay = formatCalendarMeasurementParticipants(
+        survey.actual_measurer,
+        survey.report_writer,
+      );
+      const calendarLead = resolveCalendarLeadParticipant(
         survey.actual_measurer,
         survey.report_writer,
       );
@@ -121,7 +128,7 @@ export async function syncBusinessToCalendar(
             .maybeSingle();
       if (journalError) throw journalError;
 
-      const colorId = resolveCalendarColorId(survey.report_writer, currentJournal);
+      const colorId = resolveCalendarColorId(calendarLead, currentJournal);
 
       const eventData = {
         summary,
