@@ -7,7 +7,7 @@ export const CALENDAR_MEASUREMENT_PARTICIPANT_PRIORITY = [
 ] as const;
 
 const PARTICIPANT_PRIORITY_INDEX = new Map<string, number>(
-  CALENDAR_MEASUREMENT_PARTICIPANT_PRIORITY.map((name, index) => [name, index]),
+  CALENDAR_MEASUREMENT_PARTICIPANT_PRIORITY.map((name, index) => [name, index] as const),
 );
 
 export function orderCalendarMeasurementParticipants(
