@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
 import {
   buildExpectedCalendarDays,
   summarizeCalendarResyncActions,
@@ -80,5 +82,19 @@ describe("관리자 캘린더 재동기화", () => {
         { date: "2026-09-10", action: "recreated" },
       ],
     );
+  });
+
+  it("API와 화면 모두 관리자 전용이며 성공 후 실제 이벤트 날짜를 재검증한다", () => {
+    const route = fs.readFileSync(
+      path.join(process.cwd(), "app/api/businesses/calendar-resync/route.ts"),
+      "utf8",
+    );
+    const page = fs.readFileSync(path.join(process.cwd(), "app/businesses/page.tsx"), "utf8");
+
+    assert.match(route, /session\.role !== "관리자"/);
+    assert.match(route, /CALENDAR_SOURCE_MISMATCH/);
+    assert.match(route, /getSurveyEvent\(survey\.google_event_id\)/);
+    assert.match(route, /eventDate !== survey\.measurement_date/);
+    assert.match(page, /session\.role === "관리자" \? <CalendarResyncAdminPanel \/>/);
   });
 });
