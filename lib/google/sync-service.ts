@@ -164,7 +164,7 @@ export async function syncBusinessToCalendar(
           }
         } else {
           const created = await createSurveyEvent(eventData);
-          if (!created?.id) throw new Error("삭제된 캘린더 일정을 다시 생성하지 못했습니다.");
+          if (!created?.id) throw new Error("캘린더 일정을 다시 생성하지 못했습니다.");
           await supabase.from("preliminary_survey").update({ google_event_id: created.id }).eq("id", survey.id);
           survey.google_event_id = created.id;
           syncedEventCount += 1;
