@@ -1,12 +1,12 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.3";
-export const PRELIMINARY_SURVEY_CANONICAL_SHA = "3c33715893d7f1e778ac45313259ba91c9c60541";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.4";
+export const PRELIMINARY_SURVEY_CANONICAL_SHA = "a2f5039d4f1500d48ddadeedd46eb7010a96b3be";
 
-export type ReversePlannerDecision = "AUTO_ASSIGNED" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
+export type ReversePlannerDecision = "AUTO_ASSIGNED" | "ADMIN_OVERRIDE_KEPT" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
 export type ReversePlannerMutation = "KEEP_EXISTING" | "CREATE" | "REPLACE" | "NONE";
 export type ReversePlannerReason =
   | "FIXED_ASSIGNEE_NOT_CONFIRMED" | "ONLY_MISMATCH_ALTERNATIVES_AVAILABLE"
   | "NO_EXPERIENCED_PARTNER_AVAILABLE" | "NO_VALID_PRELIMINARY_DATE"
-  | "ROUTE_EVIDENCE_REQUIRED" | "PROTECTED_PLAN_REQUIRES_REVIEW"
+  | "ROUTE_EVIDENCE_REQUIRED" | "PROTECTED_PLAN_REQUIRES_REVIEW" | "ADMIN_OVERRIDE_SOURCE_CHANGED"
   | "TRANSITION_BOUNDARY_REVIEW_REQUIRED" | "SOURCE_CHANGED" | "TARGET_NOT_FOUND"
   | "USER_NOT_FOUND" | "INVALID_MEASUREMENT_DATES" | "INVALID_DAILY_STAFF"
   | "INVALID_BASE_CODE" | "CONFLICTING_AUTHORITATIVE_SOURCE"
@@ -37,6 +37,10 @@ export interface PlannerTarget {
   businessType: "existing" | "first_measurement" | "external_new"; days: PlannerDay[];
   fixedAssignments: FixedMeasurementAssignment[]; existingPlan: ExistingPlannerPlan | null;
   protected?: boolean;
+  /** 관리자 ADMIN_EXPLICIT_OVERRIDE 자동변경 금지. */
+  adminOverrideProtected?: boolean;
+  /** 관리자 지정 당시 핵심 원천이 이후 변경됨. */
+  adminOverrideSourceChanged?: boolean;
   sourceMeasurementDate?: string;
   sourceUpdatedAt?: string;
   sourceReportWriterUserId?: number | null;

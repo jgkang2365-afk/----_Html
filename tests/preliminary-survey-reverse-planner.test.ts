@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildPlanningSnapshot } from "../lib/preliminary-survey-v2/reverse-planner/snapshot";
+import { adminOverrideSourceChanged, isAdminExplicitOverridePlan } from "../lib/preliminary-survey-v2/reverse-planner/admin-override-protection";
 import { candidateDates } from "../lib/preliminary-survey-v2/reverse-planner/candidate-dates";
 import {
   resolveAutomaticMeasurementAssignments,
@@ -684,4 +685,76 @@ test("v1.1 정상 Apply만 재활성화하고 legacy manual write는 계속 차�
   assert.doesNotMatch(route, /REVERSE_PLANNER_APPLY_TEMPORARILY_DISABLED/);
   assert.match(route, /body\.action !== "apply"/);
   assert.match(ui, />\s*배정 확정\s*</);
+});
+
+
+test("관리자 ADMIN_EXPLICIT_OVERRIDE plan을 식별한다", () => {
+  assert.equal(isAdminExplicitOverridePlan({ plan_origin: "manual", recommendation_reason: { reason: ["ADMIN_EXPLICIT_OVERRIDE"] } }), true);
+  assert.equal(isAdminExplicitOverridePlan({ plan_origin: "manual", recommendation_reason: { reason: ["USER_REVIEW_ADJUSTMENT"] } }), false);
+});
+
+test("관리자 지정 당시 핵심 원천이 같으면 유지하고 변경되면 stale로 판정한다", () => {
+  const fixed = [{ measurement_target_business_id: 599, measurement_date: "2026-09-14", assignee_user_id: 5,
+    updated_at: "2026-09-03T06:47:38.537Z", source_snapshot: { nonParticipantConfirmed: false } }];
+  const targetSource = { id: 599, measurement_date: "2026-09-14", measurer_id: 5, collaborators: "이주형, 한기문",
+    daily_staff: [{ date: "2026-09-14", measurer_id: 5, collaborators: ["이주형", "한기문"] }] };
+  const audit = { source_measurement_date: "2026-09-14", source_report_writer_id: 5,
+    source_collaborators: "이주형, 한기문", source_daily_staff: targetSource.daily_staff,
+    source_fixed_versions: [{ measurementDate: "2026-09-14", assigneeUserId: 5,
+      updatedAtMs: new Date("2026-09-03T06:47:38.537Z").getTime(), nonParticipantConfirmed: false }] };
+  const plan = { plan_origin: "manual", source_measurement_date: "2026-09-14", source_responsible_user_id: 5 };
+  assert.equal(adminOverrideSourceChanged({ target: targetSource, plan, fixedAssignments: fixed, auditAfterSnapshot: audit }), false);
+  assert.equal(adminOverrideSourceChanged({ target: { ...targetSource, collaborators: "이주형" }, plan,
+    fixedAssignments: fixed, auditAfterSnapshot: audit }), true);
+});
+
+test("관리자 명시 편성은 일반 hard rule 위반이어도 재계산에서 그대로 유지한다", () => {
+  const input = fixture();
+  const fixed = input.targets[0].fixedAssignments[0];
+  input.targets[0] = target({ adminOverrideProtected: true, existingPlan: {
+    id: "admin-plan", preliminaryDate: "2026-09-07", surveyMethod: "field",
+    participantUserIds: users.map((user) => user.id), responsibleUserId: 5, reviewerUserId: 5,
+    protected: false, updatedAt: "2026-09-03T00:00:00.000Z",
+    assignments: [{ measurementDate: fixed.measurementDate, assigneeUserId: fixed.assigneeUserId,
+      surveyCode: "C", publicSampleCode: "C" }],
+  } });
+  const result = resultFor(input);
+  assert.equal(result.decision, "ADMIN_OVERRIDE_KEPT");
+  assert.equal(result.mutation, "KEEP_EXISTING");
+  assert.equal(result.candidate?.preliminaryDate, "2026-09-07");
+  assert.equal(result.candidate?.surveyMethod, "field");
+  assert.deepEqual(result.candidate?.participantUserIds, users.map((user) => user.id));
+});
+
+test("관리자 지정 편성은 같은 batch의 다른 자동배정에 기존 점유로 반영된다", () => {
+  const usedDate = candidateDates("2026-09-16", "first_measurement").primary[0];
+  const admin = target({ id: 10, code: "ADMIN", adminOverrideProtected: true,
+    days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 2, confirmedAt: "x", updatedAt: "x" }],
+    existingPlan: { id: "admin-plan", preliminaryDate: usedDate, surveyMethod: "field", participantUserIds: [2],
+      responsibleUserId: 2, reviewerUserId: null, protected: false, updatedAt: "x",
+      assignments: [{ measurementDate: "2026-09-16", assigneeUserId: 2, surveyCode: "A", publicSampleCode: "A" }] } });
+  const automatic = target({ id: 11, code: "AUTO", businessType: "first_measurement",
+    days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
+    fixedAssignments: [{ targetId: 11, measurementDate: "2026-09-16", assigneeUserId: 2, confirmedAt: "x", updatedAt: "x" }] });
+  const occupancy = [{ targetId: 10, businessCode: "ADMIN", address: "대전 A", preliminaryDate: usedDate,
+    surveyMethod: "field" as const, participantUserIds: [2], responsibleUserId: 2, reviewerUserId: null,
+    writerUserId: 2, protected: false }];
+  const input = fixture({ targets: [admin, automatic], existingSurveyOccupancy: occupancy });
+  assert.equal(resultFor(input, 10).decision, "ADMIN_OVERRIDE_KEPT");
+  assert.notEqual(resultFor(input, 11).candidate?.preliminaryDate, usedDate);
+});
+
+test("관리자 지정 후 핵심 원천이 바뀌면 자동 덮어쓰기 대신 재검토가 필요하다", () => {
+  const input = fixture();
+  const fixed = input.targets[0].fixedAssignments[0];
+  input.targets[0] = target({ adminOverrideProtected: true, adminOverrideSourceChanged: true,
+    existingPlan: { id: "admin-plan", preliminaryDate: "2026-09-07", surveyMethod: "field", participantUserIds: [2],
+      responsibleUserId: 2, reviewerUserId: null, protected: false, updatedAt: "x",
+      assignments: [{ measurementDate: fixed.measurementDate, assigneeUserId: fixed.assigneeUserId,
+        surveyCode: "C", publicSampleCode: "C" }] } });
+  const result = resultFor(input);
+  assert.equal(result.decision, "MANUAL_REQUIRED");
+  assert.equal(result.mutation, "NONE");
+  assert.equal(result.reason, "ADMIN_OVERRIDE_SOURCE_CHANGED");
 });

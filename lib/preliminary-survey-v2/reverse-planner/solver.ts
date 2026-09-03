@@ -235,6 +235,30 @@ function existingCandidate(snapshot: PlanningSnapshot, target: PlannerTarget): P
   return validateCandidateHardRules(snapshot, target, candidate).length === 0 ? candidate : null;
 }
 
+function existingAdminOverrideCandidate(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate | null {
+  const plan = target.existingPlan;
+  if (!plan?.preliminaryDate || !existingAssignmentsCompatible(target, plan)) return null;
+  const userById = new Map(snapshot.users.map((user) => [user.id, user]));
+  const participants = plan.participantUserIds.map((id) => userById.get(id));
+  if (participants.length !== plan.participantUserIds.length || participants.some((user) => !user?.active)) return null;
+  const responsible = userById.get(plan.responsibleUserId);
+  if (!responsible?.active || !plan.participantUserIds.includes(responsible.id)) return null;
+  if (plan.reviewerUserId != null) {
+    const reviewer = userById.get(plan.reviewerUserId);
+    if (!reviewer?.active || !plan.participantUserIds.includes(reviewer.id)) return null;
+  }
+  return {
+    preliminaryDate: plan.preliminaryDate,
+    surveyMethod: plan.surveyMethod,
+    participantUserIds: [...plan.participantUserIds],
+    responsibleUserId: plan.responsibleUserId,
+    reviewerUserId: plan.reviewerUserId,
+    writerUserId: responsible.id,
+    objective: [0, 0, 0, 0, 0, 0],
+    reasons: ["ADMIN_EXPLICIT_OVERRIDE", "KEEP_EXISTING"],
+  };
+}
+
 function measurementRouteEvidenceMissing(snapshot: PlanningSnapshot, target: PlannerTarget, allowMissingRouteEvidence = false) {
   for (const day of target.days) {
     const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
@@ -451,11 +475,17 @@ export function planPreliminarySurveyGivenFixedAssignments(
   const routeBlocked = new Set<number>();
   const protectedGroupBlocked = new Set<number>();
   const transitionBlocked = new Set<number>();
+  const adminOverrideKept = new Map<number, PlannerCandidate>();
+  const adminOverrideReview = new Set<number>();
   for (const target of sortedTargets(snapshot)) {
     if (isTransitionProtectedTarget(target)) { transitionBlocked.add(target.id); continue; }
     const error = sourceError(target, users);
     if (error) errors.set(target.id, error);
-    else if (target.protected && !target.existingPlan) protectedGroupBlocked.add(target.id);
+    else if (target.adminOverrideProtected) {
+      const candidate = existingAdminOverrideCandidate(snapshot, target);
+      if (target.adminOverrideSourceChanged || !candidate) adminOverrideReview.add(target.id);
+      else adminOverrideKept.set(target.id, candidate);
+    } else if (target.protected && !target.existingPlan) protectedGroupBlocked.add(target.id);
     else if (target.fixedAssignments.some((fixed) => protectedCodeGroups.has(`${fixed.measurementDate}|${fixed.assigneeUserId}`))) {
       protectedGroupBlocked.add(target.id);
     } else if (measurementRouteEvidenceMissing(snapshot, target, options.allowMissingRouteEvidence)) routeBlocked.add(target.id);
@@ -483,6 +513,11 @@ export function planPreliminarySurveyGivenFixedAssignments(
     };
     if (error) return { ...common, decision: error === "FIXED_ASSIGNEE_NOT_CONFIRMED" ? "MANUAL_REQUIRED" as const : "SOURCE_INVALID" as const,
       mutation: "NONE" as const, reason: error, candidate: null };
+    if (adminOverrideReview.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,
+      mutation: "NONE" as const, reason: "ADMIN_OVERRIDE_SOURCE_CHANGED" as const, candidate: null };
+    const keptAdminOverride = adminOverrideKept.get(target.id);
+    if (keptAdminOverride) return { ...common, decision: "ADMIN_OVERRIDE_KEPT" as const,
+      mutation: "KEEP_EXISTING" as const, reason: null, candidate: keptAdminOverride };
     if (transitionBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,
       mutation: "NONE" as const, reason: "TRANSITION_BOUNDARY_REVIEW_REQUIRED" as const, candidate: null };
     if (routeBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,

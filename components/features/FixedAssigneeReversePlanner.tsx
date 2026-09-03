@@ -44,6 +44,7 @@ const reasonLabel: Record<ReversePlannerReason, string> = {
   NO_VALID_PRELIMINARY_DATE: "예비조사일 확인 필요",
   ROUTE_EVIDENCE_REQUIRED: "이동경로 확인 필요",
   PROTECTED_PLAN_REQUIRES_REVIEW: "기존 확정값 확인",
+  ADMIN_OVERRIDE_SOURCE_CHANGED: "관리자 지정 재검토 필요",
   TRANSITION_BOUNDARY_REVIEW_REQUIRED: "전환기간 자료 확인 필요",
   SOURCE_CHANGED: "원천정보가 변경되었습니다. 배정안을 다시 계산해 주세요.",
   TARGET_NOT_FOUND: "사업장 원천정보 확인 필요",
@@ -65,6 +66,9 @@ function resultStatus(result: ReversePlannerResult | undefined, target: PlannerT
   if (result.decision === "AUTO_ASSIGNED") return result.mutation === "KEEP_EXISTING"
     ? { label: "기존 배정 유지", tone: "text-emerald-800 bg-emerald-50" }
     : { label: "배정 가능", tone: "text-emerald-800 bg-emerald-50" };
+  if (result.decision === "ADMIN_OVERRIDE_KEPT") {
+    return { label: "관리자 지정 유지", tone: "text-blue-800 bg-blue-50" };
+  }
   if (result.decision === "SOURCE_INVALID") {
     return { label: "원천정보 확인 필요", tone: "text-red-800 bg-red-50" };
   }
@@ -84,6 +88,7 @@ const violationLabels: Record<string, string> = {
   ...reasonLabel,
   REVIEW_ADJUSTMENT_BATCH_CONFLICT: "같은 batch의 다른 배정안과 일정·용량·동선이 충돌합니다.",
   INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",
+  ADMIN_OVERRIDE_REQUIRES_ADMIN: "관리자 지정 편성은 관리자 예외 수정으로만 변경할 수 있습니다.",
 };
 
 const violationText = (value: string) => violationLabels[value] ?? "운영지침 확인이 필요합니다.";
@@ -445,8 +450,10 @@ export function FixedAssigneeReversePlanner({
   };
 
   const repairableCount = repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO").length;
-  const autoCount = (preview?.results.filter((result) => result.decision === "AUTO_ASSIGNED").length ?? 0) + repairableCount;
-  const reviewCount = (preview ? preview.results.length - (preview.results.filter((result) => result.decision === "AUTO_ASSIGNED").length) : 0)
+  const autoResultCount = preview?.results.filter((result) => result.decision === "AUTO_ASSIGNED").length ?? 0;
+  const adminOverrideKeptCount = preview?.results.filter((result) => result.decision === "ADMIN_OVERRIDE_KEPT").length ?? 0;
+  const autoCount = autoResultCount + repairableCount;
+  const reviewCount = (preview ? preview.results.length - autoResultCount - adminOverrideKeptCount : 0)
     + repairDrafts.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO" && draft.classification !== "COMPLETE").length;
   const canApply = Boolean(preview?.results.some((result) => result.decision === "AUTO_ASSIGNED"
     && (result.mutation === "CREATE" || result.mutation === "REPLACE")) || repairableCount > 0 || reviewAdjustments.size > 0);
@@ -468,7 +475,7 @@ export function FixedAssigneeReversePlanner({
         <Button size="sm" variant="secondary" onClick={() => changeMeasurementDate(moveDate(measurementDate, 1))} disabled={working}>다음일 ▶</Button>
         <span className="text-sm font-medium text-text-700">대상 사업장 {snapshot?.targets.length ?? 0}개</span>
         <div className="ml-auto flex items-center gap-3">
-          {preview && <div className="text-sm text-text-700"><strong className="text-emerald-700">배정 가능 {autoCount}건</strong>{reviewCount > 0 && <span className="ml-3 font-medium text-amber-700">확인 필요 {reviewCount}건</span>}</div>}
+          {preview && <div className="text-sm text-text-700"><strong className="text-emerald-700">배정 가능 {autoCount}건</strong>{adminOverrideKeptCount > 0 && <span className="ml-3 font-medium text-blue-700">관리자 지정 유지 {adminOverrideKeptCount}건</span>}{reviewCount > 0 && <span className="ml-3 font-medium text-amber-700">확인 필요 {reviewCount}건</span>}</div>}
           <Button size="sm" onClick={createPreview} disabled={working || !snapshot?.targets.length}>배정안 계산</Button>
           <Button size="sm" onClick={applyPreview} disabled={working || !canApply}>배정 확정</Button>
         </div>
@@ -532,10 +539,11 @@ export function FixedAssigneeReversePlanner({
                 }));
               const isReviewAdjusted = reviewAdjustments.has(target.id);
               const valueSourceLabel = isReviewAdjusted ? "수정안"
-                : result?.decision === "AUTO_ASSIGNED" && result.mutation === "KEEP_EXISTING" ? "기존값 유지"
-                  : candidate ? "자동계산" : plan ? "기존값" : repair ? "보정안" : "미계산";
+                : result?.decision === "ADMIN_OVERRIDE_KEPT" ? "관리자 지정"
+                  : result?.decision === "AUTO_ASSIGNED" && result.mutation === "KEEP_EXISTING" ? "기존값 유지"
+                    : candidate ? "자동계산" : plan ? "기존값" : repair ? "보정안" : "미계산";
               const visibleRouteWarnings = routeWarnings.filter((warning) => warning.label !== status.label);
-              return <tr key={target.id} className={result && result.decision !== "AUTO_ASSIGNED" ? "bg-amber-50/40 align-top" : "align-top"}>
+              return <tr key={target.id} className={result && result.decision !== "AUTO_ASSIGNED" && result.decision !== "ADMIN_OVERRIDE_KEPT" ? "bg-amber-50/40 align-top" : "align-top"}>
                 <td className="px-2 py-2"><div className="font-semibold text-text-900">{target.code}</div><div className="truncate text-text-700" title={target.name}>{target.name}</div><div className="mt-1 flex flex-wrap gap-1 text-[11px]"><span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">{businessTypeLabel[target.businessType]}</span><span className="rounded bg-blue-50 px-1.5 py-0.5 font-medium text-blue-700">{valueSourceLabel}</span></div></td>
                 <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{day.date}</div>)}</td>
                 <td className="space-y-1 px-2 py-2">{target.days.map((day) => {
