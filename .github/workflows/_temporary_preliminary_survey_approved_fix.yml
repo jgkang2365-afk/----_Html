@@ -1,0 +1,552 @@
+name: Temporary approved preliminary survey fix
+
+on:
+  push:
+    branches:
+      - fix/preliminary-survey-auto-assignment-review-ui
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-approved-fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/preliminary-survey-auto-assignment-review-ui
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Patch canonical policy first
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          doc = 'docs/business-rules/preliminary-survey.md'
+          replace_once(doc,
+          '> 현행 통합본: 2026-09-01  \n> 정책 기준: 2026-09-01 사용자가 승인한 실제 측정팀 정합성 및 측정자 고정형 역산 플래너 운영 규칙',
+          '> 현행 통합본: 2026-09-03  \n> 정책 기준: 2026-09-03 사용자가 승인한 자동배정 날짜 우선순위·Preview 수정·동선 표시·8개 업체 검토 UI 규칙을 포함한 통합 운영 규칙')
+
+          replace_once(doc,
+          '- 방문 필수다.\n- 측정예정일 기준 working day `-3, -4, -5 ... -20` 순으로 탐색한다.\n- `-20`을 넘는 과거일은 정상 자동결정으로 만들지 않는다.',
+          '- 방문 필수다.\n- 측정예정일 기준 working day `-3, -4, -5 ... -20` 순으로 탐색한다.\n- `-20`을 넘는 과거일은 정상 자동결정으로 만들지 않는다.\n- 최초실시의 날짜 우선순위는 달력 날짜의 오름차순이 아니라 위 working-day 거리 순서 자체가 정책 순서다. 동일한 hard constraint와 preference 점수라면 `-3`이 `-4`보다, `-4`가 `-5`보다 항상 우선한다.\n- 후보를 문자열 날짜 오름차순으로 재정렬하여 `-20` 쪽의 오래된 날짜가 먼저 선택되는 구현은 금지한다. 사업장 유형별 후보 생성 순서를 안정적인 tie-break로 보존한다.')
+
+          replace_once(doc,
+          '- `SOURCE_INVALID`는 원천 수정이 필요함을 명확히 표시하고 임의 값을 만들지 않는다.\n\n### 설명 가능한 계산 기록',
+          '- `SOURCE_INVALID`는 원천 수정이 필요함을 명확히 표시하고 임의 값을 만들지 않는다.\n\n### 자동 배정 검토 화면\n\n- 자동 배정 표는 **사업장 1개당 기본 1행**을 사용한다. 정상 동선 설명이나 보조 근거 때문에 동일 사업장을 별도 행으로 늘리지 않는다.\n- 자동 배정 대상이 8개 이하이면 표 내부 세로 스크롤 없이 8개 사업장을 한 번에 검토할 수 있는 밀도로 표시한다. 9개 이상일 때만 표 내부 세로 스크롤을 허용한다.\n- 동일주소와 검증된 차량 이동시간 30분 이하의 정상 route evidence는 기본 행에 반복 표시하지 않는다. 계산 근거와 audit에는 그대로 보존한다.\n- 차량 이동시간 31~60분은 `동선 검토`, route 확인 불가는 `이동경로 확인 필요`, 60분 초과는 자동 묶음 불가를 알 수 있는 경고로 기본 행에 표시한다.\n- 동선 경고의 상세정보에서는 가능하면 상대 사업장, 적용 날짜, 공통 수행자, 정방향·역방향·보수적 적용 시간을 확인할 수 있어야 한다.\n\n### 설명 가능한 계산 기록')
+
+          replace_once(doc,
+          '- 예비조사 담당자만으로 찐확정 보호나 관리자 전용 예외를 우회할 수 없다.\n\n### 관리자 수정 모달 — 최종 수동판단',
+          '- 예비조사 담당자만으로 찐확정 보호나 관리자 전용 예외를 우회할 수 없다.\n\n### 자동 배정 Preview 수정\n\n- 자동 배정 Preview는 자동 계산값을 최종 확인하는 작업 화면이며, 비찐확정·비보호 대상은 사용자가 예비조사일과 예비조사자 조합을 수정안으로 검토할 수 있다.\n- 일반 수정은 측정예정일, 측정 참여자, 보고서 담당자 등 authoritative source를 변경하지 않는다. 최초실시·타기관 신규의 방문, 기존업체의 유선 등 사업장 유형별 방식 hard rule도 일반 수정에서 임의 변경하지 않는다.\n- 일반 수정안은 서버에서 현재 snapshot과 동일 validator로 날짜범위, 경력조합, 측정자 포함, 실제 측정팀 교집합, 직원 불가 일정, capacity, route, 보호 상태를 다시 검증한다.\n- hard rule을 통과한 수정안은 Preview에만 임시 반영한다. **사용자가 `배정 확정`을 누르기 전에는 DB에 저장하지 않는다.**\n- 여러 업체의 수정안은 같은 batch의 다른 자동 배정안과 함께 다시 계산하여 공유 capacity와 동선 충돌을 검증한다. 한 업체 수정 때문에 다른 업체의 유효안이 바뀌면 변경된 Preview를 사용자에게 먼저 보여 준다.\n- 정상 수정안의 저장 근거에는 `USER_REVIEW_ADJUSTMENT` 등 사용자가 자동 계산값을 검토·조정했다는 출처를 남긴다.\n- 수정안이 hard rule을 위반하거나 보호 경계를 넘으면 일반 `배정 확정` 대상에 포함하지 않는다. 관리자만 별도 예외 사유·위반 확인·audit을 거쳐 수동 override할 수 있다.\n- Preview 이후 source, fixed assignment, 일정, route baseline 등이 바뀌면 수정안도 함께 stale 처리하고 `SOURCE_CHANGED`로 0건 저장한다.\n\n### 관리자 수정 모달 — 최종 수동판단')
+
+          replace_once(doc,
+          '- `H0525`: 최초실시 날짜 범위 `-3 ... -20`을 지킨다.\n- `H0526`: 최초실시는 방문이어야 한다.\n- `H0527`: 실제 측정팀 교집합과 hard constraint를 통과한 후보 안에서 보고서 담당자 조합 preference를 적용한다.',
+          '- `H0525`: 최초실시 날짜 범위 `-3 ... -20`을 지킨다.\n- `H0526`: 최초실시는 방문이어야 한다.\n- `H0527 날짜 우선순위`: 실제 측정일 2026-09-02의 최초실시에서 `-3`인 2026-08-28이 유효하면 더 오래된 2026-08-06을 날짜 문자열 오름차순 때문에 먼저 선택하지 않는다. `-3 → -20` 후보 순서를 보존한다.\n- `H0527`: 실제 측정팀 교집합과 hard constraint를 통과한 후보 안에서 보고서 담당자 조합 preference를 적용한다.\n- `Preview 일반 수정`: 지침 안의 예비조사일·예비조사자 수정은 서버 재검증 후 Preview에만 반영되고 `배정 확정` 전 DB write가 없어야 한다.\n- `정상 동선 표시`: 동일주소 또는 차량 30분 이하의 정상 route evidence가 자동배정 기본 행을 여러 줄의 `차량 N분` 텍스트로 늘리면 FAIL이다. 31~60분·미확인·60분 초과만 경고한다.\n- `8개 업체 검토`: 자동배정 대상 8개까지는 사업장당 1행을 유지하고 표 내부 세로 스크롤 없이 보여야 하며, 9개부터 내부 세로 스크롤을 허용한다.')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/business-rules/preliminary-survey.md
+          git commit -m 'docs: update preliminary survey auto-assignment review policy'
+
+      - name: Patch implementation and regression tests
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}: {old[:140]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          canonical_blob = subprocess.check_output([
+              'git', 'hash-object', 'docs/business-rules/preliminary-survey.md'
+          ], text=True).strip()
+
+          types = 'lib/preliminary-survey-v2/reverse-planner/types.ts'
+          replace_once(types,
+              'export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.1";\nexport const PRELIMINARY_SURVEY_CANONICAL_SHA = "071df2c29edb789488d36094b03ed3c7114ac5ff";',
+              f'export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.2";\nexport const PRELIMINARY_SURVEY_CANONICAL_SHA = "{canonical_blob}";')
+
+          solver = 'lib/preliminary-survey-v2/reverse-planner/solver.ts'
+          replace_once(solver,
+          '  const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);\n  const dates = [...ranges.primary, ...ranges.fallback];\n  return combinations.flatMap((choice) => dates.map((date) => {',
+          '  const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);\n  const dates = [...ranges.primary, ...ranges.fallback];\n  const dateRank = new Map(dates.map((date, index) => [date, index] as const));\n  return combinations.flatMap((choice) => dates.map((date) => {')
+          replace_once(solver,
+          '  })).filter((candidate) => validateCandidateHardRules(snapshot, target, candidate).length === 0)\n    .sort((left, right) => compareObjective(left.objective, right.objective)\n      || left.preliminaryDate.localeCompare(right.preliminaryDate)\n      || left.responsibleUserId - right.responsibleUserId\n      || (left.reviewerUserId ?? 0) - (right.reviewerUserId ?? 0));',
+          '  })).filter((candidate) => validateCandidateHardRules(snapshot, target, candidate).length === 0)\n    .sort((left, right) => compareObjective(left.objective, right.objective)\n      || (dateRank.get(left.preliminaryDate) ?? Number.MAX_SAFE_INTEGER)\n        - (dateRank.get(right.preliminaryDate) ?? Number.MAX_SAFE_INTEGER)\n      || left.responsibleUserId - right.responsibleUserId\n      || (left.reviewerUserId ?? 0) - (right.reviewerUserId ?? 0));')
+          replace_once(solver,
+          'export function planPreliminarySurveyGivenFixedAssignments(\n  snapshot: PlanningSnapshot,\n  options: { allowMissingRouteEvidence?: boolean; deadlineAt?: number } = {},\n): ReversePlannerOutput {',
+          'export function planPreliminarySurveyGivenFixedAssignments(\n  snapshot: PlanningSnapshot,\n  options: {\n    allowMissingRouteEvidence?: boolean;\n    deadlineAt?: number;\n    forcedCandidates?: Map<number, PlannerCandidate>;\n  } = {},\n): ReversePlannerOutput {')
+          replace_once(solver,
+          '    } else if (measurementRouteEvidenceMissing(snapshot, target, options.allowMissingRouteEvidence)) routeBlocked.add(target.id);\n    else {\n      const keep = existingCandidate(snapshot, target);\n      choices.set(target.id, [...(keep ? [keep] : []), ...candidatesFor(snapshot, target)]);\n    }',
+          '    } else if (measurementRouteEvidenceMissing(snapshot, target, options.allowMissingRouteEvidence)) routeBlocked.add(target.id);\n    else {\n      const forced = options.forcedCandidates?.get(target.id);\n      if (forced) {\n        choices.set(target.id, validateCandidateHardRules(snapshot, target, forced).length === 0 ? [forced] : []);\n      } else {\n        const keep = existingCandidate(snapshot, target);\n        choices.set(target.id, [...(keep ? [keep] : []), ...candidatesFor(snapshot, target)]);\n      }\n    }')
+
+          route = 'app/api/preliminary-survey-v2/reverse-planner/route.ts'
+          replace_once(route,
+          'import { planPreliminarySurveyGivenFixedAssignments, validateCandidateForSave } from "@/lib/preliminary-survey-v2/reverse-planner/solver";',
+          'import { planPreliminarySurveyGivenFixedAssignments, validateCandidateForSave, validateCandidateHardRules } from "@/lib/preliminary-survey-v2/reverse-planner/solver";')
+          replace_once(route,
+          'function assignmentOrigin(target: PlanningSnapshot["targets"][number], measurementDate: string) {\n  return target.fixedAssignments.find((fixed) => fixed.measurementDate === measurementDate)?.origin === "automatic"\n    ? "automatic" as const : "confirmed" as const;\n}\n\nasync function authorize() {',
+          '''function assignmentOrigin(target: PlanningSnapshot["targets"][number], measurementDate: string) {
+  return target.fixedAssignments.find((fixed) => fixed.measurementDate === measurementDate)?.origin === "automatic"
+    ? "automatic" as const : "confirmed" as const;
+}
+
+type ReviewAdjustmentPayload = {
+  targetId: number;
+  preliminaryDate: string;
+  participantUserIds: number[];
+};
+
+function sameReviewCandidate(left: PlannerCandidate | null, right: PlannerCandidate) {
+  return Boolean(left
+    && left.preliminaryDate === right.preliminaryDate
+    && left.surveyMethod === right.surveyMethod
+    && left.responsibleUserId === right.responsibleUserId
+    && left.reviewerUserId === right.reviewerUserId
+    && JSON.stringify([...left.participantUserIds].sort((a, b) => a - b))
+      === JSON.stringify([...right.participantUserIds].sort((a, b) => a - b)));
+}
+
+function parseReviewAdjustments(snapshot: PlanningSnapshot, value: unknown) {
+  const candidates = new Map<number, PlannerCandidate>();
+  const violations = new Map<number, string[]>();
+  if (value == null) return { candidates, violations };
+  if (!Array.isArray(value)) {
+    violations.set(-1, ["INVALID_REVIEW_ADJUSTMENT_PAYLOAD"]);
+    return { candidates, violations };
+  }
+  const seen = new Set<number>();
+  for (const raw of value as Array<Record<string, unknown>>) {
+    const targetId = Number(raw?.targetId);
+    const preliminaryDate = String(raw?.preliminaryDate ?? "");
+    const participantUserIds = Array.isArray(raw?.participantUserIds)
+      ? [...new Set(raw.participantUserIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))]
+      : [];
+    const target = snapshot.targets.find((item) => item.id === targetId);
+    const localViolations: string[] = [];
+    if (!Number.isInteger(targetId) || seen.has(targetId) || !target || !DATE_ONLY.test(preliminaryDate)) {
+      localViolations.push("INVALID_REVIEW_ADJUSTMENT_PAYLOAD");
+    }
+    seen.add(targetId);
+    if (!target) {
+      violations.set(targetId || -1, localViolations);
+      continue;
+    }
+    const participantUsers = participantUserIds.map((id) => snapshot.users.find((user) => user.id === id));
+    if (!participantUserIds.length || participantUsers.some((user) => !user?.active)) localViolations.push("USER_NOT_FOUND");
+    const validUsers = participantUsers.filter((user): user is NonNullable<typeof user> => Boolean(user?.active));
+    const experienced = validUsers.filter((user) => user.experienced);
+    const novices = validUsers.filter((user) => !user.experienced);
+    let responsibleUserId: number | null = null;
+    let reviewerUserId: number | null = null;
+    let writerUserId: number | null = null;
+    if (validUsers.length === 1 && experienced.length === 1) {
+      responsibleUserId = experienced[0].id;
+      writerUserId = experienced[0].id;
+    } else if (validUsers.length === 2 && experienced.length === 1 && novices.length === 1) {
+      responsibleUserId = novices[0].id;
+      reviewerUserId = experienced[0].id;
+      writerUserId = novices[0].id;
+    } else {
+      localViolations.push("INVALID_SURVEYOR_ROLE_COMBINATION");
+    }
+    if (target.fixedAssignments.length !== target.days.length) localViolations.push("FIXED_ASSIGNEE_NOT_CONFIRMED");
+    if (target.protected) localViolations.push("PROTECTED_PLAN_REQUIRES_REVIEW");
+    if (target.days.some((day) => day.date.startsWith("2026-08-"))) localViolations.push("TRANSITION_BOUNDARY_REVIEW_REQUIRED");
+    if (responsibleUserId != null && writerUserId != null) {
+      const candidate: PlannerCandidate = {
+        preliminaryDate,
+        surveyMethod: target.businessType === "existing" ? "phone" : "field",
+        participantUserIds,
+        responsibleUserId,
+        reviewerUserId,
+        writerUserId,
+        objective: [0, 0, 0, 0, 0, 0] as const,
+        reasons: ["USER_REVIEW_ADJUSTMENT"],
+      };
+      localViolations.push(...validateCandidateHardRules(snapshot, target, candidate));
+      if (!localViolations.length) candidates.set(targetId, candidate);
+    }
+    if (localViolations.length) violations.set(targetId, [...new Set(localViolations)].sort());
+  }
+  return { candidates, violations };
+}
+
+function reviewAdjustmentConflictTargets(output: ReturnType<typeof planPreliminarySurveyGivenFixedAssignments>, forced: Map<number, PlannerCandidate>) {
+  return [...forced.entries()].flatMap(([targetId, candidate]) => {
+    const result = output.results.find((item) => item.targetId === targetId);
+    return result?.decision === "AUTO_ASSIGNED" && sameReviewCandidate(result.candidate, candidate) ? [] : [targetId];
+  });
+}
+
+async function authorize() {''')
+          replace_once(route,
+          '    if (body.action !== "apply" && body.action !== "override") {\n      return NextResponse.json({ error: "지원하지 않는 작업입니다." }, { status: 400 });\n    }',
+          '    if (body.action !== "apply" && body.action !== "override" && body.action !== "validate_adjustment") {\n      return NextResponse.json({ error: "지원하지 않는 작업입니다." }, { status: 400 });\n    }')
+          replace_once(route,
+          '    const frozenSnapshot = { ...snapshot, routeEvidence: preview.routeEvidence };\n    const output = planPreliminarySurveyGivenFixedAssignments(frozenSnapshot);\n    if (preview.sourceFingerprint !== output.sourceFingerprint) throw new Error("SOURCE_CHANGED");\n    if (body.action === "override") {',
+          '''    const frozenSnapshot = { ...snapshot, routeEvidence: preview.routeEvidence };
+    let output = planPreliminarySurveyGivenFixedAssignments(frozenSnapshot);
+    if (preview.sourceFingerprint !== output.sourceFingerprint) throw new Error("SOURCE_CHANGED");
+
+    if (body.action === "validate_adjustment") {
+      const parsed = parseReviewAdjustments(frozenSnapshot, body.reviewAdjustments);
+      if (parsed.violations.size) {
+        return NextResponse.json({
+          success: true,
+          valid: false,
+          violations: Object.fromEntries(parsed.violations),
+          conflictTargetIds: [...parsed.violations.keys()].filter((id) => id > 0),
+        });
+      }
+      const adjustedOutput = planPreliminarySurveyGivenFixedAssignments(frozenSnapshot, { forcedCandidates: parsed.candidates });
+      const conflictTargetIds = reviewAdjustmentConflictTargets(adjustedOutput, parsed.candidates);
+      if (conflictTargetIds.length) {
+        return NextResponse.json({
+          success: true,
+          valid: false,
+          violations: Object.fromEntries(conflictTargetIds.map((id) => [id, ["REVIEW_ADJUSTMENT_BATCH_CONFLICT"]])),
+          conflictTargetIds,
+        });
+      }
+      return NextResponse.json({
+        success: true,
+        valid: true,
+        results: adjustedOutput.results,
+        sourceFingerprint: adjustedOutput.sourceFingerprint,
+        routeEvidence: preview.routeEvidence,
+      });
+    }
+
+    if (body.action === "override") {''')
+          replace_once(route,
+          '    if (String(body.sourceFingerprint ?? "") !== output.sourceFingerprint) {\n      return NextResponse.json({ error: "원천이 변경되어 적용하지 않았습니다.", code: "SOURCE_CHANGED", appliedCount: 0 }, { status: 409 });\n    }\n    const applicable = output.results.filter((result) => result.decision === "AUTO_ASSIGNED"',
+          '''    if (String(body.sourceFingerprint ?? "") !== output.sourceFingerprint) {
+      return NextResponse.json({ error: "원천이 변경되어 적용하지 않았습니다.", code: "SOURCE_CHANGED", appliedCount: 0 }, { status: 409 });
+    }
+    const parsedReview = parseReviewAdjustments(frozenSnapshot, body.reviewAdjustments);
+    if (parsedReview.violations.size) {
+      return NextResponse.json({
+        error: "수정안이 현재 운영지침을 통과하지 못했습니다. 다시 검토해 주세요.",
+        code: "REVIEW_ADJUSTMENT_REQUIRES_OVERRIDE",
+        violations: Object.fromEntries(parsedReview.violations),
+        appliedCount: 0,
+      }, { status: 409 });
+    }
+    if (parsedReview.candidates.size) {
+      const adjustedOutput = planPreliminarySurveyGivenFixedAssignments(frozenSnapshot, { forcedCandidates: parsedReview.candidates });
+      const conflictTargetIds = reviewAdjustmentConflictTargets(adjustedOutput, parsedReview.candidates);
+      if (conflictTargetIds.length) {
+        return NextResponse.json({
+          error: "수정안과 같은 batch의 다른 배정안 사이에 일정·용량·동선 충돌이 있습니다.",
+          code: "REVIEW_ADJUSTMENT_BATCH_CONFLICT",
+          targetIds: conflictTargetIds,
+          appliedCount: 0,
+        }, { status: 409 });
+      }
+      output = adjustedOutput;
+    }
+    const reviewAdjustedTargetIds = new Set(parsedReview.candidates.keys());
+    const applicable = output.results.filter((result) => result.decision === "AUTO_ASSIGNED"''')
+          replace_once(route,
+          '        reasons: candidate.reasons,\n        warnings: result.warnings,',
+          '        reasons: reviewAdjustedTargetIds.has(target.id)\n          ? [...new Set([...candidate.reasons, "USER_REVIEW_ADJUSTMENT"])]\n          : candidate.reasons,\n        warnings: result.warnings,')
+          replace_once(route,
+          '    if (error) throw error;\n    return NextResponse.json({ success: true, ...data });\n  } catch (error) {',
+          '    if (error) throw error;\n    return NextResponse.json({ success: true, ...data, reviewAdjustedCount: reviewAdjustedTargetIds.size });\n  } catch (error) {')
+
+          ui = 'components/features/FixedAssigneeReversePlanner.tsx'
+          replace_once(ui,
+          'interface FixedAssigneeReversePlannerProps {\n  isOpen: boolean;\n  initialMeasurementDate: string;\n  onClose: () => void;\n  onApplied: () => void | Promise<void>;\n}\n',
+          '''interface FixedAssigneeReversePlannerProps {
+  isOpen: boolean;
+  initialMeasurementDate: string;
+  onClose: () => void;
+  onApplied: () => void | Promise<void>;
+}
+
+interface ReviewAdjustment {
+  targetId: number;
+  preliminaryDate: string;
+  participantUserIds: number[];
+}
+''')
+          replace_once(ui,
+          '  const [overrideViolations, setOverrideViolations] = useState<string[]>([]);',
+          '  const [overrideViolations, setOverrideViolations] = useState<string[]>([]);\n  const [reviewAdjustments, setReviewAdjustments] = useState<Map<number, ReviewAdjustment>>(new Map());')
+          replace_once(ui,
+          '    setRepairDrafts([]);\n    setOverrideTargetId(null);',
+          '    setRepairDrafts([]);\n    setReviewAdjustments(new Map());\n    setOverrideTargetId(null);')
+          replace_once(ui,
+          '      setPreview(result);\n      const protectedTargetIds =',
+          '      setPreview(result);\n      setReviewAdjustments(new Map());\n      const protectedTargetIds =')
+          replace_once(ui,
+          '          action: "apply", measurementDate, sourceFingerprint: preview.sourceFingerprint,\n          previewToken: preview.previewToken,',
+          '          action: "apply", measurementDate, sourceFingerprint: preview.sourceFingerprint,\n          previewToken: preview.previewToken, reviewAdjustments: [...reviewAdjustments.values()],')
+          replace_once(ui,
+          '      setPreview(null);\n      setRepairDrafts([]);\n      const appliedCount = Number(result.appliedCount ?? 0);',
+          '      setPreview(null);\n      setRepairDrafts([]);\n      setReviewAdjustments(new Map());\n      const appliedCount = Number(result.appliedCount ?? 0);')
+          replace_once(ui,
+          '''  const openOverride = (targetId: number) => {
+    const target = snapshot?.targets.find((item) => item.id === targetId);
+    const team = [...new Set(target?.days.flatMap((day) => [
+      ...day.collaboratorUserIds,
+      ...target.fixedAssignments.filter((fixed) => fixed.measurementDate === day.date).map((fixed) => fixed.assigneeUserId),
+    ]) ?? [])];
+    setOverrideTargetId(targetId);
+    setOverrideDate("");
+    setOverrideMethod(target?.businessType === "existing" ? "phone" : "field");
+    setOverrideResponsible(team[0] ?? null);
+    setOverrideReviewer(null);
+    setOverrideParticipants(team[0] ? [team[0]] : []);
+    setOverrideReason("");
+    setOverrideViolations([]);
+  };
+
+  const saveOverride = async () => {''',
+          '''  const openOverride = (targetId: number) => {
+    const target = snapshot?.targets.find((item) => item.id === targetId);
+    const result = preview?.results.find((item) => item.targetId === targetId);
+    const repair = repairDrafts.find((item) => Number(item.targetId) === targetId) as any;
+    const adjustment = reviewAdjustments.get(targetId);
+    const candidate = result?.candidate;
+    const plan = target?.existingPlan;
+    const team = [...new Set(target?.days.flatMap((day) => [
+      ...day.collaboratorUserIds,
+      ...target.fixedAssignments.filter((fixed) => fixed.measurementDate === day.date).map((fixed) => fixed.assigneeUserId),
+    ]) ?? [])];
+    const participants = adjustment?.participantUserIds
+      ?? candidate?.participantUserIds ?? plan?.participantUserIds ?? repair?.participantUserIds ?? team.slice(0, 1);
+    setOverrideTargetId(targetId);
+    setOverrideDate(adjustment?.preliminaryDate ?? candidate?.preliminaryDate ?? plan?.preliminaryDate ?? repair?.recommendedDate ?? "");
+    setOverrideMethod(candidate?.surveyMethod ?? plan?.surveyMethod ?? repair?.surveyMethod
+      ?? (target?.businessType === "existing" ? "phone" : "field"));
+    setOverrideResponsible(candidate?.responsibleUserId ?? plan?.responsibleUserId ?? repair?.responsibleUserId ?? team[0] ?? null);
+    setOverrideReviewer(candidate?.reviewerUserId ?? plan?.reviewerUserId ?? repair?.experiencedReviewerUserId ?? null);
+    setOverrideParticipants(participants);
+    setOverrideReason("");
+    setOverrideViolations([]);
+    setError(null);
+  };
+
+  const stageAdjustment = async () => {
+    if (!preview || overrideTargetId == null) return;
+    const adjustment: ReviewAdjustment = {
+      targetId: overrideTargetId,
+      preliminaryDate: overrideDate,
+      participantUserIds: [...new Set(overrideParticipants)].sort((a, b) => a - b),
+    };
+    const next = new Map(reviewAdjustments);
+    next.set(overrideTargetId, adjustment);
+    setWorking(true);
+    setError(null);
+    setOverrideViolations([]);
+    try {
+      const response = await fetch("/api/preliminary-survey-v2/reverse-planner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "validate_adjustment",
+          measurementDate,
+          previewToken: preview.previewToken,
+          reviewAdjustments: [...next.values()],
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "수정안 검증에 실패했습니다.");
+      if (!result.valid) {
+        const targetViolations = result.violations?.[String(overrideTargetId)]
+          ?? result.violations?.[overrideTargetId] ?? ["REVIEW_ADJUSTMENT_BATCH_CONFLICT"];
+        setOverrideViolations(targetViolations);
+        setError("수정안이 자동배정 지침을 통과하지 못했습니다. 값을 조정하거나 관리자 예외 처리를 검토해 주세요.");
+        return;
+      }
+      setReviewAdjustments(next);
+      setPreview((current) => current ? { ...current, results: result.results ?? current.results } : current);
+      setOverrideTargetId(null);
+      setNotice("수정안을 Preview에 반영했습니다. 배정 확정 전에는 저장되지 않습니다.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "수정안 검증에 실패했습니다.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const saveOverride = async () => {''')
+          replace_once(ui,
+          '  const canApply = Boolean(preview?.results.some((result) => result.decision === "AUTO_ASSIGNED"\n    && (result.mutation === "CREATE" || result.mutation === "REPLACE")) || repairableCount > 0);',
+          '  const canApply = Boolean(preview?.results.some((result) => result.decision === "AUTO_ASSIGNED"\n    && (result.mutation === "CREATE" || result.mutation === "REPLACE")) || repairableCount > 0 || reviewAdjustments.size > 0);\n  const snapshotTargetCount = snapshot?.targets.length ?? 0;')
+          replace_once(ui,
+          '      <div className="max-h-[55vh] overflow-auto rounded-lg border border-surface-200 bg-white">\n        <table className="w-full min-w-[1180px] table-fixed text-left text-sm">',
+          '      <div data-testid="preliminary-survey-auto-assignment-table-scroll" data-vertical-scroll={snapshotTargetCount > 8 ? "enabled" : "disabled"}\n        className={`${snapshotTargetCount > 8 ? "max-h-[55vh] overflow-auto" : "overflow-x-auto"} rounded-lg border border-surface-200 bg-white`}>\n        <table className="w-full min-w-[1180px] table-fixed text-left text-sm">')
+          replace_once(ui,
+          '''              const routeLabels = [...new Set((preview?.routeEvidence ?? [])
+                .filter((item) => item.leftTargetId === target.id || item.rightTargetId === target.id)
+                .map((item) => item.sameAddress ? "동일주소"
+                  : item.durationMinutes == null ? "이동경로 확인 필요"
+                    : item.durationMinutes <= 30 ? `차량 ${item.durationMinutes}분`
+                      : `차량 ${item.durationMinutes}분 · 추가 검토`))];''',
+          '''              const routeWarnings = (preview?.routeEvidence ?? [])
+                .filter((item) => (item.leftTargetId === target.id || item.rightTargetId === target.id)
+                  && !item.sameAddress && (item.durationMinutes == null || item.durationMinutes > 30))
+                .map((item) => {
+                  const otherId = item.leftTargetId === target.id ? item.rightTargetId : item.leftTargetId;
+                  const otherTarget = snapshot?.targets.find((entry) => entry.id === otherId);
+                  const otherOccupancy = [...(snapshot?.actualMeasurementOccupancy ?? []), ...(snapshot?.existingSurveyOccupancy ?? [])]
+                    .find((entry) => entry.targetId === otherId);
+                  const otherLabel = otherTarget ? `${otherTarget.code} ${otherTarget.name}`
+                    : otherOccupancy?.businessCode ?? `대상 ${otherId}`;
+                  const sharedNames = (item.sharedUserIds ?? []).map((id) => userById.get(id)?.name).filter(Boolean).join(" · ");
+                  const label = item.durationMinutes == null ? "이동경로 확인 필요"
+                    : item.durationMinutes <= 60 ? `동선 검토 ${item.durationMinutes}분`
+                      : `동선 불가 ${item.durationMinutes}분`;
+                  const detail = `${item.date} · ${otherLabel}${sharedNames ? ` · 공통 ${sharedNames}` : ""}`
+                    + ` · 정방향 ${item.forwardDurationMinutes ?? "-"}분 · 역방향 ${item.reverseDurationMinutes ?? "-"}분`
+                    + ` · 적용 ${item.effectiveDurationMinutes ?? item.durationMinutes ?? "-"}분`;
+                  return { label, detail };
+                });''')
+          replace_once(ui,
+          '              return <tr key={target.id} className={result && result.decision !== "AUTO_ASSIGNED" ? "bg-amber-50/40 align-top" : "align-top"}>',
+          '              const isReviewAdjusted = reviewAdjustments.has(target.id);\n              return <tr key={target.id} className={result && result.decision !== "AUTO_ASSIGNED" ? "bg-amber-50/40 align-top" : "align-top"}>')
+          replace_once(ui,
+          '<td className="px-3 py-3"><div className="font-semibold text-text-900">{target.code}</div><div className="truncate text-text-700" title={target.name}>{target.name}</div></td>\n                <td className="px-3 py-3 text-text-700">{target.days.map((day) => <div key={day.date}>{day.date}</div>)}</td>\n                <td className="space-y-2 px-3 py-3">',
+          '<td className="px-2 py-2"><div className="font-semibold text-text-900">{target.code}</div><div className="truncate text-text-700" title={target.name}>{target.name}</div></td>\n                <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{day.date}</div>)}</td>\n                <td className="space-y-1 px-2 py-2">')
+          replace_once(ui,
+          '                      className="h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">',
+          '                      className="h-8 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">')
+          replace_once(ui,
+          '                <td className="px-3 py-3 text-text-700">{target.days.map((day) => <div key={day.date}>{day.collaboratorUserIds.map((id) => userById.get(id)?.name).filter(Boolean).join(" · ") || "-"}</div>)}</td>\n                <td className="px-3 py-3 text-text-700">{target.days.map((day) => <div key={day.date}>{day.reportWriterUserId == null ? "-" : userById.get(day.reportWriterUserId)?.name ?? "-"}</div>)}</td>\n                <td className="bg-primary-50/50 px-3 py-3 text-base font-bold text-primary-900">{preliminaryDate ?? "-"}</td>\n                <td className="bg-primary-50/50 px-3 py-3 text-base font-bold text-primary-900">{participantText(surveyorIds)}</td>\n                <td className="px-3 py-3 font-medium">{method === "field" ? "방문" : method === "phone" ? "유선" : "-"}</td>\n                <td className="px-3 py-3"><span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${status.tone}`}>{status.label}</span>\n                  {routeLabels.length > 0 && <div className="mt-2 text-xs text-text-600">{routeLabels.join(" · ")}</div>}\n                  {canOverride && result?.decision === "MANUAL_REQUIRED" && <button type="button" className="mt-2 text-xs font-medium text-primary-700 underline" onClick={() => openOverride(target.id)}>예외 처리</button>}\n                </td>',
+          '''                <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{day.collaboratorUserIds.map((id) => userById.get(id)?.name).filter(Boolean).join(" · ") || "-"}</div>)}</td>
+                <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{day.reportWriterUserId == null ? "-" : userById.get(day.reportWriterUserId)?.name ?? "-"}</div>)}</td>
+                <td className="bg-primary-50/50 px-2 py-2 text-base font-bold text-primary-900">{preliminaryDate ?? "-"}</td>
+                <td className="bg-primary-50/50 px-2 py-2 text-base font-bold text-primary-900">{participantText(surveyorIds)}</td>
+                <td className="px-2 py-2 font-medium">{method === "field" ? "방문" : method === "phone" ? "유선" : "-"}</td>
+                <td className="px-2 py-2"><div className="flex flex-wrap items-center gap-2"><span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${isReviewAdjusted ? "bg-blue-50 text-blue-800" : status.tone}`}>{isReviewAdjusted ? "수정안" : status.label}</span>
+                  {preview && result?.decision !== "SOURCE_INVALID" && !target.protected && <button type="button" className="text-xs font-medium text-primary-700 underline" onClick={() => openOverride(target.id)}>수정</button>}</div>
+                  {routeWarnings.length > 0 && <div className="mt-1 space-y-0.5 text-xs font-medium text-amber-700">{routeWarnings.map((warning, index) => <div key={`${warning.label}-${index}`} title={warning.detail}>{warning.label}</div>)}</div>}
+                </td>''')
+          replace_once(ui,
+          '''      {overrideTargetId != null && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+        <div className="mb-3 flex items-center justify-between"><h3 className="font-semibold text-amber-900">예외 처리</h3><button type="button" className="text-sm text-text-600" onClick={() => setOverrideTargetId(null)}>닫기</button></div>
+        {overrideViolations.length > 0 && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"><div className="font-medium">확인할 위반사항</div><ul className="mt-1 list-disc pl-5">{overrideViolations.map((violation) => <li key={violation}>{violationText(violation)}</li>)}</ul></div>}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <label className="text-sm">예비조사일<input type="date" value={overrideDate} onChange={(event) => setOverrideDate(event.target.value)} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2" /></label>
+          <label className="text-sm">방식<select value={overrideMethod} onChange={(event) => setOverrideMethod(event.target.value as "field" | "phone")} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="field">방문</option><option value="phone">유선</option></select></label>
+          <label className="text-sm">작성자<select value={overrideResponsible ?? ""} onChange={(event) => { const id = Number(event.target.value); setOverrideResponsible(id); setOverrideParticipants((current) => [...new Set([...current, id])]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">선택</option>{snapshot?.users.filter((user) => user.active).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+          <label className="text-sm">검토자<select value={overrideReviewer ?? ""} onChange={(event) => { const id = event.target.value ? Number(event.target.value) : null; setOverrideReviewer(id); if (id) setOverrideParticipants((current) => [...new Set([...current, id])]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">없음</option>{snapshot?.users.filter((user) => user.active && user.experienced).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+        </div>
+        <fieldset className="mt-3"><legend className="text-sm font-medium">예비조사자</legend><div className="mt-2 flex flex-wrap gap-3">{snapshot?.users.filter((user) => user.active).map((user) => <label key={user.id} className="text-sm"><input type="checkbox" checked={overrideParticipants.includes(user.id)} onChange={(event) => setOverrideParticipants((current) => event.target.checked ? [...new Set([...current, user.id])] : current.filter((id) => id !== user.id))} /> {user.name}</label>)}</div></fieldset>
+        <label className="mt-3 block text-sm">예외 사유<textarea value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} className="mt-1 min-h-20 w-full rounded border border-surface-300 bg-white p-2" placeholder="구체적인 업무상 예외 사유" /></label>
+        <div className="mt-3 flex justify-end"><Button size="sm" onClick={saveOverride} disabled={working || !overrideDate || !overrideResponsible || !overrideParticipants.length || !overrideReason.trim()}>{overrideViolations.length > 0 ? "위반 확인 후 저장" : "위반 검증"}</Button></div>
+      </div>}''',
+          '''      {overrideTargetId != null && <div className="rounded-lg border border-primary-200 bg-primary-50/30 p-4">
+        <div className="mb-3 flex items-center justify-between"><div><h3 className="font-semibold text-text-900">배정안 수정</h3><p className="mt-1 text-xs text-text-600">정상 수정안은 Preview에만 반영되며 배정 확정 전에는 저장되지 않습니다.</p></div><button type="button" className="text-sm text-text-600" onClick={() => setOverrideTargetId(null)}>닫기</button></div>
+        {overrideViolations.length > 0 && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"><div className="font-medium">확인할 위반사항</div><ul className="mt-1 list-disc pl-5">{overrideViolations.map((violation) => <li key={violation}>{violationText(violation)}</li>)}</ul></div>}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="text-sm">예비조사일<input type="date" value={overrideDate} onChange={(event) => { setOverrideDate(event.target.value); setOverrideViolations([]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2" /></label>
+          <div className="text-sm">방식<div className="mt-1 flex h-9 items-center rounded border border-surface-200 bg-surface-50 px-2 font-medium">{overrideMethod === "field" ? "방문" : "유선"} · 업체 구분 기준 고정</div></div>
+        </div>
+        <fieldset className="mt-3"><legend className="text-sm font-medium">예비조사자</legend><div className="mt-2 flex flex-wrap gap-3">{snapshot?.users.filter((user) => user.active).map((user) => <label key={user.id} className="text-sm"><input type="checkbox" checked={overrideParticipants.includes(user.id)} onChange={(event) => { setOverrideViolations([]); setOverrideParticipants((current) => event.target.checked ? [...new Set([...current, user.id])] : current.filter((id) => id !== user.id)); }} /> {user.name}</label>)}</div></fieldset>
+        <div className="mt-3 flex justify-end"><Button size="sm" onClick={stageAdjustment} disabled={working || !overrideDate || !overrideParticipants.length}>수정안 검증</Button></div>
+        {canOverride && overrideViolations.length > 0 && <div className="mt-4 border-t border-amber-300 pt-4">
+          <div className="mb-2 text-sm font-semibold text-amber-900">관리자 예외 처리</div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <label className="text-sm">방식<select value={overrideMethod} onChange={(event) => setOverrideMethod(event.target.value as "field" | "phone")} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="field">방문</option><option value="phone">유선</option></select></label>
+            <label className="text-sm">작성자<select value={overrideResponsible ?? ""} onChange={(event) => { const id = Number(event.target.value); setOverrideResponsible(id); setOverrideParticipants((current) => [...new Set([...current, id])]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">선택</option>{snapshot?.users.filter((user) => user.active).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+            <label className="text-sm">검토자<select value={overrideReviewer ?? ""} onChange={(event) => { const id = event.target.value ? Number(event.target.value) : null; setOverrideReviewer(id); if (id) setOverrideParticipants((current) => [...new Set([...current, id])]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">없음</option>{snapshot?.users.filter((user) => user.active && user.experienced).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+          </div>
+          <label className="mt-3 block text-sm">예외 사유<textarea value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} className="mt-1 min-h-20 w-full rounded border border-surface-300 bg-white p-2" placeholder="구체적인 업무상 예외 사유" /></label>
+          <div className="mt-3 flex justify-end"><Button size="sm" variant="danger" onClick={saveOverride} disabled={working || !overrideDate || !overrideResponsible || !overrideParticipants.length || !overrideReason.trim()}>관리자 예외로 즉시 저장</Button></div>
+        </div>}
+      </div>}''')
+
+          test_file = 'tests/preliminary-survey-reverse-planner.test.ts'
+          p = Path(test_file)
+          text = p.read_text(encoding='utf-8')
+          marker = '\ntest("v1.1 정상 Apply만 재활성화하고 legacy manual write는 계속 차단한다", () => {'
+          if marker not in text:
+              raise SystemExit('test insertion marker missing')
+          addition = r'''
+
+test("H0527 최초실시는 -3 → -20 후보순위를 보존해 2026-08-28을 먼저 선택한다", () => {
+  const h0527 = target({
+    businessType: "first_measurement",
+    days: [{ date: "2026-09-02", collaboratorUserIds: [5], reportWriterUserId: 5 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-02", assigneeUserId: 5, confirmedAt: "x", updatedAt: "x" }],
+  });
+  const input = fixture({ targets: [h0527] });
+  assert.equal(candidateDates("2026-09-02", "first_measurement").primary[0], "2026-08-28");
+  const result = resultFor(input);
+  assert.equal(result.decision, "AUTO_ASSIGNED");
+  assert.equal(result.candidate?.preliminaryDate, "2026-08-28");
+});
+
+test("사용자 검토 수정안은 forced candidate로 batch 재계산되어 선택값을 보존한다", () => {
+  const h0527 = target({
+    businessType: "first_measurement",
+    days: [{ date: "2026-09-02", collaboratorUserIds: [5], reportWriterUserId: 5 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-02", assigneeUserId: 5, confirmedAt: "x", updatedAt: "x" }],
+  });
+  const input = fixture({ targets: [h0527] });
+  const base = resultFor(input).candidate!;
+  const forced = { ...base, preliminaryDate: candidateDates("2026-09-02", "first_measurement").primary[1],
+    objective: [0, 0, 0, 0, 0, 0] as const, reasons: ["USER_REVIEW_ADJUSTMENT"] };
+  const output = planPreliminarySurveyGivenFixedAssignments(input, { forcedCandidates: new Map([[10, forced]]) });
+  assert.equal(output.results[0].decision, "AUTO_ASSIGNED");
+  assert.equal(output.results[0].candidate?.preliminaryDate, forced.preliminaryDate);
+});
+
+test("자동배정 UI는 정상 30분 이하 차량값을 숨기고 8개까지 내부 세로스크롤을 끈다", () => {
+  const ui = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
+  const route = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
+  assert.match(ui, /item\.durationMinutes == null \|\| item\.durationMinutes > 30/);
+  assert.match(ui, /동선 검토/);
+  assert.match(ui, /동선 불가/);
+  assert.doesNotMatch(ui, /item\.durationMinutes <= 30 \? `차량/);
+  assert.match(ui, /snapshotTargetCount > 8 \? "enabled" : "disabled"/);
+  assert.match(ui, /reviewAdjustments: \[\.\.\.reviewAdjustments\.values\(\)\]/);
+  assert.match(ui, /배정 확정 전에는 저장되지 않습니다/);
+  assert.match(route, /body\.action !== "validate_adjustment"/);
+  assert.match(route, /USER_REVIEW_ADJUSTMENT/);
+  assert.match(route, /forcedCandidates: parsedReview\.candidates/);
+});
+'''
+          p.write_text(text.replace(marker, addition + marker, 1), encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+      - name: Run focused regression tests
+        run: npx tsx --test tests/preliminary-survey-reverse-planner.test.ts tests/preliminary-survey-route-lazy.test.ts
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Commit implementation and push both commits
+        shell: bash
+        run: |
+          git add lib/preliminary-survey-v2/reverse-planner/types.ts \
+            lib/preliminary-survey-v2/reverse-planner/solver.ts \
+            app/api/preliminary-survey-v2/reverse-planner/route.ts \
+            components/features/FixedAssigneeReversePlanner.tsx \
+            tests/preliminary-survey-reverse-planner.test.ts
+          git commit -m 'fix: improve preliminary survey auto-assignment review'
+          git push origin HEAD:fix/preliminary-survey-auto-assignment-review-ui
