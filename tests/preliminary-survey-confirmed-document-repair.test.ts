@@ -173,6 +173,11 @@ describe("찐확정 누락정보 보정 경계", () => {
     const previewBuilder = builder.slice(start, end > start ? end : undefined);
     assert.doesNotMatch(previewBuilder, /\.(?:insert|update|delete|upsert|rpc)\(/);
   });
+  it("자동배정 모달은 가확정 계획을 true-confirmed처럼 기존 확정이라고 표시하지 않는다", () => {
+    const ui = fs.readFileSync(path.join(process.cwd(), "components/features/FixedAssigneeReversePlanner.tsx"), "utf8");
+    assert.match(ui, /기존 배정 유지/);
+    assert.doesNotMatch(ui, /label: "기존 확정"/);
+  });
   it("관리 열은 모든 행에 삭제 버튼을 렌더링하고 상세 모달의 중복 진입점은 없다", () => {
     const ui = fs.readFileSync(path.join(process.cwd(), "components/features/PreliminarySurveyV2Plans.tsx"), "utf8");
     assert.match(ui, /"보고서담당", "상태", "구분", "관리", "확인사항"/);
