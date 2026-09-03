@@ -1,0 +1,24 @@
+name: tmp-revert-docs
+on:
+  push:
+    branches: [fix/reverse-planner-actual-date-cast]
+    paths: [.github/workflows/tmp-revert-docs.yml]
+permissions:
+  contents: write
+jobs:
+  restore:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/reverse-planner-actual-date-cast
+          fetch-depth: 0
+      - name: Revert accidental docs replacement and remove workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git revert --no-edit 412d17b2f9bcfb8bb65b152500c23f9d68391fa5
+          git rm .github/workflows/tmp-revert-docs.yml
+          git commit -m "chore: remove temporary docs restore workflow"
+          git push origin HEAD:fix/reverse-planner-actual-date-cast
