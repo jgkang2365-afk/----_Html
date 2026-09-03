@@ -44,6 +44,18 @@ test("K2B 전송 전에는 일자별 대표 측정참여자 색상을 사용한�
   assert.equal(resolveCalendarColorId("이주형", journal), "5");
 });
 
+test("K2B 완료 상태에서는 측정참여자 대표자가 바뀌어도 완료 색상이 우선한다", () => {
+  const completedJournal = {
+    k2b_send_date: "2026-09-03",
+    electronic_invoice_date: "2026-09-03",
+    measurement_fee_business: 250000,
+  };
+
+  assert.equal(resolveCalendarColorId("한기문", completedJournal), COMPLETED_CALENDAR_COLOR_ID);
+  assert.equal(resolveCalendarColorId("이주형", completedJournal), COMPLETED_CALENDAR_COLOR_ID);
+  assert.equal(resolveCalendarColorId("김민영", completedJournal), COMPLETED_CALENDAR_COLOR_ID);
+});
+
 test("보고서 담당자가 측정 참여자에 포함되면 보고서 담당자를 최우선 표시한다", () => {
   assert.equal(formatCalendarMeasurementParticipants("김민영, 한기문", "한기문"), "한기문, 김민영");
   assert.equal(formatCalendarMeasurementParticipants("한기문, 김민영", "김민영"), "김민영, 한기문");
