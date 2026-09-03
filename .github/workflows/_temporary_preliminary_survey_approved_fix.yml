@@ -24,6 +24,19 @@ jobs:
           cache: npm
       - name: Apply approved implementation patch
         run: python .github/scripts/apply_preliminary_survey_approved_fix.py
+      - name: Align existing lazy-route regression with canonical first-measurement order
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/preliminary-survey-route-lazy.test.ts")
+          text = path.read_text(encoding="utf-8")
+          old = '  const candidateDays = [...candidateDates("2026-09-16", "first_measurement").primary].sort();'
+          new = '  const candidateDays = [...candidateDates("2026-09-16", "first_measurement").primary];'
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one lazy-route policy-order fixture, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Install dependencies
         run: npm ci
       - name: Run focused regression tests
@@ -39,7 +52,8 @@ jobs:
             lib/preliminary-survey-v2/reverse-planner/solver.ts \
             app/api/preliminary-survey-v2/reverse-planner/route.ts \
             components/features/FixedAssigneeReversePlanner.tsx \
-            tests/preliminary-survey-reverse-planner.test.ts
+            tests/preliminary-survey-reverse-planner.test.ts \
+            tests/preliminary-survey-route-lazy.test.ts
           git diff --cached --check
           git commit -m 'fix: improve preliminary survey auto-assignment review'
           git push origin HEAD:fix/preliminary-survey-auto-assignment-review-ui
