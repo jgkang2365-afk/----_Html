@@ -143,7 +143,7 @@ function candidateObjective(
   return [fallback, changedPlanCount, 0, reviewerPenalty + reportPenalty, 0, 0];
 }
 
-function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
+function generatedCandidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
   const active = snapshot.users.filter((user) => user.active);
   const experienced = active.filter((user) => user.experienced);
   const novices = active.filter((user) => !user.experienced);
@@ -160,6 +160,7 @@ function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): Plann
   }
   const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);
   const dates = [...ranges.primary, ...ranges.fallback];
+  const dateRank = new Map(dates.map((date, index) => [date, index] as const));
   return combinations.flatMap((choice) => dates.map((date) => {
     const candidate: PlannerCandidate = {
       preliminaryDate: date,
@@ -175,9 +176,15 @@ function candidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): Plann
     return candidate;
   })).filter((candidate) => validateCandidateHardRules(snapshot, target, candidate).length === 0)
     .sort((left, right) => compareObjective(left.objective, right.objective)
-      || left.preliminaryDate.localeCompare(right.preliminaryDate)
+      || (dateRank.get(left.preliminaryDate) ?? Number.MAX_SAFE_INTEGER)
+        - (dateRank.get(right.preliminaryDate) ?? Number.MAX_SAFE_INTEGER)
       || left.responsibleUserId - right.responsibleUserId
       || (left.reviewerUserId ?? 0) - (right.reviewerUserId ?? 0));
+}
+
+export function rankedCandidatesForTarget(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
+  const keep = existingCandidate(snapshot, target);
+  return [...(keep ? [keep] : []), ...generatedCandidatesFor(snapshot, target)];
 }
 
 function emptyCandidateReason(snapshot: PlanningSnapshot, target: PlannerTarget): ReversePlannerReason {
@@ -426,7 +433,11 @@ function protectedPublicCodeGroups(snapshot: PlanningSnapshot, normalized: Retur
 
 export function planPreliminarySurveyGivenFixedAssignments(
   snapshot: PlanningSnapshot,
-  options: { allowMissingRouteEvidence?: boolean; deadlineAt?: number } = {},
+  options: {
+    allowMissingRouteEvidence?: boolean;
+    deadlineAt?: number;
+    forcedCandidates?: Map<number, PlannerCandidate>;
+  } = {},
 ): ReversePlannerOutput {
   const users = new Map(snapshot.users.map((user) => [user.id, user]));
   const errors = new Map<number, ReversePlannerReason>();
@@ -449,8 +460,12 @@ export function planPreliminarySurveyGivenFixedAssignments(
       protectedGroupBlocked.add(target.id);
     } else if (measurementRouteEvidenceMissing(snapshot, target, options.allowMissingRouteEvidence)) routeBlocked.add(target.id);
     else {
-      const keep = existingCandidate(snapshot, target);
-      choices.set(target.id, [...(keep ? [keep] : []), ...candidatesFor(snapshot, target)]);
+      const forced = options.forcedCandidates?.get(target.id);
+      if (forced) {
+        choices.set(target.id, validateCandidateHardRules(snapshot, target, forced).length === 0 ? [forced] : []);
+      } else {
+        choices.set(target.id, rankedCandidatesForTarget(snapshot, target));
+      }
     }
   }
   const solved = solveBatch(snapshot, choices, options.allowMissingRouteEvidence, options.deadlineAt);

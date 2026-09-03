@@ -19,6 +19,17 @@ interface FixedAssigneeReversePlannerProps {
   onApplied: () => void | Promise<void>;
 }
 
+interface ReviewAdjustment {
+  targetId: number;
+  preliminaryDate: string;
+  participantUserIds: number[];
+}
+
+interface ReviewSuggestion extends ReviewAdjustment {
+  surveyMethod: "field" | "phone";
+  reasons: string[];
+}
+
 const dateLabel = (date: string) => date ? `${date.slice(0, 4)}년 ${date.slice(5, 7)}월 ${date.slice(8, 10)}일` : "";
 const moveDate = (date: string, amount: number) => {
   const next = new Date(`${date}T00:00:00Z`);
@@ -71,9 +82,38 @@ const violationLabels: Record<string, string> = {
   SURVEY_METHOD_MISMATCH: "사업장 구분과 조사 방식이 맞지 않습니다.",
   USER_UNAVAILABLE_ON_SURVEY_DATE: "예비조사자 불가 일정과 겹칩니다.",
   ...reasonLabel,
+  REVIEW_ADJUSTMENT_BATCH_CONFLICT: "같은 batch의 다른 배정안과 일정·용량·동선이 충돌합니다.",
+  INVALID_REVIEW_ADJUSTMENT_PAYLOAD: "수정안 입력값을 확인해 주세요.",
 };
 
 const violationText = (value: string) => violationLabels[value] ?? "운영지침 확인이 필요합니다.";
+
+const businessTypeLabel: Record<PlannerTarget["businessType"], string> = {
+  first_measurement: "최초실시",
+  external_new: "타기관 신규",
+  existing: "기존",
+};
+
+const suggestionReason = (reasons: string[]) => {
+  const labels = [
+    reasons.includes("KEEP_EXISTING") ? "기존값 유지" : null,
+    reasons.includes("PRIMARY_DATE") ? "정책 우선 후보" : null,
+    reasons.includes("FALLBACK_DATE") ? "fallback 후보" : null,
+    reasons.includes("EXPERIENCED_SOLO") ? "경력자 단독" : null,
+    reasons.includes("EXPERIENCED_AND_INEXPERIENCED") ? "경력+비경력" : null,
+  ].filter(Boolean);
+  return labels.join(" · ") || "운영지침 검증 완료";
+};
+
+type RouteWarning = { label: string; detail: string };
+function collapseRouteWarnings(items: RouteWarning[]) {
+  const grouped = new Map<string, string[]>();
+  for (const item of items) grouped.set(item.label, [...(grouped.get(item.label) ?? []), item.detail]);
+  return [...grouped.entries()].map(([label, details]) => ({
+    label,
+    detail: [...new Set(details)].join("\n"),
+  }));
+}
 
 export function FixedAssigneeReversePlanner({
   isOpen,
@@ -97,6 +137,10 @@ export function FixedAssigneeReversePlanner({
   const [overrideParticipants, setOverrideParticipants] = useState<number[]>([]);
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideViolations, setOverrideViolations] = useState<string[]>([]);
+  const [reviewAdjustments, setReviewAdjustments] = useState<Map<number, ReviewAdjustment>>(new Map());
+  const [reviewSuggestions, setReviewSuggestions] = useState<ReviewSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
 
   const userById = useMemo(() => new Map((snapshot?.users ?? []).map((user) => [user.id, user])), [snapshot]);
   const participantText = useCallback((ids: number[]) => formatPreliminarySurveyParticipantsForDisplay(ids.map((id) => ({
@@ -121,6 +165,9 @@ export function FixedAssigneeReversePlanner({
     try {
       const result = await request(`/api/preliminary-survey-v2/reverse-planner?measurementDate=${date}`);
       setSnapshot(result.snapshot);
+      setReviewAdjustments(new Map());
+      setReviewSuggestions([]);
+      setSuggestionError(null);
       setCanOverride(result.canOverride === true);
     } catch (caught) {
       setSnapshot(null);
@@ -178,6 +225,9 @@ export function FixedAssigneeReversePlanner({
         body: JSON.stringify({ action: "preview", measurementDate }),
       });
       setPreview(result);
+      setReviewAdjustments(new Map());
+      setReviewSuggestions([]);
+      setSuggestionError(null);
       const protectedTargetIds = (result.snapshot?.targets ?? snapshot?.targets ?? [])
         .filter((target: PlannerTarget) => target.protected)
         .map((target: PlannerTarget) => target.id);
@@ -217,7 +267,7 @@ export function FixedAssigneeReversePlanner({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "apply", measurementDate, sourceFingerprint: preview.sourceFingerprint,
-          previewToken: preview.previewToken,
+          previewToken: preview.previewToken, reviewAdjustments: [...reviewAdjustments.values()],
         }),
       });
       let repairedCount = 0;
@@ -237,6 +287,7 @@ export function FixedAssigneeReversePlanner({
       }
       setPreview(null);
       setRepairDrafts([]);
+      setReviewAdjustments(new Map());
       const appliedCount = Number(result.appliedCount ?? 0);
       try {
         await onApplied();
@@ -254,20 +305,101 @@ export function FixedAssigneeReversePlanner({
     }
   };
 
+
+  const loadReviewSuggestions = async (targetId: number) => {
+    if (!preview) return;
+    setSuggestionsLoading(true);
+    setSuggestionError(null);
+    setReviewSuggestions([]);
+    try {
+      const result = await request("/api/preliminary-survey-v2/reverse-planner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "suggest_adjustments",
+          measurementDate,
+          previewToken: preview.previewToken,
+          targetId,
+          reviewAdjustments: [...reviewAdjustments.values()],
+        }),
+      });
+      setReviewSuggestions((result.suggestions ?? []) as ReviewSuggestion[]);
+    } catch (caught) {
+      setSuggestionError(caught instanceof Error ? caught.message : "추천 후보를 계산하지 못했습니다.");
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
   const openOverride = (targetId: number) => {
     const target = snapshot?.targets.find((item) => item.id === targetId);
+    const result = preview?.results.find((item) => item.targetId === targetId);
+    const repair = repairDrafts.find((item) => Number(item.targetId) === targetId) as any;
+    const adjustment = reviewAdjustments.get(targetId);
+    const candidate = result?.candidate;
+    const plan = target?.existingPlan;
     const team = [...new Set(target?.days.flatMap((day) => [
       ...day.collaboratorUserIds,
       ...target.fixedAssignments.filter((fixed) => fixed.measurementDate === day.date).map((fixed) => fixed.assigneeUserId),
     ]) ?? [])];
+    const participants = adjustment?.participantUserIds
+      ?? candidate?.participantUserIds ?? plan?.participantUserIds ?? repair?.participantUserIds ?? team.slice(0, 1);
     setOverrideTargetId(targetId);
-    setOverrideDate("");
-    setOverrideMethod(target?.businessType === "existing" ? "phone" : "field");
-    setOverrideResponsible(team[0] ?? null);
-    setOverrideReviewer(null);
-    setOverrideParticipants(team[0] ? [team[0]] : []);
+    setOverrideDate(adjustment?.preliminaryDate ?? candidate?.preliminaryDate ?? plan?.preliminaryDate ?? repair?.recommendedDate ?? "");
+    setOverrideMethod(candidate?.surveyMethod ?? plan?.surveyMethod ?? repair?.surveyMethod
+      ?? (target?.businessType === "existing" ? "phone" : "field"));
+    setOverrideResponsible(candidate?.responsibleUserId ?? plan?.responsibleUserId ?? repair?.responsibleUserId ?? team[0] ?? null);
+    setOverrideReviewer(candidate?.reviewerUserId ?? plan?.reviewerUserId ?? repair?.experiencedReviewerUserId ?? null);
+    setOverrideParticipants(participants);
     setOverrideReason("");
     setOverrideViolations([]);
+    setReviewSuggestions([]);
+    setSuggestionError(null);
+    setError(null);
+    void loadReviewSuggestions(targetId);
+  };
+
+  const stageAdjustment = async () => {
+    if (!preview || overrideTargetId == null) return;
+    const adjustment: ReviewAdjustment = {
+      targetId: overrideTargetId,
+      preliminaryDate: overrideDate,
+      participantUserIds: [...new Set(overrideParticipants)].sort((a, b) => a - b),
+    };
+    const next = new Map(reviewAdjustments);
+    next.set(overrideTargetId, adjustment);
+    setWorking(true);
+    setError(null);
+    setOverrideViolations([]);
+    try {
+      const response = await fetch("/api/preliminary-survey-v2/reverse-planner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "validate_adjustment",
+          measurementDate,
+          previewToken: preview.previewToken,
+          reviewAdjustments: [...next.values()],
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "수정안 검증에 실패했습니다.");
+      if (!result.valid) {
+        const targetViolations = result.violations?.[String(overrideTargetId)]
+          ?? result.violations?.[overrideTargetId] ?? ["REVIEW_ADJUSTMENT_BATCH_CONFLICT"];
+        setOverrideViolations(targetViolations);
+        setError("수정안이 자동배정 지침을 통과하지 못했습니다. 값을 조정하거나 관리자 예외 처리를 검토해 주세요.");
+        return;
+      }
+      setReviewAdjustments(next);
+      setPreview((current) => current ? { ...current, results: result.results ?? current.results } : current);
+      setOverrideTargetId(null);
+      setNotice("수정안을 Preview에 반영했습니다. 배정 확정 전에는 저장되지 않습니다.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "수정안 검증에 실패했습니다.");
+    } finally {
+      setWorking(false);
+    }
   };
 
   const saveOverride = async () => {
@@ -317,16 +449,18 @@ export function FixedAssigneeReversePlanner({
   const reviewCount = (preview ? preview.results.length - (preview.results.filter((result) => result.decision === "AUTO_ASSIGNED").length) : 0)
     + repairDrafts.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO" && draft.classification !== "COMPLETE").length;
   const canApply = Boolean(preview?.results.some((result) => result.decision === "AUTO_ASSIGNED"
-    && (result.mutation === "CREATE" || result.mutation === "REPLACE")) || repairableCount > 0);
+    && (result.mutation === "CREATE" || result.mutation === "REPLACE")) || repairableCount > 0 || reviewAdjustments.size > 0);
+  const snapshotTargetCount = snapshot?.targets.length ?? 0;
 
   return <Modal
     isOpen={isOpen}
     onClose={onClose}
     title={`${dateLabel(measurementDate)} 예비조사 자동 배정`}
     size="full"
+    bodyScroll={false}
   >
-    <div className="space-y-4 pt-4" data-testid="preliminary-survey-auto-assignment-modal">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-surface-200 bg-surface-50 p-3">
+    <div className={`${overrideTargetId != null ? "overflow-y-auto pr-1" : "overflow-hidden"} flex h-[calc(92vh-108px)] min-h-0 flex-col gap-2 pt-2`} data-testid="preliminary-survey-auto-assignment-modal">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-surface-200 bg-surface-50 p-2">
         <Button size="sm" variant="secondary" onClick={() => changeMeasurementDate(moveDate(measurementDate, -1))} disabled={working}>◀ 이전일</Button>
         <input aria-label="자동 배정 실제 측정일" type="date" value={measurementDate}
           onChange={(event) => changeMeasurementDate(event.target.value)}
@@ -342,20 +476,23 @@ export function FixedAssigneeReversePlanner({
 
       {notice && <p className="text-sm font-medium text-emerald-700" role="status">{notice}</p>}
       {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</div>}
+      {preview?.routeProviderConfigured === false && Number(preview.routeStats?.requiredPairs ?? 0) > 0 && <div data-testid="preliminary-survey-route-provider-warning" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">현재 Preview 환경에 Kakao 차량동선 API가 설정되지 않아 이동경로 대상은 자동 판정할 수 없습니다. 운영 데이터 문제와 구분하여 환경 설정을 확인해 주세요.</div>}
 
-      <div className="max-h-[55vh] overflow-auto rounded-lg border border-surface-200 bg-white">
+      <div data-testid="preliminary-survey-auto-assignment-table-scroll"
+        data-vertical-scroll={snapshotTargetCount > 8 ? "enabled" : "disabled"}
+        className={`${snapshotTargetCount > 8 ? "min-h-0 flex-1 overflow-auto" : "shrink-0 overflow-x-auto overflow-y-hidden"} rounded-lg border border-surface-200 bg-white`}>
         <table className="w-full min-w-[1180px] table-fixed text-left text-sm">
           <thead className="sticky top-0 z-10 bg-surface-100 text-text-700 shadow-sm">
             <tr>
-              <th className="w-48 px-3 py-3">사업장</th>
-              <th className="w-28 px-3 py-3">측정예정일</th>
-              <th className="w-48 px-3 py-3">측정자(공시료)</th>
-              <th className="w-36 px-3 py-3">측정 참여자</th>
-              <th className="w-28 px-3 py-3">보고서 담당</th>
-              <th className="w-28 bg-primary-50 px-3 py-3 text-primary-900">예비조사일</th>
-              <th className="w-40 bg-primary-50 px-3 py-3 text-primary-900">예비조사자</th>
-              <th className="w-20 px-3 py-3">방식</th>
-              <th className="w-40 px-3 py-3">상태</th>
+              <th className="w-48 px-2 py-2">사업장</th>
+              <th className="w-28 px-2 py-2">측정예정일</th>
+              <th className="w-48 px-2 py-2">측정자(공시료)</th>
+              <th className="w-36 px-2 py-2">측정 참여자</th>
+              <th className="w-28 px-2 py-2">보고서 담당</th>
+              <th className="w-28 bg-primary-50 px-2 py-2 text-primary-900">예비조사일</th>
+              <th className="w-40 bg-primary-50 px-2 py-2 text-primary-900">예비조사자</th>
+              <th className="w-20 px-2 py-2">방식</th>
+              <th className="w-40 px-2 py-2">상태</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-200">
@@ -374,42 +511,60 @@ export function FixedAssigneeReversePlanner({
                   : repair?.classification === "NEEDS_MANUAL_REVIEW"
                     ? { label: "원천정보 확인 필요", tone: "text-amber-800 bg-amber-50" }
                     : resultStatus(result, target);
-              const routeLabels = [...new Set((preview?.routeEvidence ?? [])
-                .filter((item) => item.leftTargetId === target.id || item.rightTargetId === target.id)
-                .map((item) => item.sameAddress ? "동일주소"
-                  : item.durationMinutes == null ? "이동경로 확인 필요"
-                    : item.durationMinutes <= 30 ? `차량 ${item.durationMinutes}분`
-                      : `차량 ${item.durationMinutes}분 · 추가 검토`))];
+              const routeWarnings = collapseRouteWarnings((preview?.routeEvidence ?? [])
+                .filter((item) => (item.leftTargetId === target.id || item.rightTargetId === target.id)
+                  && !item.sameAddress && (item.durationMinutes == null || item.durationMinutes > 30))
+                .map((item) => {
+                  const otherId = item.leftTargetId === target.id ? item.rightTargetId : item.leftTargetId;
+                  const otherTarget = snapshot?.targets.find((entry) => entry.id === otherId);
+                  const otherOccupancy = [...(snapshot?.actualMeasurementOccupancy ?? []), ...(snapshot?.existingSurveyOccupancy ?? [])]
+                    .find((entry) => entry.targetId === otherId);
+                  const otherLabel = otherTarget ? `${otherTarget.code} ${otherTarget.name}`
+                    : otherOccupancy?.businessCode ?? `대상 ${otherId}`;
+                  const sharedNames = (item.sharedUserIds ?? []).map((id) => userById.get(id)?.name).filter(Boolean).join(" · ");
+                  const label = item.durationMinutes == null ? "이동경로 확인 필요"
+                    : item.durationMinutes <= 60 ? `동선 검토 ${item.durationMinutes}분`
+                      : `동선 불가 ${item.durationMinutes}분`;
+                  const detail = `${item.date} · ${otherLabel}${sharedNames ? ` · 공통 ${sharedNames}` : ""}`
+                    + ` · 정방향 ${item.forwardDurationMinutes ?? "-"}분 · 역방향 ${item.reverseDurationMinutes ?? "-"}분`
+                    + ` · 적용 ${item.effectiveDurationMinutes ?? item.durationMinutes ?? "-"}분`;
+                  return { label, detail };
+                }));
+              const isReviewAdjusted = reviewAdjustments.has(target.id);
+              const valueSourceLabel = isReviewAdjusted ? "수정안"
+                : result?.decision === "AUTO_ASSIGNED" && result.mutation === "KEEP_EXISTING" ? "기존값 유지"
+                  : candidate ? "자동계산" : plan ? "기존값" : repair ? "보정안" : "미계산";
+              const visibleRouteWarnings = routeWarnings.filter((warning) => warning.label !== status.label);
               return <tr key={target.id} className={result && result.decision !== "AUTO_ASSIGNED" ? "bg-amber-50/40 align-top" : "align-top"}>
-                <td className="px-3 py-3"><div className="font-semibold text-text-900">{target.code}</div><div className="truncate text-text-700" title={target.name}>{target.name}</div></td>
-                <td className="px-3 py-3 text-text-700">{target.days.map((day) => <div key={day.date}>{day.date}</div>)}</td>
-                <td className="space-y-2 px-3 py-3">{target.days.map((day) => {
+                <td className="px-2 py-2"><div className="font-semibold text-text-900">{target.code}</div><div className="truncate text-text-700" title={target.name}>{target.name}</div><div className="mt-1 flex flex-wrap gap-1 text-[11px]"><span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">{businessTypeLabel[target.businessType]}</span><span className="rounded bg-blue-50 px-1.5 py-0.5 font-medium text-blue-700">{valueSourceLabel}</span></div></td>
+                <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{day.date}</div>)}</td>
+                <td className="space-y-1 px-2 py-2">{target.days.map((day) => {
                   const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
                   const automatic = result?.publicSampleAssignments.find((item) => item.measurementDate === day.date);
                   const priority = [...new Set([...day.collaboratorUserIds, ...snapshot!.users.map((user) => user.id)])]
                     .map((id) => userById.get(id)).filter(Boolean);
-                  return <div key={day.date}>
+                  return <div key={day.date} className="flex items-center gap-1">
                     <select aria-label={`${target.code} ${day.date} 고정 측정자`} value={fixed?.assigneeUserId ?? ""}
                       onChange={(event) => event.target.value
                         ? void confirmFixed(target.id, day.date, Number(event.target.value))
                         : undefined}
-                      className="h-9 w-full rounded-md border border-surface-300 bg-white px-2 text-sm">
+                      className="h-8 min-w-0 flex-1 rounded-md border border-surface-300 bg-white px-2 text-sm">
                       <option value="" disabled={Boolean(fixed)}>자동</option>
                       {priority.map((user) => user && <option key={user.id} value={user.id}>{user.name}({user.baseCode ?? "-"}){day.collaboratorUserIds.includes(user.id) ? " · 참여" : ""}</option>)}
                     </select>
-                    {fixed && <div className="mt-1 text-xs font-medium text-emerald-700">✓ 고정</div>}
-                    {!fixed && automatic && <div className="mt-1 text-xs font-medium text-primary-700">자동 · {userById.get(automatic.assigneeUserId)?.name ?? "-"}({automatic.publicSampleCode})</div>}
-                    {fixed?.nonParticipantConfirmed && <div className="mt-1 text-xs font-medium text-amber-700">⚠ 측정 참여자가 아닌 직원을 선택했습니다.</div>}
+                    {fixed && <span className="shrink-0 text-xs font-semibold text-emerald-700" title="고정 측정자">✓</span>}
+                    {!fixed && automatic && <span className="shrink-0 whitespace-nowrap text-[11px] font-medium text-primary-700" title={`자동 · ${userById.get(automatic.assigneeUserId)?.name ?? "-"}(${automatic.publicSampleCode})`}>자동 {userById.get(automatic.assigneeUserId)?.name ?? "-"}</span>}
+                    {fixed?.nonParticipantConfirmed && <span className="shrink-0 text-xs font-semibold text-amber-700" title="측정 참여자가 아닌 직원을 선택했습니다.">⚠</span>}
                   </div>;
                 })}</td>
-                <td className="px-3 py-3 text-text-700">{target.days.map((day) => <div key={day.date}>{day.collaboratorUserIds.map((id) => userById.get(id)?.name).filter(Boolean).join(" · ") || "-"}</div>)}</td>
-                <td className="px-3 py-3 text-text-700">{target.days.map((day) => <div key={day.date}>{day.reportWriterUserId == null ? "-" : userById.get(day.reportWriterUserId)?.name ?? "-"}</div>)}</td>
-                <td className="bg-primary-50/50 px-3 py-3 text-base font-bold text-primary-900">{preliminaryDate ?? "-"}</td>
-                <td className="bg-primary-50/50 px-3 py-3 text-base font-bold text-primary-900">{participantText(surveyorIds)}</td>
-                <td className="px-3 py-3 font-medium">{method === "field" ? "방문" : method === "phone" ? "유선" : "-"}</td>
-                <td className="px-3 py-3"><span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${status.tone}`}>{status.label}</span>
-                  {routeLabels.length > 0 && <div className="mt-2 text-xs text-text-600">{routeLabels.join(" · ")}</div>}
-                  {canOverride && result?.decision === "MANUAL_REQUIRED" && <button type="button" className="mt-2 text-xs font-medium text-primary-700 underline" onClick={() => openOverride(target.id)}>예외 처리</button>}
+                <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{day.collaboratorUserIds.map((id) => userById.get(id)?.name).filter(Boolean).join(" · ") || "-"}</div>)}</td>
+                <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{day.reportWriterUserId == null ? "-" : userById.get(day.reportWriterUserId)?.name ?? "-"}</div>)}</td>
+                <td className="bg-primary-50/50 px-2 py-2 text-base font-bold text-primary-900">{preliminaryDate ?? "-"}</td>
+                <td className="bg-primary-50/50 px-2 py-2 text-base font-bold text-primary-900">{participantText(surveyorIds)}</td>
+                <td className="px-2 py-2 font-medium">{method === "field" ? "방문" : method === "phone" ? "유선" : "-"}</td>
+                <td className="px-2 py-2"><div className="flex flex-wrap items-center gap-2"><span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${isReviewAdjusted ? "bg-blue-50 text-blue-800" : status.tone}`}>{isReviewAdjusted ? "수정안" : status.label}</span>
+                  {preview && result?.decision !== "SOURCE_INVALID" && !target.protected && <button type="button" className="text-xs font-medium text-primary-700 underline" onClick={() => openOverride(target.id)}>수정</button>}</div>
+                  {visibleRouteWarnings.length > 0 && <div className="mt-1 space-y-0.5 text-xs font-medium text-amber-700">{visibleRouteWarnings.map((warning) => <div key={warning.label} title={warning.detail}>{warning.label}</div>)}</div>}
                 </td>
               </tr>;
             })}
@@ -419,21 +574,41 @@ export function FixedAssigneeReversePlanner({
         {working && <div className="p-10 text-center text-sm text-text-500">불러오는 중...</div>}
       </div>
 
-      {overrideTargetId != null && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
-        <div className="mb-3 flex items-center justify-between"><h3 className="font-semibold text-amber-900">예외 처리</h3><button type="button" className="text-sm text-text-600" onClick={() => setOverrideTargetId(null)}>닫기</button></div>
-        {overrideViolations.length > 0 && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"><div className="font-medium">확인할 위반사항</div><ul className="mt-1 list-disc pl-5">{overrideViolations.map((violation) => <li key={violation}>{violationText(violation)}</li>)}</ul></div>}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <label className="text-sm">예비조사일<input type="date" value={overrideDate} onChange={(event) => setOverrideDate(event.target.value)} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2" /></label>
-          <label className="text-sm">방식<select value={overrideMethod} onChange={(event) => setOverrideMethod(event.target.value as "field" | "phone")} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="field">방문</option><option value="phone">유선</option></select></label>
-          <label className="text-sm">작성자<select value={overrideResponsible ?? ""} onChange={(event) => { const id = Number(event.target.value); setOverrideResponsible(id); setOverrideParticipants((current) => [...new Set([...current, id])]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">선택</option>{snapshot?.users.filter((user) => user.active).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
-          <label className="text-sm">검토자<select value={overrideReviewer ?? ""} onChange={(event) => { const id = event.target.value ? Number(event.target.value) : null; setOverrideReviewer(id); if (id) setOverrideParticipants((current) => [...new Set([...current, id])]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">없음</option>{snapshot?.users.filter((user) => user.active && user.experienced).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+      {overrideTargetId != null && <div className="rounded-lg border border-primary-200 bg-primary-50/30 p-4">
+        <div className="mb-3 flex items-center justify-between"><div><h3 className="font-semibold text-text-900">배정안 수정</h3><p className="mt-1 text-xs text-text-600">정상 수정안은 Preview에만 반영되며 배정 확정 전에는 저장되지 않습니다.</p></div><button type="button" className="text-sm text-text-600" onClick={() => setOverrideTargetId(null)}>닫기</button></div>
+        <div className="mb-3 rounded-md border border-surface-200 bg-white p-3">
+          <div className="flex items-center justify-between gap-2"><div className="text-sm font-semibold text-text-900">지침에 맞는 추천 후보</div><div className="text-xs text-text-500">최대 3개</div></div>
+          {suggestionsLoading && <p className="mt-2 text-sm text-text-500">현재 일정·인원·동선을 기준으로 후보를 확인하는 중...</p>}
+          {suggestionError && <p className="mt-2 text-sm font-medium text-amber-700">{suggestionError}</p>}
+          {!suggestionsLoading && !suggestionError && reviewSuggestions.length === 0 && <p className="mt-2 text-sm text-text-600">현재 batch에서 자동 지침을 통과한 추천 후보가 없습니다. 아래 직접 수정에서 값을 지정해 검증해 주세요.</p>}
+          {reviewSuggestions.length > 0 && <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">{reviewSuggestions.map((suggestion, index) => <button type="button" key={`${suggestion.preliminaryDate}-${suggestion.participantUserIds.join("-")}`} onClick={() => { setOverrideDate(suggestion.preliminaryDate); setOverrideMethod(suggestion.surveyMethod); setOverrideParticipants(suggestion.participantUserIds); setOverrideViolations([]); }} className="rounded-md border border-primary-200 bg-primary-50/40 p-3 text-left hover:border-primary-400 hover:bg-primary-50">
+            <div className="text-xs font-bold text-primary-700">{index + 1}순위</div>
+            <div className="mt-1 font-semibold text-text-900">{suggestion.preliminaryDate} · {suggestion.surveyMethod === "field" ? "방문" : "유선"}</div>
+            <div className="mt-1 text-sm text-text-700">{participantText(suggestion.participantUserIds)}</div>
+            <div className="mt-1 text-xs text-text-500">{suggestionReason(suggestion.reasons)}</div>
+          </button>)}</div>}
         </div>
-        <fieldset className="mt-3"><legend className="text-sm font-medium">예비조사자</legend><div className="mt-2 flex flex-wrap gap-3">{snapshot?.users.filter((user) => user.active).map((user) => <label key={user.id} className="text-sm"><input type="checkbox" checked={overrideParticipants.includes(user.id)} onChange={(event) => setOverrideParticipants((current) => event.target.checked ? [...new Set([...current, user.id])] : current.filter((id) => id !== user.id))} /> {user.name}</label>)}</div></fieldset>
-        <label className="mt-3 block text-sm">예외 사유<textarea value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} className="mt-1 min-h-20 w-full rounded border border-surface-300 bg-white p-2" placeholder="구체적인 업무상 예외 사유" /></label>
-        <div className="mt-3 flex justify-end"><Button size="sm" onClick={saveOverride} disabled={working || !overrideDate || !overrideResponsible || !overrideParticipants.length || !overrideReason.trim()}>{overrideViolations.length > 0 ? "위반 확인 후 저장" : "위반 검증"}</Button></div>
+        <div className="mb-2 text-sm font-semibold text-text-900">직접 수정</div>
+        {overrideViolations.length > 0 && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"><div className="font-medium">확인할 위반사항</div><ul className="mt-1 list-disc pl-5">{overrideViolations.map((violation) => <li key={violation}>{violationText(violation)}</li>)}</ul></div>}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="text-sm">예비조사일<input type="date" value={overrideDate} onChange={(event) => { setOverrideDate(event.target.value); setOverrideViolations([]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2" /></label>
+          <div className="text-sm">방식<div className="mt-1 flex h-9 items-center rounded border border-surface-200 bg-surface-50 px-2 font-medium">{overrideMethod === "field" ? "방문" : "유선"} · 업체 구분 기준 고정</div></div>
+        </div>
+        <fieldset className="mt-3"><legend className="text-sm font-medium">예비조사자</legend><div className="mt-2 flex flex-wrap gap-3">{snapshot?.users.filter((user) => user.active).map((user) => <label key={user.id} className="text-sm"><input type="checkbox" checked={overrideParticipants.includes(user.id)} onChange={(event) => { setOverrideViolations([]); setOverrideParticipants((current) => event.target.checked ? [...new Set([...current, user.id])] : current.filter((id) => id !== user.id)); }} /> {user.name}</label>)}</div></fieldset>
+        <div className="mt-3 flex justify-end"><Button size="sm" onClick={stageAdjustment} disabled={working || !overrideDate || !overrideParticipants.length}>수정안 검증</Button></div>
+        {canOverride && overrideViolations.length > 0 && <div className="mt-4 border-t border-amber-300 pt-4">
+          <div className="mb-2 text-sm font-semibold text-amber-900">관리자 예외 처리</div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <label className="text-sm">방식<select value={overrideMethod} onChange={(event) => setOverrideMethod(event.target.value as "field" | "phone")} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="field">방문</option><option value="phone">유선</option></select></label>
+            <label className="text-sm">작성자<select value={overrideResponsible ?? ""} onChange={(event) => { const id = Number(event.target.value); setOverrideResponsible(id); setOverrideParticipants((current) => [...new Set([...current, id])]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">선택</option>{snapshot?.users.filter((user) => user.active).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+            <label className="text-sm">검토자<select value={overrideReviewer ?? ""} onChange={(event) => { const id = event.target.value ? Number(event.target.value) : null; setOverrideReviewer(id); if (id) setOverrideParticipants((current) => [...new Set([...current, id])]); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">없음</option>{snapshot?.users.filter((user) => user.active && user.experienced).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+          </div>
+          <label className="mt-3 block text-sm">예외 사유<textarea value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} className="mt-1 min-h-20 w-full rounded border border-surface-300 bg-white p-2" placeholder="구체적인 업무상 예외 사유" /></label>
+          <div className="mt-3 flex justify-end"><Button size="sm" variant="danger" onClick={saveOverride} disabled={working || !overrideDate || !overrideResponsible || !overrideParticipants.length || !overrideReason.trim()}>관리자 예외로 즉시 저장</Button></div>
+        </div>}
       </div>}
 
-      <div className="flex justify-end"><Button variant="secondary" onClick={onClose} disabled={working}>닫기</Button></div>
+      <div className="mt-auto flex justify-end"><Button variant="secondary" onClick={onClose} disabled={working}>닫기</Button></div>
     </div>
   </Modal>;
 }

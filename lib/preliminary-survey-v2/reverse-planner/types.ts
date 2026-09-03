@@ -1,5 +1,5 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.1";
-export const PRELIMINARY_SURVEY_CANONICAL_SHA = "071df2c29edb789488d36094b03ed3c7114ac5ff";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.3";
+export const PRELIMINARY_SURVEY_CANONICAL_SHA = "3c33715893d7f1e778ac45313259ba91c9c60541";
 
 export type ReversePlannerDecision = "AUTO_ASSIGNED" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
 export type ReversePlannerMutation = "KEEP_EXISTING" | "CREATE" | "REPLACE" | "NONE";
@@ -122,4 +122,5 @@ export interface ReversePlannerOutput {
   routeStats?: PlannerRouteStats;
   routeEvidence?: PlannerRouteEvidence[];
   previewToken?: string;
+  routeProviderConfigured?: boolean;
 }
