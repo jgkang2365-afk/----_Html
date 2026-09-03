@@ -13,6 +13,7 @@ import { sourceFingerprint } from "@/lib/preliminary-survey-v2/reverse-planner/f
 import { resolveLazyRouteEvidence } from "@/lib/preliminary-survey-v2/reverse-planner/lazy-route";
 import { createPreviewToken, verifyPreviewToken } from "@/lib/preliminary-survey-v2/reverse-planner/preview-token";
 import { buildPlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/snapshot";
+import { adminOverrideSourceChanged, isAdminExplicitOverridePlan } from "@/lib/preliminary-survey-v2/reverse-planner/admin-override-protection";
 import { planPreliminarySurveyGivenFixedAssignments, rankedCandidatesForTarget, validateCandidateForSave, validateCandidateHardRules } from "@/lib/preliminary-survey-v2/reverse-planner/solver";
 import type { PlannerCandidate, PlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/types";
 
@@ -116,6 +117,38 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
     ...(reconciliationResult.data ?? []).map((row: any) => String(row.applied_plan_id)),
     ...(historyResult.data ?? []).map((row: any) => String(row.created_plan_id)),
   ]);
+
+  // 관리자 명시 override는 true-confirmed와 별도의 보호 계층이다.
+  const adminOverridePlans = plans.filter((plan: any) => isAdminExplicitOverridePlan(plan));
+  const adminOverrideTargetIds = new Set<number>(adminOverridePlans
+    .map((plan: any) => Number(plan.measurement_target_business_id)));
+  const adminOverrideAuditResult = adminOverrideTargetIds.size
+    ? await supabase.from("preliminary_survey_v2_planner_audit")
+      .select("target_id, after_snapshot, created_at")
+      .eq("event_type", "MANUAL_OVERRIDE")
+      .in("target_id", [...adminOverrideTargetIds])
+      .order("created_at", { ascending: false })
+    : { data: [], error: null };
+  if (adminOverrideAuditResult.error) throw adminOverrideAuditResult.error;
+  const latestAdminOverrideAudit = new Map<number, any>();
+  for (const row of adminOverrideAuditResult.data ?? []) {
+    const targetId = Number((row as any).target_id);
+    if (!latestAdminOverrideAudit.has(targetId)) latestAdminOverrideAudit.set(targetId, row);
+  }
+  const adminOverrideStaleTargetIds = new Set<number>();
+  for (const target of snapshotTargets) {
+    const targetId = Number((target as any).id);
+    if (!adminOverrideTargetIds.has(targetId)) continue;
+    const plan = adminOverridePlans.find((item: any) => Number(item.measurement_target_business_id) === targetId);
+    if (!plan) continue;
+    if (adminOverrideSourceChanged({
+      target,
+      plan,
+      fixedAssignments: fixedResult.data ?? [],
+      auditAfterSnapshot: latestAdminOverrideAudit.get(targetId)?.after_snapshot,
+    })) adminOverrideStaleTargetIds.add(targetId);
+  }
+
   const normalizedPeriod = (value: unknown) => String(value ?? "").trim().replace("(수시)", "");
   const journalKeys = new Set((journalResult.data ?? []).map((row: any) =>
     `${row.code}|${row.measurement_year}|${normalizedPeriod(row.measurement_period)}`
@@ -133,6 +166,8 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
       scheduleBlocks: scheduleResult.data ?? [],
       routeEvidence: [],
       trueConfirmedTargetIds: protectedTargetIds,
+      adminOverrideTargetIds: [...adminOverrideTargetIds],
+      adminOverrideStaleTargetIds: [...adminOverrideStaleTargetIds],
       planningTargetIds,
     });
   return {
@@ -283,6 +318,7 @@ function parseReviewAdjustments(snapshot: PlanningSnapshot, value: unknown) {
     }
     if (target.fixedAssignments.length !== target.days.length) localViolations.push("FIXED_ASSIGNEE_NOT_CONFIRMED");
     if (target.protected) localViolations.push("PROTECTED_PLAN_REQUIRES_REVIEW");
+    if (target.adminOverrideProtected) localViolations.push("ADMIN_OVERRIDE_REQUIRES_ADMIN");
     if (target.days.some((day) => day.date.startsWith("2026-08-"))) localViolations.push("TRANSITION_BOUNDARY_REVIEW_REQUIRED");
     if (responsibleUserId != null && writerUserId != null) {
       const candidate: PlannerCandidate = {
@@ -501,7 +537,7 @@ export async function POST(request: NextRequest) {
       if (!Number.isInteger(targetId) || !target) {
         return NextResponse.json({ error: "추천 후보 대상 사업장을 확인해 주세요." }, { status: 400 });
       }
-      if (target.protected) return NextResponse.json({ success: true, suggestions: [] });
+      if (target.protected || target.adminOverrideProtected) return NextResponse.json({ success: true, suggestions: [] });
       const parsed = parseReviewAdjustments(frozenSnapshot, body.reviewAdjustments);
       parsed.candidates.delete(targetId);
       parsed.violations.delete(targetId);

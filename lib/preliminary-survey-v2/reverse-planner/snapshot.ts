@@ -25,6 +25,8 @@ export function buildPlanningSnapshot(input: {
   scheduleBlocks: any[];
   routeEvidence?: PlanningSnapshot["routeEvidence"];
   trueConfirmedTargetIds?: number[];
+  adminOverrideTargetIds?: number[];
+  adminOverrideStaleTargetIds?: number[];
   planningTargetIds?: number[];
 }): PlanningSnapshot {
   const users = input.users.map((user) => ({
@@ -47,6 +49,8 @@ export function buildPlanningSnapshot(input: {
     fixedByTarget.set(id, [...(fixedByTarget.get(id) ?? []), fixed]);
   }
   const protectedIds = new Set(input.trueConfirmedTargetIds ?? []);
+  const adminOverrideIds = new Set(input.adminOverrideTargetIds ?? []);
+  const adminOverrideStaleIds = new Set(input.adminOverrideStaleTargetIds ?? []);
   const allTargets = input.targets.map((target) => {
     const days = measurementDayFormsFrom({
       dailyStaff: target.daily_staff,
@@ -94,6 +98,8 @@ export function buildPlanningSnapshot(input: {
         origin: "confirmed" as const,
       })).sort((left, right) => left.measurementDate.localeCompare(right.measurementDate)),
       protected: protectedIds.has(Number(target.id)),
+      adminOverrideProtected: adminOverrideIds.has(Number(target.id)),
+      adminOverrideSourceChanged: adminOverrideStaleIds.has(Number(target.id)),
       existingPlan: plan ? {
         id: String(plan.id),
         preliminaryDate: plan.recommended_date == null ? null : String(plan.recommended_date),
