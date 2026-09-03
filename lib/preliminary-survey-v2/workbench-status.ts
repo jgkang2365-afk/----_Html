@@ -10,6 +10,8 @@ export function storedPlanWorkbenchState(input: {
   stale: boolean;
   hasPlan: boolean;
   planOrigin: string | null;
+  /** Reverse Planner에서 사용자가 Preview를 검토한 뒤 배정 확정으로 적용한 automatic plan 여부. */
+  reviewedAutomatic?: boolean;
   planStatus: string | null;
   preliminaryScheduleBlocked: boolean;
   measurementScheduleBlocked: boolean;
@@ -19,7 +21,7 @@ export function storedPlanWorkbenchState(input: {
     input.measurementScheduleBlocked || input.measurementRoleScheduleBlocked;
   const status: StoredPlanWorkbenchStatus = input.trueConfirmed
     ? "true_confirmed"
-    : input.stale || scheduleConflict || input.planOrigin === "automatic"
+    : input.stale || scheduleConflict || (input.planOrigin === "automatic" && input.reviewedAutomatic !== true)
       ? "review_required"
       : input.planStatus === "manual_required"
         ? "adjustment_required"

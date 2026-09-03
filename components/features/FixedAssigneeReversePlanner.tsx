@@ -60,10 +60,10 @@ const reasonLabel: Record<ReversePlannerReason, string> = {
 
 function resultStatus(result: ReversePlannerResult | undefined, target: PlannerTarget) {
   if (!result) return target.existingPlan
-    ? { label: "기존 확정", tone: "text-slate-700 bg-slate-100" }
+    ? { label: "기존 배정", tone: "text-slate-700 bg-slate-100" }
     : { label: "계산 전", tone: "text-slate-600 bg-slate-100" };
   if (result.decision === "AUTO_ASSIGNED") return result.mutation === "KEEP_EXISTING"
-    ? { label: "기존 확정", tone: "text-emerald-800 bg-emerald-50" }
+    ? { label: "기존 배정 유지", tone: "text-emerald-800 bg-emerald-50" }
     : { label: "배정 가능", tone: "text-emerald-800 bg-emerald-50" };
   if (result.decision === "SOURCE_INVALID") {
     return { label: "원천정보 확인 필요", tone: "text-red-800 bg-red-50" };

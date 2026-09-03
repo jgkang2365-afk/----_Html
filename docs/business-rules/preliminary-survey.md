@@ -498,6 +498,8 @@ A/B/D/F/G도 동일하게 적용한다.
 - 고정 측정자 여부는 별도의 사용자 확인 기록으로 식별한다. 자동 계산값이나 기존 assignment 존재만으로 고정값을 생성하거나 확정한 것으로 표시하지 않는다.
 - 과거 `recommendation_reason.measurementAssignee`는 read-only 표시 fallback일 뿐 새 write·고정 확인·자동 backfill 근거로 사용하지 않는다.
 - Preview 생성은 DB를 변경하지 않는다.
+- `누락정보 보정`의 Preview도 조회·계산 전용이며 보정 RPC를 호출하지 않는다. 실제 보정 write는 사용자가 별도 적용을 명시한 경우에만 수행한다.
+- Reverse Planner에서 사용자가 Preview를 검토한 뒤 `배정 확정`으로 정상 적용한 automatic plan은 작업대에서 **가확정**으로 표시한다. 단, 과거 automatic plan 중 사용자 검토·적용 provenance가 없는 자료는 기존처럼 **재검토 필요**를 유지한다. 적용 후 원천값 변경·직원 제외 일정 충돌 등 재검토 사유가 생기면 provenance와 무관하게 `재검토 필요`로 전환한다.
 - plan과 날짜별 assignment는 최종 wrapper RPC 한 transaction에서 저장한다.
 - 자동 또는 고정 공시료 담당자가 최종 적용되는 경우 날짜별 measurement assignment가 V2 plan과 함께 영속화되어야 하며, fixed 또는 Preview-only automatic 값만 존재하는 상태는 적용 완료로 보지 않는다. Repair 신규 plan의 plan·assignment·audit도 원자적으로 처리한다.
 - apply 서버는 현재 원천으로 실제 측정팀과 예비조사 plan을 다시 계산하고 canonical draft, source fingerprint, 기존 baseline을 비교한다.
@@ -578,6 +580,8 @@ A/B/D/F/G도 동일하게 적용한다.
 - `H0526`: 최초실시는 방문이어야 한다.
 - `H0527 날짜 우선순위`: 실제 측정일 2026-09-02의 최초실시에서 `-3`인 2026-08-28이 유효하면 더 오래된 2026-08-06을 날짜 문자열 오름차순 때문에 먼저 선택하지 않는다. `-3 → -20` 후보 순서를 보존한다.
 - `H0527`: 실제 측정팀 교집합과 hard constraint를 통과한 후보 안에서 보고서 담당자 조합 preference를 적용한다.
+- `자동배정 확정 상태`: Reverse Planner `배정 확정` provenance(`recommendation_reason.plannerRunId`)가 있는 automatic plan은 새 충돌이 없으면 `가확정`이어야 한다. provenance가 없는 legacy automatic plan은 `재검토 필요`를 유지하며, stale·직원 제외 일정 충돌이 생긴 plan은 모두 `재검토 필요`여야 한다.
+- `누락정보 보정 Preview`: 운영 데이터에서도 Preview 호출은 read-only여야 하며, 보정 적용 RPC가 실행되기 전에는 기존 plan·측정 원천을 변경하지 않아야 한다.
 - `Preview 일반 수정`: 지침 안의 예비조사일·예비조사자 수정은 서버 재검증 후 Preview에만 반영되고 `배정 확정` 전 DB write가 없어야 한다.
 - `수정 추천 3안`: 수정 화면은 hard rule과 같은 batch 충돌을 통과한 완성 후보를 최대 3개 우선 제시하고, 유효 후보가 부족하면 실제 개수만 표시한다. 선택 후 최종 적용 전 서버가 다시 검증해야 한다.
 - `업체 구분·출처 표시`: H0527 같은 행에서 최초실시 여부와 현재 예비조사 값이 자동계산인지 기존값인지 수정안인지 사용자가 화면만 보고 구분할 수 있어야 한다.
