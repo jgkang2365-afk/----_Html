@@ -223,17 +223,10 @@ export async function resolveAutomaticMeasurementAssignments(
   snapshot: PlanningSnapshot,
   options: AutomaticMeasurementAssignmentOptions = {},
 ) {
-  const routeFreeCalculation = calculateAutomatic(snapshot, snapshot.routeEvidence);
-  const routeFree = withCalculatedAutomaticAssignments(snapshot, snapshot.routeEvidence, routeFreeCalculation);
-  const firstAssignments: ExistingMeasurementAssignment[] = routeFreeCalculation.automatic.map((item) => ({
-    ...routeFreeCalculation.input.missing.find((target) => keyOf(target.targetId, target.measurementDate)
-      === keyOf(item.targetId, item.measurementDate))!,
-    userId: item.userId,
-  }));
+  const input = automaticInput(snapshot);
   const assigned = [
-    ...routeFreeCalculation.input.existing,
-    ...routeFreeCalculation.input.explicit,
-    ...firstAssignments,
+    ...input.existing,
+    ...input.explicit,
   ];
   const pairs = new Map<string, CandidatePair>();
   const activeUsers = snapshot.users.filter((item) => item.active && surveyCodes.has(item.baseCode ?? ""));
@@ -245,17 +238,17 @@ export async function resolveAutomaticMeasurementAssignments(
     pairs.set(key, { date: left.measurementDate, left, right,
       userIds: [...new Set([...(previous?.userIds ?? []), ...userIds])].sort((a, b) => a - b) });
   };
-  for (const [index, left] of routeFreeCalculation.input.missing.entries()) {
-    for (const right of routeFreeCalculation.input.missing.slice(index + 1)) {
+  for (const [index, left] of input.missing.entries()) {
+    for (const right of input.missing.slice(index + 1)) {
       const candidateUsers = activeUsers.filter((user) => {
         if (snapshot.scheduleBlocks.some((block) => block.userId === user.id
           && block.startDate <= left.measurementDate && block.endDate >= left.measurementDate)) return false;
         return assigned.filter((item) => item.measurementDate === left.measurementDate && item.userId === user.id
-          && !routeFreeCalculation.input.missing.some((missing) => missing.targetId === item.targetId)).length === 0;
+          && !input.missing.some((missing) => missing.targetId === item.targetId)).length === 0;
       }).map((user) => user.id);
       addPair(left, { ...right, userId: candidateUsers[0] ?? 0 }, candidateUsers);
     }
-    for (const right of [...routeFreeCalculation.input.existing, ...routeFreeCalculation.input.explicit]) {
+    for (const right of [...input.existing, ...input.explicit]) {
       const occupied = assigned.filter((item) => item.measurementDate === left.measurementDate && item.userId === right.userId);
       const user = activeUsers.find((item) => item.id === right.userId);
       if (!user || occupied.length !== 1 || snapshot.scheduleBlocks.some((block) => block.userId === user.id
@@ -269,8 +262,30 @@ export async function resolveAutomaticMeasurementAssignments(
   const evidence = [...snapshot.routeEvidence];
   const candidates = [...pairs.values()].sort((left, right) => left.date.localeCompare(right.date)
     || left.left.targetId - right.left.targetId || left.right.targetId - right.right.targetId);
-  if (!candidates.length || candidates.length > maxPairs) {
-    return { snapshot: routeFree, routeEvidence: evidence, requiredPairs: candidates.length };
+  if (!candidates.length) {
+    return {
+      snapshot: withAutomaticMeasurementAssignments(snapshot, evidence),
+      routeEvidence: evidence,
+      requiredPairs: 0,
+    };
+  }
+  if (candidates.length > maxPairs) {
+    const unresolvedKeys = new Set(input.missing.map((target) => keyOf(target.targetId, target.measurementDate)));
+    return {
+      snapshot: {
+        ...snapshot,
+        routeEvidence: evidence,
+        targets: snapshot.targets.map((target) => ({
+          ...target,
+          automaticAssignmentIssue: target.days.some((day) => unresolvedKeys.has(keyOf(target.id, day.date)))
+            ? "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"
+            : target.automaticAssignmentIssue,
+          fixedAssignments: target.fixedAssignments.filter((fixed) => fixed.origin !== "automatic"),
+        })),
+      },
+      routeEvidence: evidence,
+      requiredPairs: candidates.length,
+    };
   }
   const external = candidates.filter((pair) => {
     const sameAddress = normalizedAddress(pair.left.address)

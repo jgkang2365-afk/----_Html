@@ -269,7 +269,7 @@ test("9개 global batch의 36개 잠재 pair는 기본 route budget 20을 넘어
 });
 
 test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline 안에 확인 필요로 반환한다", async () => {
-  const targets = Array.from({ length: 7 }, (_, index) => target({
+  const targets = Array.from({ length: 2 }, (_, index) => target({
     id: 10 + index,
     code: `H00${10 + index}`,
     address: `서로 다른 주소 ${index}`,
@@ -277,14 +277,40 @@ test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline �
     fixedAssignments: [],
   }));
   const startedAt = Date.now();
-  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({
+    targets,
+    users: [users[0]],
+  }), {
     deadlineMs: 20,
     routes: { between: () => new Promise(() => undefined) },
   });
   assert.ok(Date.now() - startedAt < 1_000);
-  assert.equal(resolved.snapshot.targets.find((item) => item.id === 16)?.automaticAssignmentIssue,
+  assert.equal(resolved.snapshot.targets.find((item) => item.id === 11)?.automaticAssignmentIssue,
     "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED");
   assert.ok(resolved.routeEvidence.some((item) => item.provider === "route_deadline"));
+});
+
+test("route pair 예산을 넘으면 route-free 정상안으로 조용히 확정하지 않는다", async () => {
+  const targets = Array.from({ length: 10 }, (_, index) => target({
+    id: 300 + index,
+    code: `Q${300 + index}`,
+    address: `pair budget 주소 ${index}`,
+    coordinate: { latitude: 36.4 + index / 100, longitude: 127.4 + index / 100 },
+    fixedAssignments: [],
+  }));
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+    maxPairs: 36,
+    routes: { async between() {
+      calls += 1;
+      return { source: "vehicle", durationMinutes: 10, distanceKm: 1, sameRegion: true };
+    } },
+  });
+  assert.equal(resolved.requiredPairs, 45);
+  assert.equal(calls, 0);
+  assert.equal(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments).length, 0);
+  assert.ok(resolved.snapshot.targets.every((item) =>
+    item.automaticAssignmentIssue === "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"));
 });
 
 test("자동 3건째는 target 단위 MANUAL_REQUIRED이고 4건 이상 점유는 hard block 사유다", () => {
