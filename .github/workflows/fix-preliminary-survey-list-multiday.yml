@@ -1,4 +1,4 @@
-name: Finalize preliminary survey multiday list
+name: Verify preliminary survey multiday list
 
 on:
   push:
@@ -6,11 +6,10 @@ on:
       - fix/preliminary-survey-list-multiday-dates
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  verify-and-commit:
-    if: ${{ !contains(github.event.head_commit.message, '[multiday-final]') }}
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,18 +19,6 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - name: Fix hook dependency
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-          p = Path("components/features/PreliminarySurveyV2Plans.tsx")
-          text = p.read_text(encoding="utf-8")
-          old = "  ), [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, rows]);"
-          new = "  ), [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, mode, rows]);"
-          if text.count(old) != 1:
-              raise SystemExit(f"expected one filteredRows dependency list, found {text.count(old)}")
-          p.write_text(text.replace(old, new, 1), encoding="utf-8")
-          PY
       - name: Install dependencies
         run: npm ci
       - name: Focused regression
@@ -42,12 +29,7 @@ jobs:
         run: npx tsc --noEmit
       - name: Lint
         run: npm run lint
+      - name: Build
+        run: npm run build
       - name: Diff check
-        run: git diff --check
-      - name: Commit final verification fix
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add components/features/PreliminarySurveyV2Plans.tsx
-          git commit -m "test: finalize multiday list regression [multiday-final]"
-          git push origin HEAD:fix/preliminary-survey-list-multiday-dates
+        run: git diff --check origin/main...HEAD
