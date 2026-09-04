@@ -178,8 +178,8 @@ export async function collectMeasurementVehicleRouteEvidence(input: {
 }
 
 /**
- * 역할 원천은 독립적으로 유지하면서, 첫 순환 균등 조건 안에서 역할 일치를 preference로 사용한다.
- * 추가 배정은 현재 배정수 > 역할 일치 > 동일주소 > 실제 차량경로 > ID 순이다.
+ * 선택한 실제 측정일의 전체 target batch를 결정론적으로 평가한다.
+ * 측정 참여자·보고서 담당자 정합성, 균등성, route 비용을 lexicographic하게 비교한다.
  */
 export function assignMeasurementAssignees(input: {
   targets: MeasurementAssignmentTarget[];
@@ -206,117 +206,90 @@ export function assignMeasurementAssignees(input: {
   const targets = [...input.targets].sort((left, right) =>
     left.measurementDate.localeCompare(right.measurementDate) || left.targetId - right.targetId,
   );
-  const roleMatchScore = (target: MeasurementAssignmentTarget, userId: number) =>
-    Number(target.measurementParticipantUserIds?.includes(userId)) +
-    Number(target.reportWriterUserId === userId) +
-    Number(target.preliminarySurveyorUserId === userId);
+  const participantMatch = (target: MeasurementAssignmentTarget, userId: number) =>
+    Number(target.measurementParticipantUserIds?.includes(userId) ?? false);
+  const reportMatch = (target: MeasurementAssignmentTarget, userId: number) =>
+    Number(target.reportWriterUserId === userId);
 
-  // 같은 날짜의 첫 순환은 6명을 한 번씩 쓰는 조건을 먼저 고정한 뒤,
-  // 개별 target greedy가 아니라 순환 전체의 역할 일치 합계를 최대화한다.
-  const firstCycleUserByTarget = new Map<string, number>();
   for (const measurementDate of [...new Set(targets.map((target) => target.measurementDate))]) {
     const dateTargets = targets.filter((target) => target.measurementDate === measurementDate);
-    const existingOnDate = assigned.filter((item) => item.measurementDate === measurementDate);
-    const unusedUsers = users.filter((user) => !existingOnDate.some((item) => item.userId === user.id));
-    const batch = dateTargets.slice(0, Math.min(dateTargets.length, unusedUsers.length));
-    if (!batch.length) continue;
-
-    let bestScore = Number.NEGATIVE_INFINITY;
-    let bestUserIds: number[] | null = null;
-    const visit = (targetIndex: number, usedUserIds: Set<number>, selectedUserIds: number[], score: number) => {
-      if (targetIndex === batch.length) {
-        const isBetterTie = bestUserIds == null || selectedUserIds.some((id, index) =>
-          id !== bestUserIds![index] && id < bestUserIds![index] &&
-          selectedUserIds.slice(0, index).every((value, prefixIndex) => value === bestUserIds![prefixIndex]),
-        );
-        if (score > bestScore || (score === bestScore && isBetterTie)) {
-          bestScore = score;
-          bestUserIds = [...selectedUserIds];
-        }
-        return;
-      }
-      const target = batch[targetIndex];
-      for (const user of unusedUsers) {
-        if (usedUserIds.has(user.id) || input.availability?.isBlocked(user.id, measurementDate)) continue;
-        usedUserIds.add(user.id);
-        selectedUserIds.push(user.id);
-        visit(targetIndex + 1, usedUserIds, selectedUserIds, score + roleMatchScore(target, user.id));
-        selectedUserIds.pop();
-        usedUserIds.delete(user.id);
-      }
-    };
-    visit(0, new Set(), [], 0);
-    const plannedUserIds = bestUserIds as number[] | null;
-    plannedUserIds?.forEach((userId: number, index: number) => {
-      firstCycleUserByTarget.set(`${measurementDate}:${batch[index].targetId}`, userId);
-    });
-  }
-
-  for (const target of targets) {
-    // 같은 날짜의 모든 기존 배정을 비교해 동일주소/실제 경로 후보를 판단한다.
-    const sameDate = assigned.filter((item) => item.measurementDate === target.measurementDate);
-    const count = (userId: number) => sameDate.filter((item) => item.userId === userId).length;
-    const availableUsers = users.filter((user) => !input.availability?.isBlocked(user.id, target.measurementDate));
-    // 불가 일정으로 후보가 0명이면 incomplete draft로 남긴다. 3건 hard max 소진과 구분한다.
+    const dateExisting = assigned.filter((item) => item.measurementDate === measurementDate);
+    const availableUsers = users.filter((user) => !input.availability?.isBlocked(user.id, measurementDate));
     if (!availableUsers.length) continue;
-    const exactAddressUsers = new Set(sameDate
-      .filter((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address))
-      .map((item) => item.userId));
-    const shortestVehicleRoute = (userId: number) => Math.min(
-      ...sameDate.filter((item) => item.userId === userId).map((item) => routeMinutes(target, item, evidence)),
-      Number.POSITIVE_INFINITY,
-    );
-    const plannedFirstCycleUserId = firstCycleUserByTarget.get(`${target.measurementDate}:${target.targetId}`);
-    const plannedFirstCycleUser = availableUsers.find((user) =>
-      user.id === plannedFirstCycleUserId && count(user.id) === 0,
-    );
-    const unassigned = availableUsers.filter((user) => count(user.id) === 0);
-    let candidates = plannedFirstCycleUser ? [plannedFirstCycleUser]
-      : unassigned.length ? unassigned
-        : input.requireRouteForSecond
-          ? availableUsers.filter((user) => count(user.id) === 1
-            && (exactAddressUsers.has(user.id) || Number.isFinite(shortestVehicleRoute(user.id))))
-          : availableUsers.filter((user) => count(user.id) < 2);
-    if (!candidates.length && !input.requireRouteForSecond && input.allowThirdWithApproval !== false) {
-      candidates = availableUsers.filter((user) => count(user.id) < 3);
+    const initialCounts = new Map(availableUsers.map((user) => [user.id, dateExisting.filter((item) => item.userId === user.id).length]));
+    type SearchState = { ids: number[]; current: ExistingMeasurementAssignment[]; participant: number; report: number; route: number };
+    const routeInfo = (target: MeasurementAssignmentTarget, userId: number, current: ExistingMeasurementAssignment[]) => {
+      const sameUser = current.filter((item) => item.userId === userId);
+      if (!sameUser.length) return { allowed: true, minutes: 0, exact: false };
+      const exact = sameUser.some((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address));
+      if (exact) return { allowed: true, minutes: 0, exact: true };
+      const minutes = Math.min(...sameUser.map((item) => routeMinutes(target, item, evidence)), Number.POSITIVE_INFINITY);
+      return {
+        allowed: !input.requireRouteForSecond || Number.isFinite(minutes),
+        // route 미확인은 legacy Workbench에서 허용할 수 있지만 objective에서는
+        // 실제 route보다 항상 불리하게 평가하여 불필요한 중복을 억제한다.
+        minutes: Number.isFinite(minutes) ? minutes : 1_000_000,
+        exact: false,
+      };
+    };
+    const stateRank = (state: SearchState) => {
+      const counts = [...initialCounts.entries()].map(([id, count]) => count + state.ids.filter((value) => value === id).length);
+      return { maxCount: Math.max(...counts, 0), duplicateUsers: counts.filter((count) => count > 1).length };
+    };
+    const compareStates = (left: SearchState, right: SearchState) => {
+      if (left.participant !== right.participant) return right.participant - left.participant;
+      if (left.report !== right.report) return right.report - left.report;
+      const leftRank = stateRank(left); const rightRank = stateRank(right);
+      if (leftRank.maxCount !== rightRank.maxCount) return leftRank.maxCount - rightRank.maxCount;
+      if (left.route !== right.route) return left.route - right.route;
+      if (leftRank.duplicateUsers !== rightRank.duplicateUsers) return leftRank.duplicateUsers - rightRank.duplicateUsers;
+      return left.ids.map((id) => id.toString().padStart(8, "0")).join("").localeCompare(right.ids.map((id) => id.toString().padStart(8, "0")).join(""));
+    };
+    const beamWidth = 256;
+    let states: SearchState[] = [{ ids: [], current: dateExisting, participant: 0, report: 0, route: 0 }];
+    for (const target of dateTargets) {
+      const expanded: SearchState[] = [];
+      for (const state of states) {
+        for (const user of availableUsers) {
+          const priorCount = initialCounts.get(user.id)! + state.ids.filter((id) => id === user.id).length;
+          if (priorCount >= 3) continue;
+          const routeData = routeInfo(target, user.id, state.current);
+          if (!routeData.allowed) continue;
+          expanded.push({ ids: [...state.ids, user.id], current: [...state.current, { ...target, userId: user.id }],
+            participant: state.participant + participantMatch(target, user.id), report: state.report + reportMatch(target, user.id), route: state.route + routeData.minutes });
+        }
+      }
+      states = expanded.sort(compareStates).slice(0, beamWidth);
+      if (!states.length) break;
     }
-    candidates.sort((left, right) =>
-      count(left.id) - count(right.id) ||
-      roleMatchScore(target, right.id) - roleMatchScore(target, left.id) ||
-      Number(!exactAddressUsers.has(left.id)) - Number(!exactAddressUsers.has(right.id)) ||
-      shortestVehicleRoute(left.id) - shortestVehicleRoute(right.id) ||
-      left.id - right.id,
-    );
-    // 해당 날짜에 가능한 측정자가 없으면 incomplete draft로 남겨 사용자 재검토를 요구한다.
-    const selected = candidates[0];
-    if (!selected) {
-      const minimumDailyCount = Math.min(...availableUsers.map((user) => count(user.id)));
-      if (!input.requireRouteForSecond && minimumDailyCount >= 3) {
-        throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, availableUsers[0].id);
+    const best = states.find((state) => state.ids.length === dateTargets.length) ?? null;
+    if (!best) {
+      const minimumDailyCount = Math.min(...availableUsers.map((user) => initialCounts.get(user.id) ?? 0));
+      if (!input.requireRouteForSecond && input.allowThirdWithApproval !== false && minimumDailyCount >= 3) {
+        throw new MeasurementAssignmentDailyLimitError(dateTargets[0]?.targetId ?? 0, measurementDate, availableUsers[0].id);
+      }
+      if (input.requireRouteForSecond) {
+        const fallbackUsers = availableUsers.filter((user) => (initialCounts.get(user.id) ?? 0) === 0);
+        dateTargets.slice(0, fallbackUsers.length).forEach((target, index) => {
+          const user = fallbackUsers[index];
+          assigned.push({ ...target, userId: user.id });
+          results.push({ targetId: target.targetId, measurementDate, userId: user.id, userName: user.name,
+            publicSampleCode: user.surveyCode, dailyCount: 1, approvalRequired: false, reason: "측정자 균등배정" });
+        });
       }
       continue;
     }
-    const nextCount = count(selected.id) + 1;
-    if (nextCount > 3) {
-      throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, selected.id);
-    }
-    const exactAddress = exactAddressUsers.has(selected.id);
-    const hasVehicleRoute = Number.isFinite(shortestVehicleRoute(selected.id));
-    const approvalRequired = nextCount >= 3;
-    const reason: MeasurementAssignmentResult["reason"] = approvalRequired ? "3건 승인 필요"
-      : exactAddress ? "동일주소 묶음"
-        : hasVehicleRoute && nextCount > 1 ? "근거리 묶음"
-          : nextCount > 1 ? "2건 배정" : "측정자 균등배정";
-    assigned.push({ ...target, userId: selected.id });
-    results.push({
-      targetId: target.targetId,
-      measurementDate: target.measurementDate,
-      userId: selected.id,
-      userName: selected.name,
-      publicSampleCode: selected.surveyCode,
-      dailyCount: nextCount,
-      approvalRequired,
-      reason,
+    const outputCounts = new Map(initialCounts);
+    dateTargets.forEach((target, index) => {
+      const user = availableUsers.find((candidate) => candidate.id === best!.ids[index]);
+      if (!user) return;
+      const sameDate = assigned.filter((item) => item.measurementDate === measurementDate);
+      const nextCount = (outputCounts.get(user.id) ?? 0) + 1;
+      const route = routeInfo(target, user.id, [...sameDate, ...dateTargets.slice(0, index).map((item, priorIndex) => ({ ...item, userId: best!.ids[priorIndex] }))]);
+      const reason: MeasurementAssignmentResult["reason"] = nextCount >= 3 ? "3건 승인 필요" : route.exact ? "동일주소 묶음" : nextCount > 1 ? "근거리 묶음" : "측정자 균등배정";
+      assigned.push({ ...target, userId: user.id });
+      outputCounts.set(user.id, nextCount);
+      results.push({ targetId: target.targetId, measurementDate, userId: user.id, userName: user.name, publicSampleCode: user.surveyCode, dailyCount: nextCount, approvalRequired: nextCount >= 3, reason });
     });
   }
   return results;

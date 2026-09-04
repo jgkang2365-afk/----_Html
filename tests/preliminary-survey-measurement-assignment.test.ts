@@ -56,7 +56,7 @@ test("역할 연계가 일치하면 균형 범위 안에서 해당 측정자·�
   assert.deepEqual(result.map((item) => [item.targetId, item.userId]), targets.map((item) => [item.targetId, item.reportWriterUserId]));
 });
 
-test("역할이 일부 직원에게 몰려도 6명 첫 순환이 역할 일치보다 우선한다", () => {
+test("전체 batch에서 측정 참여자·보고서 담당자 정합성이 균등 1회전보다 우선한다", () => {
   const result = assignMeasurementAssignees({
     targets: users.map((_, index) => ({
       ...target(index + 1), reportWriterUserId: 1,
@@ -64,7 +64,8 @@ test("역할이 일부 직원에게 몰려도 6명 첫 순환이 역할 일치�
     })),
     users,
   });
-  assert.equal(new Set(result.map((item) => item.userId)).size, 6);
+  assert.equal(new Set(result.map((item) => item.userId)).size, 4);
+  assert.equal(result.filter((item) => item.userId === 1).length, 3);
 });
 
 test("실제 6개 업체 역할 충돌에서도 A/B/C/D/F/G를 한 번씩 사용한다", () => {
@@ -82,10 +83,10 @@ test("실제 6개 업체 역할 충돌에서도 A/B/C/D/F/G를 한 번씩 사용
     users,
   });
   assert.deepEqual(result.map((item) => [item.targetId, item.userId, item.publicSampleCode]), [
-    [100, 5, "F"], [101, 6, "G"], [188, 4, "D"], [200, 1, "A"], [226, 3, "C"], [290, 2, "B"],
+    [100, 5, "F"], [101, 5, "F"], [188, 5, "F"], [200, 3, "C"], [226, 3, "C"], [290, 2, "B"],
   ]);
-  assert.equal(result.find((item) => item.targetId === 200)?.userId, 1,
-    "H0200은 참여자/보고서 담당자 강종구보다 예비조사 책임자 이태환(A) 연계를 우선해야 한다");
+  assert.equal(result.find((item) => item.targetId === 200)?.userId, 3,
+    "공시료 자동배정은 예비조사 책임자 결과를 입력으로 사용하지 않는다");
 });
 
 test("추천과 Apply는 공통 builder로 역할 필드가 같은 canonical target을 만든다", () => {
@@ -133,7 +134,7 @@ test("공시료 후보는 첫 순환 균등을 지킨 뒤 예비조사 책임자
   assert.equal(result.approvalRequired, false);
 });
 
-test("예비조사 책임자가 불가 일정이어도 첫 순환 균등 후보를 우선한다", () => {
+test("예비조사 책임자 필드는 공시료 자동배정 입력으로 사용하지 않는다", () => {
   const [result] = assignMeasurementAssignees({
     targets: [{
       ...target(1), preliminarySurveyorUserId: 3,
@@ -142,7 +143,7 @@ test("예비조사 책임자가 불가 일정이어도 첫 순환 균등 후보�
     users: users.slice(0, 3),
     availability: { isBlocked: (userId) => userId === 3 },
   });
-  assert.equal(result.userId, 1);
+  assert.equal(result.userId, 2);
 });
 
 test("동일주소 target별 예비조사 책임자 X/Y를 공시료 배정 preference로 각각 유지한다", () => {
@@ -300,4 +301,54 @@ test("다일 대상은 같은 targetId라도 measurementDate별 결과를 각각
   });
   assert.deepEqual(result.map((item) => [item.targetId, item.measurementDate]), [[1, "2026-08-25"], [1, "2026-08-26"]]);
   assert.deepEqual(result.map((item) => item.publicSampleCode), ["A", "A"]);
+});
+
+const allowedBatchRoutes = (targetIds: number[], date = "2026-08-25"): MeasurementVehicleRouteEvidence[] =>
+  targetIds.flatMap((fromTargetId, fromIndex) => targetIds.slice(fromIndex + 1).map((toTargetId) => ({
+    fromTargetId, fromMeasurementDate: date, toTargetId, toMeasurementDate: date,
+    source: "vehicle" as const, durationMinutes: 20, allowed: true,
+  })));
+
+test("4개 업체 batch는 특별한 정합성 우위가 없으면 1인 1건으로 분산한다", () => {
+  const result = assignMeasurementAssignees({ targets: Array.from({ length: 4 }, (_, i) => target(i + 1)), users, requireRouteForSecond: true });
+  assert.deepEqual(result.map((item) => item.dailyCount), [1, 1, 1, 1]);
+});
+
+test("7개 업체 batch는 전체 관계를 보고 한 건만 2번째로 배정한다", () => {
+  const targets = Array.from({ length: 7 }, (_, i) => target(i + 1));
+  const result = assignMeasurementAssignees({ targets, users, requireRouteForSecond: true, routeEvidence: allowedBatchRoutes(targets.map((item) => item.targetId)) });
+  assert.equal(result.length, 7);
+  assert.deepEqual(users.map((user) => result.filter((item) => item.userId === user.id).length).sort((a, b) => b - a), [2, 1, 1, 1, 1, 1]);
+});
+
+test("8개 업체 batch는 두 건의 중복을 전체 최적화하고 결정론적으로 반환한다", () => {
+  const targets = Array.from({ length: 8 }, (_, i) => target(i + 1));
+  const input = { targets, users, requireRouteForSecond: true, routeEvidence: allowedBatchRoutes(targets.map((item) => item.targetId)) };
+  const first = assignMeasurementAssignees(input);
+  const second = assignMeasurementAssignees({ ...input, targets: [...targets].reverse() });
+  assert.deepEqual(users.map((user) => first.filter((item) => item.userId === user.id).length).sort((a, b) => b - a), [2, 2, 1, 1, 1, 1]);
+  assert.deepEqual(first.map((item) => [item.targetId, item.userId]), second.map((item) => [item.targetId, item.userId]));
+});
+
+test("route evidence가 없는 2번째 배정은 자동 batch에서 만들지 않는다", () => {
+  const targets = Array.from({ length: 7 }, (_, i) => target(i + 1));
+  const result = assignMeasurementAssignees({ targets, users, requireRouteForSecond: true });
+  assert.equal(result.length, 6);
+  assert.equal(result.some((item) => item.dailyCount > 1), false);
+});
+
+test("9개 clean sample은 downstream 공시료 값 없이 upstream 정합성과 균등성을 만족한다", () => {
+  const sampleCodes = ["H0011", "H0012", "H0047", "H0131", "H0081", "H0082", "H0084", "H0085", "H0094"];
+  const targets = sampleCodes.map((businessCode, index) => ({
+    ...target(index + 1, `주소 ${businessCode}`, "2026-09-03"),
+    businessCode,
+    measurementParticipantUserIds: [users[index % users.length].id],
+    reportWriterUserId: users[index % users.length].id,
+  }));
+  const input = { targets, users, requireRouteForSecond: true, routeEvidence: allowedBatchRoutes(targets.map((item) => item.targetId), "2026-09-03") };
+  const result = assignMeasurementAssignees(input);
+  assert.equal(result.length, 9);
+  assert.equal(result.every((item) => item.dailyCount <= 2), true);
+  assert.equal(result.filter((item) => targets.find((target) => target.targetId === item.targetId)?.measurementParticipantUserIds?.includes(item.userId)).length, 9);
+  assert.deepEqual(result.map((item) => [item.targetId, item.userId]), assignMeasurementAssignees({ ...input, targets: [...targets].reverse() }).map((item) => [item.targetId, item.userId]));
 });

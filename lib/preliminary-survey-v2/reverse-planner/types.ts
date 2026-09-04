@@ -1,5 +1,5 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.5";
-export const PRELIMINARY_SURVEY_CANONICAL_SHA = "31611ec0d98e5060776347e9859e8d95ec32e423";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.6";
+export const PRELIMINARY_SURVEY_CANONICAL_SHA = "1c0b66b33d5996d9d7810332cf86a37c027d5329";
 
 export type ReversePlannerDecision = "AUTO_ASSIGNED" | "ADMIN_OVERRIDE_KEPT" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
 export type ReversePlannerMutation = "KEEP_EXISTING" | "CREATE" | "REPLACE" | "NONE";
