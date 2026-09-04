@@ -239,39 +239,100 @@ export function assignMeasurementAssignees(input: {
     const compareStates = (left: SearchState, right: SearchState) => {
       if (left.participant !== right.participant) return right.participant - left.participant;
       if (left.report !== right.report) return right.report - left.report;
+      if (left.route !== right.route) return left.route - right.route;
       const leftRank = stateRank(left); const rightRank = stateRank(right);
       if (leftRank.maxCount !== rightRank.maxCount) return leftRank.maxCount - rightRank.maxCount;
-      if (left.route !== right.route) return left.route - right.route;
       if (leftRank.duplicateUsers !== rightRank.duplicateUsers) return leftRank.duplicateUsers - rightRank.duplicateUsers;
+      if (left.ids.length !== right.ids.length) return right.ids.length - left.ids.length;
       return left.ids.map((id) => id.toString().padStart(8, "0")).join("").localeCompare(right.ids.map((id) => id.toString().padStart(8, "0")).join(""));
     };
-    const beamWidth = 256;
-    let states: SearchState[] = [{ ids: [], current: dateExisting, participant: 0, report: 0, route: 0 }];
-    for (const target of dateTargets) {
-      const expanded: SearchState[] = [];
-      for (const state of states) {
-        for (const user of availableUsers) {
-          const priorCount = initialCounts.get(user.id)! + state.ids.filter((id) => id === user.id).length;
-          if (priorCount >= 3) continue;
-          const routeData = routeInfo(target, user.id, state.current);
-          if (!routeData.allowed) continue;
-          expanded.push({ ids: [...state.ids, user.id], current: [...state.current, { ...target, userId: user.id }],
-            participant: state.participant + participantMatch(target, user.id), report: state.report + reportMatch(target, user.id), route: state.route + routeData.minutes });
-        }
-      }
-      states = expanded.sort(compareStates).slice(0, beamWidth);
-      if (!states.length) break;
+    const maxAutomaticCount = input.requireRouteForSecond && input.allowThirdWithApproval === false ? 2 : 3;
+    let bestComplete: SearchState | null = null;
+    let bestPartial: SearchState | null = null;
+    const remainingParticipant = new Array(dateTargets.length + 1).fill(0);
+    const remainingReport = new Array(dateTargets.length + 1).fill(0);
+    for (let index = dateTargets.length - 1; index >= 0; index -= 1) {
+      const item = dateTargets[index];
+      remainingParticipant[index] = remainingParticipant[index + 1]
+        + Math.max(...availableUsers.map((user) => participantMatch(item, user.id)), 0);
+      remainingReport[index] = remainingReport[index + 1]
+        + Math.max(...availableUsers.map((user) => reportMatch(item, user.id)), 0);
     }
-    const best = states.find((state) => state.ids.length === dateTargets.length) ?? null;
+    const visit = (index: number, state: SearchState) => {
+      if (!bestPartial || state.ids.length > bestPartial.ids.length
+        || (state.ids.length === bestPartial.ids.length && compareStates(state, bestPartial) < 0)) bestPartial = state;
+      if (index === dateTargets.length) {
+        if (!bestComplete || compareStates(state, bestComplete) < 0) bestComplete = state;
+        return;
+      }
+      if (bestComplete) {
+        if (state.participant + remainingParticipant[index] < bestComplete.participant) return;
+        if (state.participant + remainingParticipant[index] === bestComplete.participant
+          && state.report + remainingReport[index] < bestComplete.report) return;
+        if (state.participant === bestComplete.participant && state.report === bestComplete.report
+          && state.route > bestComplete.route) return;
+      }
+      const target = dateTargets[index];
+      const candidates = availableUsers.map((user) => ({
+        user,
+        participant: participantMatch(target, user.id),
+        report: reportMatch(target, user.id),
+        route: routeInfo(target, user.id, state.current),
+      })).filter((item) => item.route.allowed)
+        .sort((left, right) => right.participant - left.participant || right.report - left.report
+          || left.route.minutes - right.route.minutes || left.user.id - right.user.id);
+      for (const candidate of candidates) {
+        const user = candidate.user;
+        const priorCount = initialCounts.get(user.id)! + state.ids.filter((id) => id === user.id).length;
+        if (priorCount >= maxAutomaticCount) continue;
+        if (input.requireRouteForSecond && input.allowThirdWithApproval === false && priorCount >= 2) continue;
+        const routeData = candidate.route;
+        visit(index + 1, {
+          ids: [...state.ids, user.id],
+          current: [...state.current, { ...target, userId: user.id }],
+          participant: state.participant + participantMatch(target, user.id),
+          report: state.report + reportMatch(target, user.id),
+          route: state.route + routeData.minutes,
+        });
+      }
+    };
+    const initialState: SearchState = { ids: [], current: dateExisting, participant: 0, report: 0, route: 0 };
+    if (input.requireRouteForSecond === true && dateTargets.length <= 9) {
+      // Reverse Planner의 정상 업무량(최대 9건)은 완전 열거하여 global optimum을 보장한다.
+      visit(0, initialState);
+    } else {
+      // 기존 Workbench 호환량이 더 큰 경우에는 bounded search로 비용을 제한한다.
+      let states: SearchState[] = [initialState];
+      for (const target of dateTargets) {
+        const expanded: SearchState[] = [];
+        for (const state of states) {
+          for (const user of availableUsers) {
+            const priorCount = initialCounts.get(user.id)! + state.ids.filter((id) => id === user.id).length;
+            if (priorCount >= maxAutomaticCount) continue;
+            const routeData = routeInfo(target, user.id, state.current);
+            if (!routeData.allowed) continue;
+            expanded.push({ ids: [...state.ids, user.id], current: [...state.current, { ...target, userId: user.id }],
+              participant: state.participant + participantMatch(target, user.id), report: state.report + reportMatch(target, user.id), route: state.route + routeData.minutes });
+          }
+        }
+        states = expanded.sort(compareStates).slice(0, 256);
+        if (!states.length) break;
+      }
+      bestComplete = states.find((state) => state.ids.length === dateTargets.length) ?? null;
+      bestPartial = states.sort((left, right) => left.ids.length === right.ids.length ? compareStates(left, right) : right.ids.length - left.ids.length)[0] ?? null;
+    }
+    const best = bestComplete;
     if (!best) {
       const minimumDailyCount = Math.min(...availableUsers.map((user) => initialCounts.get(user.id) ?? 0));
       if (!input.requireRouteForSecond && input.allowThirdWithApproval !== false && minimumDailyCount >= 3) {
         throw new MeasurementAssignmentDailyLimitError(dateTargets[0]?.targetId ?? 0, measurementDate, availableUsers[0].id);
       }
       if (input.requireRouteForSecond) {
-        const fallbackUsers = availableUsers.filter((user) => (initialCounts.get(user.id) ?? 0) === 0);
-        dateTargets.slice(0, fallbackUsers.length).forEach((target, index) => {
-          const user = fallbackUsers[index];
+        const partial = bestPartial ?? { ids: [], current: dateExisting, participant: 0, report: 0, route: 0 };
+        partial.ids.forEach((userId, index) => {
+          const target = dateTargets[index];
+          const user = availableUsers.find((candidate) => candidate.id === userId);
+          if (!user) return;
           assigned.push({ ...target, userId: user.id });
           results.push({ targetId: target.targetId, measurementDate, userId: user.id, userName: user.name,
             publicSampleCode: user.surveyCode, dailyCount: 1, approvalRequired: false, reason: "측정자 균등배정" });
@@ -286,7 +347,13 @@ export function assignMeasurementAssignees(input: {
       const sameDate = assigned.filter((item) => item.measurementDate === measurementDate);
       const nextCount = (outputCounts.get(user.id) ?? 0) + 1;
       const route = routeInfo(target, user.id, [...sameDate, ...dateTargets.slice(0, index).map((item, priorIndex) => ({ ...item, userId: best!.ids[priorIndex] }))]);
-      const reason: MeasurementAssignmentResult["reason"] = nextCount >= 3 ? "3건 승인 필요" : route.exact ? "동일주소 묶음" : nextCount > 1 ? "근거리 묶음" : "측정자 균등배정";
+      const reason: MeasurementAssignmentResult["reason"] = nextCount >= 3
+        ? "3건 승인 필요"
+        : route.exact
+          ? "동일주소 묶음"
+          : nextCount > 1 && Number.isFinite(route.minutes)
+            ? "근거리 묶음"
+            : nextCount > 1 ? "2건 배정" : "측정자 균등배정";
       assigned.push({ ...target, userId: user.id });
       outputCounts.set(user.id, nextCount);
       results.push({ targetId: target.targetId, measurementDate, userId: user.id, userName: user.name, publicSampleCode: user.surveyCode, dailyCount: nextCount, approvalRequired: nextCount >= 3, reason });
