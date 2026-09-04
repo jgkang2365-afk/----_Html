@@ -14,7 +14,7 @@ import type {
 } from "./types";
 
 const surveyCodes = new Set(["A", "B", "C", "D", "F", "G"]);
-const DEFAULT_MAX_PAIRS = 20;
+const DEFAULT_MAX_PAIRS = 36;
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_DEADLINE_MS = 20_000;
 
@@ -123,7 +123,15 @@ export function withAutomaticMeasurementAssignments(
   snapshot: PlanningSnapshot,
   routeEvidence: PlannerRouteEvidence[] = snapshot.routeEvidence,
 ): PlanningSnapshot {
-  const { input, automatic } = calculateAutomatic(snapshot, routeEvidence);
+  return withCalculatedAutomaticAssignments(snapshot, routeEvidence, calculateAutomatic(snapshot, routeEvidence));
+}
+
+function withCalculatedAutomaticAssignments(
+  snapshot: PlanningSnapshot,
+  routeEvidence: PlannerRouteEvidence[],
+  calculation: ReturnType<typeof calculateAutomatic>,
+): PlanningSnapshot {
+  const { input, automatic } = calculation;
   if (!input.missing.length) return { ...snapshot, routeEvidence };
   const automaticAssignments: FixedMeasurementAssignment[] = automatic.map((item) => ({
     targetId: item.targetId,
@@ -197,7 +205,7 @@ type CandidatePair = {
   date: string;
   left: MeasurementAssignmentTarget;
   right: ExistingMeasurementAssignment;
-  userId: number;
+  userIds: number[];
 };
 
 async function settleBeforeDeadline<T>(promise: Promise<T>, signal: AbortSignal) {
@@ -215,9 +223,8 @@ export async function resolveAutomaticMeasurementAssignments(
   snapshot: PlanningSnapshot,
   options: AutomaticMeasurementAssignmentOptions = {},
 ) {
-  const routeFree = withAutomaticMeasurementAssignments(snapshot, snapshot.routeEvidence);
   const routeFreeCalculation = calculateAutomatic(snapshot, snapshot.routeEvidence);
-  const resolvedKeys = new Set(routeFreeCalculation.automatic.map((item) => keyOf(item.targetId, item.measurementDate)));
+  const routeFree = withCalculatedAutomaticAssignments(snapshot, snapshot.routeEvidence, routeFreeCalculation);
   const firstAssignments: ExistingMeasurementAssignment[] = routeFreeCalculation.automatic.map((item) => ({
     ...routeFreeCalculation.input.missing.find((target) => keyOf(target.targetId, target.measurementDate)
       === keyOf(item.targetId, item.measurementDate))!,
@@ -229,26 +236,39 @@ export async function resolveAutomaticMeasurementAssignments(
     ...firstAssignments,
   ];
   const pairs = new Map<string, CandidatePair>();
-  for (const target of routeFreeCalculation.input.missing
-    .filter((item) => !resolvedKeys.has(keyOf(item.targetId, item.measurementDate)))) {
-    for (const user of snapshot.users.filter((item) => item.active && surveyCodes.has(item.baseCode ?? ""))) {
-      if (snapshot.scheduleBlocks.some((block) => block.userId === user.id
-        && block.startDate <= target.measurementDate && block.endDate >= target.measurementDate)) continue;
-      const occupied = assigned.filter((item) => item.measurementDate === target.measurementDate && item.userId === user.id);
-      if (occupied.length !== 1) continue;
-      const right = occupied[0];
-      const ids = [target.targetId, right.targetId].sort((a, b) => a - b);
-      pairs.set(`${target.measurementDate}|${ids[0]}|${ids[1]}|${user.id}`, {
-        date: target.measurementDate, left: target, right, userId: user.id,
-      });
+  const activeUsers = snapshot.users.filter((item) => item.active && surveyCodes.has(item.baseCode ?? ""));
+  const addPair = (left: MeasurementAssignmentTarget, right: ExistingMeasurementAssignment, userIds: number[]) => {
+    if (!userIds.length || left.measurementDate !== right.measurementDate || left.targetId === right.targetId) return;
+    const ids = [left.targetId, right.targetId].sort((a, b) => a - b);
+    const key = `${left.measurementDate}|${ids[0]}|${ids[1]}`;
+    const previous = pairs.get(key);
+    pairs.set(key, { date: left.measurementDate, left, right,
+      userIds: [...new Set([...(previous?.userIds ?? []), ...userIds])].sort((a, b) => a - b) });
+  };
+  for (const [index, left] of routeFreeCalculation.input.missing.entries()) {
+    for (const right of routeFreeCalculation.input.missing.slice(index + 1)) {
+      const candidateUsers = activeUsers.filter((user) => {
+        if (snapshot.scheduleBlocks.some((block) => block.userId === user.id
+          && block.startDate <= left.measurementDate && block.endDate >= left.measurementDate)) return false;
+        return assigned.filter((item) => item.measurementDate === left.measurementDate && item.userId === user.id
+          && !routeFreeCalculation.input.missing.some((missing) => missing.targetId === item.targetId)).length === 0;
+      }).map((user) => user.id);
+      addPair(left, { ...right, userId: candidateUsers[0] ?? 0 }, candidateUsers);
+    }
+    for (const right of [...routeFreeCalculation.input.existing, ...routeFreeCalculation.input.explicit]) {
+      const occupied = assigned.filter((item) => item.measurementDate === left.measurementDate && item.userId === right.userId);
+      const user = activeUsers.find((item) => item.id === right.userId);
+      if (!user || occupied.length !== 1 || snapshot.scheduleBlocks.some((block) => block.userId === user.id
+        && block.startDate <= left.measurementDate && block.endDate >= left.measurementDate)) continue;
+      addPair(left, right, [right.userId]);
     }
   }
-  const maxPairs = positiveInteger(options.maxPairs
-    ?? process.env.REVERSE_PLANNER_ROUTE_MAX_PAIRS, DEFAULT_MAX_PAIRS);
+  // 과거 운영값(20)이 남아 있어도 9건 일일 batch의 최대 36 pair를 잘라내지 않는다.
+  const maxPairs = Math.max(DEFAULT_MAX_PAIRS, positiveInteger(options.maxPairs
+    ?? process.env.REVERSE_PLANNER_ROUTE_MAX_PAIRS, DEFAULT_MAX_PAIRS));
   const evidence = [...snapshot.routeEvidence];
   const candidates = [...pairs.values()].sort((left, right) => left.date.localeCompare(right.date)
-    || left.left.targetId - right.left.targetId || left.right.targetId - right.right.targetId
-    || left.userId - right.userId);
+    || left.left.targetId - right.left.targetId || left.right.targetId - right.right.targetId);
   if (!candidates.length || candidates.length > maxPairs) {
     return { snapshot: routeFree, routeEvidence: evidence, requiredPairs: candidates.length };
   }
@@ -339,6 +359,6 @@ function routeEvidenceFor(
     provider,
     capturedAt: new Date().toISOString(),
     routeReason: "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT",
-    sharedUserIds: [pair.userId],
+    sharedUserIds: pair.userIds,
   };
 }

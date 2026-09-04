@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   assignMeasurementAssignees,
@@ -6,12 +7,14 @@ import {
   collectMeasurementVehicleRouteEvidence,
   MEASUREMENT_ASSIGNMENT_CAPACITY_CODE,
   MeasurementAssignmentDailyLimitError,
+  type MeasurementAssigneeUser,
   type MeasurementVehicleRouteEvidence,
 } from "../lib/preliminary-survey-v2/measurement-assignment";
 import {
   canonicalizeWorkbenchDraft,
   sameCanonicalWorkbenchDraft,
 } from "../lib/preliminary-survey-v2/draft-canonical";
+import { exactMeasurementAssignmentReference } from "./helpers/measurement-assignment-reference";
 
 const codes = ["A", "B", "C", "D", "F", "G"] as const;
 const users = codes.map((surveyCode, index) => ({ id: index + 1, name: `측정자${index + 1}`, surveyCode, active: true }));
@@ -331,6 +334,28 @@ test("route 부담은 균등배분보다 먼저 비교한다", () => {
   assert.equal(result.reason, "근거리 묶음");
 });
 
+test("완전 배정이 불가능해도 중간 target을 건너뛰고 뒤의 최적 partial을 계속 찾는다", () => {
+  const result = assignMeasurementAssignees({
+    targets: [target(1), target(2), target(3)], users: users.slice(0, 2),
+    requireRouteForSecond: true, allowThirdWithApproval: false,
+    existing: [{ ...target(100), userId: 1 }, { ...target(101), userId: 2 }],
+    routeEvidence: [
+      { fromTargetId: 1, fromMeasurementDate: "2026-08-25", toTargetId: 100, toMeasurementDate: "2026-08-25", source: "vehicle", durationMinutes: 5, allowed: true },
+      { fromTargetId: 3, fromMeasurementDate: "2026-08-25", toTargetId: 101, toMeasurementDate: "2026-08-25", source: "vehicle", durationMinutes: 8, allowed: true },
+    ],
+  });
+  assert.deepEqual(result.map((item) => item.targetId), [1, 3]);
+  assert.deepEqual(result.map((item) => [item.dailyCount, item.reason]), [[2, "근거리 묶음"], [2, "근거리 묶음"]]);
+});
+
+test("route 근거가 필요 없는 legacy 두 번째 배정은 일반 2건 배정으로 표시한다", () => {
+  const [result] = assignMeasurementAssignees({
+    targets: [target(1)], users: users.slice(0, 1), existing: [{ ...target(100), userId: 1 }],
+  });
+  assert.equal(result.dailyCount, 2);
+  assert.equal(result.reason, "2건 배정");
+});
+
 const allowedBatchRoutes = (targetIds: number[], date = "2026-08-25"): MeasurementVehicleRouteEvidence[] =>
   targetIds.flatMap((fromTargetId, fromIndex) => targetIds.slice(fromIndex + 1).map((toTargetId) => ({
     fromTargetId, fromMeasurementDate: date, toTargetId, toMeasurementDate: date,
@@ -338,23 +363,38 @@ const allowedBatchRoutes = (targetIds: number[], date = "2026-08-25"): Measureme
   })));
 
 test("4개 업체 batch는 특별한 정합성 우위가 없으면 1인 1건으로 분산한다", () => {
-  const result = assignMeasurementAssignees({ targets: Array.from({ length: 4 }, (_, i) => target(i + 1)), users, requireRouteForSecond: true });
+  const targets = Array.from({ length: 4 }, (_, i) => target(i + 1));
+  const result = assignMeasurementAssignees({ targets, users, requireRouteForSecond: true });
   assert.deepEqual(result.map((item) => item.dailyCount), [1, 1, 1, 1]);
+  assert.deepEqual(result.map((item) => item.userId), exactMeasurementAssignmentReference({ targets, users })?.ids);
 });
 
 test("7개 업체 batch는 전체 관계를 보고 한 건만 2번째로 배정한다", () => {
   const targets = Array.from({ length: 7 }, (_, i) => target(i + 1));
-  const result = assignMeasurementAssignees({ targets, users, requireRouteForSecond: true, routeEvidence: allowedBatchRoutes(targets.map((item) => item.targetId)) });
+  const routeEvidence = allowedBatchRoutes(targets.map((item) => item.targetId)).map((route) => ({ ...route,
+    durationMinutes: route.fromTargetId === 6 && route.toTargetId === 7 ? 5
+      : route.fromTargetId === 1 && route.toTargetId === 2 ? 17 : 42 }));
+  const result = assignMeasurementAssignees({ targets, users, requireRouteForSecond: true, routeEvidence });
   assert.equal(result.length, 7);
   assert.deepEqual(users.map((user) => result.filter((item) => item.userId === user.id).length).sort((a, b) => b - a), [2, 1, 1, 1, 1, 1]);
+  const duplicated = users.map((user) => result.filter((item) => item.userId === user.id))
+    .find((items) => items.length === 2)!;
+  assert.deepEqual(duplicated.map((item) => item.targetId), [6, 7]);
+  assert.deepEqual(result.map((item) => item.userId), exactMeasurementAssignmentReference({ targets, users, evidence: routeEvidence })?.ids);
 });
 
 test("8개 업체 batch는 두 건의 중복을 전체 최적화하고 결정론적으로 반환한다", () => {
   const targets = Array.from({ length: 8 }, (_, i) => target(i + 1));
-  const input = { targets, users, requireRouteForSecond: true, routeEvidence: allowedBatchRoutes(targets.map((item) => item.targetId)) };
+  const routeEvidence = allowedBatchRoutes(targets.map((item) => item.targetId)).map((route) => ({ ...route,
+    durationMinutes: route.fromTargetId === 1 && route.toTargetId === 2 ? 5
+      : route.fromTargetId === 7 && route.toTargetId === 8 ? 6 : 42 }));
+  const input = { targets, users, requireRouteForSecond: true, routeEvidence };
   const first = assignMeasurementAssignees(input);
   const second = assignMeasurementAssignees({ ...input, targets: [...targets].reverse() });
   assert.deepEqual(users.map((user) => first.filter((item) => item.userId === user.id).length).sort((a, b) => b - a), [2, 2, 1, 1, 1, 1]);
+  assert.deepEqual(users.map((user) => first.filter((item) => item.userId === user.id).map((item) => item.targetId))
+    .filter((items) => items.length === 2).sort((a, b) => a[0] - b[0]), [[1, 2], [7, 8]]);
+  assert.deepEqual(first.map((item) => item.userId), exactMeasurementAssignmentReference({ targets, users, evidence: routeEvidence })?.ids);
   assert.deepEqual(first.map((item) => [item.targetId, item.userId]), second.map((item) => [item.targetId, item.userId]));
 });
 
@@ -365,32 +405,82 @@ test("route evidence가 없는 2번째 배정은 자동 batch에서 만들지 �
   assert.equal(result.some((item) => item.dailyCount > 1), false);
 });
 
+test("4·7·8개 production optimizer는 독립 exact reference와 같은 해를 선택한다", () => {
+  for (const count of [4, 7, 8]) {
+    const referenceUsers = users.slice(0, 4);
+    const targets = Array.from({ length: count }, (_, index) => ({
+      ...target(index + 1), measurementParticipantUserIds: [referenceUsers[index % 4].id],
+      reportWriterUserId: referenceUsers[(index + 1) % 4].id,
+    }));
+    const evidence = allowedBatchRoutes(targets.map((item) => item.targetId));
+    const actual = assignMeasurementAssignees({ targets, users: referenceUsers, requireRouteForSecond: true,
+      allowThirdWithApproval: false, routeEvidence: evidence });
+    assert.deepEqual(actual.map((item) => item.userId), exactMeasurementAssignmentReference({
+      targets, users: referenceUsers, evidence,
+    })?.ids, `${count}개 exact reference`);
+  }
+});
+
+test("seeded random small batch 30건은 독립 exact reference optimum과 일치한다", () => {
+  let seed = 0x96_15_03;
+  const random = () => {
+    seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
+    return seed / 0x1_0000_0000;
+  };
+  for (let caseIndex = 0; caseIndex < 30; caseIndex += 1) {
+    const userCount = 2 + Math.floor(random() * 4);
+    const targetCount = 2 + Math.floor(random() * Math.min(6, userCount * 2 - 1));
+    const caseUsers = users.slice(0, userCount);
+    const targets = Array.from({ length: targetCount }, (_, index) => ({
+      ...target(1_000 + caseIndex * 10 + index),
+      measurementParticipantUserIds: [caseUsers[Math.floor(random() * userCount)].id],
+      reportWriterUserId: caseUsers[Math.floor(random() * userCount)].id,
+    }));
+    const evidence = targets.flatMap((left, index) => targets.slice(index + 1).map((right) => ({
+      fromTargetId: left.targetId, fromMeasurementDate: left.measurementDate,
+      toTargetId: right.targetId, toMeasurementDate: right.measurementDate,
+      source: "vehicle" as const, durationMinutes: 3 + Math.floor(random() * 50), allowed: true,
+    })));
+    const expected = exactMeasurementAssignmentReference({ targets, users: caseUsers, evidence });
+    const actual = assignMeasurementAssignees({ targets, users: caseUsers, routeEvidence: evidence,
+      requireRouteForSecond: true, allowThirdWithApproval: false });
+    assert.ok(expected, `seeded case ${caseIndex} reference complete`);
+    assert.deepEqual(actual.map((item) => item.userId), expected.ids, `seeded case ${caseIndex}`);
+  }
+});
+
 test("9개 clean sample은 실제 upstream 주소·참여자·보고서 담당자만 사용한다", () => {
-  const upstream = [
-    ["H0011", "주식회사 정일모터스", "대전광역시 대덕구 대화로32번길 217 (대화동)", 1, 6],
-    ["H0012", "안전자동차정비공업사", "대전광역시 대덕구 대화로32번길 223 (대화동)", 1, 6],
-    ["H0047", "카신모터스(CARSIN MOTORS)", "대전광역시 대덕구 아리랑로55번길 7 (읍내동)", 6, 6],
-    ["H0131", "태성공업사", "대전광역시 대덕구 아리랑로 69 (읍내동)", 3, 6],
-    ["H0081", "(주)제이엘모터스", "대전광역시 서구 둔산남로 50 (탄방동)", 4, 5],
-    ["H0082", "주식회사 다올기업", "대전광역시 유성구 원계산로 238-33 (계산동)", 2, 5],
-    ["H0084", "케이에스모터스 서비스센터", "대전광역시 유성구 대학로76번길 99 (궁동)", 5, 5],
-    ["H0085", "오토월드자동차공업사", "대전광역시 유성구 유성대로 486 (복용동)", 4, 5],
-    ["H0094", "명원기업", "대전광역시 유성구 학하북로 65 (학하동)", 2, 5],
-  ] as const;
-  const targets = upstream.map(([businessCode, _name, address, participant, writer], index) => ({
-    ...target(index + 1, address, "2026-08-21"), businessCode,
-    measurementParticipantUserIds: [participant as number], reportWriterUserId: writer as number,
+  const rawUpstream = readFileSync(new URL("./fixtures/preliminary-survey-2026-08-21-clean-upstream.json", import.meta.url), "utf8");
+  const upstream = JSON.parse(rawUpstream) as { sourceDate: string; users: MeasurementAssigneeUser[]; targets: Array<{
+    targetId: number; businessCode: string; businessName: string; address: string;
+    coordinate: { latitude: number; longitude: number }; measurementParticipantUserIds: number[]; reportWriterUserId: number;
+  }> };
+  const matrix = JSON.parse(readFileSync(new URL("./fixtures/preliminary-survey-2026-08-21-route-matrix.json", import.meta.url), "utf8")) as {
+    provider: string; capturedAt: string; directionalCalls: number;
+    pairs: Array<{ left: string; right: string; effectiveMinutes: number; allowed: boolean }>;
+  };
+  const targetIdByCode = new Map(upstream.targets.map((item) => [item.businessCode, item.targetId]));
+  const targets = upstream.targets.map((item) => ({ ...item, measurementDate: upstream.sourceDate }));
+  const routeEvidence = matrix.pairs.map((pair) => ({
+    fromTargetId: targetIdByCode.get(pair.left)!, fromMeasurementDate: upstream.sourceDate,
+    toTargetId: targetIdByCode.get(pair.right)!, toMeasurementDate: upstream.sourceDate,
+    source: "vehicle" as const, durationMinutes: pair.effectiveMinutes, allowed: pair.allowed,
   }));
-  const routeEvidence = upstream.flatMap((_, i) => upstream.slice(i + 1).map((__, j) => ({
-    fromTargetId: i + 1, fromMeasurementDate: "2026-08-21", toTargetId: i + j + 2,
-    toMeasurementDate: "2026-08-21", source: "vehicle" as const,
-    durationMinutes: i === 0 && j === 0 ? 5 : i === 1 && j === 0 ? 18 : 35, allowed: true,
-  })));
-  const input = { targets, users, requireRouteForSecond: true, routeEvidence };
+  const input = { targets, users: upstream.users, requireRouteForSecond: true, allowThirdWithApproval: false, routeEvidence };
   const result = assignMeasurementAssignees(input);
   assert.equal(result.length, 9);
   assert.equal(result.every((item) => item.dailyCount <= 2), true);
   assert.equal(result.filter((item) => targets.find((target) => target.targetId === item.targetId)?.measurementParticipantUserIds?.includes(item.userId)).length, 9);
   assert.equal(targets.some((item) => item.address.startsWith("주소 ")), false);
+  assert.equal(matrix.provider, "kakao-mobility-directions-v1");
+  assert.equal(matrix.pairs.length, 36);
+  assert.equal(matrix.directionalCalls, 72);
+  assert.ok(new Set(matrix.pairs.map((pair) => pair.effectiveMinutes)).size > 3,
+    "실제 route matrix를 임의의 동일/3단계 synthetic 시간으로 대체하지 않는다");
+  assert.equal(/fixedAssignments|measurementAssignments|preliminarySurveyor|publicSample/i.test(rawUpstream), false,
+    "clean upstream fixture에는 과거 공시료·예비조사 downstream을 넣지 않는다");
+  assert.deepEqual(result.map((item) => item.userId), exactMeasurementAssignmentReference({
+    targets, users: upstream.users, evidence: routeEvidence,
+  })?.ids);
   assert.deepEqual(result.map((item) => [item.targetId, item.userId]), assignMeasurementAssignees({ ...input, targets: [...targets].reverse() }).map((item) => [item.targetId, item.userId]));
 });

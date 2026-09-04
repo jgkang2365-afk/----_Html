@@ -226,7 +226,7 @@ test("첫 Route 후보가 60분 초과여도 다음 측정자 후보를 찾아 �
     coordinate: { latitude: 36.3 + index / 100, longitude: 127.3 + index / 100 },
     fixedAssignments: [],
   }));
-  const durations = [65, 65, 25, 25, 65, 65, 65, 65, 65, 65, 65, 65];
+  const durations = [65, 65, ...Array.from({ length: 40 }, () => 25)];
   let calls = 0;
   const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
     concurrency: 1,
@@ -239,9 +239,33 @@ test("첫 Route 후보가 60분 초과여도 다음 측정자 후보를 찾아 �
     },
   });
   const finalTarget = resolved.snapshot.targets.find((item) => item.id === 16)!;
-  assert.equal(calls, 12);
+  assert.equal(calls, 42);
+  assert.ok(resolved.routeEvidence.some((item) => item.leftTargetId === 10 && item.rightTargetId === 11),
+    "route-free 미배정 target과 무관한 기존 target pair도 global 후보로 조회한다");
   assert.equal(finalTarget.fixedAssignments[0]?.origin, "automatic");
   assert.equal(finalTarget.automaticAssignmentIssue, undefined);
+});
+
+test("9개 global batch의 36개 잠재 pair는 기본 route budget 20을 넘어도 전부 조회한다", async () => {
+  const targets = Array.from({ length: 9 }, (_, index) => target({
+    id: 200 + index,
+    code: `QA${200 + index}`,
+    address: `서로 다른 global 주소 ${index}`,
+    coordinate: { latitude: 36.2 + index / 100, longitude: 127.2 + index / 100 },
+    fixedAssignments: [],
+  }));
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+    concurrency: 4,
+    routes: { async between() {
+      calls += 1;
+      return { source: "vehicle", durationMinutes: 25, distanceKm: 4, sameRegion: true };
+    } },
+  });
+  assert.equal(resolved.requiredPairs, 36);
+  assert.equal(calls, 72);
+  assert.equal(resolved.routeEvidence.filter((item) =>
+    item.routeReason === "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT").length, 36);
 });
 
 test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline 안에 확인 필요로 반환한다", async () => {

@@ -217,12 +217,13 @@ export function assignMeasurementAssignees(input: {
     const availableUsers = users.filter((user) => !input.availability?.isBlocked(user.id, measurementDate));
     if (!availableUsers.length) continue;
     const initialCounts = new Map(availableUsers.map((user) => [user.id, dateExisting.filter((item) => item.userId === user.id).length]));
-    type SearchState = { ids: number[]; current: ExistingMeasurementAssignment[]; participant: number; report: number; route: number };
+    type SearchState = { ids: Array<number | null>; counts: number[]; assignedCount: number;
+      current: ExistingMeasurementAssignment[]; participant: number; report: number; route: number };
     const routeInfo = (target: MeasurementAssignmentTarget, userId: number, current: ExistingMeasurementAssignment[]) => {
       const sameUser = current.filter((item) => item.userId === userId);
-      if (!sameUser.length) return { allowed: true, minutes: 0, exact: false };
+      if (!sameUser.length) return { allowed: true, minutes: 0, exact: false, vehicle: false };
       const exact = sameUser.some((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address));
-      if (exact) return { allowed: true, minutes: 0, exact: true };
+      if (exact) return { allowed: true, minutes: 0, exact: true, vehicle: false };
       const minutes = Math.min(...sameUser.map((item) => routeMinutes(target, item, evidence)), Number.POSITIVE_INFINITY);
       return {
         allowed: !input.requireRouteForSecond || Number.isFinite(minutes),
@@ -230,11 +231,74 @@ export function assignMeasurementAssignees(input: {
         // 실제 route보다 항상 불리하게 평가하여 불필요한 중복을 억제한다.
         minutes: Number.isFinite(minutes) ? minutes : 1_000_000,
         exact: false,
+        vehicle: Number.isFinite(minutes),
       };
     };
+    const maxAutomaticCount = input.requireRouteForSecond && input.allowThirdWithApproval === false ? 2 : 3;
+    const remainingMatchUpperBound = (startIndex: number, state: SearchState, kind: "participant" | "report") => {
+      const slots = availableUsers.flatMap((user, userIndex) =>
+        Array.from({ length: Math.max(0, maxAutomaticCount - state.counts[userIndex]) }, (_, slotIndex) => ({
+          userId: user.id, key: `${user.id}|${slotIndex}`,
+        })));
+      const occupiedBySlot = new Map<string, number>();
+      const tryMatch = (targetIndex: number, seen: Set<string>): boolean => {
+        const target = dateTargets[targetIndex];
+        for (const slot of slots) {
+          const matches = kind === "participant"
+            ? (target.measurementParticipantUserIds?.includes(slot.userId) ?? false)
+            : target.reportWriterUserId === slot.userId;
+          if (!matches || seen.has(slot.key)) continue;
+          seen.add(slot.key);
+          const priorTargetIndex = occupiedBySlot.get(slot.key);
+          if (priorTargetIndex == null || tryMatch(priorTargetIndex, seen)) {
+            occupiedBySlot.set(slot.key, targetIndex);
+            return true;
+          }
+        }
+        return false;
+      };
+      let matched = 0;
+      for (let targetIndex = startIndex; targetIndex < dateTargets.length; targetIndex += 1) {
+        if (tryMatch(targetIndex, new Set())) matched += 1;
+      }
+      return matched;
+    };
     const stateRank = (state: SearchState) => {
-      const counts = [...initialCounts.entries()].map(([id, count]) => count + state.ids.filter((value) => value === id).length);
-      return { maxCount: Math.max(...counts, 0), duplicateUsers: counts.filter((count) => count > 1).length };
+      const counts = state.counts;
+      const total = counts.reduce((sum, count) => sum + count, 0);
+      return { maxCount: Math.max(...counts, 0), variance: counts.reduce((sum, count) => sum + Math.abs(count * counts.length - total), 0),
+        duplicateUsers: counts.filter((count) => count > 1).length };
+    };
+    const duplicateRouteFloor = (() => {
+      const allTargets = [...dateTargets, ...dateExisting];
+      if (allTargets.some((left, index) => allTargets.slice(index + 1).some((right) =>
+        normalizedAddress(left.address) && normalizedAddress(left.address) === normalizedAddress(right.address)))) return 0;
+      return Math.min(...evidence.filter((item) => item.allowed && item.source === "vehicle"
+        && item.durationMinutes != null && item.fromMeasurementDate === measurementDate
+        && item.toMeasurementDate === measurementDate).map((item) => item.durationMinutes as number), Number.POSITIVE_INFINITY);
+    })();
+    const optimisticRank = (state: SearchState, remaining: number) => {
+      const counts = state.counts;
+      const zeroCount = counts.filter((count) => count === 0).length;
+      const addedDuplicates = Math.max(0, remaining - zeroCount);
+      const route = state.route + (addedDuplicates === 0 ? 0 : addedDuplicates * duplicateRouteFloor);
+      const balanced = [...counts];
+      for (let step = 0; step < remaining; step += 1) {
+        let selected = -1;
+        for (let index = 0; index < balanced.length; index += 1) {
+          if (balanced[index] >= maxAutomaticCount) continue;
+          if (selected < 0 || balanced[index] < balanced[selected]) selected = index;
+        }
+        if (selected < 0) break;
+        balanced[selected] += 1;
+      }
+      const total = balanced.reduce((sum, count) => sum + count, 0);
+      return {
+        route,
+        maxCount: Math.max(...balanced, 0),
+        variance: balanced.reduce((sum, count) => sum + Math.abs(count * balanced.length - total), 0),
+        duplicateUsers: counts.filter((count) => count > 1).length + addedDuplicates,
+      };
     };
     const compareStates = (left: SearchState, right: SearchState) => {
       if (left.participant !== right.participant) return right.participant - left.participant;
@@ -242,11 +306,12 @@ export function assignMeasurementAssignees(input: {
       if (left.route !== right.route) return left.route - right.route;
       const leftRank = stateRank(left); const rightRank = stateRank(right);
       if (leftRank.maxCount !== rightRank.maxCount) return leftRank.maxCount - rightRank.maxCount;
+      if (leftRank.variance !== rightRank.variance) return leftRank.variance - rightRank.variance;
       if (leftRank.duplicateUsers !== rightRank.duplicateUsers) return leftRank.duplicateUsers - rightRank.duplicateUsers;
       if (left.ids.length !== right.ids.length) return right.ids.length - left.ids.length;
-      return left.ids.map((id) => id.toString().padStart(8, "0")).join("").localeCompare(right.ids.map((id) => id.toString().padStart(8, "0")).join(""));
+      return left.ids.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join("")
+        .localeCompare(right.ids.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join(""));
     };
-    const maxAutomaticCount = input.requireRouteForSecond && input.allowThirdWithApproval === false ? 2 : 3;
     let bestComplete: SearchState | null = null;
     let bestPartial: SearchState | null = null;
     const remainingParticipant = new Array(dateTargets.length + 1).fill(0);
@@ -259,18 +324,49 @@ export function assignMeasurementAssignees(input: {
         + Math.max(...availableUsers.map((user) => reportMatch(item, user.id)), 0);
     }
     const visit = (index: number, state: SearchState) => {
-      if (!bestPartial || state.ids.length > bestPartial.ids.length
-        || (state.ids.length === bestPartial.ids.length && compareStates(state, bestPartial) < 0)) bestPartial = state;
+      const assignedCount = state.assignedCount;
+      const bestPartialCount = bestPartial?.assignedCount ?? -1;
+      if (!bestPartial || assignedCount > bestPartialCount
+        || (assignedCount === bestPartialCount && compareStates(state, bestPartial) < 0)) bestPartial = state;
       if (index === dateTargets.length) {
-        if (!bestComplete || compareStates(state, bestComplete) < 0) bestComplete = state;
+        if (assignedCount === dateTargets.length && (!bestComplete || compareStates(state, bestComplete) < 0)) bestComplete = state;
         return;
       }
+      const assignableUpperBound = assignedCount + dateTargets.length - index;
+      if (assignableUpperBound < bestPartialCount) return;
+      if (!bestComplete && bestPartial && assignableUpperBound === bestPartialCount) {
+        const participantUpperBound = state.participant + remainingMatchUpperBound(index, state, "participant");
+        const reportUpperBound = state.report + remainingMatchUpperBound(index, state, "report");
+        if (participantUpperBound < bestPartial.participant) return;
+        if (participantUpperBound === bestPartial.participant && reportUpperBound < bestPartial.report) return;
+        if (participantUpperBound === bestPartial.participant && reportUpperBound === bestPartial.report
+          && state.route > bestPartial.route) return;
+      }
       if (bestComplete) {
-        if (state.participant + remainingParticipant[index] < bestComplete.participant) return;
-        if (state.participant + remainingParticipant[index] === bestComplete.participant
-          && state.report + remainingReport[index] < bestComplete.report) return;
-        if (state.participant === bestComplete.participant && state.report === bestComplete.report
-          && state.route > bestComplete.route) return;
+        const participantUpperBound = state.participant + remainingMatchUpperBound(index, state, "participant");
+        const reportUpperBound = state.report + remainingMatchUpperBound(index, state, "report");
+        if (participantUpperBound < bestComplete.participant) return;
+        if (participantUpperBound === bestComplete.participant
+          && reportUpperBound < bestComplete.report) return;
+        // route는 이후 단계에서 감소하지 않는다. 상위 objective의 이론상 최대가
+        // 현재 best와 같을 때에만 누적 route lower bound로 안전하게 가지치기한다.
+        if (participantUpperBound === bestComplete.participant && reportUpperBound === bestComplete.report) {
+          const lower = optimisticRank(state, dateTargets.length - index);
+          const bestRank = stateRank(bestComplete);
+          if (lower.route > bestComplete.route) return;
+          if (lower.route === bestComplete.route && lower.maxCount > bestRank.maxCount) return;
+          if (lower.route === bestComplete.route && lower.maxCount === bestRank.maxCount
+            && lower.variance > bestRank.variance) return;
+          if (lower.route === bestComplete.route && lower.maxCount === bestRank.maxCount
+            && lower.variance === bestRank.variance && lower.duplicateUsers > bestRank.duplicateUsers) return;
+          if (lower.route === bestComplete.route && lower.maxCount === bestRank.maxCount
+            && lower.variance === bestRank.variance && lower.duplicateUsers === bestRank.duplicateUsers) {
+            const bestPrefix = bestComplete.ids.slice(0, state.ids.length);
+            const prefix = state.ids.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join("");
+            const bestKey = bestPrefix.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join("");
+            if (prefix.localeCompare(bestKey) > 0) return;
+          }
+        }
       }
       const target = dateTargets[index];
       const candidates = availableUsers.map((user) => ({
@@ -283,20 +379,28 @@ export function assignMeasurementAssignees(input: {
           || left.route.minutes - right.route.minutes || left.user.id - right.user.id);
       for (const candidate of candidates) {
         const user = candidate.user;
-        const priorCount = initialCounts.get(user.id)! + state.ids.filter((id) => id === user.id).length;
+        const userIndex = availableUsers.findIndex((item) => item.id === user.id);
+        const priorCount = state.counts[userIndex];
         if (priorCount >= maxAutomaticCount) continue;
         if (input.requireRouteForSecond && input.allowThirdWithApproval === false && priorCount >= 2) continue;
         const routeData = candidate.route;
+        const counts = [...state.counts];
+        counts[userIndex] += 1;
         visit(index + 1, {
           ids: [...state.ids, user.id],
+          counts,
+          assignedCount: state.assignedCount + 1,
           current: [...state.current, { ...target, userId: user.id }],
           participant: state.participant + participantMatch(target, user.id),
           report: state.report + reportMatch(target, user.id),
           route: state.route + routeData.minutes,
         });
       }
+      // 완전해가 없을 때만 이 target을 unresolved로 남기고 뒤 target을 계속 탐색한다.
+      if (!bestComplete) visit(index + 1, { ...state, ids: [...state.ids, null] });
     };
-    const initialState: SearchState = { ids: [], current: dateExisting, participant: 0, report: 0, route: 0 };
+    const initialState: SearchState = { ids: [], counts: availableUsers.map((user) => initialCounts.get(user.id) ?? 0),
+      assignedCount: 0, current: dateExisting, participant: 0, report: 0, route: 0 };
     if (input.requireRouteForSecond === true && dateTargets.length <= 9) {
       // Reverse Planner의 정상 업무량(최대 9건)은 완전 열거하여 global optimum을 보장한다.
       visit(0, initialState);
@@ -307,19 +411,33 @@ export function assignMeasurementAssignees(input: {
         const expanded: SearchState[] = [];
         for (const state of states) {
           for (const user of availableUsers) {
-            const priorCount = initialCounts.get(user.id)! + state.ids.filter((id) => id === user.id).length;
+            const userIndex = availableUsers.findIndex((item) => item.id === user.id);
+            const priorCount = state.counts[userIndex];
             if (priorCount >= maxAutomaticCount) continue;
             const routeData = routeInfo(target, user.id, state.current);
             if (!routeData.allowed) continue;
-            expanded.push({ ids: [...state.ids, user.id], current: [...state.current, { ...target, userId: user.id }],
+            const counts = [...state.counts];
+            counts[userIndex] += 1;
+            expanded.push({ ids: [...state.ids, user.id], counts, assignedCount: state.assignedCount + 1,
+              current: [...state.current, { ...target, userId: user.id }],
               participant: state.participant + participantMatch(target, user.id), report: state.report + reportMatch(target, user.id), route: state.route + routeData.minutes });
           }
         }
+        if (!expanded.length) {
+          bestPartial = states.reduce<SearchState | null>((best, state) => !best || compareStates(state, best) < 0 ? state : best, null);
+          states = [];
+          break;
+        }
         states = expanded.sort(compareStates).slice(0, 256);
-        if (!states.length) break;
       }
-      bestComplete = states.find((state) => state.ids.length === dateTargets.length) ?? null;
-      bestPartial = states.sort((left, right) => left.ids.length === right.ids.length ? compareStates(left, right) : right.ids.length - left.ids.length)[0] ?? null;
+      bestComplete = states
+        .filter((state) => state.ids.length === dateTargets.length && state.ids.every((id) => id != null))
+        .reduce<SearchState | null>((best, state) => !best || compareStates(state, best) < 0 ? state : best, null);
+      bestPartial = states.length ? states.sort((left, right) => {
+        const leftCount = left.assignedCount;
+        const rightCount = right.assignedCount;
+        return leftCount === rightCount ? compareStates(left, right) : rightCount - leftCount;
+      })[0] ?? null : bestPartial;
     }
     const best = bestComplete;
     if (!best) {
@@ -328,30 +446,41 @@ export function assignMeasurementAssignees(input: {
         throw new MeasurementAssignmentDailyLimitError(dateTargets[0]?.targetId ?? 0, measurementDate, availableUsers[0].id);
       }
       if (input.requireRouteForSecond) {
-        const partial = bestPartial ?? { ids: [], current: dateExisting, participant: 0, report: 0, route: 0 };
+        const partial = bestPartial ?? { ids: [], counts: initialState.counts, assignedCount: 0,
+          current: dateExisting, participant: 0, report: 0, route: 0 };
+        const partialCounts = new Map(initialCounts);
         partial.ids.forEach((userId, index) => {
+          if (userId == null) return;
           const target = dateTargets[index];
           const user = availableUsers.find((candidate) => candidate.id === userId);
           if (!user) return;
+          const route = routeInfo(target, user.id, assigned.filter((item) => item.measurementDate === measurementDate));
+          const dailyCount = (partialCounts.get(user.id) ?? 0) + 1;
+          const reason: MeasurementAssignmentResult["reason"] = dailyCount >= 3 ? "3건 승인 필요"
+            : route.exact ? "동일주소 묶음" : dailyCount > 1 && route.vehicle ? "근거리 묶음"
+              : dailyCount > 1 ? "2건 배정" : "측정자 균등배정";
           assigned.push({ ...target, userId: user.id });
+          partialCounts.set(user.id, dailyCount);
           results.push({ targetId: target.targetId, measurementDate, userId: user.id, userName: user.name,
-            publicSampleCode: user.surveyCode, dailyCount: 1, approvalRequired: false, reason: "측정자 균등배정" });
+            publicSampleCode: user.surveyCode, dailyCount, approvalRequired: dailyCount >= 3, reason });
         });
       }
       continue;
     }
     const outputCounts = new Map(initialCounts);
     dateTargets.forEach((target, index) => {
-      const user = availableUsers.find((candidate) => candidate.id === best!.ids[index]);
+      const assignedUserId = best!.ids[index];
+      if (assignedUserId == null) return;
+      const user = availableUsers.find((candidate) => candidate.id === assignedUserId);
       if (!user) return;
       const sameDate = assigned.filter((item) => item.measurementDate === measurementDate);
       const nextCount = (outputCounts.get(user.id) ?? 0) + 1;
-      const route = routeInfo(target, user.id, [...sameDate, ...dateTargets.slice(0, index).map((item, priorIndex) => ({ ...item, userId: best!.ids[priorIndex] }))]);
+      const route = routeInfo(target, user.id, sameDate);
       const reason: MeasurementAssignmentResult["reason"] = nextCount >= 3
         ? "3건 승인 필요"
         : route.exact
           ? "동일주소 묶음"
-          : nextCount > 1 && Number.isFinite(route.minutes)
+          : nextCount > 1 && route.vehicle
             ? "근거리 묶음"
             : nextCount > 1 ? "2건 배정" : "측정자 균등배정";
       assigned.push({ ...target, userId: user.id });
