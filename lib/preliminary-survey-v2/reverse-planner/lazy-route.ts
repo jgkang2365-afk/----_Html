@@ -130,7 +130,7 @@ async function settleBeforeDeadline<T>(
   });
 }
 
-/** Preview 전용: route-free solve 뒤 실제 shared-person pair만 양방향 조회해 evidence를 동결한다. */
+/** Preview 전용: 실제 shared-person 후보 pair만 필요한 단방향으로 조회해 evidence를 동결한다. */
 export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, options: LazyRouteOptions = {}) {
   const routes = options.routes ?? createRouteMetrics();
   const locations = locationIndex(snapshot);
