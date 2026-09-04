@@ -321,6 +321,19 @@ test("다일 대상은 같은 targetId라도 measurementDate별 결과를 각각
   assert.deepEqual(result.map((item) => item.publicSampleCode), ["A", "A"]);
 });
 
+test("reference solver도 날짜가 바뀌면 1차 순환 count를 독립적으로 초기화한다", () => {
+  const targets = [
+    { ...target(1, "첫째날-1", "2026-08-25"), measurementParticipantUserIds: [1] },
+    { ...target(2, "첫째날-2", "2026-08-25"), measurementParticipantUserIds: [1] },
+    { ...target(1, "둘째날-1", "2026-08-26"), measurementParticipantUserIds: [1] },
+    { ...target(2, "둘째날-2", "2026-08-26"), measurementParticipantUserIds: [1] },
+  ];
+  const result = assignMeasurementAssignees({ targets, users, requireRouteForSecond: true });
+  const reference = exactMeasurementAssignmentReference({ targets, users });
+  assert.deepEqual(result.map((item) => item.userId), reference?.ids);
+  assert.deepEqual(reference?.ids.slice(0, 2), reference?.ids.slice(2));
+});
+
 test("Reverse Planner 자동모드에서는 3번째 공시료 자동배정을 만들지 않는다", () => {
   const result = assignMeasurementAssignees({
     targets: [target(20)], users: users.slice(0, 1), requireRouteForSecond: true, allowThirdWithApproval: false,

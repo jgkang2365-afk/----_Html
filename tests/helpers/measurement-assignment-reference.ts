@@ -18,6 +18,30 @@ export function exactMeasurementAssignmentReference(input: {
   blocked?: (userId: number, date: string) => boolean;
 }): ReferenceResult | null {
   const targets = [...input.targets].sort((a, b) => a.measurementDate.localeCompare(b.measurementDate) || a.targetId - b.targetId);
+  const dates = [...new Set(targets.map((target) => target.measurementDate))];
+  if (dates.length > 1) {
+    const results = dates.map((measurementDate) => exactMeasurementAssignmentReference({
+      ...input,
+      targets: targets.filter((target) => target.measurementDate === measurementDate),
+      existing: (input.existing ?? []).filter((item) => item.measurementDate === measurementDate),
+      evidence: (input.evidence ?? []).filter((item) => item.fromMeasurementDate === measurementDate
+        && item.toMeasurementDate === measurementDate),
+    }));
+    if (results.some((result) => result == null)) return null;
+    const solved = results as ReferenceResult[];
+    return {
+      ids: solved.flatMap((result) => result.ids),
+      objective: [
+        solved.reduce((sum, result) => sum + result.objective[0], 0),
+        solved.reduce((sum, result) => sum + result.objective[1], 0),
+        solved.reduce((sum, result) => sum + result.objective[2], 0),
+        Math.max(...solved.map((result) => result.objective[3]), 0),
+        solved.reduce((sum, result) => sum + result.objective[4], 0),
+        solved.reduce((sum, result) => sum + result.objective[5], 0),
+        solved.map((result) => result.objective[6]).join(""),
+      ],
+    };
+  }
   const users = input.users.filter((user) => user.active !== false && user.surveyCode != null)
     .sort((a, b) => String(a.surveyCode).localeCompare(String(b.surveyCode)) || a.id - b.id);
   let best: ReferenceResult | null = null;
