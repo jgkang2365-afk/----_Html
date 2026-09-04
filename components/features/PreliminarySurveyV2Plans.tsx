@@ -18,6 +18,7 @@ import {
   collectWorkbenchRecommendationTargetIds,
   matchesMeasurementDateRange,
   matchesWorkbenchSearch,
+  measurementDatesInRange,
 } from "@/lib/preliminary-survey-v2/workbench-search";
 import type {
   CanonicalMeasurementAssignmentDraft,
@@ -46,6 +47,14 @@ interface ConfirmedRepairDraft {
   businessName: string;
 }
 
+interface WorkbenchMeasurementDay {
+  date: string;
+  mainMeasurer: string;
+  mainMeasurerSource?: string;
+  measurementParticipants: string;
+  reportWriter: string;
+}
+
 interface WorkbenchRow {
   targetId: number;
   code: string;
@@ -53,6 +62,8 @@ interface WorkbenchRow {
   address?: string | null;
   kind: string;
   measurementDate: string | null;
+  measurementDates?: string[];
+  measurementDays?: WorkbenchMeasurementDay[];
   preliminaryDate: string | null;
   surveyors: string[];
   participantUserIds?: number[];
@@ -346,7 +357,11 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     (!activeStatusFilter || row.status === activeStatusFilter) &&
     (!activeKindFilter || row.kind === activeKindFilter) &&
     (!activePreliminaryDateFilter || row.preliminaryDate === activePreliminaryDateFilter) &&
-    matchesMeasurementDateRange(row.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo) &&
+    matchesMeasurementDateRange(
+      mode === "list" && row.measurementDates?.length ? row.measurementDates : row.measurementDate,
+      activeMeasurementDateFrom,
+      activeMeasurementDateTo,
+    ) &&
     (!activeMethodFilter || row.surveyMethod === activeMethodFilter),
   ), [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, rows]);
 
@@ -354,6 +369,36 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     () => filteredRows.filter((row) => matchesWorkbenchSearch(row, activeSearchQuery)),
     [activeSearchQuery, filteredRows],
   );
+
+  const visibleMeasurementDays = useCallback((row: WorkbenchRow): WorkbenchMeasurementDay[] => {
+    if (mode !== "list") return [];
+    const dates = measurementDatesInRange(
+      row.measurementDates,
+      row.measurementDate,
+      activeMeasurementDateFrom,
+      activeMeasurementDateTo,
+    );
+    const dayByDate = new Map((row.measurementDays ?? []).map((day) => [day.date, day] as const));
+    return dates.map((date) => dayByDate.get(date) ?? {
+      date,
+      mainMeasurer: row.mainMeasurer ?? "-",
+      measurementParticipants: row.measurementParticipants ?? "-",
+      reportWriter: row.reportWriter ?? "-",
+    });
+  }, [activeMeasurementDateFrom, activeMeasurementDateTo, mode]);
+
+  const measurementDateText = useCallback((row: WorkbenchRow) => {
+    if (mode !== "list") return row.measurementDate || "-";
+    return visibleMeasurementDays(row).map((day) => day.date).join(" · ") || "-";
+  }, [mode, visibleMeasurementDays]);
+
+  const measurementDayText = useCallback((
+    row: WorkbenchRow,
+    field: "mainMeasurer" | "measurementParticipants" | "reportWriter",
+  ) => {
+    if (mode !== "list") return row[field] || "-";
+    return visibleMeasurementDays(row).map((day) => day[field] || "-").join(" · ") || "-";
+  }, [mode, visibleMeasurementDays]);
 
   const currentScope = useMemo(() => JSON.stringify({
     year: queryYear, period: queryPeriod,
@@ -768,13 +813,13 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               {displayRows.map((row) => (
                 <tr key={row.targetId} onClick={() => openDetail(row)} className="cursor-pointer hover:bg-primary-50/40">
                   <td className="px-2 py-2"><div className="font-semibold text-text-900">{row.code}</div><div className="truncate text-text-700" title={row.businessName}>{row.businessName}</div></td>
-                  <td className="px-2 py-2 whitespace-nowrap">{row.measurementDate || "-"}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{measurementDateText(row)}</td>
                   <td className="bg-primary-50/40 px-2 py-2 text-base font-bold text-primary-900 whitespace-nowrap">{row.preliminaryDate || "-"}</td>
                   <td className="truncate bg-primary-50/40 px-2 py-2 text-base font-bold text-primary-900" title={displaySurveyors(row.surveyors)}>{displaySurveyors(row.surveyors)}</td>
                   <td className="px-2 py-2">{row.surveyMethod === "field" ? "방문" : "유선"}</td>
-                  <td className="truncate px-2 py-2">{row.mainMeasurer || "-"}</td>
-                  <td className="truncate px-2 py-2" title={row.measurementParticipants || ""}>{row.measurementParticipants || "-"}</td>
-                  <td className="truncate px-2 py-2">{row.reportWriter || "-"}</td>
+                  <td className="truncate px-2 py-2">{measurementDayText(row, "mainMeasurer")}</td>
+                  <td className="truncate px-2 py-2" title={measurementDayText(row, "measurementParticipants")}>{measurementDayText(row, "measurementParticipants")}</td>
+                  <td className="truncate px-2 py-2">{measurementDayText(row, "reportWriter")}</td>
                   <td className="px-2 py-2"><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${STATUS_STYLES[row.status]}`}>{STATUS_LABELS[row.status]}</span></td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.kind}</td>
                   <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
@@ -806,14 +851,14 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           <div className="break-words text-sm text-text-700">업체명 : <strong className="text-text-900">{selected.businessName}</strong></div>
           <div className="grid grid-cols-2 gap-3 rounded-lg bg-surface-50 p-3 text-sm">
             <div>상태: <strong>{STATUS_LABELS[selected.status]}</strong></div><div>구분: <strong>{selected.kind}</strong></div>
-            <div>측정예정일: <strong>{selected.measurementDate || "-"}</strong></div><div>충돌: <strong>{selected.conflicts?.join(" · ") || selected.conflict || "없음"}</strong></div>
+            <div>측정예정일: <strong>{measurementDateText(selected)}</strong></div><div>충돌: <strong>{selected.conflicts?.join(" · ") || selected.conflict || "없음"}</strong></div>
           </div>
           {selected.reason && <Alert variant="warning">{selected.reason}</Alert>}
           {selected.recommendationReasons && selected.recommendationReasons.length > 0 && <div className="flex flex-wrap gap-2">{selected.recommendationReasons.map((reason) => <span key={reason} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{reason}</span>)}</div>}
           <div className="grid grid-cols-3 gap-3 rounded-lg border border-surface-200 p-3 text-sm">
-            <div>측정자(공시료): <strong>{selected.mainMeasurer || "-"}</strong></div>
-            <div>측정 참여자: <strong>{selected.measurementParticipants || "-"}</strong></div>
-            <div>보고서 담당자: <strong>{selected.reportWriter || "-"}</strong></div>
+            <div>측정자(공시료): <strong>{measurementDayText(selected, "mainMeasurer")}</strong></div>
+            <div>측정 참여자: <strong>{measurementDayText(selected, "measurementParticipants")}</strong></div>
+            <div>보고서 담당자: <strong>{measurementDayText(selected, "reportWriter")}</strong></div>
           </div>
           {selected.alternatives && selected.alternatives.length > 0 && <div className="rounded-lg border border-surface-200 p-3 text-sm"><strong>대안 후보일</strong><div className="mt-1">{selected.alternatives.join(" · ")}</div></div>}
           <div className="grid grid-cols-1 gap-3 rounded-lg border border-surface-200 p-3 text-sm md:grid-cols-3">

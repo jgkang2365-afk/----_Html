@@ -271,7 +271,8 @@ test("목록 검색은 조사자 필터 없이 독립 snapshot과 기준일 범�
     assert.match(ui, new RegExp(`${field}[,:]`));
   }
   assert.match(ui, /onClick=\{commitSearch\}>검색<\/Button>/);
-  assert.match(ui, /matchesMeasurementDateRange\(row\.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo\)/);
+  assert.match(ui, /mode === "list" && row\.measurementDates\?\.length/);
+  assert.match(ui, /: row\.measurementDate,/);
   assert.match(ui, /!activePreliminaryDateFilter \|\| row\.preliminaryDate === activePreliminaryDateFilter/);
   assert.match(ui, /matchesWorkbenchSearch\(row, activeSearchQuery\)/);
 });
@@ -287,7 +288,8 @@ test("계획 검색은 기준일 snapshot을 확정한 뒤 화면 결과와 같�
   assert.match(ui, /collectWorkbenchRecommendationTargetIds\(displayRows, selectedTargetIds\)/);
   assert.doesNotMatch(ui, /filteredRows\.filter\(\(row\) => selectedTargetIds/);
   assert.match(ui, /action: "recommend", year: queryYear, period: queryPeriod/);
-  assert.match(ui, /matchesMeasurementDateRange\(row\.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo\)/);
+  assert.match(ui, /mode === "list" && row\.measurementDates\?\.length/);
+  assert.match(ui, /: row\.measurementDate,/);
   assert.match(ui, /measurementBaseDate !== planSearchSnapshot\.measurementBaseDate/);
   assert.match(ui, /measurementRangeUnit !== planSearchSnapshot\.measurementRangeUnit/);
   assert.match(ui, /측정예정일 범위:/);
