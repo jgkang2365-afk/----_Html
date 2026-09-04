@@ -71,9 +71,17 @@ export function exactMeasurementAssignmentReference(input: {
     const target = targets[index];
     for (const user of users) {
       if (input.blocked?.(user.id, target.measurementDate)) continue;
-      const count = (input.existing ?? []).filter((item) => item.userId === user.id && item.measurementDate === target.measurementDate).length
-        + ids.filter((id) => id === user.id).length;
+      const prior = [
+        ...(input.existing ?? []).filter((item) => item.userId === user.id && item.measurementDate === target.measurementDate),
+        ...targets.slice(0, ids.length).filter((_, priorIndex) => ids[priorIndex] === user.id),
+      ];
+      const count = prior.length;
       if (count >= 2) continue;
+      const counts = users.map((candidate) => (input.existing ?? []).filter((item) => item.userId === candidate.id
+        && item.measurementDate === target.measurementDate).length + ids.filter((id) => id === candidate.id).length);
+      const sameAddressException = prior.some((item) => address(item.address)
+        && address(item.address) === address(target.address));
+      if (count >= 1 && counts.some((value) => value === 0) && !sameAddressException) continue;
       const minutes = duplicateMinutes(target, user.id);
       if (!Number.isFinite(minutes)) continue;
       ids.push(user.id);

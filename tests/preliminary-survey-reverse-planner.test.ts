@@ -177,6 +177,29 @@ test("6개 자동 대상은 6명에게 첫 순환으로 하나씩 배정한다",
   assert.equal(new Set(automatic.map((item) => item.assigneeUserId)).size, 6);
 });
 
+test("동일주소 2건 예외는 0건 직원이 남아도 허용하고 route API를 호출하지 않는다", async () => {
+  const targets = [10, 11].map((id) => target({
+    id,
+    code: `H00${id}`,
+    address: "대전광역시 유성구 복용동로 35",
+    days: [{ date: "2026-09-16", collaboratorUserIds: [1], reportWriterUserId: 1 }],
+    fixedAssignments: [],
+  }));
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+    routes: { async between() {
+      calls += 1;
+      return { source: "vehicle", durationMinutes: 1, distanceKm: 0, sameRegion: true };
+    } },
+  });
+  const automatic = resolved.snapshot.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic");
+  assert.equal(calls, 0);
+  assert.equal(resolved.requiredPairs, 0);
+  assert.deepEqual(automatic.map((item) => item.assigneeUserId), [1, 1]);
+  assert.equal(Math.max(...users.map((user) => automatic.filter((item) => item.assigneeUserId === user.id).length)), 2);
+});
+
 test("13개 batch도 정상 12건을 보존하고 자동 3건째 대상만 확인 필요로 남긴다", () => {
   const targets = Array.from({ length: 13 }, (_, index) => {
     const assignee = users[index % users.length];
@@ -239,14 +262,15 @@ test("첫 Route 후보가 60분 초과여도 다음 측정자 후보를 찾아 �
     },
   });
   const finalTarget = resolved.snapshot.targets.find((item) => item.id === 16)!;
-  assert.equal(calls, 42);
-  assert.ok(resolved.routeEvidence.some((item) => item.leftTargetId === 10 && item.rightTargetId === 11),
-    "route-free 미배정 target과 무관한 기존 target pair도 global 후보로 조회한다");
+  assert.equal(resolved.requiredPairs, 6);
+  assert.equal(calls, 6);
+  assert.equal(resolved.routeEvidence.some((item) => item.leftTargetId === 10 && item.rightTargetId === 11), false,
+    "2번째 배정 후보가 아닌 pair를 선조회하지 않는다");
   assert.equal(finalTarget.fixedAssignments[0]?.origin, "automatic");
   assert.equal(finalTarget.automaticAssignmentIssue, undefined);
 });
 
-test("9개 global batch의 36개 잠재 pair는 기본 route budget 20을 넘어도 전부 조회한다", async () => {
+test("9개 global batch는 1차 순환 뒤 도달 가능한 18개 pair만 단방향 조회한다", async () => {
   const targets = Array.from({ length: 9 }, (_, index) => target({
     id: 200 + index,
     code: `QA${200 + index}`,
@@ -262,10 +286,10 @@ test("9개 global batch의 36개 잠재 pair는 기본 route budget 20을 넘어
       return { source: "vehicle", durationMinutes: 25, distanceKm: 4, sameRegion: true };
     } },
   });
-  assert.equal(resolved.requiredPairs, 36);
-  assert.equal(calls, 72);
+  assert.equal(resolved.requiredPairs, 18);
+  assert.equal(calls, 18);
   assert.equal(resolved.routeEvidence.filter((item) =>
-    item.routeReason === "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT").length, 36);
+    item.routeReason === "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT").length, 18);
 });
 
 test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline 안에 확인 필요로 반환한다", async () => {
@@ -300,13 +324,13 @@ test("route pair 예산을 넘으면 route-free 정상안으로 조용히 확정
   }));
   let calls = 0;
   const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
-    maxPairs: 36,
+    maxPairs: 20,
     routes: { async between() {
       calls += 1;
       return { source: "vehicle", durationMinutes: 10, distanceKm: 1, sameRegion: true };
     } },
   });
-  assert.equal(resolved.requiredPairs, 45);
+  assert.equal(resolved.requiredPairs, 24);
   assert.equal(calls, 0);
   assert.equal(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments).length, 0);
   assert.ok(resolved.snapshot.targets.every((item) =>

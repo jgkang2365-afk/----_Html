@@ -52,7 +52,7 @@ export function buildMeasurementAssignmentTargets(input: {
 
 /**
  * 직선거리는 후보 순위에 사용하지 않는다. 차량 경로를 실제로 조회해 얻은 evidence만 전달한다.
- * 방문순서가 확정되지 않았으므로 양방향이 모두 성공한 경우의 더 긴 시간을 사용한다.
+ * 호출 방향 하나에서 실제 차량 경로가 확인된 evidence만 사용한다.
  */
 export interface MeasurementVehicleRouteEvidence {
   fromTargetId: number;
@@ -129,7 +129,7 @@ function asRouteEntity(target: MeasurementAssignmentTarget): ExistingAssignment 
   };
 }
 
-/** 실제 route provider 결과를 같은 측정일의 모든 후보 쌍에 대해 수집한다. */
+/** 호출자가 좁힌 후보 집합에서 실제 route provider 결과를 수집한다. */
 export async function collectMeasurementVehicleRouteEvidence(input: {
   targets: MeasurementAssignmentTarget[];
   existing?: ExistingMeasurementAssignment[];
@@ -153,18 +153,11 @@ export async function collectMeasurementVehicleRouteEvidence(input: {
     }
   }
   return Promise.all(pairs.map(async ([left, right]) => {
-    const [forward, reverse] = await Promise.all([
-      input.routes.between(asRouteEntity(left), asRouteEntity(right)),
-      input.routes.between(asRouteEntity(right), asRouteEntity(left)),
-    ]);
+    const forward = await input.routes.between(asRouteEntity(left), asRouteEntity(right));
     const forwardMinutes = forward.source === "vehicle" && forward.durationMinutes != null
       ? Number(forward.durationMinutes) : null;
-    const reverseMinutes = reverse.source === "vehicle" && reverse.durationMinutes != null
-      ? Number(reverse.durationMinutes) : null;
-    const complete = forwardMinutes != null && reverseMinutes != null
-      && Number.isFinite(forwardMinutes) && Number.isFinite(reverseMinutes)
-      && forwardMinutes >= 0 && reverseMinutes >= 0;
-    const durationMinutes = complete ? Math.max(forwardMinutes, reverseMinutes) : null;
+    const durationMinutes = forwardMinutes != null && Number.isFinite(forwardMinutes) && forwardMinutes >= 0
+      ? forwardMinutes : null;
     return {
       fromTargetId: left.targetId,
       fromMeasurementDate: left.measurementDate,
@@ -234,7 +227,7 @@ export function assignMeasurementAssignees(input: {
         vehicle: Number.isFinite(minutes),
       };
     };
-    const maxAutomaticCount = input.requireRouteForSecond && input.allowThirdWithApproval === false ? 2 : 3;
+    const maxAutomaticCount = input.requireRouteForSecond ? 2 : 3;
     const remainingMatchUpperBound = (startIndex: number, state: SearchState, kind: "participant" | "report") => {
       const slots = availableUsers.flatMap((user, userIndex) =>
         Array.from({ length: Math.max(0, maxAutomaticCount - state.counts[userIndex]) }, (_, slotIndex) => ({
@@ -383,6 +376,10 @@ export function assignMeasurementAssignees(input: {
         const priorCount = state.counts[userIndex];
         if (priorCount >= maxAutomaticCount) continue;
         if (input.requireRouteForSecond && input.allowThirdWithApproval === false && priorCount >= 2) continue;
+        const sameAddressException = state.current.some((item) => item.userId === user.id
+          && normalizedAddress(item.address)
+          && normalizedAddress(item.address) === normalizedAddress(target.address));
+        if (priorCount >= 1 && state.counts.some((count) => count === 0) && !sameAddressException) continue;
         const routeData = candidate.route;
         const counts = [...state.counts];
         counts[userIndex] += 1;
@@ -414,6 +411,10 @@ export function assignMeasurementAssignees(input: {
             const userIndex = availableUsers.findIndex((item) => item.id === user.id);
             const priorCount = state.counts[userIndex];
             if (priorCount >= maxAutomaticCount) continue;
+            const sameAddressException = state.current.some((item) => item.userId === user.id
+              && normalizedAddress(item.address)
+              && normalizedAddress(item.address) === normalizedAddress(target.address));
+            if (priorCount >= 1 && state.counts.some((count) => count === 0) && !sameAddressException) continue;
             const routeData = routeInfo(target, user.id, state.current);
             if (!routeData.allowed) continue;
             const counts = [...state.counts];

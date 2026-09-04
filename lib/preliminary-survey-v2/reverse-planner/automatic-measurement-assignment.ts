@@ -87,7 +87,8 @@ function measurementEvidence(evidence: PlannerRouteEvidence[]): MeasurementVehic
       fromMeasurementDate: item.date,
       toTargetId: item.rightTargetId,
       toMeasurementDate: item.date,
-      source: item.sameAddress || item.provider === "vehicle_bidirectional" ? "vehicle" as const : "unknown" as const,
+      source: item.sameAddress || item.provider === "vehicle" || item.provider === "vehicle_bidirectional"
+        ? "vehicle" as const : "unknown" as const,
       durationMinutes: item.durationMinutes,
       allowed: item.sameAddress || (item.durationMinutes != null && item.durationMinutes <= 60),
     }));
@@ -218,16 +219,13 @@ async function settleBeforeDeadline<T>(promise: Promise<T>, signal: AbortSignal)
   });
 }
 
-/** Preview 전용: 두 번째 자동 측정자 후보에게 실제 필요한 pair만 양방향 조회한다. */
+/** Preview 전용: exact search에서 실제 두 번째 배정이 될 수 있는 pair만 단방향 조회한다. */
 export async function resolveAutomaticMeasurementAssignments(
   snapshot: PlanningSnapshot,
   options: AutomaticMeasurementAssignmentOptions = {},
 ) {
   const input = automaticInput(snapshot);
-  const assigned = [
-    ...input.existing,
-    ...input.explicit,
-  ];
+  const assigned = [...input.existing, ...input.explicit];
   const pairs = new Map<string, CandidatePair>();
   const activeUsers = snapshot.users.filter((item) => item.active && surveyCodes.has(item.baseCode ?? ""));
   const addPair = (left: MeasurementAssignmentTarget, right: ExistingMeasurementAssignment, userIds: number[]) => {
@@ -238,27 +236,33 @@ export async function resolveAutomaticMeasurementAssignments(
     pairs.set(key, { date: left.measurementDate, left, right,
       userIds: [...new Set([...(previous?.userIds ?? []), ...userIds])].sort((a, b) => a - b) });
   };
-  for (const [index, left] of input.missing.entries()) {
-    for (const right of input.missing.slice(index + 1)) {
-      const candidateUsers = activeUsers.filter((user) => {
-        if (snapshot.scheduleBlocks.some((block) => block.userId === user.id
-          && block.startDate <= left.measurementDate && block.endDate >= left.measurementDate)) return false;
-        return assigned.filter((item) => item.measurementDate === left.measurementDate && item.userId === user.id
-          && !input.missing.some((missing) => missing.targetId === item.targetId)).length === 0;
-      }).map((user) => user.id);
-      addPair(left, { ...right, userId: candidateUsers[0] ?? 0 }, candidateUsers);
-    }
-    for (const right of [...input.existing, ...input.explicit]) {
-      const occupied = assigned.filter((item) => item.measurementDate === left.measurementDate && item.userId === right.userId);
-      const user = activeUsers.find((item) => item.id === right.userId);
-      if (!user || occupied.length !== 1 || snapshot.scheduleBlocks.some((block) => block.userId === user.id
-        && block.startDate <= left.measurementDate && block.endDate >= left.measurementDate)) continue;
-      addPair(left, right, [right.userId]);
-    }
+  for (const date of [...new Set(input.missing.map((item) => item.measurementDate))]) {
+    const targets = input.missing.filter((item) => item.measurementDate === date)
+      .sort((left, right) => left.targetId - right.targetId);
+    const users = activeUsers.filter((user) => !snapshot.scheduleBlocks.some((block) =>
+      block.userId === user.id && block.startDate <= date && block.endDate >= date));
+    const occupancy = new Map(users.map((user) => [user.id,
+      assigned.filter((item) => item.measurementDate === date && item.userId === user.id)]));
+    const explore = (index: number) => {
+      if (index >= targets.length) return;
+      const target = targets[index];
+      for (const user of users) {
+        const prior = occupancy.get(user.id) ?? [];
+        if (prior.length >= 2) continue;
+        const sameAddress = prior.some((item) => normalizedAddress(item.address)
+          && normalizedAddress(item.address) === normalizedAddress(target.address));
+        const zeroUserRemains = users.some((candidate) => (occupancy.get(candidate.id) ?? []).length === 0);
+        if (prior.length >= 1 && zeroUserRemains && !sameAddress) continue;
+        if (prior.length === 1 && !sameAddress) addPair(target, prior[0], [user.id]);
+        occupancy.set(user.id, [...prior, { ...target, userId: user.id }]);
+        explore(index + 1);
+        occupancy.set(user.id, prior);
+      }
+    };
+    explore(0);
   }
-  // 과거 운영값(20)이 남아 있어도 9건 일일 batch의 최대 36 pair를 잘라내지 않는다.
-  const maxPairs = Math.max(DEFAULT_MAX_PAIRS, positiveInteger(options.maxPairs
-    ?? process.env.REVERSE_PLANNER_ROUTE_MAX_PAIRS, DEFAULT_MAX_PAIRS));
+  const maxPairs = positiveInteger(options.maxPairs
+    ?? process.env.REVERSE_PLANNER_ROUTE_MAX_PAIRS, DEFAULT_MAX_PAIRS);
   const evidence = [...snapshot.routeEvidence];
   const candidates = [...pairs.values()].sort((left, right) => left.date.localeCompare(right.date)
     || left.left.targetId - right.left.targetId || left.right.targetId - right.right.targetId);
@@ -319,23 +323,14 @@ export async function resolveAutomaticMeasurementAssignments(
       }
       const left = { coordinate: pair.left.coordinate ?? locationByCode.get(pair.left.businessCode ?? "") ?? null, region: null } as any;
       const right = { coordinate: pair.right.coordinate ?? locationByCode.get(pair.right.businessCode ?? "") ?? null, region: null } as any;
-      const settled = await settleBeforeDeadline(Promise.allSettled([
-        routes.between(left, right, { signal: controller.signal }),
-        routes.between(right, left, { signal: controller.signal }),
-      ]), controller.signal);
+      const settled = await settleBeforeDeadline(routes.between(left, right, { signal: controller.signal }), controller.signal);
       if (settled.timedOut) {
         evidence.push(routeEvidenceFor(pair, null, "route_deadline", null, null));
         continue;
       }
-      const [forward, reverse] = settled.value;
-      const forwardMinutes = forward.status === "fulfilled" && forward.value.source === "vehicle"
-        ? forward.value.durationMinutes : null;
-      const reverseMinutes = reverse.status === "fulfilled" && reverse.value.source === "vehicle"
-        ? reverse.value.durationMinutes : null;
-      const complete = forwardMinutes != null && reverseMinutes != null;
-      const effective = complete ? Math.max(forwardMinutes, reverseMinutes) : null;
-      evidence.push(routeEvidenceFor(pair, effective, complete ? "vehicle_bidirectional" : "incomplete_direction",
-        forwardMinutes, reverseMinutes));
+      const forwardMinutes = settled.value.source === "vehicle" ? settled.value.durationMinutes : null;
+      evidence.push(routeEvidenceFor(pair, forwardMinutes, forwardMinutes != null ? "vehicle" : "route_unavailable",
+        forwardMinutes, null));
     }
   });
   try {
