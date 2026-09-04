@@ -15,6 +15,7 @@ import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Card } from '@/components/ui/Card';
 import {
+    collectReportExplorerBusinessNames,
     getReportExplorerHealth,
     openReportExplorerResult,
     ReportExplorerClientError,
@@ -63,20 +64,6 @@ function restoreReportProcessingFilters(value: string | null) {
     } catch {
         return DEFAULT_REPORT_PROCESSING_FILTERS;
     }
-}
-
-function normalizeBusinessNames(names: string[]) {
-    const seen = new Set<string>();
-
-    return names.reduce<string[]>((normalized, name) => {
-        const trimmed = name.trim();
-        const key = trimmed.toLocaleLowerCase('ko-KR');
-        if (!trimmed || seen.has(key)) return normalized;
-
-        seen.add(key);
-        normalized.push(trimmed);
-        return normalized;
-    }, []);
 }
 
 function reportExplorerStatusLabel(status: ReportExplorerQueryResult['status']) {
@@ -452,14 +439,12 @@ export default function ReportProcessingPage() {
             return;
         }
 
-        const reportProcessingNames = selectedRecords.length > 0
-            ? selectedRecords.map((record) => record.business_name)
-            : records.map((record) => record.business_name);
-        const manualNames = manualExplorerNames.split(/[\n,]+/);
-        const businessNames = normalizeBusinessNames([
-            ...(useReportProcessingResults ? reportProcessingNames : []),
-            ...manualNames
-        ]);
+        const businessNames = collectReportExplorerBusinessNames({
+            useCurrentResults: useReportProcessingResults,
+            records,
+            selectedKeys,
+            manualInput: manualExplorerNames
+        });
 
         if (businessNames.length === 0) {
             toast.warning('현재 결과를 사용하거나 사업장명을 직접 입력해주세요.');

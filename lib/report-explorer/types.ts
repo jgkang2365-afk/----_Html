@@ -20,6 +20,13 @@ export type ReportExplorerSearchRequest = {
   businessNames: string[];
 };
 
+export type ReportExplorerBusinessRecord = {
+  code: string;
+  year: number;
+  period: string;
+  business_name: string | null | undefined;
+};
+
 export type ReportExplorerIssueKind = "disconnected" | "permission" | "root";
 
 export type ReportExplorerIssue = {
@@ -28,6 +35,9 @@ export type ReportExplorerIssue = {
 };
 
 export type ReportExplorerHealth = {
+  status: string | null;
+  version: string | null;
+  storage: Record<string, unknown> | null;
   issues: ReportExplorerIssue[];
   message: string | null;
 };

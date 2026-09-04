@@ -1,5 +1,6 @@
 import type {
   ReportExplorerHealth,
+  ReportExplorerBusinessRecord,
   ReportExplorerIssue,
   ReportExplorerIssueKind,
   ReportExplorerMatch,
@@ -8,14 +9,15 @@ import type {
   ReportExplorerSearchRequest,
 } from "@/lib/report-explorer/types";
 
-const REPORT_EXPLORER_BASE_URL = "http://127.0.0.1:17653";
+export const REPORT_EXPLORER_BASE_URL = "http://127.0.0.1:17653";
 
 type JsonObject = Record<string, unknown>;
 
 export class ReportExplorerClientError extends Error {
   constructor(
     message: string,
-    readonly issues: ReportExplorerIssue[]
+    readonly issues: ReportExplorerIssue[],
+    readonly code: string | null = null
   ) {
     super(message);
     this.name = "ReportExplorerClientError";
@@ -29,6 +31,14 @@ function isObject(value: unknown): value is JsonObject {
 function messageFromPayload(payload: unknown, fallback: string) {
   if (!isObject(payload)) return fallback;
 
+  if (
+    isObject(payload.error) &&
+    typeof payload.error.message === "string" &&
+    payload.error.message.trim()
+  ) {
+    return payload.error.message.trim();
+  }
+
   for (const key of ["error", "message", "detail"]) {
     const value = payload[key];
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -37,8 +47,15 @@ function messageFromPayload(payload: unknown, fallback: string) {
   return fallback;
 }
 
+function errorCodeFromPayload(payload: unknown) {
+  if (!isObject(payload)) return "";
+  if (isObject(payload.error) && typeof payload.error.code === "string") return payload.error.code;
+  return typeof payload.code === "string" ? payload.code : "";
+}
+
 function issueKindsFromPayload(payload: unknown, status?: number): ReportExplorerIssueKind[] {
-  const message = messageFromPayload(payload, "").toLowerCase();
+  const message =
+    `${errorCodeFromPayload(payload)} ${messageFromPayload(payload, "")}`.toLowerCase();
   const kinds = new Set<ReportExplorerIssueKind>();
 
   if (status === 401 || status === 403 || /permission|access denied|권한|접근 거부/.test(message)) {
@@ -62,6 +79,43 @@ function issueKindsFromPayload(payload: unknown, status?: number): ReportExplore
   }
 
   return [...kinds];
+}
+
+export function parseReportExplorerBusinessNames(input: string): string[] {
+  const seen = new Set<string>();
+
+  return input.split(/[\n,]+/).reduce<string[]>((names, value) => {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    const key = normalized.toLocaleLowerCase("ko-KR");
+    if (!normalized || seen.has(key)) return names;
+
+    seen.add(key);
+    names.push(normalized);
+    return names;
+  }, []);
+}
+
+export function collectReportExplorerBusinessNames({
+  useCurrentResults,
+  records,
+  selectedKeys,
+  manualInput,
+}: {
+  useCurrentResults: boolean;
+  records: ReportExplorerBusinessRecord[];
+  selectedKeys: string[];
+  manualInput: string;
+}): string[] {
+  const selectedRecords = records.filter((record) =>
+    selectedKeys.includes(`${record.code}-${record.year}-${record.period}`)
+  );
+  const currentResultNames = useCurrentResults
+    ? (selectedRecords.length > 0 ? selectedRecords : records).map(
+        (record) => record.business_name ?? ""
+      )
+    : [];
+
+  return parseReportExplorerBusinessNames([...currentResultNames, manualInput].join("\n"));
 }
 
 function issuesFromPayload(
@@ -109,7 +163,11 @@ async function request(path: string, init: RequestInit = {}) {
   if (!response.ok) {
     const fallback = `보고서 탐색기 요청이 실패했습니다. (HTTP ${response.status})`;
     const issues = issuesFromPayload(payload, fallback, response.status);
-    throw new ReportExplorerClientError(messageFromPayload(payload, fallback), issues);
+    throw new ReportExplorerClientError(
+      messageFromPayload(payload, fallback),
+      issues,
+      errorCodeFromPayload(payload) || null
+    );
   }
 
   return payload;
@@ -142,16 +200,26 @@ function asQueryResult(value: unknown): ReportExplorerQueryResult | null {
 export async function getReportExplorerHealth(signal?: AbortSignal): Promise<ReportExplorerHealth> {
   try {
     const payload = await request("/health", { signal });
+    const status = isObject(payload) && typeof payload.status === "string" ? payload.status : null;
+    const version =
+      isObject(payload) && typeof payload.version === "string" ? payload.version : null;
+    const storage = isObject(payload) && isObject(payload.storage) ? payload.storage : null;
     const message = isObject(payload) ? messageFromPayload(payload, "") || null : null;
     const issues = issuesFromPayload(
       payload,
       message || "보고서 탐색기 상태를 확인할 수 없습니다."
     );
 
-    return { issues, message };
+    return { status, version, storage, issues, message };
   } catch (error) {
     if (error instanceof ReportExplorerClientError) {
-      return { issues: error.issues, message: error.message };
+      return {
+        status: null,
+        version: null,
+        storage: null,
+        issues: error.issues,
+        message: error.message,
+      };
     }
     throw error;
   }
@@ -161,7 +229,7 @@ export async function searchReportExplorer(
   requestBody: ReportExplorerSearchRequest,
   signal?: AbortSignal
 ): Promise<ReportExplorerQueryResult[]> {
-  const payload = await request("/search", {
+  const payload = await request("/report-explorer/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(requestBody),
@@ -187,7 +255,7 @@ export async function openReportExplorerResult(
   resultId: string,
   signal?: AbortSignal
 ): Promise<void> {
-  await request("/open", {
+  await request("/report-explorer/open", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ resultId }),
