@@ -363,7 +363,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       activeMeasurementDateTo,
     ) &&
     (!activeMethodFilter || row.surveyMethod === activeMethodFilter),
-  ), [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, rows]);
+  ), [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, mode, rows]);
 
   const displayRows = useMemo(
     () => filteredRows.filter((row) => matchesWorkbenchSearch(row, activeSearchQuery)),
