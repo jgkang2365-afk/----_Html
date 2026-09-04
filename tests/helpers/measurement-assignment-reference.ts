@@ -50,9 +50,31 @@ export function exactMeasurementAssignmentReference(input: {
     return a[6].localeCompare(b[6]);
   };
   const visit = (index: number, participant: number, report: number, route: number) => {
+    const prefixCounts = users.map((user) => (input.existing ?? []).filter((item) => item.userId === user.id
+      && item.measurementDate === targets[0]?.measurementDate).length + ids.filter((id) => id === user.id).length);
+    const zeroCount = prefixCounts.filter((count) => count === 0).length;
+    const hasOrdinaryDuplicate = zeroCount > 0 && users.some((user, userIndex) => {
+      const existing = (input.existing ?? []).filter((item) => item.userId === user.id
+        && item.measurementDate === targets[0]?.measurementDate);
+      if (prefixCounts[userIndex] <= Math.max(existing.length, 1)) return false;
+      const assignedTargets = targets.slice(0, ids.length).filter((_, targetIndex) => ids[targetIndex] === user.id);
+      const combined = [...existing, ...assignedTargets];
+      return combined.length !== 2 || !address(combined[0].address)
+        || address(combined[0].address) !== address(combined[1].address);
+    });
+    if (hasOrdinaryDuplicate && zeroCount > targets.length - index) return;
     if (index === targets.length) {
       const counts = users.map((user) => (input.existing ?? []).filter((item) => item.userId === user.id
         && item.measurementDate === targets[0]?.measurementDate).length + ids.filter((id) => id === user.id).length);
+      if (counts.some((count) => count === 0) && users.some((user, userIndex) => {
+        const existing = (input.existing ?? []).filter((item) => item.userId === user.id
+          && item.measurementDate === targets[0]?.measurementDate);
+        const assignedTargets = targets.filter((_, targetIndex) => ids[targetIndex] === user.id);
+        if (counts[userIndex] <= Math.max(existing.length, 1)) return false;
+        const combined = [...existing, ...assignedTargets];
+        return combined.length !== 2 || !address(combined[0].address)
+          || address(combined[0].address) !== address(combined[1].address);
+      })) return;
       const total = counts.reduce((sum, count) => sum + count, 0);
       const variance = counts.reduce((sum, count) => sum + Math.abs(count * counts.length - total), 0);
       const objective: ReferenceObjective = [-participant, -report, route, Math.max(...counts, 0), variance,
@@ -79,9 +101,6 @@ export function exactMeasurementAssignmentReference(input: {
       if (count >= 2) continue;
       const counts = users.map((candidate) => (input.existing ?? []).filter((item) => item.userId === candidate.id
         && item.measurementDate === target.measurementDate).length + ids.filter((id) => id === candidate.id).length);
-      const sameAddressException = prior.some((item) => address(item.address)
-        && address(item.address) === address(target.address));
-      if (count >= 1 && counts.some((value) => value === 0) && !sameAddressException) continue;
       const minutes = duplicateMinutes(target, user.id);
       if (!Number.isFinite(minutes)) continue;
       ids.push(user.id);

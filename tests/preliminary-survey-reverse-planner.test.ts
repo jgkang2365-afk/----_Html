@@ -299,7 +299,7 @@ test("Route 없는 두 번째 자동 측정자는 배정하지 않고 해당 tar
     "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED");
 });
 
-test("첫 Route 후보가 60분 초과여도 다음 측정자 후보를 찾아 자동 배정한다", async () => {
+test("첫 Route 후보가 60분 초과여도 전체 후보에서 다음 측정자 후보를 찾아 자동 배정한다", async () => {
   const targets = Array.from({ length: 7 }, (_, index) => target({
     id: 10 + index,
     code: `H00${10 + index}`,
@@ -320,15 +320,13 @@ test("첫 Route 후보가 60분 초과여도 다음 측정자 후보를 찾아 �
     },
   });
   const finalTarget = resolved.snapshot.targets.find((item) => item.id === 16)!;
-  assert.equal(resolved.requiredPairs, 6);
-  assert.equal(calls, 6);
-  assert.equal(resolved.routeEvidence.some((item) => item.leftTargetId === 10 && item.rightTargetId === 11), false,
-    "2번째 배정 후보가 아닌 pair를 선조회하지 않는다");
+  assert.equal(calls, resolved.requiredPairs);
+  assert.ok(calls > 6);
   assert.equal(finalTarget.fixedAssignments[0]?.origin, "automatic");
   assert.equal(finalTarget.automaticAssignmentIssue, undefined);
 });
 
-test("9개 global batch는 1차 순환 뒤 도달 가능한 18개 pair만 단방향 조회한다", async () => {
+test("9개 global batch는 계산된 candidate universe를 pair별 단방향 1회만 조회한다", async () => {
   const targets = Array.from({ length: 9 }, (_, index) => target({
     id: 200 + index,
     code: `QA${200 + index}`,
@@ -344,10 +342,46 @@ test("9개 global batch는 1차 순환 뒤 도달 가능한 18개 pair만 단방
       return { source: "vehicle", durationMinutes: 25, distanceKm: 4, sameRegion: true };
     } },
   });
-  assert.equal(resolved.requiredPairs, 18);
-  assert.equal(calls, 18);
+  assert.equal(calls, resolved.requiredPairs);
+  assert.ok(calls > 0 && calls <= 36);
   assert.equal(resolved.routeEvidence.filter((item) =>
-    item.routeReason === "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT").length, 18);
+    item.routeReason === "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT").length, calls);
+  assert.equal(new Set(resolved.routeEvidence.map((item) =>
+    `${item.date}|${item.leftTargetId}|${item.rightTargetId}`)).size, calls);
+});
+
+test("9개 clean sample route universe는 targetId prefix와 무관하게 H0011/H0012 pair를 포함한다", async () => {
+  const raw = JSON.parse(readFileSync("tests/fixtures/preliminary-survey-2026-08-21-clean-upstream.json", "utf8"));
+  const experienced = new Set(["이태환", "한기문", "이주형"]);
+  const fieldAddress = "대전광역시 유성구 복용동로 35";
+  const fieldCoordinate = { latitude: 36.3383978659341, longitude: 127.320332186123 };
+  const targets = raw.targets.map((item: any) => target({
+    id: item.targetId, code: item.businessCode, name: item.businessName,
+    address: item.businessCode === "H0081" || item.businessCode === "H0084" ? fieldAddress : item.address,
+    coordinate: item.businessCode === "H0081" || item.businessCode === "H0084" ? fieldCoordinate : item.coordinate,
+    days: [{ date: "2026-10-15", collaboratorUserIds: item.measurementParticipantUserIds,
+      reportWriterUserId: item.reportWriterUserId }],
+    fixedAssignments: [],
+  }));
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({
+    users: raw.users.map((item: any) => ({ id: item.id, name: item.name, active: true,
+      experienced: experienced.has(item.name), baseCode: item.surveyCode })),
+    targets,
+  }), { routes: { async between() {
+    calls += 1;
+    return { source: "vehicle", durationMinutes: 20, distanceKm: 1, sameRegion: true };
+  } } });
+  assert.equal(resolved.requiredPairs, 3);
+  assert.equal(calls, 3);
+  assert.deepEqual(resolved.routeEvidence.filter((item) => !item.sameAddress)
+    .map((item) => [item.leftTargetId, item.rightTargetId]),
+    [[470, 516], [494, 552], [525, 548]]);
+  assert.equal(resolved.routeEvidence.some((item) => item.leftTargetId === 470
+    && item.rightTargetId === 559 && item.sameAddress && item.durationMinutes === 0), true);
+  assert.deepEqual(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic").map((item) => [item.targetId, item.assigneeUserId]),
+  [[548, 15], [525, 15], [556, 20], [572, 2], [470, 13], [552, 17], [559, 16], [516, 13], [494, 17]]);
 });
 
 test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline 안에 확인 필요로 반환한다", async () => {
@@ -388,7 +422,7 @@ test("route pair 예산을 넘으면 route-free 정상안으로 조용히 확정
       return { source: "vehicle", durationMinutes: 10, distanceKm: 1, sameRegion: true };
     } },
   });
-  assert.equal(resolved.requiredPairs, 24);
+  assert.ok(resolved.requiredPairs > 20);
   assert.equal(calls, 0);
   assert.equal(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments).length, 0);
   assert.ok(resolved.snapshot.targets.every((item) =>

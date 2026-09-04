@@ -243,23 +243,98 @@ export async function resolveAutomaticMeasurementAssignments(
       block.userId === user.id && block.startDate <= date && block.endDate >= date));
     const occupancy = new Map(users.map((user) => [user.id,
       assigned.filter((item) => item.measurementDate === date && item.userId === user.id)]));
-    const explore = (index: number) => {
-      if (index >= targets.length) return;
+    const initialCounts = new Map(users.map((user) => [user.id, occupancy.get(user.id)?.length ?? 0]));
+    for (const [index, left] of targets.entries()) {
+      for (const right of targets.slice(index + 1)) {
+        if (!normalizedAddress(left.address)
+          || normalizedAddress(left.address) !== normalizedAddress(right.address)) continue;
+        addPair(left, { ...right, userId: 0 }, users.filter((user) => (initialCounts.get(user.id) ?? 0) === 0)
+          .map((user) => user.id));
+      }
+      for (const right of assigned.filter((item) => item.measurementDate === date
+        && normalizedAddress(item.address)
+        && normalizedAddress(item.address) === normalizedAddress(left.address))) {
+        if ((initialCounts.get(right.userId) ?? 0) === 1) addPair(left, right, [right.userId]);
+      }
+    }
+    const remainingParticipant = new Array(targets.length + 1).fill(0);
+    const remainingReport = new Array(targets.length + 1).fill(0);
+    for (let index = targets.length - 1; index >= 0; index -= 1) {
+      remainingParticipant[index] = remainingParticipant[index + 1]
+        + Math.max(...users.map((user) => Number(targets[index].measurementParticipantUserIds?.includes(user.id) ?? false)), 0);
+      remainingReport[index] = remainingReport[index + 1]
+        + Math.max(...users.map((user) => Number(targets[index].reportWriterUserId === user.id)), 0);
+    }
+    let bestParticipant = -1;
+    let bestReport = -1;
+    const bestPairs = new Map<string, CandidatePair>();
+    const firstRotationValid = () => {
+      const counts = users.map((user) => occupancy.get(user.id)?.length ?? 0);
+      if (!counts.some((count) => count === 0)) return true;
+      return users.every((user, userIndex) => {
+        const initialCount = initialCounts.get(user.id) ?? 0;
+        if (counts[userIndex] <= Math.max(initialCount, 1)) return true;
+        const sameUser = occupancy.get(user.id) ?? [];
+        return sameUser.length === 2 && normalizedAddress(sameUser[0].address)
+          && normalizedAddress(sameUser[0].address) === normalizedAddress(sameUser[1].address);
+      });
+    };
+    const canStillSatisfyFirstRotation = (remainingTargets: number) => {
+      const counts = users.map((user) => occupancy.get(user.id)?.length ?? 0);
+      const zeroCount = counts.filter((count) => count === 0).length;
+      if (zeroCount === 0) return true;
+      const hasOrdinaryDuplicate = users.some((user, userIndex) => {
+        const initialCount = initialCounts.get(user.id) ?? 0;
+        if (counts[userIndex] <= Math.max(initialCount, 1)) return false;
+        const sameUser = occupancy.get(user.id) ?? [];
+        return sameUser.length !== 2 || !normalizedAddress(sameUser[0].address)
+          || normalizedAddress(sameUser[0].address) !== normalizedAddress(sameUser[1].address);
+      });
+      return !hasOrdinaryDuplicate || zeroCount <= remainingTargets;
+    };
+    const mergeBestPair = (pair: CandidatePair) => {
+      const ids = [pair.left.targetId, pair.right.targetId].sort((left, right) => left - right);
+      const key = `${pair.date}|${ids[0]}|${ids[1]}`;
+      const previous = bestPairs.get(key);
+      bestPairs.set(key, { ...pair,
+        userIds: [...new Set([...(previous?.userIds ?? []), ...pair.userIds])].sort((left, right) => left - right) });
+    };
+    const explore = (index: number, participant: number, report: number, pathPairs: CandidatePair[]) => {
+      if (!canStillSatisfyFirstRotation(targets.length - index)) return;
+      if (participant + remainingParticipant[index] < bestParticipant) return;
+      if (participant + remainingParticipant[index] === bestParticipant
+        && report + remainingReport[index] < bestReport) return;
+      if (index >= targets.length) {
+        if (!firstRotationValid()) return;
+        if (participant > bestParticipant || (participant === bestParticipant && report > bestReport)) {
+          bestParticipant = participant;
+          bestReport = report;
+          bestPairs.clear();
+        }
+        if (participant === bestParticipant && report === bestReport) pathPairs.forEach(mergeBestPair);
+        return;
+      }
       const target = targets[index];
-      for (const user of users) {
+      const candidates = [...users].sort((left, right) =>
+        Number(target.measurementParticipantUserIds?.includes(right.id) ?? false)
+          - Number(target.measurementParticipantUserIds?.includes(left.id) ?? false)
+        || Number(target.reportWriterUserId === right.id) - Number(target.reportWriterUserId === left.id)
+        || left.id - right.id);
+      for (const user of candidates) {
         const prior = occupancy.get(user.id) ?? [];
         if (prior.length >= 2) continue;
-        const sameAddress = prior.some((item) => normalizedAddress(item.address)
-          && normalizedAddress(item.address) === normalizedAddress(target.address));
-        const zeroUserRemains = users.some((candidate) => (occupancy.get(candidate.id) ?? []).length === 0);
-        if (prior.length >= 1 && zeroUserRemains && !sameAddress) continue;
-        if (prior.length === 1 && !sameAddress) addPair(target, prior[0], [user.id]);
+        const nextPairs = prior.length === 1
+          ? [...pathPairs, { date, left: target, right: prior[0], userIds: [user.id] }]
+          : pathPairs;
         occupancy.set(user.id, [...prior, { ...target, userId: user.id }]);
-        explore(index + 1);
+        explore(index + 1,
+          participant + Number(target.measurementParticipantUserIds?.includes(user.id) ?? false),
+          report + Number(target.reportWriterUserId === user.id), nextPairs);
         occupancy.set(user.id, prior);
       }
     };
-    explore(0);
+    explore(0, 0, 0, []);
+    bestPairs.forEach((pair) => addPair(pair.left, pair.right, pair.userIds));
   }
   const maxPairs = positiveInteger(options.maxPairs
     ?? process.env.REVERSE_PLANNER_ROUTE_MAX_PAIRS, DEFAULT_MAX_PAIRS);
@@ -273,7 +348,16 @@ export async function resolveAutomaticMeasurementAssignments(
       requiredPairs: 0,
     };
   }
-  if (candidates.length > maxPairs) {
+  const external = candidates.filter((pair) => {
+    const sameAddress = normalizedAddress(pair.left.address)
+      && normalizedAddress(pair.left.address) === normalizedAddress(pair.right.address);
+    if (sameAddress) {
+      evidence.push(routeEvidenceFor(pair, 0, "same_address", 0, 0));
+      return false;
+    }
+    return true;
+  });
+  if (external.length > maxPairs) {
     const unresolvedKeys = new Set(input.missing.map((target) => keyOf(target.targetId, target.measurementDate)));
     return {
       snapshot: {
@@ -288,18 +372,9 @@ export async function resolveAutomaticMeasurementAssignments(
         })),
       },
       routeEvidence: evidence,
-      requiredPairs: candidates.length,
+      requiredPairs: external.length,
     };
   }
-  const external = candidates.filter((pair) => {
-    const sameAddress = normalizedAddress(pair.left.address)
-      && normalizedAddress(pair.left.address) === normalizedAddress(pair.right.address);
-    if (sameAddress) {
-      evidence.push(routeEvidenceFor(pair, 0, "same_address", 0, 0));
-      return false;
-    }
-    return true;
-  });
   const locationByCode = new Map<string, Coordinate>();
   if (options.loadCoordinates && external.length) {
     const codes = [...new Set(external.flatMap((pair) => [pair.left.businessCode, pair.right.businessCode])
@@ -343,7 +418,7 @@ export async function resolveAutomaticMeasurementAssignments(
   return {
     snapshot: withAutomaticMeasurementAssignments(snapshot, sortedEvidence),
     routeEvidence: sortedEvidence,
-    requiredPairs: candidates.length,
+    requiredPairs: external.length,
   };
 }
 

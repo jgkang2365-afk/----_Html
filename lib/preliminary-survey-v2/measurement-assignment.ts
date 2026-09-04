@@ -305,6 +305,28 @@ export function assignMeasurementAssignees(input: {
       return left.ids.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join("")
         .localeCompare(right.ids.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join(""));
     };
+    const firstRotationValid = (state: SearchState) => {
+      if (!state.counts.some((count) => count === 0)) return true;
+      return availableUsers.every((user, userIndex) => {
+        const initialCount = initialCounts.get(user.id) ?? 0;
+        if (state.counts[userIndex] <= Math.max(initialCount, 1)) return true;
+        const sameUser = state.current.filter((item) => item.measurementDate === measurementDate && item.userId === user.id);
+        return sameUser.length === 2 && normalizedAddress(sameUser[0].address)
+          && normalizedAddress(sameUser[0].address) === normalizedAddress(sameUser[1].address);
+      });
+    };
+    const canStillSatisfyFirstRotation = (state: SearchState, remainingTargets: number) => {
+      const zeroCount = state.counts.filter((count) => count === 0).length;
+      if (zeroCount === 0) return true;
+      const hasOrdinaryDuplicate = availableUsers.some((user, userIndex) => {
+        const initialCount = initialCounts.get(user.id) ?? 0;
+        if (state.counts[userIndex] <= Math.max(initialCount, 1)) return false;
+        const sameUser = state.current.filter((item) => item.measurementDate === measurementDate && item.userId === user.id);
+        return sameUser.length !== 2 || !normalizedAddress(sameUser[0].address)
+          || normalizedAddress(sameUser[0].address) !== normalizedAddress(sameUser[1].address);
+      });
+      return !hasOrdinaryDuplicate || zeroCount <= remainingTargets;
+    };
     let bestComplete: SearchState | null = null;
     let bestPartial: SearchState | null = null;
     const remainingParticipant = new Array(dateTargets.length + 1).fill(0);
@@ -317,12 +339,14 @@ export function assignMeasurementAssignees(input: {
         + Math.max(...availableUsers.map((user) => reportMatch(item, user.id)), 0);
     }
     const visit = (index: number, state: SearchState) => {
+      if (!canStillSatisfyFirstRotation(state, dateTargets.length - index)) return;
       const assignedCount = state.assignedCount;
       const bestPartialCount = bestPartial?.assignedCount ?? -1;
-      if (!bestPartial || assignedCount > bestPartialCount
-        || (assignedCount === bestPartialCount && compareStates(state, bestPartial) < 0)) bestPartial = state;
+      if (firstRotationValid(state) && (!bestPartial || assignedCount > bestPartialCount
+        || (assignedCount === bestPartialCount && compareStates(state, bestPartial) < 0))) bestPartial = state;
       if (index === dateTargets.length) {
-        if (assignedCount === dateTargets.length && (!bestComplete || compareStates(state, bestComplete) < 0)) bestComplete = state;
+        if (assignedCount === dateTargets.length && firstRotationValid(state)
+          && (!bestComplete || compareStates(state, bestComplete) < 0)) bestComplete = state;
         return;
       }
       const assignableUpperBound = assignedCount + dateTargets.length - index;
@@ -376,10 +400,6 @@ export function assignMeasurementAssignees(input: {
         const priorCount = state.counts[userIndex];
         if (priorCount >= maxAutomaticCount) continue;
         if (input.requireRouteForSecond && input.allowThirdWithApproval === false && priorCount >= 2) continue;
-        const sameAddressException = state.current.some((item) => item.userId === user.id
-          && normalizedAddress(item.address)
-          && normalizedAddress(item.address) === normalizedAddress(target.address));
-        if (priorCount >= 1 && state.counts.some((count) => count === 0) && !sameAddressException) continue;
         const routeData = candidate.route;
         const counts = [...state.counts];
         counts[userIndex] += 1;
@@ -411,30 +431,30 @@ export function assignMeasurementAssignees(input: {
             const userIndex = availableUsers.findIndex((item) => item.id === user.id);
             const priorCount = state.counts[userIndex];
             if (priorCount >= maxAutomaticCount) continue;
-            const sameAddressException = state.current.some((item) => item.userId === user.id
-              && normalizedAddress(item.address)
-              && normalizedAddress(item.address) === normalizedAddress(target.address));
-            if (priorCount >= 1 && state.counts.some((count) => count === 0) && !sameAddressException) continue;
             const routeData = routeInfo(target, user.id, state.current);
             if (!routeData.allowed) continue;
             const counts = [...state.counts];
             counts[userIndex] += 1;
-            expanded.push({ ids: [...state.ids, user.id], counts, assignedCount: state.assignedCount + 1,
+            const next = { ids: [...state.ids, user.id], counts, assignedCount: state.assignedCount + 1,
               current: [...state.current, { ...target, userId: user.id }],
-              participant: state.participant + participantMatch(target, user.id), report: state.report + reportMatch(target, user.id), route: state.route + routeData.minutes });
+              participant: state.participant + participantMatch(target, user.id), report: state.report + reportMatch(target, user.id), route: state.route + routeData.minutes };
+            if (canStillSatisfyFirstRotation(next, dateTargets.length - next.ids.length)) expanded.push(next);
           }
         }
         if (!expanded.length) {
-          bestPartial = states.reduce<SearchState | null>((best, state) => !best || compareStates(state, best) < 0 ? state : best, null);
+          bestPartial = states.filter(firstRotationValid)
+            .reduce<SearchState | null>((best, state) => !best || compareStates(state, best) < 0 ? state : best, null);
           states = [];
           break;
         }
         states = expanded.sort(compareStates).slice(0, 256);
       }
       bestComplete = states
-        .filter((state) => state.ids.length === dateTargets.length && state.ids.every((id) => id != null))
+        .filter((state) => state.ids.length === dateTargets.length && state.ids.every((id) => id != null)
+          && firstRotationValid(state))
         .reduce<SearchState | null>((best, state) => !best || compareStates(state, best) < 0 ? state : best, null);
-      bestPartial = states.length ? states.sort((left, right) => {
+      const validPartialStates = states.filter(firstRotationValid);
+      bestPartial = validPartialStates.length ? validPartialStates.sort((left, right) => {
         const leftCount = left.assignedCount;
         const rightCount = right.assignedCount;
         return leftCount === rightCount ? compareStates(left, right) : rightCount - leftCount;

@@ -486,7 +486,13 @@ test("9개 clean sample은 upstream 업무관계와 H0081/H0084 현장주소 ove
   const result = assignMeasurementAssignees(input);
   assert.equal(result.length, 9);
   assert.equal(result.every((item) => item.dailyCount <= 2), true);
-  assert.equal(new Set(result.slice(0, 6).map((item) => item.userId)).size, 6);
+  assert.equal(new Set(result.map((item) => item.userId)).size, 6);
+  assert.deepEqual(result.filter((item) => item.targetId === 525 || item.targetId === 548)
+    .map((item) => [item.targetId, item.userId]), [[525, 15], [548, 15]],
+  "targetId가 이른 H0012 뒤의 H0011도 이태환 2건 후보에서 누락하지 않는다");
+  const reference = exactMeasurementAssignmentReference({ targets, users: upstream.users, evidence: routeEvidence });
+  assert.ok(reference);
+  assert.deepEqual(result.map((item) => item.userId), reference.ids);
   assert.equal(targets.some((item) => item.address.startsWith("주소 ")), false);
   assert.equal(targets.filter((item) => item.address === fieldAddress).length, 2);
   assert.equal(/fixedAssignments|measurementAssignments|preliminarySurveyor|publicSample/i.test(rawUpstream), false,
