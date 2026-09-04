@@ -1,4 +1,4 @@
-name: Fix preliminary survey multiday list
+name: Finalize preliminary survey multiday list
 
 on:
   push:
@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  patch-test-commit:
-    if: ${{ !contains(github.event.head_commit.message, '[multiday-fix]') }}
+  verify-and-commit:
+    if: ${{ !contains(github.event.head_commit.message, '[multiday-final]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,157 +20,34 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - name: Apply minimal query/display fix
-        shell: bash
+      - name: Fix hook dependency
         run: |
           python3 <<'PY'
           from pathlib import Path
-
-          def replace_once(path: str, old: str, new: str):
-              p = Path(path)
-              text = p.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected exactly one match, found {count}: {old[:120]!r}")
-              p.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          # 1) Pure range helpers: scalar is kept for plan mode, array is used by list mode.
-          replace_once(
-              "lib/preliminary-survey-v2/workbench-search.ts",
-              '''export function matchesMeasurementDateRange(\n  measurementDate: string | null | undefined,\n  from: string,\n  to: string,\n): boolean {\n  if (!measurementDate) return !from && !to;\n  return (!from || measurementDate >= from) && (!to || measurementDate <= to);\n}\n''',
-              '''export function matchesMeasurementDateRange(\n  measurementDate: string | readonly string[] | null | undefined,\n  from: string,\n  to: string,\n): boolean {\n  const dates = typeof measurementDate === "string"\n    ? [measurementDate]\n    : measurementDate ? [...measurementDate] : [];\n  if (!dates.length) return !from && !to;\n  return dates.some((date) => (!from || date >= from) && (!to || date <= to));\n}\n\n/** 목록의 선택 범위 안에 실제로 포함되는 측정일만 중복 없이 반환한다. */\nexport function measurementDatesInRange(\n  measurementDates: readonly string[] | null | undefined,\n  fallbackMeasurementDate: string | null | undefined,\n  from: string,\n  to: string,\n): string[] {\n  const source = measurementDates?.length\n    ? measurementDates\n    : fallbackMeasurementDate ? [fallbackMeasurementDate] : [];\n  return [...new Set(source)]\n    .filter((date) => matchesMeasurementDateRange(date, from, to))\n    .sort();\n}\n''',
-          )
-
-          # 2) Workbench GET keeps one row/one plan per target, but exposes each actual measurement day.
-          day_context = '''      const measurementDays = explicitMeasurementDates(target).map((measurementDate) => {\n        const dayStaff = measurementStaffForDate({\n          dailyStaff: target.daily_staff,\n          measurementDate,\n          collaborators: target.collaborators,\n          userNameById,\n        });\n        const dayAssignment: any = assignmentByTargetDate.get(\n          `${Number(target.id)}|${measurementDate}`,\n        ) ?? null;\n        const dayLegacyMeasurementPublicSample = legacyMeasurementPublicSampleForTarget({\n          code: String(target.code ?? ""),\n          year: Number(target.year),\n          period: String(target.period ?? ""),\n          measurementDate,\n        });\n        const dayMeasurementAssigneeDisplay = resolveMeasurementPublicSampleDisplay({\n          v2Assignment: dayAssignment ? {\n            assigneeUserId: Number(dayAssignment.assignee_user_id),\n            surveyCode: dayAssignment.survey_code == null ? null : String(dayAssignment.survey_code),\n          } : null,\n          v2AssignmentId: dayAssignment?.id == null ? null : String(dayAssignment.id),\n          reconciliation: reconciliationByTargetDate.get(\n            `${Number(target.id)}|${measurementDate}`,\n          ) ?? null,\n          trueConfirmed,\n          legacyAssignment: dayLegacyMeasurementPublicSample,\n          userNameById,\n        });\n        return {\n          date: measurementDate,\n          mainMeasurer: dayMeasurementAssigneeDisplay.label,\n          mainMeasurerSource: dayMeasurementAssigneeDisplay.source,\n          measurementParticipants: dayStaff.measurementParticipants,\n          reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",\n        };\n      });\n'''
-          replace_once(
-              "app/api/preliminary-survey-v2/workbench/route.ts",
-              '''      return {\n        targetId: Number(target.id),''',
-              day_context + '''      return {\n        targetId: Number(target.id),''',
-          )
-          replace_once(
-              "app/api/preliminary-survey-v2/workbench/route.ts",
-              '''        measurementDate: target.measurement_date,\n        preliminaryDate: plan?.recommended_date ?? null,''',
-              '''        measurementDate: target.measurement_date,\n        measurementDates: measurementDays.map((day) => day.date),\n        measurementDays,\n        preliminaryDate: plan?.recommended_date ?? null,''',
-          )
-
-          # 3) List mode filters by all actual days and displays day-specific public sample/participants.
-          replace_once(
-              "components/features/PreliminarySurveyV2Plans.tsx",
-              '''  collectWorkbenchRecommendationTargetIds,\n  matchesMeasurementDateRange,\n  matchesWorkbenchSearch,''',
-              '''  collectWorkbenchRecommendationTargetIds,\n  matchesMeasurementDateRange,\n  matchesWorkbenchSearch,\n  measurementDatesInRange,''',
-          )
-          replace_once(
-              "components/features/PreliminarySurveyV2Plans.tsx",
-              '''interface WorkbenchRow {\n  targetId: number;''',
-              '''interface WorkbenchMeasurementDay {\n  date: string;\n  mainMeasurer: string;\n  mainMeasurerSource?: string;\n  measurementParticipants: string;\n  reportWriter: string;\n}\n\ninterface WorkbenchRow {\n  targetId: number;''',
-          )
-          replace_once(
-              "components/features/PreliminarySurveyV2Plans.tsx",
-              '''  measurementDate: string | null;\n  preliminaryDate: string | null;''',
-              '''  measurementDate: string | null;\n  measurementDates?: string[];\n  measurementDays?: WorkbenchMeasurementDay[];\n  preliminaryDate: string | null;''',
-          )
-          replace_once(
-              "components/features/PreliminarySurveyV2Plans.tsx",
-              '''    matchesMeasurementDateRange(row.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo) &&''',
-              '''    matchesMeasurementDateRange(\n      mode === "list" && row.measurementDates?.length ? row.measurementDates : row.measurementDate,\n      activeMeasurementDateFrom,\n      activeMeasurementDateTo,\n    ) &&''',
-          )
-          replace_once(
-              "components/features/PreliminarySurveyV2Plans.tsx",
-              '''  const displayRows = useMemo(\n    () => filteredRows.filter((row) => matchesWorkbenchSearch(row, activeSearchQuery)),\n    [activeSearchQuery, filteredRows],\n  );\n\n  const currentScope = useMemo(() => JSON.stringify({''',
-              '''  const displayRows = useMemo(\n    () => filteredRows.filter((row) => matchesWorkbenchSearch(row, activeSearchQuery)),\n    [activeSearchQuery, filteredRows],\n  );\n\n  const visibleMeasurementDays = useCallback((row: WorkbenchRow): WorkbenchMeasurementDay[] => {\n    if (mode !== "list") return [];\n    const dates = measurementDatesInRange(\n      row.measurementDates,\n      row.measurementDate,\n      activeMeasurementDateFrom,\n      activeMeasurementDateTo,\n    );\n    const dayByDate = new Map((row.measurementDays ?? []).map((day) => [day.date, day] as const));\n    return dates.map((date) => dayByDate.get(date) ?? {\n      date,\n      mainMeasurer: row.mainMeasurer ?? "-",\n      measurementParticipants: row.measurementParticipants ?? "-",\n      reportWriter: row.reportWriter ?? "-",\n    });\n  }, [activeMeasurementDateFrom, activeMeasurementDateTo, mode]);\n\n  const measurementDateText = useCallback((row: WorkbenchRow) => {\n    if (mode !== "list") return row.measurementDate || "-";\n    return visibleMeasurementDays(row).map((day) => day.date).join(" · ") || "-";\n  }, [mode, visibleMeasurementDays]);\n\n  const measurementDayText = useCallback((\n    row: WorkbenchRow,\n    field: "mainMeasurer" | "measurementParticipants" | "reportWriter",\n  ) => {\n    if (mode !== "list") return row[field] || "-";\n    return visibleMeasurementDays(row).map((day) => day[field] || "-").join(" · ") || "-";\n  }, [mode, visibleMeasurementDays]);\n\n  const currentScope = useMemo(() => JSON.stringify({''',
-          )
-          replace_once(
-              "components/features/PreliminarySurveyV2Plans.tsx",
-              '''                  <td className="px-2 py-2 whitespace-nowrap">{row.measurementDate || "-"}</td>''',
-              '''                  <td className="px-2 py-2 whitespace-nowrap">{measurementDateText(row)}</td>''',
-          )
-          replace_once(
-              "components/features/PreliminarySurveyV2Plans.tsx",
-              '''                  <td className="truncate px-2 py-2">{row.mainMeasurer || "-"}</td>\n                  <td className="truncate px-2 py-2" title={row.measurementParticipants || ""}>{row.measurementParticipants || "-"}</td>\n                  <td className="truncate px-2 py-2">{row.reportWriter || "-"}</td>''',
-              '''                  <td className="truncate px-2 py-2">{measurementDayText(row, "mainMeasurer")}</td>\n                  <td className="truncate px-2 py-2" title={measurementDayText(row, "measurementParticipants")}>{measurementDayText(row, "measurementParticipants")}</td>\n                  <td className="truncate px-2 py-2">{measurementDayText(row, "reportWriter")}</td>''',
-          )
-          replace_once(
-              "components/features/PreliminarySurveyV2Plans.tsx",
-              '''            <div>측정예정일: <strong>{selected.measurementDate || "-"}</strong></div><div>충돌: <strong>{selected.conflicts?.join(" · ") || selected.conflict || "없음"}</strong></div>''',
-              '''            <div>측정예정일: <strong>{measurementDateText(selected)}</strong></div><div>충돌: <strong>{selected.conflicts?.join(" · ") || selected.conflict || "없음"}</strong></div>''',
-          )
-          replace_once(
-              "components/features/PreliminarySurveyV2Plans.tsx",
-              '''            <div>측정자(공시료): <strong>{selected.mainMeasurer || "-"}</strong></div>\n            <div>측정 참여자: <strong>{selected.measurementParticipants || "-"}</strong></div>\n            <div>보고서 담당자: <strong>{selected.reportWriter || "-"}</strong></div>''',
-              '''            <div>측정자(공시료): <strong>{measurementDayText(selected, "mainMeasurer")}</strong></div>\n            <div>측정 참여자: <strong>{measurementDayText(selected, "measurementParticipants")}</strong></div>\n            <div>보고서 담당자: <strong>{measurementDayText(selected, "reportWriter")}</strong></div>''',
-          )
-
-          # 4) Existing Phase-B source contract must reflect list multiday filtering while plan mode stays scalar.
-          test_path = Path("tests/preliminary-survey-phase-b.test.ts")
-          test_text = test_path.read_text(encoding="utf-8")
-          old_assert = '  assert.match(ui, /matchesMeasurementDateRange\\(row\\.measurementDate, activeMeasurementDateFrom, activeMeasurementDateTo\\)/);'
-          if test_text.count(old_assert) != 2:
-              raise SystemExit(f"phase-b: expected 2 old date assertions, found {test_text.count(old_assert)}")
-          new_assert = '''  assert.match(ui, /mode === "list" && row\\.measurementDates\\?\\.length/);\n  assert.match(ui, /: row\\.measurementDate,/);'''
-          test_path.write_text(test_text.replace(old_assert, new_assert), encoding="utf-8")
-
-          # 5) Focused behavior regression, including the production H0102 date shape.
-          Path("tests/preliminary-survey-list-multiday.test.ts").write_text(r'''import assert from "node:assert/strict";
-          import { readFileSync } from "node:fs";
-          import test from "node:test";
-          import {
-            matchesMeasurementDateRange,
-            measurementDatesInRange,
-          } from "../lib/preliminary-survey-v2/workbench-search";
-
-          const h0102Dates = ["2026-09-14", "2026-09-15", "2026-09-16"];
-
-          test("H0102 다일 측정은 9/14·9/15·9/16 각각 목록에 포함되고 9/17에는 제외된다", () => {
-            for (const date of h0102Dates) {
-              assert.equal(matchesMeasurementDateRange(h0102Dates, date, date), true, date);
-              assert.deepEqual(measurementDatesInRange(h0102Dates, "2026-09-14", date, date), [date]);
-            }
-            assert.equal(matchesMeasurementDateRange(h0102Dates, "2026-09-17", "2026-09-17"), false);
-            assert.deepEqual(measurementDatesInRange(h0102Dates, "2026-09-14", "2026-09-17", "2026-09-17"), []);
-          });
-
-          test("주·월 범위는 plan row를 복제하지 않고 범위 안 실제 측정일을 정렬·중복 제거한다", () => {
-            assert.equal(matchesMeasurementDateRange(h0102Dates, "2026-09-13", "2026-09-19"), true);
-            assert.deepEqual(
-              measurementDatesInRange(["2026-09-16", "2026-09-14", "2026-09-15", "2026-09-15"], "2026-09-14", "2026-09-01", "2026-09-30"),
-              h0102Dates,
-            );
-          });
-
-          test("daily_staff 날짜가 없으면 대표 measurement_date 한 건으로 fallback한다", () => {
-            assert.equal(matchesMeasurementDateRange("2026-09-14", "2026-09-14", "2026-09-14"), true);
-            assert.equal(matchesMeasurementDateRange("2026-09-14", "2026-09-15", "2026-09-15"), false);
-            assert.deepEqual(measurementDatesInRange([], "2026-09-14", "2026-09-14", "2026-09-14"), ["2026-09-14"]);
-          });
-
-          test("workbench는 한 target row에 실제 측정일과 날짜별 표시 문맥을 제공하고 list만 이를 사용한다", () => {
-            const api = readFileSync("app/api/preliminary-survey-v2/workbench/route.ts", "utf8");
-            const ui = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
-            assert.match(api, /const measurementDays = explicitMeasurementDates\(target\)\.map\(\(measurementDate\) =>/);
-            assert.match(api, /measurementDates: measurementDays\.map\(\(day\) => day\.date\)/);
-            assert.match(api, /measurementDays,/);
-            assert.match(ui, /mode === "list" && row\.measurementDates\?\.length/);
-            assert.match(ui, /measurementDateText\(row\)/);
-            assert.match(ui, /measurementDayText\(row, "mainMeasurer"\)/);
-            assert.match(ui, /measurementDayText\(row, "measurementParticipants"\)/);
-          });
-          '''.replace("          ", ""), encoding="utf-8")
+          p = Path("components/features/PreliminarySurveyV2Plans.tsx")
+          text = p.read_text(encoding="utf-8")
+          old = "  ), [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, rows]);"
+          new = "  ), [activeKindFilter, activeMeasurementDateFrom, activeMeasurementDateTo, activeMethodFilter, activePreliminaryDateFilter, activeStatusFilter, drafts, mode, rows]);"
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one filteredRows dependency list, found {text.count(old)}")
+          p.write_text(text.replace(old, new, 1), encoding="utf-8")
           PY
       - name: Install dependencies
         run: npm ci
       - name: Focused regression
         run: npx tsx --test tests/preliminary-survey-list-multiday.test.ts tests/preliminary-survey-phase-b.test.ts
+      - name: Full regression
+        run: npm test
       - name: Typecheck
         run: npx tsc --noEmit
       - name: Lint
         run: npm run lint
       - name: Diff check
         run: git diff --check
-      - name: Commit tested fix
+      - name: Commit final verification fix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/api/preliminary-survey-v2/workbench/route.ts components/features/PreliminarySurveyV2Plans.tsx lib/preliminary-survey-v2/workbench-search.ts tests/preliminary-survey-phase-b.test.ts tests/preliminary-survey-list-multiday.test.ts
-          git commit -m "fix: show multiday targets on each measurement date [multiday-fix]"
+          git add components/features/PreliminarySurveyV2Plans.tsx
+          git commit -m "test: finalize multiday list regression [multiday-final]"
           git push origin HEAD:fix/preliminary-survey-list-multiday-dates
