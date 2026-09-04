@@ -176,6 +176,33 @@ test("동일 실제 측정일·동일 현장주소는 0건 직원이 남아도 �
   assert.equal(users.some((user) => user.id !== 1 && !result.some((item) => item.userId === user.id)), true);
 });
 
+test("동일주소 그룹은 그룹 전체 역할점수로 담당자를 고르고 입력 순서에 영향받지 않는다", () => {
+  const address = "대전광역시 유성구 복용동로 35";
+  const targets = [
+    { ...target(81, address), measurementParticipantUserIds: [4], reportWriterUserId: 5 },
+    { ...target(84, address), measurementParticipantUserIds: [5], reportWriterUserId: 5 },
+  ];
+  const forward = assignMeasurementAssignees({ targets, users, requireRouteForSecond: true, allowThirdWithApproval: false });
+  const reverse = assignMeasurementAssignees({ targets: [...targets].reverse(), users: [...users].reverse(),
+    requireRouteForSecond: true, allowThirdWithApproval: false });
+  assert.deepEqual(forward.map((item) => [item.targetId, item.userId]), [[81, 5], [84, 5]]);
+  assert.deepEqual(reverse.map((item) => [item.targetId, item.userId]), [[81, 5], [84, 5]]);
+  assert.deepEqual(forward.map((item) => item.dailyCount), [1, 2]);
+});
+
+test("동일주소가 3개여도 한 직원의 자동배정은 2건을 넘지 않는다", () => {
+  const address = "대전광역시 유성구 동일 현장";
+  const result = assignMeasurementAssignees({
+    targets: [1, 2, 3].map((id) => ({ ...target(id, address), measurementParticipantUserIds: [1], reportWriterUserId: 1 })),
+    users,
+    requireRouteForSecond: true,
+    allowThirdWithApproval: false,
+  });
+  assert.equal(result.length, 3);
+  assert.equal(Math.max(...users.map((user) => result.filter((item) => item.userId === user.id).length)), 2);
+  assert.equal(new Set(result.map((item) => item.userId)).size, 2);
+});
+
 test("공통 builder는 다일 측정의 날짜별 보고서 담당자와 참여자를 섞지 않는다", () => {
   const targets = buildMeasurementAssignmentTargets({
     target: {
@@ -500,9 +527,9 @@ test("9개 clean sample은 upstream 업무관계와 H0081/H0084 현장주소 ove
   assert.equal(result.length, 9);
   assert.equal(result.every((item) => item.dailyCount <= 2), true);
   assert.equal(new Set(result.map((item) => item.userId)).size, 6);
-  assert.deepEqual(result.filter((item) => item.targetId === 525 || item.targetId === 548)
-    .map((item) => [item.targetId, item.userId]), [[525, 15], [548, 15]],
-  "targetId가 이른 H0012 뒤의 H0011도 이태환 2건 후보에서 누락하지 않는다");
+  assert.deepEqual(result.filter((item) => item.targetId === 470 || item.targetId === 559)
+    .map((item) => [item.targetId, item.userId]), [[470, 16], [559, 16]],
+  "H0081/H0084 동일 현장그룹은 그룹 전체 역할점수 우위인 고유빈에게 묶는다");
   const reference = exactMeasurementAssignmentReference({ targets, users: upstream.users, evidence: routeEvidence });
   assert.ok(reference);
   assert.deepEqual(result.map((item) => item.userId), reference.ids);

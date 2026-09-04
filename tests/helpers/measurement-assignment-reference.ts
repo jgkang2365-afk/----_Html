@@ -5,7 +5,7 @@ import type {
   MeasurementVehicleRouteEvidence,
 } from "../../lib/preliminary-survey-v2/measurement-assignment";
 
-export type ReferenceObjective = readonly [number, number, number, number, number, number, string];
+export type ReferenceObjective = readonly [number, number, number, number, number, number, number, string];
 export type ReferenceResult = { ids: number[]; objective: ReferenceObjective };
 
 const address = (value: string | null) => String(value ?? "").replace(/\s+/g, "").trim();
@@ -35,10 +35,11 @@ export function exactMeasurementAssignmentReference(input: {
         solved.reduce((sum, result) => sum + result.objective[0], 0),
         solved.reduce((sum, result) => sum + result.objective[1], 0),
         solved.reduce((sum, result) => sum + result.objective[2], 0),
-        Math.max(...solved.map((result) => result.objective[3]), 0),
-        solved.reduce((sum, result) => sum + result.objective[4], 0),
+        solved.reduce((sum, result) => sum + result.objective[3], 0),
+        Math.max(...solved.map((result) => result.objective[4]), 0),
         solved.reduce((sum, result) => sum + result.objective[5], 0),
-        solved.map((result) => result.objective[6]).join(""),
+        solved.reduce((sum, result) => sum + result.objective[6], 0),
+        solved.map((result) => result.objective[7]).join(""),
       ],
     };
   }
@@ -70,10 +71,30 @@ export function exactMeasurementAssignmentReference(input: {
     return minutes.length ? Math.min(...minutes) : Number.POSITIVE_INFINITY;
   };
   const compare = (a: ReferenceObjective, b: ReferenceObjective) => {
-    for (let index = 0; index < 6; index += 1) if (a[index] !== b[index]) return Number(a[index]) - Number(b[index]);
-    return a[6].localeCompare(b[6]);
+    for (let index = 0; index < 7; index += 1) if (a[index] !== b[index]) return Number(a[index]) - Number(b[index]);
+    return a[7].localeCompare(b[7]);
   };
-  const visit = (index: number, participant: number, report: number, route: number) => {
+  const sameAddressUpperBound = (startIndex: number, sameAddress: number) => {
+    const remainingByAddress = new Map<string, number>();
+    for (const target of targets.slice(startIndex)) {
+      const key = address(target.address);
+      if (key) remainingByAddress.set(key, (remainingByAddress.get(key) ?? 0) + 1);
+    }
+    let additional = 0;
+    for (const [key, remainingCount] of remainingByAddress) {
+      const eligibleSingles = users.filter((user) => {
+        const prior = [
+          ...(input.existing ?? []).filter((item) => item.userId === user.id),
+          ...targets.slice(0, ids.length).filter((_, targetIndex) => ids[targetIndex] === user.id),
+        ];
+        return prior.length < 2 && prior.some((item) => address(item.address) === key);
+      }).length;
+      const matchedSingles = Math.min(remainingCount, eligibleSingles);
+      additional += matchedSingles + Math.floor((remainingCount - matchedSingles) / 2);
+    }
+    return sameAddress + additional;
+  };
+  const visit = (index: number, sameAddress: number, participant: number, report: number, route: number) => {
     const prefixCounts = users.map((user) => (input.existing ?? []).filter((item) => item.userId === user.id
       && item.measurementDate === targets[0]?.measurementDate).length + ids.filter((id) => id === user.id).length);
     const zeroCount = prefixCounts.filter((count) => count === 0).length;
@@ -101,18 +122,22 @@ export function exactMeasurementAssignmentReference(input: {
       })) return;
       const total = counts.reduce((sum, count) => sum + count, 0);
       const variance = counts.reduce((sum, count) => sum + Math.abs(count * counts.length - total), 0);
-      const objective: ReferenceObjective = [-participant, -report, route, Math.max(...counts, 0), variance,
+      const objective: ReferenceObjective = [-sameAddress, -participant, -report, route, Math.max(...counts, 0), variance,
         counts.filter((count) => count > 1).length, ids.map((id) => id.toString().padStart(8, "0")).join("")];
       if (!best || compare(objective, best.objective) < 0) best = { ids: [...ids], objective };
       return;
     }
     if (best) {
-      const bestParticipant = -best.objective[0];
-      const bestReport = -best.objective[1];
-      if (participant + participantUpper[index] < bestParticipant) return;
-      if (participant + participantUpper[index] === bestParticipant && report + reportUpper[index] < bestReport) return;
-      if (participant + participantUpper[index] === bestParticipant
-        && report + reportUpper[index] === bestReport && route > best.objective[2]) return;
+      const sameAddressUpper = sameAddressUpperBound(index, sameAddress);
+      const bestSameAddress = -best.objective[0];
+      const bestParticipant = -best.objective[1];
+      const bestReport = -best.objective[2];
+      if (sameAddressUpper < bestSameAddress) return;
+      if (sameAddressUpper === bestSameAddress && participant + participantUpper[index] < bestParticipant) return;
+      if (sameAddressUpper === bestSameAddress && participant + participantUpper[index] === bestParticipant
+        && report + reportUpper[index] < bestReport) return;
+      if (sameAddressUpper === bestSameAddress && participant + participantUpper[index] === bestParticipant
+        && report + reportUpper[index] === bestReport && route > best.objective[3]) return;
     }
     const target = targets[index];
     for (const user of users) {
@@ -127,12 +152,14 @@ export function exactMeasurementAssignmentReference(input: {
         && item.measurementDate === target.measurementDate).length + ids.filter((id) => id === candidate.id).length);
       const minutes = duplicateMinutes(target, user.id);
       if (!Number.isFinite(minutes)) continue;
+      const exact = prior.some((item) => address(item.address) && address(item.address) === address(target.address));
       ids.push(user.id);
-      visit(index + 1, participant + Number(target.measurementParticipantUserIds?.includes(user.id) ?? false),
+      visit(index + 1, sameAddress + Number(exact),
+        participant + Number(target.measurementParticipantUserIds?.includes(user.id) ?? false),
         report + Number(target.reportWriterUserId === user.id), route + minutes);
       ids.pop();
     }
   };
-  visit(0, 0, 0, 0);
+  visit(0, 0, 0, 0, 0);
   return best as ReferenceResult | null;
 }
