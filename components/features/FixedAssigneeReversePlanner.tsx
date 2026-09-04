@@ -219,6 +219,29 @@ export function FixedAssigneeReversePlanner({
     }
   };
 
+  const releaseFixed = async (targetId: number, fixedDate: string) => {
+    const target = snapshot?.targets.find((item) => item.id === targetId);
+    const fixed = target?.fixedAssignments.find((item) => item.measurementDate === fixedDate && item.origin !== "automatic");
+    if (!target || !fixed) return;
+    if (!window.confirm("고정 측정자 지정을 해제하고 자동배정으로 전환하시겠습니까?")) return;
+    setWorking(true);
+    setError(null);
+    setPreview(null);
+    try {
+      await request("/api/preliminary-survey-v2/reverse-planner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "release_fixed", measurementDate, targetId, fixedDate }),
+      });
+      await load(measurementDate);
+      setNotice(`${target.code} ${fixedDate} 고정 측정자를 자동으로 되돌렸습니다. 배정안을 다시 계산해 주세요.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "고정 측정자 자동 전환에 실패했습니다.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const createPreview = async () => {
     setWorking(true);
     setError(null);
@@ -553,11 +576,14 @@ export function FixedAssigneeReversePlanner({
                     .map((id) => userById.get(id)).filter(Boolean);
                   return <div key={day.date} className="flex items-center gap-1">
                     <select aria-label={`${target.code} ${day.date} 고정 측정자`} value={fixed?.assigneeUserId ?? ""}
-                      onChange={(event) => event.target.value
-                        ? void confirmFixed(target.id, day.date, Number(event.target.value))
-                        : undefined}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (value) void confirmFixed(target.id, day.date, Number(value));
+                        else if (fixed) void releaseFixed(target.id, day.date);
+                      }}
+                      disabled={working}
                       className="h-8 min-w-0 flex-1 rounded-md border border-surface-300 bg-white px-2 text-sm">
-                      <option value="" disabled={Boolean(fixed)}>자동</option>
+                      <option value="">자동</option>
                       {priority.map((user) => user && <option key={user.id} value={user.id}>{user.name}({user.baseCode ?? "-"}){day.collaboratorUserIds.includes(user.id) ? " · 참여" : ""}</option>)}
                     </select>
                     {fixed && <span className="shrink-0 text-xs font-semibold text-emerald-700" title="고정 측정자">✓</span>}
