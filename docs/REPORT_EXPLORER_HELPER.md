@@ -10,7 +10,7 @@
 tools\report-explorer-helper\run-report-explorer-helper.bat
 ```
 
-기본 보고서 루트는 `Z:\data\측정팀\측정보고서`이고, 필요하면 실행 전 `REPORT_STORAGE_ROOT` 환경 변수로 바꿉니다. 폴더 구조는 `<YYYY>년\<상반기|하반기>\사업장 폴더`여야 하며, 네트워크 드라이브 연결 실패는 `DRIVE_UNAVAILABLE` 또는 `ROOT_UNAVAILABLE`으로 응답합니다.
+기본 보고서 루트는 `Z:\data\측정팀\측정보고서`이고, 필요하면 실행 전 `REPORT_STORAGE_ROOT` 환경 변수로 바꿉니다. 폴더 구조는 `<YYYY>년\<상반기|하반기>\사업장 폴더`여야 하며, 네트워크 드라이브 또는 루트 연결 실패는 `STORAGE_ROOT_UNAVAILABLE`으로 응답합니다.
 
 ```powershell
 $env:REPORT_STORAGE_ROOT = 'Y:\공유\측정보고서'
@@ -27,7 +27,7 @@ tools\report-explorer-helper\run-report-explorer-helper.bat
 - `http://localhost:3000`
 - `http://127.0.0.1:3000`
 
-추가 개발 Origin은 `REPORT_EXPLORER_ALLOWED_ORIGINS`에 쉼표 또는 세미콜론으로 명시합니다. `/report-explorer/search`와 `/report-explorer/open`은 Origin이 없거나 목록에 없으면 `FORBIDDEN_ORIGIN`으로 거부하고, OPTIONS preflight도 같은 규칙을 적용합니다.
+추가 개발 Origin은 `REPORT_EXPLORER_ALLOWED_ORIGINS`에 쉼표 또는 세미콜론으로 명시합니다. `/report-explorer/search`와 `/report-explorer/open`은 Origin이 없거나 목록에 없으면 `FORBIDDEN_ORIGIN`으로 거부하고, OPTIONS preflight도 같은 규칙을 적용합니다. Private Network Access preflight가 `Access-Control-Request-Private-Network: true`를 보내면 `Access-Control-Allow-Private-Network: true`로 응답합니다.
 
 검색 요청은 다음 형태입니다.
 
@@ -55,8 +55,35 @@ tools\report-explorer-helper\install-report-explorer-helper-autostart.ps1
 
 이 스크립트는 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`에만 등록합니다. 해제는 `uninstall-report-explorer-helper-autostart.ps1`을 실행합니다.
 
+## 고정 Python·HTTP 계약
+
+외부에서 사용하는 Python API는 다음 세 개입니다.
+
+```python
+ReportExplorerError(code, http_status, message)
+ReportExplorerService(root, launcher=None, token_ttl_seconds=300, clock=time.monotonic)
+create_server(host='127.0.0.1', port=17653, service=None)
+```
+
+`ReportExplorerService`는 `health()`, `search(year, period, business_names)`, `open_result(result_id)`를 제공합니다. HTTP는 `GET /health`, `POST /report-explorer/search`, `POST /report-explorer/open`만 지원하며, POST payload는 각각 정확히 `{year, period, businessNames}`와 `{resultId}` 키만 허용합니다. 오류 body는 항상 아래 형태입니다.
+
+```json
+{"error":{"code":"INVALID_REQUEST","message":"..."}}
+```
+
+| 코드 | HTTP 상태 | 의미 |
+| --- | --- | --- |
+| `INVALID_REQUEST` | 400 | 경로, JSON 또는 payload 계약 위반 |
+| `STORAGE_ROOT_UNAVAILABLE` | 503 | 드라이브 또는 저장소 루트 접근 불가 |
+| `YEAR_NOT_FOUND` | 404 | 연도 폴더 없음 |
+| `PERIOD_NOT_FOUND` | 404 | 반기 폴더 없음 |
+| `RESULT_NOT_FOUND` | 404 | 알 수 없거나 만료된 resultId |
+| `PATH_NOT_ALLOWED` | 403 | root/반기 범위를 벗어난 경로 |
+| `OPEN_FAILED` | 500 | Windows 탐색기 실행 실패 |
+| `FORBIDDEN_ORIGIN` | 403 | Origin 허용 목록 위반 |
+
 ## 로그와 오류 코드
 
 로그는 `%LOCALAPPDATA%\MeasurementJournal\ReportExplorerHelper\logs\report-explorer-helper.log`에 최대 1MB 파일 4개 순환으로 기록됩니다.
 
-주요 오류 코드는 `DRIVE_UNAVAILABLE`, `ROOT_UNAVAILABLE`, `YEAR_UNAVAILABLE`, `PERIOD_UNAVAILABLE`, `INVALID_INPUT`, `FORBIDDEN_ORIGIN`, `INVALID_RESULT_ID`, `EXPIRED_RESULT_ID`, `OPEN_FAILED`입니다.
+오류 코드와 HTTP 상태는 위 고정 계약을 따릅니다.
