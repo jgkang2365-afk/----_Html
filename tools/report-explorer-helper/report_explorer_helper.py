@@ -151,9 +151,12 @@ class ReportExplorerService:
         self._records: dict[str, _OpenRecord] = {}
         self._records_lock = threading.Lock()
 
-    def health(self) -> dict[str, str]:
-        """Safe status response: it intentionally does not disclose storage details."""
-        return {"status": "ok"}
+    def health(self) -> dict[str, Any]:
+        """Report helper and configured storage availability without enumerating data."""
+        storage: dict[str, Any] = {"available": os.path.isdir(self.root), "root": self.root}
+        if not storage["available"]:
+            storage["reason"] = "STORAGE_ROOT_UNAVAILABLE"
+        return {"status": "ok", "version": "1", "storage": storage}
 
     def _available_root(self) -> str:
         drive, _ = os.path.splitdrive(self.root)
@@ -179,7 +182,15 @@ class ReportExplorerService:
             raise ReportExplorerError(
                 "INVALID_REQUEST", 400, "businessNames는 비어 있지 않은 문자열 목록이어야 합니다."
             )
-        if any(not isinstance(name, str) or not normalize_business_name(name) for name in business_names):
+        if any(
+            not isinstance(name, str)
+            or not normalize_business_name(name)
+            or "\x00" in name
+            or "/" in name
+            or "\\" in name
+            or ".." in name
+            for name in business_names
+        ):
             raise ReportExplorerError(
                 "INVALID_REQUEST", 400, "businessNames는 비어 있지 않은 문자열 목록이어야 합니다."
             )
@@ -259,7 +270,7 @@ class ReportExplorerService:
             results.append(
                 {
                     "query": query,
-                    "status": "matched" if matches else "not_found",
+                    "status": "FOUND" if len(matches) == 1 else "MULTIPLE" if matches else "NOT_FOUND",
                     "matches": matches,
                 }
             )
@@ -293,7 +304,7 @@ class ReportExplorerService:
         except OSError as exc:
             LOGGER.exception("Explorer launch failed: %s", exc)
             raise ReportExplorerError("OPEN_FAILED", 500, "Windows 탐색기를 열지 못했습니다.") from exc
-        return {"opened": True}
+        return {"ok": True}
 
 
 def _parse_json_body(handler: BaseHTTPRequestHandler) -> Any:
@@ -372,7 +383,12 @@ class _RequestHandler(BaseHTTPRequestHandler):
         if self.path != "/health":
             self._send_error(ReportExplorerError("INVALID_REQUEST", 400, "지원하지 않는 경로입니다."))
             return
-        # Health is safe without Origin because it never exposes storage state.
+        if self.headers.get("Origin") is not None and not self._origin_is_allowed():
+            self._send_error(
+                ReportExplorerError("FORBIDDEN_ORIGIN", 403, "허용되지 않은 Origin입니다.")
+            )
+            return
+        # Origin-less health remains available to local diagnostics.
         self._send_json(200, self.service.health(), cors=self._origin_is_allowed())
 
     def do_OPTIONS(self) -> None:  # noqa: N802

@@ -17,7 +17,7 @@ $env:REPORT_STORAGE_ROOT = 'Y:\공유\측정보고서'
 tools\report-explorer-helper\run-report-explorer-helper.bat
 ```
 
-`GET http://127.0.0.1:17653/health`는 저장소 경로나 사업장 정보를 노출하지 않는 안전한 상태 확인용이라 Origin 없이도 호출할 수 있습니다. 서비스는 콘솔에서 `Ctrl+C`로 안전하게 종료되며, 자동 시작된 경우 작업 관리자에서 `ReportExplorerHelper.exe` 또는 Python 프로세스를 종료하면 됩니다.
+`GET http://127.0.0.1:17653/health`는 설정된 저장소 루트와 접근 가능 여부만 반환하고 사업장 폴더를 열거하지 않는 상태 확인용이라 Origin 없이도 호출할 수 있습니다. Origin이 있으면 동일한 허용 목록을 검사합니다. 서비스는 콘솔에서 `Ctrl+C`로 안전하게 종료되며, 자동 시작된 경우 작업 관리자에서 `ReportExplorerHelper.exe` 또는 Python 프로세스를 종료하면 됩니다.
 
 ## 브라우저 API와 보안
 
@@ -53,7 +53,7 @@ tools\report-explorer-helper\build-report-explorer-helper.ps1
 tools\report-explorer-helper\install-report-explorer-helper-autostart.ps1
 ```
 
-이 스크립트는 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`에만 등록합니다. 해제는 `uninstall-report-explorer-helper-autostart.ps1`을 실행합니다.
+이 스크립트는 실행 파일과 런타임 파일을 `%LOCALAPPDATA%\MeasurementJournal\ReportExplorerHelper`에 복사한 뒤 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`에만 등록합니다. 해제는 `uninstall-report-explorer-helper-autostart.ps1`을 실행하며 등록값과 복사된 사용자 영역 파일을 함께 제거합니다.
 
 ## 고정 Python·HTTP 계약
 

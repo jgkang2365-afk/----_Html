@@ -76,6 +76,9 @@ function issueKindsFromPayload(payload: unknown, status?: number): ReportExplore
     ) {
       kinds.add("root");
     }
+    if (isObject(payload.storage) && payload.storage.available === false) {
+      kinds.add("root");
+    }
   }
 
   return [...kinds];
@@ -204,7 +207,10 @@ export async function getReportExplorerHealth(signal?: AbortSignal): Promise<Rep
     const version =
       isObject(payload) && typeof payload.version === "string" ? payload.version : null;
     const storage = isObject(payload) && isObject(payload.storage) ? payload.storage : null;
-    const message = isObject(payload) ? messageFromPayload(payload, "") || null : null;
+    const storageUnavailable = storage?.available === false;
+    const message = storageUnavailable
+      ? "보고서 저장소에 연결할 수 없습니다. Z: 드라이브 연결을 확인해주세요."
+      : isObject(payload) ? messageFromPayload(payload, "") || null : null;
     const issues = issuesFromPayload(
       payload,
       message || "보고서 탐색기 상태를 확인할 수 없습니다."

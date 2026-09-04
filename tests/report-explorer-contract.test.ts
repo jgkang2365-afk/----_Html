@@ -43,6 +43,24 @@ test("사업장명 입력은 쉼표·개행을 trim하고 대소문자 무시 �
   );
 });
 
+test("health가 Z: 저장소 미연결을 독립 루트 오류로 표시한다", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    status: "ok",
+    version: "1",
+    storage: { available: false, root: "Z:\\data\\측정팀\\측정보고서", reason: "STORAGE_ROOT_UNAVAILABLE" },
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+
+  try {
+    const client = await import("../lib/report-explorer/client");
+    const health = await client.getReportExplorerHealth();
+    assert.deepEqual(health.issues.map((issue) => issue.kind), ["root"]);
+    assert.match(health.message ?? "", /Z: 드라이브/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("탐색기 호출은 루프백 헬퍼만 사용하며 기존 보고서 처리 API를 추가 호출하지 않는다", () => {
   const page = source(pagePath);
   const client = source(clientPath);

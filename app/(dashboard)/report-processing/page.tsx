@@ -650,7 +650,7 @@ export default function ReportProcessingPage() {
                             onClick={() => void updateExplorerHealth()}
                             disabled={explorerSearching || explorerOpeningResultId !== null}
                         >
-                            상태 확인
+                            새로고침
                         </Button>
                     </div>
                 </div>
@@ -708,7 +708,7 @@ export default function ReportProcessingPage() {
                         disabled={explorerSearching || explorerOpeningResultId !== null}
                     >
                         {explorerSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderSearch className="mr-2 h-4 w-4" />}
-                        탐색
+                        보고서 폴더 검색
                     </Button>
                 </div>
 
