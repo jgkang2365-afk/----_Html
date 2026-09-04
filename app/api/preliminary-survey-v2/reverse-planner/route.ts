@@ -393,7 +393,7 @@ export async function POST(request: NextRequest) {
     const measurementDate = String(body.measurementDate ?? "");
     if (!DATE_ONLY.test(measurementDate)) return NextResponse.json({ error: "실제 측정일이 필요합니다." }, { status: 400 });
     let { snapshot } = await loadSnapshot(supabase, measurementDate,
-      body.action === "confirm_fixed" ? "display" : "calculation");
+      body.action === "confirm_fixed" || body.action === "release_fixed" ? "display" : "calculation");
 
     if (body.action === "confirm_fixed") {
       const targetId = Number(body.targetId);
@@ -429,6 +429,35 @@ export async function POST(request: NextRequest) {
       });
       if (error) throw error;
       return NextResponse.json({ success: true, fixedAssignment: Array.isArray(data) ? data[0] : data });
+    }
+
+    if (body.action === "release_fixed") {
+      const targetId = Number(body.targetId);
+      const fixedDate = String(body.fixedDate ?? "");
+      if (!Number.isInteger(targetId) || !DATE_ONLY.test(fixedDate)) {
+        return NextResponse.json({ error: "고정 측정자 해제값이 올바르지 않습니다." }, { status: 400 });
+      }
+      const target = snapshot.targets.find((item) => item.id === targetId);
+      const day = target?.days.find((item) => item.date === fixedDate);
+      const fixed = target?.fixedAssignments.find((item) => item.measurementDate === fixedDate && item.origin !== "automatic");
+      if (!target || !day) {
+        return NextResponse.json({ error: "해당 사업장의 실제 측정일이 아닙니다." }, { status: 400 });
+      }
+      if (!fixed) {
+        return NextResponse.json({ success: true, released: false, alreadyAutomatic: true });
+      }
+      if (target.days.some((entry) => entry.date.startsWith("2026-08-"))) {
+        return NextResponse.json({ error: "2026년 8월 실제 측정자료는 새 플래너에서 변경하지 않습니다.", code: "TRANSITION_BOUNDARY_REVIEW_REQUIRED" }, { status: 409 });
+      }
+      const { data, error } = await supabase.rpc("release_preliminary_survey_v2_fixed_assignment", {
+        p_target_id: targetId,
+        p_measurement_date: fixedDate,
+        p_actor_user_id: session.userId,
+        p_expected_assignee_user_id: fixed.assigneeUserId,
+        p_expected_updated_at: fixed.updatedAt,
+      });
+      if (error) throw error;
+      return NextResponse.json({ success: true, released: Boolean(data?.released), release: data });
     }
 
     if (body.action === "preview") {
