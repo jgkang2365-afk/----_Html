@@ -660,6 +660,9 @@ export default function ReportProcessingPage() {
                         {explorerMessage}
                     </p>
                 )}
+                <p className="text-xs text-slate-500">
+                    처음 연결하는 경우 브라우저에서 로컬 네트워크 접근 권한을 허용해주세요.
+                </p>
 
                 <div className="grid gap-3 lg:grid-cols-[12rem_12rem_minmax(0,1fr)_auto] lg:items-end">
                     <Select

@@ -2,6 +2,11 @@
 setlocal
 set "HELPER_DIR=%~dp0"
 
+if exist "%HELPER_DIR%ReportExplorerHelper.exe" (
+  "%HELPER_DIR%ReportExplorerHelper.exe"
+  exit /b %ERRORLEVEL%
+)
+
 if exist "%HELPER_DIR%dist\ReportExplorerHelper.exe" (
   "%HELPER_DIR%dist\ReportExplorerHelper.exe"
   exit /b %ERRORLEVEL%

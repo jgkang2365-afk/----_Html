@@ -75,6 +75,7 @@ create_server(host='127.0.0.1', port=17653, service=None)
 | --- | --- | --- |
 | `INVALID_REQUEST` | 400 | 경로, JSON 또는 payload 계약 위반 |
 | `STORAGE_ROOT_UNAVAILABLE` | 503 | 드라이브 또는 저장소 루트 접근 불가 |
+| `STORAGE_PERMISSION_DENIED` | 403 | 저장소 폴더 읽기 권한 없음 |
 | `YEAR_NOT_FOUND` | 404 | 연도 폴더 없음 |
 | `PERIOD_NOT_FOUND` | 404 | 반기 폴더 없음 |
 | `RESULT_NOT_FOUND` | 404 | 알 수 없거나 만료된 resultId |

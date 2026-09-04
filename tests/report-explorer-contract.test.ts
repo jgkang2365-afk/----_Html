@@ -61,6 +61,35 @@ test("health가 Z: 저장소 미연결을 독립 루트 오류로 표시한다",
   }
 });
 
+test("권한 오류와 path containment 거부를 HTTP 403만으로 혼동하지 않는다", async () => {
+  const originalFetch = globalThis.fetch;
+  const client = await import("../lib/report-explorer/client");
+
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      error: { code: "PATH_NOT_ALLOWED", message: "허용된 저장소 범위를 벗어난 경로입니다." },
+    }), { status: 403, headers: { "Content-Type": "application/json" } });
+    await assert.rejects(
+      client.searchReportExplorer({ year: 2026, period: "상반기", businessNames: ["한결"] }),
+      (error: unknown) => error instanceof client.ReportExplorerClientError
+        && error.code === "PATH_NOT_ALLOWED"
+        && !error.issues.some((issue) => issue.kind === "permission"),
+    );
+
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      error: { code: "STORAGE_PERMISSION_DENIED", message: "보고서 저장소에 접근할 권한이 없습니다." },
+    }), { status: 403, headers: { "Content-Type": "application/json" } });
+    await assert.rejects(
+      client.searchReportExplorer({ year: 2026, period: "상반기", businessNames: ["한결"] }),
+      (error: unknown) => error instanceof client.ReportExplorerClientError
+        && error.code === "STORAGE_PERMISSION_DENIED"
+        && error.issues.some((issue) => issue.kind === "permission"),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("탐색기 호출은 루프백 헬퍼만 사용하며 기존 보고서 처리 API를 추가 호출하지 않는다", () => {
   const page = source(pagePath);
   const client = source(clientPath);

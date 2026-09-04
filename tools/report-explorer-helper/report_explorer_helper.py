@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import signal
+import stat
 import subprocess
 import threading
 import time
@@ -151,11 +152,37 @@ class ReportExplorerService:
         self._records: dict[str, _OpenRecord] = {}
         self._records_lock = threading.Lock()
 
+    @staticmethod
+    def _require_directory(path: str, missing_code: str, missing_status: int, missing_message: str) -> None:
+        try:
+            mode = os.stat(path).st_mode
+        except PermissionError as exc:
+            raise ReportExplorerError(
+                "STORAGE_PERMISSION_DENIED", 403, "보고서 저장소 폴더에 접근할 권한이 없습니다."
+            ) from exc
+        except FileNotFoundError as exc:
+            raise ReportExplorerError(missing_code, missing_status, missing_message) from exc
+        except OSError as exc:
+            raise ReportExplorerError(
+                "STORAGE_ROOT_UNAVAILABLE", 503, "보고서 저장소에 접근할 수 없습니다."
+            ) from exc
+        if not stat.S_ISDIR(mode):
+            raise ReportExplorerError(missing_code, missing_status, missing_message)
+
     def health(self) -> dict[str, Any]:
         """Report helper and configured storage availability without enumerating data."""
-        storage: dict[str, Any] = {"available": os.path.isdir(self.root), "root": self.root}
-        if not storage["available"]:
-            storage["reason"] = "STORAGE_ROOT_UNAVAILABLE"
+        try:
+            available = stat.S_ISDIR(os.stat(self.root).st_mode)
+            reason = None if available else "STORAGE_ROOT_UNAVAILABLE"
+        except PermissionError:
+            available = False
+            reason = "STORAGE_PERMISSION_DENIED"
+        except OSError:
+            available = False
+            reason = "STORAGE_ROOT_UNAVAILABLE"
+        storage: dict[str, Any] = {"available": available, "root": self.root}
+        if reason:
+            storage["reason"] = reason
         return {"status": "ok", "version": "1", "storage": storage}
 
     def _available_root(self) -> str:
@@ -164,10 +191,12 @@ class ReportExplorerService:
             raise ReportExplorerError(
                 "STORAGE_ROOT_UNAVAILABLE", 503, "보고서 저장 드라이브를 사용할 수 없습니다."
             )
-        if not os.path.isdir(self.root):
-            raise ReportExplorerError(
-                "STORAGE_ROOT_UNAVAILABLE", 503, "보고서 저장소 루트를 사용할 수 없습니다."
-            )
+        self._require_directory(
+            self.root,
+            "STORAGE_ROOT_UNAVAILABLE",
+            503,
+            "보고서 저장소 루트를 사용할 수 없습니다.",
+        )
         return self.root
 
     @staticmethod
@@ -199,14 +228,12 @@ class ReportExplorerService:
     def _period_root(self, year: int, period: str) -> tuple[str, str]:
         root = self._available_root()
         year_root = _canonical(os.path.join(root, f"{year}년"))
-        if not os.path.isdir(year_root):
-            raise ReportExplorerError("YEAR_NOT_FOUND", 404, "요청한 연도 폴더를 찾을 수 없습니다.")
+        self._require_directory(year_root, "YEAR_NOT_FOUND", 404, "요청한 연도 폴더를 찾을 수 없습니다.")
         if not _is_within(year_root, root):
             raise ReportExplorerError("PATH_NOT_ALLOWED", 403, "허용된 저장소 범위를 벗어난 경로입니다.")
 
         period_root = _canonical(os.path.join(year_root, period))
-        if not os.path.isdir(period_root):
-            raise ReportExplorerError("PERIOD_NOT_FOUND", 404, "요청한 반기 폴더를 찾을 수 없습니다.")
+        self._require_directory(period_root, "PERIOD_NOT_FOUND", 404, "요청한 반기 폴더를 찾을 수 없습니다.")
         if not _is_within(period_root, root) or not _is_within(period_root, year_root):
             raise ReportExplorerError("PATH_NOT_ALLOWED", 403, "허용된 저장소 범위를 벗어난 경로입니다.")
         return root, period_root
@@ -241,6 +268,10 @@ class ReportExplorerService:
                     folder_path = _canonical(entry.path)
                     if _is_within(folder_path, root) and _is_within(folder_path, period_root):
                         folders.append((entry.name, folder_path, normalize_business_name(entry.name)))
+        except PermissionError as exc:
+            raise ReportExplorerError(
+                "STORAGE_PERMISSION_DENIED", 403, "보고서 저장소 폴더를 읽을 권한이 없습니다."
+            ) from exc
         except OSError as exc:
             raise ReportExplorerError(
                 "STORAGE_ROOT_UNAVAILABLE", 503, "보고서 저장소에 접근할 수 없습니다."
@@ -287,10 +318,14 @@ class ReportExplorerService:
         root = self._available_root()
         period_root = _canonical(record.period_root)
         target = _canonical(record.path)
+        self._require_directory(
+            period_root, "PATH_NOT_ALLOWED", 403, "허용된 저장소 범위의 폴더만 열 수 있습니다."
+        )
+        self._require_directory(
+            target, "PATH_NOT_ALLOWED", 403, "허용된 저장소 범위의 폴더만 열 수 있습니다."
+        )
         if (
             os.path.normcase(root) != os.path.normcase(record.report_root)
-            or not os.path.isdir(period_root)
-            or not os.path.isdir(target)
             or not _is_within(period_root, root)
             or not _is_within(target, root)
             or not _is_within(target, period_root)

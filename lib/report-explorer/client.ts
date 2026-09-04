@@ -54,14 +54,23 @@ function errorCodeFromPayload(payload: unknown) {
 }
 
 function issueKindsFromPayload(payload: unknown, status?: number): ReportExplorerIssueKind[] {
+  const code = errorCodeFromPayload(payload);
   const message =
-    `${errorCodeFromPayload(payload)} ${messageFromPayload(payload, "")}`.toLowerCase();
+    `${code} ${messageFromPayload(payload, "")}`.toLowerCase();
   const kinds = new Set<ReportExplorerIssueKind>();
 
-  if (status === 401 || status === 403 || /permission|access denied|권한|접근 거부/.test(message)) {
+  if (
+    code === "STORAGE_PERMISSION_DENIED"
+    || code === "FORBIDDEN_ORIGIN"
+    || status === 401
+    || /permission|access denied|권한|접근 거부/.test(message)
+  ) {
     kinds.add("permission");
   }
-  if (/root|directory|folder|path|루트|경로|폴더/.test(message)) {
+  if (
+    ["STORAGE_ROOT_UNAVAILABLE", "YEAR_NOT_FOUND", "PERIOD_NOT_FOUND"].includes(code)
+    || /root|directory|folder|루트|폴더/.test(message)
+  ) {
     kinds.add("root");
   }
 
@@ -77,7 +86,8 @@ function issueKindsFromPayload(payload: unknown, status?: number): ReportExplore
       kinds.add("root");
     }
     if (isObject(payload.storage) && payload.storage.available === false) {
-      kinds.add("root");
+      if (payload.storage.reason === "STORAGE_PERMISSION_DENIED") kinds.add("permission");
+      else kinds.add("root");
     }
   }
 
@@ -208,8 +218,10 @@ export async function getReportExplorerHealth(signal?: AbortSignal): Promise<Rep
       isObject(payload) && typeof payload.version === "string" ? payload.version : null;
     const storage = isObject(payload) && isObject(payload.storage) ? payload.storage : null;
     const storageUnavailable = storage?.available === false;
-    const message = storageUnavailable
-      ? "보고서 저장소에 연결할 수 없습니다. Z: 드라이브 연결을 확인해주세요."
+    const message = storage?.reason === "STORAGE_PERMISSION_DENIED"
+      ? "보고서 저장소를 읽을 권한이 없습니다. Windows 접근 권한을 확인해주세요."
+      : storageUnavailable
+        ? "보고서 저장소에 연결할 수 없습니다. Z: 드라이브 연결을 확인해주세요."
       : isObject(payload) ? messageFromPayload(payload, "") || null : null;
     const issues = issuesFromPayload(
       payload,

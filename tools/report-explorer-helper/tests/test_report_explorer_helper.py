@@ -11,7 +11,7 @@ import time
 import unicodedata
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -102,6 +102,13 @@ class ReportExplorerServiceTests(unittest.TestCase):
         self.assert_error("YEAR_NOT_FOUND", lambda: self.service.search(2025, "상반기", ["한결"]))
         (self.root / "2026년" / "상반기").rmdir()
         self.assert_error("PERIOD_NOT_FOUND", lambda: self.service.search(2026, "상반기", ["한결"]))
+
+    def test_period_read_permission_is_not_reported_as_missing_storage(self) -> None:
+        with patch.object(helper.os, "scandir", side_effect=PermissionError("denied")):
+            self.assert_error(
+                "STORAGE_PERMISSION_DENIED",
+                lambda: self.service.search(2026, "상반기", ["한결"]),
+            )
 
     def test_invalid_requests_cover_all_year_and_period_forms(self) -> None:
         invalid_years = [None, True, 0, -1, 2026.0, "2026"]
