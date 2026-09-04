@@ -228,6 +228,64 @@ test("13개 batch도 정상 12건을 보존하고 자동 3건째 대상만 확�
     "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE");
 });
 
+test("9개 clean 기존업체 batch는 2초 안에 exact optimum의 예비조사 값을 모두 산출한다", () => {
+  const rows = [
+    ["H0011", 2, 2, 6], ["H0012", 3, 2, 6], ["H0047", 6, 6, 6],
+    ["H0131", 1, 1, 6], ["H0081", 5, 5, 3], ["H0082", 4, 4, 3],
+    ["H0084", 3, 3, 3], ["H0085", 5, 5, 3], ["H0094", 4, 4, 3],
+  ] as const;
+  const targets = rows.map(([code, assigneeId, participantId, reportWriterId], index) => target({
+    id: 200 + index,
+    code,
+    address: code === "H0081" || code === "H0084"
+      ? "대전광역시 유성구 복용동로 35" : `대전 주소 ${index}`,
+    days: [{ date: "2026-10-15", collaboratorUserIds: [participantId], reportWriterUserId: reportWriterId }],
+    fixedAssignments: [{ targetId: 200 + index, measurementDate: "2026-10-15",
+      assigneeUserId: assigneeId, confirmedAt: "automatic", updatedAt: "automatic", origin: "automatic" }],
+  }));
+  const output = planPreliminarySurveyGivenFixedAssignments(fixture({ targets }), {
+    deadlineAt: Date.now() + 2_000,
+  });
+  assert.equal(output.solverTimedOut, undefined);
+  assert.equal(output.results.every((result) => result.decision === "AUTO_ASSIGNED"), true);
+  assert.deepEqual(output.results.map((result) => [result.code, result.candidate?.preliminaryDate,
+    result.candidate?.responsibleUserId, result.candidate?.reviewerUserId, result.candidate?.writerUserId]), [
+    ["H0011", "2026-09-11", 2, null, 2],
+    ["H0012", "2026-09-14", 3, 5, 3],
+    ["H0047", "2026-09-15", 6, 4, 6],
+    ["H0081", "2026-09-16", 3, 5, 3],
+    ["H0082", "2026-09-17", 4, null, 4],
+    ["H0084", "2026-09-18", 3, 5, 3],
+    ["H0085", "2026-09-21", 3, 5, 3],
+    ["H0094", "2026-09-22", 4, null, 4],
+    ["H0131", "2026-09-23", 1, 2, 1],
+  ]);
+});
+
+test("solver timeout·후보 없음·batch hard constraint 충돌을 route 부족과 분리한다", () => {
+  const timeout = planPreliminarySurveyGivenFixedAssignments(fixture(), { deadlineAt: Date.now() });
+  assert.equal(timeout.solverTimedOut, true);
+  assert.equal(timeout.results[0].reason, "SOLVER_TIMEOUT");
+
+  const noCandidate = fixture({ scheduleBlocks: users.map((user) => ({
+    userId: user.id, startDate: "2026-08-01", endDate: "2026-10-31",
+  })) });
+  assert.equal(resultFor(noCandidate).reason, "NO_VALID_PRELIMINARY_DATE");
+
+  const targets = [10, 11].map((id) => target({ id, code: `H00${id}` }));
+  const constrained = fixture({ targets });
+  const forcedCandidates = new Map(targets.map((item) => [item.id, rankedCandidatesForTarget(constrained, item)[0]]));
+  const preliminaryDate = forcedCandidates.get(10)!.preliminaryDate;
+  constrained.existingSurveyOccupancy = [20, 21].map((targetId) => ({
+    targetId, businessCode: `H00${targetId}`, address: "대전 외부", preliminaryDate,
+    surveyMethod: "phone" as const, participantUserIds: [2, 1], responsibleUserId: 1,
+    reviewerUserId: 2, writerUserId: 1, protected: false,
+  }));
+  const noFeasibleBatch = planPreliminarySurveyGivenFixedAssignments(constrained, { forcedCandidates });
+  assert.equal(noFeasibleBatch.solverTimedOut, undefined);
+  assert.equal(noFeasibleBatch.results.every((result) => result.reason === "NO_FEASIBLE_BATCH_ASSIGNMENT"), true);
+});
+
 test("Route 없는 두 번째 자동 측정자는 배정하지 않고 해당 target만 확인 필요로 남긴다", () => {
   const targets = Array.from({ length: 7 }, (_, index) => target({
     id: 10 + index,

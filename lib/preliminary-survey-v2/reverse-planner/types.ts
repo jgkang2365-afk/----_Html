@@ -13,7 +13,9 @@ export type ReversePlannerReason =
   | "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"
   | "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE"
   | "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED"
-  | "MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED";
+  | "MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED"
+  | "SOLVER_TIMEOUT"
+  | "NO_FEASIBLE_BATCH_ASSIGNMENT";
 
 export interface PlannerUser { id: number; name: string; active: boolean; experienced: boolean; baseCode: string | null }
 export interface PlannerDay {

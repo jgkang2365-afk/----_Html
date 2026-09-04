@@ -351,24 +351,34 @@ function solveBatch(
   let bestObjective: PlannerObjective | null = null;
   let timedOut = false;
   const minimumStaticSuffix: PlannerObjective[] = Array.from({ length: targets.length + 1 }, () => [...ZERO_OBJECTIVE]);
+  const minimumPriorityCandidates = new Map<number, PlannerCandidate[]>();
+  const minimumPriorityCompatibleSuffix = new Array(targets.length + 1).fill(true);
   for (let index = targets.length - 1; index >= 0; index -= 1) {
     const candidates = choices.get(targets[index].id) ?? [];
     const minimum = ZERO_OBJECTIVE.map((_, objectiveIndex) =>
       Math.min(...candidates.map((candidate) => candidate.objective[objectiveIndex]))) as unknown as PlannerObjective;
+    const compatible = candidates.filter((candidate) => [0, 1, 2, 3].every((objectiveIndex) =>
+      candidate.objective[objectiveIndex] === minimum[objectiveIndex]));
+    minimumPriorityCandidates.set(targets[index].id, compatible);
+    minimumPriorityCompatibleSuffix[index] = compatible.length > 0 && minimumPriorityCompatibleSuffix[index + 1];
     minimumStaticSuffix[index] = addObjective(minimum, minimumStaticSuffix[index + 1]);
   }
   const writerIds = [...new Set(targets.flatMap((target) =>
     (choices.get(target.id) ?? []).map((candidate) => candidate.writerUserId)))].sort((left, right) => left - right);
   const writerIndex = new Map(writerIds.map((writerId, index) => [writerId, index]));
   const writingLowerBoundMemo = new Map<string, number>();
-  const remainingWritingLowerBound = (index: number, selectedWriterCounts: Map<number, number>) => {
+  const remainingWritingLowerBound = (index: number, selectedWriterCounts: Map<number, number>,
+    minimumPriorityOnly = false) => {
     const counts = writerIds.map((writerId) => selectedWriterCounts.get(writerId) ?? 0);
     const visitWriting = (targetIndex: number): number => {
       if (targetIndex === targets.length) return 0;
-      const key = `${targetIndex}|${counts.join(",")}`;
+      const key = `${minimumPriorityOnly ? "priority" : "all"}|${targetIndex}|${counts.join(",")}`;
       const cached = writingLowerBoundMemo.get(key);
       if (cached != null) return cached;
-      const writers = [...new Set((choices.get(targets[targetIndex].id) ?? []).map((candidate) => candidate.writerUserId))];
+      const candidates = minimumPriorityOnly
+        ? minimumPriorityCandidates.get(targets[targetIndex].id) ?? []
+        : choices.get(targets[targetIndex].id) ?? [];
+      const writers = [...new Set(candidates.map((candidate) => candidate.writerUserId))];
       let minimum = Number.POSITIVE_INFINITY;
       for (const writerId of writers) {
         const countIndex = writerIndex.get(writerId)!;
@@ -414,9 +424,12 @@ function solveBatch(
     }
     if (bestObjective) {
       const staticLowerBound = addObjective(objective, minimumStaticSuffix[index]);
+      const priorityMatchesBest = [0, 1, 2, 3].every((objectiveIndex) =>
+        staticLowerBound[objectiveIndex] === bestObjective![objectiveIndex]);
       const lowerBound: PlannerObjective = [
         staticLowerBound[0], staticLowerBound[1], staticLowerBound[2], staticLowerBound[3],
-        staticLowerBound[4] + remainingWritingLowerBound(index, selectedWriterCounts), staticLowerBound[5],
+        staticLowerBound[4] + remainingWritingLowerBound(index, selectedWriterCounts,
+          priorityMatchesBest && minimumPriorityCompatibleSuffix[index]), staticLowerBound[5],
       ];
       if (compareObjective(lowerBound, bestObjective) >= 0) return;
     }
@@ -524,11 +537,13 @@ export function planPreliminarySurveyGivenFixedAssignments(
       mutation: "NONE" as const, reason: "ROUTE_EVIDENCE_REQUIRED" as const, candidate: null };
     if (protectedGroupBlocked.has(target.id)) return { ...common, decision: "MANUAL_REQUIRED" as const,
       mutation: "NONE" as const, reason: "PROTECTED_PLAN_REQUIRES_REVIEW" as const, candidate: null };
+    if (!choices.get(target.id)?.length) return { ...common, decision: "MANUAL_REQUIRED" as const,
+      mutation: "NONE" as const, reason: emptyCandidateReason(snapshot, target), candidate: null };
     if (solved.timedOut) return { ...common, decision: "MANUAL_REQUIRED" as const, mutation: "NONE" as const,
-      reason: "ROUTE_EVIDENCE_REQUIRED" as const, candidate: null };
+      reason: "SOLVER_TIMEOUT" as const, candidate: null };
     const candidate = selected.get(target.id) ?? null;
     if (!candidate) return { ...common, decision: "MANUAL_REQUIRED" as const, mutation: "NONE" as const,
-      reason: choices.get(target.id)?.length ? "ROUTE_EVIDENCE_REQUIRED" as const : emptyCandidateReason(snapshot, target), candidate: null };
+      reason: "NO_FEASIBLE_BATCH_ASSIGNMENT" as const, candidate: null };
     const keepExisting = candidate.reasons.includes("KEEP_EXISTING");
     if (target.protected && !keepExisting) return { ...common, decision: "MANUAL_REQUIRED" as const,
       mutation: "NONE" as const, reason: "PROTECTED_PLAN_REQUIRES_REVIEW" as const, candidate: null };
