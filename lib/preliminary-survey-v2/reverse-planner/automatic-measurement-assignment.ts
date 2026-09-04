@@ -14,7 +14,7 @@ import type {
 } from "./types";
 
 const surveyCodes = new Set(["A", "B", "C", "D", "F", "G"]);
-const DEFAULT_MAX_PAIRS = 20;
+const DEFAULT_MAX_PAIRS = 36;
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_DEADLINE_MS = 20_000;
 
@@ -87,7 +87,8 @@ function measurementEvidence(evidence: PlannerRouteEvidence[]): MeasurementVehic
       fromMeasurementDate: item.date,
       toTargetId: item.rightTargetId,
       toMeasurementDate: item.date,
-      source: item.sameAddress || item.provider === "vehicle_bidirectional" ? "vehicle" as const : "unknown" as const,
+      source: item.sameAddress || item.provider === "vehicle" || item.provider === "vehicle_bidirectional"
+        ? "vehicle" as const : "unknown" as const,
       durationMinutes: item.durationMinutes,
       allowed: item.sameAddress || (item.durationMinutes != null && item.durationMinutes <= 60),
     }));
@@ -123,7 +124,15 @@ export function withAutomaticMeasurementAssignments(
   snapshot: PlanningSnapshot,
   routeEvidence: PlannerRouteEvidence[] = snapshot.routeEvidence,
 ): PlanningSnapshot {
-  const { input, automatic } = calculateAutomatic(snapshot, routeEvidence);
+  return withCalculatedAutomaticAssignments(snapshot, routeEvidence, calculateAutomatic(snapshot, routeEvidence));
+}
+
+function withCalculatedAutomaticAssignments(
+  snapshot: PlanningSnapshot,
+  routeEvidence: PlannerRouteEvidence[],
+  calculation: ReturnType<typeof calculateAutomatic>,
+): PlanningSnapshot {
+  const { input, automatic } = calculation;
   if (!input.missing.length) return { ...snapshot, routeEvidence };
   const automaticAssignments: FixedMeasurementAssignment[] = automatic.map((item) => ({
     targetId: item.targetId,
@@ -197,7 +206,7 @@ type CandidatePair = {
   date: string;
   left: MeasurementAssignmentTarget;
   right: ExistingMeasurementAssignment;
-  userId: number;
+  userIds: number[];
 };
 
 async function settleBeforeDeadline<T>(promise: Promise<T>, signal: AbortSignal) {
@@ -210,110 +219,331 @@ async function settleBeforeDeadline<T>(promise: Promise<T>, signal: AbortSignal)
   });
 }
 
-/** Preview 전용: 두 번째 자동 측정자 후보에게 실제 필요한 pair만 양방향 조회한다. */
+/** Preview 전용: exact search에서 실제 두 번째 배정이 될 수 있는 pair만 단방향 조회한다. */
 export async function resolveAutomaticMeasurementAssignments(
   snapshot: PlanningSnapshot,
   options: AutomaticMeasurementAssignmentOptions = {},
 ) {
-  const routeFree = withAutomaticMeasurementAssignments(snapshot, snapshot.routeEvidence);
-  const routeFreeCalculation = calculateAutomatic(snapshot, snapshot.routeEvidence);
-  const resolvedKeys = new Set(routeFreeCalculation.automatic.map((item) => keyOf(item.targetId, item.measurementDate)));
-  const firstAssignments: ExistingMeasurementAssignment[] = routeFreeCalculation.automatic.map((item) => ({
-    ...routeFreeCalculation.input.missing.find((target) => keyOf(target.targetId, target.measurementDate)
-      === keyOf(item.targetId, item.measurementDate))!,
-    userId: item.userId,
-  }));
-  const assigned = [
-    ...routeFreeCalculation.input.existing,
-    ...routeFreeCalculation.input.explicit,
-    ...firstAssignments,
-  ];
-  const pairs = new Map<string, CandidatePair>();
-  for (const target of routeFreeCalculation.input.missing
-    .filter((item) => !resolvedKeys.has(keyOf(item.targetId, item.measurementDate)))) {
-    for (const user of snapshot.users.filter((item) => item.active && surveyCodes.has(item.baseCode ?? ""))) {
-      if (snapshot.scheduleBlocks.some((block) => block.userId === user.id
-        && block.startDate <= target.measurementDate && block.endDate >= target.measurementDate)) continue;
-      const occupied = assigned.filter((item) => item.measurementDate === target.measurementDate && item.userId === user.id);
-      if (occupied.length !== 1) continue;
-      const right = occupied[0];
-      const ids = [target.targetId, right.targetId].sort((a, b) => a - b);
-      pairs.set(`${target.measurementDate}|${ids[0]}|${ids[1]}|${user.id}`, {
-        date: target.measurementDate, left: target, right, userId: user.id,
+  const input = automaticInput(snapshot);
+  const assigned = [...input.existing, ...input.explicit];
+  const activeUsers = snapshot.users.filter((item) => item.active && surveyCodes.has(item.baseCode ?? ""));
+  const pairKey = (pair: CandidatePair) => {
+    const ids = [pair.left.targetId, pair.right.targetId].sort((a, b) => a - b);
+    return `${pair.date}|${ids[0]}|${ids[1]}`;
+  };
+  type CandidateTier = { sameAddress: number; participant: number; report: number;
+    pairs: CandidatePair[]; exhaustive: boolean };
+  const findNextTier = (date: string, ceiling: CandidateTier | null, requiredSameAddress: number | null,
+    exactRole: Pick<CandidateTier, "participant" | "report"> | null = null) => {
+    const targets = input.missing.filter((item) => item.measurementDate === date)
+      .sort((left, right) => left.targetId - right.targetId);
+    const users = activeUsers.filter((user) => !snapshot.scheduleBlocks.some((block) =>
+      block.userId === user.id && block.startDate <= date && block.endDate >= date));
+    const exhaustive = targets.length <= 7;
+    const occupancy = new Map(users.map((user) => [user.id,
+      assigned.filter((item) => item.measurementDate === date && item.userId === user.id)]));
+    const initialCounts = new Map(users.map((user) => [user.id, occupancy.get(user.id)?.length ?? 0]));
+    const remainingMatchUpperBound = (startIndex: number, kind: "participant" | "report") => {
+      const slots = users.flatMap((user) => Array.from({ length: Math.max(0, 2 - (occupancy.get(user.id)?.length ?? 0)) },
+        (_, slotIndex) => ({ userId: user.id, key: `${user.id}|${slotIndex}` })));
+      const occupiedBySlot = new Map<string, number>();
+      const tryMatch = (targetIndex: number, seen: Set<string>): boolean => {
+        const target = targets[targetIndex];
+        for (const slot of slots) {
+          const matches = kind === "participant"
+            ? (target.measurementParticipantUserIds?.includes(slot.userId) ?? false)
+            : target.reportWriterUserId === slot.userId;
+          if (!matches || seen.has(slot.key)) continue;
+          seen.add(slot.key);
+          const priorTargetIndex = occupiedBySlot.get(slot.key);
+          if (priorTargetIndex == null || tryMatch(priorTargetIndex, seen)) {
+            occupiedBySlot.set(slot.key, targetIndex);
+            return true;
+          }
+        }
+        return false;
+      };
+      let matched = 0;
+      for (let targetIndex = startIndex; targetIndex < targets.length; targetIndex += 1) {
+        if (tryMatch(targetIndex, new Set())) matched += 1;
+      }
+      return matched;
+    };
+    let bestSameAddress = requiredSameAddress ?? -1;
+    let bestParticipant = -1;
+    let bestReport = -1;
+    const bestPairs = new Map<string, CandidatePair>();
+    const firstRotationValid = () => {
+      const counts = users.map((user) => occupancy.get(user.id)?.length ?? 0);
+      if (!counts.some((count) => count === 0)) return true;
+      return users.every((user, userIndex) => {
+        const initialCount = initialCounts.get(user.id) ?? 0;
+        if (counts[userIndex] <= Math.max(initialCount, 1)) return true;
+        const sameUser = occupancy.get(user.id) ?? [];
+        return sameUser.length === 2 && normalizedAddress(sameUser[0].address)
+          && normalizedAddress(sameUser[0].address) === normalizedAddress(sameUser[1].address);
       });
-    }
-  }
+    };
+    const canStillSatisfyFirstRotation = (remainingTargets: number) => {
+      const counts = users.map((user) => occupancy.get(user.id)?.length ?? 0);
+      const zeroCount = counts.filter((count) => count === 0).length;
+      if (zeroCount === 0) return true;
+      const hasOrdinaryDuplicate = users.some((user, userIndex) => {
+        const initialCount = initialCounts.get(user.id) ?? 0;
+        if (counts[userIndex] <= Math.max(initialCount, 1)) return false;
+        const sameUser = occupancy.get(user.id) ?? [];
+        return sameUser.length !== 2 || !normalizedAddress(sameUser[0].address)
+          || normalizedAddress(sameUser[0].address) !== normalizedAddress(sameUser[1].address);
+      });
+      return !hasOrdinaryDuplicate || zeroCount <= remainingTargets;
+    };
+    const sameAddressUpperBound = (startIndex: number, sameAddress: number) => {
+      const remainingByAddress = new Map<string, number>();
+      for (const target of targets.slice(startIndex)) {
+        const key = normalizedAddress(target.address);
+        if (key) remainingByAddress.set(key, (remainingByAddress.get(key) ?? 0) + 1);
+      }
+      let additional = 0;
+      for (const [key, remainingCount] of remainingByAddress) {
+        const eligibleSingles = users.filter((user) => (occupancy.get(user.id)?.length ?? 0) < 2
+          && (occupancy.get(user.id) ?? []).some((item) => normalizedAddress(item.address) === key)).length;
+        const matchedSingles = Math.min(remainingCount, eligibleSingles);
+        additional += matchedSingles + Math.floor((remainingCount - matchedSingles) / 2);
+      }
+      return sameAddress + additional;
+    };
+    const mergeBestPair = (pair: CandidatePair) => {
+      const ids = [pair.left.targetId, pair.right.targetId].sort((left, right) => left - right);
+      const key = `${pair.date}|${ids[0]}|${ids[1]}`;
+      const previous = bestPairs.get(key);
+      bestPairs.set(key, { ...pair,
+        userIds: [...new Set([...(previous?.userIds ?? []), ...pair.userIds])].sort((left, right) => left - right) });
+    };
+    const belowCeiling = (participant: number, report: number) => !ceiling
+      || participant < ceiling.participant || (participant === ceiling.participant && report < ceiling.report);
+    const explore = (index: number, sameAddress: number, participant: number, report: number,
+      pathPairs: CandidatePair[]) => {
+      if (!canStillSatisfyFirstRotation(targets.length - index)) return;
+      const sameAddressUpper = sameAddressUpperBound(index, sameAddress);
+      const participantUpper = participant + remainingMatchUpperBound(index, "participant");
+      const reportUpper = report + remainingMatchUpperBound(index, "report");
+      if (requiredSameAddress != null && (sameAddress > requiredSameAddress || sameAddressUpper < requiredSameAddress)) return;
+      if (requiredSameAddress == null && sameAddressUpper < bestSameAddress) return;
+      if (sameAddressUpper === bestSameAddress && participantUpper < bestParticipant) return;
+      if (sameAddressUpper === bestSameAddress && participantUpper === bestParticipant
+        && reportUpper < bestReport) return;
+      if (index >= targets.length) {
+        if (!firstRotationValid() || !belowCeiling(participant, report)
+          || (requiredSameAddress != null && sameAddress !== requiredSameAddress)
+          || (exactRole && (participant !== exactRole.participant || report !== exactRole.report))) return;
+        if (sameAddress > bestSameAddress || (sameAddress === bestSameAddress
+          && (participant > bestParticipant || (participant === bestParticipant && report > bestReport)))) {
+          bestSameAddress = sameAddress;
+          bestParticipant = participant;
+          bestReport = report;
+          bestPairs.clear();
+        }
+        if ((exhaustive || !bestPairs.size) && sameAddress === bestSameAddress
+          && participant === bestParticipant && report === bestReport) {
+          pathPairs.forEach(mergeBestPair);
+        }
+        return;
+      }
+      if (!exhaustive && bestPairs.size && sameAddressUpper === bestSameAddress
+        && participantUpper === bestParticipant && reportUpper === bestReport) return;
+      const target = targets[index];
+      const candidates = [...users].sort((left, right) =>
+        Number(target.measurementParticipantUserIds?.includes(right.id) ?? false)
+          - Number(target.measurementParticipantUserIds?.includes(left.id) ?? false)
+        || Number(target.reportWriterUserId === right.id) - Number(target.reportWriterUserId === left.id)
+        || left.id - right.id);
+      for (const user of candidates) {
+        const prior = occupancy.get(user.id) ?? [];
+        if (prior.length >= 2) continue;
+        const exact = prior.some((item) => normalizedAddress(item.address)
+          && normalizedAddress(item.address) === normalizedAddress(target.address));
+        if (prior.length === 1 && !exact) {
+          const ids = [target.targetId, prior[0].targetId].sort((left, right) => left - right);
+          const known = evidence.find((item) => item.date === date && item.leftTargetId === ids[0]
+            && item.rightTargetId === ids[1] && item.routeReason === "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT");
+          if (known && !(known.provider === "vehicle" && known.durationMinutes != null
+            && known.durationMinutes <= 60)) continue;
+        }
+        const nextPairs = prior.length === 1
+          ? [...pathPairs, { date, left: target, right: prior[0], userIds: [user.id] }]
+          : pathPairs;
+        occupancy.set(user.id, [...prior, { ...target, userId: user.id }]);
+        explore(index + 1, sameAddress + Number(exact),
+          participant + Number(target.measurementParticipantUserIds?.includes(user.id) ?? false),
+          report + Number(target.reportWriterUserId === user.id), nextPairs);
+        occupancy.set(user.id, prior);
+      }
+    };
+    explore(0, 0, 0, 0, []);
+    return bestParticipant < 0 ? null : {
+      sameAddress: bestSameAddress,
+      participant: bestParticipant,
+      report: bestReport,
+      pairs: [...bestPairs.values()],
+      exhaustive,
+    } satisfies CandidateTier;
+  };
   const maxPairs = positiveInteger(options.maxPairs
     ?? process.env.REVERSE_PLANNER_ROUTE_MAX_PAIRS, DEFAULT_MAX_PAIRS);
   const evidence = [...snapshot.routeEvidence];
-  const candidates = [...pairs.values()].sort((left, right) => left.date.localeCompare(right.date)
-    || left.left.targetId - right.left.targetId || left.right.targetId - right.right.targetId
-    || left.userId - right.userId);
-  if (!candidates.length || candidates.length > maxPairs) {
-    return { snapshot: routeFree, routeEvidence: evidence, requiredPairs: candidates.length };
-  }
-  const external = candidates.filter((pair) => {
-    const sameAddress = normalizedAddress(pair.left.address)
-      && normalizedAddress(pair.left.address) === normalizedAddress(pair.right.address);
-    if (sameAddress) {
-      evidence.push(routeEvidenceFor(pair, 0, "same_address", 0, 0));
-      return false;
-    }
-    return true;
-  });
   const locationByCode = new Map<string, Coordinate>();
-  if (options.loadCoordinates && external.length) {
-    const codes = [...new Set(external.flatMap((pair) => [pair.left.businessCode, pair.right.businessCode])
-      .filter((code): code is string => Boolean(code)))];
-    const loaded = await options.loadCoordinates(codes);
-    loaded.forEach((coordinate, code) => locationByCode.set(code, coordinate));
-  }
   const routes = options.routes ?? createRouteMetrics();
   const deadlineMs = positiveInteger(options.deadlineMs
     ?? process.env.REVERSE_PLANNER_ROUTE_DEADLINE_MS, DEFAULT_DEADLINE_MS);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deadlineMs);
-  let index = 0;
-  const workers = Array.from({ length: Math.min(positiveInteger(options.concurrency
-    ?? process.env.REVERSE_PLANNER_ROUTE_CONCURRENCY, DEFAULT_CONCURRENCY), external.length) }, async () => {
-    while (index < external.length) {
-      const pair = external[index++];
-      if (controller.signal.aborted) {
-        evidence.push(routeEvidenceFor(pair, null, "route_deadline", null, null));
-        continue;
+  const evidenceKeys = new Set(evidence.filter((item) => item.routeReason === "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT")
+    .map((item) => `${item.date}|${Math.min(item.leftTargetId, item.rightTargetId)}|${Math.max(item.leftTargetId, item.rightTargetId)}`));
+  const requiredPairKeys = new Set<string>();
+  const loadedCodes = new Set<string>();
+  let budgetExceeded = false;
+  const queryTier = async (pairs: CandidatePair[]) => {
+    const external: CandidatePair[] = [];
+    for (const pair of pairs.sort((left, right) => pairKey(left).localeCompare(pairKey(right)))) {
+      const key = pairKey(pair);
+      if (evidenceKeys.has(key)) continue;
+      const sameAddress = normalizedAddress(pair.left.address)
+        && normalizedAddress(pair.left.address) === normalizedAddress(pair.right.address);
+      if (sameAddress) {
+        evidence.push(routeEvidenceFor(pair, 0, "same_address", 0, 0));
+        evidenceKeys.add(key);
+      } else {
+        requiredPairKeys.add(key);
+        external.push(pair);
       }
-      const left = { coordinate: pair.left.coordinate ?? locationByCode.get(pair.left.businessCode ?? "") ?? null, region: null } as any;
-      const right = { coordinate: pair.right.coordinate ?? locationByCode.get(pair.right.businessCode ?? "") ?? null, region: null } as any;
-      const settled = await settleBeforeDeadline(Promise.allSettled([
-        routes.between(left, right, { signal: controller.signal }),
-        routes.between(right, left, { signal: controller.signal }),
-      ]), controller.signal);
-      if (settled.timedOut) {
-        evidence.push(routeEvidenceFor(pair, null, "route_deadline", null, null));
-        continue;
-      }
-      const [forward, reverse] = settled.value;
-      const forwardMinutes = forward.status === "fulfilled" && forward.value.source === "vehicle"
-        ? forward.value.durationMinutes : null;
-      const reverseMinutes = reverse.status === "fulfilled" && reverse.value.source === "vehicle"
-        ? reverse.value.durationMinutes : null;
-      const complete = forwardMinutes != null && reverseMinutes != null;
-      const effective = complete ? Math.max(forwardMinutes, reverseMinutes) : null;
-      evidence.push(routeEvidenceFor(pair, effective, complete ? "vehicle_bidirectional" : "incomplete_direction",
-        forwardMinutes, reverseMinutes));
     }
-  });
-  try {
+    if (!external.length) return;
+    if (requiredPairKeys.size > maxPairs) {
+      budgetExceeded = true;
+      external.forEach((pair) => {
+        evidence.push(routeEvidenceFor(pair, null, "route_guard", null, null));
+        evidenceKeys.add(pairKey(pair));
+      });
+      return;
+    }
+    if (options.loadCoordinates) {
+      const codes = [...new Set(external.flatMap((pair) => [pair.left.businessCode, pair.right.businessCode])
+        .filter((code): code is string => typeof code === "string" && code.length > 0 && !loadedCodes.has(code)))];
+      codes.forEach((code) => loadedCodes.add(code));
+      if (codes.length) {
+        try {
+          const loaded = await options.loadCoordinates(codes);
+          loaded.forEach((coordinate, code) => locationByCode.set(code, coordinate));
+        } catch {
+          console.warn("[reverse-planner] measurement coordinate lookup failed");
+        }
+      }
+    }
+    let index = 0;
+    const workers = Array.from({ length: Math.min(positiveInteger(options.concurrency
+      ?? process.env.REVERSE_PLANNER_ROUTE_CONCURRENCY, DEFAULT_CONCURRENCY), external.length) }, async () => {
+      while (index < external.length) {
+        const pair = external[index++];
+        const key = pairKey(pair);
+        if (controller.signal.aborted) {
+          evidence.push(routeEvidenceFor(pair, null, "route_deadline", null, null));
+          evidenceKeys.add(key);
+          continue;
+        }
+        const left = { coordinate: pair.left.coordinate ?? locationByCode.get(pair.left.businessCode ?? "") ?? null, region: null } as any;
+        const right = { coordinate: pair.right.coordinate ?? locationByCode.get(pair.right.businessCode ?? "") ?? null, region: null } as any;
+        try {
+          const settled = await settleBeforeDeadline(routes.between(left, right, { signal: controller.signal }), controller.signal);
+          if (settled.timedOut) {
+            evidence.push(routeEvidenceFor(pair, null, "route_deadline", null, null));
+          } else {
+            const forwardMinutes = settled.value.source === "vehicle" ? settled.value.durationMinutes : null;
+            evidence.push(routeEvidenceFor(pair, forwardMinutes, forwardMinutes != null ? "vehicle" : "route_unavailable",
+              forwardMinutes, null));
+          }
+        } catch {
+          evidence.push(routeEvidenceFor(pair, null, "route_unavailable", null, null));
+        }
+        evidenceKeys.add(key);
+      }
+    });
     await Promise.all(workers);
+  };
+  try {
+    for (const date of [...new Set(input.missing.map((item) => item.measurementDate))]) {
+      const oversizedTargets = input.missing.filter((item) => item.measurementDate === date)
+        .sort((left, right) => left.targetId - right.targetId);
+      if (oversizedTargets.length > 9) {
+        for (const [index, left] of oversizedTargets.entries()) {
+          for (const right of oversizedTargets.slice(index + 1)) {
+            if (normalizedAddress(left.address) && normalizedAddress(left.address) === normalizedAddress(right.address)) continue;
+            requiredPairKeys.add(`${date}|${Math.min(left.targetId, right.targetId)}|${Math.max(left.targetId, right.targetId)}`);
+          }
+        }
+        if (requiredPairKeys.size > maxPairs) {
+          budgetExceeded = true;
+          break;
+        }
+      }
+      let ceiling: CandidateTier | null = null;
+      let requiredSameAddress: number | null = null;
+      while (!controller.signal.aborted && !budgetExceeded) {
+        let tier = findNextTier(date, ceiling, requiredSameAddress);
+        if (!tier) break;
+        requiredSameAddress ??= tier.sameAddress;
+        while (tier && !controller.signal.aborted && !budgetExceeded) {
+          await queryTier(tier.pairs);
+          const calculation = calculateAutomatic(snapshot, evidence);
+          const resolved = calculation.automatic.filter((item) => item.measurementDate === date);
+          const dateTargets = input.missing.filter((item) => item.measurementDate === date)
+            .sort((left, right) => left.targetId - right.targetId);
+          if (resolved.length === dateTargets.length) {
+            const byTarget = new Map(resolved.map((item) => [item.targetId, item.userId]));
+            const current = assigned.filter((item) => item.measurementDate === date);
+            let sameAddress = 0; let participant = 0; let report = 0;
+            for (const target of dateTargets) {
+              const userId = byTarget.get(target.targetId);
+              if (userId == null) continue;
+              sameAddress += Number(current.some((item) => item.userId === userId && normalizedAddress(item.address)
+                && normalizedAddress(item.address) === normalizedAddress(target.address)));
+              participant += Number(target.measurementParticipantUserIds?.includes(userId) ?? false);
+              report += Number(target.reportWriterUserId === userId);
+              current.push({ ...target, userId });
+            }
+            if (sameAddress === tier.sameAddress && participant === tier.participant && report === tier.report) break;
+          }
+          const alternative: CandidateTier | null = tier.exhaustive
+            ? null : findNextTier(date, null, requiredSameAddress, tier);
+          if (!alternative) break;
+          tier = alternative;
+        }
+        const calculation = calculateAutomatic(snapshot, evidence);
+        const resolved = calculation.automatic.filter((item) => item.measurementDate === date);
+        const dateTargetCount = input.missing.filter((item) => item.measurementDate === date).length;
+        if (resolved.length === dateTargetCount) break;
+        ceiling = tier;
+      }
+    }
   } finally {
     clearTimeout(timer);
   }
   const sortedEvidence = evidence.sort((left, right) => left.date.localeCompare(right.date)
     || left.leftTargetId - right.leftTargetId || left.rightTargetId - right.rightTargetId);
+  const resolvedSnapshot = withAutomaticMeasurementAssignments(snapshot, sortedEvidence);
+  if (budgetExceeded) {
+    const unresolvedKeys = new Set(input.missing.map((target) => keyOf(target.targetId, target.measurementDate)));
+    resolvedSnapshot.targets = resolvedSnapshot.targets.map((target) => ({
+      ...target,
+      automaticAssignmentIssue: target.days.some((day) => unresolvedKeys.has(keyOf(target.id, day.date)))
+        ? "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"
+        : target.automaticAssignmentIssue,
+      fixedAssignments: target.fixedAssignments.filter((fixed) => fixed.origin !== "automatic"),
+    }));
+  }
   return {
-    snapshot: withAutomaticMeasurementAssignments(snapshot, sortedEvidence),
+    snapshot: resolvedSnapshot,
     routeEvidence: sortedEvidence,
-    requiredPairs: candidates.length,
+    requiredPairs: requiredPairKeys.size,
   };
 }
 
@@ -339,6 +569,6 @@ function routeEvidenceFor(
     provider,
     capturedAt: new Date().toISOString(),
     routeReason: "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT",
-    sharedUserIds: [pair.userId],
+    sharedUserIds: pair.userIds,
   };
 }

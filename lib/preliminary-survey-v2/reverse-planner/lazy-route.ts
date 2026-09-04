@@ -130,7 +130,7 @@ async function settleBeforeDeadline<T>(
   });
 }
 
-/** Preview 전용: route-free solve 뒤 실제 shared-person pair만 양방향 조회해 evidence를 동결한다. */
+/** Preview 전용: 실제 shared-person 후보 pair만 필요한 단방향으로 조회해 evidence를 동결한다. */
 export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, options: LazyRouteOptions = {}) {
   const routes = options.routes ?? createRouteMetrics();
   const locations = locationIndex(snapshot);
@@ -267,44 +267,32 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
             const right = locations.get(requirement.rightTargetId);
             const region = (address: string | null | undefined) => String(address ?? "").trim()
               .split(/\s+/).slice(0, 2).join(" ") || null;
-            const settled = await settleBeforeDeadline(Promise.allSettled([
-              routes.between(
-                { coordinate: left?.coordinate ?? null, region: region(left?.address) } as any,
-                { coordinate: right?.coordinate ?? null, region: region(right?.address) } as any,
-                { signal: deadlineController.signal },
-              ),
-              routes.between(
-                { coordinate: right?.coordinate ?? null, region: region(right?.address) } as any,
-                { coordinate: left?.coordinate ?? null, region: region(left?.address) } as any,
-                { signal: deadlineController.signal },
-              ),
-            ]), deadlineController.signal);
+            const settled = await settleBeforeDeadline(routes.between(
+              { coordinate: left?.coordinate ?? null, region: region(left?.address) } as any,
+              { coordinate: right?.coordinate ?? null, region: region(right?.address) } as any,
+              { signal: deadlineController.signal },
+            ), deadlineController.signal);
             if (settled.timedOut) {
               evidence.set(key, unresolvedEvidence(requirement, capturedAt, "route_deadline"));
               deadlinePairs += 1;
               added += 1;
               return;
             }
-            const [forwardResult, reverseResult] = settled.value;
-            const forward = forwardResult.status === "fulfilled" ? forwardResult.value : null;
-            const reverse = reverseResult.status === "fulfilled" ? reverseResult.value : null;
-            const forwardMinutes = forward?.source === "vehicle" ? forward.durationMinutes : null;
-            const reverseMinutes = reverse?.source === "vehicle" ? reverse.durationMinutes : null;
-            const complete = forwardMinutes != null && reverseMinutes != null;
+            const forward = settled.value;
+            const forwardMinutes = forward.source === "vehicle" ? forward.durationMinutes : null;
             const deadlineExpired = deadlineController.signal.aborted || Date.now() >= deadlineAt;
-            const provider = deadlineExpired && !complete
+            const provider = deadlineExpired && forwardMinutes == null
               ? "route_deadline"
-              : complete ? "vehicle_bidirectional" : "incomplete_direction";
-            const effective = complete ? Math.max(forwardMinutes, reverseMinutes) : null;
+              : forwardMinutes != null ? "vehicle" : "route_unavailable";
             evidence.set(key, evidenceFor(requirement, capturedAt, {
               sameAddress: false,
-              durationMinutes: effective,
+              durationMinutes: forwardMinutes,
               provider,
               forwardDurationMinutes: forwardMinutes,
-              reverseDurationMinutes: reverseMinutes,
-              effectiveDurationMinutes: effective,
-              forwardProvider: forward?.source ?? "error",
-              reverseProvider: reverse?.source ?? "error",
+              reverseDurationMinutes: null,
+              effectiveDurationMinutes: forwardMinutes,
+              forwardProvider: forward.source,
+              reverseProvider: "not_requested",
             }));
             if (provider === "route_deadline") deadlinePairs += 1;
             added += 1;

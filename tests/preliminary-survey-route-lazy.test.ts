@@ -113,9 +113,8 @@ test("동일주소 shared-person pair는 외부 Route 호출 없이 해결한다
   }
 });
 
-test("공유 직원 + 다른 주소는 양방향을 조회하고 보수적인 최댓값을 사용한다", async () => {
-  const durations = [27, 39];
-  const routes = fakeRoutes(async () => vehicle(durations.shift()!));
+test("공유 직원 + 다른 주소는 필요한 단방향만 한 번 조회한다", async () => {
+  const routes = fakeRoutes(async () => vehicle(27));
   const snapshot = fixture({
     targets: [target({ coordinate: { latitude: 36.3401, longitude: 127.4401 } })],
     actualMeasurementOccupancy: [
@@ -126,21 +125,16 @@ test("공유 직원 + 다른 주소는 양방향을 조회하고 보수적인 �
     ],
   });
   const result = await resolveLazyRouteEvidence(snapshot, { routes });
-  assert.equal(result.stats.directionalRequests, 2);
-  assert.equal(result.stats.externalCalls, 2);
+  assert.equal(result.stats.directionalRequests, 1);
+  assert.equal(result.stats.externalCalls, 1);
   assert.equal(result.snapshot.routeEvidence[0].forwardDurationMinutes, 27);
-  assert.equal(result.snapshot.routeEvidence[0].reverseDurationMinutes, 39);
-  assert.equal(result.snapshot.routeEvidence[0].durationMinutes, 39);
-  assert.equal(result.snapshot.routeEvidence[0].provider, "vehicle_bidirectional");
+  assert.equal(result.snapshot.routeEvidence[0].reverseDurationMinutes, null);
+  assert.equal(result.snapshot.routeEvidence[0].durationMinutes, 27);
+  assert.equal(result.snapshot.routeEvidence[0].provider, "vehicle");
 });
 
-test("한 방향만 성공하면 정상 Route 근거로 사용하지 않는다", async () => {
-  let direction = 0;
-  const routes = fakeRoutes(async () => {
-    direction += 1;
-    if (direction === 1) return vehicle(28);
-    throw new Error("reverse timeout");
-  });
+test("단방향 조회가 실패하면 정상 Route 근거로 사용하지 않는다", async () => {
+  const routes = fakeRoutes(async () => unknownRoute);
   const snapshot = fixture({ actualMeasurementOccupancy: [
     ...fixture().actualMeasurementOccupancy,
     { targetId: 20, businessCode: "H0020", address: "다른 주소", coordinate: { latitude: 36.351, longitude: 127.451 },
@@ -148,7 +142,7 @@ test("한 방향만 성공하면 정상 Route 근거로 사용하지 않는다",
   ] });
   const result = await resolveLazyRouteEvidence(snapshot, { routes });
   assert.equal(result.snapshot.routeEvidence[0].durationMinutes, null);
-  assert.equal(result.snapshot.routeEvidence[0].provider, "incomplete_direction");
+  assert.equal(result.snapshot.routeEvidence[0].provider, "route_unavailable");
   assert.equal(planPreliminarySurveyGivenFixedAssignments(result.snapshot).results[0].reason,
     "ROUTE_EVIDENCE_REQUIRED");
 });
@@ -159,7 +153,7 @@ test("후보 Route가 연속 탈락해도 target 수와 무관하게 세 번째 
   const blocked = candidateDays.slice(3).flatMap((date) => users.map((user) => ({
     userId: user.id, startDate: date, endDate: date,
   })));
-  const routeMinutes = [70, 70, 70, 70, 20, 20];
+  const routeMinutes = [70, 70, 20];
   const routes = fakeRoutes(async () => vehicle(routeMinutes.shift()!));
   const external = allowed.map((date, index) => ({
     targetId: 20 + index,
@@ -180,7 +174,7 @@ test("후보 Route가 연속 탈락해도 target 수와 무관하게 세 번째 
   }), { routes });
   const output = planPreliminarySurveyGivenFixedAssignments(result.snapshot);
   assert.equal(result.stats.requiredPairs, 3);
-  assert.equal(result.stats.directionalRequests, 6);
+  assert.equal(result.stats.directionalRequests, 3);
   assert.equal(output.results[0].candidate?.preliminaryDate, allowed[2]);
   assert.equal(output.results[0].decision, "AUTO_ASSIGNED");
 });
@@ -282,7 +276,7 @@ test("provider가 AbortSignal을 무시해도 resolver hard deadline은 Preview�
   assert.equal(result.snapshot.routeEvidence[0].provider, "route_deadline");
 });
 
-test("4개 pair는 pair concurrency 4에서 최대 8개 양방향 요청으로 제한된다", async () => {
+test("4개 pair는 pair concurrency 4에서 최대 4개 단방향 요청으로 제한된다", async () => {
   let active = 0;
   let maxActive = 0;
   const routes = fakeRoutes(async () => {
@@ -301,8 +295,8 @@ test("4개 pair는 pair concurrency 4에서 최대 8개 양방향 요청으로 �
     ...fixture().actualMeasurementOccupancy, ...peers,
   ] }), { routes, concurrency: 4 });
   assert.equal(result.stats.requiredPairs, 4);
-  assert.equal(result.stats.directionalRequests, 8);
-  assert.ok(maxActive <= 8);
+  assert.equal(result.stats.directionalRequests, 4);
+  assert.ok(maxActive <= 4);
 });
 
 test("좌표는 required pair의 사업장 code만 지연 조회한다", async () => {

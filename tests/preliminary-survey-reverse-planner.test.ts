@@ -177,6 +177,38 @@ test("6개 자동 대상은 6명에게 첫 순환으로 하나씩 배정한다",
   assert.equal(new Set(automatic.map((item) => item.assigneeUserId)).size, 6);
 });
 
+test("동일주소 2건 예외는 0건 직원이 남아도 허용하고 route API를 호출하지 않는다", async () => {
+  const targets = [
+    target({ id: 10, code: "H0081",
+    address: "대전광역시 유성구 복용동로 35",
+      days: [{ date: "2026-09-16", collaboratorUserIds: [5], reportWriterUserId: 3 }], fixedAssignments: [] }),
+    target({ id: 11, code: "H0084",
+      address: "대전광역시 유성구 복용동로 35",
+      days: [{ date: "2026-09-16", collaboratorUserIds: [3], reportWriterUserId: 3 }], fixedAssignments: [] }),
+  ];
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+    routes: { async between() {
+      calls += 1;
+      return { source: "vehicle", durationMinutes: 1, distanceKm: 0, sameRegion: true };
+    } },
+  });
+  const automatic = resolved.snapshot.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic");
+  assert.equal(calls, 0);
+  assert.equal(resolved.requiredPairs, 0);
+  assert.deepEqual(automatic.map((item) => item.assigneeUserId), [3, 3]);
+  assert.equal(Math.max(...users.map((user) => automatic.filter((item) => item.assigneeUserId === user.id).length)), 2);
+  assert.deepEqual(normalizePublicSampleCodes({ targets: resolved.snapshot.targets, users })
+    .filter((item) => item.assigneeUserId === 3).map((item) => item.publicSampleCode), ["F", "FF"]);
+  const reversed = await resolveAutomaticMeasurementAssignments(fixture({ targets: [...targets].reverse() }), {
+    routes: { async between() { throw new Error("동일주소 route 호출 금지"); } },
+  });
+  assert.deepEqual(reversed.snapshot.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic").map((item) => [item.targetId, item.assigneeUserId]).sort(),
+  [[10, 3], [11, 3]]);
+});
+
 test("13개 batch도 정상 12건을 보존하고 자동 3건째 대상만 확인 필요로 남긴다", () => {
   const targets = Array.from({ length: 13 }, (_, index) => {
     const assignee = users[index % users.length];
@@ -205,6 +237,64 @@ test("13개 batch도 정상 12건을 보존하고 자동 3건째 대상만 확�
     "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE");
 });
 
+test("9개 clean 기존업체 batch는 2초 안에 exact optimum의 예비조사 값을 모두 산출한다", () => {
+  const rows = [
+    ["H0011", 2, 2, 6], ["H0012", 3, 2, 6], ["H0047", 6, 6, 6],
+    ["H0131", 1, 1, 6], ["H0081", 5, 5, 3], ["H0082", 4, 4, 3],
+    ["H0084", 3, 3, 3], ["H0085", 5, 5, 3], ["H0094", 4, 4, 3],
+  ] as const;
+  const targets = rows.map(([code, assigneeId, participantId, reportWriterId], index) => target({
+    id: 200 + index,
+    code,
+    address: code === "H0081" || code === "H0084"
+      ? "대전광역시 유성구 복용동로 35" : `대전 주소 ${index}`,
+    days: [{ date: "2026-10-15", collaboratorUserIds: [participantId], reportWriterUserId: reportWriterId }],
+    fixedAssignments: [{ targetId: 200 + index, measurementDate: "2026-10-15",
+      assigneeUserId: assigneeId, confirmedAt: "automatic", updatedAt: "automatic", origin: "automatic" }],
+  }));
+  const output = planPreliminarySurveyGivenFixedAssignments(fixture({ targets }), {
+    deadlineAt: Date.now() + 2_000,
+  });
+  assert.equal(output.solverTimedOut, undefined);
+  assert.equal(output.results.every((result) => result.decision === "AUTO_ASSIGNED"), true);
+  assert.deepEqual(output.results.map((result) => [result.code, result.candidate?.preliminaryDate,
+    result.candidate?.responsibleUserId, result.candidate?.reviewerUserId, result.candidate?.writerUserId]), [
+    ["H0011", "2026-09-11", 2, null, 2],
+    ["H0012", "2026-09-14", 3, 5, 3],
+    ["H0047", "2026-09-15", 6, 4, 6],
+    ["H0081", "2026-09-16", 3, 5, 3],
+    ["H0082", "2026-09-17", 4, null, 4],
+    ["H0084", "2026-09-18", 3, 5, 3],
+    ["H0085", "2026-09-21", 3, 5, 3],
+    ["H0094", "2026-09-22", 4, null, 4],
+    ["H0131", "2026-09-23", 1, 2, 1],
+  ]);
+});
+
+test("solver timeout·후보 없음·batch hard constraint 충돌을 route 부족과 분리한다", () => {
+  const timeout = planPreliminarySurveyGivenFixedAssignments(fixture(), { deadlineAt: Date.now() });
+  assert.equal(timeout.solverTimedOut, true);
+  assert.equal(timeout.results[0].reason, "SOLVER_TIMEOUT");
+
+  const noCandidate = fixture({ scheduleBlocks: users.map((user) => ({
+    userId: user.id, startDate: "2026-08-01", endDate: "2026-10-31",
+  })) });
+  assert.equal(resultFor(noCandidate).reason, "NO_VALID_PRELIMINARY_DATE");
+
+  const targets = [10, 11].map((id) => target({ id, code: `H00${id}` }));
+  const constrained = fixture({ targets });
+  const forcedCandidates = new Map(targets.map((item) => [item.id, rankedCandidatesForTarget(constrained, item)[0]]));
+  const preliminaryDate = forcedCandidates.get(10)!.preliminaryDate;
+  constrained.existingSurveyOccupancy = [20, 21].map((targetId) => ({
+    targetId, businessCode: `H00${targetId}`, address: "대전 외부", preliminaryDate,
+    surveyMethod: "phone" as const, participantUserIds: [2, 1], responsibleUserId: 1,
+    reviewerUserId: 2, writerUserId: 1, protected: false,
+  }));
+  const noFeasibleBatch = planPreliminarySurveyGivenFixedAssignments(constrained, { forcedCandidates });
+  assert.equal(noFeasibleBatch.solverTimedOut, undefined);
+  assert.equal(noFeasibleBatch.results.every((result) => result.reason === "NO_FEASIBLE_BATCH_ASSIGNMENT"), true);
+});
+
 test("Route 없는 두 번째 자동 측정자는 배정하지 않고 해당 target만 확인 필요로 남긴다", () => {
   const targets = Array.from({ length: 7 }, (_, index) => target({
     id: 10 + index,
@@ -218,7 +308,7 @@ test("Route 없는 두 번째 자동 측정자는 배정하지 않고 해당 tar
     "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED");
 });
 
-test("첫 Route 후보가 60분 초과여도 다음 측정자 후보를 찾아 자동 배정한다", async () => {
+test("첫 Route 후보가 60분 초과여도 전체 후보에서 다음 측정자 후보를 찾아 자동 배정한다", async () => {
   const targets = Array.from({ length: 7 }, (_, index) => target({
     id: 10 + index,
     code: `H00${10 + index}`,
@@ -226,7 +316,7 @@ test("첫 Route 후보가 60분 초과여도 다음 측정자 후보를 찾아 �
     coordinate: { latitude: 36.3 + index / 100, longitude: 127.3 + index / 100 },
     fixedAssignments: [],
   }));
-  const durations = [65, 65, 25, 25, 65, 65, 65, 65, 65, 65, 65, 65];
+  const durations = [65, 65, ...Array.from({ length: 40 }, () => 25)];
   let calls = 0;
   const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
     concurrency: 1,
@@ -239,13 +329,129 @@ test("첫 Route 후보가 60분 초과여도 다음 측정자 후보를 찾아 �
     },
   });
   const finalTarget = resolved.snapshot.targets.find((item) => item.id === 16)!;
-  assert.equal(calls, 12);
+  assert.equal(calls, resolved.requiredPairs);
+  assert.ok(calls > 6);
   assert.equal(finalTarget.fixedAssignments[0]?.origin, "automatic");
   assert.equal(finalTarget.automaticAssignmentIssue, undefined);
 });
 
+const tieredRouteTargets = () => users.map((user, index) => target({
+  id: 100 + index,
+  code: `T${index + 1}`,
+  address: `역할 tier 주소 ${index + 1}`,
+  coordinate: { latitude: 36.3 + index / 100, longitude: 127.3 },
+  days: [{ date: "2026-09-16", collaboratorUserIds: [user.id], reportWriterUserId: user.id }],
+  fixedAssignments: [],
+})).concat(target({
+  id: 106, code: "T7", address: "역할 tier 주소 7",
+  coordinate: { latitude: 36.37, longitude: 127.3 },
+  days: [{ date: "2026-09-16", collaboratorUserIds: [1], reportWriterUserId: 1 }], fixedAssignments: [],
+}));
+
+test("상위 역할 tier route가 60분 초과면 다음 feasible 역할 tier complete solution을 선택한다", async () => {
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets: tieredRouteTargets() }), {
+    concurrency: 1,
+    routes: { async between() {
+      calls += 1;
+      return { source: "vehicle", durationMinutes: calls === 1 ? 70 : 10, distanceKm: 1, sameRegion: true };
+    } },
+  });
+  const automatic = resolved.snapshot.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic");
+  assert.equal(automatic.length, 7);
+  assert.notEqual(automatic.find((item) => item.targetId === 106)?.assigneeUserId, 1);
+  assert.ok(resolved.routeEvidence.some((item) => item.durationMinutes === 70));
+  assert.ok(resolved.routeEvidence.some((item) => item.durationMinutes === 10));
+});
+
+test("상위 역할 tier route provider 실패 후 다음 feasible 역할 tier를 탐색한다", async () => {
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets: tieredRouteTargets() }), {
+    concurrency: 1,
+    routes: { async between() {
+      calls += 1;
+      if (calls === 1) throw new Error("provider failure");
+      return { source: "vehicle", durationMinutes: 10, distanceKm: 1, sameRegion: true };
+    } },
+  });
+  assert.equal(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic").length, 7);
+  assert.ok(resolved.routeEvidence.some((item) => item.provider === "route_unavailable"));
+});
+
+test("모든 역할 tier의 route가 불가능할 때만 route required로 남긴다", async () => {
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets: tieredRouteTargets() }), {
+    routes: { async between() {
+      return { source: "vehicle", durationMinutes: 70, distanceKm: 1, sameRegion: true };
+    } },
+  });
+  assert.equal(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic").length, 6);
+  assert.equal(resolved.snapshot.targets.find((item) => item.automaticAssignmentIssue
+    === "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED") != null, true);
+});
+
+test("9개 global batch는 계산된 candidate universe를 pair별 단방향 1회만 조회한다", async () => {
+  const targets = Array.from({ length: 9 }, (_, index) => target({
+    id: 200 + index,
+    code: `QA${200 + index}`,
+    address: `서로 다른 global 주소 ${index}`,
+    coordinate: { latitude: 36.2 + index / 100, longitude: 127.2 + index / 100 },
+    fixedAssignments: [],
+  }));
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+    concurrency: 4,
+    routes: { async between() {
+      calls += 1;
+      return { source: "vehicle", durationMinutes: 25, distanceKm: 4, sameRegion: true };
+    } },
+  });
+  assert.equal(calls, resolved.requiredPairs);
+  assert.ok(calls > 0 && calls <= 36);
+  assert.equal(resolved.routeEvidence.filter((item) =>
+    item.routeReason === "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT").length, calls);
+  assert.equal(new Set(resolved.routeEvidence.map((item) =>
+    `${item.date}|${item.leftTargetId}|${item.rightTargetId}`)).size, calls);
+});
+
+test("9개 clean sample route universe는 targetId prefix와 무관하게 H0011/H0012 pair를 포함한다", async () => {
+  const raw = JSON.parse(readFileSync("tests/fixtures/preliminary-survey-2026-08-21-clean-upstream.json", "utf8"));
+  const experienced = new Set(["이태환", "한기문", "이주형"]);
+  const fieldAddress = "대전광역시 유성구 복용동로 35";
+  const fieldCoordinate = { latitude: 36.3383978659341, longitude: 127.320332186123 };
+  const targets = raw.targets.map((item: any) => target({
+    id: item.targetId, code: item.businessCode, name: item.businessName,
+    address: item.businessCode === "H0081" || item.businessCode === "H0084" ? fieldAddress : item.address,
+    coordinate: item.businessCode === "H0081" || item.businessCode === "H0084" ? fieldCoordinate : item.coordinate,
+    days: [{ date: "2026-10-15", collaboratorUserIds: item.measurementParticipantUserIds,
+      reportWriterUserId: item.reportWriterUserId }],
+    fixedAssignments: [],
+  }));
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({
+    users: raw.users.map((item: any) => ({ id: item.id, name: item.name, active: true,
+      experienced: experienced.has(item.name), baseCode: item.surveyCode })),
+    targets,
+  }), { routes: { async between() {
+    calls += 1;
+    return { source: "vehicle", durationMinutes: 20, distanceKm: 1, sameRegion: true };
+  } } });
+  assert.equal(resolved.requiredPairs, 2);
+  assert.equal(calls, 2);
+  assert.deepEqual(resolved.routeEvidence.filter((item) => !item.sameAddress)
+    .map((item) => [item.leftTargetId, item.rightTargetId]),
+    [[494, 552], [525, 548]]);
+  assert.equal(resolved.routeEvidence.some((item) => item.leftTargetId === 470
+    && item.rightTargetId === 559 && item.sameAddress && item.durationMinutes === 0), true);
+  assert.deepEqual(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic").map((item) => [item.targetId, item.assigneeUserId]),
+  [[548, 15], [525, 15], [556, 20], [572, 2], [470, 16], [552, 17], [559, 16], [516, 13], [494, 17]]);
+});
+
 test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline 안에 확인 필요로 반환한다", async () => {
-  const targets = Array.from({ length: 7 }, (_, index) => target({
+  const targets = Array.from({ length: 2 }, (_, index) => target({
     id: 10 + index,
     code: `H00${10 + index}`,
     address: `서로 다른 주소 ${index}`,
@@ -253,14 +459,40 @@ test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline �
     fixedAssignments: [],
   }));
   const startedAt = Date.now();
-  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({
+    targets,
+    users: [users[0]],
+  }), {
     deadlineMs: 20,
     routes: { between: () => new Promise(() => undefined) },
   });
   assert.ok(Date.now() - startedAt < 1_000);
-  assert.equal(resolved.snapshot.targets.find((item) => item.id === 16)?.automaticAssignmentIssue,
+  assert.equal(resolved.snapshot.targets.find((item) => item.id === 11)?.automaticAssignmentIssue,
     "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED");
   assert.ok(resolved.routeEvidence.some((item) => item.provider === "route_deadline"));
+});
+
+test("route pair 예산을 넘으면 route-free 정상안으로 조용히 확정하지 않는다", async () => {
+  const targets = Array.from({ length: 10 }, (_, index) => target({
+    id: 300 + index,
+    code: `Q${300 + index}`,
+    address: `pair budget 주소 ${index}`,
+    coordinate: { latitude: 36.4 + index / 100, longitude: 127.4 + index / 100 },
+    fixedAssignments: [],
+  }));
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
+    maxPairs: 20,
+    routes: { async between() {
+      calls += 1;
+      return { source: "vehicle", durationMinutes: 10, distanceKm: 1, sameRegion: true };
+    } },
+  });
+  assert.ok(resolved.requiredPairs > 20);
+  assert.equal(calls, 0);
+  assert.equal(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments).length, 0);
+  assert.ok(resolved.snapshot.targets.every((item) =>
+    item.automaticAssignmentIssue === "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"));
 });
 
 test("자동 3건째는 target 단위 MANUAL_REQUIRED이고 4건 이상 점유는 hard block 사유다", () => {

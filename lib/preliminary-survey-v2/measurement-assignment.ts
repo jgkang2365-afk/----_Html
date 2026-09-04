@@ -52,7 +52,7 @@ export function buildMeasurementAssignmentTargets(input: {
 
 /**
  * 직선거리는 후보 순위에 사용하지 않는다. 차량 경로를 실제로 조회해 얻은 evidence만 전달한다.
- * 방문순서가 확정되지 않았으므로 양방향이 모두 성공한 경우의 더 긴 시간을 사용한다.
+ * 호출 방향 하나에서 실제 차량 경로가 확인된 evidence만 사용한다.
  */
 export interface MeasurementVehicleRouteEvidence {
   fromTargetId: number;
@@ -129,7 +129,7 @@ function asRouteEntity(target: MeasurementAssignmentTarget): ExistingAssignment 
   };
 }
 
-/** 실제 route provider 결과를 같은 측정일의 모든 후보 쌍에 대해 수집한다. */
+/** 호출자가 좁힌 후보 집합에서 실제 route provider 결과를 수집한다. */
 export async function collectMeasurementVehicleRouteEvidence(input: {
   targets: MeasurementAssignmentTarget[];
   existing?: ExistingMeasurementAssignment[];
@@ -153,18 +153,11 @@ export async function collectMeasurementVehicleRouteEvidence(input: {
     }
   }
   return Promise.all(pairs.map(async ([left, right]) => {
-    const [forward, reverse] = await Promise.all([
-      input.routes.between(asRouteEntity(left), asRouteEntity(right)),
-      input.routes.between(asRouteEntity(right), asRouteEntity(left)),
-    ]);
+    const forward = await input.routes.between(asRouteEntity(left), asRouteEntity(right));
     const forwardMinutes = forward.source === "vehicle" && forward.durationMinutes != null
       ? Number(forward.durationMinutes) : null;
-    const reverseMinutes = reverse.source === "vehicle" && reverse.durationMinutes != null
-      ? Number(reverse.durationMinutes) : null;
-    const complete = forwardMinutes != null && reverseMinutes != null
-      && Number.isFinite(forwardMinutes) && Number.isFinite(reverseMinutes)
-      && forwardMinutes >= 0 && reverseMinutes >= 0;
-    const durationMinutes = complete ? Math.max(forwardMinutes, reverseMinutes) : null;
+    const durationMinutes = forwardMinutes != null && Number.isFinite(forwardMinutes) && forwardMinutes >= 0
+      ? forwardMinutes : null;
     return {
       fromTargetId: left.targetId,
       fromMeasurementDate: left.measurementDate,
@@ -178,8 +171,8 @@ export async function collectMeasurementVehicleRouteEvidence(input: {
 }
 
 /**
- * 역할 원천은 독립적으로 유지하면서, 첫 순환 균등 조건 안에서 역할 일치를 preference로 사용한다.
- * 추가 배정은 현재 배정수 > 역할 일치 > 동일주소 > 실제 차량경로 > ID 순이다.
+ * 선택한 실제 측정일의 전체 target batch를 결정론적으로 평가한다.
+ * 측정 참여자·보고서 담당자 정합성, 균등성, route 비용을 lexicographic하게 비교한다.
  */
 export function assignMeasurementAssignees(input: {
   targets: MeasurementAssignmentTarget[];
@@ -206,117 +199,340 @@ export function assignMeasurementAssignees(input: {
   const targets = [...input.targets].sort((left, right) =>
     left.measurementDate.localeCompare(right.measurementDate) || left.targetId - right.targetId,
   );
-  const roleMatchScore = (target: MeasurementAssignmentTarget, userId: number) =>
-    Number(target.measurementParticipantUserIds?.includes(userId)) +
-    Number(target.reportWriterUserId === userId) +
-    Number(target.preliminarySurveyorUserId === userId);
+  const participantMatch = (target: MeasurementAssignmentTarget, userId: number) =>
+    Number(target.measurementParticipantUserIds?.includes(userId) ?? false);
+  const reportMatch = (target: MeasurementAssignmentTarget, userId: number) =>
+    Number(target.reportWriterUserId === userId);
 
-  // 같은 날짜의 첫 순환은 6명을 한 번씩 쓰는 조건을 먼저 고정한 뒤,
-  // 개별 target greedy가 아니라 순환 전체의 역할 일치 합계를 최대화한다.
-  const firstCycleUserByTarget = new Map<string, number>();
   for (const measurementDate of [...new Set(targets.map((target) => target.measurementDate))]) {
     const dateTargets = targets.filter((target) => target.measurementDate === measurementDate);
-    const existingOnDate = assigned.filter((item) => item.measurementDate === measurementDate);
-    const unusedUsers = users.filter((user) => !existingOnDate.some((item) => item.userId === user.id));
-    const batch = dateTargets.slice(0, Math.min(dateTargets.length, unusedUsers.length));
-    if (!batch.length) continue;
-
-    let bestScore = Number.NEGATIVE_INFINITY;
-    let bestUserIds: number[] | null = null;
-    const visit = (targetIndex: number, usedUserIds: Set<number>, selectedUserIds: number[], score: number) => {
-      if (targetIndex === batch.length) {
-        const isBetterTie = bestUserIds == null || selectedUserIds.some((id, index) =>
-          id !== bestUserIds![index] && id < bestUserIds![index] &&
-          selectedUserIds.slice(0, index).every((value, prefixIndex) => value === bestUserIds![prefixIndex]),
-        );
-        if (score > bestScore || (score === bestScore && isBetterTie)) {
-          bestScore = score;
-          bestUserIds = [...selectedUserIds];
+    const dateExisting = assigned.filter((item) => item.measurementDate === measurementDate);
+    const availableUsers = users.filter((user) => !input.availability?.isBlocked(user.id, measurementDate));
+    if (!availableUsers.length) continue;
+    const initialCounts = new Map(availableUsers.map((user) => [user.id, dateExisting.filter((item) => item.userId === user.id).length]));
+    type SearchState = { ids: Array<number | null>; counts: number[]; assignedCount: number;
+      current: ExistingMeasurementAssignment[]; sameAddress: number; participant: number; report: number; route: number };
+    const routeInfo = (target: MeasurementAssignmentTarget, userId: number, current: ExistingMeasurementAssignment[]) => {
+      const sameUser = current.filter((item) => item.userId === userId);
+      if (!sameUser.length) return { allowed: true, minutes: 0, exact: false, vehicle: false };
+      const exact = sameUser.some((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address));
+      if (exact) return { allowed: true, minutes: 0, exact: true, vehicle: false };
+      const minutes = Math.min(...sameUser.map((item) => routeMinutes(target, item, evidence)), Number.POSITIVE_INFINITY);
+      return {
+        allowed: !input.requireRouteForSecond || Number.isFinite(minutes),
+        // route 미확인은 legacy Workbench에서 허용할 수 있지만 objective에서는
+        // 실제 route보다 항상 불리하게 평가하여 불필요한 중복을 억제한다.
+        minutes: Number.isFinite(minutes) ? minutes : 1_000_000,
+        exact: false,
+        vehicle: Number.isFinite(minutes),
+      };
+    };
+    const maxAutomaticCount = input.requireRouteForSecond ? 2 : 3;
+    const remainingMatchUpperBound = (startIndex: number, state: SearchState, kind: "participant" | "report") => {
+      const slots = availableUsers.flatMap((user, userIndex) =>
+        Array.from({ length: Math.max(0, maxAutomaticCount - state.counts[userIndex]) }, (_, slotIndex) => ({
+          userId: user.id, key: `${user.id}|${slotIndex}`,
+        })));
+      const occupiedBySlot = new Map<string, number>();
+      const tryMatch = (targetIndex: number, seen: Set<string>): boolean => {
+        const target = dateTargets[targetIndex];
+        for (const slot of slots) {
+          const matches = kind === "participant"
+            ? (target.measurementParticipantUserIds?.includes(slot.userId) ?? false)
+            : target.reportWriterUserId === slot.userId;
+          if (!matches || seen.has(slot.key)) continue;
+          seen.add(slot.key);
+          const priorTargetIndex = occupiedBySlot.get(slot.key);
+          if (priorTargetIndex == null || tryMatch(priorTargetIndex, seen)) {
+            occupiedBySlot.set(slot.key, targetIndex);
+            return true;
+          }
         }
+        return false;
+      };
+      let matched = 0;
+      for (let targetIndex = startIndex; targetIndex < dateTargets.length; targetIndex += 1) {
+        if (tryMatch(targetIndex, new Set())) matched += 1;
+      }
+      return matched;
+    };
+    const stateRank = (state: SearchState) => {
+      const counts = state.counts;
+      const total = counts.reduce((sum, count) => sum + count, 0);
+      return { maxCount: Math.max(...counts, 0), variance: counts.reduce((sum, count) => sum + Math.abs(count * counts.length - total), 0),
+        duplicateUsers: counts.filter((count) => count > 1).length };
+    };
+    const duplicateRouteFloor = (() => {
+      const allTargets = [...dateTargets, ...dateExisting];
+      if (allTargets.some((left, index) => allTargets.slice(index + 1).some((right) =>
+        normalizedAddress(left.address) && normalizedAddress(left.address) === normalizedAddress(right.address)))) return 0;
+      return Math.min(...evidence.filter((item) => item.allowed && item.source === "vehicle"
+        && item.durationMinutes != null && item.fromMeasurementDate === measurementDate
+        && item.toMeasurementDate === measurementDate).map((item) => item.durationMinutes as number), Number.POSITIVE_INFINITY);
+    })();
+    const optimisticRank = (state: SearchState, remaining: number) => {
+      const counts = state.counts;
+      const zeroCount = counts.filter((count) => count === 0).length;
+      const addedDuplicates = Math.max(0, remaining - zeroCount);
+      const route = state.route + (addedDuplicates === 0 ? 0 : addedDuplicates * duplicateRouteFloor);
+      const balanced = [...counts];
+      for (let step = 0; step < remaining; step += 1) {
+        let selected = -1;
+        for (let index = 0; index < balanced.length; index += 1) {
+          if (balanced[index] >= maxAutomaticCount) continue;
+          if (selected < 0 || balanced[index] < balanced[selected]) selected = index;
+        }
+        if (selected < 0) break;
+        balanced[selected] += 1;
+      }
+      const total = balanced.reduce((sum, count) => sum + count, 0);
+      return {
+        route,
+        maxCount: Math.max(...balanced, 0),
+        variance: balanced.reduce((sum, count) => sum + Math.abs(count * balanced.length - total), 0),
+        duplicateUsers: counts.filter((count) => count > 1).length + addedDuplicates,
+      };
+    };
+    const compareStates = (left: SearchState, right: SearchState) => {
+      if (left.sameAddress !== right.sameAddress) return right.sameAddress - left.sameAddress;
+      if (left.participant !== right.participant) return right.participant - left.participant;
+      if (left.report !== right.report) return right.report - left.report;
+      if (left.route !== right.route) return left.route - right.route;
+      const leftRank = stateRank(left); const rightRank = stateRank(right);
+      if (leftRank.maxCount !== rightRank.maxCount) return leftRank.maxCount - rightRank.maxCount;
+      if (leftRank.variance !== rightRank.variance) return leftRank.variance - rightRank.variance;
+      if (leftRank.duplicateUsers !== rightRank.duplicateUsers) return leftRank.duplicateUsers - rightRank.duplicateUsers;
+      if (left.ids.length !== right.ids.length) return right.ids.length - left.ids.length;
+      return left.ids.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join("")
+        .localeCompare(right.ids.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join(""));
+    };
+    const firstRotationValid = (state: SearchState) => {
+      if (!state.counts.some((count) => count === 0)) return true;
+      return availableUsers.every((user, userIndex) => {
+        const initialCount = initialCounts.get(user.id) ?? 0;
+        if (state.counts[userIndex] <= Math.max(initialCount, 1)) return true;
+        const sameUser = state.current.filter((item) => item.measurementDate === measurementDate && item.userId === user.id);
+        return sameUser.length === 2 && normalizedAddress(sameUser[0].address)
+          && normalizedAddress(sameUser[0].address) === normalizedAddress(sameUser[1].address);
+      });
+    };
+    const canStillSatisfyFirstRotation = (state: SearchState, remainingTargets: number) => {
+      const zeroCount = state.counts.filter((count) => count === 0).length;
+      if (zeroCount === 0) return true;
+      const hasOrdinaryDuplicate = availableUsers.some((user, userIndex) => {
+        const initialCount = initialCounts.get(user.id) ?? 0;
+        if (state.counts[userIndex] <= Math.max(initialCount, 1)) return false;
+        const sameUser = state.current.filter((item) => item.measurementDate === measurementDate && item.userId === user.id);
+        return sameUser.length !== 2 || !normalizedAddress(sameUser[0].address)
+          || normalizedAddress(sameUser[0].address) !== normalizedAddress(sameUser[1].address);
+      });
+      return !hasOrdinaryDuplicate || zeroCount <= remainingTargets;
+    };
+    const sameAddressUpperBound = (startIndex: number, state: SearchState) => {
+      const remainingByAddress = new Map<string, number>();
+      for (const target of dateTargets.slice(startIndex)) {
+        const key = normalizedAddress(target.address);
+        if (key) remainingByAddress.set(key, (remainingByAddress.get(key) ?? 0) + 1);
+      }
+      let additional = 0;
+      for (const [key, remainingCount] of remainingByAddress) {
+        const eligibleSingles = availableUsers.filter((user, userIndex) => state.counts[userIndex] < maxAutomaticCount
+          && state.current.some((item) => item.userId === user.id && normalizedAddress(item.address) === key)).length;
+        const matchedSingles = Math.min(remainingCount, eligibleSingles);
+        additional += matchedSingles + Math.floor((remainingCount - matchedSingles) / 2);
+      }
+      return state.sameAddress + additional;
+    };
+    let bestComplete: SearchState | null = null;
+    let bestPartial: SearchState | null = null;
+    const remainingParticipant = new Array(dateTargets.length + 1).fill(0);
+    const remainingReport = new Array(dateTargets.length + 1).fill(0);
+    for (let index = dateTargets.length - 1; index >= 0; index -= 1) {
+      const item = dateTargets[index];
+      remainingParticipant[index] = remainingParticipant[index + 1]
+        + Math.max(...availableUsers.map((user) => participantMatch(item, user.id)), 0);
+      remainingReport[index] = remainingReport[index + 1]
+        + Math.max(...availableUsers.map((user) => reportMatch(item, user.id)), 0);
+    }
+    const visit = (index: number, state: SearchState) => {
+      if (!canStillSatisfyFirstRotation(state, dateTargets.length - index)) return;
+      const assignedCount = state.assignedCount;
+      const bestPartialCount = bestPartial?.assignedCount ?? -1;
+      if (firstRotationValid(state) && (!bestPartial || assignedCount > bestPartialCount
+        || (assignedCount === bestPartialCount && compareStates(state, bestPartial) < 0))) bestPartial = state;
+      if (index === dateTargets.length) {
+        if (assignedCount === dateTargets.length && firstRotationValid(state)
+          && (!bestComplete || compareStates(state, bestComplete) < 0)) bestComplete = state;
         return;
       }
-      const target = batch[targetIndex];
-      for (const user of unusedUsers) {
-        if (usedUserIds.has(user.id) || input.availability?.isBlocked(user.id, measurementDate)) continue;
-        usedUserIds.add(user.id);
-        selectedUserIds.push(user.id);
-        visit(targetIndex + 1, usedUserIds, selectedUserIds, score + roleMatchScore(target, user.id));
-        selectedUserIds.pop();
-        usedUserIds.delete(user.id);
+      const assignableUpperBound = assignedCount + dateTargets.length - index;
+      if (assignableUpperBound < bestPartialCount) return;
+      if (!bestComplete && bestPartial && assignableUpperBound === bestPartialCount) {
+        const sameAddressUpper = sameAddressUpperBound(index, state);
+        if (sameAddressUpper < bestPartial.sameAddress) return;
+        const participantUpperBound = state.participant + remainingMatchUpperBound(index, state, "participant");
+        const reportUpperBound = state.report + remainingMatchUpperBound(index, state, "report");
+        if (sameAddressUpper === bestPartial.sameAddress && participantUpperBound < bestPartial.participant) return;
+        if (sameAddressUpper === bestPartial.sameAddress
+          && participantUpperBound === bestPartial.participant && reportUpperBound < bestPartial.report) return;
+        if (sameAddressUpper === bestPartial.sameAddress && participantUpperBound === bestPartial.participant
+          && reportUpperBound === bestPartial.report
+          && state.route > bestPartial.route) return;
       }
+      if (bestComplete) {
+        const sameAddressUpper = sameAddressUpperBound(index, state);
+        if (sameAddressUpper < bestComplete.sameAddress) return;
+        const participantUpperBound = state.participant + remainingMatchUpperBound(index, state, "participant");
+        const reportUpperBound = state.report + remainingMatchUpperBound(index, state, "report");
+        if (sameAddressUpper === bestComplete.sameAddress
+          && participantUpperBound < bestComplete.participant) return;
+        if (sameAddressUpper === bestComplete.sameAddress && participantUpperBound === bestComplete.participant
+          && reportUpperBound < bestComplete.report) return;
+        // route는 이후 단계에서 감소하지 않는다. 상위 objective의 이론상 최대가
+        // 현재 best와 같을 때에만 누적 route lower bound로 안전하게 가지치기한다.
+        if (sameAddressUpper === bestComplete.sameAddress
+          && participantUpperBound === bestComplete.participant && reportUpperBound === bestComplete.report) {
+          const lower = optimisticRank(state, dateTargets.length - index);
+          const bestRank = stateRank(bestComplete);
+          if (lower.route > bestComplete.route) return;
+          if (lower.route === bestComplete.route && lower.maxCount > bestRank.maxCount) return;
+          if (lower.route === bestComplete.route && lower.maxCount === bestRank.maxCount
+            && lower.variance > bestRank.variance) return;
+          if (lower.route === bestComplete.route && lower.maxCount === bestRank.maxCount
+            && lower.variance === bestRank.variance && lower.duplicateUsers > bestRank.duplicateUsers) return;
+          if (lower.route === bestComplete.route && lower.maxCount === bestRank.maxCount
+            && lower.variance === bestRank.variance && lower.duplicateUsers === bestRank.duplicateUsers) {
+            const bestPrefix = bestComplete.ids.slice(0, state.ids.length);
+            const prefix = state.ids.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join("");
+            const bestKey = bestPrefix.map((id) => id == null ? "99999999" : id.toString().padStart(8, "0")).join("");
+            if (prefix.localeCompare(bestKey) > 0) return;
+          }
+        }
+      }
+      const target = dateTargets[index];
+      const candidates = availableUsers.map((user) => ({
+        user,
+        participant: participantMatch(target, user.id),
+        report: reportMatch(target, user.id),
+        route: routeInfo(target, user.id, state.current),
+      })).filter((item) => item.route.allowed)
+        .sort((left, right) => right.participant - left.participant || right.report - left.report
+          || left.route.minutes - right.route.minutes || left.user.id - right.user.id);
+      for (const candidate of candidates) {
+        const user = candidate.user;
+        const userIndex = availableUsers.findIndex((item) => item.id === user.id);
+        const priorCount = state.counts[userIndex];
+        if (priorCount >= maxAutomaticCount) continue;
+        if (input.requireRouteForSecond && input.allowThirdWithApproval === false && priorCount >= 2) continue;
+        const routeData = candidate.route;
+        const counts = [...state.counts];
+        counts[userIndex] += 1;
+        visit(index + 1, {
+          ids: [...state.ids, user.id],
+          counts,
+          assignedCount: state.assignedCount + 1,
+          current: [...state.current, { ...target, userId: user.id }],
+          sameAddress: state.sameAddress + Number(routeData.exact),
+          participant: state.participant + participantMatch(target, user.id),
+          report: state.report + reportMatch(target, user.id),
+          route: state.route + routeData.minutes,
+        });
+      }
+      // 완전해가 없을 때만 이 target을 unresolved로 남기고 뒤 target을 계속 탐색한다.
+      if (!bestComplete) visit(index + 1, { ...state, ids: [...state.ids, null] });
     };
-    visit(0, new Set(), [], 0);
-    const plannedUserIds = bestUserIds as number[] | null;
-    plannedUserIds?.forEach((userId: number, index: number) => {
-      firstCycleUserByTarget.set(`${measurementDate}:${batch[index].targetId}`, userId);
-    });
-  }
-
-  for (const target of targets) {
-    // 같은 날짜의 모든 기존 배정을 비교해 동일주소/실제 경로 후보를 판단한다.
-    const sameDate = assigned.filter((item) => item.measurementDate === target.measurementDate);
-    const count = (userId: number) => sameDate.filter((item) => item.userId === userId).length;
-    const availableUsers = users.filter((user) => !input.availability?.isBlocked(user.id, target.measurementDate));
-    // 불가 일정으로 후보가 0명이면 incomplete draft로 남긴다. 3건 hard max 소진과 구분한다.
-    if (!availableUsers.length) continue;
-    const exactAddressUsers = new Set(sameDate
-      .filter((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address))
-      .map((item) => item.userId));
-    const shortestVehicleRoute = (userId: number) => Math.min(
-      ...sameDate.filter((item) => item.userId === userId).map((item) => routeMinutes(target, item, evidence)),
-      Number.POSITIVE_INFINITY,
-    );
-    const plannedFirstCycleUserId = firstCycleUserByTarget.get(`${target.measurementDate}:${target.targetId}`);
-    const plannedFirstCycleUser = availableUsers.find((user) =>
-      user.id === plannedFirstCycleUserId && count(user.id) === 0,
-    );
-    const unassigned = availableUsers.filter((user) => count(user.id) === 0);
-    let candidates = plannedFirstCycleUser ? [plannedFirstCycleUser]
-      : unassigned.length ? unassigned
-        : input.requireRouteForSecond
-          ? availableUsers.filter((user) => count(user.id) === 1
-            && (exactAddressUsers.has(user.id) || Number.isFinite(shortestVehicleRoute(user.id))))
-          : availableUsers.filter((user) => count(user.id) < 2);
-    if (!candidates.length && !input.requireRouteForSecond && input.allowThirdWithApproval !== false) {
-      candidates = availableUsers.filter((user) => count(user.id) < 3);
+    const initialState: SearchState = { ids: [], counts: availableUsers.map((user) => initialCounts.get(user.id) ?? 0),
+      assignedCount: 0, current: dateExisting, sameAddress: 0, participant: 0, report: 0, route: 0 };
+    if (input.requireRouteForSecond === true && dateTargets.length <= 9) {
+      // Reverse Planner의 정상 업무량(최대 9건)은 완전 열거하여 global optimum을 보장한다.
+      visit(0, initialState);
+    } else {
+      // 기존 Workbench 호환량이 더 큰 경우에는 bounded search로 비용을 제한한다.
+      let states: SearchState[] = [initialState];
+      for (const target of dateTargets) {
+        const expanded: SearchState[] = [];
+        for (const state of states) {
+          for (const user of availableUsers) {
+            const userIndex = availableUsers.findIndex((item) => item.id === user.id);
+            const priorCount = state.counts[userIndex];
+            if (priorCount >= maxAutomaticCount) continue;
+            const routeData = routeInfo(target, user.id, state.current);
+            if (!routeData.allowed) continue;
+            const counts = [...state.counts];
+            counts[userIndex] += 1;
+            const next = { ids: [...state.ids, user.id], counts, assignedCount: state.assignedCount + 1,
+              current: [...state.current, { ...target, userId: user.id }],
+              sameAddress: state.sameAddress + Number(routeData.exact),
+              participant: state.participant + participantMatch(target, user.id), report: state.report + reportMatch(target, user.id), route: state.route + routeData.minutes };
+            if (canStillSatisfyFirstRotation(next, dateTargets.length - next.ids.length)) expanded.push(next);
+          }
+        }
+        if (!expanded.length) {
+          bestPartial = states.filter(firstRotationValid)
+            .reduce<SearchState | null>((best, state) => !best || compareStates(state, best) < 0 ? state : best, null);
+          states = [];
+          break;
+        }
+        states = expanded.sort(compareStates).slice(0, 256);
+      }
+      bestComplete = states
+        .filter((state) => state.ids.length === dateTargets.length && state.ids.every((id) => id != null)
+          && firstRotationValid(state))
+        .reduce<SearchState | null>((best, state) => !best || compareStates(state, best) < 0 ? state : best, null);
+      const validPartialStates = states.filter(firstRotationValid);
+      bestPartial = validPartialStates.length ? validPartialStates.sort((left, right) => {
+        const leftCount = left.assignedCount;
+        const rightCount = right.assignedCount;
+        return leftCount === rightCount ? compareStates(left, right) : rightCount - leftCount;
+      })[0] ?? null : bestPartial;
     }
-    candidates.sort((left, right) =>
-      count(left.id) - count(right.id) ||
-      roleMatchScore(target, right.id) - roleMatchScore(target, left.id) ||
-      Number(!exactAddressUsers.has(left.id)) - Number(!exactAddressUsers.has(right.id)) ||
-      shortestVehicleRoute(left.id) - shortestVehicleRoute(right.id) ||
-      left.id - right.id,
-    );
-    // 해당 날짜에 가능한 측정자가 없으면 incomplete draft로 남겨 사용자 재검토를 요구한다.
-    const selected = candidates[0];
-    if (!selected) {
-      const minimumDailyCount = Math.min(...availableUsers.map((user) => count(user.id)));
-      if (!input.requireRouteForSecond && minimumDailyCount >= 3) {
-        throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, availableUsers[0].id);
+    const best = bestComplete;
+    if (!best) {
+      const minimumDailyCount = Math.min(...availableUsers.map((user) => initialCounts.get(user.id) ?? 0));
+      if (!input.requireRouteForSecond && input.allowThirdWithApproval !== false && minimumDailyCount >= 3) {
+        throw new MeasurementAssignmentDailyLimitError(dateTargets[0]?.targetId ?? 0, measurementDate, availableUsers[0].id);
+      }
+      if (input.requireRouteForSecond) {
+        const partial = bestPartial ?? { ids: [], counts: initialState.counts, assignedCount: 0,
+          current: dateExisting, sameAddress: 0, participant: 0, report: 0, route: 0 };
+        const partialCounts = new Map(initialCounts);
+        partial.ids.forEach((userId, index) => {
+          if (userId == null) return;
+          const target = dateTargets[index];
+          const user = availableUsers.find((candidate) => candidate.id === userId);
+          if (!user) return;
+          const route = routeInfo(target, user.id, assigned.filter((item) => item.measurementDate === measurementDate));
+          const dailyCount = (partialCounts.get(user.id) ?? 0) + 1;
+          const reason: MeasurementAssignmentResult["reason"] = dailyCount >= 3 ? "3건 승인 필요"
+            : route.exact ? "동일주소 묶음" : dailyCount > 1 && route.vehicle ? "근거리 묶음"
+              : dailyCount > 1 ? "2건 배정" : "측정자 균등배정";
+          assigned.push({ ...target, userId: user.id });
+          partialCounts.set(user.id, dailyCount);
+          results.push({ targetId: target.targetId, measurementDate, userId: user.id, userName: user.name,
+            publicSampleCode: user.surveyCode, dailyCount, approvalRequired: dailyCount >= 3, reason });
+        });
       }
       continue;
     }
-    const nextCount = count(selected.id) + 1;
-    if (nextCount > 3) {
-      throw new MeasurementAssignmentDailyLimitError(target.targetId, target.measurementDate, selected.id);
-    }
-    const exactAddress = exactAddressUsers.has(selected.id);
-    const hasVehicleRoute = Number.isFinite(shortestVehicleRoute(selected.id));
-    const approvalRequired = nextCount >= 3;
-    const reason: MeasurementAssignmentResult["reason"] = approvalRequired ? "3건 승인 필요"
-      : exactAddress ? "동일주소 묶음"
-        : hasVehicleRoute && nextCount > 1 ? "근거리 묶음"
-          : nextCount > 1 ? "2건 배정" : "측정자 균등배정";
-    assigned.push({ ...target, userId: selected.id });
-    results.push({
-      targetId: target.targetId,
-      measurementDate: target.measurementDate,
-      userId: selected.id,
-      userName: selected.name,
-      publicSampleCode: selected.surveyCode,
-      dailyCount: nextCount,
-      approvalRequired,
-      reason,
+    const outputCounts = new Map(initialCounts);
+    dateTargets.forEach((target, index) => {
+      const assignedUserId = best!.ids[index];
+      if (assignedUserId == null) return;
+      const user = availableUsers.find((candidate) => candidate.id === assignedUserId);
+      if (!user) return;
+      const sameDate = assigned.filter((item) => item.measurementDate === measurementDate);
+      const nextCount = (outputCounts.get(user.id) ?? 0) + 1;
+      const route = routeInfo(target, user.id, sameDate);
+      const reason: MeasurementAssignmentResult["reason"] = nextCount >= 3
+        ? "3건 승인 필요"
+        : route.exact
+          ? "동일주소 묶음"
+          : nextCount > 1 && route.vehicle
+            ? "근거리 묶음"
+            : nextCount > 1 ? "2건 배정" : "측정자 균등배정";
+      assigned.push({ ...target, userId: user.id });
+      outputCounts.set(user.id, nextCount);
+      results.push({ targetId: target.targetId, measurementDate, userId: user.id, userName: user.name, publicSampleCode: user.surveyCode, dailyCount: nextCount, approvalRequired: nextCount >= 3, reason });
     });
   }
   return results;

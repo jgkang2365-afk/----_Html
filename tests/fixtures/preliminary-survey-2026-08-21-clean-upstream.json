@@ -1,0 +1,172 @@
+{
+  "sourceDate": "2026-08-21",
+  "capturedAt": "2026-09-04T06:05:17.464Z",
+  "source": "production read-only upstream snapshot; downstream public-sample assignments excluded",
+  "users": [
+    {
+      "id": 2,
+      "name": "강종구",
+      "surveyCode": "C",
+      "active": true
+    },
+    {
+      "id": 13,
+      "name": "이주형",
+      "surveyCode": "D",
+      "active": true
+    },
+    {
+      "id": 15,
+      "name": "이태환",
+      "surveyCode": "A",
+      "active": true
+    },
+    {
+      "id": 16,
+      "name": "고유빈",
+      "surveyCode": "F",
+      "active": true
+    },
+    {
+      "id": 17,
+      "name": "한기문",
+      "surveyCode": "B",
+      "active": true
+    },
+    {
+      "id": 20,
+      "name": "김민영",
+      "surveyCode": "G",
+      "active": true
+    }
+  ],
+  "targets": [
+    {
+      "targetId": 548,
+      "businessCode": "H0011",
+      "businessName": "주식회사 정일모터스",
+      "address": "대전광역시 대덕구 대화로32번길 217 (대화동)",
+      "coordinate": {
+        "latitude": 36.3764789706364,
+        "longitude": 127.410842462795
+      },
+      "measurementParticipantUserIds": [
+        15
+      ],
+      "reportWriterUserId": 20
+    },
+    {
+      "targetId": 525,
+      "businessCode": "H0012",
+      "businessName": "안전자동차정비공업사",
+      "address": "대전광역시 대덕구 대화로32번길 223 (대화동)",
+      "coordinate": {
+        "latitude": 36.3767588252799,
+        "longitude": 127.410699395595
+      },
+      "measurementParticipantUserIds": [
+        15
+      ],
+      "reportWriterUserId": 20
+    },
+    {
+      "targetId": 556,
+      "businessCode": "H0047",
+      "businessName": "카신모터스(CARSIN MOTORS)",
+      "address": "대전광역시 대덕구 아리랑로55번길 7 (읍내동)",
+      "coordinate": {
+        "latitude": 36.3778144669058,
+        "longitude": 127.411900166781
+      },
+      "measurementParticipantUserIds": [
+        20
+      ],
+      "reportWriterUserId": 20
+    },
+    {
+      "targetId": 572,
+      "businessCode": "H0131",
+      "businessName": "태성공업사",
+      "address": "대전광역시 대덕구 아리랑로 69 (읍내동)",
+      "coordinate": {
+        "latitude": 36.3769434467553,
+        "longitude": 127.412955714942
+      },
+      "measurementParticipantUserIds": [
+        2
+      ],
+      "reportWriterUserId": 20
+    },
+    {
+      "targetId": 470,
+      "businessCode": "H0081",
+      "businessName": "(주)제이엘모터스",
+      "address": "대전광역시 서구 둔산남로 50 (탄방동)",
+      "coordinate": {
+        "latitude": 36.3480402821751,
+        "longitude": 127.383551474267
+      },
+      "measurementParticipantUserIds": [
+        13
+      ],
+      "reportWriterUserId": 16
+    },
+    {
+      "targetId": 552,
+      "businessCode": "H0082",
+      "businessName": "주식회사 다올기업",
+      "address": "대전광역시 유성구 원계산로 238-33 (계산동)",
+      "coordinate": {
+        "latitude": 36.3352831770078,
+        "longitude": 127.300677946899
+      },
+      "measurementParticipantUserIds": [
+        17
+      ],
+      "reportWriterUserId": 16
+    },
+    {
+      "targetId": 559,
+      "businessCode": "H0084",
+      "businessName": "케이에스모터스 서비스센터",
+      "address": "대전광역시 유성구 대학로76번길 99 (궁동)",
+      "coordinate": {
+        "latitude": 36.3598908090459,
+        "longitude": 127.349289233828
+      },
+      "measurementParticipantUserIds": [
+        16
+      ],
+      "reportWriterUserId": 16
+    },
+    {
+      "targetId": 516,
+      "businessCode": "H0085",
+      "businessName": "오토월드자동차공업사",
+      "address": "대전광역시 유성구 유성대로 486 (복용동)",
+      "coordinate": {
+        "latitude": 36.3394249592501,
+        "longitude": 127.319584076393
+      },
+      "measurementParticipantUserIds": [
+        13
+      ],
+      "reportWriterUserId": 16
+    },
+    {
+      "targetId": 494,
+      "businessCode": "H0094",
+      "businessName": "명원기업",
+      "address": "대전광역시 유성구 학하북로 65 (학하동)",
+      "coordinate": {
+        "latitude": 36.3414124421801,
+        "longitude": 127.309890931591
+      },
+      "measurementParticipantUserIds": [
+        17
+      ],
+      "reportWriterUserId": 16
+    }
+  ]
+}
+
