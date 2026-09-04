@@ -207,6 +207,23 @@ class ReportExplorerHttpTests(unittest.TestCase):
                     body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]})
                 self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
 
+    def test_private_network_preflight_and_loopback_bind_are_strict(self) -> None:
+        request = Request(
+            f"{self.base_url}/report-explorer/search",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Private-Network": "true",
+            },
+            method="OPTIONS",
+        )
+        with urlopen(request, timeout=3) as response:
+            self.assertEqual(response.status, 204)
+            self.assertEqual(response.headers["Access-Control-Allow-Private-Network"], "true")
+
+        with self.assertRaises(ValueError):
+            create_server(host="0.0.0.0", port=0, service=self.service)
+
     def test_http_rejects_invalid_and_expired_result_ids_and_malformed_payloads(self) -> None:
         origin = "http://localhost:3000"
         status, _, body = self.request("POST", "/report-explorer/open", origin=origin, body={"resultId": "missing"})

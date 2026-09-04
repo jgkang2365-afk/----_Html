@@ -362,7 +362,11 @@ class _RequestHandler(BaseHTTPRequestHandler):
         if cors:
             self.send_header("Access-Control-Allow-Origin", self.headers["Origin"])
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            # Browsers can cancel health/search requests during navigation or refresh.
+            return
 
     def _send_error(self, error: ReportExplorerError, *, cors: bool = False) -> None:
         self._send_json(
