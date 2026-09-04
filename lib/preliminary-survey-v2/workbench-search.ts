@@ -4,12 +4,30 @@ export interface WorkbenchSearchRow {
 }
 
 export function matchesMeasurementDateRange(
-  measurementDate: string | null | undefined,
+  measurementDate: string | readonly string[] | null | undefined,
   from: string,
   to: string,
 ): boolean {
-  if (!measurementDate) return !from && !to;
-  return (!from || measurementDate >= from) && (!to || measurementDate <= to);
+  const dates = typeof measurementDate === "string"
+    ? [measurementDate]
+    : measurementDate ? [...measurementDate] : [];
+  if (!dates.length) return !from && !to;
+  return dates.some((date) => (!from || date >= from) && (!to || date <= to));
+}
+
+/** 목록의 선택 범위 안에 실제로 포함되는 측정일만 중복 없이 반환한다. */
+export function measurementDatesInRange(
+  measurementDates: readonly string[] | null | undefined,
+  fallbackMeasurementDate: string | null | undefined,
+  from: string,
+  to: string,
+): string[] {
+  const source = measurementDates?.length
+    ? measurementDates
+    : fallbackMeasurementDate ? [fallbackMeasurementDate] : [];
+  return [...new Set(source)]
+    .filter((date) => matchesMeasurementDateRange(date, from, to))
+    .sort();
 }
 
 function normalizedSearchValue(value: unknown): string {

@@ -878,6 +878,43 @@ export async function GET(request: NextRequest) {
         legacyAssignment: legacyMeasurementPublicSample,
         userNameById,
       });
+      const measurementDays = explicitMeasurementDates(target).map((measurementDate) => {
+        const dayStaff = measurementStaffForDate({
+          dailyStaff: target.daily_staff,
+          measurementDate,
+          collaborators: target.collaborators,
+          userNameById,
+        });
+        const dayAssignment: any = assignmentByTargetDate.get(
+          `${Number(target.id)}|${measurementDate}`,
+        ) ?? null;
+        const dayLegacyMeasurementPublicSample = legacyMeasurementPublicSampleForTarget({
+          code: String(target.code ?? ""),
+          year: Number(target.year),
+          period: String(target.period ?? ""),
+          measurementDate,
+        });
+        const dayMeasurementAssigneeDisplay = resolveMeasurementPublicSampleDisplay({
+          v2Assignment: dayAssignment ? {
+            assigneeUserId: Number(dayAssignment.assignee_user_id),
+            surveyCode: dayAssignment.survey_code == null ? null : String(dayAssignment.survey_code),
+          } : null,
+          v2AssignmentId: dayAssignment?.id == null ? null : String(dayAssignment.id),
+          reconciliation: reconciliationByTargetDate.get(
+            `${Number(target.id)}|${measurementDate}`,
+          ) ?? null,
+          trueConfirmed,
+          legacyAssignment: dayLegacyMeasurementPublicSample,
+          userNameById,
+        });
+        return {
+          date: measurementDate,
+          mainMeasurer: dayMeasurementAssigneeDisplay.label,
+          mainMeasurerSource: dayMeasurementAssigneeDisplay.source,
+          measurementParticipants: dayStaff.measurementParticipants,
+          reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",
+        };
+      });
       return {
         targetId: Number(target.id),
         code: target.code,
@@ -887,6 +924,8 @@ export async function GET(request: NextRequest) {
         period: target.period,
         kind,
         measurementDate: target.measurement_date,
+        measurementDates: measurementDays.map((day) => day.date),
+        measurementDays,
         preliminaryDate: plan?.recommended_date ?? null,
         surveyors: Array.isArray(plan?.participant_names) ? plan.participant_names : [],
         surveyMethod: plan?.survey_method ?? (kind === "기존업체" ? "phone" : "field"),
