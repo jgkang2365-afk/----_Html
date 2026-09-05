@@ -103,7 +103,7 @@ def run() -> dict[str, object]:
     port = _free_loopback_port()
     helper_source = Path(sys.executable)
 
-    temp_parent = Path(os.environ.get("RUNNER_TEMP", r"C:\\tmp"))
+    temp_parent = Path(os.environ.get("RUNNER_TEMP", r"C:\tmp"))
     temp_parent.mkdir(parents=True, exist_ok=True)
     prior_local_app_data = os.environ.get("LOCALAPPDATA")
     evidence: dict[str, object] = {
