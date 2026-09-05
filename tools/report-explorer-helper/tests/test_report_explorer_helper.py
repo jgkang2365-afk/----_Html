@@ -304,6 +304,18 @@ class ReportExplorerHttpTests(unittest.TestCase):
 
 
 class ReportExplorerDeploymentScriptTests(unittest.TestCase):
+    forbidden_explorer_mutation_markers = (
+        "AutomaticDestinations",
+        "CustomDestinations",
+        "Microsoft\\Windows\\Recent",
+        "BagMRU",
+        "NavPane",
+        "Explorer\\Advanced",
+        "OneDrive",
+        "Stop-Process -Name explorer",
+        "taskkill",
+    )
+
     def test_installation_is_exe_only_and_autostart_is_direct(self) -> None:
         install_script = (HELPER_DIR / "install-report-explorer-helper-autostart.ps1").read_text(
             encoding="utf-8"
@@ -326,6 +338,47 @@ class ReportExplorerDeploymentScriptTests(unittest.TestCase):
         self.assertIn("Get-CimInstance Win32_Process", uninstall_script)
         self.assertIn("$runningProcessIds.Count -gt 0", uninstall_script)
         self.assertIn("ReparsePoint", uninstall_script)
+
+    def test_install_mutations_are_limited_to_dedicated_folder_and_own_run_value(self) -> None:
+        install_script = (HELPER_DIR / "install-report-explorer-helper-autostart.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "$installDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "
+            "'MeasurementJournal\\ReportExplorerHelper'))",
+            install_script,
+        )
+        self.assertIn("$runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'", install_script)
+        self.assertIn("-Name 'MeasurementJournalReportExplorerHelper'", install_script)
+        self.assertEqual(install_script.count("New-ItemProperty"), 1)
+        self.assertEqual(install_script.count("Copy-Item"), 1)
+        self.assertEqual(install_script.count("Remove-Item "), 1)
+        self.assertIn("Copy-Item -LiteralPath $builtExecutable -Destination $destinationExecutable", install_script)
+        self.assertIn("Remove-Item -LiteralPath $legacyPath", install_script)
+        for marker in self.forbidden_explorer_mutation_markers:
+            self.assertNotIn(marker, install_script)
+
+    def test_uninstall_mutations_are_limited_to_dedicated_folder_and_own_run_value(self) -> None:
+        uninstall_script = (HELPER_DIR / "uninstall-report-explorer-helper-autostart.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "$expectedDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "
+            "'MeasurementJournal\\ReportExplorerHelper'))",
+            uninstall_script,
+        )
+        self.assertIn("$runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'", uninstall_script)
+        self.assertEqual(uninstall_script.count("Remove-ItemProperty"), 1)
+        self.assertEqual(uninstall_script.count("Remove-Item "), 1)
+        self.assertIn(
+            "Remove-ItemProperty -Path $runKey -Name 'MeasurementJournalReportExplorerHelper'",
+            uninstall_script,
+        )
+        self.assertIn("Remove-Item -LiteralPath $resolvedDirectory -Recurse", uninstall_script)
+        for marker in self.forbidden_explorer_mutation_markers:
+            self.assertNotIn(marker, uninstall_script)
 
 
 if __name__ == "__main__":
