@@ -24,6 +24,7 @@ import {
 } from '@/lib/report-explorer/client';
 import type {
     ReportExplorerConnectionStatus,
+    ReportExplorerMatch,
     ReportExplorerPeriod,
     ReportExplorerQueryResult
 } from '@/lib/report-explorer/types';
@@ -51,6 +52,7 @@ const DEFAULT_REPORT_PROCESSING_FILTERS = {
     period: '상반기',
     search: ''
 };
+const PAGE_SIZE = 10;
 
 function restoreReportProcessingFilters(value: string | null) {
     if (!value) return DEFAULT_REPORT_PROCESSING_FILTERS;
@@ -97,11 +99,13 @@ export default function ReportProcessingPage() {
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]); // 기기: code 기반 -> key `${code}-${year}-${period}` 기반
     const [filters, setFilters] = useState(DEFAULT_REPORT_PROCESSING_FILTERS);
     const [filtersReady, setFiltersReady] = useState(false);
-    const [useReportProcessingResults, setUseReportProcessingResults] = useState(true);
     const [manualExplorerNames, setManualExplorerNames] = useState('');
     const [explorerYear, setExplorerYear] = useState('');
     const [explorerPeriod, setExplorerPeriod] = useState<ReportExplorerPeriod | ''>('');
+    const [reportPage, setReportPage] = useState(1);
+    const [explorerPage, setExplorerPage] = useState(1);
     const [explorerResults, setExplorerResults] = useState<ReportExplorerQueryResult[]>([]);
+    const [explorerHasSearched, setExplorerHasSearched] = useState(false);
     const [explorerConnectionStatus, setExplorerConnectionStatus] = useState<ReportExplorerConnectionStatus>('unchecked');
     const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
     const [explorerSearching, setExplorerSearching] = useState(false);
@@ -127,6 +131,10 @@ export default function ReportProcessingPage() {
                     classification: (r.year === CURRENT_YEAR && r.period === CURRENT_PERIOD) ? '정규' : '추가'
                 }));
                 setRecords(enrichedRecords);
+                const availableKeys = new Set(enrichedRecords.map((record: BusinessRecord) =>
+                    `${record.code}-${record.year}-${record.period}`));
+                setSelectedKeys((current) => current.filter((key) => availableKeys.has(key)));
+                setReportPage(1);
             } else {
                 toast.error(data.error || '데이터 조회 실패');
             }
@@ -165,6 +173,22 @@ export default function ReportProcessingPage() {
         () => records.filter((record) => selectedKeys.includes(`${record.code}-${record.year}-${record.period}`)),
         [records, selectedKeys]
     );
+    const explorerBasisCount = selectedRecords.length > 0 ? selectedRecords.length : records.length;
+    const effectiveExplorerYear = filters.year === 'all' ? explorerYear : filters.year;
+    const effectiveExplorerPeriod = filters.period === 'all' ? explorerPeriod : filters.period as ReportExplorerPeriod;
+    const reportPageCount = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
+    const visibleRecords = records.slice((reportPage - 1) * PAGE_SIZE, reportPage * PAGE_SIZE);
+    const explorerRows = useMemo(() => explorerResults.reduce<Array<{
+        result: ReportExplorerQueryResult;
+        match: ReportExplorerMatch | null;
+    }>>((rows, result) => [
+        ...rows,
+        ...(result.matches.length === 0
+            ? [{ result, match: null }]
+            : result.matches.map((match) => ({ result, match }))),
+    ], []), [explorerResults]);
+    const explorerPageCount = Math.max(1, Math.ceil(explorerRows.length / PAGE_SIZE));
+    const visibleExplorerRows = explorerRows.slice((explorerPage - 1) * PAGE_SIZE, explorerPage * PAGE_SIZE);
 
     const cancelReportExplorerRequest = useCallback((notify = true) => {
         const controller = explorerAbortControllerRef.current;
@@ -436,11 +460,11 @@ export default function ReportProcessingPage() {
     };
 
     const handleExplorerSearch = async () => {
-        if (!explorerYear || !explorerPeriod) {
+        if (!effectiveExplorerYear || !effectiveExplorerPeriod) {
             toast.warning('보고서 탐색할 연도와 주기를 선택해주세요.');
             return;
         }
-        const businessNames = collectReportExplorerBusinessNames({ useCurrentResults: useReportProcessingResults, records, selectedKeys, manualInput: manualExplorerNames });
+        const businessNames = collectReportExplorerBusinessNames({ useCurrentResults: true, records, selectedKeys, manualInput: manualExplorerNames });
         if (businessNames.length === 0) {
             toast.warning('현재 결과를 사용하거나 사업장명을 직접 입력해주세요.');
             return;
@@ -448,11 +472,14 @@ export default function ReportProcessingPage() {
         const controller = createExplorerRequestController();
         setExplorerSearching(true);
         setExplorerResults([]);
+        setExplorerHasSearched(false);
         setExplorerMessage(null);
         try {
-            const results = await searchReportExplorer({ year: Number(explorerYear), period: explorerPeriod, businessNames }, controller.signal);
+            const results = await searchReportExplorer({ year: Number(effectiveExplorerYear), period: effectiveExplorerPeriod, businessNames }, controller.signal);
             if (explorerAbortControllerRef.current !== controller) return;
             setExplorerResults(results);
+            setExplorerHasSearched(true);
+            setExplorerPage(1);
             setExplorerConnectionStatus('connected');
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -498,37 +525,42 @@ export default function ReportProcessingPage() {
     };
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-800">작업환경측정결과 보고서 처리</h1>
-                <div className="flex gap-2">
+        <div className="w-full min-w-0 max-w-[calc(100vw-2rem)] space-y-4 overflow-hidden p-4 md:p-6 lg:max-w-none">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h1 className="text-xl font-bold text-gray-800 md:text-2xl">작업환경측정결과 보고서 처리</h1>
+                <div className="flex flex-wrap gap-2">
                     {activeJob && (
-                        <Button variant="secondary" onClick={cancelActiveJob} className="border-red-200 text-red-700 hover:bg-red-50">
+                        <Button size="sm" variant="secondary" onClick={cancelActiveJob} className="h-10 border-red-200 px-4 text-red-700 hover:bg-red-50">
                             <X className="w-4 h-4 mr-2" />
                             진행 작업 중단 (Esc)
                         </Button>
                     )}
                     <Button
-                        variant="primary"
+                        size="sm"
+                        variant="secondary"
                         onClick={() => fetchRecords(true)}
                         disabled={loading || refreshing}
+                        className="h-10 px-4"
                     >
                         <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
                         새로고침
                     </Button>
                     <Button
+                        size="sm"
                         variant="primary"
                         onClick={handleSendEmails}
                         disabled={loading || selectedKeys.length === 0}
-                        className="bg-blue-600 hover:bg-blue-700"
+                        className="h-10 bg-blue-600 px-4 hover:bg-blue-700"
                     >
                         <Mail className="w-4 h-4 mr-2" />
                         이메일 합산 전송 ({selectedKeys.length})
                     </Button>
                     <Button
+                        size="sm"
                         variant="secondary"
                         onClick={handleUploadK2B}
                         disabled={loading || selectedKeys.length === 0}
+                        className="h-10 px-4"
                     >
                         <Upload className="w-4 h-4 mr-2" />
                         K2B 업로드 ({selectedKeys.length})
@@ -536,13 +568,13 @@ export default function ReportProcessingPage() {
                 </div>
             </div>
 
-            {/* 필터 영역 */}
-            <div className="flex gap-4 p-4 bg-white rounded-lg shadow-sm border">
-                <div className="w-48">
+            <Card className="grid gap-3 p-4 md:grid-cols-[10rem_10rem_minmax(18rem,1fr)] md:items-end">
+                <div>
                     <Select
                         label="년도"
                         value={filters.year}
                         onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilters(prev => ({ ...prev, year: e.target.value }))}
+                        className="h-10 py-0 text-sm"
                         options={[
                             { value: "all", label: "전체" },
                             { value: "2024", label: "2024년" },
@@ -551,11 +583,12 @@ export default function ReportProcessingPage() {
                         ]}
                     />
                 </div>
-                <div className="w-48">
+                <div>
                     <Select
                         label="주기"
                         value={filters.period}
                         onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilters(prev => ({ ...prev, period: e.target.value }))}
+                        className="h-10 py-0 text-sm"
                         options={[
                             { value: "all", label: "전체" },
                             { value: "상반기", label: "상반기" },
@@ -563,10 +596,11 @@ export default function ReportProcessingPage() {
                         ]}
                     />
                 </div>
-                <div className="flex items-end gap-2">
-                    <div className="relative w-80">
+                <div className="flex min-w-0 items-end gap-2">
+                    <div className="relative min-w-0 flex-1">
                         <Input
-                            placeholder="업체명 또는 코드 검색 (쉼표 구분 가능)..."
+                            label="사업장 검색"
+                            placeholder="업체명 또는 코드 (쉼표 구분 가능)"
                             value={filters.search}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilters(prev => ({ ...prev, search: e.target.value }))}
                             onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -575,7 +609,7 @@ export default function ReportProcessingPage() {
                                     fetchRecords();
                                 }
                             }}
-                            className="pr-10"
+                            className="h-10 pr-10 text-sm"
                         />
                         {filters.search && !loading && (
                             <button
@@ -591,7 +625,7 @@ export default function ReportProcessingPage() {
                             </button>
                         )}
                     </div>
-                    <Button onClick={() => fetchRecords(false)} variant="primary" disabled={loading || refreshing}>
+                    <Button size="sm" className="h-10 shrink-0 px-4" onClick={() => fetchRecords(false)} variant="primary" disabled={loading || refreshing}>
                         {loading ? (
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         ) : (
@@ -600,85 +634,48 @@ export default function ReportProcessingPage() {
                         검색
                     </Button>
                 </div>
-            </div>
-
-            <Card className="p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h2 className="text-base font-bold text-slate-800">보고서 탐색기</h2>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                            {selectedRecords.length > 0 ? `선택된 보고서 처리 결과 ${selectedRecords.length}건의 사업장명을 사용합니다.` : `현재 보고서 처리 결과 ${records.length}건의 사업장명을 사용합니다.`}
-                        </p>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-                        <span className={`rounded-full border px-2 py-1 font-medium ${reportExplorerConnectionStatusClass(explorerConnectionStatus)}`}>{reportExplorerConnectionStatusLabel(explorerConnectionStatus)}</span>
-                        <Button type="button" variant="secondary" size="sm" onClick={() => void updateExplorerHealth()} disabled={explorerSearching || explorerOpeningResultId !== null}>연결 확인</Button>
-                    </div>
-                </div>
-                {explorerMessage && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{explorerMessage}</p>}
-                <p className="text-xs text-slate-500">처음 연결하는 경우 브라우저에서 로컬 네트워크 접근 권한을 허용해주세요.</p>
-                <div className="grid gap-3 lg:grid-cols-[12rem_12rem_minmax(0,1fr)_auto] lg:items-end">
-                    <Select label="탐색 연도" value={explorerYear} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setExplorerYear(event.target.value)} disabled={filters.year !== 'all'} options={[{ value: '', label: filters.year === 'all' ? '연도 선택' : '연도 동기화 중' }, { value: '2024', label: '2024년' }, { value: '2025', label: '2025년' }, { value: '2026', label: '2026년' }]} />
-                    <Select label="탐색 주기" value={explorerPeriod} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => { const period = event.target.value; setExplorerPeriod(period === '상반기' || period === '하반기' ? period : ''); }} disabled={filters.period !== 'all'} options={[{ value: '', label: filters.period === 'all' ? '주기 선택' : '주기 동기화 중' }, { value: '상반기', label: '상반기' }, { value: '하반기', label: '하반기' }]} />
-                    <div className="space-y-1">
-                        <label htmlFor="report-explorer-manual-names" className="block text-sm font-medium text-text-700">사업장명 직접 추가</label>
-                        <textarea id="report-explorer-manual-names" value={manualExplorerNames} onChange={(event) => setManualExplorerNames(event.target.value)} placeholder="쉼표 또는 줄바꿈으로 구분" rows={2} className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-5 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                    </div>
-                    <Button type="button" variant="primary" onClick={() => void handleExplorerSearch()} disabled={explorerSearching || explorerOpeningResultId !== null}>
-                        {explorerSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderSearch className="mr-2 h-4 w-4" />} 보고서 폴더 검색
-                    </Button>
-                </div>
-                <Checkbox id="use-report-processing-results" checked={useReportProcessingResults} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setUseReportProcessingResults(event.target.checked)} label="현재 보고서 처리 결과 사용" />
-                {explorerResults.length > 0 && <Table className="text-sm">
-                    <TableHeader><TableRow><TableHead>검색 사업장</TableHead><TableHead>일치 사업장 폴더</TableHead><TableHead>경로</TableHead><TableHead className="text-center">상태</TableHead><TableHead className="text-center">동작</TableHead></TableRow></TableHeader>
-                    <TableBody>{explorerResults.flatMap((result) => result.matches.length === 0
-                        ? [<TableRow key={`${result.query}-${result.status}`}><TableCell className="font-medium">{result.query}</TableCell><TableCell>-</TableCell><TableCell>-</TableCell><TableCell className="text-center"><span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">{reportExplorerStatusLabel(result.status)}</span></TableCell><TableCell className="text-center">-</TableCell></TableRow>]
-                        : result.matches.map((match) => <TableRow key={match.resultId}><TableCell className="font-medium">{result.query}</TableCell><TableCell title={match.folderName}>{match.folderName}</TableCell><TableCell className="max-w-[32rem] truncate" title={match.path}>{match.path}</TableCell><TableCell className="text-center"><span className={`rounded-full border px-2 py-1 text-xs font-medium ${result.status === 'FOUND' ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>{reportExplorerStatusLabel(result.status)}</span></TableCell><TableCell className="text-center"><Button type="button" variant="secondary" size="sm" onClick={() => void handleExplorerOpen(match.resultId)} disabled={explorerOpeningResultId !== null || explorerSearching}>{explorerOpeningResultId === match.resultId ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ExternalLink className="mr-1 h-4 w-4" />열기</>}</Button></TableCell></TableRow>)
-                    )}</TableBody>
-                </Table>}
             </Card>
 
-            {/* 리스트 영역 */}
-            <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-                <Table>
+            <section aria-label="보고서 처리 결과" className="space-y-2">
+                <Table className="min-w-[1000px] table-fixed text-sm">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-[50px]">
+                            <TableHead className="w-11">
                                 <Checkbox
                                     checked={selectedKeys.length === records.length && records.length > 0}
                                     onChange={toggleAll}
                                 />
                             </TableHead>
-                            <TableHead className="w-20 text-center">구분</TableHead>
-                            <TableHead className="w-24 text-center">년도</TableHead>
-                            <TableHead className="w-24 text-center">주기</TableHead>
-                            <TableHead>업체코드</TableHead>
-                            <TableHead>사업장명</TableHead>
-                            <TableHead>담당자 이메일</TableHead>
-                            <TableHead>이메일 발송 상태</TableHead>
-                            <TableHead>K2B 전송일자</TableHead>
-                            <TableHead>K2B 상태</TableHead>
+                            <TableHead className="w-16 text-center">구분</TableHead>
+                            <TableHead className="w-20 text-center">년도</TableHead>
+                            <TableHead className="w-20 text-center">주기</TableHead>
+                            <TableHead className="w-24">업체코드</TableHead>
+                            <TableHead className="w-40">사업장명</TableHead>
+                            <TableHead className="w-48">담당자 이메일</TableHead>
+                            <TableHead className="w-44">이메일 발송 상태</TableHead>
+                            <TableHead className="w-28">K2B 전송일자</TableHead>
+                            <TableHead className="w-28">K2B 상태</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {loading && records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center py-10">
+                                <TableCell colSpan={10} className="h-20 text-center">
                                     <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
                                 </TableCell>
                             </TableRow>
                         ) : records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                                <TableCell colSpan={10} className="h-20 text-center text-muted-foreground">
                                     조회된 데이터가 없습니다.
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            records.map((record: BusinessRecord) => {
+                            visibleRecords.map((record: BusinessRecord) => {
                                 const rowKey = `${record.code}-${record.year}-${record.period}`;
                                 return (
-                                    <TableRow key={rowKey}>
-                                        <TableCell>
+                                    <TableRow key={rowKey} className="h-12">
+                                        <TableCell className="px-4 py-2">
                                             <Checkbox
                                                 checked={selectedKeys.includes(rowKey)}
                                                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => toggleOne(rowKey, e.target.checked)}
@@ -696,7 +693,7 @@ export default function ReportProcessingPage() {
                                         <TableCell className="text-center text-sm">{record.year}년</TableCell>
                                         <TableCell className="text-center text-sm">{record.period}</TableCell>
                                         <TableCell className="font-mono text-sm">{record.code}</TableCell>
-                                        <TableCell className="font-medium">{record.business_name}</TableCell>
+                                        <TableCell className="truncate font-medium" title={record.business_name}>{record.business_name}</TableCell>
                                         <TableCell className="text-sm truncate max-w-[200px]" title={record.manager_email}>
                                             {record.manager_email || <span className="text-red-400">정보없음</span>}
                                         </TableCell>
@@ -735,7 +732,82 @@ export default function ReportProcessingPage() {
                         )}
                     </TableBody>
                 </Table>
-            </div>
+                {records.length > PAGE_SIZE && (
+                    <div className="flex h-12 items-center justify-center gap-3" aria-label="보고서 처리 페이지">
+                        <Button type="button" size="sm" variant="secondary" className="h-9 px-3" disabled={reportPage === 1} onClick={() => setReportPage((page) => page - 1)}>이전</Button>
+                        <span className="min-w-20 text-center text-sm text-slate-600">{reportPage} / {reportPageCount}</span>
+                        <Button type="button" size="sm" variant="secondary" className="h-9 px-3" disabled={reportPage === reportPageCount} onClick={() => setReportPage((page) => page + 1)}>다음</Button>
+                    </div>
+                )}
+            </section>
+
+            <Card className="space-y-3 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <h2 className="text-base font-bold text-slate-800">보고서 탐색기</h2>
+                        <span className="text-sm text-slate-500">
+                            {effectiveExplorerYear ? `${effectiveExplorerYear}년` : '연도 선택 필요'} · {effectiveExplorerPeriod || '주기 선택 필요'} | {selectedRecords.length > 0 ? `선택 ${explorerBasisCount}건` : `결과 ${explorerBasisCount}건`}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                        <span className={`rounded-full border px-2 py-1 font-medium ${reportExplorerConnectionStatusClass(explorerConnectionStatus)}`}>{reportExplorerConnectionStatusLabel(explorerConnectionStatus)}</span>
+                        <Button type="button" variant="secondary" size="sm" className="h-8 px-3 text-xs" onClick={() => void updateExplorerHealth()} disabled={explorerSearching || explorerOpeningResultId !== null}>연결 확인</Button>
+                    </div>
+                </div>
+                {explorerMessage && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{explorerMessage}</p>}
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                    <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)] md:grid-cols-[minmax(18rem,1fr)_auto_auto] md:items-end">
+                        <Input
+                            id="report-explorer-manual-names"
+                            label="추가 사업장명"
+                            value={manualExplorerNames}
+                            onChange={(event) => setManualExplorerNames(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                    event.preventDefault();
+                                    void handleExplorerSearch();
+                                }
+                            }}
+                            placeholder="쓰리디, 보스턴, 대흥산업"
+                            className="h-10 text-sm"
+                        />
+                        {filters.year === 'all' && <Select label="탐색 연도" value={explorerYear} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setExplorerYear(event.target.value)} className="h-10 py-0 text-sm md:w-36" options={[{ value: '', label: '연도 선택' }, { value: '2024', label: '2024년' }, { value: '2025', label: '2025년' }, { value: '2026', label: '2026년' }]} />}
+                        {filters.period === 'all' && <Select label="탐색 주기" value={explorerPeriod} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => { const period = event.target.value; setExplorerPeriod(period === '상반기' || period === '하반기' ? period : ''); }} className="h-10 py-0 text-sm md:w-36" options={[{ value: '', label: '주기 선택' }, { value: '상반기', label: '상반기' }, { value: '하반기', label: '하반기' }]} />}
+                    </div>
+                    <Button type="button" size="sm" className="h-10 w-full px-4 md:w-auto" variant="primary" onClick={() => void handleExplorerSearch()} disabled={explorerSearching || explorerOpeningResultId !== null}>
+                        {explorerSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderSearch className="mr-2 h-4 w-4" />} 보고서 폴더 검색
+                    </Button>
+                </div>
+                <div className="space-y-2">
+                    <Table className="min-w-[820px] table-fixed text-sm">
+                        <TableHeader><TableRow><TableHead className="w-48">검색 사업장</TableHead><TableHead className="w-64">일치 사업장 폴더</TableHead><TableHead>경로</TableHead><TableHead className="w-28 text-center">상태</TableHead><TableHead className="w-24 text-center">동작</TableHead></TableRow></TableHeader>
+                        <TableBody>
+                            {explorerRows.length === 0 ? (
+                                <TableRow className="h-12">
+                                    <TableCell colSpan={5} className="px-4 py-2 text-left text-muted-foreground sm:text-center">
+                                        {explorerHasSearched ? '일치하는 보고서 폴더가 없습니다.' : '보고서 폴더를 검색해주세요.'}
+                                    </TableCell>
+                                </TableRow>
+                            ) : visibleExplorerRows.map(({ result, match }) => (
+                                <TableRow key={match?.resultId ?? `${result.query}-${result.status}`} className="h-12">
+                                    <TableCell className="truncate px-4 py-2 font-medium" title={result.query}>{result.query}</TableCell>
+                                    <TableCell className="truncate px-4 py-2" title={match?.folderName}>{match?.folderName ?? '-'}</TableCell>
+                                    <TableCell className="truncate px-4 py-2" title={match?.path}>{match?.path ?? '-'}</TableCell>
+                                    <TableCell className="px-4 py-2 text-center"><span className={`inline-flex h-7 items-center rounded-full border px-2 text-xs font-medium ${result.status === 'FOUND' ? 'border-green-200 bg-green-50 text-green-700' : result.status === 'MULTIPLE' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>{reportExplorerStatusLabel(result.status)}</span></TableCell>
+                                    <TableCell className="px-4 py-2 text-center">{match ? <Button type="button" variant="secondary" size="sm" className="h-8 px-3 text-xs" onClick={() => void handleExplorerOpen(match.resultId)} disabled={explorerOpeningResultId !== null || explorerSearching}>{explorerOpeningResultId === match.resultId ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ExternalLink className="mr-1 h-4 w-4" />열기</>}</Button> : '-'}</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                    {explorerRows.length > PAGE_SIZE && (
+                        <div className="flex h-12 items-center justify-center gap-3" aria-label="보고서 탐색 결과 페이지">
+                            <Button type="button" size="sm" variant="secondary" className="h-9 px-3" disabled={explorerPage === 1} onClick={() => setExplorerPage((page) => page - 1)}>이전</Button>
+                            <span className="min-w-20 text-center text-sm text-slate-600">{explorerPage} / {explorerPageCount}</span>
+                            <Button type="button" size="sm" variant="secondary" className="h-9 px-3" disabled={explorerPage === explorerPageCount} onClick={() => setExplorerPage((page) => page + 1)}>다음</Button>
+                        </div>
+                    )}
+                </div>
+            </Card>
 
             {/* 작업 오버레이 */}
             {processing && (
