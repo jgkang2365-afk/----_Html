@@ -121,3 +121,25 @@
 - 말줄임 값은 tooltip 또는 column resize로 전체값을 확인할 수 있게 한다.
 - 선택 → 입력 → 검토 → 실행 → 완료 흐름을 한 방향으로 구성한다.
 - 새 UI를 만들기 전에 기존 공통 컴포넌트와 패턴을 우선 재사용한다.
+
+## 12. 작업지시서 오케스트레이션 원칙
+
+GPT가 개발 작업지시서를 작성할 때 작업 규모·복잡도·위험도를 먼저 판단하고, 필요한 범위에서 다음을 작업지시서에 명시한다.
+
+- 작업 분해와 역할 분담, 분업 필요 여부
+- 독립 작업의 병렬 실행 가능 여부와 선행·후행 dependency
+- 각 역할의 READ_ONLY 또는 WRITE 권한
+- `routine`, `standard`, `complex`, `critical`, `independent verifier` 등 역할·난이도와 현재 사용 가능한 모델 및 추론 수준
+- focused test와 최종 regression/typecheck/lint/build/E2E 등 검증 방법
+- 사용자가 승인한 일반 안전 작업 범위와 별도 승인이 필요한 고위험 작업
+- worker, terminal, 임시 파일 및 worktree cleanup 조건
+
+가장 낮은 충분 성능부터 선택하고 복잡도나 위험이 실제로 증가할 때만 상향한다. 특정 모델명을 장기 정책의 핵심으로 고정하지 않으며, 모델 세대가 바뀌면 작업지시서 작성 시점의 가용 모델에 맞춰 선택한다. 작은 작업을 억지로 여러 worker에게 나누지 않는다.
+
+독립적인 업무규칙·API/DB 흐름·회귀 테스트·UI 영향 조사와 독립 검토는 READ_ONLY로 병렬화할 수 있다. 같은 파일이나 상태의 동시 WRITE, 선행 결과에 의존하는 작업, 동일 DB mutation 또는 migration은 병렬화하지 않는다. 같은 worktree의 WRITE는 기본적으로 Lead Worker 한 명이 소유하며, 복수 WRITE는 파일 범위와 상태가 완전히 분리되고 합류 순서가 명확할 때만 허용한다.
+
+명시적으로 승인된 작업지시서 안의 workspace 수정, 관련 테스트, typecheck/lint/build, Git 상태 확인, 승인된 branch 작업, 명시된 PR, 검증과 cleanup은 명령 단위로 반복 승인을 요구하지 않도록 계획한다. 다만 Production 배포, 운영 DB 쓰기·migration, credential/secret 또는 권한 변경, sandbox 완화·Full Access, destructive operation, force push/history rewrite, 유료 리소스는 별도 위험 범위로 구분한다. 반복 승인을 줄이기 위해 보안 경계를 완화하지 않는다.
+
+작업 중에는 focused test를 우선하고 안정 candidate에서 필요한 전체 검증을 최종 Gate로 수행한다. 동일한 전체 검증을 의미 없이 반복하지 않으며, 독립 Fresh Verifier가 필요한 경우 구현 Worker와 분리한다. 웹 UI 자동 검증은 headless 또는 격리된 session을 우선하여 사용자의 마우스·키보드·활성창·포커스를 방해하지 않는다.
+
+하위 Worker에는 현재 목적, 관련 문서 경로와 필요한 섹션, 수정 가능·금지 범위, 선행 evidence, 완료·검증 조건만 우선 전달한다. 전체 handoff, raw transcript, 과거 로그와 무관한 설계 문서는 기본적으로 복사하지 않고, 필요한 원문은 Worker가 직접 읽도록 한다.
