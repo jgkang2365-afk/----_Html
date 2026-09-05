@@ -1,4 +1,5 @@
 /build/
 /dist/
+/release/
 /__pycache__/
 *.spec

@@ -26,6 +26,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging.handlers import RotatingFileHandler
 from typing import Any, Callable
 
+from report_explorer_versions import HELPER_VERSION, PROTOCOL_VERSION
+
 
 LOOPBACK_HOST = "127.0.0.1"
 PORT = 17653
@@ -68,7 +70,7 @@ def _configure_logging() -> logging.Logger:
     logger.propagate = False
     if not logger.handlers:
         handler = RotatingFileHandler(
-            os.path.join(log_directory, "report-explorer-helper.log"),
+            os.path.join(log_directory, "helper.log"),
             maxBytes=1_048_576,
             backupCount=3,
             encoding="utf-8",
@@ -208,7 +210,7 @@ class ReportExplorerService:
         storage: dict[str, Any] = {"available": available, "root": self.root}
         if reason:
             storage["reason"] = reason
-        return {"status": "ok", "version": "1", "storage": storage}
+        return {"status": "ok", "version": PROTOCOL_VERSION, "helperVersion": HELPER_VERSION, "storage": storage}
 
     def _available_root(self) -> str:
         drive, _ = os.path.splitdrive(self.root)

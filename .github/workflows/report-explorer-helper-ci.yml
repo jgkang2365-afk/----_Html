@@ -1,0 +1,44 @@
+name: Report Explorer Helper CI
+
+on:
+  pull_request:
+    paths:
+      - "tools/report-explorer-helper/**"
+      - ".github/workflows/report-explorer-helper-*.yml"
+  push:
+    branches: [main]
+    paths:
+      - "tools/report-explorer-helper/**"
+      - ".github/workflows/report-explorer-helper-*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.7"
+          cache: pip
+          cache-dependency-path: tools/report-explorer-helper/requirements-build.lock
+      - name: Install pinned build toolchain
+        run: python -m pip install --disable-pip-version-check -r tools/report-explorer-helper/requirements-build.lock
+      - name: Run Helper and updater unit tests
+        run: python -m unittest discover -s tools/report-explorer-helper/tests -p "test_*.py" -v
+      - name: Build Windows executables
+        shell: pwsh
+        run: ./tools/report-explorer-helper/build-report-explorer-helper.ps1 -PythonExecutable (Get-Command python).Source
+      - name: Validate release packaging contract
+        shell: pwsh
+        run: ./tools/report-explorer-helper/package-report-explorer-helper-release.ps1 -Channel pilot -SourceCommit $env:GITHUB_SHA
+      - name: Verify Release asset names are not tracked
+        shell: pwsh
+        run: |
+          $unexpected = git ls-files tools/report-explorer-helper/dist tools/report-explorer-helper/build tools/report-explorer-helper/release
+          if ($unexpected) { throw "Generated helper artifacts must not be committed: $unexpected" }

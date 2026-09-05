@@ -437,23 +437,34 @@ class ReportExplorerDeploymentScriptTests(unittest.TestCase):
         "net use",
     )
 
-    def test_installation_is_exe_only_and_autostart_is_direct(self) -> None:
-        install_script = (HELPER_DIR / "install-report-explorer-helper-autostart.ps1").read_text(
-            encoding="utf-8"
-        )
+    def test_install_wrapper_runs_the_single_setup_executable(self) -> None:
+        install_script = (HELPER_DIR / "install-report-explorer-helper-autostart.ps1").read_text(encoding="utf-8")
 
-        self.assertIn("dist\\ReportExplorerHelper.exe", install_script)
-        self.assertIn("$command = ('\"{0}\"' -f $destinationExecutable)", install_script)
+        self.assertIn("dist\\ReportExplorerSetup.exe", install_script)
+        self.assertIn("& $setupExecutable", install_script)
+        self.assertNotIn("New-ItemProperty", install_script)
+        self.assertNotIn("HKCU:\\Software", install_script)
+        self.assertNotIn("Copy-Item", install_script)
         self.assertNotIn("wscript.exe", install_script)
-        self.assertNotIn("Copy-Item -LiteralPath $source", install_script)
-        for legacy_file in ("report_explorer_helper.py", "run-report-explorer-helper.bat", "run-report-explorer-helper.vbs"):
-            self.assertIn(legacy_file, install_script)
-            self.assertNotIn(f"Copy-Item -LiteralPath $source -Destination (Join-Path $installDirectory '{legacy_file}')", install_script)
 
     def test_build_uses_the_windows_gui_subsystem_for_stable_hkcu_startup(self) -> None:
         build_script = (HELPER_DIR / "build-report-explorer-helper.ps1").read_text(encoding="utf-8")
 
-        self.assertIn("--onefile --noconsole --name ReportExplorerHelper", build_script)
+        self.assertIn("'--onefile'", build_script)
+        self.assertIn("'--noconsole'", build_script)
+        self.assertIn("'--specpath', $workPath", build_script)
+        self.assertIn("'--version-file', $versionFile", build_script)
+        for executable in ("ReportExplorerHelper", "ReportExplorerUpdater", "ReportExplorerSetup"):
+            self.assertIn(executable, build_script)
+
+    def test_release_packaging_verifies_bundle_but_publishes_only_helper_and_setup(self) -> None:
+        package_script = (HELPER_DIR / "package-report-explorer-helper-release.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("ReportExplorerHelper.exe", package_script)
+        self.assertIn("ReportExplorerSetup.exe", package_script)
+        self.assertIn("$embeddedAssets = @($helper, $updater, $setup)", package_script)
+        self.assertIn('$setupHash  ReportExplorerSetup.exe`n", $utf8NoBom)', package_script)
+        self.assertIn('Release assets prepared for ${tag}: $outputPath', package_script)
 
     def test_uninstall_requires_expected_registration_and_stopped_verified_helper(self) -> None:
         uninstall_script = (HELPER_DIR / "uninstall-report-explorer-helper-autostart.ps1").read_text(
@@ -470,18 +481,11 @@ class ReportExplorerDeploymentScriptTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn(
-            "$installDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "
-            "'MeasurementJournal\\ReportExplorerHelper'))",
-            install_script,
-        )
-        self.assertIn("$runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'", install_script)
-        self.assertIn("-Name 'MeasurementJournalReportExplorerHelper'", install_script)
-        self.assertEqual(install_script.count("New-ItemProperty"), 1)
-        self.assertEqual(install_script.count("Copy-Item"), 1)
-        self.assertEqual(install_script.count("Remove-Item "), 1)
-        self.assertIn("Copy-Item -LiteralPath $builtExecutable -Destination $destinationExecutable", install_script)
-        self.assertIn("Remove-Item -LiteralPath $legacyPath", install_script)
+        self.assertIn("ReportExplorerSetup.exe", install_script)
+        self.assertNotIn("LOCALAPPDATA", install_script)
+        self.assertNotIn("New-ItemProperty", install_script)
+        self.assertNotIn("Remove-Item", install_script)
+        self.assertNotIn("Copy-Item", install_script)
         for marker in self.forbidden_explorer_mutation_markers:
             self.assertNotIn(marker, install_script)
 
