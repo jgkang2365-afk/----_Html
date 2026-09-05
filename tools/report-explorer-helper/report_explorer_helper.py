@@ -222,7 +222,10 @@ class ReportExplorerService:
             503,
             "보고서 저장소 루트를 사용할 수 없습니다.",
         )
-        return self.root
+        # A drive that was unavailable at process start can later resolve to a
+        # provider UNC path (for example, RaiDrive). Re-resolve the available
+        # root so containment compares one canonical namespace.
+        return _canonical(self.root)
 
     @staticmethod
     def _validate_search_inputs(

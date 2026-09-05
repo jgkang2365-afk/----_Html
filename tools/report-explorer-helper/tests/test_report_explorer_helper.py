@@ -132,6 +132,20 @@ class ReportExplorerServiceTests(unittest.TestCase):
             "FOUND",
         )
 
+    def test_available_root_is_recanonicalized_after_a_drive_mounts(self) -> None:
+        service = ReportExplorerService(self.root)
+        service.root = r"Z:\data\측정팀\측정보고서"
+        mounted_root = r"\\RaiDrive-USER\Synology\data\측정팀\측정보고서"
+
+        with (
+            patch.object(helper.os.path, "exists", return_value=True),
+            patch.object(service, "_require_directory"),
+            patch.object(helper, "_canonical", return_value=mounted_root) as canonical,
+        ):
+            self.assertEqual(service._available_root(), mounted_root)
+
+        canonical.assert_called_once_with(service.root)
+
     def test_absolute_storage_root_is_independent_of_current_working_directory(self) -> None:
         expected_root = str(self.root.resolve())
         original_cwd = Path.cwd()
