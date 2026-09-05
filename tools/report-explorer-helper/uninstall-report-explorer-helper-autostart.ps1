@@ -8,16 +8,15 @@ if (-not $env:LOCALAPPDATA) {
 
 $expectedDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'MeasurementJournal\ReportExplorerHelper'))
 $expectedExecutable = Join-Path $expectedDirectory 'ReportExplorerHelper.exe'
-$expectedCommand = ('"{0}"' -f $expectedExecutable)
+$expectedUpdater = Join-Path $expectedDirectory 'ReportExplorerUpdater.exe'
+$expectedCommand = ('"{0}" --startup' -f $expectedUpdater)
 $registeredCommand = (Get-ItemProperty -Path $runKey -Name 'MeasurementJournalReportExplorerHelper' -ErrorAction SilentlyContinue).'MeasurementJournalReportExplorerHelper'
 if ($null -ne $registeredCommand -and -not [string]::Equals($registeredCommand, $expectedCommand, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "자동 시작 값이 예상한 EXE 경로와 달라 제거하지 않습니다: $registeredCommand"
+    throw "자동 시작 값이 예상한 Updater 경로와 달라 제거하지 않습니다: $registeredCommand"
 }
 
-$expectedLegacyScript = Join-Path $expectedDirectory 'report_explorer_helper.py'
 $runningProcessIds = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-    ($_.ExecutablePath -and [string]::Equals($_.ExecutablePath, $expectedExecutable, [System.StringComparison]::OrdinalIgnoreCase)) -or
-    ($_.CommandLine -and $_.CommandLine.IndexOf($expectedLegacyScript, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+    $_.ExecutablePath -and [string]::Equals($_.ExecutablePath, $expectedExecutable, [System.StringComparison]::OrdinalIgnoreCase)
 } | ForEach-Object { $_.ProcessId })
 if ($runningProcessIds.Count -gt 0) {
     throw "실행 중인 설치 대상 헬퍼(PID: $($runningProcessIds -join ', '))가 있어 제거하지 않습니다. 작업 관리자에서 해당 PID를 종료한 뒤 다시 실행하세요."
