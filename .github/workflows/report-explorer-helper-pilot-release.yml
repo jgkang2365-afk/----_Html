@@ -22,7 +22,7 @@ jobs:
         shell: pwsh
         run: |
           if ($env:GITHUB_SHA -ne (git rev-parse origin/main)) { throw 'Pilot Release must run from current main.' }
-          $source = Get-Content tools/report-explorer-helper/report_explorer_versions.py -Raw
+          $source = (Get-Content tools/report-explorer-helper/report_explorer_versions.py -Raw).Replace("`r`n", "`n")
           $match = [regex]::Match($source, '(?m)^RELEASE_VERSION = "((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))"$')
           if (-not $match.Success) { throw 'Canonical RELEASE_VERSION is missing or invalid.' }
           foreach ($name in @('HELPER_VERSION', 'UPDATER_VERSION', 'SETUP_VERSION')) { if ($source -notmatch "(?m)^${name} = RELEASE_VERSION$") { throw "$name must alias RELEASE_VERSION." } }
