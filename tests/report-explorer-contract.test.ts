@@ -82,6 +82,8 @@ test("페이지 마운트는 로컬 헬퍼를 확인하지 않고 검색 또는 
   assert.doesNotMatch(page, /useEffect\(\(\) => \{\s*void updateExplorerHealth\(\)/);
   assert.match(page, /onClick=\{\(\) => void updateExplorerHealth\(\)\}/);
   assert.match(page, /onClick=\{\(\) => void handleExplorerSearch\(\)\}/);
+  assert.match(page, /useState<ReportExplorerConnectionStatus>\('unchecked'\)/);
+  assert.match(page, /status === 'unchecked'.*'연결 확인 전'/);
   assert.match(page, /로컬 탐색기 연결 안 됨/);
   assert.match(page, /보고서 저장소 연결 오류/);
 });

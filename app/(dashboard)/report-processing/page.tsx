@@ -76,6 +76,7 @@ function reportExplorerStatusLabel(status: ReportExplorerQueryResult['status']) 
 function reportExplorerConnectionStatusLabel(status: ReportExplorerConnectionStatus) {
     if (status === 'connected') return '로컬 탐색기 연결됨';
     if (status === 'storage-error') return '보고서 저장소 연결 오류';
+    if (status === 'unchecked') return '연결 확인 전';
     return '로컬 탐색기 연결 안 됨';
 }
 
