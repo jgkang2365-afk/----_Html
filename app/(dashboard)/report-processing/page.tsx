@@ -16,13 +16,14 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Card } from '@/components/ui/Card';
 import {
     collectReportExplorerBusinessNames,
+    deriveReportExplorerConnectionStatus,
     getReportExplorerHealth,
     openReportExplorerResult,
     ReportExplorerClientError,
     searchReportExplorer
 } from '@/lib/report-explorer/client';
 import type {
-    ReportExplorerIssue,
+    ReportExplorerConnectionStatus,
     ReportExplorerPeriod,
     ReportExplorerQueryResult
 } from '@/lib/report-explorer/types';
@@ -72,10 +73,16 @@ function reportExplorerStatusLabel(status: ReportExplorerQueryResult['status']) 
     return '미발견';
 }
 
-function reportExplorerIssueLabel(kind: ReportExplorerIssue['kind']) {
-    if (kind === 'disconnected') return '연결 끊김';
-    if (kind === 'permission') return '권한 오류';
-    return '루트 경로 오류';
+function reportExplorerConnectionStatusLabel(status: ReportExplorerConnectionStatus) {
+    if (status === 'connected') return '로컬 탐색기 연결됨';
+    if (status === 'storage-error') return '보고서 저장소 연결 오류';
+    return '로컬 탐색기 연결 안 됨';
+}
+
+function reportExplorerConnectionStatusClass(status: ReportExplorerConnectionStatus) {
+    return status === 'connected'
+        ? 'border-green-200 bg-green-50 text-green-700'
+        : 'border-red-200 bg-red-50 text-red-700';
 }
 
 export default function ReportProcessingPage() {
@@ -93,7 +100,7 @@ export default function ReportProcessingPage() {
     const [explorerYear, setExplorerYear] = useState('');
     const [explorerPeriod, setExplorerPeriod] = useState<ReportExplorerPeriod | ''>('');
     const [explorerResults, setExplorerResults] = useState<ReportExplorerQueryResult[]>([]);
-    const [explorerIssues, setExplorerIssues] = useState<ReportExplorerIssue[]>([]);
+    const [explorerConnectionStatus, setExplorerConnectionStatus] = useState<ReportExplorerConnectionStatus>('unchecked');
     const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
     const [explorerSearching, setExplorerSearching] = useState(false);
     const [explorerOpeningResultId, setExplorerOpeningResultId] = useState<string | null>(null);
@@ -183,16 +190,19 @@ export default function ReportProcessingPage() {
             const health = await getReportExplorerHealth(controller.signal);
             if (explorerAbortControllerRef.current !== controller) return;
 
-            setExplorerIssues(health.issues);
+            setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(
+                health.issues,
+                health.status === 'ok' && health.issues.length === 0
+            ));
             setExplorerMessage(health.issues.length > 0 ? health.message : null);
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') return;
             if (error instanceof ReportExplorerClientError) {
-                setExplorerIssues(error.issues);
+                setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(error.issues, false));
                 setExplorerMessage(error.message);
                 return;
             }
-            setExplorerIssues([]);
+            setExplorerConnectionStatus('disconnected');
             setExplorerMessage('보고서 탐색기 상태를 확인할 수 없습니다.');
         } finally {
             if (explorerAbortControllerRef.current === controller) {
@@ -202,11 +212,10 @@ export default function ReportProcessingPage() {
     }, [createExplorerRequestController]);
 
     useEffect(() => {
-        void updateExplorerHealth();
         return () => {
             cancelReportExplorerRequest(false);
         };
-    }, [cancelReportExplorerRequest, updateExplorerHealth]);
+    }, [cancelReportExplorerRequest]);
 
     const cancelActiveJob = useCallback(async () => {
         if (!activeJob) return;
@@ -454,7 +463,6 @@ export default function ReportProcessingPage() {
         const controller = createExplorerRequestController();
         setExplorerSearching(true);
         setExplorerResults([]);
-        setExplorerIssues([]);
         setExplorerMessage(null);
 
         try {
@@ -466,13 +474,14 @@ export default function ReportProcessingPage() {
 
             if (explorerAbortControllerRef.current !== controller) return;
             setExplorerResults(results);
+            setExplorerConnectionStatus('connected');
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') return;
             if (error instanceof ReportExplorerClientError) {
-                setExplorerIssues(error.issues);
+                setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(error.issues, false));
                 setExplorerMessage(error.message);
             } else {
-                setExplorerIssues([]);
+                setExplorerConnectionStatus('disconnected');
                 setExplorerMessage('보고서 탐색 중 알 수 없는 오류가 발생했습니다.');
             }
         } finally {
@@ -486,20 +495,20 @@ export default function ReportProcessingPage() {
     const handleExplorerOpen = async (resultId: string) => {
         const controller = createExplorerRequestController();
         setExplorerOpeningResultId(resultId);
-        setExplorerIssues([]);
         setExplorerMessage(null);
 
         try {
             await openReportExplorerResult(resultId, controller.signal);
             if (explorerAbortControllerRef.current !== controller) return;
+            setExplorerConnectionStatus('connected');
             toast.success('보고서 폴더를 열었습니다.');
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') return;
             if (error instanceof ReportExplorerClientError) {
-                setExplorerIssues(error.issues);
+                setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(error.issues, false));
                 setExplorerMessage(error.message);
             } else {
-                setExplorerIssues([]);
+                setExplorerConnectionStatus('disconnected');
                 setExplorerMessage('보고서 폴더를 열지 못했습니다.');
             }
         } finally {
@@ -626,23 +635,9 @@ export default function ReportProcessingPage() {
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-                        {explorerIssues.length > 0 ? explorerIssues.map((issue) => (
-                            <span
-                                key={issue.kind}
-                                className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-medium text-red-700"
-                                title={issue.message}
-                            >
-                                {reportExplorerIssueLabel(issue.kind)}
-                            </span>
-                        )) : explorerMessage ? (
-                            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-1 font-medium text-red-700">
-                                상태 확인 실패
-                            </span>
-                        ) : (
-                            <span className="rounded-full border border-green-200 bg-green-50 px-2 py-1 font-medium text-green-700">
-                                로컬 탐색기 연결됨
-                            </span>
-                        )}
+                        <span className={`rounded-full border px-2 py-1 font-medium ${reportExplorerConnectionStatusClass(explorerConnectionStatus)}`}>
+                            {reportExplorerConnectionStatusLabel(explorerConnectionStatus)}
+                        </span>
                         <Button
                             type="button"
                             variant="secondary"
@@ -650,7 +645,7 @@ export default function ReportProcessingPage() {
                             onClick={() => void updateExplorerHealth()}
                             disabled={explorerSearching || explorerOpeningResultId !== null}
                         >
-                            새로고침
+                            연결 확인
                         </Button>
                     </div>
                 </div>

@@ -61,6 +61,31 @@ test("health가 Z: 저장소 미연결을 독립 루트 오류로 표시한다",
   }
 });
 
+test("탐색기 연결 상태는 확인 전·권한 거부·Z: 저장소 오류를 구분한다", async () => {
+  const client = await import("../lib/report-explorer/client");
+
+  assert.equal(client.deriveReportExplorerConnectionStatus([], false), "disconnected");
+  assert.equal(
+    client.deriveReportExplorerConnectionStatus([{ kind: "permission", message: "권한 거부" }], false),
+    "disconnected",
+  );
+  assert.equal(
+    client.deriveReportExplorerConnectionStatus([{ kind: "root", message: "Z: 접근 실패" }], false),
+    "storage-error",
+  );
+  assert.equal(client.deriveReportExplorerConnectionStatus([], true), "connected");
+});
+
+test("페이지 마운트는 로컬 헬퍼를 확인하지 않고 검색 또는 명시적 연결 확인에서만 호출한다", () => {
+  const page = source(pagePath);
+
+  assert.doesNotMatch(page, /useEffect\(\(\) => \{\s*void updateExplorerHealth\(\)/);
+  assert.match(page, /onClick=\{\(\) => void updateExplorerHealth\(\)\}/);
+  assert.match(page, /onClick=\{\(\) => void handleExplorerSearch\(\)\}/);
+  assert.match(page, /로컬 탐색기 연결 안 됨/);
+  assert.match(page, /보고서 저장소 연결 오류/);
+});
+
 test("권한 오류와 path containment 거부를 HTTP 403만으로 혼동하지 않는다", async () => {
   const originalFetch = globalThis.fetch;
   const client = await import("../lib/report-explorer/client");

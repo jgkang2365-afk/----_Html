@@ -29,6 +29,12 @@ export type ReportExplorerBusinessRecord = {
 
 export type ReportExplorerIssueKind = "disconnected" | "permission" | "root";
 
+export type ReportExplorerConnectionStatus =
+  | "unchecked"
+  | "connected"
+  | "disconnected"
+  | "storage-error";
+
 export type ReportExplorerIssue = {
   kind: ReportExplorerIssueKind;
   message: string;

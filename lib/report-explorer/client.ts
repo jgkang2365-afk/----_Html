@@ -1,6 +1,7 @@
 import type {
   ReportExplorerHealth,
   ReportExplorerBusinessRecord,
+  ReportExplorerConnectionStatus,
   ReportExplorerIssue,
   ReportExplorerIssueKind,
   ReportExplorerMatch,
@@ -140,6 +141,14 @@ function issuesFromPayload(
     kind,
     message: messageFromPayload(payload, fallback),
   }));
+}
+
+export function deriveReportExplorerConnectionStatus(
+  issues: ReportExplorerIssue[],
+  requestSucceeded: boolean
+): ReportExplorerConnectionStatus {
+  if (issues.some((issue) => issue.kind === "root")) return "storage-error";
+  return requestSucceeded && issues.length === 0 ? "connected" : "disconnected";
 }
 
 async function readJson(response: Response): Promise<unknown> {
