@@ -31,6 +31,7 @@ PORT = 17653
 DEFAULT_REPORT_STORAGE_ROOT = r"Z:\data\측정팀\측정보고서"
 PRODUCTION_ORIGIN = "https://html-tan-six.vercel.app"
 DEVELOPMENT_ORIGINS = {"http://localhost:3000", "http://127.0.0.1:3000"}
+TEST_ORIGINS = {"http://localhost:3001", "http://127.0.0.1:3001"}
 MAX_REQUEST_BYTES = 1_048_576
 
 
@@ -107,11 +108,34 @@ def configured_report_root() -> str:
 
 
 def configured_origins() -> set[str]:
-    additions = os.environ.get("REPORT_EXPLORER_ALLOWED_ORIGINS", "")
+    """Return the fixed production origin plus explicit non-production origins.
+
+    A deployed helper defaults to production mode.  Local development and test
+    callers must opt in with ``REPORT_EXPLORER_ENVIRONMENT``; Vercel Preview
+    origins are deliberately rejected in every mode.
+    """
+    environment = os.environ.get("REPORT_EXPLORER_ENVIRONMENT", "production").strip().lower()
+    allowed = {PRODUCTION_ORIGIN}
+    if environment == "development":
+        allowed.update(DEVELOPMENT_ORIGINS)
+        additions = os.environ.get("REPORT_EXPLORER_DEVELOPMENT_ALLOWED_ORIGINS", "")
+    elif environment == "test":
+        allowed.update(TEST_ORIGINS)
+        additions = os.environ.get("REPORT_EXPLORER_TEST_ALLOWED_ORIGINS", "")
+    else:
+        additions = ""
+        if environment != "production":
+            LOGGER.warning("Invalid REPORT_EXPLORER_ENVIRONMENT; using production origin policy")
+
     explicit_additions = {
         origin.strip() for origin in re.split(r"[,;]", additions) if origin.strip()
     }
-    return {PRODUCTION_ORIGIN, *DEVELOPMENT_ORIGINS, *explicit_additions}
+    allowed.update(
+        origin
+        for origin in explicit_additions
+        if origin == PRODUCTION_ORIGIN or not origin.casefold().endswith(".vercel.app")
+    )
+    return allowed
 
 
 def configured_token_ttl_seconds() -> int:

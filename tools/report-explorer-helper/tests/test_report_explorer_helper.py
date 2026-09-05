@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -158,6 +159,8 @@ class ReportExplorerHttpTests(unittest.TestCase):
     ]
 
     def setUp(self) -> None:
+        self.origin_environment = patch.dict(os.environ, {}, clear=True)
+        self.origin_environment.start()
         self.tempdir = tempfile.TemporaryDirectory()
         root = Path(self.tempdir.name)
         (root / "2026년" / "상반기" / "한결환경").mkdir(parents=True)
@@ -172,6 +175,7 @@ class ReportExplorerHttpTests(unittest.TestCase):
         self.thread.join(timeout=2)
         self.server.server_close()
         self.tempdir.cleanup()
+        self.origin_environment.stop()
 
     def request(self, method: str, path: str, *, origin: str | None, body=None):
         headers = {}
@@ -195,24 +199,79 @@ class ReportExplorerHttpTests(unittest.TestCase):
         status, _, body = self.request("GET", "/health", origin="https://evil.example")
         self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
 
-    def test_cors_allows_exact_production_and_development_origins_only(self) -> None:
-        for origin in self.allowed_origins:
-            with self.subTest(origin=origin):
-                status, headers, _ = self.request("OPTIONS", "/report-explorer/search", origin=origin)
-                self.assertEqual(status, 204)
-                self.assertEqual(headers.get("Access-Control-Allow-Origin"), origin)
-                status, headers, body = self.request(
-                    "POST", "/report-explorer/search", origin=origin,
-                    body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]},
-                )
-                self.assertEqual((status, body["results"][0]["status"]), (200, "FOUND"))
-                self.assertEqual(headers.get("Access-Control-Allow-Origin"), origin)
+    def test_cors_allows_only_exact_production_origin_by_default(self) -> None:
+        production_origin = self.allowed_origins[0]
+        status, headers, _ = self.request("OPTIONS", "/report-explorer/search", origin=production_origin)
+        self.assertEqual(status, 204)
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), production_origin)
+        status, headers, body = self.request(
+            "POST", "/report-explorer/search", origin=production_origin,
+            body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]},
+        )
+        self.assertEqual((status, body["results"][0]["status"]), (200, "FOUND"))
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), production_origin)
 
-        for origin in ("https://evil.example", "https://html-tan-six.vercel.app.evil.example", "null", None):
+        for origin in (
+            *self.allowed_origins[1:],
+            "https://evil.example",
+            "https://html-tan-six.vercel.app.evil.example",
+            "null",
+            None,
+        ):
             with self.subTest(origin=origin):
                 status, _, body = self.request("POST", "/report-explorer/search", origin=origin,
                     body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]})
                 self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
+
+        with patch.dict(
+            os.environ,
+            {"REPORT_EXPLORER_ALLOWED_ORIGINS": "http://localhost:3000"},
+            clear=True,
+        ):
+            status, _, body = self.request(
+                "POST",
+                "/report-explorer/search",
+                origin="http://localhost:3000",
+                body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]},
+            )
+            self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
+
+    def test_development_and_test_origins_require_explicit_environment(self) -> None:
+        payload = {"year": 2026, "period": "상반기", "businessNames": ["한결환경"]}
+        with patch.dict(os.environ, {"REPORT_EXPLORER_ENVIRONMENT": "development"}, clear=True):
+            for origin in self.allowed_origins[1:]:
+                with self.subTest(environment="development", origin=origin):
+                    status, _, body = self.request("POST", "/report-explorer/search", origin=origin, body=payload)
+                    self.assertEqual((status, body["results"][0]["status"]), (200, "FOUND"))
+
+        with patch.dict(os.environ, {"REPORT_EXPLORER_ENVIRONMENT": "test"}, clear=True):
+            for origin in ("http://localhost:3001", "http://127.0.0.1:3001"):
+                with self.subTest(environment="test", origin=origin):
+                    status, _, body = self.request("POST", "/report-explorer/search", origin=origin, body=payload)
+                    self.assertEqual((status, body["results"][0]["status"]), (200, "FOUND"))
+
+    def test_vercel_preview_origin_is_rejected_in_every_environment(self) -> None:
+        preview_origin = "https://report-explorer-git-pr-98-team.vercel.app"
+        payload = {"year": 2026, "period": "상반기", "businessNames": ["한결환경"]}
+        for environment, additions in (
+            ("production", ""),
+            ("development", preview_origin),
+            ("test", preview_origin),
+        ):
+            with self.subTest(environment=environment):
+                with patch.dict(
+                    os.environ,
+                    {
+                        "REPORT_EXPLORER_ENVIRONMENT": environment,
+                        "REPORT_EXPLORER_DEVELOPMENT_ALLOWED_ORIGINS": additions,
+                        "REPORT_EXPLORER_TEST_ALLOWED_ORIGINS": additions,
+                    },
+                    clear=True,
+                ):
+                    status, _, body = self.request(
+                        "POST", "/report-explorer/search", origin=preview_origin, body=payload
+                    )
+                    self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
 
     def test_private_network_preflight_and_loopback_bind_are_strict(self) -> None:
         request = Request(
@@ -224,22 +283,49 @@ class ReportExplorerHttpTests(unittest.TestCase):
             },
             method="OPTIONS",
         )
-        with urlopen(request, timeout=3) as response:
-            self.assertEqual(response.status, 204)
-            self.assertEqual(response.headers["Access-Control-Allow-Private-Network"], "true")
+        with patch.dict(os.environ, {"REPORT_EXPLORER_ENVIRONMENT": "development"}, clear=True):
+            with urlopen(request, timeout=3) as response:
+                self.assertEqual(response.status, 204)
+                self.assertEqual(response.headers["Access-Control-Allow-Private-Network"], "true")
 
         with self.assertRaises(ValueError):
             create_server(host="0.0.0.0", port=0, service=self.service)
 
     def test_http_rejects_invalid_and_expired_result_ids_and_malformed_payloads(self) -> None:
         origin = "http://localhost:3000"
-        status, _, body = self.request("POST", "/report-explorer/open", origin=origin, body={"resultId": "missing"})
-        self.assertEqual((status, body["error"]["code"]), (404, "RESULT_NOT_FOUND"))
-        status, _, body = self.request("POST", "/report-explorer/open", origin=origin, body={"path": "C:/"})
-        self.assertEqual((status, body["error"]["code"]), (400, "INVALID_REQUEST"))
-        status, _, body = self.request("POST", "/report-explorer/search", origin=origin,
-            body={"year": "2026", "period": "상반기", "businessNames": []})
-        self.assertEqual((status, body["error"]["code"]), (400, "INVALID_REQUEST"))
+        with patch.dict(os.environ, {"REPORT_EXPLORER_ENVIRONMENT": "development"}, clear=True):
+            status, _, body = self.request("POST", "/report-explorer/open", origin=origin, body={"resultId": "missing"})
+            self.assertEqual((status, body["error"]["code"]), (404, "RESULT_NOT_FOUND"))
+            status, _, body = self.request("POST", "/report-explorer/open", origin=origin, body={"path": "C:/"})
+            self.assertEqual((status, body["error"]["code"]), (400, "INVALID_REQUEST"))
+            status, _, body = self.request("POST", "/report-explorer/search", origin=origin,
+                body={"year": "2026", "period": "상반기", "businessNames": []})
+            self.assertEqual((status, body["error"]["code"]), (400, "INVALID_REQUEST"))
+
+
+class ReportExplorerDeploymentScriptTests(unittest.TestCase):
+    def test_installation_is_exe_only_and_autostart_is_direct(self) -> None:
+        install_script = (HELPER_DIR / "install-report-explorer-helper-autostart.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("dist\\ReportExplorerHelper.exe", install_script)
+        self.assertIn("$command = ('\"{0}\"' -f $destinationExecutable)", install_script)
+        self.assertNotIn("wscript.exe", install_script)
+        self.assertNotIn("Copy-Item -LiteralPath $source", install_script)
+        for legacy_file in ("report_explorer_helper.py", "run-report-explorer-helper.bat", "run-report-explorer-helper.vbs"):
+            self.assertIn(legacy_file, install_script)
+            self.assertNotIn(f"Copy-Item -LiteralPath $source -Destination (Join-Path $installDirectory '{legacy_file}')", install_script)
+
+    def test_uninstall_requires_expected_registration_and_stopped_verified_helper(self) -> None:
+        uninstall_script = (HELPER_DIR / "uninstall-report-explorer-helper-autostart.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("$expectedCommand", uninstall_script)
+        self.assertIn("Get-CimInstance Win32_Process", uninstall_script)
+        self.assertIn("$runningProcessIds.Count -gt 0", uninstall_script)
+        self.assertIn("ReparsePoint", uninstall_script)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,9 @@
 setlocal
 set "HELPER_DIR=%~dp0"
 
+rem Source-tree launcher only: installed EXE starts in production policy by default.
+if "%REPORT_EXPLORER_ENVIRONMENT%"=="" set "REPORT_EXPLORER_ENVIRONMENT=development"
+
 if exist "%HELPER_DIR%ReportExplorerHelper.exe" (
   "%HELPER_DIR%ReportExplorerHelper.exe"
   exit /b %ERRORLEVEL%

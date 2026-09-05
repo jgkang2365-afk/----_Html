@@ -21,13 +21,15 @@ tools\report-explorer-helper\run-report-explorer-helper.bat
 
 ## 브라우저 API와 보안
 
-브라우저 API는 다음 정확한 Origin만 받습니다.
+운영 EXE의 브라우저 API는 다음 **정확한 Production Origin만** 받습니다.
 
 - `https://html-tan-six.vercel.app`
-- `http://localhost:3000`
-- `http://127.0.0.1:3000`
 
-추가 개발 Origin은 `REPORT_EXPLORER_ALLOWED_ORIGINS`에 쉼표 또는 세미콜론으로 명시합니다. `/report-explorer/search`와 `/report-explorer/open`은 Origin이 없거나 목록에 없으면 `FORBIDDEN_ORIGIN`으로 거부하고, OPTIONS preflight도 같은 규칙을 적용합니다. Private Network Access preflight가 `Access-Control-Request-Private-Network: true`를 보내면 `Access-Control-Allow-Private-Network: true`로 응답합니다.
+Vercel Preview Origin(`*.vercel.app`)은 환경 변수에 넣어도 허용하지 않습니다. `/report-explorer/search`와 `/report-explorer/open`은 Origin이 없거나 목록에 없으면 `FORBIDDEN_ORIGIN`으로 거부하고, OPTIONS preflight도 같은 규칙을 적용합니다. Private Network Access preflight가 `Access-Control-Request-Private-Network: true`를 보내면 `Access-Control-Allow-Private-Network: true`로 응답합니다.
+
+개발과 테스트는 운영 설치와 분리해 명시적으로만 허용합니다. 소스 트리의 `run-report-explorer-helper.bat`은 기본적으로 `REPORT_EXPLORER_ENVIRONMENT=development`를 설정하여 `http://localhost:3000`, `http://127.0.0.1:3000`을 허용합니다. 테스트는 `REPORT_EXPLORER_ENVIRONMENT=test`에서 `http://localhost:3001`, `http://127.0.0.1:3001`만 기본 허용합니다. 추가 localhost 또는 사내 개발 Origin이 꼭 필요할 때만 각각 `REPORT_EXPLORER_DEVELOPMENT_ALLOWED_ORIGINS`, `REPORT_EXPLORER_TEST_ALLOWED_ORIGINS`에 쉼표 또는 세미콜론으로 지정합니다. 설치된 EXE는 환경 변수를 지정하지 않으면 항상 Production 정책으로 시작합니다.
+
+운영 도메인을 바꿀 때는 `report_explorer_helper.py`의 `PRODUCTION_ORIGIN`, 이 문서, Python Origin 계약 테스트를 같은 변경으로 갱신하고 EXE를 다시 빌드·배포해야 합니다. Preview URL을 Production Origin의 대체값으로 사용하지 않습니다.
 
 검색 요청은 다음 형태입니다.
 
@@ -47,13 +49,15 @@ PyInstaller 단일 EXE를 만들려면 다음을 실행합니다. PyInstaller가
 tools\report-explorer-helper\build-report-explorer-helper.ps1
 ```
 
-빌드한 EXE는 `tools\report-explorer-helper\dist\ReportExplorerHelper.exe`에 생성되고, 실행 배치 파일은 EXE가 있으면 이를 우선 사용합니다. 현재 사용자 로그인 시 숨김으로 시작하려면 다음을 실행합니다.
+빌드한 EXE는 `tools\report-explorer-helper\dist\ReportExplorerHelper.exe`에 생성됩니다. 현재 사용자 로그인 시 자동 시작하려면 다음을 실행합니다.
 
 ```powershell
 tools\report-explorer-helper\install-report-explorer-helper-autostart.ps1
 ```
 
-이 스크립트는 실행 파일과 런타임 파일을 `%LOCALAPPDATA%\MeasurementJournal\ReportExplorerHelper`에 복사한 뒤 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`에만 등록합니다. 해제는 `uninstall-report-explorer-helper-autostart.ps1`을 실행하며 등록값과 복사된 사용자 영역 파일을 함께 제거합니다.
+설치 전 EXE 빌드가 반드시 필요하며 관리자 권한은 필요하지 않습니다. 설치 스크립트는 `ReportExplorerHelper.exe`만 `%LOCALAPPDATA%\MeasurementJournal\ReportExplorerHelper`에 복사하고, `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 값을 해당 EXE의 직접 실행 경로로 등록합니다. `.py`, `.bat`, `.vbs`는 운영 설치 폴더에 복사하지 않으며, 기존 Python 배포의 알려진 런타임 파일도 EXE 복사 성공 뒤 정리합니다.
+
+해제는 `uninstall-report-explorer-helper-autostart.ps1`을 실행합니다. 등록값이나 설치 경로가 예상값과 다르거나, 정확히 확인된 설치 대상 헬퍼 PID가 실행 중이면 삭제하지 않고 중단합니다. 실행 중인 프로세스는 자동 종료하지 않습니다.
 
 ## 고정 Python·HTTP 계약
 
