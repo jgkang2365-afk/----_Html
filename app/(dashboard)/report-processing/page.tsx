@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Table,
     TableBody,
@@ -13,8 +13,22 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { Card } from '@/components/ui/Card';
+import {
+    collectReportExplorerBusinessNames,
+    deriveReportExplorerConnectionStatus,
+    getReportExplorerHealth,
+    openReportExplorerResult,
+    ReportExplorerClientError,
+    searchReportExplorer
+} from '@/lib/report-explorer/client';
+import type {
+    ReportExplorerConnectionStatus,
+    ReportExplorerPeriod,
+    ReportExplorerQueryResult
+} from '@/lib/report-explorer/types';
 import { toast } from 'sonner';
-import { Loader2, Mail, Upload, Search, RefreshCw, X } from 'lucide-react';
+import { ExternalLink, FolderSearch, Loader2, Mail, Search, RefreshCw, Upload, X } from 'lucide-react';
 
 interface BusinessRecord {
     code: string;
@@ -53,6 +67,26 @@ function restoreReportProcessingFilters(value: string | null) {
     }
 }
 
+function reportExplorerStatusLabel(status: ReportExplorerQueryResult['status']) {
+    if (status === 'FOUND') return '일치';
+    if (status === 'MULTIPLE') return '복수 일치';
+    return '미발견';
+}
+
+function reportExplorerConnectionStatusLabel(status: ReportExplorerConnectionStatus) {
+    if (status === 'connected') return '로컬 탐색기 연결됨';
+    if (status === 'storage-error') return '보고서 저장소 연결 오류';
+    if (status === 'unchecked') return '연결 확인 전';
+    return '로컬 탐색기 연결 안 됨';
+}
+
+function reportExplorerConnectionStatusClass(status: ReportExplorerConnectionStatus) {
+    if (status === 'unchecked') return 'border-slate-200 bg-slate-50 text-slate-600';
+    return status === 'connected'
+        ? 'border-green-200 bg-green-50 text-green-700'
+        : 'border-red-200 bg-red-50 text-red-700';
+}
+
 export default function ReportProcessingPage() {
     const [loading, setLoading] = useState(false);
     const [processing, setProcessing] = useState(false);
@@ -63,6 +97,16 @@ export default function ReportProcessingPage() {
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]); // 기기: code 기반 -> key `${code}-${year}-${period}` 기반
     const [filters, setFilters] = useState(DEFAULT_REPORT_PROCESSING_FILTERS);
     const [filtersReady, setFiltersReady] = useState(false);
+    const [useReportProcessingResults, setUseReportProcessingResults] = useState(true);
+    const [manualExplorerNames, setManualExplorerNames] = useState('');
+    const [explorerYear, setExplorerYear] = useState('');
+    const [explorerPeriod, setExplorerPeriod] = useState<ReportExplorerPeriod | ''>('');
+    const [explorerResults, setExplorerResults] = useState<ReportExplorerQueryResult[]>([]);
+    const [explorerConnectionStatus, setExplorerConnectionStatus] = useState<ReportExplorerConnectionStatus>('unchecked');
+    const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
+    const [explorerSearching, setExplorerSearching] = useState(false);
+    const [explorerOpeningResultId, setExplorerOpeningResultId] = useState<string | null>(null);
+    const explorerAbortControllerRef = useRef<AbortController | null>(null);
 
     // 시스템 기준 현재 주기 정의 (정규/추가 구분용)
     const CURRENT_YEAR = new Date().getFullYear();
@@ -109,6 +153,65 @@ export default function ReportProcessingPage() {
         fetchRecords();
     }, [filters.year, filters.period, filtersReady]);
 
+    useEffect(() => {
+        setExplorerYear(filters.year === 'all' ? '' : filters.year);
+    }, [filters.year]);
+
+    useEffect(() => {
+        setExplorerPeriod(filters.period === '상반기' || filters.period === '하반기' ? filters.period : '');
+    }, [filters.period]);
+
+    const selectedRecords = useMemo(
+        () => records.filter((record) => selectedKeys.includes(`${record.code}-${record.year}-${record.period}`)),
+        [records, selectedKeys]
+    );
+
+    const cancelReportExplorerRequest = useCallback((notify = true) => {
+        const controller = explorerAbortControllerRef.current;
+        if (!controller) return false;
+
+        controller.abort();
+        explorerAbortControllerRef.current = null;
+        setExplorerSearching(false);
+        setExplorerOpeningResultId(null);
+        if (notify) toast.info('보고서 탐색 요청을 취소했습니다.');
+        return true;
+    }, []);
+
+    const createExplorerRequestController = useCallback(() => {
+        cancelReportExplorerRequest(false);
+        const controller = new AbortController();
+        explorerAbortControllerRef.current = controller;
+        return controller;
+    }, [cancelReportExplorerRequest]);
+
+    const updateExplorerHealth = useCallback(async () => {
+        const controller = createExplorerRequestController();
+        try {
+            const health = await getReportExplorerHealth(controller.signal);
+            if (explorerAbortControllerRef.current !== controller) return;
+            setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(health.issues, health.status === 'ok' && health.issues.length === 0));
+            setExplorerMessage(health.issues.length > 0 ? health.message : null);
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') return;
+            if (error instanceof ReportExplorerClientError) {
+                setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(error.issues, false));
+                setExplorerMessage(error.message);
+                return;
+            }
+            setExplorerConnectionStatus('disconnected');
+            setExplorerMessage('보고서 탐색기 상태를 확인할 수 없습니다.');
+        } finally {
+            if (explorerAbortControllerRef.current === controller) explorerAbortControllerRef.current = null;
+        }
+    }, [createExplorerRequestController]);
+
+    useEffect(() => {
+        return () => {
+            cancelReportExplorerRequest(false);
+        };
+    }, [cancelReportExplorerRequest]);
+
     const cancelActiveJob = useCallback(async () => {
         if (!activeJob) return;
         const label = activeJob.type === 'email' ? '이메일 전송' : 'K2B 업로드';
@@ -134,14 +237,19 @@ export default function ReportProcessingPage() {
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape' && activeJob) {
+            if (event.key !== 'Escape') return;
+            if (cancelReportExplorerRequest()) {
                 event.preventDefault();
-                cancelActiveJob();
+                return;
+            }
+            if (activeJob) {
+                event.preventDefault();
+                void cancelActiveJob();
             }
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [activeJob]);
+    }, [activeJob, cancelActiveJob, cancelReportExplorerRequest]);
     // 백그라운드 작업 상태 실시간 모니터링 헬퍼
     const monitorJob = (jobId: string, jobType: 'email' | 'k2b') => {
         const startTime = Date.now();
@@ -327,6 +435,68 @@ export default function ReportProcessingPage() {
         }
     };
 
+    const handleExplorerSearch = async () => {
+        if (!explorerYear || !explorerPeriod) {
+            toast.warning('보고서 탐색할 연도와 주기를 선택해주세요.');
+            return;
+        }
+        const businessNames = collectReportExplorerBusinessNames({ useCurrentResults: useReportProcessingResults, records, selectedKeys, manualInput: manualExplorerNames });
+        if (businessNames.length === 0) {
+            toast.warning('현재 결과를 사용하거나 사업장명을 직접 입력해주세요.');
+            return;
+        }
+        const controller = createExplorerRequestController();
+        setExplorerSearching(true);
+        setExplorerResults([]);
+        setExplorerMessage(null);
+        try {
+            const results = await searchReportExplorer({ year: Number(explorerYear), period: explorerPeriod, businessNames }, controller.signal);
+            if (explorerAbortControllerRef.current !== controller) return;
+            setExplorerResults(results);
+            setExplorerConnectionStatus('connected');
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') return;
+            if (error instanceof ReportExplorerClientError) {
+                setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(error.issues, false));
+                setExplorerMessage(error.message);
+            } else {
+                setExplorerConnectionStatus('disconnected');
+                setExplorerMessage('보고서 탐색 중 알 수 없는 오류가 발생했습니다.');
+            }
+        } finally {
+            if (explorerAbortControllerRef.current === controller) {
+                explorerAbortControllerRef.current = null;
+                setExplorerSearching(false);
+            }
+        }
+    };
+
+    const handleExplorerOpen = async (resultId: string) => {
+        const controller = createExplorerRequestController();
+        setExplorerOpeningResultId(resultId);
+        setExplorerMessage(null);
+        try {
+            await openReportExplorerResult(resultId, controller.signal);
+            if (explorerAbortControllerRef.current !== controller) return;
+            setExplorerConnectionStatus('connected');
+            toast.success('보고서 폴더를 열었습니다.');
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') return;
+            if (error instanceof ReportExplorerClientError) {
+                setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(error.issues, false));
+                setExplorerMessage(error.message);
+            } else {
+                setExplorerConnectionStatus('disconnected');
+                setExplorerMessage('보고서 폴더를 열지 못했습니다.');
+            }
+        } finally {
+            if (explorerAbortControllerRef.current === controller) {
+                explorerAbortControllerRef.current = null;
+                setExplorerOpeningResultId(null);
+            }
+        }
+    };
+
     return (
         <div className="p-6 space-y-6">
             <div className="flex justify-between items-center">
@@ -431,6 +601,42 @@ export default function ReportProcessingPage() {
                     </Button>
                 </div>
             </div>
+
+            <Card className="p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h2 className="text-base font-bold text-slate-800">보고서 탐색기</h2>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                            {selectedRecords.length > 0 ? `선택된 보고서 처리 결과 ${selectedRecords.length}건의 사업장명을 사용합니다.` : `현재 보고서 처리 결과 ${records.length}건의 사업장명을 사용합니다.`}
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+                        <span className={`rounded-full border px-2 py-1 font-medium ${reportExplorerConnectionStatusClass(explorerConnectionStatus)}`}>{reportExplorerConnectionStatusLabel(explorerConnectionStatus)}</span>
+                        <Button type="button" variant="secondary" size="sm" onClick={() => void updateExplorerHealth()} disabled={explorerSearching || explorerOpeningResultId !== null}>연결 확인</Button>
+                    </div>
+                </div>
+                {explorerMessage && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{explorerMessage}</p>}
+                <p className="text-xs text-slate-500">처음 연결하는 경우 브라우저에서 로컬 네트워크 접근 권한을 허용해주세요.</p>
+                <div className="grid gap-3 lg:grid-cols-[12rem_12rem_minmax(0,1fr)_auto] lg:items-end">
+                    <Select label="탐색 연도" value={explorerYear} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setExplorerYear(event.target.value)} disabled={filters.year !== 'all'} options={[{ value: '', label: filters.year === 'all' ? '연도 선택' : '연도 동기화 중' }, { value: '2024', label: '2024년' }, { value: '2025', label: '2025년' }, { value: '2026', label: '2026년' }]} />
+                    <Select label="탐색 주기" value={explorerPeriod} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => { const period = event.target.value; setExplorerPeriod(period === '상반기' || period === '하반기' ? period : ''); }} disabled={filters.period !== 'all'} options={[{ value: '', label: filters.period === 'all' ? '주기 선택' : '주기 동기화 중' }, { value: '상반기', label: '상반기' }, { value: '하반기', label: '하반기' }]} />
+                    <div className="space-y-1">
+                        <label htmlFor="report-explorer-manual-names" className="block text-sm font-medium text-text-700">사업장명 직접 추가</label>
+                        <textarea id="report-explorer-manual-names" value={manualExplorerNames} onChange={(event) => setManualExplorerNames(event.target.value)} placeholder="쉼표 또는 줄바꿈으로 구분" rows={2} className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-5 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                    </div>
+                    <Button type="button" variant="primary" onClick={() => void handleExplorerSearch()} disabled={explorerSearching || explorerOpeningResultId !== null}>
+                        {explorerSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderSearch className="mr-2 h-4 w-4" />} 보고서 폴더 검색
+                    </Button>
+                </div>
+                <Checkbox id="use-report-processing-results" checked={useReportProcessingResults} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setUseReportProcessingResults(event.target.checked)} label="현재 보고서 처리 결과 사용" />
+                {explorerResults.length > 0 && <Table className="text-sm">
+                    <TableHeader><TableRow><TableHead>검색 사업장</TableHead><TableHead>일치 사업장 폴더</TableHead><TableHead>경로</TableHead><TableHead className="text-center">상태</TableHead><TableHead className="text-center">동작</TableHead></TableRow></TableHeader>
+                    <TableBody>{explorerResults.flatMap((result) => result.matches.length === 0
+                        ? [<TableRow key={`${result.query}-${result.status}`}><TableCell className="font-medium">{result.query}</TableCell><TableCell>-</TableCell><TableCell>-</TableCell><TableCell className="text-center"><span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">{reportExplorerStatusLabel(result.status)}</span></TableCell><TableCell className="text-center">-</TableCell></TableRow>]
+                        : result.matches.map((match) => <TableRow key={match.resultId}><TableCell className="font-medium">{result.query}</TableCell><TableCell title={match.folderName}>{match.folderName}</TableCell><TableCell className="max-w-[32rem] truncate" title={match.path}>{match.path}</TableCell><TableCell className="text-center"><span className={`rounded-full border px-2 py-1 text-xs font-medium ${result.status === 'FOUND' ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>{reportExplorerStatusLabel(result.status)}</span></TableCell><TableCell className="text-center"><Button type="button" variant="secondary" size="sm" onClick={() => void handleExplorerOpen(match.resultId)} disabled={explorerOpeningResultId !== null || explorerSearching}>{explorerOpeningResultId === match.resultId ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ExternalLink className="mr-1 h-4 w-4" />열기</>}</Button></TableCell></TableRow>)
+                    )}</TableBody>
+                </Table>}
+            </Card>
 
             {/* 리스트 영역 */}
             <div className="bg-white rounded-lg shadow-sm border overflow-hidden">

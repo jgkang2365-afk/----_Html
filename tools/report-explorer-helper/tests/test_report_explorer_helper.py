@@ -1,0 +1,526 @@
+"""Behavioral contract tests for the disconnected report explorer helper."""
+
+from __future__ import annotations
+
+import importlib
+import json
+import os
+import sys
+import tempfile
+import threading
+import time
+import unicodedata
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+
+HELPER_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(HELPER_DIR))
+helper = importlib.import_module("report_explorer_helper")
+
+ReportExplorerError = helper.ReportExplorerError
+ReportExplorerService = helper.ReportExplorerService
+create_server = helper.create_server
+
+
+class ReportExplorerServiceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.period = self.root / "2026년" / "상반기"
+        self.period.mkdir(parents=True)
+        self.launcher = Mock()
+        self.clock = Mock(return_value=100.0)
+        self.service = ReportExplorerService(
+            self.root, launcher=self.launcher, token_ttl_seconds=300, clock=self.clock
+        )
+
+    def tearDown(self) -> None:
+        self.tempdir.cleanup()
+
+    def make_folder(self, name: str) -> Path:
+        folder = self.period / name
+        folder.mkdir()
+        return folder
+
+    def assert_error(self, code: str, action) -> None:
+        with self.assertRaises(ReportExplorerError) as raised:
+            action()
+        self.assertEqual(raised.exception.code, code)
+
+    def test_health_exposes_only_storage_availability_and_configured_root(self) -> None:
+        health = self.service.health()
+
+        self.assertEqual(health["status"], "ok")
+        self.assertEqual(health["version"], "1")
+        self.assertEqual(health["storage"], {
+            "available": True,
+            "root": str(self.root.resolve()),
+        })
+
+    def test_exact_substring_multiple_and_not_found(self) -> None:
+        self.make_folder("한결환경")
+        self.make_folder("한결기술")
+        self.make_folder("미래안전")
+
+        response = self.service.search(2026, "상반기", ["한결환경", "한결", "없는사업장"])
+        exact, substring, missing = response["results"]
+
+        self.assertEqual(exact["status"], "FOUND")
+        self.assertEqual([match["folderName"] for match in exact["matches"]], ["한결환경"])
+        self.assertEqual(substring["status"], "MULTIPLE")
+        self.assertEqual({match["folderName"] for match in substring["matches"]}, {"한결환경", "한결기술"})
+        self.assertEqual(missing, {"query": "없는사업장", "status": "NOT_FOUND", "matches": []})
+
+    def test_corporate_markers_and_unicode_nfc_match_business_names(self) -> None:
+        self.make_folder("(주)한결환경")
+        self.make_folder("㈜미래기술")
+        decomposed = unicodedata.normalize("NFD", "가나다환경")
+        self.make_folder(decomposed)
+
+        response = self.service.search(2026, "상반기", ["한결환경", "미래기술", "가나다환경"])
+
+        self.assertEqual([row["status"] for row in response["results"]], ["FOUND", "FOUND", "FOUND"])
+        self.assertEqual(response["results"][0]["matches"][0]["folderName"], "(주)한결환경")
+        self.assertEqual(response["results"][1]["matches"][0]["folderName"], "㈜미래기술")
+        self.assertEqual(response["results"][2]["matches"][0]["folderName"], decomposed)
+
+    def test_multiple_names_enumerate_the_period_directory_once(self) -> None:
+        self.make_folder("한결환경")
+        self.make_folder("미래안전")
+
+        response = self.service.search(2026, "상반기", ["한결환경", "미래안전", "없는사업장"])
+
+        self.assertEqual(response["directoryReadCount"], 1)
+        self.assertEqual([item["status"] for item in response["results"]], ["FOUND", "FOUND", "NOT_FOUND"])
+
+    def test_unavailable_storage_root_and_missing_year_period_have_distinct_errors(self) -> None:
+        unavailable = ReportExplorerService(Path("Z:/report-explorer-does-not-exist"))
+        self.assert_error("STORAGE_ROOT_UNAVAILABLE", lambda: unavailable.search(2026, "상반기", ["한결"]))
+        self.assert_error("YEAR_NOT_FOUND", lambda: self.service.search(2025, "상반기", ["한결"]))
+        (self.root / "2026년" / "상반기").rmdir()
+        self.assert_error("PERIOD_NOT_FOUND", lambda: self.service.search(2026, "상반기", ["한결"]))
+
+    def test_storage_health_recovers_without_recreating_the_service(self) -> None:
+        delayed_root = self.root / "delayed-storage"
+        service = ReportExplorerService(delayed_root)
+
+        self.assertEqual(
+            service.health()["storage"],
+            {
+                "available": False,
+                "root": str(delayed_root.resolve()),
+                "reason": "STORAGE_ROOT_UNAVAILABLE",
+            },
+        )
+        self.assert_error(
+            "STORAGE_ROOT_UNAVAILABLE",
+            lambda: service.search(2026, "상반기", ["한결환경"]),
+        )
+
+        (delayed_root / "2026년" / "상반기" / "한결환경").mkdir(parents=True)
+
+        self.assertEqual(
+            service.health()["storage"],
+            {"available": True, "root": str(delayed_root.resolve())},
+        )
+        self.assertEqual(
+            service.search(2026, "상반기", ["한결환경"])["results"][0]["status"],
+            "FOUND",
+        )
+
+    def test_available_root_is_recanonicalized_after_a_drive_mounts(self) -> None:
+        service = ReportExplorerService(self.root)
+        service.root = r"Z:\data\측정팀\측정보고서"
+        mounted_root = r"\\RaiDrive-USER\Synology\data\측정팀\측정보고서"
+
+        with (
+            patch.object(helper.os.path, "exists", return_value=True),
+            patch.object(service, "_require_directory"),
+            patch.object(helper, "_canonical", return_value=mounted_root) as canonical,
+        ):
+            self.assertEqual(service._available_root(), mounted_root)
+
+        canonical.assert_called_once_with(service.root)
+
+    def test_absolute_storage_root_is_independent_of_current_working_directory(self) -> None:
+        expected_root = str(self.root.resolve())
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as unrelated_cwd:
+            try:
+                os.chdir(unrelated_cwd)
+                service = ReportExplorerService(expected_root)
+                self.assertEqual(service.health()["storage"]["root"], expected_root)
+                self.assertEqual(
+                    service.search(2026, "상반기", ["없는사업장"])["results"][0]["status"],
+                    "NOT_FOUND",
+                )
+            finally:
+                os.chdir(original_cwd)
+
+    def test_period_read_permission_is_not_reported_as_missing_storage(self) -> None:
+        with patch.object(helper.os, "scandir", side_effect=PermissionError("denied")):
+            self.assert_error(
+                "STORAGE_PERMISSION_DENIED",
+                lambda: self.service.search(2026, "상반기", ["한결"]),
+            )
+
+    def test_invalid_requests_cover_all_year_and_period_forms(self) -> None:
+        invalid_years = [None, True, 0, -1, 2026.0, "2026"]
+        invalid_periods = [None, "", "상", "상반기 ", "하반기\n", 1]
+
+        for year in invalid_years:
+            with self.subTest(year=year):
+                self.assert_error("INVALID_REQUEST", lambda year=year: self.service.search(year, "상반기", ["한결"]))
+        for period in invalid_periods:
+            with self.subTest(period=period):
+                self.assert_error("INVALID_REQUEST", lambda period=period: self.service.search(2026, period, ["한결"]))
+        for names in ([], [""], [" "], ["한결", "../escape"], "한결"):
+            with self.subTest(names=names):
+                self.assert_error("INVALID_REQUEST", lambda names=names: self.service.search(2026, "상반기", names))
+
+    def test_result_id_is_opaque_expires_and_launches_only_verified_folder(self) -> None:
+        folder = self.make_folder("한결환경")
+        found = self.service.search(2026, "상반기", ["한결환경"])["results"][0]["matches"][0]
+
+        self.assertNotEqual(found["resultId"], str(folder))
+        self.assertNotIn(str(folder), found["resultId"])
+        self.assertEqual(self.service.open_result(found["resultId"]), {"ok": True})
+        self.launcher.assert_called_once_with(str(folder.resolve()))
+        self.assert_error("RESULT_NOT_FOUND", lambda: self.service.open_result("../not-a-result"))
+        self.clock.return_value = 401.0
+        self.assert_error("RESULT_NOT_FOUND", lambda: self.service.open_result(found["resultId"]))
+
+    def test_symlink_and_root_escape_never_become_openable_results(self) -> None:
+        outside = self.root / "outside"
+        outside.mkdir()
+        escaped = self.period / "한결-escaped"
+        try:
+            escaped.symlink_to(outside, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f"symlink unavailable on this Windows host: {error}")
+
+        response = self.service.search(2026, "상반기", ["escaped"])
+        self.assertEqual(response["results"][0]["matches"], [])
+        self.assert_error("INVALID_REQUEST", lambda: self.service.search(2026, "상반기", ["..\\outside"]))
+
+
+class ReportExplorerHttpTests(unittest.TestCase):
+    allowed_origins = [
+        "https://html-tan-six.vercel.app",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
+    def setUp(self) -> None:
+        self.origin_environment = patch.dict(os.environ, {}, clear=True)
+        self.origin_environment.start()
+        self.tempdir = tempfile.TemporaryDirectory()
+        root = Path(self.tempdir.name)
+        (root / "2026년" / "상반기" / "한결환경").mkdir(parents=True)
+        self.service = ReportExplorerService(root, launcher=Mock())
+        self.server = create_server(host="127.0.0.1", port=0, service=self.service)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.base_url = f"http://127.0.0.1:{self.server.server_port}"
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.thread.join(timeout=2)
+        self.server.server_close()
+        self.tempdir.cleanup()
+        self.origin_environment.stop()
+
+    def request(self, method: str, path: str, *, origin: str | None, body=None):
+        headers = {}
+        if origin is not None:
+            headers["Origin"] = origin
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        if data is not None:
+            headers["Content-Type"] = "application/json"
+        request = Request(f"{self.base_url}{path}", data=data, headers=headers, method=method)
+        try:
+            with urlopen(request, timeout=3) as response:
+                return response.status, dict(response.headers.items()), json.loads(response.read() or b"{}")
+        except HTTPError as error:
+            return error.code, dict(error.headers.items()), json.loads(error.read() or b"{}")
+
+    def test_health_allows_no_origin_but_validates_present_origin(self) -> None:
+        status, _, body = self.request("GET", "/health", origin=None)
+        self.assertEqual((status, body["status"], body["version"]), (200, "ok", "1"))
+        self.assertIsInstance(body["storage"]["available"], bool)
+        self.assertIsInstance(body["storage"]["root"], str)
+        status, _, body = self.request("GET", "/health", origin="https://evil.example")
+        self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
+
+    def test_cors_allows_only_exact_production_origin_by_default(self) -> None:
+        production_origin = self.allowed_origins[0]
+        status, headers, _ = self.request("OPTIONS", "/report-explorer/search", origin=production_origin)
+        self.assertEqual(status, 204)
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), production_origin)
+        status, headers, body = self.request(
+            "POST", "/report-explorer/search", origin=production_origin,
+            body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]},
+        )
+        self.assertEqual((status, body["results"][0]["status"]), (200, "FOUND"))
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), production_origin)
+
+        for origin in (
+            *self.allowed_origins[1:],
+            "https://evil.example",
+            "https://html-tan-six.vercel.app.evil.example",
+            "null",
+            None,
+        ):
+            with self.subTest(origin=origin):
+                status, _, body = self.request("POST", "/report-explorer/search", origin=origin,
+                    body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]})
+                self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
+
+        with patch.dict(
+            os.environ,
+            {"REPORT_EXPLORER_ALLOWED_ORIGINS": "http://localhost:3000"},
+            clear=True,
+        ):
+            status, _, body = self.request(
+                "POST",
+                "/report-explorer/search",
+                origin="http://localhost:3000",
+                body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]},
+            )
+            self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
+
+    def test_development_and_test_origins_require_explicit_environment(self) -> None:
+        payload = {"year": 2026, "period": "상반기", "businessNames": ["한결환경"]}
+        with patch.dict(os.environ, {"REPORT_EXPLORER_ENVIRONMENT": "development"}, clear=True):
+            for origin in self.allowed_origins[1:]:
+                with self.subTest(environment="development", origin=origin):
+                    status, _, body = self.request("POST", "/report-explorer/search", origin=origin, body=payload)
+                    self.assertEqual((status, body["results"][0]["status"]), (200, "FOUND"))
+
+        with patch.dict(os.environ, {"REPORT_EXPLORER_ENVIRONMENT": "test"}, clear=True):
+            for origin in ("http://localhost:3001", "http://127.0.0.1:3001"):
+                with self.subTest(environment="test", origin=origin):
+                    status, _, body = self.request("POST", "/report-explorer/search", origin=origin, body=payload)
+                    self.assertEqual((status, body["results"][0]["status"]), (200, "FOUND"))
+
+    def test_vercel_preview_origin_is_rejected_in_every_environment(self) -> None:
+        preview_origin = "https://report-explorer-git-pr-98-team.vercel.app"
+        payload = {"year": 2026, "period": "상반기", "businessNames": ["한결환경"]}
+        for environment, additions in (
+            ("production", ""),
+            ("development", preview_origin),
+            ("test", preview_origin),
+        ):
+            with self.subTest(environment=environment):
+                with patch.dict(
+                    os.environ,
+                    {
+                        "REPORT_EXPLORER_ENVIRONMENT": environment,
+                        "REPORT_EXPLORER_DEVELOPMENT_ALLOWED_ORIGINS": additions,
+                        "REPORT_EXPLORER_TEST_ALLOWED_ORIGINS": additions,
+                    },
+                    clear=True,
+                ):
+                    status, _, body = self.request(
+                        "POST", "/report-explorer/search", origin=preview_origin, body=payload
+                    )
+                    self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
+
+    def test_private_network_preflight_and_loopback_bind_are_strict(self) -> None:
+        request = Request(
+            f"{self.base_url}/report-explorer/search",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Private-Network": "true",
+            },
+            method="OPTIONS",
+        )
+        with patch.dict(os.environ, {"REPORT_EXPLORER_ENVIRONMENT": "development"}, clear=True):
+            with urlopen(request, timeout=3) as response:
+                self.assertEqual(response.status, 204)
+                self.assertEqual(response.headers["Access-Control-Allow-Private-Network"], "true")
+
+        with self.assertRaises(ValueError):
+            create_server(host="0.0.0.0", port=0, service=self.service)
+
+    def test_http_rejects_invalid_and_expired_result_ids_and_malformed_payloads(self) -> None:
+        origin = "http://localhost:3000"
+        with patch.dict(os.environ, {"REPORT_EXPLORER_ENVIRONMENT": "development"}, clear=True):
+            status, _, body = self.request("POST", "/report-explorer/open", origin=origin, body={"resultId": "missing"})
+            self.assertEqual((status, body["error"]["code"]), (404, "RESULT_NOT_FOUND"))
+            status, _, body = self.request("POST", "/report-explorer/open", origin=origin, body={"path": "C:/"})
+            self.assertEqual((status, body["error"]["code"]), (400, "INVALID_REQUEST"))
+            status, _, body = self.request("POST", "/report-explorer/search", origin=origin,
+                body={"year": "2026", "period": "상반기", "businessNames": []})
+            self.assertEqual((status, body["error"]["code"]), (400, "INVALID_REQUEST"))
+
+    def test_listener_survives_missing_storage_and_recovers_on_the_same_server(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            delayed_root = Path(tempdir) / "not-mounted-yet"
+            service = ReportExplorerService(delayed_root, launcher=Mock())
+            server = create_server(host="127.0.0.1", port=0, service=service)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+
+            def request(path: str, *, method: str = "GET", body=None):
+                headers = {}
+                data = None
+                if body is not None:
+                    headers = {
+                        "Origin": "https://html-tan-six.vercel.app",
+                        "Content-Type": "application/json",
+                    }
+                    data = json.dumps(body).encode("utf-8")
+                outgoing = Request(base_url + path, data=data, headers=headers, method=method)
+                try:
+                    with urlopen(outgoing, timeout=3) as response:
+                        return response.status, json.loads(response.read())
+                except HTTPError as error:
+                    return error.code, json.loads(error.read())
+
+            try:
+                status, health = request("/health")
+                self.assertEqual(status, 200)
+                self.assertEqual(health["status"], "ok")
+                self.assertEqual(health["storage"]["reason"], "STORAGE_ROOT_UNAVAILABLE")
+
+                status, failure = request(
+                    "/report-explorer/search",
+                    method="POST",
+                    body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]},
+                )
+                self.assertEqual((status, failure["error"]["code"]), (503, "STORAGE_ROOT_UNAVAILABLE"))
+                self.assertTrue(thread.is_alive())
+
+                (delayed_root / "2026년" / "상반기" / "한결환경").mkdir(parents=True)
+
+                status, health = request("/health")
+                self.assertEqual((status, health["storage"]["available"]), (200, True))
+                status, result = request(
+                    "/report-explorer/search",
+                    method="POST",
+                    body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]},
+                )
+                self.assertEqual((status, result["results"][0]["status"]), (200, "FOUND"))
+                self.assertTrue(thread.is_alive())
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+
+class ReportExplorerDeploymentScriptTests(unittest.TestCase):
+    forbidden_explorer_mutation_markers = (
+        "AutomaticDestinations",
+        "CustomDestinations",
+        "Microsoft\\Windows\\Recent",
+        "Quick Access",
+        "즐겨찾기",
+        "BagMRU",
+        "\\Bags",
+        "NavPane",
+        "Explorer\\Advanced",
+        "OneDrive",
+        "Stop-Process -Name explorer",
+        "Start-Process explorer.exe",
+        "taskkill",
+        "New-PSDrive",
+        "Remove-PSDrive",
+        "MapNetworkDrive",
+        "RemoveNetworkDrive",
+        "net use",
+    )
+
+    def test_installation_is_exe_only_and_autostart_is_direct(self) -> None:
+        install_script = (HELPER_DIR / "install-report-explorer-helper-autostart.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("dist\\ReportExplorerHelper.exe", install_script)
+        self.assertIn("$command = ('\"{0}\"' -f $destinationExecutable)", install_script)
+        self.assertNotIn("wscript.exe", install_script)
+        self.assertNotIn("Copy-Item -LiteralPath $source", install_script)
+        for legacy_file in ("report_explorer_helper.py", "run-report-explorer-helper.bat", "run-report-explorer-helper.vbs"):
+            self.assertIn(legacy_file, install_script)
+            self.assertNotIn(f"Copy-Item -LiteralPath $source -Destination (Join-Path $installDirectory '{legacy_file}')", install_script)
+
+    def test_build_uses_the_windows_gui_subsystem_for_stable_hkcu_startup(self) -> None:
+        build_script = (HELPER_DIR / "build-report-explorer-helper.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("--onefile --noconsole --name ReportExplorerHelper", build_script)
+
+    def test_uninstall_requires_expected_registration_and_stopped_verified_helper(self) -> None:
+        uninstall_script = (HELPER_DIR / "uninstall-report-explorer-helper-autostart.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("$expectedCommand", uninstall_script)
+        self.assertIn("Get-CimInstance Win32_Process", uninstall_script)
+        self.assertIn("$runningProcessIds.Count -gt 0", uninstall_script)
+        self.assertIn("ReparsePoint", uninstall_script)
+
+    def test_install_mutations_are_limited_to_dedicated_folder_and_own_run_value(self) -> None:
+        install_script = (HELPER_DIR / "install-report-explorer-helper-autostart.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "$installDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "
+            "'MeasurementJournal\\ReportExplorerHelper'))",
+            install_script,
+        )
+        self.assertIn("$runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'", install_script)
+        self.assertIn("-Name 'MeasurementJournalReportExplorerHelper'", install_script)
+        self.assertEqual(install_script.count("New-ItemProperty"), 1)
+        self.assertEqual(install_script.count("Copy-Item"), 1)
+        self.assertEqual(install_script.count("Remove-Item "), 1)
+        self.assertIn("Copy-Item -LiteralPath $builtExecutable -Destination $destinationExecutable", install_script)
+        self.assertIn("Remove-Item -LiteralPath $legacyPath", install_script)
+        for marker in self.forbidden_explorer_mutation_markers:
+            self.assertNotIn(marker, install_script)
+
+    def test_uninstall_mutations_are_limited_to_dedicated_folder_and_own_run_value(self) -> None:
+        uninstall_script = (HELPER_DIR / "uninstall-report-explorer-helper-autostart.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "$expectedDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "
+            "'MeasurementJournal\\ReportExplorerHelper'))",
+            uninstall_script,
+        )
+        self.assertIn("$runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'", uninstall_script)
+        self.assertEqual(uninstall_script.count("Remove-ItemProperty"), 1)
+        self.assertEqual(uninstall_script.count("Remove-Item "), 1)
+        self.assertIn(
+            "Remove-ItemProperty -Path $runKey -Name 'MeasurementJournalReportExplorerHelper'",
+            uninstall_script,
+        )
+        self.assertIn("Remove-Item -LiteralPath $resolvedDirectory -Recurse", uninstall_script)
+        for marker in self.forbidden_explorer_mutation_markers:
+            self.assertNotIn(marker, uninstall_script)
+
+
+class ReportExplorerProcessLifecycleTests(unittest.TestCase):
+    def test_main_logs_unexpected_crash_and_returns_nonzero(self) -> None:
+        with (
+            patch.object(helper, "run", side_effect=RuntimeError("unexpected crash")),
+            patch.object(helper.LOGGER, "exception") as log_exception,
+        ):
+            self.assertEqual(helper.main(), 1)
+
+        log_exception.assert_called_once_with("Fatal helper error; exiting with code 1")
+
+    def test_main_preserves_success_exit_code(self) -> None:
+        with patch.object(helper, "run", return_value=0):
+            self.assertEqual(helper.main(), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
