@@ -105,6 +105,7 @@ export default function ReportProcessingPage() {
     const [reportPage, setReportPage] = useState(1);
     const [explorerPage, setExplorerPage] = useState(1);
     const [explorerResults, setExplorerResults] = useState<ReportExplorerQueryResult[]>([]);
+    const [explorerHasSearched, setExplorerHasSearched] = useState(false);
     const [explorerConnectionStatus, setExplorerConnectionStatus] = useState<ReportExplorerConnectionStatus>('unchecked');
     const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
     const [explorerSearching, setExplorerSearching] = useState(false);
@@ -471,11 +472,13 @@ export default function ReportProcessingPage() {
         const controller = createExplorerRequestController();
         setExplorerSearching(true);
         setExplorerResults([]);
+        setExplorerHasSearched(false);
         setExplorerMessage(null);
         try {
             const results = await searchReportExplorer({ year: Number(effectiveExplorerYear), period: effectiveExplorerPeriod, businessNames }, controller.signal);
             if (explorerAbortControllerRef.current !== controller) return;
             setExplorerResults(results);
+            setExplorerHasSearched(true);
             setExplorerPage(1);
             setExplorerConnectionStatus('connected');
         } catch (error) {
@@ -775,11 +778,17 @@ export default function ReportProcessingPage() {
                         {explorerSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderSearch className="mr-2 h-4 w-4" />} 보고서 폴더 검색
                     </Button>
                 </div>
-                {explorerRows.length > 0 && (
-                    <div className="space-y-2">
-                        <Table className="min-w-[820px] table-fixed text-sm">
-                            <TableHeader><TableRow><TableHead className="w-48">검색 사업장</TableHead><TableHead className="w-64">일치 사업장 폴더</TableHead><TableHead>경로</TableHead><TableHead className="w-28 text-center">상태</TableHead><TableHead className="w-24 text-center">열기</TableHead></TableRow></TableHeader>
-                            <TableBody>{visibleExplorerRows.map(({ result, match }) => (
+                <div className="space-y-2">
+                    <Table className="min-w-[820px] table-fixed text-sm">
+                        <TableHeader><TableRow><TableHead className="w-48">검색 사업장</TableHead><TableHead className="w-64">일치 사업장 폴더</TableHead><TableHead>경로</TableHead><TableHead className="w-28 text-center">상태</TableHead><TableHead className="w-24 text-center">동작</TableHead></TableRow></TableHeader>
+                        <TableBody>
+                            {explorerRows.length === 0 ? (
+                                <TableRow className="h-12">
+                                    <TableCell colSpan={5} className="px-4 py-2 text-left text-muted-foreground sm:text-center">
+                                        {explorerHasSearched ? '일치하는 보고서 폴더가 없습니다.' : '보고서 폴더를 검색해주세요.'}
+                                    </TableCell>
+                                </TableRow>
+                            ) : visibleExplorerRows.map(({ result, match }) => (
                                 <TableRow key={match?.resultId ?? `${result.query}-${result.status}`} className="h-12">
                                     <TableCell className="truncate px-4 py-2 font-medium" title={result.query}>{result.query}</TableCell>
                                     <TableCell className="truncate px-4 py-2" title={match?.folderName}>{match?.folderName ?? '-'}</TableCell>
@@ -787,17 +796,17 @@ export default function ReportProcessingPage() {
                                     <TableCell className="px-4 py-2 text-center"><span className={`inline-flex h-7 items-center rounded-full border px-2 text-xs font-medium ${result.status === 'FOUND' ? 'border-green-200 bg-green-50 text-green-700' : result.status === 'MULTIPLE' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>{reportExplorerStatusLabel(result.status)}</span></TableCell>
                                     <TableCell className="px-4 py-2 text-center">{match ? <Button type="button" variant="secondary" size="sm" className="h-8 px-3 text-xs" onClick={() => void handleExplorerOpen(match.resultId)} disabled={explorerOpeningResultId !== null || explorerSearching}>{explorerOpeningResultId === match.resultId ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ExternalLink className="mr-1 h-4 w-4" />열기</>}</Button> : '-'}</TableCell>
                                 </TableRow>
-                            ))}</TableBody>
-                        </Table>
-                        {explorerRows.length > PAGE_SIZE && (
-                            <div className="flex h-12 items-center justify-center gap-3" aria-label="보고서 탐색 결과 페이지">
-                                <Button type="button" size="sm" variant="secondary" className="h-9 px-3" disabled={explorerPage === 1} onClick={() => setExplorerPage((page) => page - 1)}>이전</Button>
-                                <span className="min-w-20 text-center text-sm text-slate-600">{explorerPage} / {explorerPageCount}</span>
-                                <Button type="button" size="sm" variant="secondary" className="h-9 px-3" disabled={explorerPage === explorerPageCount} onClick={() => setExplorerPage((page) => page + 1)}>다음</Button>
-                            </div>
-                        )}
-                    </div>
-                )}
+                            ))}
+                        </TableBody>
+                    </Table>
+                    {explorerRows.length > PAGE_SIZE && (
+                        <div className="flex h-12 items-center justify-center gap-3" aria-label="보고서 탐색 결과 페이지">
+                            <Button type="button" size="sm" variant="secondary" className="h-9 px-3" disabled={explorerPage === 1} onClick={() => setExplorerPage((page) => page - 1)}>이전</Button>
+                            <span className="min-w-20 text-center text-sm text-slate-600">{explorerPage} / {explorerPageCount}</span>
+                            <Button type="button" size="sm" variant="secondary" className="h-9 px-3" disabled={explorerPage === explorerPageCount} onClick={() => setExplorerPage((page) => page + 1)}>다음</Button>
+                        </div>
+                    )}
+                </div>
             </Card>
 
             {/* 작업 오버레이 */}

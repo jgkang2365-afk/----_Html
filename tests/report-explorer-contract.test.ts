@@ -93,6 +93,23 @@ test("탐색기는 상단 기준값을 공유하고 한 줄 추가 입력과 경
   assert.match(page, /if \(event\.key === 'Enter'\)/);
 });
 
+test("탐색 결과 표는 검색 전과 검색 후 0건 상태에서도 헤더와 안내 행을 유지한다", () => {
+  const page = source(pagePath);
+
+  assert.match(page, /const \[explorerHasSearched, setExplorerHasSearched\] = useState\(false\)/);
+  assert.match(page, /setExplorerHasSearched\(true\)/);
+  assert.match(page, />검색 사업장<\/TableHead>/);
+  assert.match(page, />일치 사업장 폴더<\/TableHead>/);
+  assert.match(page, />경로<\/TableHead>/);
+  assert.match(page, />상태<\/TableHead>/);
+  assert.match(page, />동작<\/TableHead>/);
+  assert.match(page, /<TableCell colSpan=\{5\}/);
+  assert.match(page, /text-left text-muted-foreground sm:text-center/);
+  assert.match(page, /보고서 폴더를 검색해주세요\./);
+  assert.match(page, /일치하는 보고서 폴더가 없습니다\./);
+  assert.doesNotMatch(page, /\{explorerRows\.length > 0 && \(/);
+});
+
 test("사업장명 입력은 쉼표·개행을 trim하고 대소문자 무시 중복 제거한다", async () => {
   const client = await import("../lib/report-explorer/client");
 
