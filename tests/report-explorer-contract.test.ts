@@ -64,7 +64,33 @@ test("보고서 탐색기는 기존 목록·선택·필터 상태를 재사용�
     assert.match(page, new RegExp(`\\b${state}\\b`), `${state} state must remain available`);
   }
   assert.match(page, /collectReportExplorerBusinessNames/);
-  assert.match(page, /useCurrentResults|useReportProcessingResults/);
+  assert.match(page, /useCurrentResults:\s*true/);
+  assert.doesNotMatch(page, /use-report-processing-results|현재 보고서 처리 결과 사용/);
+});
+
+test("v0.6 화면은 보고서 처리 결과 다음에 탐색기를 배치하고 두 표를 10건씩 표시한다", () => {
+  const page = source(pagePath);
+  const processingTable = page.indexOf('aria-label="보고서 처리 결과"');
+  const explorer = page.indexOf(">보고서 탐색기</h2>");
+
+  assert.ok(processingTable > 0);
+  assert.ok(explorer > processingTable);
+  assert.match(page, /const PAGE_SIZE = 10/);
+  assert.match(page, /visibleRecords = records\.slice/);
+  assert.match(page, /visibleExplorerRows = explorerRows\.slice/);
+  assert.match(page, /records\.length > PAGE_SIZE/);
+  assert.match(page, /explorerRows\.length > PAGE_SIZE/);
+});
+
+test("탐색기는 상단 기준값을 공유하고 한 줄 추가 입력과 경로 tooltip을 제공한다", () => {
+  const page = source(pagePath);
+
+  assert.match(page, /effectiveExplorerYear = filters\.year === 'all'/);
+  assert.match(page, /effectiveExplorerPeriod = filters\.period === 'all'/);
+  assert.doesNotMatch(page, /<textarea/);
+  assert.match(page, /label="추가 사업장명"/);
+  assert.match(page, /title=\{match\?\.path\}/);
+  assert.match(page, /if \(event\.key === 'Enter'\)/);
 });
 
 test("사업장명 입력은 쉼표·개행을 trim하고 대소문자 무시 중복 제거한다", async () => {
