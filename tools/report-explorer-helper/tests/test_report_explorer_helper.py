@@ -104,6 +104,49 @@ class ReportExplorerServiceTests(unittest.TestCase):
         (self.root / "2026년" / "상반기").rmdir()
         self.assert_error("PERIOD_NOT_FOUND", lambda: self.service.search(2026, "상반기", ["한결"]))
 
+    def test_storage_health_recovers_without_recreating_the_service(self) -> None:
+        delayed_root = self.root / "delayed-storage"
+        service = ReportExplorerService(delayed_root)
+
+        self.assertEqual(
+            service.health()["storage"],
+            {
+                "available": False,
+                "root": str(delayed_root.resolve()),
+                "reason": "STORAGE_ROOT_UNAVAILABLE",
+            },
+        )
+        self.assert_error(
+            "STORAGE_ROOT_UNAVAILABLE",
+            lambda: service.search(2026, "상반기", ["한결환경"]),
+        )
+
+        (delayed_root / "2026년" / "상반기" / "한결환경").mkdir(parents=True)
+
+        self.assertEqual(
+            service.health()["storage"],
+            {"available": True, "root": str(delayed_root.resolve())},
+        )
+        self.assertEqual(
+            service.search(2026, "상반기", ["한결환경"])["results"][0]["status"],
+            "FOUND",
+        )
+
+    def test_absolute_storage_root_is_independent_of_current_working_directory(self) -> None:
+        expected_root = str(self.root.resolve())
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as unrelated_cwd:
+            try:
+                os.chdir(unrelated_cwd)
+                service = ReportExplorerService(expected_root)
+                self.assertEqual(service.health()["storage"]["root"], expected_root)
+                self.assertEqual(
+                    service.search(2026, "상반기", ["없는사업장"])["results"][0]["status"],
+                    "NOT_FOUND",
+                )
+            finally:
+                os.chdir(original_cwd)
+
     def test_period_read_permission_is_not_reported_as_missing_storage(self) -> None:
         with patch.object(helper.os, "scandir", side_effect=PermissionError("denied")):
             self.assert_error(
@@ -302,18 +345,82 @@ class ReportExplorerHttpTests(unittest.TestCase):
                 body={"year": "2026", "period": "상반기", "businessNames": []})
             self.assertEqual((status, body["error"]["code"]), (400, "INVALID_REQUEST"))
 
+    def test_listener_survives_missing_storage_and_recovers_on_the_same_server(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            delayed_root = Path(tempdir) / "not-mounted-yet"
+            service = ReportExplorerService(delayed_root, launcher=Mock())
+            server = create_server(host="127.0.0.1", port=0, service=service)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+
+            def request(path: str, *, method: str = "GET", body=None):
+                headers = {}
+                data = None
+                if body is not None:
+                    headers = {
+                        "Origin": "https://html-tan-six.vercel.app",
+                        "Content-Type": "application/json",
+                    }
+                    data = json.dumps(body).encode("utf-8")
+                outgoing = Request(base_url + path, data=data, headers=headers, method=method)
+                try:
+                    with urlopen(outgoing, timeout=3) as response:
+                        return response.status, json.loads(response.read())
+                except HTTPError as error:
+                    return error.code, json.loads(error.read())
+
+            try:
+                status, health = request("/health")
+                self.assertEqual(status, 200)
+                self.assertEqual(health["status"], "ok")
+                self.assertEqual(health["storage"]["reason"], "STORAGE_ROOT_UNAVAILABLE")
+
+                status, failure = request(
+                    "/report-explorer/search",
+                    method="POST",
+                    body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]},
+                )
+                self.assertEqual((status, failure["error"]["code"]), (503, "STORAGE_ROOT_UNAVAILABLE"))
+                self.assertTrue(thread.is_alive())
+
+                (delayed_root / "2026년" / "상반기" / "한결환경").mkdir(parents=True)
+
+                status, health = request("/health")
+                self.assertEqual((status, health["storage"]["available"]), (200, True))
+                status, result = request(
+                    "/report-explorer/search",
+                    method="POST",
+                    body={"year": 2026, "period": "상반기", "businessNames": ["한결환경"]},
+                )
+                self.assertEqual((status, result["results"][0]["status"]), (200, "FOUND"))
+                self.assertTrue(thread.is_alive())
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
 
 class ReportExplorerDeploymentScriptTests(unittest.TestCase):
     forbidden_explorer_mutation_markers = (
         "AutomaticDestinations",
         "CustomDestinations",
         "Microsoft\\Windows\\Recent",
+        "Quick Access",
+        "즐겨찾기",
         "BagMRU",
+        "\\Bags",
         "NavPane",
         "Explorer\\Advanced",
         "OneDrive",
         "Stop-Process -Name explorer",
+        "Start-Process explorer.exe",
         "taskkill",
+        "New-PSDrive",
+        "Remove-PSDrive",
+        "MapNetworkDrive",
+        "RemoveNetworkDrive",
+        "net use",
     )
 
     def test_installation_is_exe_only_and_autostart_is_direct(self) -> None:
@@ -328,6 +435,11 @@ class ReportExplorerDeploymentScriptTests(unittest.TestCase):
         for legacy_file in ("report_explorer_helper.py", "run-report-explorer-helper.bat", "run-report-explorer-helper.vbs"):
             self.assertIn(legacy_file, install_script)
             self.assertNotIn(f"Copy-Item -LiteralPath $source -Destination (Join-Path $installDirectory '{legacy_file}')", install_script)
+
+    def test_build_uses_the_windows_gui_subsystem_for_stable_hkcu_startup(self) -> None:
+        build_script = (HELPER_DIR / "build-report-explorer-helper.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("--onefile --noconsole --name ReportExplorerHelper", build_script)
 
     def test_uninstall_requires_expected_registration_and_stopped_verified_helper(self) -> None:
         uninstall_script = (HELPER_DIR / "uninstall-report-explorer-helper-autostart.ps1").read_text(
@@ -379,6 +491,21 @@ class ReportExplorerDeploymentScriptTests(unittest.TestCase):
         self.assertIn("Remove-Item -LiteralPath $resolvedDirectory -Recurse", uninstall_script)
         for marker in self.forbidden_explorer_mutation_markers:
             self.assertNotIn(marker, uninstall_script)
+
+
+class ReportExplorerProcessLifecycleTests(unittest.TestCase):
+    def test_main_logs_unexpected_crash_and_returns_nonzero(self) -> None:
+        with (
+            patch.object(helper, "run", side_effect=RuntimeError("unexpected crash")),
+            patch.object(helper.LOGGER, "exception") as log_exception,
+        ):
+            self.assertEqual(helper.main(), 1)
+
+        log_exception.assert_called_once_with("Fatal helper error; exiting with code 1")
+
+    def test_main_preserves_success_exit_code(self) -> None:
+        with patch.object(helper, "run", return_value=0):
+            self.assertEqual(helper.main(), 0)
 
 
 if __name__ == "__main__":

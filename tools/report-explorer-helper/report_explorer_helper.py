@@ -16,6 +16,7 @@ import secrets
 import signal
 import stat
 import subprocess
+import sys
 import threading
 import time
 import unicodedata
@@ -521,8 +522,22 @@ def create_server(
 
 
 def run() -> int:
+    LOGGER.info(
+        "Starting loopback helper executable=%s frozen=%s cwd=%s storage_root=%s",
+        sys.executable,
+        bool(getattr(sys, "frozen", False)),
+        os.getcwd(),
+        configured_report_root(),
+    )
     server = create_server()
-    LOGGER.info("Started loopback helper on %s:%s", LOOPBACK_HOST, PORT)
+    storage = server.service.health()["storage"]  # type: ignore[attr-defined]
+    LOGGER.info(
+        "Started loopback helper on %s:%s storage_available=%s storage_reason=%s",
+        LOOPBACK_HOST,
+        PORT,
+        storage["available"],
+        storage.get("reason"),
+    )
 
     def stop_server(_signum: int, _frame: Any) -> None:
         threading.Thread(target=server.shutdown, daemon=True).start()
@@ -540,9 +555,13 @@ def run() -> int:
     return 0
 
 
-if __name__ == "__main__":
+def main() -> int:
     try:
-        raise SystemExit(run())
-    except OSError as error:
-        LOGGER.exception("Unable to start loopback helper: %s", error)
-        raise SystemExit(f"Unable to bind {LOOPBACK_HOST}:{PORT}: {error}")
+        return run()
+    except Exception:
+        LOGGER.exception("Fatal helper error; exiting with code 1")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

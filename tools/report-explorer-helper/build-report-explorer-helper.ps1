@@ -7,7 +7,7 @@ if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
 }
 
 # PyInstaller는 빌드시에만 필요합니다. 런타임은 Python 표준 라이브러리만 사용합니다.
-& py -3 -m PyInstaller --noconfirm --clean --onefile --name ReportExplorerHelper `
+& py -3 -m PyInstaller --noconfirm --clean --onefile --noconsole --name ReportExplorerHelper `
     --distpath (Join-Path $PSScriptRoot 'dist') `
     --workpath (Join-Path $PSScriptRoot 'build') `
     --specpath $PSScriptRoot `
