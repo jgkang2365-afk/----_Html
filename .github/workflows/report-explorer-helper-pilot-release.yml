@@ -2,11 +2,6 @@ name: Report Explorer Helper Pilot Release
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Helper semantic version (for example 1.0.0)"
-        required: true
-        type: string
 
 permissions: {}
 
@@ -25,12 +20,15 @@ jobs:
       - name: Validate release source and version
         id: release-info
         shell: pwsh
-        env:
-          VERSION: ${{ inputs.version }}
         run: |
           if ($env:GITHUB_SHA -ne (git rev-parse origin/main)) { throw 'Pilot Release must run from current main.' }
-          if ($env:VERSION -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') { throw 'Invalid semantic version.' }
-          "tag=report-explorer-helper-pilot-v$env:VERSION" >> $env:GITHUB_OUTPUT
+          $source = Get-Content tools/report-explorer-helper/report_explorer_versions.py -Raw
+          $match = [regex]::Match($source, '(?m)^RELEASE_VERSION = "((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))"$')
+          if (-not $match.Success) { throw 'Canonical RELEASE_VERSION is missing or invalid.' }
+          foreach ($name in @('HELPER_VERSION', 'UPDATER_VERSION', 'SETUP_VERSION')) { if ($source -notmatch "(?m)^${name} = RELEASE_VERSION$") { throw "$name must alias RELEASE_VERSION." } }
+          $version = $match.Groups[1].Value
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=report-explorer-helper-pilot-v$version" >> $env:GITHUB_OUTPUT
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13.7"
@@ -45,9 +43,21 @@ jobs:
         run: ./tools/report-explorer-helper/build-report-explorer-helper.ps1 -PythonExecutable (Get-Command python).Source
       - name: Create immutable pilot asset set
         shell: pwsh
+        run: ./tools/report-explorer-helper/package-report-explorer-helper-release.ps1 -Channel pilot -SourceCommit $env:GITHUB_SHA
+      - name: Validate canonical tag, manifest, and embedded versions
+        shell: pwsh
         env:
-          VERSION: ${{ inputs.version }}
-        run: ./tools/report-explorer-helper/package-report-explorer-helper-release.ps1 -HelperVersion $env:VERSION -Channel pilot -SourceCommit $env:GITHUB_SHA
+          VERSION: ${{ steps.release-info.outputs.version }}
+          TAG: ${{ steps.release-info.outputs.tag }}
+        run: |
+          $manifest = Get-Content tools/report-explorer-helper/release/release.json -Raw | ConvertFrom-Json
+          if ($manifest.releaseTag -ne $env:TAG -or $manifest.channel -ne 'pilot') { throw 'Pilot manifest tag/channel mismatch.' }
+          foreach ($field in @('releaseVersion', 'helperVersion', 'updaterVersion', 'setupVersion')) { if ($manifest.$field -ne $env:VERSION) { throw "Pilot manifest $field mismatch." } }
+          if ($manifest.protocolVersion -ne '1' -or $manifest.sourceCommit -ne $env:GITHUB_SHA) { throw 'Pilot manifest protocol/source mismatch.' }
+          foreach ($name in @('ReportExplorerHelper.exe', 'ReportExplorerSetup.exe')) {
+            $embedded = [Diagnostics.FileVersionInfo]::GetVersionInfo("tools/report-explorer-helper/release/$name").ProductVersion
+            if ($embedded -ne $env:VERSION) { throw "Embedded version mismatch: $name" }
+          }
       - uses: actions/upload-artifact@v7
         with:
           name: report-explorer-pilot-release

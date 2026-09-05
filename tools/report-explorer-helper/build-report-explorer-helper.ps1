@@ -12,12 +12,29 @@ if (-not $python) {
 $distPath = [System.IO.Path]::GetFullPath($OutputDirectory)
 $workPath = Join-Path $PSScriptRoot 'build'
 New-Item -ItemType Directory -Path $distPath -Force | Out-Null
+New-Item -ItemType Directory -Path $workPath -Force | Out-Null
+
+$versionProbe = @(
+    '-c',
+    'import sys; sys.path.insert(0, sys.argv[1]); import report_explorer_versions as v; assert len({v.RELEASE_VERSION, v.HELPER_VERSION, v.UPDATER_VERSION, v.SETUP_VERSION}) == 1; print(v.RELEASE_VERSION)',
+    $PSScriptRoot
+)
+$releaseVersion = if ($python -eq 'py') { (& py -3 @versionProbe) } else { (& $python @versionProbe) }
+if ($LASTEXITCODE -ne 0 -or $releaseVersion -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+    throw 'Canonical Report Explorer release version is invalid or component versions differ.'
+}
+$releaseVersion = $releaseVersion.Trim()
+$versionParts = $releaseVersion.Split('.')
+$versionFile = Join-Path $workPath 'report-explorer-version-info.txt'
+$versionInfo = "VSVersionInfo(ffi=FixedFileInfo(filevers=($($versionParts[0]),$($versionParts[1]),$($versionParts[2]),0), prodvers=($($versionParts[0]),$($versionParts[1]),$($versionParts[2]),0), mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0,0)), kids=[StringFileInfo([StringTable('040904B0', [StringStruct('FileVersion', '$releaseVersion'), StringStruct('ProductVersion', '$releaseVersion')])]), VarFileInfo([VarStruct('Translation', [1033, 1200])])])"
+[System.IO.File]::WriteAllText($versionFile, $versionInfo, [System.Text.UTF8Encoding]::new($false))
+
 
 function Invoke-ReportExplorerPyInstaller([string]$Name, [string]$EntryPoint, [string[]]$ExtraArguments = @()) {
     $arguments = @('-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--noconsole', '--name', $Name,
         '--distpath', $distPath,
         '--workpath', $workPath,
-        '--specpath', $workPath) + $ExtraArguments + @($EntryPoint)
+        '--specpath', $workPath, '--version-file', $versionFile) + $ExtraArguments + @($EntryPoint)
     if ($python -eq 'py') {
         & py -3 @arguments
     } else {

@@ -27,7 +27,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from report_explorer_versions import HELPER_VERSION, PROTOCOL_VERSION, UPDATER_VERSION
+from report_explorer_versions import PROTOCOL_VERSION, UPDATER_VERSION
 
 
 PRODUCT_DIRECTORY = Path("MeasurementJournal") / "ReportExplorerHelper"
@@ -88,6 +88,12 @@ class Release:
     helper_sha256: str
     helper_size: int
     helper_url: str
+    release_version: str = ""
+    updater_version: str = ""
+    setup_version: str = ""
+    setup_sha256: str = ""
+    setup_size: int = 0
+    setup_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -297,7 +303,7 @@ def _asset_map(release: dict[str, Any], tag: str) -> dict[str, str]:
         url = asset.get("browser_download_url")
         if isinstance(name, str) and isinstance(url, str):
             result[name] = url
-    for name in (HELPER_FILENAME, "SHA256SUMS.txt", "release.json"):
+    for name in (HELPER_FILENAME, "ReportExplorerSetup.exe", "SHA256SUMS.txt", "release.json"):
         url = result.get(name)
         if not url:
             raise UpdateError(f"Release is missing {name}")
@@ -369,28 +375,66 @@ class GitHubReleaseClient:
             raise UpdateError("release.json is invalid") from error
         if not isinstance(manifest, dict):
             raise UpdateError("release.json must be an object")
+        release_version = manifest.get("releaseVersion")
+        manifest_channel = manifest.get("channel")
+        manifest_tag = manifest.get("releaseTag")
+        source_commit = manifest.get("sourceCommit")
         helper_version = manifest.get("helperVersion")
+        updater_version = manifest.get("updaterVersion")
+        setup_version = manifest.get("setupVersion")
         protocol_version = manifest.get("protocolVersion")
         helper_sha256 = manifest.get("helperSha256")
         helper_size = manifest.get("helperSize")
+        setup_sha256 = manifest.get("setupSha256")
+        setup_size = manifest.get("setupSize")
         if (
-            not isinstance(helper_version, str)
+            not isinstance(release_version, str)
+            or not isinstance(manifest_channel, str)
+            or not isinstance(manifest_tag, str)
+            or not isinstance(source_commit, str)
+            or not isinstance(helper_version, str)
+            or not isinstance(updater_version, str)
+            or not isinstance(setup_version, str)
             or not isinstance(protocol_version, str)
             or not isinstance(helper_sha256, str)
             or not isinstance(helper_size, int)
+            or not isinstance(setup_sha256, str)
+            or not isinstance(setup_size, int)
         ):
-            raise UpdateError("release.json is missing required helper metadata")
-        if helper_version != tag.rsplit("v", 1)[1] or protocol_version != PROTOCOL_VERSION:
+            raise UpdateError("release.json is missing required bundle metadata")
+        tag_version = tag.rsplit("v", 1)[1]
+        if (
+            release_version != tag_version
+            or helper_version != release_version
+            or manifest_channel != channel
+            or manifest_tag != tag
+            or not re.fullmatch(r"[0-9a-f]{40}", source_commit)
+            or updater_version != release_version
+            or setup_version != release_version
+            or protocol_version != PROTOCOL_VERSION
+        ):
             raise UpdateError("Release version or protocol is incompatible")
-        parse_semver(helper_version)
+        parse_semver(release_version)
         helper_sha256 = helper_sha256.lower()
-        if not SHA256_RE.fullmatch(helper_sha256):
-            raise UpdateError("release.json has an invalid helper SHA-256")
-        if not MIN_HELPER_SIZE_BYTES <= helper_size <= MAX_HELPER_SIZE_BYTES:
-            raise UpdateError("release.json has an implausible helper size")
-        if _parse_sha256s(checksums_raw).get(HELPER_FILENAME) != helper_sha256:
+        setup_sha256 = setup_sha256.lower()
+        if not SHA256_RE.fullmatch(helper_sha256) or not SHA256_RE.fullmatch(setup_sha256):
+            raise UpdateError("release.json has an invalid bundle SHA-256")
+        if (
+            not MIN_HELPER_SIZE_BYTES <= helper_size <= MAX_HELPER_SIZE_BYTES
+            or not MIN_HELPER_SIZE_BYTES <= setup_size <= MAX_HELPER_SIZE_BYTES
+        ):
+            raise UpdateError("release.json has an implausible bundle size")
+        checksums = _parse_sha256s(checksums_raw)
+        if (
+            checksums.get(HELPER_FILENAME) != helper_sha256
+            or checksums.get("ReportExplorerSetup.exe") != setup_sha256
+        ):
             raise UpdateError("SHA256SUMS does not match release.json")
-        return Release(channel, helper_version, protocol_version, helper_sha256, helper_size, assets[HELPER_FILENAME])
+        return Release(
+            channel, helper_version, protocol_version, helper_sha256, helper_size,
+            assets[HELPER_FILENAME], release_version, updater_version, setup_version,
+            setup_sha256, setup_size, assets["ReportExplorerSetup.exe"],
+        )
 
     def download_helper(self, release: Release, destination: Path) -> None:
         payload = _read_https(
@@ -624,13 +668,29 @@ class UpdateEngine:
             return UpdateResult("updated", release.helper_version)
         except Exception as error:
             self.logger.error("update_failed rollback=true error=%s", type(error).__name__)
-            _safe_unlink(self.paths.helper, self.paths)
-            if had_previous and self.paths.previous.exists():
-                os.replace(self.paths.previous, self.paths.helper)
-                try:
+            try:
+                # A failed candidate can still hold its installed EXE open on Windows.
+                # stop_exact rechecks every PID's full image path immediately before stop.
+                self.logger.info("rollback_step=stop_failed_helper path=%s", self.paths.helper)
+                self.process_controller.stop_exact(self.paths.helper)
+                if self.process_controller.matching_pids(self.paths.helper):
+                    raise UpdateError("Failed helper process did not exit")
+                self.logger.info("rollback_step=remove_failed_helper")
+                _safe_unlink(self.paths.helper, self.paths)
+                if had_previous:
+                    if not self.paths.previous.exists():
+                        raise UpdateError("Previous helper is missing")
+                    self.logger.info("rollback_step=restore_previous_helper")
+                    os.replace(self.paths.previous, self.paths.helper)
+                    self.logger.info("rollback_step=start_previous_helper")
                     self._start_current(None)
-                except UpdateError as rollback_error:
-                    raise UpdateError("ROLLBACK_FAILED") from rollback_error
+                    self.logger.info("rollback_complete=true")
+            except Exception as rollback_error:
+                self.logger.error(
+                    "rollback_complete=false status=ROLLBACK_FAILED evidence=%s",
+                    rollback_error,
+                )
+                raise UpdateError(f"ROLLBACK_FAILED: {rollback_error}") from rollback_error
             raise UpdateError("Update failed; prior helper restored") from error
         finally:
             _safe_unlink(self.paths.download, self.paths)

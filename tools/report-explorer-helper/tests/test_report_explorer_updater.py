@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import nullcontext
 import logging
 import importlib
 import json
@@ -15,6 +16,8 @@ from unittest.mock import patch
 HELPER_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HELPER_DIR))
 runtime = importlib.import_module("report_explorer_update_runtime")
+setup = importlib.import_module("report_explorer_setup")
+versions = importlib.import_module("report_explorer_versions")
 
 
 class FakeProcess:
@@ -77,13 +80,22 @@ class UpdateRuntimeTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def make_engine(self, client, processes=None, health=None):
+        controller = processes or FakeProcesses()
+
+        def start(_paths):
+            controller.running = True
+            return FakeProcess()
+
         return runtime.UpdateEngine(
             self.paths,
             release_client=client,
-            process_controller=processes or FakeProcesses(),
-            starter=lambda _paths: FakeProcess(),
+            process_controller=controller,
+            starter=start,
             health_waiter=health or (lambda _process, _version: True),
         )
+    def test_release_version_is_the_single_component_source(self) -> None:
+        self.assertEqual({versions.RELEASE_VERSION, versions.HELPER_VERSION, versions.UPDATER_VERSION, versions.SETUP_VERSION}, {versions.RELEASE_VERSION})
+
 
     def test_semver_and_channel_tag_are_strict(self) -> None:
         self.assertEqual(runtime.parse_semver("1.20.3"), (1, 20, 3))
@@ -101,17 +113,22 @@ class UpdateRuntimeTests(unittest.TestCase):
         stable_tag = "report-explorer-helper-v1.0.1"
         pilot_tag = "report-explorer-helper-pilot-v1.0.2"
         releases = [
-            {"tag_name": stable_tag, "draft": False, "prerelease": False, "assets": [asset("ReportExplorerHelper.exe", stable_tag), asset("SHA256SUMS.txt", stable_tag), asset("release.json", stable_tag)]},
-            {"tag_name": pilot_tag, "draft": False, "prerelease": True, "assets": [asset("ReportExplorerHelper.exe", pilot_tag), asset("SHA256SUMS.txt", pilot_tag), asset("release.json", pilot_tag)]},
+            {"tag_name": stable_tag, "draft": False, "prerelease": False, "assets": [asset("ReportExplorerHelper.exe", stable_tag), asset("ReportExplorerSetup.exe", stable_tag), asset("SHA256SUMS.txt", stable_tag), asset("release.json", stable_tag)]},
+            {"tag_name": pilot_tag, "draft": False, "prerelease": True, "assets": [asset("ReportExplorerHelper.exe", pilot_tag), asset("ReportExplorerSetup.exe", pilot_tag), asset("SHA256SUMS.txt", pilot_tag), asset("release.json", pilot_tag)]},
         ]
-        manifest = {"helperVersion": "1.0.1", "protocolVersion": "1", "helperSha256": "a" * 64, "helperSize": runtime.MIN_HELPER_SIZE_BYTES}
-        with patch.object(runtime, "_read_https", side_effect=[json.dumps(releases).encode(), json.dumps(manifest).encode(), ("a" * 64 + "  ReportExplorerHelper.exe\n").encode()]):
+        manifest = {"channel": "stable", "releaseTag": stable_tag, "sourceCommit": "c" * 40, "releaseVersion": "1.0.1", "protocolVersion": "1", "helperVersion": "1.0.1", "updaterVersion": "1.0.1", "setupVersion": "1.0.1", "helperSha256": "a" * 64, "helperSize": runtime.MIN_HELPER_SIZE_BYTES, "setupSha256": "b" * 64, "setupSize": runtime.MIN_HELPER_SIZE_BYTES}
+        sums = ("a" * 64 + "  ReportExplorerHelper.exe\n" + "b" * 64 + "  ReportExplorerSetup.exe\n").encode()
+        with patch.object(runtime, "_read_https", side_effect=[json.dumps(releases).encode(), json.dumps(manifest).encode(), sums]):
             stable = runtime.GitHubReleaseClient().latest("stable")
         self.assertEqual(stable.helper_version, "1.0.1")
-        pilot_manifest = dict(manifest, helperVersion="1.0.2")
-        with patch.object(runtime, "_read_https", side_effect=[json.dumps(releases).encode(), json.dumps(pilot_manifest).encode(), ("a" * 64 + "  ReportExplorerHelper.exe\n").encode()]):
+        pilot_manifest = dict(manifest, channel="pilot", releaseTag=pilot_tag, releaseVersion="1.0.2", helperVersion="1.0.2", updaterVersion="1.0.2", setupVersion="1.0.2")
+        with patch.object(runtime, "_read_https", side_effect=[json.dumps(releases).encode(), json.dumps(pilot_manifest).encode(), sums]):
             pilot = runtime.GitHubReleaseClient().latest("pilot")
         self.assertEqual(pilot.helper_version, "1.0.2")
+        mismatched = dict(pilot_manifest, setupVersion="9.9.9")
+        with patch.object(runtime, "_read_https", side_effect=[json.dumps(releases).encode(), json.dumps(mismatched).encode(), sums]):
+            with self.assertRaises(runtime.UpdateError):
+                runtime.GitHubReleaseClient().latest("pilot")
 
     def test_sha_failure_keeps_existing_helper_untouched(self) -> None:
         self.paths.helper.write_bytes(b"old-helper")
@@ -139,16 +156,38 @@ class UpdateRuntimeTests(unittest.TestCase):
         runtime.write_config(self.paths, "stable", "1.0.0")
         expected_versions: list[str | None] = []
 
+        processes = FakeProcesses(running=True)
         def health(_process, expected):
             expected_versions.append(expected)
             return expected is None
 
         with self.assertRaises(runtime.UpdateError):
-            self.make_engine(FakeReleaseClient(self.release, self.data), health=health).run()
+            self.make_engine(FakeReleaseClient(self.release, self.data), processes=processes, health=health).run()
         self.assertEqual(self.paths.helper.read_bytes(), b"old-helper")
         self.assertFalse(self.paths.previous.exists())
         self.assertEqual(expected_versions, ["1.0.1", None])
+        self.assertEqual(processes.stopped, [self.paths.helper, self.paths.helper])
 
+    def test_previous_restore_failure_is_reported_as_rollback_failed(self) -> None:
+        self.paths.helper.write_bytes(b"old-helper")
+        runtime.write_config(self.paths, "stable", "1.0.0")
+        processes = FakeProcesses(running=True)
+        original_replace = runtime.os.replace
+
+        def failing_restore(source, destination):
+            if Path(source) == self.paths.previous and Path(destination) == self.paths.helper:
+                raise OSError("restore denied")
+            return original_replace(source, destination)
+
+        def health(_process, expected):
+            return expected is None
+
+        with patch.object(runtime.os, "replace", side_effect=failing_restore):
+            with self.assertRaises(runtime.UpdateError) as caught:
+                self.make_engine(FakeReleaseClient(self.release, self.data), processes=processes, health=health).run()
+        self.assertIn("ROLLBACK_FAILED", str(caught.exception))
+        self.assertTrue(self.paths.previous.exists())
+        self.assertFalse(self.paths.helper.exists())
     def test_network_failure_starts_the_existing_helper_without_download(self) -> None:
         self.paths.helper.write_bytes(b"old-helper")
         runtime.write_config(self.paths, "stable", "1.0.0")
@@ -169,6 +208,41 @@ class UpdateRuntimeTests(unittest.TestCase):
         payload["version"] = "2"
         with patch.object(runtime, "_health_once", return_value=payload):
             self.assertFalse(runtime.helper_is_healthy("1.0.1"))
+    def _run_setup(self, argv: list[str]) -> tuple[int, dict[str, object]]:
+        observed: dict[str, object] = {}
+
+        class FakeEngine:
+            def __init__(inner, paths):
+                observed["paths"] = paths
+            def run(inner, *, acquire_lock=True):
+                observed["channel"] = runtime._load_config(self.paths)[0]
+                return runtime.UpdateResult("updated", versions.RELEASE_VERSION)
+
+        with (
+            patch.object(setup, "paths_for_current_user", return_value=self.paths),
+            patch.object(setup, "UpdateLock", return_value=nullcontext()),
+            patch.object(setup, "_install_bundled_updater"),
+            patch.object(setup, "UpdateEngine", FakeEngine),
+            patch.object(setup, "register_updater_autostart", side_effect=lambda paths: observed.update(registered=paths)),
+        ):
+            code = setup.main(argv)
+        return code, observed
+
+    def test_setup_defaults_to_stable_channel(self) -> None:
+        code, observed = self._run_setup([])
+        self.assertEqual(code, 0)
+        self.assertEqual(observed["channel"], "stable")
+
+    def test_clean_setup_can_bootstrap_explicit_pilot_channel(self) -> None:
+        self.assertFalse(self.paths.config.exists())
+        code, observed = self._run_setup(["--channel", "pilot"])
+        self.assertEqual(code, 0)
+        self.assertEqual(observed["channel"], "pilot")
+
+    def test_setup_rejects_unknown_channels(self) -> None:
+        for channel in ("beta", "preview"):
+            with self.subTest(channel=channel), self.assertRaises(SystemExit):
+                setup._parse_args(["--channel", channel])
 
     def test_update_lock_rejects_duplicate_owner(self) -> None:
         with runtime.UpdateLock():

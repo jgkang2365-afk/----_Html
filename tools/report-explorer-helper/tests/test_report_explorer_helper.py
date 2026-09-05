@@ -453,15 +453,17 @@ class ReportExplorerDeploymentScriptTests(unittest.TestCase):
         self.assertIn("'--onefile'", build_script)
         self.assertIn("'--noconsole'", build_script)
         self.assertIn("'--specpath', $workPath", build_script)
+        self.assertIn("'--version-file', $versionFile", build_script)
         for executable in ("ReportExplorerHelper", "ReportExplorerUpdater", "ReportExplorerSetup"):
             self.assertIn(executable, build_script)
 
-    def test_release_packaging_uses_only_helper_and_setup_assets(self) -> None:
+    def test_release_packaging_verifies_bundle_but_publishes_only_helper_and_setup(self) -> None:
         package_script = (HELPER_DIR / "package-report-explorer-helper-release.ps1").read_text(encoding="utf-8")
 
         self.assertIn("ReportExplorerHelper.exe", package_script)
         self.assertIn("ReportExplorerSetup.exe", package_script)
-        self.assertNotIn("ReportExplorerUpdater.exe", package_script)
+        self.assertIn("$embeddedAssets = @($helper, $updater, $setup)", package_script)
+        self.assertIn('$setupHash  ReportExplorerSetup.exe`n", $utf8NoBom)', package_script)
         self.assertIn('Release assets prepared for ${tag}: $outputPath', package_script)
 
     def test_uninstall_requires_expected_registration_and_stopped_verified_helper(self) -> None:

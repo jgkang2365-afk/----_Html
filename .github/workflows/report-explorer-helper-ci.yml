@@ -34,6 +34,12 @@ jobs:
       - name: Build Windows executables
         shell: pwsh
         run: ./tools/report-explorer-helper/build-report-explorer-helper.ps1 -PythonExecutable (Get-Command python).Source
+      - name: Run isolated Windows EXE-lock rollback integration
+        shell: pwsh
+        run: python ./tools/report-explorer-helper/windows-rollback-integration.py
+      - name: Validate release packaging contract
+        shell: pwsh
+        run: ./tools/report-explorer-helper/package-report-explorer-helper-release.ps1 -Channel pilot -SourceCommit $env:GITHUB_SHA
       - name: Verify Release asset names are not tracked
         shell: pwsh
         run: |

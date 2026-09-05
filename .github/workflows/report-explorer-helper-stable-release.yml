@@ -34,15 +34,36 @@ jobs:
           New-Item -ItemType Directory -Path release | Out-Null
           gh release download $env:PILOT_TAG --repo $env:GITHUB_REPOSITORY --dir release --pattern ReportExplorerHelper.exe --pattern ReportExplorerSetup.exe --pattern SHA256SUMS.txt --pattern release.json
           $manifest = Get-Content release/release.json -Raw | ConvertFrom-Json
+          $pilotVersion = $env:PILOT_TAG -replace '^report-explorer-helper-pilot-v', ''
           if ($manifest.channel -ne 'pilot' -or $manifest.releaseTag -ne $env:PILOT_TAG) { throw 'Pilot release.json channel/tag mismatch.' }
-          $helperSha = (Get-FileHash release/ReportExplorerHelper.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          $setupSha = (Get-FileHash release/ReportExplorerSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($manifest.sourceCommit -notmatch '^[0-9a-f]{40}$' -or $manifest.sourceCommit -ne $pilot.targetCommitish) { throw 'Pilot source commit mismatch.' }
+          foreach ($field in @('releaseVersion', 'helperVersion', 'updaterVersion', 'setupVersion')) {
+            if ($manifest.$field -ne $pilotVersion) { throw "Pilot $field mismatch." }
+          }
+          if ($manifest.protocolVersion -ne '1') { throw 'Pilot protocol version mismatch.' }
+          $helperPath = 'release/ReportExplorerHelper.exe'
+          $setupPath = 'release/ReportExplorerSetup.exe'
+          $helperSha = (Get-FileHash $helperPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $setupSha = (Get-FileHash $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $helperSize = (Get-Item $helperPath).Length
+          $setupSize = (Get-Item $setupPath).Length
           if ($helperSha -ne $manifest.helperSha256 -or $setupSha -ne $manifest.setupSha256) { throw 'Pilot asset checksum mismatch.' }
-          $expectedSums = Get-Content release/SHA256SUMS.txt -Raw
-          if ($expectedSums -notmatch $helperSha -or $expectedSums -notmatch $setupSha) { throw 'Pilot SHA256SUMS mismatch.' }
-          $stableTag = "report-explorer-helper-v$($manifest.helperVersion)"
+          if ($helperSize -ne $manifest.helperSize -or $setupSize -ne $manifest.setupSize) { throw 'Pilot asset size mismatch.' }
+          $sums = @{}
+          foreach ($line in Get-Content release/SHA256SUMS.txt) {
+            if ($line -notmatch '^([0-9a-f]{64})  (ReportExplorer(Helper|Setup)\.exe)$') { throw 'Invalid SHA256SUMS entry.' }
+            if ($sums.ContainsKey($matches[2])) { throw 'Duplicate SHA256SUMS entry.' }
+            $sums[$matches[2]] = $matches[1]
+          }
+          if ($sums.Count -ne 2) { throw 'SHA256SUMS must contain exactly two assets.' }
+          if ($sums['ReportExplorerHelper.exe'] -ne $helperSha -or $sums['ReportExplorerSetup.exe'] -ne $setupSha) { throw 'Pilot SHA256SUMS mismatch.' }
+          foreach ($asset in @($helperPath, $setupPath)) {
+            $embedded = [Diagnostics.FileVersionInfo]::GetVersionInfo($asset).ProductVersion
+            if ($embedded -ne $pilotVersion) { throw "Pilot embedded version mismatch: $asset" }
+          }
+          $stableTag = "report-explorer-helper-v$($manifest.releaseVersion)"
           if (gh release view $stableTag --repo $env:GITHUB_REPOSITORY 2>$null) { throw "Stable Release already exists: $stableTag" }
-          $stable = [ordered]@{ schemaVersion = $manifest.schemaVersion; product = $manifest.product; channel = 'stable'; releaseTag = $stableTag; helperVersion = $manifest.helperVersion; protocolVersion = $manifest.protocolVersion; setupVersion = $manifest.setupVersion; helperSha256 = $helperSha; setupSha256 = $setupSha; helperSize = $manifest.helperSize; sourceCommit = $manifest.sourceCommit; promotedFrom = $env:PILOT_TAG; publishedAt = [DateTime]::UtcNow.ToString('o') }
+          $stable = [ordered]@{ schemaVersion = $manifest.schemaVersion; product = $manifest.product; channel = 'stable'; releaseTag = $stableTag; releaseVersion = $manifest.releaseVersion; protocolVersion = $manifest.protocolVersion; helperVersion = $manifest.helperVersion; updaterVersion = $manifest.updaterVersion; setupVersion = $manifest.setupVersion; helperSha256 = $helperSha; helperSize = $helperSize; setupSha256 = $setupSha; setupSize = $setupSize; sourceCommit = $manifest.sourceCommit; promotedFrom = $env:PILOT_TAG; publishedAt = [DateTime]::UtcNow.ToString('o') }
           [System.IO.File]::WriteAllText((Resolve-Path release).Path + '\release.json', ($stable | ConvertTo-Json -Compress) + "`n", [System.Text.UTF8Encoding]::new($false))
           "STABLE_TAG=$stableTag" >> $env:GITHUB_ENV
           "TARGET_COMMIT=$($manifest.sourceCommit)" >> $env:GITHUB_ENV

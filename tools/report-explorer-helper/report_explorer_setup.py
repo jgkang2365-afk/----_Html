@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -44,15 +45,23 @@ def _install_bundled_updater() -> None:
         _safe_unlink(staged, paths)
 
 
-def main() -> int:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="ReportExplorerSetup.exe")
+    parser.add_argument("--channel", choices=("stable", "pilot"), default="stable")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     paths = paths_for_current_user()
     logger = _configure_logger(paths)
     try:
         with UpdateLock():
             logger.info("setup_start setup_version=%s", SETUP_VERSION)
             _install_bundled_updater()
-            channel, current_version = _load_config(paths)
-            write_config(paths, channel, current_version)
+            _channel, current_version = _load_config(paths)
+            # Channel changes are possible only through this explicit, strict Setup CLI.
+            write_config(paths, args.channel, current_version)
             result = UpdateEngine(paths).run(acquire_lock=False)
             register_updater_autostart(paths)
             logger.info("setup_final_status=%s helper_version=%s", result.status, result.helper_version)
