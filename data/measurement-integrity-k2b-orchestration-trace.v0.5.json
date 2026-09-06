@@ -1,0 +1,732 @@
+{
+  "schemaVersion": 1,
+  "subject": "measurement-integrity-k2b",
+  "policy": {
+    "version": "UNKNOWN / historical evidence unavailable",
+    "evidence": "orca-codex AGENTS.md blob 09ddf897819f20172e1d407186c038339aa8808d",
+    "note": "현재 문서에는 routing-policy-v0.x 형태의 명시적 버전이 없어 임의 값을 만들지 않음"
+  },
+  "workspaceIdentity": {
+    "repository": "https://github.com/jgkang2365-afk/----_Html.git",
+    "workspacePath": "/tmp/measurement-integrity-k2b-v02-integration",
+    "workspaceMismatch": false,
+    "baseSha": "97d1815933bd0e94f104dd8f55322d9e0dc7bb24",
+    "recoveredHeadSha": "73483245be86e59540c3e77c6b199cce2f25af67",
+    "recoveryEvidence": "repository identity, base SHA, commit SHA, patch SHA-256 and changed-file lineage matched"
+  },
+  "entries": [
+    {
+      "experimentVersion": "v0.1",
+      "runId": "UNKNOWN / historical evidence unavailable",
+      "baseSha": "UNKNOWN / historical evidence unavailable",
+      "finalStatus": "HOLD",
+      "workerCount": null,
+      "initialAssignment": "UNKNOWN / historical evidence unavailable",
+      "reassignmentCount": null,
+      "modelEscalationCount": null,
+      "verifierResult": "UNKNOWN / historical evidence unavailable",
+      "holdReasons": ["원 실행 trace와 직접 보고서가 회수되지 않음"],
+      "carryForward": ["v0.2 회수 보고서의 2차 진술로만 계보 확인"],
+      "roles": [],
+      "decisions": [],
+      "verifications": [],
+      "delta": null,
+      "evidence": [
+        {
+          "kind": "recovery_report",
+          "reference": "2026-09-06-measurement-integrity-k2b-recovery-integration-v0.4.md",
+          "claim": "v0.1 원 커밋 ac7c7781abd7a0ecd82f51986410d3ded1e0e18c 회수"
+        }
+      ]
+    },
+    {
+      "experimentVersion": "v0.2",
+      "runId": "UNKNOWN / historical evidence unavailable",
+      "baseSha": "ac7c7781abd7a0ecd82f51986410d3ded1e0e18c",
+      "finalStatus": "HOLD",
+      "workerCount": 0,
+      "initialAssignment": "Orca runtime 미기동",
+      "reassignmentCount": 0,
+      "modelEscalationCount": 0,
+      "verifierResult": "미실행",
+      "holdReasons": ["실제 K2B Pilot 미실행", "Fresh Verifier 미실행", "remote push 미완료"],
+      "carryForward": ["최신 main 재통합", "실제 Pilot", "Fresh Verifier"],
+      "roles": [],
+      "decisions": [
+        {
+          "id": "V02-D1",
+          "action": "STOP",
+          "reason": "Orca runtime/bridge와 credential 공급을 확인하지 못함",
+          "previousAssignment": "Orca worker 요청 예정",
+          "nextAssignment": "HOLD"
+        }
+      ],
+      "verifications": [
+        "focused 7 files PASS",
+        "TypeScript PASS",
+        "전체 대체 runner 85 중 82 PASS / 3 baseline FAIL"
+      ],
+      "delta": {
+        "from": "v0.1",
+        "changes": [
+          "journal_id가 있을 때만 연결 일지 비교",
+          "target 좌표와 기준정보 좌표 역할 분리",
+          "RED 재검증 포함",
+          "보고서 처리 범위로 수동 후보 제한",
+          "K2B grid refresh 관측 강화",
+          "신호등 UI 유지"
+        ]
+      },
+      "evidence": [
+        {
+          "kind": "direct_report",
+          "reference": "2026-09-06-measurement-integrity-k2b-followup-v0.2.md",
+          "claim": "v0.2 보완 commit 9d5348836eace33881e3208fecba4657e9836af9 및 HOLD 사유"
+        }
+      ]
+    },
+    {
+      "experimentVersion": "v0.4",
+      "runId": "UNKNOWN / historical evidence unavailable",
+      "baseSha": "97d1815933bd0e94f104dd8f55322d9e0dc7bb24",
+      "finalStatus": "HOLD",
+      "workerCount": 0,
+      "initialAssignment": "Orca runtime 미기동",
+      "reassignmentCount": 0,
+      "modelEscalationCount": 0,
+      "verifierResult": "ENV_BLOCKED",
+      "holdReasons": [
+        "Staging actual ACL 검증 누락",
+        "Fresh Verifier 환경 장애",
+        "실제 K2B Pilot 미실행",
+        "원격 push/PR 미완료",
+        "전체 테스트 accounting 불일치"
+      ],
+      "carryForward": [
+        "DB Security Verifier",
+        "actual ACL/Advisor Gate",
+        "test accounting Gate",
+        "실제 Pilot",
+        "Fresh Verifier"
+      ],
+      "roles": [],
+      "decisions": [
+        {
+          "id": "V04-D1",
+          "action": "STOP",
+          "reason": "Orca runtime과 외부 Gate가 완료되지 않음",
+          "previousAssignment": "로컬 코드 통합",
+          "nextAssignment": "v0.5 carry-forward"
+        }
+      ],
+      "verifications": [
+        "focused 8 files PASS",
+        "TypeScript/Lint/Build/diff-check PASS",
+        "공식 npm test ENV_BLOCKED"
+      ],
+      "delta": {
+        "from": "v0.2",
+        "changes": [
+          "PR #106 최신 main 위 재통합",
+          "측정일·daily_staff·실시 target·현재 페이지 전체선택·직접/혼합 검색·0건 안내 보존",
+          "MutationObserver와 안정 구간 추가"
+        ]
+      },
+      "evidence": [
+        {
+          "kind": "direct_report",
+          "reference": "2026-09-06-measurement-integrity-k2b-recovery-integration-v0.4.md",
+          "claim": "v0.4 local integration HEAD 73483245be86e59540c3e77c6b199cce2f25af67 및 HOLD 사유"
+        }
+      ]
+    },
+    {
+      "experimentVersion": "v0.5",
+      "runId": "K2B-V05-20260906-01",
+      "baseSha": "97d1815933bd0e94f104dd8f55322d9e0dc7bb24",
+      "finalStatus": "HOLD",
+      "workerCount": 5,
+      "initialAssignment": "Lead WRITE + A/B/C 병렬 READ_ONLY",
+      "reassignmentCount": 0,
+      "modelEscalationCount": 1,
+      "verifierResult": "로컬 candidate PASS / 외부 Gate HOLD",
+      "holdReasons": [
+        "Staging migration 권한 정책 차단",
+        "Advisor 대상 경고 6건 유지",
+        "actual Pilot 실행환경 부재",
+        "원격 push/PR/CI/Preview 미완료"
+      ],
+      "carryForward": [
+        "Staging forward migration 적용 및 actual ACL/Advisor 재확인",
+        "실제 K2B Pilot 근거 remoteK2BReadExecuted=true",
+        "remote PR/CI/Preview"
+      ],
+      "roles": [
+        {
+          "roleId": "K2B-V05-LEAD",
+          "name": "Coordinator / Lead",
+          "purpose": "dependency, WRITE ownership, 통합, escalation, 최종 판정",
+          "scope": "전체 승인 범위",
+          "permission": "WRITE",
+          "parallelMode": "serial write owner",
+          "dependency": "A/B/C READ_ONLY 분석",
+          "requestedModel": "UNKNOWN",
+          "requestedEffort": "medium 이상",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "2026-09-06T15:58:04+09:00",
+          "endedAt": "2026-09-06T16:36:01+09:00",
+          "status": "HOLD",
+          "reassignment": "없음",
+          "artifacts": [
+            "v0.5 trace/API/UI",
+            "K2B execution observability",
+            "forward migrations",
+            "legacy serialization guard"
+          ],
+          "findings": ["Workspace Identity Recovery Gate 동일 계보 확인", "정책 버전 명시값 부재"],
+          "verifications": [
+            "focused/TypeScript/lint/build/diff-check",
+            "test accounting",
+            "external Gate 분리"
+          ]
+        },
+        {
+          "roleId": "K2B-V05-A",
+          "name": "Trace / Observability",
+          "purpose": "trace schema, Version Delta, UI 배치 분석",
+          "scope": "READ_ONLY repository/report audit",
+          "permission": "READ_ONLY",
+          "parallelMode": "parallel",
+          "dependency": "none",
+          "requestedModel": "gpt-5.6-terra",
+          "requestedEffort": "medium",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "2026-09-06T15:58:04+09:00",
+          "endedAt": "2026-09-06T16:03:49+09:00",
+          "status": "PASS",
+          "reassignment": "없음",
+          "artifacts": ["file trace/API/UI 최소 설계"],
+          "findings": ["v0.1 직접 증거 부재", "정적 trace를 운영 실행 로그로 오인하면 안 됨"],
+          "verifications": ["v0.2/v0.4 보고서 근거 교차 확인"]
+        },
+        {
+          "roleId": "K2B-V05-B",
+          "name": "DB Security",
+          "purpose": "SECURITY DEFINER ACL과 Advisor actual 검증",
+          "scope": "READ_ONLY Staging/catalog and migration review",
+          "permission": "READ_ONLY",
+          "parallelMode": "parallel",
+          "dependency": "none",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "high",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "2026-09-06T15:58:04+09:00",
+          "endedAt": "2026-09-06T16:03:49+09:00",
+          "status": "FAIL",
+          "reassignment": "없음; 보안 Gate 실패를 Lead 보완 migration으로 전달",
+          "artifacts": ["forward-only ACL migration review SQL", "post-apply catalog query"],
+          "findings": [
+            "세 RPC anon/authenticated direct EXECUTE",
+            "Advisor 0028/0029 대상 경고 6건"
+          ],
+          "verifications": ["pg_proc.proacl", "has_function_privilege", "Supabase Security Advisor"]
+        },
+        {
+          "roleId": "K2B-V05-C",
+          "name": "K2B Functional",
+          "purpose": "v0.4 regression과 Pilot/실행상태 관찰성 분석",
+          "scope": "READ_ONLY repository tests",
+          "permission": "READ_ONLY",
+          "parallelMode": "parallel",
+          "dependency": "none",
+          "requestedModel": "gpt-5.6-terra",
+          "requestedEffort": "high",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "2026-09-06T15:58:04+09:00",
+          "endedAt": "2026-09-06T16:03:49+09:00",
+          "status": "HOLD",
+          "reassignment": "없음; 관찰성 누락을 Lead 보완으로 전달",
+          "artifacts": ["focused 7/7 PASS"],
+          "findings": [
+            "background_jobs 실행 근거 필드 부족",
+            "Pilot은 precheck뿐이며 remote read 미실행",
+            "legacy direct endpoint는 queue 직렬화 우회"
+          ],
+          "verifications": ["focused functional tests 7/7 PASS"]
+        },
+        {
+          "roleId": "K2B-V05-FV1",
+          "name": "Fresh Verifier",
+          "purpose": "trace, security, functional, regression, Pilot 근거 독립 검증",
+          "scope": "READ_ONLY candidate diff and Staging state",
+          "permission": "READ_ONLY",
+          "parallelMode": "serial after implementation",
+          "dependency": "Lead candidate와 로컬 검증",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "high",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "2026-09-06T16:08:00+09:00",
+          "endedAt": "2026-09-06T16:32:00+09:00",
+          "status": "PASS",
+          "reassignment": "재배정 없음; 최초 FAIL 후 같은 독립 Verifier가 보완 2회 재검증",
+          "artifacts": ["최초 FAIL", "중간 HOLD", "최종 local candidate PASS / external Gate HOLD"],
+          "findings": [
+            "legacy direct 경쟁·관측값 문제 발견",
+            "heartbeat/stale recovery 보완 확인",
+            "Staging ACL 미적용",
+            "actual Pilot 근거 없음"
+          ],
+          "verifications": [
+            "최초 focused 8/8 PASS",
+            "보완 focused 1/1 PASS",
+            "최종 focused 2/2 PASS",
+            "diff-check PASS",
+            "Staging migration/Advisor READ_ONLY 확인"
+          ]
+        }
+      ],
+      "decisions": [
+        {
+          "id": "V05-D1",
+          "action": "CONTINUE_RECOVERY",
+          "reason": "repository identity, base/commit/patch SHA와 diff 계보 일치",
+          "previousAssignment": "예상 경로 기반 판정",
+          "nextAssignment": "동일 v0.5 continuation; workspaceMismatch=false"
+        },
+        {
+          "id": "V05-D2",
+          "action": "SPLIT_AND_PARALLELIZE_READ_ONLY",
+          "reason": "trace, DB security, K2B functional 감사가 서로 독립적이며 같은 파일 WRITE 없음",
+          "previousAssignment": "Lead 단독 조사",
+          "nextAssignment": "A/B/C READ_ONLY 병렬; Lead 단독 WRITE"
+        },
+        {
+          "id": "V05-D3",
+          "action": "MODEL_ESCALATION",
+          "reason": "SECURITY DEFINER와 실제 ACL은 critical security 검증",
+          "previousAssignment": "일반 code verifier",
+          "nextAssignment": "DB Security role gpt-5.6-sol/high 요청"
+        },
+        {
+          "id": "V05-D4",
+          "action": "REMEDIATE",
+          "reason": "실제 Staging ACL/Advisor Gate 재현 실패",
+          "previousAssignment": "source-text migration 검증",
+          "nextAssignment": "forward migration → review → Staging apply → actual ACL/Advisor 재검증"
+        },
+        {
+          "id": "V05-D5",
+          "action": "EXPAND_OBSERVABILITY_MINIMALLY",
+          "reason": "status/error만으로 remote read와 DB 저장 완료를 사실 기반 표시할 수 없음",
+          "previousAssignment": "toast-only 수동 재검증",
+          "nextAssignment": "background_jobs 실행 결과 + read-only status API/UI"
+        },
+        {
+          "id": "V05-D6",
+          "action": "REWORK_AFTER_VERIFIER_FAIL",
+          "reason": "legacy direct 경쟁과 관측되지 않은 상수/전역 최신행을 Fresh Verifier가 FAIL 판정",
+          "previousAssignment": "v0.5 최초 local candidate",
+          "nextAssignment": "legacy DB guard + Run ID 조회 + remote attempt/completion/failure stage 보완"
+        },
+        {
+          "id": "V05-D7",
+          "action": "STOP_EXTERNAL_GATES",
+          "reason": "Staging ACL write가 보안 권한 변경 별도 승인 요구로 거부되고 headless/credential/runtime이 없음",
+          "previousAssignment": "Staging apply → actual Pilot",
+          "nextAssignment": "ENV_BLOCKED/HOLD; 우회 금지"
+        },
+        {
+          "id": "V05-D8",
+          "action": "RETRY_VERIFIER_AND_ACCEPT_LOCAL_PASS",
+          "reason": "heartbeat/stale recovery, cleanup 검출, upload attempt/result 상태를 보완해 blocking/high finding 해소",
+          "previousAssignment": "Fresh Verifier FAIL → HOLD",
+          "nextAssignment": "로컬 candidate PASS; Staging/Pilot/remote Gate는 HOLD 유지"
+        }
+      ],
+      "verifications": [
+        "pre-migration PUBLIC=false, anon=true, authenticated=true, service_role=true",
+        "pre-migration Advisor target warnings=6",
+        "K2B functional focused tests 7/7 PASS before WRITE",
+        "v0.5 final focused files 8/8 PASS",
+        "TypeScript PASS; lint 신규 오류 0; build PASS; diff-check PASS",
+        "official npm test TOTAL 1 / ENV_BLOCKED 1 (test discovery 전 tsx IPC EPERM)",
+        "alternative full runner TOTAL 87 / PASS 84 / FAIL 3 / SKIP 0",
+        "main baseline affected failures TOTAL 3 / PASS 0 / FAIL 3"
+      ],
+      "delta": {
+        "from": "v0.4",
+        "changes": [
+          "source grep에서 pg_proc ACL + has_function_privilege + Advisor actual Gate로 변경",
+          "DB Security Verifier 별도 역할과 Sol/high 요청 추가",
+          "공식/대체 runner를 분리하는 test accounting Gate 추가",
+          "Orchestration Trace Viewer와 파일 trace 추가",
+          "legacy 동기 endpoint에 권한 검사와 durable K2B guard 추가",
+          "Run ID별 execution status와 remote attempt/completion/failure stage 추가",
+          "Fresh Verifier FAIL을 heartbeat/stale recovery 보완과 재검증으로 닫음",
+          "Fresh Verifier 실패는 ENV_BLOCKED/HOLD로만 기록",
+          "remoteK2BReadExecuted=true actual Pilot Gate 유지"
+        ]
+      },
+      "evidence": [
+        {
+          "kind": "task_instruction",
+          "reference": "K2B-V05-20260906-01",
+          "claim": "v0.5 orchestration observability 최상위 Gate"
+        },
+        {
+          "kind": "staging_catalog",
+          "reference": "measurement-journal-staging/ujwlvmkqjdlqblnbzmsw",
+          "claim": "세 K2B SECURITY DEFINER RPC의 anon/authenticated EXECUTE 재현"
+        }
+      ]
+    },
+    {
+      "experimentVersion": "v0.5.1",
+      "parentExperimentVersion": "v0.5",
+      "runId": "K2B-V051-20260906-01",
+      "baseSha": "97d1815933bd0e94f104dd8f55322d9e0dc7bb24",
+      "startedAt": "2026-09-06T16:47:37+09:00",
+      "endedAt": "2026-09-06T17:08:43+09:00",
+      "finalStatus": "HOLD",
+      "workerCount": 5,
+      "initialAssignment": "Coordinator + DB Security Worker + Trace/Observability Worker + Independent DB Security Verifier",
+      "reassignmentCount": 1,
+      "modelEscalationCount": 1,
+      "verifierResult": "DB Security Verifier PASS / Fresh Verifier HOLD: actual Pilot 및 remote release gates 미완료",
+      "environment": "STAGING",
+      "incident": "TEST_VALIDATION_FAILURE",
+      "productionImpact": "NONE",
+      "previousFailure": "source-text only / no actual ACL",
+      "discoverer": "DB Security Verifier",
+      "migration": {
+        "rootCause": "DB_PERMISSION/SECURITY_DEFINER",
+        "status": "APPLIED_AND_ACTUAL_ACL_VERIFIED",
+        "preApplyAcl": {
+          "functions": [
+            "enqueue_k2b_automation_job(TEXT, JSONB)",
+            "enqueue_k2b_verify_job(DATE, BIGINT)",
+            "enqueue_k2b_upload_job(JSONB)"
+          ],
+          "owner": "postgres",
+          "securityDefiner": true,
+          "searchPath": "public",
+          "execute": { "PUBLIC": false, "anon": true, "authenticated": true, "service_role": true }
+        },
+        "appliedMigration": {
+          "version": "20260906075441",
+          "name": "harden_k2b_security_definer_acl_v051",
+          "scope": "STAGING_ONLY",
+          "localFile": "supabase/migrations/20260906075441_harden_k2b_security_definer_acl_v051.sql",
+          "lineageStatus": "LOCAL_AND_STAGING_HISTORY_ALIGNED_AFTER_FRESH_VERIFIER_FINDING"
+        },
+        "postApplyAcl": {
+          "functions": [
+            "enqueue_k2b_automation_job(text,jsonb)",
+            "enqueue_k2b_verify_job(date,bigint)",
+            "enqueue_k2b_upload_job(jsonb)"
+          ],
+          "owner": "postgres",
+          "securityDefiner": true,
+          "searchPath": "public",
+          "execute": {
+            "PUBLIC": false,
+            "anon": false,
+            "authenticated": false,
+            "service_role": true
+          },
+          "verificationPassed": true
+        },
+        "securityAdvisor": {
+          "beforeTargetWarnings": 6,
+          "afterTargetWarnings": 0,
+          "unrelatedWarnings": 22,
+          "observedAt": "2026-09-06T07:55:56.548Z"
+        },
+        "preliminaryServiceOnlyRpc": {
+          "PUBLIC": false,
+          "anon": false,
+          "authenticated": false,
+          "service_role": true
+        }
+      },
+      "recovery": "v0.5 continuation; workspace identity recovery confirmed",
+      "workspacePath": "/tmp/measurement-integrity-k2b-v02-integration",
+      "workspaceMismatch": false,
+      "workspaceRecoveryStatus": "CONTINUATION_CONFIRMED_BY_REPOSITORY_BASE_AND_COMMIT_LINEAGE",
+      "holdReasons": [
+        "actual K2B READ_ONLY Pilot 미실행",
+        "remote push/new PR/CI/Preview 미완료",
+        "공식 npm test ENV_BLOCKED"
+      ],
+      "carryForward": [
+        "actual K2B READ_ONLY Pilot",
+        "remote push/new PR/CI/Preview",
+        "Production ACL migration은 별도 승인 후 release Gate에서만 수행"
+      ],
+      "stagingCloseout": {
+        "classification": {
+          "releaseCandidate": [
+            "20260906025803 add_k2b_verification_fields",
+            "20260906075441 harden_k2b_security_definer_acl_v051"
+          ],
+          "testData": [],
+          "temporarySchema": []
+        },
+        "retainedSchemaChanges": [
+          "K2B verification schema/RPC/index",
+          "K2B SECURITY DEFINER ACL correction"
+        ],
+        "cleanedTestData": [],
+        "remainingTestData": [],
+        "remainingTemporarySchema": [],
+        "backgroundJobsCreatedSinceRunStart": 0,
+        "productionResyncRequired": false,
+        "finalState": "v0.5.1 ACL correction slice와 일치; 전체 v0.5 application candidate의 미적용 observability/legacy guard migration은 별도 release candidate로 유지",
+        "followUpRequired": [
+          "전체 v0.5 candidate를 Staging에 적용할 때 미적용 migration을 별도 승인·검증"
+        ],
+        "coordinatorDecision": "release-candidate schema와 ACL migration은 유지하고, 생성된 테스트 데이터와 임시 schema가 없어 cleanup write나 Staging reset을 수행하지 않음",
+        "productionDatabaseChanges": 0
+      },
+      "testAccounting": {
+        "focusedRegression": { "total": 9, "pass": 9, "fail": 0, "skip": 0 },
+        "traceAndAclFocused": { "total": 2, "pass": 2, "fail": 0, "skip": 0 },
+        "officialNpmTest": {
+          "status": "ENV_BLOCKED",
+          "total": 1,
+          "pass": 0,
+          "fail": 0,
+          "skip": 0,
+          "envBlocked": 1,
+          "reason": "tsx IPC listen EPERM before test execution"
+        },
+        "alternativeFullRunner": { "total": 88, "pass": 84, "fail": 4, "skip": 0 },
+        "alternativeFullFailures": [
+          "preliminary-survey-policy-ui.test.ts",
+          "preliminary-survey-reverse-planner.test.ts (isolated rerun PASS; suite run failure)",
+          "preliminary-survey-target-save-decoupling.test.ts",
+          "user-schedule-blocks-v2.test.ts"
+        ],
+        "typescript": "PASS",
+        "lint": "PASS_WITH_13_PREEXISTING_WARNINGS_AND_0_ERRORS",
+        "build": "PASS",
+        "diffCheck": "PASS"
+      },
+      "roles": [
+        {
+          "roleId": "K2B-V051-COORDINATOR",
+          "name": "Coordinator",
+          "purpose": "v0.5 recovery continuation과 actual DB gate 조정",
+          "scope": "trace 및 승인된 Staging 검증 조정",
+          "permission": "WRITE",
+          "parallelMode": "serial coordinator",
+          "dependency": "DB Security Worker와 independent verifier 결과",
+          "requestedModel": "UNKNOWN",
+          "requestedEffort": "medium",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "2026-09-06T16:47:37+09:00",
+          "endedAt": "UNKNOWN / coordinator runtime timestamp unavailable",
+          "status": "PASS",
+          "reassignment": "일반 source-text 검증에서 DB 보안 전문 역할로 재분할",
+          "artifacts": ["v0.5.1 orchestration trace"],
+          "findings": ["source-text only 검증은 actual ACL 근거가 아님"],
+          "verifications": ["migration 적용 전 상태 기록"]
+        },
+        {
+          "roleId": "K2B-V051-DB-SECURITY",
+          "name": "DB Security Worker",
+          "purpose": "SECURITY DEFINER RPC forward migration과 actual ACL gate",
+          "scope": "Staging DB permission 검증",
+          "permission": "WRITE",
+          "parallelMode": "after approval",
+          "dependency": "Coordinator의 migration apply 승인",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "high",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "UNKNOWN / agent runtime timestamp unavailable",
+          "endedAt": "UNKNOWN / agent runtime timestamp unavailable",
+          "status": "PASS",
+          "reassignment": "v0.4 일반 verifier → DB Security Worker / sol high WRITE",
+          "artifacts": [
+            "forward-only migration",
+            "actual ACL catalog verification SQL",
+            "ACL focused tests"
+          ],
+          "findings": [
+            "pre-apply anon/authenticated EXECUTE=true",
+            "기존 migration을 수정하지 않고 세 exact signature만 보정"
+          ],
+          "verifications": ["migration scope test", "pg_proc ACL verification query"]
+        },
+        {
+          "roleId": "K2B-V051-TRACE",
+          "name": "Trace/Observability Worker",
+          "purpose": "실패·재배정·보정·검증·Staging 종료 판단을 기계 판독 trace와 UI에 반영",
+          "scope": "trace JSON, Trace Viewer, focused trace tests",
+          "permission": "WRITE",
+          "parallelMode": "DB 분석과 병렬, shared trace 최종화는 Coordinator 직렬",
+          "dependency": "actual DB evidence는 Coordinator 최종 반영",
+          "requestedModel": "gpt-5.6-terra",
+          "requestedEffort": "medium",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "UNKNOWN / agent runtime timestamp unavailable",
+          "endedAt": "UNKNOWN / agent runtime timestamp unavailable",
+          "status": "PASS",
+          "reassignment": "v0.5 trace 구조를 v0.5.1 incident/ACL context로 확장",
+          "artifacts": ["v0.5.1 trace entry", "Staging context UI", "trace focused tests"],
+          "findings": ["결과 상태만으로는 ACL 발견→전문 역할 재배정 경로를 설명할 수 없음"],
+          "verifications": ["trace schema validation", "UI contract test"]
+        },
+        {
+          "roleId": "K2B-V051-DB-VERIFIER",
+          "name": "Independent DB Security Verifier",
+          "purpose": "high actual DB gate 독립 검증",
+          "scope": "Staging catalog read-only verification",
+          "permission": "READ_ONLY",
+          "parallelMode": "after DB Security Worker",
+          "dependency": "migration apply와 DB Security Worker evidence",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "high",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "UNKNOWN / agent runtime timestamp unavailable",
+          "endedAt": "2026-09-06T16:57:00+09:00",
+          "status": "PASS",
+          "reassignment": "DB Security Worker와 독립된 READ_ONLY verifier로 분리",
+          "artifacts": ["independent actual DB gate result"],
+          "findings": [
+            "세 함수 ACL gate PASS",
+            "K2B 대상 Advisor 0028/0029 경고 0건",
+            "unrelated Advisor 경고 22건은 별도 유지"
+          ],
+          "verifications": [
+            "actual function ACL",
+            "SECURITY DEFINER owner/search_path",
+            "has_function_privilege",
+            "Security Advisor",
+            "service-role-only baseline 비교"
+          ]
+        },
+        {
+          "roleId": "K2B-V051-FRESH-VERIFIER",
+          "name": "Fresh Verifier",
+          "purpose": "ACL, migration scope, trace completeness, accounting, Staging closeout와 남은 release Gate 독립 검증",
+          "scope": "최종 working tree와 actual Staging evidence READ_ONLY 검증",
+          "permission": "READ_ONLY",
+          "parallelMode": "all implementation and DB verification after",
+          "dependency": "DB Security Verifier 및 최종 trace candidate",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "high",
+          "actualRuntime": "UNVERIFIABLE",
+          "startedAt": "UNKNOWN / agent runtime timestamp unavailable",
+          "endedAt": "2026-09-06T17:08:43+09:00",
+          "status": "HOLD",
+          "reassignment": "Lead/Worker와 독립된 새 READ_ONLY verifier",
+          "artifacts": ["fresh verification findings"],
+          "findings": [
+            "actual ACL/Advisor/closeout PASS",
+            "migration lineage mismatch 발견 후 actual history와 정렬 확인",
+            "actual Pilot과 remote PR/CI/Preview 미완료로 전체 Run HOLD"
+          ],
+          "verifications": [
+            "migration scope",
+            "actual ACL/Advisor",
+            "trace/UI",
+            "test accounting",
+            "Staging closeout",
+            "remaining gates"
+          ]
+        }
+      ],
+      "decisions": [
+        {
+          "id": "V051-D1",
+          "action": "REASSIGN_AND_ESCALATE",
+          "reason": "v0.4 일반 source-text verifier가 actual ACL 누출을 탐지하지 못해 DB 보안 전문 WRITE worker와 독립 READ_ONLY verifier가 필요",
+          "previousAssignment": "일반 code verifier / source-text security test",
+          "nextAssignment": "DB Security Worker gpt-5.6-sol/high/WRITE + Independent DB Security Verifier gpt-5.6-sol/high/READ_ONLY"
+        },
+        {
+          "id": "V051-D2",
+          "action": "APPLY_STAGING_ONLY",
+          "reason": "사용자가 승인한 세 K2B RPC ACL 보정만 Staging에 적용하고 Production 및 다른 v0.5 migration은 범위 밖으로 유지",
+          "previousAssignment": "forward migration 준비",
+          "nextAssignment": "Staging migration 적용 후 independent actual DB gate"
+        },
+        {
+          "id": "V051-D3",
+          "action": "CORRECT_VERIFICATION_QUERY",
+          "reason": "PUBLIC은 role이 아니므로 최초 has_function_privilege('PUBLIC', ...) 조회를 catalog ACL의 grantee=0 판정으로 교정",
+          "previousAssignment": "잘못된 PUBLIC role lookup",
+          "nextAssignment": "aclexplode(COALESCE(proacl, acldefault(...))) + 역할별 has_function_privilege"
+        },
+        {
+          "id": "V051-D4",
+          "action": "RETAIN_AND_NO_CLEANUP_WRITE",
+          "reason": "두 migration은 release candidate이며 Run 이후 생성된 queue/test data와 임시 schema가 0건이므로 rollback/reset/delete가 불필요",
+          "previousAssignment": "Staging 종료 분류 대기",
+          "nextAssignment": "release-candidate migration 유지; Production 재동기화 불필요"
+        },
+        {
+          "id": "V051-D5",
+          "action": "ALIGN_MIGRATION_LINEAGE",
+          "reason": "Fresh Verifier가 동일 SQL의 로컬 timestamp/name과 actual Staging history 불일치를 발견해 향후 중복 적용 위험을 지적",
+          "previousAssignment": "20260906160400_harden_k2b_security_definer_acl.sql",
+          "nextAssignment": "20260906075441_harden_k2b_security_definer_acl_v051.sql로 이름을 실제 history와 일치"
+        }
+      ],
+      "verifications": [
+        "pre-apply K2B 3함수: owner=postgres, SECURITY DEFINER=true, search_path=public",
+        "pre-apply K2B 3함수 ACL: PUBLIC=false, anon=true, authenticated=true, service_role=true",
+        "preliminary service-only RPC ACL: PUBLIC=false, anon=false, authenticated=false, service_role=true",
+        "post-apply K2B 3함수 ACL: PUBLIC=false, anon=false, authenticated=false, service_role=true",
+        "post-apply owner=postgres, SECURITY DEFINER=true, search_path=public",
+        "Security Advisor K2B target warnings: before=6, after=0; unrelated warnings=22",
+        "migration history latest=20260906075441 harden_k2b_security_definer_acl_v051",
+        "Fresh Verifier 발견에 따라 로컬 migration 식별자를 actual Staging history와 정렬",
+        "Independent DB Security Verifier는 READ_ONLY/queue 비자극 원칙으로 본문 호출을 생략하고 has_function_privilege로 검증",
+        "Coordinator 격리 transaction probe: service_role로 세 RPC 본문 호출 성공 후 ROLLBACK; anon/authenticated upload RPC는 42501 permission denied",
+        "probe rollback 후 관련 background_jobs 0건",
+        "Staging closeout: Run 이후 background_jobs 0, 임시 schema 0, cleanup write 0, Production DB changes 0"
+      ],
+      "delta": {
+        "from": "v0.4",
+        "changes": [
+          "v0.4 source-text migration 확인을 actual Staging ACL gate로 승격",
+          "TEST_VALIDATION_FAILURE를 DB Security Verifier 발견사항으로 기록",
+          "DB Security Worker와 독립 READ_ONLY DB Security Verifier를 sol/high로 재배정",
+          "forward permission migration을 Staging에 적용하고 actual ACL/Advisor PASS 확인",
+          "test accounting, Fresh Verifier, actual Pilot Gate를 결과와 분리",
+          "Staging 종료 시 release candidate 유지·test data/temporary schema 0·Production 재동기화 불필요 판단을 기록",
+          "Fresh Verifier가 migration lineage mismatch를 발견했고 로컬 파일명을 actual history에 맞춰 보정"
+        ]
+      },
+      "evidence": [
+        {
+          "kind": "task_instruction",
+          "reference": "K2B-V051-20260906-01",
+          "claim": "v0.5.1 actual DB ACL gate와 독립 verifier 후속 실행"
+        },
+        {
+          "kind": "staging_migration_history",
+          "reference": "20260906075441 harden_k2b_security_definer_acl_v051",
+          "claim": "세 K2B RPC의 forward-only ACL correction이 Staging에 적용됨"
+        },
+        {
+          "kind": "actual_db_verification",
+          "reference": "supabase/verification/20260906_verify_k2b_rpc_acl.sql",
+          "claim": "세 exact signature의 ACL/owner/SECURITY DEFINER/search_path gate PASS"
+        },
+        {
+          "kind": "security_advisor",
+          "reference": "observed_at=2026-09-06T07:55:56.548Z",
+          "claim": "K2B 대상 0028/0029 경고 0건; unrelated 경고 22건 분리"
+        },
+        {
+          "kind": "role_invocation_probe",
+          "reference": "STAGING transaction rollback / K2B-V051-20260906-01",
+          "claim": "service_role 세 RPC 실행 성공, anon/authenticated 42501 거부, 영구 queue row 0건"
+        }
+      ]
+    }
+  ]
+}
