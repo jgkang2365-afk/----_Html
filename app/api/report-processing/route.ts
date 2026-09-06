@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { createClient } from '@/lib/supabase/server';
 import { unstable_noStore as noStore } from 'next/cache';
+import {
+    isReportProcessingTargetActive,
+    matchesReportProcessingMeasurementDate,
+    measurementDatesForReportProcessing,
+} from '@/lib/report-processing/measurement-dates';
+import { isValidDateString } from '@/lib/utils/date-validator';
 
 /**
  * 보고서 처리용 목록 조회 API
@@ -12,10 +18,14 @@ export async function GET(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const year = searchParams.get('year');
         const period = searchParams.get('period');
+        const measurementDate = searchParams.get('measurementDate');
         const search = searchParams.get('search');
 
         if (!year || !period) {
             return NextResponse.json({ error: '년도와 반기를 입력해주세요.' }, { status: 400 });
+        }
+        if (measurementDate && !isValidDateString(measurementDate)) {
+            return NextResponse.json({ error: '측정일 형식을 확인해주세요.' }, { status: 400 });
         }
 
         const supabase = await createClient();
@@ -56,9 +66,30 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ records: [] });
         }
 
-        // 4. 측정일지(journal)에서 K2B 정보 가져오기
-        // 여러 연도/주기가 섞여 있을 수 있으므로 code, year, period로 매칭해야 함
+        // 4. 여러 연도/주기가 섞여 있을 수 있으므로 code, year, period로 매칭한다.
         const codes = Array.from(new Set(data.map(d => d.code)));
+
+        // 측정일은 업체별 추가 조회가 아닌 target 일정 일괄 조회로 가져온다.
+        let targetQuery = supabase
+            .from('measurement_target_business')
+            .select('code, year, period, measurement_date, daily_staff, is_registered')
+            .in('code', codes);
+
+        if (year !== 'all') targetQuery = targetQuery.eq('year', parseInt(year));
+        if (period !== 'all') targetQuery = targetQuery.eq('period', period);
+
+        const { data: targets, error: targetError } = await targetQuery;
+        if (targetError) {
+            console.error('[API Error] 측정 대상 일정 조회 실패:', targetError);
+            return NextResponse.json({ error: '측정일 일정 조회 중 오류가 발생했습니다.' }, { status: 500 });
+        }
+
+        const targetsByRecord = new Map(
+            (targets ?? []).map((target) => [
+                `${target.code}-${target.year}-${target.period}`,
+                target,
+            ]),
+        );
         
         let journalQuery = supabase
             .from('measurement_journal')
@@ -71,18 +102,26 @@ export async function GET(req: NextRequest) {
 
         const { data: journals, error: jError } = await journalQuery;
 
-        // 5. 데이터 병합
-        const mergedData = data.map(record => {
+        // 5. target이 있으면 현재 lifecycle(실시)만 표시한다.
+        // target이 없는 과거 행은 기본 조회에서 유지하되, 날짜 조건에는 포함하지 않는다.
+        const mergedData = data.flatMap(record => {
+            const target = targetsByRecord.get(`${record.code}-${record.year}-${record.period}`);
+            if (target && !isReportProcessingTargetActive(target)) return [];
+
             const journal = journals?.find(j => 
                 j.code === record.code && 
                 j.measurement_year === record.year && 
                 j.measurement_period === record.period
             );
-            return {
+            const measurement_dates = target ? measurementDatesForReportProcessing(target) : [];
+            if (!matchesReportProcessingMeasurementDate(measurement_dates, measurementDate)) return [];
+
+            return [{
                 ...record,
+                measurement_dates,
                 k2b_send_date: journal?.k2b_send_date || null,
                 k2b_status: journal?.k2b_status || null
-            };
+            }];
         });
 
         const response = NextResponse.json({ records: mergedData });

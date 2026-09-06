@@ -57,15 +57,17 @@ function namedInitializer(page: string, names: readonly string[]): string {
   return initializers.join("\n");
 }
 
-test("보고서 탐색기는 기존 목록·선택·필터 상태를 재사용한다", () => {
+test("보고서 탐색기는 현재 결과 사용 여부를 선택하고 직접 입력과 함께 검색한다", () => {
   const page = source(pagePath);
 
   for (const state of ["filters", "records", "selectedKeys"]) {
     assert.match(page, new RegExp(`\\b${state}\\b`), `${state} state must remain available`);
   }
   assert.match(page, /collectReportExplorerBusinessNames/);
-  assert.match(page, /useCurrentResults:\s*true/);
-  assert.doesNotMatch(page, /use-report-processing-results|현재 보고서 처리 결과 사용/);
+  assert.match(page, /const \[useReportProcessingResults, setUseReportProcessingResults\] = useState\(true\)/);
+  assert.match(page, /useCurrentResults: useReportProcessingResults/);
+  assert.match(page, /id="use-report-processing-results"/);
+  assert.match(page, /label="현재 조회 결과 사용"/);
 });
 
 test("v0.6 화면은 보고서 처리 결과 다음에 탐색기를 배치하고 두 표를 10건씩 표시한다", () => {
@@ -82,18 +84,18 @@ test("v0.6 화면은 보고서 처리 결과 다음에 탐색기를 배치하고
   assert.match(page, /explorerRows\.length > PAGE_SIZE/);
 });
 
-test("탐색기는 상단 기준값을 공유하고 한 줄 추가 입력과 경로 tooltip을 제공한다", () => {
+test("탐색기는 상단 기준값을 공유하고 직접 입력과 경로 tooltip을 제공한다", () => {
   const page = source(pagePath);
 
   assert.match(page, /effectiveExplorerYear = filters\.year === 'all'/);
   assert.match(page, /effectiveExplorerPeriod = filters\.period === 'all'/);
   assert.doesNotMatch(page, /<textarea/);
-  assert.match(page, /label="추가 사업장명"/);
+  assert.match(page, /label=\{useReportProcessingResults \? '추가 사업장명' : '사업장명'\}/);
   assert.match(page, /title=\{match\?\.path\}/);
   assert.match(page, /if \(event\.key === 'Enter'\)/);
 });
 
-test("탐색 결과 표는 검색 전과 검색 후 0건 상태에서도 헤더와 안내 행을 유지한다", () => {
+test("탐색 결과 표는 검색 전과 검색 후 0건 상태에서도 헤더와 실제 일치 0건 안내를 유지한다", () => {
   const page = source(pagePath);
 
   assert.match(page, /const \[explorerHasSearched, setExplorerHasSearched\] = useState\(false\)/);
@@ -107,6 +109,8 @@ test("탐색 결과 표는 검색 전과 검색 후 0건 상태에서도 헤더�
   assert.match(page, /text-left text-muted-foreground sm:text-center/);
   assert.match(page, /보고서 폴더를 검색해주세요\./);
   assert.match(page, /일치하는 보고서 폴더가 없습니다\./);
+  assert.match(page, /const explorerHasFolderMatches = hasReportExplorerFolderMatches\(explorerResults\)/);
+  assert.match(page, /explorerHasSearched && !explorerHasFolderMatches/);
   assert.doesNotMatch(page, /\{explorerRows\.length > 0 && \(/);
 });
 
@@ -128,6 +132,34 @@ test("사업장명 입력은 쉼표·개행을 trim하고 대소문자 무시 �
       manualInput: "한결환경\n추가입력",
     }),
     ["한결환경", "추가입력"],
+  );
+  assert.deepEqual(
+    client.collectReportExplorerBusinessNames({
+      useCurrentResults: false,
+      records: [
+        { code: "A", year: 2026, period: "상반기", business_name: "한결환경" },
+      ],
+      selectedKeys: ["A-2026-상반기"],
+      manualInput: "독립 검색 사업장",
+    }),
+    ["독립 검색 사업장"],
+  );
+  assert.equal(
+    client.hasReportExplorerFolderMatches([
+      { query: "미발견", status: "NOT_FOUND", matches: [] },
+      { query: "비정상 빈 일치", status: "FOUND", matches: [] },
+    ]),
+    false,
+  );
+  assert.equal(
+    client.hasReportExplorerFolderMatches([
+      {
+        query: "복수 일치",
+        status: "MULTIPLE",
+        matches: [{ resultId: "opaque-id", folderName: "측정 보고서", path: "Z:\\측정보고서" }],
+      },
+    ]),
+    true,
   );
 });
 
