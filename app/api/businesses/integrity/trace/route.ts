@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkPermission } from "@/lib/auth/check-permission";
-import { getMeasurementIntegrityOrchestrationTrace } from "@/lib/measurement-integrity-orchestration-trace";
+import { getMeasurementIntegrityOrchestrationTraceWithCurrentState } from "@/lib/measurement-integrity-orchestration-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     await checkPermission("journal:read");
-    return NextResponse.json(getMeasurementIntegrityOrchestrationTrace(), {
+    return NextResponse.json(await getMeasurementIntegrityOrchestrationTraceWithCurrentState(), {
       headers: { "Cache-Control": "no-store, max-age=0" },
     });
   } catch (error) {

@@ -23,14 +23,24 @@ type TraceExecutionContext = {
   discoverer?: string;
   migration?: { rootCause?: string; status?: string };
   stagingCloseout?: {
+    status?: string;
     retainedSchemaChanges?: string[];
     cleanedTestData?: string[];
     remainingTestData?: string[];
     remainingTemporarySchema?: string[];
-    productionResyncRequired?: boolean;
+    productionResyncRequired?: boolean | string;
     finalState?: string;
     followUpRequired?: string[];
   };
+};
+
+type TraceRoleProvenance = {
+  actualModel?: string;
+  actualEffort?: string;
+  actualRuntime?: string;
+  runtimeEvidence?: string[];
+  runtimeSessionId?: string;
+  workerRunId?: string;
 };
 
 const severityClass: Record<IntegritySeverity, string> = {
@@ -59,7 +69,7 @@ export function MeasurementTargetIntegrityPanel({
   const [trace, setTrace] = useState<OrchestrationTraceDocument | null>(null);
   const [traceVisible, setTraceVisible] = useState(false);
   const [traceLoading, setTraceLoading] = useState(false);
-  const [selectedVersion, setSelectedVersion] = useState("v0.5.1");
+  const [selectedVersion, setSelectedVersion] = useState("v0.5.2");
 
   const loadTrace = async () => {
     if (trace) {
@@ -187,6 +197,35 @@ export function MeasurementTargetIntegrityPanel({
               ))}
             </ul>
           </div>
+          <dl className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <dt className="text-slate-500">현재 상태 조회</dt>
+              <dd className="font-semibold text-slate-800">
+                {trace.currentState.lastObservation.lookupStatus} · {trace.currentState.lastObservation.observedAt}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">PR / HEAD</dt>
+              <dd
+                className="truncate font-mono text-slate-800"
+                title={trace.currentState.lastObservation.statusAtObservation.pullRequest.headSha}
+              >
+                {trace.currentState.lastObservation.statusAtObservation.pullRequest.state} · {trace.currentState.lastObservation.statusAtObservation.pullRequest.headSha}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">GitHub Actions</dt>
+              <dd className="font-semibold text-slate-800">
+                {trace.currentState.lastObservation.statusAtObservation.githubActions}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Vercel Preview</dt>
+              <dd className="font-semibold text-slate-800">
+                {trace.currentState.lastObservation.statusAtObservation.vercelPreview}
+              </dd>
+            </div>
+          </dl>
           <dl className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <dt className="text-slate-500">Experiment / Run</dt>
@@ -253,45 +292,57 @@ export function MeasurementTargetIntegrityPanel({
           {selectedTraceContext?.stagingCloseout && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-950">
               <p className="font-semibold">Staging 종료 상태</p>
+              {selectedTraceContext.stagingCloseout.status && (
+                <p className="mt-1 text-emerald-800">{selectedTraceContext.stagingCloseout.status}</p>
+              )}
               <dl className="mt-1 grid gap-2 sm:grid-cols-2">
                 <div>
                   <dt className="text-emerald-700">유지한 schema 변경</dt>
                   <dd>
-                    {selectedTraceContext.stagingCloseout.retainedSchemaChanges?.join(" · ") ||
-                      "없음"}
+                    {selectedTraceContext.stagingCloseout.retainedSchemaChanges
+                      ? selectedTraceContext.stagingCloseout.retainedSchemaChanges.join(" · ") || "없음"
+                      : "미확인"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-emerald-700">정리한 테스트 데이터</dt>
                   <dd>
-                    {selectedTraceContext.stagingCloseout.cleanedTestData?.join(" · ") || "없음"}
+                    {selectedTraceContext.stagingCloseout.cleanedTestData
+                      ? selectedTraceContext.stagingCloseout.cleanedTestData.join(" · ") || "없음"
+                      : "미확인"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-emerald-700">남은 임시 데이터 / schema</dt>
                   <dd>
-                    {[
-                      ...(selectedTraceContext.stagingCloseout.remainingTestData || []),
-                      ...(selectedTraceContext.stagingCloseout.remainingTemporarySchema || []),
-                    ].join(" · ") || "없음"}
+                    {selectedTraceContext.stagingCloseout.remainingTestData || selectedTraceContext.stagingCloseout.remainingTemporarySchema
+                      ? [
+                          ...(selectedTraceContext.stagingCloseout.remainingTestData || []),
+                          ...(selectedTraceContext.stagingCloseout.remainingTemporarySchema || []),
+                        ].join(" · ") || "없음"
+                      : "미확인"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-emerald-700">Production 재동기화</dt>
                   <dd>
-                    {selectedTraceContext.stagingCloseout.productionResyncRequired
+                    {selectedTraceContext.stagingCloseout.productionResyncRequired === true
                       ? "필요"
-                      : "불필요"}
+                      : selectedTraceContext.stagingCloseout.productionResyncRequired === false
+                        ? "불필요"
+                        : "미확인"}
                   </dd>
                 </div>
                 <div className="sm:col-span-2">
                   <dt className="text-emerald-700">최종 상태</dt>
-                  <dd>{selectedTraceContext.stagingCloseout.finalState}</dd>
+                  <dd>{selectedTraceContext.stagingCloseout.finalState || "미확인"}</dd>
                 </div>
                 <div className="sm:col-span-2">
                   <dt className="text-emerald-700">추가 조치</dt>
                   <dd>
-                    {selectedTraceContext.stagingCloseout.followUpRequired?.join(" · ") || "없음"}
+                    {selectedTraceContext.stagingCloseout.followUpRequired
+                      ? selectedTraceContext.stagingCloseout.followUpRequired.join(" · ") || "없음"
+                      : "미확인"}
                   </dd>
                 </div>
               </dl>
@@ -315,7 +366,11 @@ export function MeasurementTargetIntegrityPanel({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {selectedTrace.roles.map((role) => (
+                  {selectedTrace.roles.map((role) => {
+                    const provenance = role as typeof role & TraceRoleProvenance;
+                    const actualModel = provenance.actualModel ?? provenance.actualRuntime ?? "UNVERIFIABLE";
+                    const actualEffort = provenance.actualEffort ?? "UNVERIFIABLE";
+                    return (
                     <TableRow key={role.roleId}>
                       <TableCell>
                         <span className="font-semibold">{role.name}</span>
@@ -327,9 +382,15 @@ export function MeasurementTargetIntegrityPanel({
                         </span>
                       </TableCell>
                       <TableCell>
-                        {role.requestedModel} / {role.requestedEffort}
+                        요청: {role.requestedModel} / {role.requestedEffort}
                         <span className="block text-[11px] text-slate-500">
-                          runtime: {role.actualRuntime}
+                          실제: {actualModel} / {actualEffort}
+                        </span>
+                        <span
+                          className="block max-w-52 truncate text-[11px] text-slate-500"
+                          title={provenance.runtimeEvidence?.join(" · ") || "직접 runtime evidence 없음"}
+                        >
+                          근거: {provenance.runtimeEvidence?.join(" · ") || "직접 runtime evidence 없음"}
                         </span>
                       </TableCell>
                       <TableCell>{role.permission}</TableCell>
@@ -338,7 +399,8 @@ export function MeasurementTargetIntegrityPanel({
                         {"reassignment" in role ? role.reassignment : "UNKNOWN"}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -362,8 +424,9 @@ export function MeasurementTargetIntegrityPanel({
             <strong>다음 버전 전달:</strong> {selectedTrace.carryForward.join(" · ") || "없음"}
           </div>
           <p className="text-[11px] text-slate-500">
-            Policy: {trace.policy.version} · workspaceMismatch=
-            {String(trace.workspaceIdentity.workspaceMismatch)}
+            Policy: {trace.policy.version} · historical workspaceMismatch=
+            {String(trace.workspaceRecovery.workspaceMismatchDetected)} · 현재 mismatch=
+            {String(trace.workspaceRecovery.currentWorkspaceMismatch)}
           </p>
         </section>
       )}

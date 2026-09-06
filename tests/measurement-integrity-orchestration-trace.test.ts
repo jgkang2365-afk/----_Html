@@ -7,11 +7,11 @@ const trace = JSON.parse(
   readFileSync("data/measurement-integrity-k2b-orchestration-trace.v0.5.json", "utf8")
 );
 
-test("v0.1/v0.2/v0.4/v0.5/v0.5.1 trace는 근거·결정·carry-forward를 보존한다", () => {
+test("v0.1/v0.2/v0.4/v0.5/v0.5.1/v0.5.2 trace는 근거·결정·carry-forward를 보존한다", () => {
   assert.doesNotThrow(() => validateOrchestrationTrace(trace));
   assert.deepEqual(
     trace.entries.map((entry: any) => entry.experimentVersion),
-    ["v0.1", "v0.2", "v0.4", "v0.5", "v0.5.1"]
+    ["v0.1", "v0.2", "v0.4", "v0.5", "v0.5.1", "v0.5.2"]
   );
   const v05 = trace.entries.find((entry: any) => entry.experimentVersion === "v0.5");
   assert.equal(v05.runId, "K2B-V05-20260906-01");
@@ -31,7 +31,7 @@ test("v0.1/v0.2/v0.4/v0.5/v0.5.1 trace는 근거·결정·carry-forward를 보�
 });
 
 test("v0.5.1은 STAGING ACL 실패에서 보정·독립 검증까지 추적한다", () => {
-  const v051 = trace.entries.at(-1);
+  const v051 = trace.entries.find((entry: any) => entry.experimentVersion === "v0.5.1");
   assert.equal(v051.runId, "K2B-V051-20260906-01");
   assert.equal(v051.parentExperimentVersion, "v0.5");
   assert.equal(v051.environment, "STAGING");
@@ -62,7 +62,7 @@ test("v0.5.1은 STAGING ACL 실패에서 보정·독립 검증까지 추적한�
     service_role: true,
   });
   assert.equal(v051.workspacePath, "/tmp/measurement-integrity-k2b-v02-integration");
-  assert.equal(v051.workspaceMismatch, false);
+  assert.equal(v051.currentWorkspaceMismatch, false);
   assert.equal(v051.finalStatus, "HOLD");
   assert.match(v051.verifierResult, /DB Security Verifier PASS/);
   assert.equal(v051.reassignmentCount, 1);
@@ -84,7 +84,7 @@ test("v0.5.1은 STAGING ACL 실패에서 보정·독립 검증까지 추적한�
 });
 
 test("v0.5.1 Staging 종료 Gate는 release candidate를 보존하고 잔존물을 분류한다", () => {
-  const v051 = trace.entries.at(-1);
+  const v051 = trace.entries.find((entry: any) => entry.experimentVersion === "v0.5.1");
   assert.deepEqual(v051.stagingCloseout.classification.testData, []);
   assert.deepEqual(v051.stagingCloseout.classification.temporarySchema, []);
   assert.equal(v051.stagingCloseout.backgroundJobsCreatedSinceRunStart, 0);
@@ -99,7 +99,7 @@ test("v0.5.1 Staging 종료 Gate는 release candidate를 보존하고 잔존물�
 });
 
 test("v0.5.1 test accounting은 공식 ENV_BLOCKED와 대체 runner 결과를 분리하고 합계가 일치한다", () => {
-  const accounting = trace.entries.at(-1).testAccounting;
+  const accounting = trace.entries.find((entry: any) => entry.experimentVersion === "v0.5.1").testAccounting;
   for (const result of [
     accounting.focusedRegression,
     accounting.traceAndAclFocused,
@@ -125,20 +125,36 @@ test("v0.5.1 test accounting은 공식 ENV_BLOCKED와 대체 runner 결과를 �
   });
 });
 
-test("정책 버전과 runtime을 관측하지 못한 경우 임의 값으로 승격하지 않는다", () => {
+test("v0.5.2는 historical workspace recovery와 requested/actual runtime을 분리한다", () => {
   assert.match(trace.policy.version, /^UNKNOWN/);
-  assert.ok(trace.entries.at(-1).roles.every((role: any) => role.actualRuntime === "UNVERIFIABLE"));
-  assert.equal(trace.workspaceIdentity.workspaceMismatch, false);
+  assert.equal(trace.workspaceRecovery.workspaceMismatchDetected, true);
+  assert.equal(trace.workspaceRecovery.recoveryResult, "RECOVERED");
+  assert.equal(trace.workspaceRecovery.currentWorkspaceMismatch, false);
+  const v052 = trace.entries.find((entry: any) => entry.experimentVersion === "v0.5.2");
+  assert.equal(v052.runId, "K2B-V052-20260906-01");
+  assert.equal(v052.orchestrationStatus, "HOLD");
+  assert.ok(v052.roles.every((role: any) => role.requestedModel && role.requestedEffort));
+  assert.ok(v052.roles.every((role: any) => role.actualModel === "UNVERIFIABLE" && role.actualEffort === "UNVERIFIABLE"));
+  assert.ok(v052.roles.every((role: any) => Array.isArray(role.runtimeEvidence) && role.runtimeEvidence.length > 0));
+  assert.equal(trace.currentState.lastObservation.statusAtObservation.githubActions, "N/A");
 });
 
 test("trace validator는 민감 key와 잘못된 schema/status를 거부한다", () => {
   const withSecret = structuredClone(trace);
   withSecret.entries[0].credentials = "never";
   assert.throws(() => validateOrchestrationTrace(withSecret), /민감정보 key/);
-  assert.throws(() => validateOrchestrationTrace({ ...trace, schemaVersion: 2 }), /지원하지 않는/);
+  assert.throws(() => validateOrchestrationTrace({ ...trace, schemaVersion: 1 }), /지원하지 않는/);
   const badStatus = structuredClone(trace);
   badStatus.entries[0].finalStatus = "DONE";
   assert.throws(() => validateOrchestrationTrace(badStatus), /허용되지 않은/);
+  const prematurePass = structuredClone(trace);
+  prematurePass.entries.find((entry: any) => entry.experimentVersion === "v0.5.2").finalStatus = "PASS";
+  assert.throws(() => validateOrchestrationTrace(prematurePass), /필수 Gate가 HOLD/);
+  const missingExecutionId = structuredClone(trace);
+  const firstV052Role = missingExecutionId.entries.find((entry: any) => entry.experimentVersion === "v0.5.2").roles[0];
+  firstV052Role.actualModel = "gpt-5.6-sol";
+  firstV052Role.actualEffort = "high";
+  assert.throws(() => validateOrchestrationTrace(missingExecutionId), /actual runtime execution ID/);
 });
 
 test("trace API와 UI는 read-only/no-store이며 Version Delta를 먼저 표시한다", () => {
@@ -151,6 +167,9 @@ test("trace API와 UI는 read-only/no-store이며 Version Delta를 먼저 표시
   assert.match(panel, /Coordinator 판단/);
   assert.match(panel, /다음 버전 전달/);
   assert.match(panel, /requestedModel/);
+  assert.match(panel, /actualModel/);
+  assert.match(panel, /현재 상태 조회/);
+  assert.match(panel, /historical workspaceMismatch/);
   assert.match(panel, /환경 \/ 영향/);
   assert.match(panel, /이전 실패 \/ 발견자/);
   assert.match(panel, /Migration \/ 원인/);
@@ -159,7 +178,7 @@ test("trace API와 UI는 read-only/no-store이며 Version Delta를 먼저 표시
   assert.match(panel, /Production 재동기화/);
 });
 
-test("ACL migration은 세 RPC의 PUBLIC/anon/authenticated를 회수하고 service_role만 부여한다", () => {
+test("ACL migration은 기존 세 RPC의 PUBLIC/anon/authenticated를 회수하고 service_role만 부여한다", () => {
   const migration = readFileSync(
     "supabase/migrations/20260906075441_harden_k2b_security_definer_acl_v051.sql",
     "utf8"
@@ -178,6 +197,21 @@ test("ACL migration은 세 RPC의 PUBLIC/anon/authenticated를 회수하고 serv
   assert.equal((migration.match(/TO service_role/g) || []).length, 3);
 });
 
+test("legacy claim RPC도 exact signature와 service_role 전용 ACL로 actual verification 대상에 포함한다", () => {
+  const migration = readFileSync(
+    "supabase/migrations/20260906162000_serialize_legacy_k2b_direct_upload.sql",
+    "utf8"
+  );
+  const verification = readFileSync(
+    "supabase/verification/20260906_verify_k2b_rpc_acl.sql",
+    "utf8"
+  );
+  assert.match(migration, /SECURITY DEFINER SET search_path = public/);
+  assert.match(migration, /REVOKE ALL ON FUNCTION public\.claim_k2b_legacy_direct_job\(JSONB\)/);
+  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.claim_k2b_legacy_direct_job\(JSONB\)\s+TO service_role/);
+  assert.match(verification, /public\.claim_k2b_legacy_direct_job\(jsonb\)/);
+});
+
 test("K2B 실행상태는 remote read/집계/DB 저장 근거를 구조화해 노출한다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
   const statusRoute = readFileSync(
@@ -194,6 +228,8 @@ test("K2B 실행상태는 remote read/집계/DB 저장 근거를 구조화해 �
   assert.match(statusRoute, /execution_result/);
   assert.match(statusRoute, /requestedJobId/);
   assert.match(statusRoute, /serializationDisposition/);
+  assert.match(statusRoute, /job\.payload\?\.trigger === "scheduled" \|\| job\.payload\?\.trigger === "manual"/);
+  assert.doesNotMatch(statusRoute, /requestedBy == null/);
   assert.match(statusPanel, /실제 K2B remote read/);
   assert.match(statusPanel, /DB 저장/);
   assert.match(statusPanel, /🟢/);

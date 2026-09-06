@@ -41,7 +41,9 @@ export async function GET(request: NextRequest) {
       execution: {
         runId: job.id,
         requestedAt: job.created_at,
-        trigger: job.payload?.trigger === "scheduled" || job.payload?.requestedBy == null ? "scheduled" : "manual",
+        trigger: job.payload?.trigger === "scheduled" || job.payload?.trigger === "manual"
+          ? job.payload.trigger
+          : "unknown",
         queueStatus: job.status,
         workerStartedAt: job.started_at,
         workerFinishedAt: job.finished_at,

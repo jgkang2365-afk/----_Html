@@ -1,11 +1,12 @@
 -- K2B SECURITY DEFINER RPC의 실제 catalog 상태를 읽기 전용으로 검증한다.
--- verification_passed는 세 함수 모두 postgres 소유, search_path=public이고
+-- verification_passed는 네 함수 모두 postgres 소유, search_path=public이고
 -- PUBLIC/anon/authenticated 실행 불가, service_role 실행 가능일 때만 true다.
 WITH expected(signature, expected_owner, expected_search_path) AS (
   VALUES
     ('public.enqueue_k2b_automation_job(text,jsonb)', 'postgres', 'public'),
     ('public.enqueue_k2b_verify_job(date,bigint)', 'postgres', 'public'),
-    ('public.enqueue_k2b_upload_job(jsonb)', 'postgres', 'public')
+    ('public.enqueue_k2b_upload_job(jsonb)', 'postgres', 'public'),
+    ('public.claim_k2b_legacy_direct_job(jsonb)', 'postgres', 'public')
 ),
 catalog AS (
   SELECT

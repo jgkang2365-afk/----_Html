@@ -1,18 +1,45 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "subject": "measurement-integrity-k2b",
   "policy": {
     "version": "UNKNOWN / historical evidence unavailable",
     "evidence": "orca-codex AGENTS.md blob 09ddf897819f20172e1d407186c038339aa8808d",
     "note": "현재 문서에는 routing-policy-v0.x 형태의 명시적 버전이 없어 임의 값을 만들지 않음"
   },
-  "workspaceIdentity": {
-    "repository": "https://github.com/jgkang2365-afk/----_Html.git",
-    "workspacePath": "/tmp/measurement-integrity-k2b-v02-integration",
-    "workspaceMismatch": false,
-    "baseSha": "97d1815933bd0e94f104dd8f55322d9e0dc7bb24",
-    "recoveredHeadSha": "73483245be86e59540c3e77c6b199cce2f25af67",
-    "recoveryEvidence": "repository identity, base SHA, commit SHA, patch SHA-256 and changed-file lineage matched"
+  "workspaceRecovery": {
+    "workspaceMismatchDetected": true,
+    "expectedWorkspace": "repository jgkang2365-afk/----_Html, base SHA 97d1815933bd0e94f104dd8f55322d9e0dc7bb24 and K2B integration lineage",
+    "actualWorkspaceAtDetection": "UNKNOWN / historical mismatch was user-confirmed, but its exact path was not preserved",
+    "recoveryMethod": [
+      "repository identity: https://github.com/jgkang2365-afk/----_Html.git",
+      "base SHA: 97d1815933bd0e94f104dd8f55322d9e0dc7bb24",
+      "recovered commit SHA: 73483245be86e59540c3e77c6b199cce2f25af67",
+      "patch SHA-256: UNKNOWN / historical patch digest unavailable",
+      "changed-file lineage matched before continuation"
+    ],
+    "recoveryResult": "RECOVERED",
+    "continuationWorkspace": "/tmp/measurement-integrity-k2b-v02-integration",
+    "currentWorkspaceMismatch": false
+  },
+  "currentState": {
+    "mode": "LIVE_READ_ONLY_WITH_FALLBACK_OBSERVATION",
+    "trackedPullRequest": 108,
+    "branch": "fix/k2b-orchestration-observability-v05",
+    "lastObservation": {
+      "observedAt": "2026-09-06T08:23:15.000Z",
+      "source": "github_pr_108_status_rollup",
+      "lookupStatus": "PASS",
+      "statusAtObservation": {
+        "pullRequest": {
+          "state": "OPEN",
+          "draft": true,
+          "headSha": "4aa3fcbb786ddf1104dd73974ec5ecc7acba42fa",
+          "mergeable": "CLEAN"
+        },
+        "githubActions": "N/A",
+        "vercelPreview": "PASS"
+      }
+    }
   },
   "entries": [
     {
@@ -451,7 +478,7 @@
       },
       "recovery": "v0.5 continuation; workspace identity recovery confirmed",
       "workspacePath": "/tmp/measurement-integrity-k2b-v02-integration",
-      "workspaceMismatch": false,
+      "currentWorkspaceMismatch": false,
       "workspaceRecoveryStatus": "CONTINUATION_CONFIRMED_BY_REPOSITORY_BASE_AND_COMMIT_LINEAGE",
       "holdReasons": [
         "actual K2B READ_ONLY Pilot 미실행",
@@ -512,17 +539,23 @@
         "build": "PASS",
         "diffCheck": "PASS"
       },
-      "release": {
-        "remoteBranch": "fix/k2b-orchestration-observability-v05",
-        "remoteHeadAtPrCreation": "9b9d53e270d41651e9cb35c2f776f033067f04a4",
-        "pullRequest": 108,
-        "pullRequestUrl": "https://github.com/jgkang2365-afk/----_Html/pull/108",
-        "draft": true,
-        "ci": "PENDING",
-        "preview": "PENDING",
-        "productionChanged": false,
-        "merged": false
-      },
+      "historicalObservations": [
+        {
+          "observedAt": "2026-09-06T07:20:12.000Z",
+          "source": "v0.5.1_release_snapshot",
+          "claim": "PR 생성 시점의 상태이며 현재 상태를 뜻하지 않음",
+          "statusAtObservation": {
+            "remoteBranch": "fix/k2b-orchestration-observability-v05",
+            "remoteHeadAtPrCreation": "9b9d53e270d41651e9cb35c2f776f033067f04a4",
+            "pullRequest": 108,
+            "draft": true,
+            "githubActions": "N/A",
+            "vercelPreview": "PENDING",
+            "productionChanged": false,
+            "merged": false
+          }
+        }
+      ],
       "roles": [
         {
           "roleId": "K2B-V051-COORDINATOR",
@@ -741,6 +774,259 @@
           "kind": "github_pull_request",
           "reference": "PR #108 / 9b9d53e270d41651e9cb35c2f776f033067f04a4",
           "claim": "최신 main 97d1815 기반 새 draft PR 생성; merge/Production 변경 없음"
+        }
+      ]
+    },
+    {
+      "experimentVersion": "v0.5.2",
+      "parentExperimentVersion": "v0.5.1",
+      "runId": "K2B-V052-20260906-01",
+      "baseSha": "97d1815933bd0e94f104dd8f55322d9e0dc7bb24",
+      "prHeadAtStart": "4aa3fcbb786ddf1104dd73974ec5ecc7acba42fa",
+      "startedAt": "2026-09-06T09:09:15.0606553Z",
+      "endedAt": "2026-09-06T09:32:14.8620120Z",
+      "finalStatus": "HOLD",
+      "workerCount": 0,
+      "initialAssignment": "Coordinator-owned serial WRITE; planned specialist roles were not started because Orca runtime worker APIs were unavailable",
+      "reassignmentCount": 0,
+      "modelEscalationCount": 0,
+      "verifierResult": "ENV_BLOCKED / fresh independent worker cannot be started while Orca terminal runtime is unavailable",
+      "environment": "STAGING",
+      "productionImpact": "NONE",
+      "functionalStatus": "HOLD",
+      "orchestrationStatus": "HOLD",
+      "remoteOperationBoundary": "REMOTE_READ_ONLY / STAGING_INTERNAL_WRITE",
+      "holdReasons": [
+        "ROUTING_PROVENANCE=HOLD: direct Worker session/model/effort evidence unavailable",
+        "Staging migration history and apply blocked: no linked project ref and direct project-ref probe reports IPv6 unsupported",
+        "actual K2B READ_ONLY Pilot has not executed",
+        "Fresh Verifier cannot be independently launched while Orca terminal runtime is unavailable"
+      ],
+      "carryForward": [
+        "recover Orca terminal/runtime access and collect direct worker provenance",
+        "establish a valid Staging connection, review history, then apply only the two approved forward migrations",
+        "perform headless K2B remote READ_ONLY Pilot with uploadExecuted=false",
+        "run an independent Fresh Verifier after the above gates"
+      ],
+      "policyEvidence": {
+        "projectAgentsBlob": "a038009fac4f0b272fcfbcd982295ebd89226572",
+        "projectRulesBlob": "2c4f1dc2f48f77d16a878ab074131aae264c958c",
+        "globalInstructionSource": "Codex/Orca runtime instructions / machine-readable blob unavailable",
+        "taskInstructionVersion": "v0.5.2"
+      },
+      "workspaceRecoveryReference": "top-level workspaceRecovery",
+      "roles": [
+        {
+          "roleId": "K2B-V052-LEAD",
+          "name": "Coordinator / Lead",
+          "purpose": "integration, serial WRITE ownership, dependency and final classification",
+          "scope": "approved repository changes only",
+          "permission": "WRITE",
+          "parallelMode": "serial",
+          "dependency": "runtime and Staging gates",
+          "requestedModel": "UNKNOWN / parent runtime metadata unavailable",
+          "requestedEffort": "medium or higher",
+          "actualModel": "UNVERIFIABLE",
+          "actualEffort": "UNVERIFIABLE",
+          "runtimeEvidence": [
+            "orca status --json: runtime ready, runtimeId 25eaa575-58c6-427b-bee2-415e1d96b6a6",
+            "orca terminal list/run-current/run-create: runtime_unavailable; no worker session was created"
+          ],
+          "runtimeSessionId": "UNVERIFIABLE",
+          "parentRunId": "UNVERIFIABLE",
+          "workerRunId": "UNVERIFIABLE",
+          "startedAt": "2026-09-06T09:09:15.0606553Z",
+          "endedAt": "2026-09-06T09:32:14.8620120Z",
+          "status": "HOLD",
+          "reassignment": "not performed; no Worker was started",
+          "artifacts": ["v0.5.2 trace schema and validator candidate"],
+          "findings": ["requested values cannot be treated as actual runtime values"],
+          "verifications": ["Orca CLI structured runtime probes"]
+        },
+        {
+          "roleId": "K2B-V052-RUNTIME-AUDITOR",
+          "name": "Runtime Provenance Auditor",
+          "purpose": "collect direct Worker/session model and effort provenance",
+          "scope": "READ_ONLY runtime metadata",
+          "permission": "READ_ONLY",
+          "parallelMode": "planned",
+          "dependency": "Orca terminal runtime availability",
+          "requestedModel": "gpt-5.6-terra",
+          "requestedEffort": "high",
+          "actualModel": "UNVERIFIABLE",
+          "actualEffort": "UNVERIFIABLE",
+          "runtimeEvidence": ["Orca structured terminal/run endpoints returned runtime_unavailable before a worker could start"],
+          "runtimeSessionId": "UNVERIFIABLE",
+          "parentRunId": "UNVERIFIABLE",
+          "workerRunId": "UNVERIFIABLE",
+          "startedAt": "UNVERIFIABLE",
+          "endedAt": "UNVERIFIABLE",
+          "status": "ENV_BLOCKED",
+          "reassignment": "not applicable; alternate metadata endpoints failed with the same runtime_unavailable result",
+          "artifacts": [],
+          "findings": ["No direct actualModel or actualEffort evidence exists"],
+          "verifications": ["orca status, terminal list, run-current, run-create"]
+        },
+        {
+          "roleId": "K2B-V052-TRACE",
+          "name": "Trace / Observability implementation",
+          "purpose": "workspace recovery, history/current split, validator and compact UI changes",
+          "scope": "Coordinator-owned WRITE; no separate Worker claimed",
+          "permission": "WRITE",
+          "parallelMode": "serial",
+          "dependency": "runtime probe evidence",
+          "requestedModel": "gpt-5.6-terra",
+          "requestedEffort": "medium",
+          "actualModel": "UNVERIFIABLE",
+          "actualEffort": "UNVERIFIABLE",
+          "runtimeEvidence": ["No separate Worker session was created; do not infer Coordinator runtime model"],
+          "runtimeSessionId": "UNVERIFIABLE",
+          "parentRunId": "UNVERIFIABLE",
+          "workerRunId": "UNVERIFIABLE",
+          "startedAt": "2026-09-06T09:09:15.0606553Z",
+          "endedAt": "2026-09-06T09:32:14.8620120Z",
+          "status": "PASS",
+          "reassignment": "not applicable",
+          "artifacts": ["trace JSON, validator, Trace Viewer"],
+          "findings": ["static PR/CI/Preview values must be historical observations"],
+          "verifications": ["focused trace tests, TypeScript, lint and build PASS"]
+        },
+        {
+          "roleId": "K2B-V052-DB-RUNTIME",
+          "name": "DB / K2B Runtime Worker",
+          "purpose": "Staging migration, execution-status linkage and read-only Pilot preparation",
+          "scope": "approved Staging-only actions",
+          "permission": "WRITE",
+          "parallelMode": "after Staging history review",
+          "dependency": "authenticated Supabase project access",
+          "requestedModel": "gpt-5.6-terra",
+          "requestedEffort": "high",
+          "actualModel": "UNVERIFIABLE",
+          "actualEffort": "UNVERIFIABLE",
+          "runtimeEvidence": ["No Worker session was created; Supabase migration list has no linked project ref and direct project-ref probe is blocked by IPv6 unsupported"],
+          "runtimeSessionId": "UNVERIFIABLE",
+          "parentRunId": "UNVERIFIABLE",
+          "workerRunId": "UNVERIFIABLE",
+          "startedAt": "UNVERIFIABLE",
+          "endedAt": "UNVERIFIABLE",
+          "status": "ENV_BLOCKED",
+          "reassignment": "not applicable",
+          "artifacts": [],
+          "findings": ["actual Staging migration, ACL and Pilot evidence are absent"],
+          "verifications": ["Supabase CLI help, linked migration history probe and direct project-ref history probe"]
+        },
+        {
+          "roleId": "K2B-V052-FRESH-VERIFIER",
+          "name": "Fresh Verifier",
+          "purpose": "independent read-only verification of runtime, Staging and release gates",
+          "scope": "READ_ONLY",
+          "permission": "READ_ONLY",
+          "parallelMode": "after implementation and Pilot",
+          "dependency": "Orca terminal runtime and completed Staging/Pilot gates",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "high",
+          "actualModel": "UNVERIFIABLE",
+          "actualEffort": "UNVERIFIABLE",
+          "runtimeEvidence": ["No independent worker could be started because Orca terminal runtime endpoints are unavailable"],
+          "runtimeSessionId": "UNVERIFIABLE",
+          "parentRunId": "UNVERIFIABLE",
+          "workerRunId": "UNVERIFIABLE",
+          "startedAt": "UNVERIFIABLE",
+          "endedAt": "UNVERIFIABLE",
+          "status": "ENV_BLOCKED",
+          "reassignment": "not applicable",
+          "artifacts": [],
+          "findings": ["fresh independent verification not performed"],
+          "verifications": []
+        }
+      ],
+      "decisions": [
+        {
+          "id": "V052-D1",
+          "action": "ROUTING_PROVENANCE_HOLD",
+          "reason": "structured Orca worker/session evidence could not be obtained; requested model/effort are not copied into actual fields",
+          "previousAssignment": "planned specialist Workers",
+          "nextAssignment": "retain actualModel/actualEffort as UNVERIFIABLE and keep orchestration HOLD"
+        },
+        {
+          "id": "V052-D2",
+          "action": "RESTORE_WORKSPACE_RECOVERY_HISTORY",
+          "reason": "current workspace normality did not negate the historical mismatch event",
+          "previousAssignment": "workspaceMismatch=false only",
+          "nextAssignment": "record detected event, recovery evidence and current recovered state separately"
+        },
+        {
+          "id": "V052-D3",
+          "action": "SPLIT_HISTORY_AND_CURRENT_STATE",
+          "reason": "static PR/CI/Preview values became stale",
+          "previousAssignment": "release snapshot treated as current status",
+          "nextAssignment": "append historical observation and obtain current status through read-only GitHub API"
+        }
+      ],
+      "historicalObservations": [
+        {
+          "observedAt": "2026-09-06T08:23:15.000Z",
+          "source": "github_pr_108_status_rollup",
+          "claim": "v0.5.2 시작 전 PR #108 상태",
+          "statusAtObservation": {
+            "pullRequest": "OPEN draft, mergeable CLEAN, HEAD 4aa3fcbb786ddf1104dd73974ec5ecc7acba42fa",
+            "githubActions": "N/A / branch workflow run 0",
+            "vercelPreview": "PASS"
+          }
+        }
+      ],
+      "verifications": [
+        "Orca status runtime=ready with runtimeId recorded",
+        "Orca terminal and orchestration run endpoints failed runtime_unavailable",
+        "PR #108 historical observation records GitHub Actions N/A separately from Vercel Preview PASS",
+        "focused K2B/PR #106 regression 67/67 PASS; official npm test 581/581 PASS",
+        "TypeScript PASS; lint errors 0 with 13 existing warnings; build PASS; diff-check PASS",
+        "Staging actual schema/ACL/Advisor/Pilot remain unverified: linked history probe had no project ref and direct project-ref probe reported IPv6 unsupported"
+      ],
+      "delta": {
+        "from": "v0.5.1",
+        "changes": [
+          "requestedModel/requestedEffort and actualModel/actualEffort are separate fields",
+          "runtime evidence and runtime/session identifiers are explicit",
+          "historical workspace mismatch and recovered current state are retained",
+          "PR/CI/Preview snapshot becomes historical observation while current state is live read-only",
+          "GitHub Actions N/A is distinct from Vercel Preview"
+        ]
+      },
+      "testAccounting": {
+        "focusedRegression": { "total": 67, "pass": 67, "fail": 0, "skip": 0, "envBlocked": 0 },
+        "officialNpmTest": { "total": 581, "pass": 581, "fail": 0, "skip": 0, "envBlocked": 0 },
+        "typescript": { "total": 1, "pass": 1, "fail": 0, "skip": 0, "envBlocked": 0 },
+        "lint": { "total": 1, "pass": 1, "fail": 0, "skip": 0, "envBlocked": 0, "warnings": 13 },
+        "build": { "total": 1, "pass": 1, "fail": 0, "skip": 0, "envBlocked": 0 },
+        "diffCheck": { "total": 1, "pass": 1, "fail": 0, "skip": 0, "envBlocked": 0 }
+      },
+      "pilot": {
+        "remoteK2BReadAttempted": false,
+        "remoteK2BReadExecuted": false,
+        "uploadExecuted": false,
+        "status": "HOLD / actual Staging Pilot not executed"
+      },
+      "stagingCloseout": {
+        "status": "HOLD / no new Staging write was performed",
+        "productionResyncRequired": "UNVERIFIABLE until actual Staging schema/history can be read",
+        "productionDatabaseChanges": 0
+      },
+      "evidence": [
+        {
+          "kind": "orca_runtime_status",
+          "reference": "orca status --json / 2026-09-06",
+          "claim": "Orca app runtime ready, runtimeId 25eaa575-58c6-427b-bee2-415e1d96b6a6"
+        },
+        {
+          "kind": "orca_runtime_probe",
+          "reference": "orca terminal list, orchestration run-current, orchestration run-create",
+          "claim": "all worker/session access probes returned runtime_unavailable; no actual Worker provenance was obtained"
+        },
+        {
+          "kind": "github_pull_request",
+          "reference": "PR #108 / 4aa3fcbb786ddf1104dd73974ec5ecc7acba42fa",
+          "claim": "historical start observation: draft OPEN, GitHub Actions N/A, Vercel Preview PASS"
         }
       ]
     }

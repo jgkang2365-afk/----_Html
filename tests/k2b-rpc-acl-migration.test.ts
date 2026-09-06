@@ -18,6 +18,7 @@ const catalogSignatures = [
   "public.enqueue_k2b_automation_job(text,jsonb)",
   "public.enqueue_k2b_verify_job(date,bigint)",
   "public.enqueue_k2b_upload_job(jsonb)",
+  "public.claim_k2b_legacy_direct_job(jsonb)",
 ];
 
 function escapeRegExp(value: string) {
@@ -50,7 +51,7 @@ test("forward ACL migration은 세 K2B RPC를 service_role 전용으로 고정�
   assert.doesNotMatch(migration, /GRANT\s+EXECUTE[\s\S]*?TO\s+(?:PUBLIC|anon|authenticated)\b/i);
 });
 
-test("verification SQL은 누락 signature도 포함해 정확히 세 RPC를 조회한다", () => {
+test("verification SQL은 legacy claim을 포함한 정확히 네 RPC를 조회한다", () => {
   for (const signature of catalogSignatures) {
     assert.equal(
       verification.split(`'${signature}'`).length - 1,
@@ -58,6 +59,8 @@ test("verification SQL은 누락 signature도 포함해 정확히 세 RPC를 조
       `${signature}: expected 목록에 정확히 한 번 있어야 함`
     );
   }
+
+  assert.equal((verification.match(/\('public\./g) ?? []).length, 4);
 
   assert.match(verification, /LEFT\s+JOIN\s+pg_catalog\.pg_proc/i);
   assert.match(verification, /pg_catalog\.to_regprocedure\(expected\.signature\)/i);

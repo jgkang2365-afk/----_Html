@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/Card";
 type K2BExecution = {
   runId: string;
   requestedAt: string | null;
-  trigger: "manual" | "scheduled";
+  trigger: "manual" | "scheduled" | "unknown";
   queueStatus: string;
   workerStartedAt: string | null;
   workerFinishedAt: string | null;
@@ -73,7 +73,7 @@ export function K2BExecutionStatusPanel({ refreshKey }: { refreshKey: string | n
     {execution && <>
       <dl className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
         <div><dt className="text-slate-500">Run ID / 요청</dt><dd className="truncate font-mono" title={execution.runId}>{execution.runId}</dd><dd>{displayTime(execution.requestedAt)}</dd></div>
-        <div><dt className="text-slate-500">방식 / Queue</dt><dd className="font-semibold">{execution.trigger === "scheduled" ? "scheduled" : "manual"} · {execution.queueStatus}</dd><dd>직렬화 {execution.serializationDisposition === "accepted_without_active_k2b" ? "활성 작업 없이 등록" : "근거 미기록"}</dd></div>
+        <div><dt className="text-slate-500">방식 / Queue</dt><dd className="font-semibold">{execution.trigger} · {execution.queueStatus}</dd><dd>직렬화 {execution.serializationDisposition === "accepted_without_active_k2b" ? "활성 작업 없이 등록" : "근거 미기록"}</dd></div>
         <div><dt className="text-slate-500">Worker 시작 / 종료</dt><dd>{displayTime(execution.workerStartedAt)}</dd><dd>{displayTime(execution.workerFinishedAt)}</dd></div>
         <div><dt className="text-slate-500">대상 / 원격 행</dt><dd>{execution.candidateCounts?.total ?? "미집계"}건 / {execution.remoteRowCount ?? "미집계"}건</dd><dd>큐 대기 {execution.queueWaitMs == null ? "미집계" : `${Math.round(execution.queueWaitMs / 1000)}초`}</dd></div>
       </dl>
