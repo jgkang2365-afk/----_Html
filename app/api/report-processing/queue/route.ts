@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
-import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth/session';
+import { checkPermission } from '@/lib/auth/check-permission';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { enqueueSerializedK2BUpload } from '@/lib/automation/k2b-job-queue';
 
 /**
  * 백그라운드 작업 큐 등록 API
  */
 export async function POST(req: NextRequest) {
     try {
+        await checkPermission('journal:write');
         const session = await getSession();
         if (!session) {
             return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
@@ -23,7 +26,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: '처리할 대상 항목이 없습니다.' }, { status: 400 });
         }
 
-        const supabase = await createClient();
+        const supabase = createAdminClient();
 
         // 요청자 정보 조회
         const { data: dbUser } = await supabase
@@ -34,30 +37,30 @@ export async function POST(req: NextRequest) {
 
         const requestUser = dbUser ? { id: dbUser.id, name: dbUser.name } : { id: session.userId, name: '알 수 없음' };
 
-        // background_jobs 테이블에 작업 등록
-        const { data: job, error: insertError } = await supabase
-            .from('background_jobs')
-            .insert({
-                job_type,
-                status: 'pending',
-                payload: {
-                    targets,
-                    requestUser,
-                    calendarSyncApiUrl: job_type === 'k2b'
-                        ? new URL('/api/report-processing/calendar-sync', req.url).toString()
-                        : undefined
-                }
-            })
-            .select('id')
-            .single();
-
-        if (insertError) {
-            throw insertError;
+        // 기존 K2B payload 구조는 보존하되, 검증 작업과 같은 durable RPC 잠금으로 등록한다.
+        const payload = {
+            targets,
+            requestUser,
+            calendarSyncApiUrl: job_type === 'k2b'
+                ? new URL('/api/report-processing/calendar-sync', req.url).toString()
+                : undefined
+        };
+        let jobId: string | number | undefined;
+        if (job_type === 'k2b') {
+            jobId = await enqueueSerializedK2BUpload(supabase, payload);
+        } else {
+            const { data: job, error: insertError } = await supabase
+                .from('background_jobs')
+                .insert({ job_type, status: 'pending', payload })
+                .select('id')
+                .single();
+            if (insertError) throw insertError;
+            jobId = job?.id;
         }
 
         return NextResponse.json({
             message: '백그라운드 작업 큐에 성공적으로 등록되었습니다.',
-            jobId: job.id
+            jobId
         });
 
     } catch (error: any) {

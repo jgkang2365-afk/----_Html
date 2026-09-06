@@ -52,7 +52,7 @@ test("Worker는 중간 업로드 직후 동기화를 제거하고 최종 정상�
   assert.equal((worker.match(/this\.syncCalendarAfterK2B\(/g) || []).length, 1);
   assert.match(worker, /if \(gr\.status === '정상처리'\)[\s\S]*?this\.syncCalendarAfterK2B/);
   assert.doesNotMatch(worker, /syncBusinessToCalendar/);
-  assert.match(worker, /if \(gridUpdateError\) throw gridUpdateError;[\s\S]*?this\.syncCalendarAfterK2B/);
+  assert.match(worker, /await requireK2BJournalPersistence\([\s\S]*?this\.syncCalendarAfterK2B/);
   assert.match(worker, /calendarFailures = results\.filter\(r => r\.success && r\.calendarSyncSuccess === false\)/);
   assert.match(route, /journal\.k2b_status !== "정상처리"/);
   assert.match(route, /await syncBusinessToCalendar\(supabase, code, year, measurementPeriod\)/);

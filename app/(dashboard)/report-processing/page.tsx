@@ -41,6 +41,10 @@ interface BusinessRecord {
     last_email_sent_at: string | null;
     k2b_send_date: string | null;
     k2b_status: string | null;
+    k2b_verified_status: 'GREEN' | 'YELLOW' | 'RED' | 'UNVERIFIED' | 'STALE';
+    k2b_verified_at: string | null;
+    k2b_consistency_status: 'GREEN' | 'YELLOW' | 'RED' | 'UNVERIFIED' | 'STALE';
+    k2b_consistency_note: string;
     classification?: '정규' | '추가';
     delivery_status?: 'success' | 'bounced'; // 신규: 수신 성공/반송 여부
     delivery_error?: string | null;         // 신규: 반송 사유
@@ -53,6 +57,13 @@ const DEFAULT_REPORT_PROCESSING_FILTERS = {
     search: ''
 };
 const PAGE_SIZE = 10;
+const K2B_CONSISTENCY_SIGNAL_CLASS: Record<BusinessRecord['k2b_consistency_status'], string> = {
+    GREEN: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    YELLOW: 'border-amber-200 bg-amber-50 text-amber-800',
+    RED: 'border-rose-200 bg-rose-50 text-rose-800',
+    UNVERIFIED: 'border-slate-200 bg-slate-50 text-slate-600',
+    STALE: 'border-violet-200 bg-violet-50 text-violet-800',
+};
 
 function restoreReportProcessingFilters(value: string | null) {
     if (!value) return DEFAULT_REPORT_PROCESSING_FILTERS;
@@ -459,6 +470,17 @@ export default function ReportProcessingPage() {
         }
     };
 
+    const handleManualK2BReverify = async () => {
+        const resultDate = window.prompt('읽기 전용 K2B 실제결과 검증일(YYYY-MM-DD)을 입력하세요. 업로드는 수행하지 않습니다.');
+        if (!resultDate) return;
+        try {
+            const response = await fetch('/api/report-processing/verify-k2b', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resultDate }) });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.error || '재검증 등록 실패');
+            toast.success(body.message || 'K2B 읽기 전용 재검증을 등록했습니다.');
+        } catch (error) { toast.error(error instanceof Error ? error.message : 'K2B 재검증 등록 실패'); }
+    };
+
     const handleExplorerSearch = async () => {
         if (!effectiveExplorerYear || !effectiveExplorerPeriod) {
             toast.warning('보고서 탐색할 연도와 주기를 선택해주세요.');
@@ -554,6 +576,16 @@ export default function ReportProcessingPage() {
                     >
                         <Mail className="w-4 h-4 mr-2" />
                         이메일 합산 전송 ({selectedKeys.length})
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={handleManualK2BReverify}
+                        disabled={loading}
+                        className="h-10 px-4"
+                        title="업로드 없이 K2B 실제 접수결과만 읽기 전용으로 확인합니다."
+                    >
+                        K2B 실제결과 재검증
                     </Button>
                     <Button
                         size="sm"
@@ -655,18 +687,19 @@ export default function ReportProcessingPage() {
                             <TableHead className="w-44">이메일 발송 상태</TableHead>
                             <TableHead className="w-28">K2B 전송일자</TableHead>
                             <TableHead className="w-28">K2B 상태</TableHead>
+                            <TableHead className="w-44">실제결과 정합성</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {loading && records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={10} className="h-20 text-center">
+                                <TableCell colSpan={11} className="h-20 text-center">
                                     <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
                                 </TableCell>
                             </TableRow>
                         ) : records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={10} className="h-20 text-center text-muted-foreground">
+                                <TableCell colSpan={11} className="h-20 text-center text-muted-foreground">
                                     조회된 데이터가 없습니다.
                                 </TableCell>
                             </TableRow>
@@ -725,6 +758,11 @@ export default function ReportProcessingPage() {
                                             ) : (
                                                 <span className="text-muted-foreground text-sm">-</span>
                                             )}
+                                        </TableCell>
+                                        <TableCell title={record.k2b_consistency_note}>
+                                            <span className={`inline-flex rounded border px-2 py-1 text-sm font-semibold ${K2B_CONSISTENCY_SIGNAL_CLASS[record.k2b_consistency_status || record.k2b_verified_status || 'UNVERIFIED']}`}>실제결과 {record.k2b_consistency_status || record.k2b_verified_status || 'UNVERIFIED'}</span>
+                                            <span className="block text-[11px] text-slate-500">{record.k2b_consistency_note || '실제결과 미검증'}</span>
+                                            {(record.k2b_consistency_status === 'STALE' || record.k2b_consistency_status === 'RED') && <span className="block text-[11px] text-slate-500">마지막 검증 {record.k2b_verified_at ? record.k2b_verified_at.substring(0, 16).replace('T', ' ') : '없음'}</span>}
                                         </TableCell>
                                     </TableRow>
                                 );
