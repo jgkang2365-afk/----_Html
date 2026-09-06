@@ -72,6 +72,11 @@ export function collectReportExplorerBusinessNames({ useCurrentResults, records,
   return parseReportExplorerBusinessNames([...currentResultNames, manualInput].join("\n"));
 }
 
+/** 검색 결과 상태와 무관하게 실제 열 수 있는 폴더가 하나라도 있는지 판정한다. */
+export function hasReportExplorerFolderMatches(results: readonly ReportExplorerQueryResult[]): boolean {
+  return results.some((result) => result.matches.length > 0);
+}
+
 function issuesFromPayload(payload: unknown, fallback: string, status?: number): ReportExplorerIssue[] {
   return issueKindsFromPayload(payload, status).map((kind) => ({ kind, message: messageFromPayload(payload, fallback) }));
 }

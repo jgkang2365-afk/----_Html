@@ -18,10 +18,12 @@ import {
     collectReportExplorerBusinessNames,
     deriveReportExplorerConnectionStatus,
     getReportExplorerHealth,
+    hasReportExplorerFolderMatches,
     openReportExplorerResult,
     ReportExplorerClientError,
     searchReportExplorer
 } from '@/lib/report-explorer/client';
+import { reportProcessingMeasurementDateLabel } from '@/lib/report-processing/measurement-dates';
 import type {
     ReportExplorerConnectionStatus,
     ReportExplorerMatch,
@@ -36,6 +38,7 @@ interface BusinessRecord {
     business_name: string;
     year: number;
     period: string;
+    measurement_dates: string[];
     manager_email: string;
     is_email_sent: boolean;
     last_email_sent_at: string | null;
@@ -50,6 +53,7 @@ const REPORT_PROCESSING_FILTERS_STORAGE_KEY = 'reportProcessingFilters';
 const DEFAULT_REPORT_PROCESSING_FILTERS = {
     year: new Date().getFullYear().toString(),
     period: '상반기',
+    measurementDate: '',
     search: ''
 };
 const PAGE_SIZE = 10;
@@ -62,6 +66,7 @@ function restoreReportProcessingFilters(value: string | null) {
         return {
             year: typeof saved.year === 'string' ? saved.year : DEFAULT_REPORT_PROCESSING_FILTERS.year,
             period: typeof saved.period === 'string' ? saved.period : DEFAULT_REPORT_PROCESSING_FILTERS.period,
+            measurementDate: typeof saved.measurementDate === 'string' ? saved.measurementDate : DEFAULT_REPORT_PROCESSING_FILTERS.measurementDate,
             search: typeof saved.search === 'string' ? saved.search : DEFAULT_REPORT_PROCESSING_FILTERS.search
         };
     } catch {
@@ -99,6 +104,7 @@ export default function ReportProcessingPage() {
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]); // 기기: code 기반 -> key `${code}-${year}-${period}` 기반
     const [filters, setFilters] = useState(DEFAULT_REPORT_PROCESSING_FILTERS);
     const [filtersReady, setFiltersReady] = useState(false);
+    const [useReportProcessingResults, setUseReportProcessingResults] = useState(true);
     const [manualExplorerNames, setManualExplorerNames] = useState('');
     const [explorerYear, setExplorerYear] = useState('');
     const [explorerPeriod, setExplorerPeriod] = useState<ReportExplorerPeriod | ''>('');
@@ -122,7 +128,14 @@ export default function ReportProcessingPage() {
         else setLoading(true);
 
         try {
-            const res = await fetch(`/api/report-processing?year=${filters.year}&period=${filters.period}&search=${filters.search}&t=${Date.now()}`);
+            const searchParams = new URLSearchParams({
+                year: filters.year,
+                period: filters.period,
+                measurementDate: filters.measurementDate,
+                search: filters.search,
+                t: Date.now().toString()
+            });
+            const res = await fetch(`/api/report-processing?${searchParams.toString()}`);
             const data = await res.json();
             if (res.ok) {
                 // 구분(정규/추가) 데이터 부여
@@ -159,7 +172,7 @@ export default function ReportProcessingPage() {
     useEffect(() => {
         if (!filtersReady) return;
         fetchRecords();
-    }, [filters.year, filters.period, filtersReady]);
+    }, [filters.year, filters.period, filters.measurementDate, filtersReady]);
 
     useEffect(() => {
         setExplorerYear(filters.year === 'all' ? '' : filters.year);
@@ -178,6 +191,8 @@ export default function ReportProcessingPage() {
     const effectiveExplorerPeriod = filters.period === 'all' ? explorerPeriod : filters.period as ReportExplorerPeriod;
     const reportPageCount = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
     const visibleRecords = records.slice((reportPage - 1) * PAGE_SIZE, reportPage * PAGE_SIZE);
+    const visibleRecordKeys = visibleRecords.map((record) => `${record.code}-${record.year}-${record.period}`);
+    const allVisibleRecordsSelected = visibleRecordKeys.length > 0 && visibleRecordKeys.every((key) => selectedKeys.includes(key));
     const explorerRows = useMemo(() => explorerResults.reduce<Array<{
         result: ReportExplorerQueryResult;
         match: ReportExplorerMatch | null;
@@ -189,6 +204,7 @@ export default function ReportProcessingPage() {
     ], []), [explorerResults]);
     const explorerPageCount = Math.max(1, Math.ceil(explorerRows.length / PAGE_SIZE));
     const visibleExplorerRows = explorerRows.slice((explorerPage - 1) * PAGE_SIZE, explorerPage * PAGE_SIZE);
+    const explorerHasFolderMatches = hasReportExplorerFolderMatches(explorerResults);
 
     const cancelReportExplorerRequest = useCallback((notify = true) => {
         const controller = explorerAbortControllerRef.current;
@@ -399,9 +415,9 @@ export default function ReportProcessingPage() {
     // 전체 선택/해제
     const toggleAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
-            setSelectedKeys(records.map(r => `${r.code}-${r.year}-${r.period}`));
+            setSelectedKeys((current) => Array.from(new Set([...current, ...visibleRecordKeys])));
         } else {
-            setSelectedKeys([]);
+            setSelectedKeys((current) => current.filter((key) => !visibleRecordKeys.includes(key)));
         }
     };
 
@@ -464,9 +480,9 @@ export default function ReportProcessingPage() {
             toast.warning('보고서 탐색할 연도와 주기를 선택해주세요.');
             return;
         }
-        const businessNames = collectReportExplorerBusinessNames({ useCurrentResults: true, records, selectedKeys, manualInput: manualExplorerNames });
+        const businessNames = collectReportExplorerBusinessNames({ useCurrentResults: useReportProcessingResults, records, selectedKeys, manualInput: manualExplorerNames });
         if (businessNames.length === 0) {
-            toast.warning('현재 결과를 사용하거나 사업장명을 직접 입력해주세요.');
+            toast.warning(useReportProcessingResults ? '현재 결과를 사용하거나 사업장명을 직접 입력해주세요.' : '사업장명을 직접 입력해주세요.');
             return;
         }
         const controller = createExplorerRequestController();
@@ -568,7 +584,7 @@ export default function ReportProcessingPage() {
                 </div>
             </div>
 
-            <Card className="grid gap-3 p-4 md:grid-cols-[10rem_10rem_minmax(18rem,1fr)] md:items-end">
+            <Card className="grid gap-3 p-4 md:grid-cols-[10rem_10rem_10rem_minmax(16rem,1fr)] md:items-end">
                 <div>
                     <Select
                         label="년도"
@@ -594,6 +610,15 @@ export default function ReportProcessingPage() {
                             { value: "상반기", label: "상반기" },
                             { value: "하반기", label: "하반기" },
                         ]}
+                    />
+                </div>
+                <div>
+                    <Input
+                        label="측정일"
+                        type="date"
+                        value={filters.measurementDate}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilters(prev => ({ ...prev, measurementDate: e.target.value }))}
+                        className="h-10 text-sm"
                     />
                 </div>
                 <div className="flex min-w-0 items-end gap-2">
@@ -637,18 +662,19 @@ export default function ReportProcessingPage() {
             </Card>
 
             <section aria-label="보고서 처리 결과" className="space-y-2">
-                <Table className="min-w-[1000px] table-fixed text-sm">
+                <Table className="min-w-[1110px] table-fixed text-sm">
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-11">
                                 <Checkbox
-                                    checked={selectedKeys.length === records.length && records.length > 0}
+                                    checked={allVisibleRecordsSelected}
                                     onChange={toggleAll}
                                 />
                             </TableHead>
                             <TableHead className="w-16 text-center">구분</TableHead>
                             <TableHead className="w-20 text-center">년도</TableHead>
                             <TableHead className="w-20 text-center">주기</TableHead>
+                            <TableHead className="w-32 text-center">측정일</TableHead>
                             <TableHead className="w-24">업체코드</TableHead>
                             <TableHead className="w-40">사업장명</TableHead>
                             <TableHead className="w-48">담당자 이메일</TableHead>
@@ -660,13 +686,13 @@ export default function ReportProcessingPage() {
                     <TableBody>
                         {loading && records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={10} className="h-20 text-center">
+                                <TableCell colSpan={11} className="h-20 text-center">
                                     <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
                                 </TableCell>
                             </TableRow>
                         ) : records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={10} className="h-20 text-center text-muted-foreground">
+                                <TableCell colSpan={11} className="h-20 text-center text-muted-foreground">
                                     조회된 데이터가 없습니다.
                                 </TableCell>
                             </TableRow>
@@ -692,6 +718,9 @@ export default function ReportProcessingPage() {
                                         </TableCell>
                                         <TableCell className="text-center text-sm">{record.year}년</TableCell>
                                         <TableCell className="text-center text-sm">{record.period}</TableCell>
+                                        <TableCell className="text-center text-sm" title={record.measurement_dates.join(', ') || undefined}>
+                                            {reportProcessingMeasurementDateLabel(record.measurement_dates)}
+                                        </TableCell>
                                         <TableCell className="font-mono text-sm">{record.code}</TableCell>
                                         <TableCell className="truncate font-medium" title={record.business_name}>{record.business_name}</TableCell>
                                         <TableCell className="text-sm truncate max-w-[200px]" title={record.manager_email}>
@@ -746,7 +775,7 @@ export default function ReportProcessingPage() {
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <h2 className="text-base font-bold text-slate-800">보고서 탐색기</h2>
                         <span className="text-sm text-slate-500">
-                            {effectiveExplorerYear ? `${effectiveExplorerYear}년` : '연도 선택 필요'} · {effectiveExplorerPeriod || '주기 선택 필요'} | {selectedRecords.length > 0 ? `선택 ${explorerBasisCount}건` : `결과 ${explorerBasisCount}건`}
+                            {effectiveExplorerYear ? `${effectiveExplorerYear}년` : '연도 선택 필요'} · {effectiveExplorerPeriod || '주기 선택 필요'} | {useReportProcessingResults ? (selectedRecords.length > 0 ? `선택 ${explorerBasisCount}건` : `결과 ${explorerBasisCount}건`) : '직접 입력'}
                         </span>
                     </div>
                     <div className="flex items-center gap-2 text-xs">
@@ -757,20 +786,28 @@ export default function ReportProcessingPage() {
                 {explorerMessage && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{explorerMessage}</p>}
                 <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                     <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)] md:grid-cols-[minmax(18rem,1fr)_auto_auto] md:items-end">
-                        <Input
-                            id="report-explorer-manual-names"
-                            label="추가 사업장명"
-                            value={manualExplorerNames}
-                            onChange={(event) => setManualExplorerNames(event.target.value)}
-                            onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                    event.preventDefault();
-                                    void handleExplorerSearch();
-                                }
-                            }}
-                            placeholder="쓰리디, 보스턴, 대흥산업"
-                            className="h-10 text-sm"
-                        />
+                        <div className="space-y-2">
+                            <Checkbox
+                                id="use-report-processing-results"
+                                label="현재 조회 결과 사용"
+                                checked={useReportProcessingResults}
+                                onChange={(event) => setUseReportProcessingResults(event.target.checked)}
+                            />
+                            <Input
+                                id="report-explorer-manual-names"
+                                label={useReportProcessingResults ? '추가 사업장명' : '사업장명'}
+                                value={manualExplorerNames}
+                                onChange={(event) => setManualExplorerNames(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault();
+                                        void handleExplorerSearch();
+                                    }
+                                }}
+                                placeholder="쓰리디, 보스턴, 대흥산업"
+                                className="h-10 text-sm"
+                            />
+                        </div>
                         {filters.year === 'all' && <Select label="탐색 연도" value={explorerYear} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setExplorerYear(event.target.value)} className="h-10 py-0 text-sm md:w-36" options={[{ value: '', label: '연도 선택' }, { value: '2024', label: '2024년' }, { value: '2025', label: '2025년' }, { value: '2026', label: '2026년' }]} />}
                         {filters.period === 'all' && <Select label="탐색 주기" value={explorerPeriod} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => { const period = event.target.value; setExplorerPeriod(period === '상반기' || period === '하반기' ? period : ''); }} className="h-10 py-0 text-sm md:w-36" options={[{ value: '', label: '주기 선택' }, { value: '상반기', label: '상반기' }, { value: '하반기', label: '하반기' }]} />}
                     </div>
@@ -779,6 +816,11 @@ export default function ReportProcessingPage() {
                     </Button>
                 </div>
                 <div className="space-y-2">
+                    {explorerHasSearched && !explorerHasFolderMatches && (
+                        <p className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600" role="status">
+                            일치하는 보고서 폴더가 없습니다.
+                        </p>
+                    )}
                     <Table className="min-w-[820px] table-fixed text-sm">
                         <TableHeader><TableRow><TableHead className="w-48">검색 사업장</TableHead><TableHead className="w-64">일치 사업장 폴더</TableHead><TableHead>경로</TableHead><TableHead className="w-28 text-center">상태</TableHead><TableHead className="w-24 text-center">동작</TableHead></TableRow></TableHeader>
                         <TableBody>
