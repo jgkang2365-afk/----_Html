@@ -135,13 +135,15 @@ type K2BUploadResult = {
  */
 export class K2BService {
     private driver: WebDriver | null = null;
+    private readOnlyMode = false;
 
     /**
      * 크롬 드라이버 초기화
      * 파이썬: options.add_argument("--start-maximized")
      *         options.add_experimental_option("detach", True)
      */
-    async init() {
+    async init(initOptions: { headless?: boolean; readOnly?: boolean } = {}) {
+        this.readOnlyMode = initOptions.readOnly === true;
         // Next.js 환경에서 selenium-manager.exe 경로 설정
         const managerPath = process.env.SE_MANAGER_PATH || path.resolve(process.cwd(), 'node_modules', 'selenium-webdriver', 'bin', 'windows', 'selenium-manager.exe');
         if (fs.existsSync(managerPath)) {
@@ -149,28 +151,28 @@ export class K2BService {
             console.log(`[K2B] Selenium Manager Path: ${managerPath}`);
         }
 
-        const options = new chrome.Options();
+        const chromeOptions = new chrome.Options();
         
         // 서버 구동 환경 대응: 화면 크기 및 headless 설정
-        const isHeadless = process.env.K2B_HEADLESS?.toLowerCase().trim() === 'true';
+        const isHeadless = initOptions.headless === true || process.env.K2B_HEADLESS?.toLowerCase().trim() === 'true';
         if (isHeadless) {
             console.log('[K2B] 헤드리스 모드(Headless)로 브라우저를 구동합니다.');
-            options.addArguments('--headless=new');
+            chromeOptions.addArguments('--headless=new');
         } else {
-            options.addArguments('--start-maximized');
+            chromeOptions.addArguments('--start-maximized');
         }
 
-        options.addArguments('--no-sandbox');
-        options.addArguments('--disable-dev-shm-usage');
-        options.addArguments('--disable-gpu'); // 서버 환경에서 그래픽 가속 비활성화
+        chromeOptions.addArguments('--no-sandbox');
+        chromeOptions.addArguments('--disable-dev-shm-usage');
+        chromeOptions.addArguments('--disable-gpu'); // 서버 환경에서 그래픽 가속 비활성화
         
         // detach 옵션: 스크립트 종료 후에도 브라우저 유지 (헤드리스가 아닐 때만 유의미)
-        options.excludeSwitches('enable-automation');
+        chromeOptions.excludeSwitches('enable-automation');
 
         console.log('[K2B] 크롬 드라이버 빌드를 시작합니다...');
         this.driver = await new Builder()
             .forBrowser('chrome')
-            .setChromeOptions(options)
+            .setChromeOptions(chromeOptions)
             .build();
 
         if (!isHeadless) {
@@ -756,6 +758,7 @@ foreach ($window in $windows) {
         },
         businessCode: string = companyName
     ): Promise<K2BUploadResult> {
+        if (this.readOnlyMode) throw new Error('K2B 읽기 전용 세션에서는 업로드할 수 없습니다.');
         if (!this.driver) throw new Error('Driver not initialized');
         if (!files.dataFile) {
             return { success: false, status: 'txt 파일 없음', error: 'TXT 데이터 파일이 없습니다.', failureStage: 'file-input-ready' };
@@ -1131,6 +1134,34 @@ foreach ($window in $windows) {
         }
 
         return results;
+    }
+
+    /** 검증 전용: 날짜 필터 설정 → 조회 → 현재 표시 그리드만 읽는 read-only 경로다. */
+    async querySubmissionResultsForDate(resultDate: string): Promise<{ companyName: string; status: string; submissionDate: string }[]> {
+        if (!this.driver) throw new Error('Driver not initialized');
+        if (!this.readOnlyMode) throw new Error('K2B 날짜별 결과 조회는 읽기 전용 세션에서만 가능합니다.');
+        const exactDate = resultDate.replaceAll('-', '');
+        const startDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_cal_fromdate_input')), 10000);
+        const endDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_cal_todate_input')), 10000);
+        await startDateInput.clear();
+        await startDateInput.sendKeys(exactDate);
+        await endDateInput.clear();
+        await endDateInput.sendKeys(exactDate);
+        const searchButton = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_btn_SearchTextBoxElement > div')), 10000);
+        await searchButton.click();
+        await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_grid_fileList_bodyGridBandContainerElement')), 10000);
+        const rows: { companyName: string; status: string; submissionDate: string }[] = [];
+        for (let rowIndex = 0; ; rowIndex++) {
+            try {
+                const company = await this.driver.wait(until.elementLocated(By.css(`#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_grid_fileList_body_gridrow_${rowIndex}_cell_${rowIndex}_1GridCellTextContainerElement > div`)), 1500);
+                const status = await this.driver.wait(until.elementLocated(By.css(`#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_grid_fileList_body_gridrow_${rowIndex}_cell_${rowIndex}_2GridCellTextContainerElement > div`)), 1500);
+                const companyName = (await company.getText()).trim();
+                // 조회 범위를 같은 날짜로 고정했으므로, 행에 존재하는 실제 표시값만 읽는다.
+                // K2B 화면에 없는 코드·사업자번호 등 식별자를 합성하지 않는다.
+                if (companyName) rows.push({ companyName, status: (await status.getText()).trim(), submissionDate: resultDate });
+            } catch { break; }
+        }
+        return rows;
     }
 
     /**
