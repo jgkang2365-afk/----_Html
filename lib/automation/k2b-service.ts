@@ -5,6 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import { resolveWindowsDialogPath } from './windows-file-path';
+import { parseK2BSubmissionGrid, type K2BGridRead } from './k2b-original-sync';
 
 export async function runWithSingleRetry<T>(
     operation: (attempt: 1 | 2) => Promise<T>,
@@ -31,6 +32,27 @@ const LOGIN_POPUP_SELECTORS = [
     'div#mainframe_VFrameSet_LoginFrame_form_div_popup_361_btn_close',
     'div#mainframe_VFrameSet_LoginFrame_form_div_popup_360_btn_close'
 ];
+
+export type K2BSubmissionGridSnapshot = {
+    loading: boolean;
+    gridElementId: string | null;
+    rowSignature: string;
+    explicitEmpty: boolean;
+    mutationVersion: number;
+};
+
+export function isK2BSubmissionRefreshComplete(
+    before: K2BSubmissionGridSnapshot,
+    current: K2BSubmissionGridSnapshot,
+    sawLoading: boolean
+): boolean {
+    if (current.loading) return false;
+    return sawLoading
+        || (before.gridElementId != null && current.gridElementId !== before.gridElementId)
+        || current.rowSignature !== before.rowSignature
+        || (!before.explicitEmpty && current.explicitEmpty)
+        || current.mutationVersion > before.mutationVersion;
+}
 
 export async function closeExistingK2BLoginPopups(
     driver: Pick<WebDriver, 'findElements'>
@@ -135,13 +157,104 @@ type K2BUploadResult = {
  */
 export class K2BService {
     private driver: WebDriver | null = null;
+    private readOnlyMode = false;
+
+    private async beginSubmissionGridRefreshObservation(): Promise<void> {
+        if (!this.driver) throw new Error('Driver not initialized');
+        await this.driver.executeScript(`
+            const key = '__k2bSubmissionGridRefreshObserver';
+            const previous = window[key];
+            if (previous?.observer) previous.observer.disconnect();
+            const root = document.getElementById('mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work');
+            const state = { version: 0, observer: null };
+            if (root) {
+                state.observer = new MutationObserver(() => { state.version += 1; });
+                state.observer.observe(root, {
+                    subtree: true,
+                    childList: true,
+                    characterData: true,
+                    attributes: true,
+                    attributeFilter: ['class', 'style', 'aria-busy'],
+                });
+            }
+            window[key] = state;
+        `);
+    }
+
+    private async captureSubmissionGridSnapshot(): Promise<K2BSubmissionGridSnapshot> {
+        if (!this.driver) throw new Error('Driver not initialized');
+        const loadingSelectors = [
+            '[id*="WaitCursor"]',
+            '[id*="waitcursor"]',
+            '[class*="loading"]',
+            '[class*="Loading"]',
+            '[aria-busy="true"]',
+        ];
+        let loading = false;
+        for (const selector of loadingSelectors) {
+            const elements = await this.driver.findElements(By.css(selector));
+            if (await Promise.all(elements.map(element => element.isDisplayed().catch(() => false))).then(states => states.some(Boolean))) {
+                loading = true;
+                break;
+            }
+        }
+
+        const gridElements = await this.driver.findElements(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_grid_fileList_bodyGridBandContainerElement'));
+        const gridElementId = gridElements.length > 0 ? await gridElements[0].getId() : null;
+        const cells = await this.driver.findElements(By.css('[id*="grid_fileList_body_gridrow_"][id*="GridCellTextContainerElement"] > div'));
+        const rowSignature = (await Promise.all(cells.map(async element => {
+            if (!await element.isDisplayed().catch(() => false)) return '';
+            return (await element.getText()).trim();
+        }))).filter(Boolean).join('\u001f');
+
+        const emptyMessages = await this.driver.findElements(By.xpath(
+            "//*[contains(normalize-space(text()), '조회된 데이터가 없습니다') or contains(normalize-space(text()), '조회결과가 없습니다') or contains(normalize-space(text()), '데이터가 없습니다')]"
+        ));
+        const explicitEmpty = await Promise.all(emptyMessages.map(element => element.isDisplayed().catch(() => false)))
+            .then(states => states.some(Boolean));
+        const mutationVersion = Number(await this.driver.executeScript(
+            "return window.__k2bSubmissionGridRefreshObserver?.version || 0;"
+        ));
+        return { loading, gridElementId, rowSignature, explicitEmpty, mutationVersion };
+    }
+
+    private async waitForSubmissionGridRefresh(before: K2BSubmissionGridSnapshot): Promise<void> {
+        if (!this.driver) throw new Error('Driver not initialized');
+        let sawLoading = false;
+        await this.driver.wait(async () => {
+            const current = await this.captureSubmissionGridSnapshot();
+            sawLoading ||= current.loading;
+            return isK2BSubmissionRefreshComplete(before, current, sawLoading);
+        }, 20000, 'K2B 조회 완료 신호를 확인하지 못했습니다.', 150);
+
+        // 완료 신호 뒤 짧은 안정 구간에서 행 텍스트가 더 바뀌지 않는지 확인한다.
+        let previousSignature: string | null = null;
+        let previousMutationVersion: number | null = null;
+        let stablePolls = 0;
+        const settleStartedAt = Date.now();
+        await this.driver.wait(async () => {
+            const current = await this.captureSubmissionGridSnapshot();
+            if (current.loading) {
+                stablePolls = 0;
+                return false;
+            }
+            stablePolls = current.rowSignature === previousSignature
+                && current.mutationVersion === previousMutationVersion
+                ? stablePolls + 1
+                : 0;
+            previousSignature = current.rowSignature;
+            previousMutationVersion = current.mutationVersion;
+            return Date.now() - settleStartedAt >= 750 && stablePolls >= 2;
+        }, 3000, 'K2B 조회 결과가 안정되지 않았습니다.', 150);
+    }
 
     /**
      * 크롬 드라이버 초기화
      * 파이썬: options.add_argument("--start-maximized")
      *         options.add_experimental_option("detach", True)
      */
-    async init() {
+    async init(initOptions: { headless?: boolean; readOnly?: boolean } = {}) {
+        this.readOnlyMode = initOptions.readOnly === true;
         // Next.js 환경에서 selenium-manager.exe 경로 설정
         const managerPath = process.env.SE_MANAGER_PATH || path.resolve(process.cwd(), 'node_modules', 'selenium-webdriver', 'bin', 'windows', 'selenium-manager.exe');
         if (fs.existsSync(managerPath)) {
@@ -149,28 +262,28 @@ export class K2BService {
             console.log(`[K2B] Selenium Manager Path: ${managerPath}`);
         }
 
-        const options = new chrome.Options();
+        const chromeOptions = new chrome.Options();
         
         // 서버 구동 환경 대응: 화면 크기 및 headless 설정
-        const isHeadless = process.env.K2B_HEADLESS?.toLowerCase().trim() === 'true';
+        const isHeadless = initOptions.headless === true || process.env.K2B_HEADLESS?.toLowerCase().trim() === 'true';
         if (isHeadless) {
             console.log('[K2B] 헤드리스 모드(Headless)로 브라우저를 구동합니다.');
-            options.addArguments('--headless=new');
+            chromeOptions.addArguments('--headless=new');
         } else {
-            options.addArguments('--start-maximized');
+            chromeOptions.addArguments('--start-maximized');
         }
 
-        options.addArguments('--no-sandbox');
-        options.addArguments('--disable-dev-shm-usage');
-        options.addArguments('--disable-gpu'); // 서버 환경에서 그래픽 가속 비활성화
+        chromeOptions.addArguments('--no-sandbox');
+        chromeOptions.addArguments('--disable-dev-shm-usage');
+        chromeOptions.addArguments('--disable-gpu'); // 서버 환경에서 그래픽 가속 비활성화
         
         // detach 옵션: 스크립트 종료 후에도 브라우저 유지 (헤드리스가 아닐 때만 유의미)
-        options.excludeSwitches('enable-automation');
+        chromeOptions.excludeSwitches('enable-automation');
 
         console.log('[K2B] 크롬 드라이버 빌드를 시작합니다...');
         this.driver = await new Builder()
             .forBrowser('chrome')
-            .setChromeOptions(options)
+            .setChromeOptions(chromeOptions)
             .build();
 
         if (!isHeadless) {
@@ -228,7 +341,7 @@ export class K2BService {
             until.elementLocated(By.css('#mainframe_VFrameSet_LoginFrame_form_div_Login_div_box_btn_loginTextBoxElement > div')),
             20000
         );
-        console.log(`[K2B] 로그인 시도 중... (ID: ${loginId})`);
+        console.log('[K2B] 로그인 시도 중...');
         await loginBtn.click();
 
         // 로그인 성공 확인 (성공 시 '파일전송(신)' 메뉴가 나타나고, 실패 시 로그인 실패 팝업이 나타남)
@@ -756,6 +869,7 @@ foreach ($window in $windows) {
         },
         businessCode: string = companyName
     ): Promise<K2BUploadResult> {
+        if (this.readOnlyMode) throw new Error('K2B 읽기 전용 세션에서는 업로드할 수 없습니다.');
         if (!this.driver) throw new Error('Driver not initialized');
         if (!files.dataFile) {
             return { success: false, status: 'txt 파일 없음', error: 'TXT 데이터 파일이 없습니다.', failureStage: 'file-input-ready' };
@@ -1131,6 +1245,60 @@ foreach ($window in $windows) {
         }
 
         return results;
+    }
+
+    /** 현재 Nexacro grid의 실제 header/body를 함께 수집한다. header가 바뀌면 파서는 fail-safe로 중단한다. */
+    private async readSubmissionGridByHeaders(): Promise<K2BGridRead> {
+        if (!this.driver) throw new Error('Driver not initialized');
+        const grid = await this.driver.executeScript(`
+          const text = element => String(element?.innerText || element?.textContent || '').trim();
+          const head = [...document.querySelectorAll('[id*="grid_fileList_head"], [id*="grid_fileList_headGrid"]')]
+            .map(element => ({ id: element.id, text: text(element) }))
+            .map(({ id, text }) => ({ match: id.match(/_cell_\\d+_(\\d+)/), text }))
+            .filter(item => item.match && item.text)
+            .map(item => ({ index: Number(item.match[1]), text: item.text }));
+          const headerByIndex = new Map(head.map(item => [item.index, item.text]));
+          const headers = [...headerByIndex.keys()].sort((a,b) => a-b).map(index => headerByIndex.get(index));
+          const indexes = [...headerByIndex.keys()].sort((a,b) => a-b);
+          const body = [...document.querySelectorAll('[id*="grid_fileList_body_gridrow_"][id*="GridCellTextContainerElement"]')]
+            .map(element => ({ id: element.id, text: text(element) }))
+            .map(({ id, text }) => ({ match: id.match(/gridrow_(\\d+)_cell_\\d+_(\\d+)/), text }))
+            .filter(item => item.match);
+          const rowMap = new Map();
+          for (const item of body) {
+            const row = Number(item.match[1]); const column = Number(item.match[2]);
+            if (!rowMap.has(row)) rowMap.set(row, new Map());
+            rowMap.get(row).set(column, item.text);
+          }
+          return { headers, rows: [...rowMap.keys()].sort((a,b) => a-b).map(row => indexes.map(column => rowMap.get(row).get(column) || '')) };
+        `) as { headers?: unknown; rows?: unknown };
+        if (!Array.isArray(grid.headers) || !Array.isArray(grid.rows)) throw new Error('K2B_GRID_SCHEMA_MISMATCH:grid_not_readable');
+        return parseK2BSubmissionGrid(grid.headers.map(String), grid.rows.map(row => Array.isArray(row) ? row.map(String) : []));
+    }
+
+    /** 검증 전용: inclusive 날짜 범위를 한 번 조회하고 실제 header 기반 원본 receipt를 반환한다. */
+    async querySubmissionResultsForRange(fromDate: string, toDate: string): Promise<K2BGridRead> {
+        if (!this.driver) throw new Error('Driver not initialized');
+        if (!this.readOnlyMode) throw new Error('K2B 날짜별 결과 조회는 읽기 전용 세션에서만 가능합니다.');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate) throw new Error('K2B 조회 날짜 범위가 올바르지 않습니다.');
+        const startDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_cal_fromdate_input')), 10000);
+        const endDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_cal_todate_input')), 10000);
+        await startDateInput.clear();
+        await startDateInput.sendKeys(fromDate.replaceAll('-', ''));
+        await endDateInput.clear();
+        await endDateInput.sendKeys(toDate.replaceAll('-', ''));
+        await this.beginSubmissionGridRefreshObservation();
+        const beforeRefresh = await this.captureSubmissionGridSnapshot();
+        const searchButton = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_btn_SearchTextBoxElement > div')), 10000);
+        await searchButton.click();
+        await this.waitForSubmissionGridRefresh(beforeRefresh);
+        return this.readSubmissionGridByHeaders();
+    }
+
+    /** 기존 단일 날짜 검증 계약: 실제 화면 접수일을 반환하며 synthetic resultDate를 만들지 않는다. */
+    async querySubmissionResultsForDate(resultDate: string): Promise<{ companyName: string; status: string; submissionDate: string }[]> {
+        const result = await this.querySubmissionResultsForRange(resultDate, resultDate);
+        return result.rows.map(row => ({ companyName: row.companyName, status: row.status, submissionDate: row.actualSubmissionDate }));
     }
 
     /**
