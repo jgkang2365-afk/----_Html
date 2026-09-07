@@ -5,6 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import { resolveWindowsDialogPath } from './windows-file-path';
+import { parseK2BSubmissionGrid, type K2BGridRead } from './k2b-original-sync';
 
 export async function runWithSingleRetry<T>(
     operation: (attempt: 1 | 2) => Promise<T>,
@@ -340,7 +341,7 @@ export class K2BService {
             until.elementLocated(By.css('#mainframe_VFrameSet_LoginFrame_form_div_Login_div_box_btn_loginTextBoxElement > div')),
             20000
         );
-        console.log(`[K2B] 로그인 시도 중... (ID: ${loginId})`);
+        console.log('[K2B] 로그인 시도 중...');
         await loginBtn.click();
 
         // 로그인 성공 확인 (성공 시 '파일전송(신)' 메뉴가 나타나고, 실패 시 로그인 실패 팝업이 나타남)
@@ -1246,34 +1247,58 @@ foreach ($window in $windows) {
         return results;
     }
 
-    /** 검증 전용: 날짜 필터 설정 → 조회 → 현재 표시 그리드만 읽는 read-only 경로다. */
-    async querySubmissionResultsForDate(resultDate: string): Promise<{ companyName: string; status: string; submissionDate: string }[]> {
+    /** 현재 Nexacro grid의 실제 header/body를 함께 수집한다. header가 바뀌면 파서는 fail-safe로 중단한다. */
+    private async readSubmissionGridByHeaders(): Promise<K2BGridRead> {
+        if (!this.driver) throw new Error('Driver not initialized');
+        const grid = await this.driver.executeScript(`
+          const text = element => String(element?.innerText || element?.textContent || '').trim();
+          const head = [...document.querySelectorAll('[id*="grid_fileList_head"], [id*="grid_fileList_headGrid"]')]
+            .map(element => ({ id: element.id, text: text(element) }))
+            .map(({ id, text }) => ({ match: id.match(/_cell_\\d+_(\\d+)/), text }))
+            .filter(item => item.match && item.text)
+            .map(item => ({ index: Number(item.match[1]), text: item.text }));
+          const headerByIndex = new Map(head.map(item => [item.index, item.text]));
+          const headers = [...headerByIndex.keys()].sort((a,b) => a-b).map(index => headerByIndex.get(index));
+          const indexes = [...headerByIndex.keys()].sort((a,b) => a-b);
+          const body = [...document.querySelectorAll('[id*="grid_fileList_body_gridrow_"][id*="GridCellTextContainerElement"]')]
+            .map(element => ({ id: element.id, text: text(element) }))
+            .map(({ id, text }) => ({ match: id.match(/gridrow_(\\d+)_cell_\\d+_(\\d+)/), text }))
+            .filter(item => item.match);
+          const rowMap = new Map();
+          for (const item of body) {
+            const row = Number(item.match[1]); const column = Number(item.match[2]);
+            if (!rowMap.has(row)) rowMap.set(row, new Map());
+            rowMap.get(row).set(column, item.text);
+          }
+          return { headers, rows: [...rowMap.keys()].sort((a,b) => a-b).map(row => indexes.map(column => rowMap.get(row).get(column) || '')) };
+        `) as { headers?: unknown; rows?: unknown };
+        if (!Array.isArray(grid.headers) || !Array.isArray(grid.rows)) throw new Error('K2B_GRID_SCHEMA_MISMATCH:grid_not_readable');
+        return parseK2BSubmissionGrid(grid.headers.map(String), grid.rows.map(row => Array.isArray(row) ? row.map(String) : []));
+    }
+
+    /** 검증 전용: inclusive 날짜 범위를 한 번 조회하고 실제 header 기반 원본 receipt를 반환한다. */
+    async querySubmissionResultsForRange(fromDate: string, toDate: string): Promise<K2BGridRead> {
         if (!this.driver) throw new Error('Driver not initialized');
         if (!this.readOnlyMode) throw new Error('K2B 날짜별 결과 조회는 읽기 전용 세션에서만 가능합니다.');
-        const exactDate = resultDate.replaceAll('-', '');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate) throw new Error('K2B 조회 날짜 범위가 올바르지 않습니다.');
         const startDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_cal_fromdate_input')), 10000);
         const endDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_cal_todate_input')), 10000);
         await startDateInput.clear();
-        await startDateInput.sendKeys(exactDate);
+        await startDateInput.sendKeys(fromDate.replaceAll('-', ''));
         await endDateInput.clear();
-        await endDateInput.sendKeys(exactDate);
+        await endDateInput.sendKeys(toDate.replaceAll('-', ''));
         await this.beginSubmissionGridRefreshObservation();
         const beforeRefresh = await this.captureSubmissionGridSnapshot();
         const searchButton = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_btn_SearchTextBoxElement > div')), 10000);
         await searchButton.click();
         await this.waitForSubmissionGridRefresh(beforeRefresh);
-        const rows: { companyName: string; status: string; submissionDate: string }[] = [];
-        for (let rowIndex = 0; ; rowIndex++) {
-            try {
-                const company = await this.driver.wait(until.elementLocated(By.css(`#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_grid_fileList_body_gridrow_${rowIndex}_cell_${rowIndex}_1GridCellTextContainerElement > div`)), 1500);
-                const status = await this.driver.wait(until.elementLocated(By.css(`#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_grid_fileList_body_gridrow_${rowIndex}_cell_${rowIndex}_2GridCellTextContainerElement > div`)), 1500);
-                const companyName = (await company.getText()).trim();
-                // 조회 범위를 같은 날짜로 고정했으므로, 행에 존재하는 실제 표시값만 읽는다.
-                // K2B 화면에 없는 코드·사업자번호 등 식별자를 합성하지 않는다.
-                if (companyName) rows.push({ companyName, status: (await status.getText()).trim(), submissionDate: resultDate });
-            } catch { break; }
-        }
-        return rows;
+        return this.readSubmissionGridByHeaders();
+    }
+
+    /** 기존 단일 날짜 검증 계약: 실제 화면 접수일을 반환하며 synthetic resultDate를 만들지 않는다. */
+    async querySubmissionResultsForDate(resultDate: string): Promise<{ companyName: string; status: string; submissionDate: string }[]> {
+        const result = await this.querySubmissionResultsForRange(resultDate, resultDate);
+        return result.rows.map(row => ({ companyName: row.companyName, status: row.status, submissionDate: row.actualSubmissionDate }));
     }
 
     /**

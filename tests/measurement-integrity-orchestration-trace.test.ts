@@ -218,6 +218,10 @@ test("K2B 실행상태는 remote read/집계/DB 저장 근거를 구조화해 �
     "app/api/report-processing/k2b-execution-status/route.ts",
     "utf8"
   );
+  const statusMapper = readFileSync(
+    "lib/report-processing/k2b-execution-status.ts",
+    "utf8"
+  );
   const statusPanel = readFileSync("components/features/K2BExecutionStatusPanel.tsx", "utf8");
   assert.match(worker, /remoteK2BReadExecuted: false/);
   assert.match(worker, /remoteK2BReadAttempted: false/);
@@ -227,9 +231,16 @@ test("K2B 실행상태는 remote read/집계/DB 저장 근거를 구조화해 �
   assert.match(worker, /\.select\('id'\)/);
   assert.match(statusRoute, /execution_result/);
   assert.match(statusRoute, /requestedJobId/);
-  assert.match(statusRoute, /serializationDisposition/);
-  assert.match(statusRoute, /job\.payload\?\.trigger === "scheduled" \|\| job\.payload\?\.trigger === "manual"/);
-  assert.doesNotMatch(statusRoute, /requestedBy == null/);
+  assert.match(statusRoute, /import \{ toK2BExecutionStatus \}/);
+  assert.match(statusRoute, /execution: toK2BExecutionStatus\(job\)/);
+  assert.doesNotMatch(statusRoute, /job\.payload\?\./);
+  assert.match(statusMapper, /trigger: asString\(result\?\.trigger\)/);
+  assert.match(statusMapper, /serializationDisposition: asString\(result\?\.serializationDisposition\)/);
+  assert.match(statusMapper, /remoteK2BReadAttempted: asBoolean\(result\?\.remoteK2BReadAttempted\)/);
+  assert.match(statusMapper, /databaseSaveCompleted: asBoolean\(result\?\.databaseSaveCompleted\)/);
+  assert.match(statusMapper, /rawReceiptPersistence: persistedCounts\(result\?\.rawReceiptPersistence\)/);
+  assert.doesNotMatch(statusMapper, /job\.payload/);
+  assert.doesNotMatch(statusMapper, /\?\? "unknown"|\?\? "not_started"|=== true/);
   assert.match(statusPanel, /실제 K2B remote read/);
   assert.match(statusPanel, /DB 저장/);
   assert.match(statusPanel, /🟢/);

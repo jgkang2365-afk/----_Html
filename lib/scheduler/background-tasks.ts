@@ -3,8 +3,8 @@ import { backupDatabase } from '../../scripts/backup-db';
 import { createAdminClient } from '../supabase/admin';
 import { createClient } from '../supabase/server';
 import { getKSTDateString, getKSTISOString } from '../utils/date-utils';
-import { K2B_VERIFY_SCHEDULE, K2B_VERIFY_UNRESOLVED_DAYS } from '../constants/k2b-verification';
-import { getPreviousKSTCalendarDate } from './k2b-verification-policy';
+import { K2B_VERIFY_SCHEDULE } from '../constants/k2b-verification';
+import { buildK2BSyncRange, K2B_SYNC_OVERLAP_DAYS } from '../automation/k2b-original-sync';
 
 const MES_QUEUE_ID = 1;
 const MES_STALE_TIMEOUT_MINUTES = 15;
@@ -112,18 +112,23 @@ export class BackgroundTasks {
     }
 
     public async enqueueDailyK2BVerification(): Promise<string | null> {
-        const resultDate = getPreviousKSTCalendarDate(getKSTDateString());
         try {
             const supabase = createAdminClient();
-            const { data, error } = await supabase.rpc('enqueue_k2b_verify_job', { p_result_date: resultDate, p_requested_by: null });
+            const { data: state, error: stateError } = await supabase.from('k2b_sync_state')
+                .select('last_successful_through_date').eq('state_key', 'default').maybeSingle();
+            if (stateError) throw stateError;
+            const range = buildK2BSyncRange({ trigger: 'scheduled', today: getKSTDateString(), lastSuccessfulThroughDate: state?.last_successful_through_date ?? null });
+            const { data, error } = await supabase.rpc('enqueue_k2b_original_sync_job', { p_payload: {
+                trigger: 'scheduled', fromDate: range.fromDate, toDate: range.toDate, requestedBy: null, cursorEligible: true, serializationDisposition: 'accepted_without_active_k2b',
+            } });
             if (error) {
                 if (error.message.includes('K2B_AUTOMATION_ALREADY_ACTIVE')) {
-                    console.log(`[BackgroundTasks] K2B 검증 보류: 업로드/검증 작업이 활성 상태입니다. unresolvedWindow=${K2B_VERIFY_UNRESOLVED_DAYS}`);
+                    console.log(`[BackgroundTasks] K2B 원본 동기화 보류: 업로드/동기화 작업이 활성 상태입니다. overlap=${K2B_SYNC_OVERLAP_DAYS}`);
                     return null;
                 }
                 throw error;
             }
-            console.log(`[BackgroundTasks] K2B 전일(${resultDate}) 읽기 전용 검증을 등록했습니다. unresolvedWindow=${K2B_VERIFY_UNRESOLVED_DAYS}`);
+            console.log(`[BackgroundTasks] K2B 원본 동기화(${range.fromDate}..${range.toDate})를 등록했습니다. overlap=${K2B_SYNC_OVERLAP_DAYS}`);
             return data as string;
         } catch (error: any) {
             console.error('[BackgroundTasks] K2B 일일 검증 등록 실패:', error?.message || String(error));
