@@ -26,6 +26,22 @@ import {
     nextWorkerPollingState,
 } from "./worker-polling-policy";
 
+export type K2BVerifyTrigger = 'manual' | 'scheduled' | 'unknown';
+
+/**
+ * K2B 검증 작업의 실행 계기는 payload에 명시된 값만 신뢰한다.
+ * 요청자 유무는 자격 증명 조회에만 사용하며 실행 계기를 보정하지 않는다.
+ */
+export function resolveK2BVerifyTrigger(payload: unknown): K2BVerifyTrigger {
+    const trigger = typeof payload === 'object' && payload !== null
+        ? (payload as { trigger?: unknown }).trigger
+        : undefined;
+
+    if (trigger === 'manual') return 'manual';
+    if (trigger === 'scheduled') return 'scheduled';
+    return 'unknown';
+}
+
 /**
  * 백그라운드 작업기 데몬 (Worker Daemon)
  * 로컬 서버 환경에서만 가동되며, background_jobs 테이블을 감시해
@@ -592,7 +608,7 @@ export class WorkerDaemon {
         const executionResult: Record<string, any> = {
             mode: 'read_only',
             resultDate,
-            trigger: job.payload?.trigger === 'scheduled' || job.payload?.requestedBy == null ? 'scheduled' : 'manual',
+            trigger: resolveK2BVerifyTrigger(job.payload),
             serializationDisposition: job.payload?.serializationDisposition ?? 'unknown',
             remoteK2BReadAttempted: false,
             remoteK2BReadExecuted: false,
