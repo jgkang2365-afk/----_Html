@@ -7,11 +7,11 @@ const trace = JSON.parse(
   readFileSync("data/measurement-integrity-k2b-orchestration-trace.v0.5.json", "utf8")
 );
 
-test("v0.1/v0.2/v0.4/v0.5/v0.5.1/v0.5.2 trace는 근거·결정·carry-forward를 보존한다", () => {
+test("v0.1/v0.2/v0.4/v0.5/v0.5.1/v0.5.2/v0.6 trace는 근거·결정·carry-forward를 보존한다", () => {
   assert.doesNotThrow(() => validateOrchestrationTrace(trace));
   assert.deepEqual(
     trace.entries.map((entry: any) => entry.experimentVersion),
-    ["v0.1", "v0.2", "v0.4", "v0.5", "v0.5.1", "v0.5.2"]
+    ["v0.1", "v0.2", "v0.4", "v0.5", "v0.5.1", "v0.5.2", "v0.6"]
   );
   const v05 = trace.entries.find((entry: any) => entry.experimentVersion === "v0.5");
   assert.equal(v05.runId, "K2B-V05-20260906-01");

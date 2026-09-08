@@ -26,15 +26,15 @@
     "trackedPullRequest": 108,
     "branch": "fix/k2b-orchestration-observability-v05",
     "lastObservation": {
-      "observedAt": "2026-09-06T08:23:15.000Z",
-      "source": "github_pr_108_status_rollup",
+      "observedAt": "2026-09-08T06:56:03.5172162Z",
+      "source": "github_pr_108_read_only_closeout",
       "lookupStatus": "PASS",
       "statusAtObservation": {
         "pullRequest": {
           "state": "OPEN",
           "draft": true,
-          "headSha": "4aa3fcbb786ddf1104dd73974ec5ecc7acba42fa",
-          "mergeable": "CLEAN"
+          "headSha": "a65ee872cbaf29d13fec374bc5a0db6cd0e4bcde",
+          "mergeable": "MERGEABLE"
         },
         "githubActions": "N/A",
         "vercelPreview": "PASS"
@@ -1027,6 +1027,160 @@
           "kind": "github_pull_request",
           "reference": "PR #108 / 4aa3fcbb786ddf1104dd73974ec5ecc7acba42fa",
           "claim": "historical start observation: draft OPEN, GitHub Actions N/A, Vercel Preview PASS"
+        }
+      ]
+    },
+    {
+      "experimentVersion": "v0.6",
+      "parentExperimentVersion": "v0.5.2",
+      "runId": "run_dc354be322e8",
+      "baseSha": "97d1815933bd0e94f104dd8f55322d9e0dc7bb24",
+      "prHeadAtStart": "a65ee872cbaf29d13fec374bc5a0db6cd0e4bcde",
+      "headSha": "a65ee872cbaf29d13fec374bc5a0db6cd0e4bcde",
+      "finalStatus": "HOLD",
+      "functionalStatus": "PASS / Fresh Verifier retry",
+      "orchestrationStatus": "PASS / final retry result recovered",
+      "verifierResult": "PASS / task_dd78f9ec9f26",
+      "workerCount": 2,
+      "initialAssignment": "Fresh Verifier / gpt-5.6-sol / high / READ_ONLY",
+      "reassignmentCount": 1,
+      "modelEscalationCount": 0,
+      "environment": "STAGING / READ_ONLY verification",
+      "productionImpact": "NONE",
+      "overallRunStatus": "HOLD",
+      "holdReasons": [
+        "actual K2B READ_ONLY Pilot은 승인·실행되지 않음",
+        "후속 run_8b7cc6921beb Fresh Verifier task_ebf167688bc1의 직접 결과가 WRONG: K2B 관측성 HIGH 2건으로 남아 있음"
+      ],
+      "roles": [
+        {
+          "roleId": "K2B-V06-FRESH-VERIFIER-PRIMARY",
+          "name": "Fresh Verifier",
+          "purpose": "K2B v0.6 독립 READ_ONLY 검수",
+          "scope": "READ_ONLY",
+          "permission": "READ_ONLY verification scope; no repository, database, production, or K2B-site write performed",
+          "parallelMode": "serial",
+          "dependency": "Orca managed terminal lifecycle",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "high",
+          "actualModel": "gpt-5.6-sol",
+          "actualEffort": "high",
+          "runtimeEvidence": [
+            "task_3108a1aa9e57 result: ENV_BLOCKED / agent conversation interrupted after managed lifecycle heartbeat IPC/approval path",
+            "term_d733b8e0-d972-4cd9-a223-aa93ceafdc6f exited by operator close without a final verifier conclusion"
+          ],
+          "runtimeSessionId": "UNVERIFIABLE / terminal session transcript was not reported",
+          "parentRunId": "run_dc354be322e8",
+          "workerRunId": "run_dc354be322e8",
+          "taskId": "task_3108a1aa9e57",
+          "dispatchId": "ctx_01ae2c52dab2",
+          "workerTerminal": "term_d733b8e0-d972-4cd9-a223-aa93ceafdc6f",
+          "startedAt": "2026-09-08 04:54:11 (Orca dispatch timestamp; timezone label unavailable)",
+          "endedAt": "2026-09-08T05:08:46.781Z",
+          "status": "ENV_BLOCKED",
+          "reassignment": "fresh-context retry assigned once because no final PASS/FAIL result was recoverable",
+          "artifacts": [],
+          "findings": ["no final verifier conclusion was submitted by the primary terminal"],
+          "verifications": []
+        },
+        {
+          "roleId": "K2B-V06-FRESH-VERIFIER-RETRY",
+          "name": "Fresh Verifier retry",
+          "purpose": "same v0.6 independent READ_ONLY verification after primary lifecycle interruption",
+          "scope": "READ_ONLY",
+          "permission": "READ_ONLY verification scope; terminal metadata was writable but no writes were performed",
+          "parallelMode": "serial / fresh context",
+          "dependency": "completed PR #108 implementation evidence",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "high",
+          "actualModel": "gpt-5.6-sol",
+          "actualEffort": "high",
+          "runtimeEvidence": [
+            "task_dd78f9ec9f26 direct final result records PASS and no blocking findings",
+            "term_f25911c3-7dd3-40a3-adf7-47eb88899d27 TUI displayed gpt-5.6-sol / high",
+            "dispatch ctx_c93d9b292736 completed"
+          ],
+          "runtimeSessionId": "28d50213-e005-474e-8e2b-df8278973fb7",
+          "parentRunId": "run_dc354be322e8",
+          "workerRunId": "run_dc354be322e8",
+          "taskId": "task_dd78f9ec9f26",
+          "dispatchId": "ctx_c93d9b292736",
+          "workerTerminal": "term_f25911c3-7dd3-40a3-adf7-47eb88899d27",
+          "startedAt": "2026-09-08 05:09:24 (Orca dispatch timestamp; timezone label unavailable)",
+          "endedAt": "2026-09-08T05:28:39.004Z",
+          "status": "PASS",
+          "reassignment": "replacement for K2B-V06-FRESH-VERIFIER-PRIMARY",
+          "artifacts": ["PR #108 HEAD a65ee872cbaf29d13fec374bc5a0db6cd0e4bcde"],
+          "findings": [],
+          "verifications": [
+            "staging receipts 23 with 12/11/0/0/0/0/0 partition",
+            "first manual job inserted 23 and second run remained 23",
+            "duplicates and three-way mismatches 0; cursor 2026-08-31 unchanged",
+            "focused tests 28/28, TypeScript, and diff-check passed"
+          ]
+        }
+      ],
+      "heartbeat": {
+        "original": {
+          "observedAt": "2026-09-08T04:55:38Z",
+          "phase": "investigating",
+          "source": "primary dispatch heartbeat record"
+        },
+        "replayed": {
+          "status": "REPLAYED",
+          "evidence": "historical coordinator observation only; it was not a new verifier turn, progress signal, or final result",
+          "usedAsProgressEvidence": false
+        }
+      },
+      "resultRecovery": {
+        "status": "RECOVERED",
+        "evidence": "Orca task-list returned task_dd78f9ec9f26 completed with direct PASS result; dispatch ctx_c93d9b292736 completed",
+        "primaryTerminalOutcome": "no final result recoverable"
+      },
+      "actualPilot": {
+        "remoteK2BReadAttempted": false,
+        "remoteK2BReadExecuted": false,
+        "status": "NOT_RUN / no separate approval for actual K2B READ_ONLY Pilot"
+      },
+      "production": {
+        "databaseWrite": false,
+        "migration": false,
+        "deploy": false,
+        "status": "NOT_TOUCHED"
+      },
+      "postV06VerifierObservation": {
+        "runId": "run_8b7cc6921beb",
+        "taskId": "task_ebf167688bc1",
+        "dispatchId": "ctx_262609057e17",
+        "result": "WRONG: K2B 관측성 HIGH 2건",
+        "detailAvailability": "formal worker_done result did not include finding details; details are not inferred here",
+        "effect": "overall K2B Run remains HOLD and requires a separate implementation follow-up"
+      },
+      "testAccounting": {
+        "focusedVerifier": { "total": 28, "pass": 28, "fail": 0, "skip": 0, "envBlocked": 0 },
+        "typescript": { "total": 1, "pass": 1, "fail": 0, "skip": 0, "envBlocked": 0 },
+        "diffCheck": { "total": 1, "pass": 1, "fail": 0, "skip": 0, "envBlocked": 0 }
+      },
+      "evidence": [
+        {
+          "kind": "orca_task_list",
+          "reference": "run_dc354be322e8 / task_3108a1aa9e57 and task_dd78f9ec9f26",
+          "claim": "primary verifier ended ENV_BLOCKED; fresh retry completed with direct PASS"
+        },
+        {
+          "kind": "orca_dispatch_show",
+          "reference": "ctx_01ae2c52dab2 and ctx_c93d9b292736",
+          "claim": "primary dispatch failed without final result; retry dispatch completed"
+        },
+        {
+          "kind": "orca_task_result",
+          "reference": "task_dd78f9ec9f26 final result",
+          "claim": "actual model gpt-5.6-sol, actual effort high, READ_ONLY verification, PASS, no blocking findings"
+        },
+        {
+          "kind": "github_pull_request",
+          "reference": "PR #108 / a65ee872cbaf29d13fec374bc5a0db6cd0e4bcde",
+          "claim": "current pre-closeout head was OPEN draft, MERGEABLE; GitHub Actions N/A and Vercel Preview PASS"
         }
       ]
     }
